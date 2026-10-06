@@ -230,6 +230,19 @@ impl App {
         }
     }
 
+    /// Start fetching whatever plays after the current track, so skipping is instant.
+    fn prefetch_next(&self) {
+        let Some(i) = self.index else { return };
+        let next = match self.repeat {
+            Repeat::One => None,
+            Repeat::All => self.queue.get(i + 1).or(self.queue.first()),
+            Repeat::Off => self.queue.get(i + 1),
+        };
+        if let Some(t) = next {
+            self.backend.request(Req::Prefetch(t.id.clone()));
+        }
+    }
+
     fn next(&mut self) {
         let Some(i) = self.index else { return };
         if i + 1 < self.queue.len() {
@@ -364,6 +377,9 @@ impl App {
                         self.queue.iter().map(|t| t.id.clone()).collect();
                     let was_at_end = self.index.is_some_and(|i| i + 1 >= self.queue.len());
                     self.queue.extend(tracks.into_iter().filter(|t| t.id != seed && !have.contains(&t.id)));
+                    if !self.buffering {
+                        self.prefetch_next();
+                    }
                     // The track ended while radio was loading: continue now.
                     if was_at_end && self.index.is_some() && !self.buffering
                         && !self.audio.status.playing.load(std::sync::atomic::Ordering::Relaxed)
@@ -418,6 +434,7 @@ impl App {
         }
         if self.buffering && self.audio.status.playing.load(std::sync::atomic::Ordering::Relaxed) {
             self.buffering = false;
+            self.prefetch_next();
         }
     }
 

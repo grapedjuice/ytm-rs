@@ -33,6 +33,8 @@ pub enum Req {
     /// Radio seeded from a track; appended to the queue.
     Radio(String),
     Play { video_id: String, generation: u64 },
+    /// Resolve and download a track ahead of time so skipping to it is instant.
+    Prefetch(String),
     SetCookie(String),
     Logout,
 }
@@ -49,6 +51,7 @@ impl Req {
             Req::Lyrics(_) => "Loading lyrics",
             Req::Radio(_) => "Loading radio",
             Req::Play { .. } => "Playback",
+            Req::Prefetch(_) => "Prefetch",
             Req::SetCookie(_) => "Sign in",
             Req::Logout => "Sign out",
         }
@@ -99,6 +102,8 @@ pub struct Backend {
     tx: Sender<Resp>,
     audio: AudioHandle,
     wake: Arc<dyn Fn() + Send + Sync>,
+    /// The upcoming track, resolved and downloading ahead of time.
+    prefetched: Arc<std::sync::Mutex<Option<(String, Arc<Shared>)>>>,
 }
 
 impl Backend {
@@ -120,7 +125,7 @@ impl Backend {
             .pool_idle_timeout(std::time::Duration::from_secs(30))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36")
             .build()?;
-        Ok(Self { rt: Arc::new(rt), rp, http, tx, audio, wake })
+        Ok(Self { rt: Arc::new(rt), rp, http, tx, audio, wake, prefetched: Default::default() })
     }
 
     pub fn http(&self) -> &reqwest::Client {
@@ -218,6 +223,16 @@ impl Backend {
                         Err(e) => Resp::PlayError { generation, msg: format!("{e:#}") },
                     }
                 }
+                Req::Prefetch(video_id) => {
+                    if self.prefetched.lock().unwrap().as_ref().is_some_and(|(id, _)| *id == video_id) {
+                        return Ok(None);
+                    }
+                    let shared = self.open_stream(&video_id).await?;
+                    if let Some((_, old)) = self.prefetched.lock().unwrap().replace((video_id, shared)) {
+                        old.cancel();
+                    }
+                    return Ok(None);
+                }
                 Req::SetCookie(cookie) => {
                     self.rp.user_auth_set_cookie(cookie).await?;
                     Resp::LoggedIn(true)
@@ -231,40 +246,35 @@ impl Backend {
         .await;
         res.unwrap_or_else(|e| {
             log::warn!("{what} failed: {e:#}");
-            Some(Resp::Error(format!("{what} failed: {e}")))
+            // A failed prefetch only costs speed; the real play request will retry.
+            (what != "Prefetch").then(|| Resp::Error(format!("{what} failed: {e}")))
         })
     }
 
     async fn start_playback(&self, video_id: &str, generation: u64) -> anyhow::Result<()> {
         let t0 = std::time::Instant::now();
-        let (url, size, ua) = match self.visionos_stream(video_id).await {
-            Ok(s) => (s.url, s.size, innertube::UA.to_owned()),
-            Err(e) => {
-                log::warn!("visionOS player failed ({e:#}), falling back to rustypipe");
-                let q = self.rp.query();
-                let player = q.player(video_id).await?;
-                // AAC in MP4 decodes in pure Rust (symphonia); Opus would need libopus.
-                let filter = StreamFilter::new().no_video().audio_codecs([AudioCodec::Mp4a]);
-                let s = player
-                    .select_audio_stream(&filter)
-                    .ok_or_else(|| anyhow::anyhow!("no AAC audio stream available"))?;
-                (s.url.clone(), s.size, q.user_agent(player.client_type).into_owned())
+        let ready = {
+            let mut slot = self.prefetched.lock().unwrap();
+            match slot.take() {
+                Some((id, s)) if id == video_id => Some(s),
+                other => {
+                    *slot = other;
+                    None
+                }
             }
         };
-        log::debug!("play {video_id} (gen {generation}): resolved {size} bytes in {:?}", t0.elapsed());
+        let shared = match ready {
+            Some(s) => {
+                log::debug!("play {video_id} (gen {generation}): using prefetched stream");
+                s
+            }
+            None => self.open_stream(video_id).await?,
+        };
+        log::debug!("play {video_id} (gen {generation}): stream open in {:?}", t0.elapsed());
         if self.audio.status.wanted_gen.load(Ordering::Relaxed) != generation {
+            shared.cancel();
             return Ok(());
         }
-
-        let shared = Shared::new(size);
-        let refresh: stream::Refresh = {
-            let (this, id) = (self.clone(), video_id.to_owned());
-            Arc::new(move || {
-                let (this, id) = (this.clone(), id.clone());
-                Box::pin(async move { Ok(this.visionos_stream(&id).await?.url) })
-            })
-        };
-        self.rt.spawn(stream::download(self.http.clone(), url, ua, shared.clone(), Some(refresh)));
 
         let audio = self.audio.clone();
         let tx = self.tx.clone();
@@ -281,6 +291,34 @@ impl Backend {
             }
         });
         Ok(())
+    }
+
+    /// Resolve a stream URL and start downloading it into a new buffer.
+    async fn open_stream(&self, video_id: &str) -> anyhow::Result<Arc<Shared>> {
+        let (url, size, ua) = match self.visionos_stream(video_id).await {
+            Ok(s) => (s.url, s.size, innertube::UA.to_owned()),
+            Err(e) => {
+                log::warn!("visionOS player failed ({e:#}), falling back to rustypipe");
+                let q = self.rp.query();
+                let player = q.player(video_id).await?;
+                // AAC in MP4 decodes in pure Rust (symphonia); Opus would need libopus.
+                let filter = StreamFilter::new().no_video().audio_codecs([AudioCodec::Mp4a]);
+                let s = player
+                    .select_audio_stream(&filter)
+                    .ok_or_else(|| anyhow::anyhow!("no AAC audio stream available"))?;
+                (s.url.clone(), s.size, q.user_agent(player.client_type).into_owned())
+            }
+        };
+        let shared = Shared::new(size);
+        let refresh: stream::Refresh = {
+            let (this, id) = (self.clone(), video_id.to_owned());
+            Arc::new(move || {
+                let (this, id) = (this.clone(), id.clone());
+                Box::pin(async move { Ok(this.visionos_stream(&id).await?.url) })
+            })
+        };
+        self.rt.spawn(stream::download(self.http.clone(), url, ua, shared.clone(), Some(refresh)));
+        Ok(shared)
     }
 
     async fn visionos_stream(&self, video_id: &str) -> anyhow::Result<innertube::Stream> {

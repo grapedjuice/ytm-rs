@@ -58,6 +58,11 @@ impl Shared {
         })
     }
 
+    /// Stop downloading (e.g. a prefetch that was superseded).
+    pub fn cancel(&self) {
+        self.inner.lock().unwrap().cancelled = true;
+    }
+
     fn claim(&self) -> Option<usize> {
         let mut inner = self.inner.lock().unwrap();
         if inner.cancelled || inner.error.is_some() {

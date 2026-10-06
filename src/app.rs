@@ -982,8 +982,8 @@ fn header(ui: &mut Ui, img: Option<&str>, title: &str, sub: &str, tracks: &[Trac
                 if named(ui.add_enabled(!tracks.is_empty(), play), "Play all").clicked() {
                     acts.push(Action::PlayList(tracks.to_vec(), 0));
                 }
-                let shuffle = ui.add_enabled(!tracks.is_empty(), egui::Button::new("🔀  Shuffle").corner_radius(16));
-                if named(shuffle, "Shuffle all").clicked() {
+                let shuffle_btn = ui.add_enabled(!tracks.is_empty(), egui::Button::new("🔀  Shuffle").corner_radius(16));
+                if named(shuffle_btn, "Shuffle all").clicked() {
                     let mut t = tracks.to_vec();
                     shuffle(&mut t);
                     acts.push(Action::PlayList(t, 0));

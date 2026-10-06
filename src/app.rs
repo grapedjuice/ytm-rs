@@ -979,10 +979,11 @@ fn header(ui: &mut Ui, img: Option<&str>, title: &str, sub: &str, tracks: &[Trac
                 let play = egui::Button::new(RichText::new("▶  Play").color(Color32::BLACK).strong())
                     .fill(Color32::WHITE)
                     .corner_radius(16);
-                if ui.add_enabled(!tracks.is_empty(), play).clicked() {
+                if named(ui.add_enabled(!tracks.is_empty(), play), "Play all").clicked() {
                     acts.push(Action::PlayList(tracks.to_vec(), 0));
                 }
-                if ui.add_enabled(!tracks.is_empty(), egui::Button::new("🔀  Shuffle").corner_radius(16)).clicked() {
+                let shuffle = ui.add_enabled(!tracks.is_empty(), egui::Button::new("🔀  Shuffle").corner_radius(16));
+                if named(shuffle, "Shuffle all").clicked() {
                     let mut t = tracks.to_vec();
                     shuffle(&mut t);
                     acts.push(Action::PlayList(t, 0));

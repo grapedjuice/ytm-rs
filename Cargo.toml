@@ -1,0 +1,33 @@
+[package]
+name = "ytm-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+crossbeam-channel = "0.5.17"
+directories = "6.0.0"
+eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit", "persistence", "wayland", "x11"] }
+egui = "0.36.2"
+egui_extras = { version = "0.36.2", default-features = false, features = ["image"] }
+env_logger = "0.11.11"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+log = "0.4.34"
+raw-window-handle = "0.6"
+reqwest = { version = "0.12", default-features = false, features = ["default-tls"] }
+rodio = { version = "0.22.2", default-features = false, features = ["playback", "symphonia-aac", "symphonia-isomp4"] }
+rustypipe = { version = "0.11.4", features = ["userdata"] }
+serde_json = "1.0.151"
+souvlaki = "0.8.3"
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# Keep debug builds usable: optimize dependencies (decoders, egui) even in dev.
+[profile.dev.package."*"]
+opt-level = 2

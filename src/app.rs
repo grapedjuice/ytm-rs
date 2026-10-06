@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::Receiver;
@@ -82,6 +84,7 @@ pub struct App {
     lyrics: Option<(String, Option<String>)>,
 
     logged_in: bool,
+    signing_in: Arc<AtomicBool>,
     cookie_input: String,
     toast: Option<(String, Instant)>,
     actions: Vec<Action>,
@@ -139,6 +142,7 @@ impl App {
             show_lyrics: false,
             lyrics: None,
             logged_in,
+            signing_in: Default::default(),
             cookie_input: String::new(),
             toast: None,
             actions: Vec::new(),
@@ -148,6 +152,10 @@ impl App {
             app.search_text = q.clone();
             app.go(Page::Search(q.clone()));
             app.smoke = Some(q);
+        } else if let Some(q) = std::env::var("YTM_SEARCH").ok().filter(|q| !q.is_empty()) {
+            // Dev hook: open a search on launch without playing anything.
+            app.search_text = q.clone();
+            app.go(Page::Search(q));
         }
         app
     }
@@ -469,11 +477,27 @@ impl App {
         ui.add_space(14.0);
         ui.label(RichText::new("YT Music").size(20.0).strong());
         ui.add_space(14.0);
+        // Painted by hand like track rows: egui's selectable buttons ignore accessibility
+        // "invoke" requests, which left the sidebar unusable from screen readers.
         let nav = |ui: &mut Ui, label: &str, page: Page, this: &mut Self| {
             let selected = std::mem::discriminant(&this.page) == std::mem::discriminant(&page);
-            let resp = ui.add_sized(
-                [ui.available_width(), 32.0],
-                egui::Button::selectable(selected, RichText::new(label).size(15.0)),
+            let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
+            let resp = named(resp, label);
+            let fill = if selected {
+                Color32::from_gray(38)
+            } else if resp.hovered() {
+                Color32::from_gray(24)
+            } else {
+                Color32::TRANSPARENT
+            };
+            ui.painter().rect_filled(rect, 6.0, fill);
+            let color = if selected { Color32::WHITE } else { Color32::from_gray(190) };
+            ui.painter().text(
+                egui::pos2(rect.left() + 12.0, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                label,
+                egui::FontId::proportional(15.0),
+                color,
             );
             if resp.clicked() {
                 this.go(page);
@@ -809,26 +833,46 @@ impl App {
         scroll(ui, |ui| {
             section(ui, "Account");
             if self.logged_in {
-                ui.label("Signed in with browser cookies.");
+                ui.label("Signed in to YouTube Music.");
                 if ui.button("Sign out").clicked() {
                     self.backend.request(Req::Logout);
                 }
             } else {
-                ui.label(
-                    "Open music.youtube.com in your browser while signed in, open DevTools → Network, \
-                     click any request to music.youtube.com and copy the full `cookie` request header.",
-                );
-                ui.add(
-                    egui::TextEdit::multiline(&mut self.cookie_input)
-                        .hint_text("Paste cookie header here")
-                        .password(true)
-                        .desired_rows(3)
-                        .desired_width(f32::INFINITY),
-                );
-                if ui.add_enabled(!self.cookie_input.trim().is_empty(), egui::Button::new("Sign in")).clicked() {
-                    let c = std::mem::take(&mut self.cookie_input);
-                    self.backend.request(Req::SetCookie(c.trim().to_owned()));
-                }
+                ui.label("Sign in to see your liked songs, playlists and albums.");
+                ui.add_space(4.0);
+                let busy = self.signing_in.load(Ordering::Relaxed);
+                ui.horizontal(|ui| {
+                    let btn = egui::Button::new(RichText::new("Sign in with Google").color(Color32::BLACK).strong())
+                        .fill(Color32::WHITE)
+                        .corner_radius(16);
+                    if ui.add_enabled(!busy, btn).clicked() {
+                        self.start_sign_in(ui.ctx());
+                    }
+                    if busy {
+                        ui.spinner();
+                        ui.label(RichText::new("Finish signing in in the window that opened").color(DIM));
+                    }
+                });
+                ui.add_space(8.0);
+                egui::CollapsingHeader::new("Other option: paste cookies").show(ui, |ui| {
+                    ui.label(
+                        RichText::new(
+                            "Paste the `cookie` request header from a signed-in music.youtube.com tab \
+                             (DevTools → Network → any request), or a cookies.txt export.",
+                        )
+                        .color(DIM),
+                    );
+                    ui.add(
+                        egui::TextEdit::multiline(&mut self.cookie_input)
+                            .hint_text("cookie header or cookies.txt")
+                            .desired_rows(3)
+                            .desired_width(f32::INFINITY),
+                    );
+                    if ui.add_enabled(!self.cookie_input.trim().is_empty(), egui::Button::new("Sign in")).clicked() {
+                        let c = std::mem::take(&mut self.cookie_input);
+                        self.backend.request(Req::SetCookie(c));
+                    }
+                });
             }
             section(ui, "Playback");
             ui.checkbox(&mut self.autoplay, "Autoplay similar songs when the queue ends");
@@ -844,6 +888,22 @@ impl App {
                     ui.label(RichText::new(v).color(DIM));
                 });
             }
+        });
+    }
+
+    fn start_sign_in(&self, ctx: &egui::Context) {
+        if self.signing_in.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        let (backend, busy, ctx) = (self.backend.clone(), self.signing_in.clone(), ctx.clone());
+        crate::login::spawn(self.backend.login_profile(), move |outcome| {
+            match outcome {
+                crate::login::Outcome::Cookie(c) => backend.request(Req::SetCookie(c)),
+                crate::login::Outcome::Cancelled => {}
+                crate::login::Outcome::Failed(e) => backend.report_error(format!("Sign-in window failed: {e}")),
+            }
+            busy.store(false, Ordering::Relaxed);
+            ctx.request_repaint();
         });
     }
 

@@ -102,6 +102,7 @@ pub struct Backend {
     tx: Sender<Resp>,
     audio: AudioHandle,
     wake: Arc<dyn Fn() + Send + Sync>,
+    data_dir: PathBuf,
     /// The upcoming track, resolved and downloading ahead of time.
     prefetched: Arc<std::sync::Mutex<Option<(String, Arc<Shared>)>>>,
 }
@@ -119,13 +120,14 @@ impl Backend {
             .enable_all()
             .build()?;
         std::fs::create_dir_all(&storage)?;
+        let data_dir = storage.clone();
         let rp = RustyPipe::builder().storage_dir(storage).timezone_local().no_reporter().build()?;
         let http = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(5))
             .pool_idle_timeout(std::time::Duration::from_secs(30))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36")
             .build()?;
-        Ok(Self { rt: Arc::new(rt), rp, http, tx, audio, wake, prefetched: Default::default() })
+        Ok(Self { rt: Arc::new(rt), rp, http, tx, audio, wake, prefetched: Default::default(), data_dir })
     }
 
     pub fn http(&self) -> &reqwest::Client {
@@ -233,12 +235,39 @@ impl Backend {
                     }
                     return Ok(None);
                 }
-                Req::SetCookie(cookie) => {
-                    self.rp.user_auth_set_cookie(cookie).await?;
+                Req::SetCookie(input) => {
+                    let input = input.trim();
+                    let res = if input.lines().any(|l| l.split('\t').count() >= 7) {
+                        // Netscape cookies.txt export from a browser extension.
+                        self.rp.user_auth_set_cookie_txt(input).await
+                    } else {
+                        // Tolerate a copied `cookie: ...` header line.
+                        let value = input
+                            .strip_prefix("cookie:")
+                            .or_else(|| input.strip_prefix("Cookie:"))
+                            .unwrap_or(input)
+                            .trim();
+                        self.rp.user_auth_set_cookie(value).await
+                    };
+                    res.map_err(|e| {
+                        // Names only, never values: enough to see whether SAPISID etc. arrived.
+                        let names: Vec<&str> =
+                            input.split(';').filter_map(|kv| kv.trim().split('=').next()).take(40).collect();
+                        log::warn!("cookie sign-in rejected: {e:?}; cookie names: {names:?}");
+                        e
+                    })
+                    .map_err(|e| match e {
+                        rustypipe::error::Error::Auth(_) => anyhow::anyhow!(
+                            "YouTube didn't recognise a signed-in session in those cookies"
+                        ),
+                        e => e.into(),
+                    })?;
+                    log::info!("signed in");
                     Resp::LoggedIn(true)
                 }
                 Req::Logout => {
-                    self.rp.user_auth_remove_cookie().await?;
+                    let _ = self.rp.user_auth_remove_cookie().await;
+                    crate::login::forget(&self.login_profile());
                     Resp::LoggedIn(false)
                 }
             }))
@@ -333,6 +362,17 @@ impl Backend {
                 innertube::audio_stream(&self.http, video_id, &vd).await
             }
         }
+    }
+
+    /// Webview profile used by the sign-in window.
+    pub fn login_profile(&self) -> PathBuf {
+        self.data_dir.join("webview")
+    }
+
+    /// Report an error from outside the request flow (e.g. the sign-in window).
+    pub fn report_error(&self, msg: String) {
+        let _ = self.tx.send(Resp::Error(msg));
+        self.wake();
     }
 
     pub fn is_logged_in(&self) -> bool {

@@ -3,8 +3,10 @@
 mod app;
 mod audio;
 mod backend;
+mod fonts;
 mod images;
 mod innertube;
+mod login;
 mod media;
 mod stream;
 
@@ -13,7 +15,14 @@ use std::sync::{Arc, OnceLock};
 use crossbeam_channel::unbounded;
 
 fn main() -> eframe::Result {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn,rustypipe=off,tracing::span=off,ytm_rs=info")).init();
+    let mut args = std::env::args_os().skip(1);
+    if args.next().is_some_and(|a| a == login::FLAG) {
+        if let Some(dir) = args.next() {
+            login::child_main(dir.into());
+        }
+        return Ok(());
+    }
+    init_logging();
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -34,6 +43,7 @@ fn main() -> eframe::Result {
         Box::new(|cc| {
             let ctx = cc.egui_ctx.clone();
             style(&ctx);
+            fonts::install(&ctx);
 
             // Background threads wake the UI through this; set once the context exists.
             static CTX: OnceLock<egui::Context> = OnceLock::new();
@@ -100,4 +110,21 @@ fn style(ctx: &egui::Context) {
         s.visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
         s.interaction.selectable_labels = false;
     });
+}
+
+/// Log to stderr in debug builds; release builds have no console, so log to a file
+/// next to the settings (overwritten each launch).
+fn init_logging() {
+    let mut builder = env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("warn,rustypipe=off,tracing::span=off,ytm_rs=info"),
+    );
+    if !cfg!(debug_assertions) {
+        if let Some(dirs) = directories::ProjectDirs::from("", "", "ytm-rs") {
+            let _ = std::fs::create_dir_all(dirs.data_dir());
+            if let Ok(file) = std::fs::File::create(dirs.data_dir().join("ytm-rs.log")) {
+                builder.target(env_logger::Target::Pipe(Box::new(file)));
+            }
+        }
+    }
+    builder.init();
 }

@@ -298,11 +298,15 @@ impl App {
                 Some(Req::Playlist(id.clone()))
             }
             Page::Artist(id) if self.artist.as_ref().is_none_or(|a| &a.id != id) => Some(Req::Artist(id.clone())),
-            Page::Library(LibTab::History) if self.logged_in && self.history.is_none() => Some(Req::History),
-            Page::Library(_) if self.logged_in && self.library.is_none() => Some(Req::Library),
+            // The library changes outside the app (likes, other devices): refresh on every
+            // visit, showing the cached copy meanwhile.
+            Page::Library(LibTab::History) if self.logged_in => Some(Req::History),
+            Page::Library(_) if self.logged_in => Some(Req::Library),
             _ => None,
         };
-        self.loading = req.is_some();
+        self.loading = req.is_some()
+            && !matches!(self.page, Page::Library(LibTab::History) if self.history.is_some())
+            && !matches!(self.page, Page::Library(t) if t != LibTab::History && self.library.is_some());
         if let Some(r) = req {
             self.backend.request(r);
         }
@@ -483,11 +487,20 @@ impl App {
                     self.toast("Sign in to like songs");
                     return;
                 }
-                // Optimistic; reverted if the request fails (an error toast appears).
+                // Optimistic: update the like state and the cached Liked songs list now.
                 if like {
                     self.liked.insert(id.clone());
+                    let track = self.queue.iter().find(|t| t.id == id).cloned();
+                    if let (Some(lib), Some(t)) = (&mut self.library, track) {
+                        if !lib.liked.iter().any(|x| x.id == id) {
+                            lib.liked.insert(0, t);
+                        }
+                    }
                 } else {
                     self.liked.remove(&id);
+                    if let Some(lib) = &mut self.library {
+                        lib.liked.retain(|t| t.id != id);
+                    }
                 }
                 self.backend.request(Req::Like { video_id: id, like });
             }
@@ -659,7 +672,20 @@ impl App {
             Resp::PlayError { generation, msg } => {
                 if generation == self.generation {
                     self.buffering = false;
-                    self.toast(format!("Playback failed: {msg}"));
+                    let title = self.current().map(|t| t.title.clone()).unwrap_or_default();
+                    let reason = if msg.contains("age-restricted") || msg.contains("confirm your age") {
+                        "it's age-restricted".to_owned()
+                    } else {
+                        msg
+                    };
+                    let has_next = self.index.is_some_and(|i| i + 1 < self.queue.len());
+                    // Don't stall the queue on one unplayable song.
+                    if has_next {
+                        self.toast(format!("Skipped \"{title}\": {reason}"));
+                        self.next();
+                    } else {
+                        self.toast(format!("Can't play \"{title}\": {reason}"));
+                    }
                 }
             }
             Resp::LoggedIn(v) => {

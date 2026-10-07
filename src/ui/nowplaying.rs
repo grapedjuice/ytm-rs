@@ -323,14 +323,22 @@ fn char_progress(l: &Line, pos: u32, done_by: u32) -> f32 {
 /// Paint the sung part of a line in full colour, clipped per row with a soft edge.
 fn sweep(painter: &egui::Painter, g: &std::sync::Arc<egui::Galley>, pos: Pos2, progress: f32, color: Color32) {
     let mut remaining = progress;
-    for row in &g.rows {
+    let last = g.rows.len().saturating_sub(1);
+    for (r, row) in g.rows.iter().enumerate() {
         let n = row.row.glyphs.len() as f32;
         if n == 0.0 {
             continue;
         }
+        // Row size comes from the Latin font; CJK fallback glyphs stand taller and would
+        // poke out of a tight clip, leaving their tops unlit. Leave the outer edges open
+        // and give inner rows a quarter-row margin.
+        let pad = row.row.size.y * 0.25;
         let row_rect = Rect::from_min_size(pos + row.pos.to_vec2(), row.row.size);
+        let top = if r == 0 { row_rect.top() - row.row.size.y } else { row_rect.top() - pad };
+        let bottom = if r == last { row_rect.bottom() + row.row.size.y } else { row_rect.bottom() + pad };
         if remaining >= n {
-            painter.with_clip_rect(row_rect.expand(2.0)).galley_with_override_text_color(pos, g.clone(), color);
+            let clip = Rect::from_min_max(pos2(row_rect.left() - 4.0, top), pos2(row_rect.right() + 4.0, bottom));
+            painter.with_clip_rect(clip).galley_with_override_text_color(pos, g.clone(), color);
             // Row breaks consume the implicit newline/space between rows.
             remaining -= n;
             continue;
@@ -342,12 +350,12 @@ fn sweep(painter: &egui::Painter, g: &std::sync::Arc<egui::Galley>, pos: Pos2, p
         let frac = remaining - idx as f32;
         let x = row.row.glyphs.get(idx).map_or(row.row.size.x, |gl| gl.pos.x + gl.advance_width * frac);
         let edge = row_rect.left() + x;
-        let solid = Rect::from_min_max(row_rect.min - vec2(2.0, 2.0), pos2(edge - 6.0, row_rect.bottom() + 2.0));
+        let solid = Rect::from_min_max(pos2(row_rect.left() - 4.0, top), pos2(edge - 6.0, bottom));
         painter.with_clip_rect(solid).galley_with_override_text_color(pos, g.clone(), color);
         // Feather: a few thin bands with decreasing alpha.
         for b in 0..4 {
             let x0 = edge - 6.0 + b as f32 * 3.0;
-            let band = Rect::from_min_max(pos2(x0, row_rect.top() - 2.0), pos2(x0 + 3.0, row_rect.bottom() + 2.0));
+            let band = Rect::from_min_max(pos2(x0, top), pos2(x0 + 3.0, bottom));
             let a = 1.0 - (b as f32 + 0.5) / 4.0;
             painter.with_clip_rect(band).galley_with_override_text_color(pos, g.clone(), theme::with_alpha(color, a * color.a() as f32 / 255.0));
         }

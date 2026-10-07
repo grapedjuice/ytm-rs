@@ -21,7 +21,7 @@ use crate::audio::{AudioCmd, AudioHandle};
 use crate::lyrics::{self, Lyrics};
 use crate::model::{self, Card, Target, Thumb, Track, sized};
 use crate::stream::{self, Shared};
-use crate::{innertube, ytm};
+use crate::{innertube, ytdlp, ytm};
 
 pub enum Req {
     /// Home feed, optionally filtered by a mood chip's params.
@@ -487,8 +487,16 @@ impl Backend {
 
     /// Resolve a stream URL and start downloading it into a new buffer.
     async fn open_stream(&self, video_id: &str) -> anyhow::Result<Arc<Shared>> {
+        let mut via_ytdlp = false;
         let (url, size, ua, duration_ms) = match self.visionos_stream(video_id).await {
             Ok(s) => (s.url, s.size, innertube::UA.to_owned(), s.duration_ms),
+            // Age-restricted: only signed-in web players get it, with ciphered URLs.
+            Err(e) if e.to_string().contains("LOGIN_REQUIRED") => {
+                log::info!("{video_id} needs a signed-in player ({e:#}); using yt-dlp");
+                via_ytdlp = true;
+                let s = ytdlp::resolve(&self.http, &self.data_dir, video_id).await?;
+                (s.url, s.size, s.user_agent, s.duration_ms)
+            }
             Err(e) => {
                 log::warn!("visionOS player failed ({e:#}), falling back to rustypipe");
                 let q = self.rp.query();
@@ -507,7 +515,13 @@ impl Backend {
             let (this, id) = (self.clone(), video_id.to_owned());
             Arc::new(move || {
                 let (this, id) = (this.clone(), id.clone());
-                Box::pin(async move { Ok(this.visionos_stream(&id).await?.url) })
+                Box::pin(async move {
+                    if via_ytdlp {
+                        Ok(ytdlp::resolve(&this.http, &this.data_dir, &id).await?.url)
+                    } else {
+                        Ok(this.visionos_stream(&id).await?.url)
+                    }
+                })
             })
         };
         self.rt.spawn(stream::download(self.http.clone(), url, ua, shared.clone(), Some(refresh)));

@@ -51,6 +51,8 @@ fragment first, which means waiting for the whole file. A seek builds a seekable
 decoder over the same buffer and swaps it in. If googlevideo starts answering 403
 partway through, the URL is re-resolved and the download resumes.
 
+**Age-restricted songs.** YouTube serves these only to signed-in web players, and their stream URLs are signature-ciphered, so YouTube's JS player has to decode them. For just those tracks, the app falls back to [yt-dlp](https://github.com/yt-dlp/yt-dlp), which needs Node. yt-dlp is downloaded into the data folder on first use and refreshed weekly, and the session goes in as a cookies file that exists only for that call. Everything else stays pure Rust.
+
 **Prefetch.** Once a track starts, the next one in the queue is resolved and
 downloaded, so Next and auto-advance open a decoder in under a millisecond.
 

@@ -14,6 +14,7 @@ mod stream;
 mod theme;
 mod turnstile;
 mod ui;
+mod ytdlp;
 mod ytm;
 
 use std::sync::{Arc, OnceLock};

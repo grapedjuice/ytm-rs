@@ -16,6 +16,17 @@ bundled browser engine. It's inspired by [spotifast](https://github.com/crmne/sp
 
 Lyrics access uses the same Cloudflare Turnstile check as the browser extension. The API's challenge page runs in a hidden WebView2 window, where it normally passes invisibly; if Cloudflare asks for a click, the window is shown. The resulting token lasts 24 h.
 
+## Install (Windows)
+
+Download `ytm-rs-setup-<version>.exe` from [Releases](https://github.com/grapedjuice/ytm-rs/releases) and run it. It installs for the current user by default (no admin prompt), adds a Start menu entry, and registers an uninstaller in Settings → Apps. Lyrics need the WebView2 runtime, which ships with Windows 11.
+
+To build the installer yourself, install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then:
+
+```sh
+cargo build --release
+iscc installer/ytm-rs.iss   # -> installer/Output/ytm-rs-setup-<version>.exe
+```
+
 ## Build
 
 ```sh

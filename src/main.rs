@@ -41,7 +41,11 @@ fn main() -> eframe::Result {
             .with_title("YT Music")
             .with_app_id("ytm-rs")
             .with_inner_size([1200.0, 780.0])
-            .with_min_inner_size([760.0, 480.0]),
+            .with_min_inner_size([760.0, 480.0])
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon/icon.png"))
+                    .expect("bundled icon is a valid PNG"),
+            ),
         // No MSAA/depth/stencil: egui doesn't need them and they cost VRAM.
         multisampling: 0,
         depth_buffer: 0,

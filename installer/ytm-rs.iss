@@ -27,6 +27,7 @@ OutputBaseFilename=ytm-rs-setup-{#AppVersion}
 Compression=lzma2/ultra
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\assets\icon\icon.ico
 UninstallDisplayIcon={app}\{#AppExe}
 CloseApplications=yes
 

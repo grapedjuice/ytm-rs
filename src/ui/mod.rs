@@ -981,7 +981,7 @@ fn fit_window_to_monitor(ctx: &egui::Context) {
 /// Touchpads already report smooth pixel deltas and pass through untouched, as does
 /// Ctrl+wheel zoom.
 fn smooth_wheel(app: &mut App, ctx: &egui::Context, raw: &mut egui::RawInput) {
-    const NOTCH_PX: f32 = 110.0;
+    const NOTCH_PX: f32 = 70.0;
     const GLIDE: f32 = 0.06; // time constant, seconds (settles in ~0.18 s)
     let viewport_h = raw.screen_rect.map_or(800.0, |r| r.height());
     raw.events.retain(|e| match e {

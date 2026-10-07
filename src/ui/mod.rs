@@ -97,6 +97,10 @@ pub struct App {
     discord: Option<crate::discord::Discord>,
     /// Last state sent to Discord, to send only real changes.
     discord_sent: Option<crate::discord::Presence>,
+    /// Last session's song, restored paused: Play starts it from here.
+    resume_at: Option<Duration>,
+    /// Position to jump to once the restored song starts playing.
+    pending_seek: Option<Duration>,
     bg: Option<Background>,
 
     // navigation
@@ -186,6 +190,8 @@ impl App {
             media,
             discord: crate::discord::Discord::spawn(),
             discord_sent: None,
+            resume_at: None,
+            pending_seek: None,
             bg,
             page: Page::Home,
             back: Vec::new(),
@@ -243,6 +249,9 @@ impl App {
         };
         // Dev hooks: YTM_SMOKE="query" searches and plays the first song; YTM_SEARCH
         // only searches; YTM_PAGE opens a page; YTM_NOWPLAYING opens the overlay.
+        if let Some(s) = get(SESSION_KEY).filter(|_| std::env::var_os("YTM_SMOKE").is_none()) {
+            app.restore_session(&s);
+        }
         if let Some(q) = std::env::var("YTM_SMOKE").ok().filter(|q| !q.is_empty()) {
             app.search_text = q.clone();
             app.go(Page::Search(q.clone()));
@@ -379,8 +388,40 @@ impl App {
         self.play_current();
     }
 
+    /// Put last session's queue back, paused at the saved position, without loading audio.
+    fn restore_session(&mut self, json: &str) {
+        let Ok(s) = serde_json::from_str::<Session>(json) else { return };
+        let Some(track) = s.queue.get(s.index).cloned() else { return };
+        self.queue = s.queue;
+        self.index = Some(s.index);
+        let dur = track.duration.map_or(s.duration_ms, |d| d as u64 * 1000);
+        self.audio.status.duration_ms.store(dur, Ordering::Relaxed);
+        self.audio.status.position_ms.store(s.position_ms, Ordering::Relaxed);
+        self.resume_at = Some(Duration::from_millis(s.position_ms));
+        if let Some(url) = backend::art_url(&track) {
+            self.backend.request(Req::Art { key: track.id.clone(), url });
+        }
+        self.backend.request(Req::Lyrics(track));
+    }
+
+    fn session_json(&self) -> Option<String> {
+        let i = self.index?;
+        // Keep the saved queue small: liked-songs queues can run to 1000+ tracks.
+        let from = i.saturating_sub(50);
+        let to = (i + 150).min(self.queue.len());
+        serde_json::to_string(&Session {
+            queue: self.queue[from..to].to_vec(),
+            index: i - from,
+            position_ms: self.audio.status.position().as_millis() as u64,
+            duration_ms: self.audio.status.duration_ms.load(Ordering::Relaxed),
+        })
+        .ok()
+    }
+
     fn play_current(&mut self) {
         let Some(track) = self.current().cloned() else { return };
+        self.resume_at = None;
+        self.pending_seek = None;
         self.generation += 1;
         self.audio.status.wanted_gen.store(self.generation, Ordering::Relaxed);
         self.audio.status.duration_ms.store(track.duration.map_or(0, |d| d as u64 * 1000), Ordering::Relaxed);
@@ -453,6 +494,11 @@ impl App {
         if self.index.is_none() {
             return;
         }
+        if let Some(at) = self.resume_at {
+            self.play_current();
+            self.pending_seek = Some(at);
+            return;
+        }
         let playing = self.playing();
         self.audio.send(if playing { AudioCmd::Pause } else { AudioCmd::Resume });
         if let Some(m) = &mut self.media {
@@ -523,7 +569,14 @@ impl App {
                 }
             }
             Action::Seek(secs) => {
-                self.audio.send(AudioCmd::Seek(Duration::from_secs_f32(secs.max(0.0))));
+                let at = Duration::from_secs_f32(secs.max(0.0));
+                if self.resume_at.is_some() {
+                    // Restored but not loaded yet: move the start point instead.
+                    self.resume_at = Some(at);
+                    self.audio.status.position_ms.store(at.as_millis() as u64, Ordering::Relaxed);
+                } else {
+                    self.audio.send(AudioCmd::Seek(at));
+                }
                 self.lyrics_user_scroll = -10.0;
             }
             Action::Like(id, like) => {
@@ -587,6 +640,7 @@ impl App {
         }
         while let Ok(ev) = self.ch.media_rx.try_recv() {
             match ev {
+                MediaControlEvent::Play if self.resume_at.is_some() => self.toggle(),
                 MediaControlEvent::Play => self.audio.send(AudioCmd::Resume),
                 MediaControlEvent::Pause | MediaControlEvent::Stop => self.audio.send(AudioCmd::Pause),
                 MediaControlEvent::Toggle => self.toggle(),
@@ -598,6 +652,9 @@ impl App {
         if self.buffering && self.playing() {
             self.buffering = false;
             self.prefetch_next();
+            if let Some(at) = self.pending_seek.take().filter(|d| *d > Duration::from_secs(1)) {
+                self.audio.send(AudioCmd::Seek(at));
+            }
             // Dev hook: YTM_SEEK=<secs> jumps into the first track once it starts.
             if self.generation == 1 {
                 if let Some(s) = std::env::var("YTM_SEEK").ok().and_then(|v| v.parse::<f32>().ok()) {
@@ -961,6 +1018,9 @@ impl eframe::App for App {
         storage.set_string("autoplay", b(self.autoplay));
         storage.set_string("anim_bg", b(self.anim_bg));
         storage.set_string("reactive_bg", b(self.reactive_bg));
+        if let Some(s) = self.session_json() {
+            storage.set_string(SESSION_KEY, s);
+        }
     }
 
     fn on_exit(&mut self, gl: Option<&eframe::glow::Context>) {
@@ -968,6 +1028,17 @@ impl eframe::App for App {
             bg.destroy(gl);
         }
     }
+}
+
+const SESSION_KEY: &str = "session";
+
+/// What's saved between launches so the player picks up where it left off.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Session {
+    queue: Vec<Track>,
+    index: usize,
+    position_ms: u64,
+    duration_ms: u64,
 }
 
 /// Dev hook: `YTM_SCREENSHOT=out.png` saves the app's own framebuffer after

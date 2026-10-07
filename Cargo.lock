@@ -6851,7 +6851,7 @@ dependencies = [
 
 [[package]]
 name = "ytm-rs"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -6870,6 +6870,7 @@ dependencies = [
  "rodio",
  "roxmltree",
  "rustypipe",
+ "serde",
  "serde_json",
  "souvlaki",
  "tao",

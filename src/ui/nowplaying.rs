@@ -254,9 +254,18 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, lyrics: &Lyrics, now: f64, cen
                 let base_alpha = if lit { 0.38 } else { (0.36 - dist.min(6.0) * 0.035).max(0.14) };
                 let a = theme::anim(ui.ctx(), ("lyr-a", k), base_alpha, 0.3) * fade(line_rect.center().y);
                 painter.galley_with_override_text_color(pos, g.clone(), theme::with_alpha(Color32::WHITE, a));
-                if lit {
-                    let progress = char_progress(l, pos_ms);
-                    sweep(&painter, &g, pos, progress, theme::with_alpha(Color32::WHITE, fade(line_rect.center().y)));
+                // A line that just finished stays fully lit while it fades, so its last
+                // characters are seen highlighted even when the next line follows at once.
+                let lit_amt = theme::anim_bool(ui.ctx(), ("lyr-lit", k), lit, 0.35);
+                if lit_amt > 0.0 {
+                    let progress = if lit {
+                        // Finish the fill before the next line takes over.
+                        let next = lyrics.lines[*i + 1..].iter().find(|x| !x.background).map_or(u32::MAX, |x| x.start);
+                        char_progress(l, pos_ms, next.saturating_sub(120))
+                    } else {
+                        f32::INFINITY
+                    };
+                    sweep(&painter, &g, pos, progress, theme::with_alpha(Color32::WHITE, lit_amt * fade(line_rect.center().y)));
                 }
                 // Click a line to jump there.
                 let resp = ui.interact(line_rect, ui.id().with(("lyr", k)), Sense::click());
@@ -285,7 +294,8 @@ fn display_text(l: &Line) -> String {
 
 /// How many characters of the line have been sung (fractional), from word timing or,
 /// for line-synced lyrics, spread evenly across the line like better-lyrics does.
-fn char_progress(l: &Line, pos: u32) -> f32 {
+/// Word fills are squeezed to end by `done_by` (just before the next line starts).
+fn char_progress(l: &Line, pos: u32, done_by: u32) -> f32 {
     if l.words.is_empty() {
         let n = l.text.chars().count() as f32;
         let span = ((l.end.saturating_sub(l.start)) as f32 * 0.9).min(n * 90.0).max(1.0);
@@ -294,10 +304,11 @@ fn char_progress(l: &Line, pos: u32) -> f32 {
     let mut chars = 0.0;
     for w in &l.words {
         let n = w.text.chars().count() as f32;
-        if pos >= w.end {
+        let (start, end) = (w.start.min(done_by), w.end.min(done_by));
+        if pos >= end {
             chars += n;
-        } else if pos >= w.start {
-            let f = (pos - w.start) as f32 / (w.end - w.start).max(1) as f32;
+        } else if pos >= start {
+            let f = (pos - start) as f32 / (end - start).max(1) as f32;
             // Count trailing space only once the word is done.
             let letters = w.text.trim_end().chars().count() as f32;
             chars += letters * f;

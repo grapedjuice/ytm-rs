@@ -3,7 +3,7 @@
 
 use rustypipe::model::{ArtistId, Thumbnail, TrackItem};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Thumb {
     pub url: String,
     pub width: u32,
@@ -29,14 +29,14 @@ impl Thumb {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Link {
     pub name: String,
     /// Browse id (artist channel / album) when the name is clickable.
     pub id: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Track {
     pub id: String,
     pub title: String,

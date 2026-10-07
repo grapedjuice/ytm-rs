@@ -16,7 +16,7 @@ pub type TrackDecoder = Decoder<StreamReader>;
 
 pub enum AudioCmd {
     /// A decoder is ready for playback generation `generation`; stale generations are dropped.
-    Start { generation: u64, decoder: TrackDecoder, shared: Arc<Shared>, duration_ms: u64 },
+    Start { generation: u64, decoder: TrackDecoder, shared: Arc<Shared>, duration_ms: u64, at: Duration },
     /// A seekable decoder, already positioned at `at`, replacing the current one.
     Replace { generation: u64, decoder: TrackDecoder, at: Duration },
     Pause,
@@ -201,7 +201,7 @@ fn run(
         // Poll faster while playing so the position stays fresh; idle otherwise.
         let timeout = if current != 0 { Duration::from_millis(100) } else { Duration::from_secs(3600) };
         match rx.recv_timeout(timeout) {
-            Ok(AudioCmd::Start { generation, decoder, shared: s, duration_ms }) => {
+            Ok(AudioCmd::Start { generation, decoder, shared: s, duration_ms, at }) => {
                 if generation != status.wanted_gen.load(Ordering::Relaxed) {
                     log::debug!("audio: dropping stale generation {generation}");
                     continue;
@@ -213,7 +213,7 @@ fn run(
                 status.duration_ms.store(duration_ms, Ordering::Relaxed);
                 current = generation;
                 shared = Some(s);
-                offset = Duration::ZERO;
+                offset = at;
                 status.playing.store(true, Ordering::Relaxed);
             }
             Ok(AudioCmd::Replace { generation, decoder, at }) => {

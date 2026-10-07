@@ -140,16 +140,20 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, acts: &mut Vec<Action>) {
     if h > 0.0 && !c.round {
         ui.painter().rect_filled(img, radius, theme::shade(0.28 * h));
     }
-    // Play button rises into the corner on hover.
+    // Play button rises into the corner on hover; on the playing item it stays up
+    // and shows pause.
+    let active = active_state(ui, &c.target);
+    let h = if active.is_some() { 1.0 } else { h };
     let mut play_hit = false;
     if h > 0.01 {
         let center = img.right_bottom() + vec2(-30.0, -30.0 + 8.0 * (1.0 - h));
         let prect = Rect::from_center_size(center, Vec2::splat(44.0));
         let p = ui.interact(prect, resp.id.with("play"), Sense::click());
-        let p = named(p, &format!("Play {}", c.title));
+        let playing = active == Some(true);
+        let p = named(p, &format!("{} {}", if playing { "Pause" } else { "Play" }, c.title));
         let ph = theme::anim_bool(ui.ctx(), p.id.with("h"), p.hovered(), 0.12);
         ui.painter().circle_filled(center, 22.0 + 2.0 * ph, theme::shade(0.62 * h));
-        play_triangle(ui, center, 10.0, theme::with_alpha(Color32::WHITE, h));
+        play_pause_glyph(ui, center, 10.0, theme::with_alpha(Color32::WHITE, h), playing);
         play_hit = p.clicked();
     }
     let tcolor = theme::TEXT;
@@ -160,6 +164,7 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, acts: &mut Vec<Action>) {
 
     if play_hit {
         match &c.target {
+            _ if active.is_some() => acts.push(Action::TogglePlay),
             Target::Song(t) => acts.push(Action::Radio(t.clone())),
             t => acts.push(Action::PlayCollection(t.clone(), false)),
         }
@@ -215,6 +220,44 @@ pub fn song_menu(ui: &mut Ui, t: &Track, acts: &mut Vec<Action>) {
 pub fn soft_shadow(ui: &Ui, rect: Rect, radius: f32, blur: f32, alpha: f32) {
     let s = egui::epaint::Shadow { offset: [0, (blur * 0.35) as i8], blur: blur as u8, spread: 0, color: theme::shade(alpha) };
     ui.painter().add(s.as_shape(rect, CornerRadius::same(radius as u8)));
+}
+
+/// What's playing, published by the app each frame so cards can show a pause button
+/// on the item that's playing.
+#[derive(Clone, Default)]
+pub struct NowPlaying {
+    pub song: Option<String>,
+    pub source: Option<Target>,
+    pub playing: bool,
+}
+
+impl NowPlaying {
+    pub fn id() -> egui::Id {
+        egui::Id::new("now-playing")
+    }
+}
+
+/// `Some(playing)` when `target` is what's loaded: the current song, or the album /
+/// playlist / artist the queue came from.
+pub fn active_state(ui: &Ui, target: &Target) -> Option<bool> {
+    let np = ui.ctx().data(|d| d.get_temp::<NowPlaying>(NowPlaying::id()))?;
+    let hit = match target {
+        Target::Song(t) => np.song.as_deref() == Some(t.id.as_str()),
+        t => np.source.as_ref() == Some(t),
+    };
+    hit.then_some(np.playing)
+}
+
+/// Round button glyph: pause bars while `active` is playing, otherwise a play triangle.
+pub fn play_pause_glyph(ui: &Ui, center: Pos2, r: f32, color: Color32, playing: bool) {
+    if playing {
+        for dx in [-0.45, 0.45] {
+            let bar = Rect::from_center_size(center + vec2(dx * r, 0.0), vec2(r * 0.42, r * 1.7));
+            ui.painter().rect_filled(bar, r * 0.1, color);
+        }
+    } else {
+        play_triangle(ui, center, r, color);
+    }
 }
 
 pub fn play_triangle(ui: &Ui, center: Pos2, r: f32, color: Color32) {

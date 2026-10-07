@@ -44,6 +44,20 @@ pub fn page(app: &mut App, ui: &mut Ui, now: f64) {
     }
 }
 
+/// A page's main Play button. Shows Pause while this page's album / playlist / artist
+/// is playing, and toggles instead of restarting when it's already loaded.
+fn play_pill(ui: &mut Ui, acts: &mut Vec<Action>, target: &Target, tracks: &[Track]) {
+    let active = widgets::active_state(ui, target);
+    let (label, glyph) = if active == Some(true) { ("Pause", icon::PAUSE) } else { ("Play", icon::PLAY) };
+    if pill(ui, label, Some(glyph), true).clicked() {
+        if active.is_some() {
+            acts.push(Action::TogglePlay);
+        } else if !tracks.is_empty() {
+            acts.push(Action::Play(tracks.to_vec(), 0));
+        }
+    }
+}
+
 fn opts(app: &App, t: &Track, number: Option<usize>, show_album: bool, now: f64) -> RowOpts {
     RowOpts {
         number,
@@ -249,11 +263,16 @@ fn top_result(ui: &mut Ui, c: &Card, acts: &mut Vec<Action>) {
         // Floating play button
         let pc = rect.right_bottom() + vec2(-44.0, -44.0 + 6.0 * (1.0 - h));
         let pr = Rect::from_center_size(pc, Vec2::splat(52.0));
-        let p = named(ui.interact(pr, resp.id.with("play"), Sense::click()), &format!("Play {}", c.title));
+        let active = widgets::active_state(ui, &c.target);
+        let playing = active == Some(true);
+        let label = format!("{} {}", if playing { "Pause" } else { "Play" }, c.title);
+        let p = named(ui.interact(pr, resp.id.with("play"), Sense::click()), &label);
         ui.painter().circle_filled(pc, 26.0, theme::with_alpha(Color32::WHITE, 0.4 + 0.6 * h));
-        widgets::play_triangle(ui, pc + vec2(1.5, 0.0), 10.0, Color32::from_gray(15));
+        let nudge = if playing { 0.0 } else { 1.5 };
+        widgets::play_pause_glyph(ui, pc + vec2(nudge, 0.0), 10.0, Color32::from_gray(15), playing);
         if p.clicked() {
             acts.push(match &c.target {
+                _ if active.is_some() => Action::TogglePlay,
                 Target::Song(t) => Action::Radio(t.clone()),
                 t => Action::PlayCollection(t.clone(), false),
             });
@@ -299,9 +318,8 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             ui.add_space(16.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
-                if pill(ui, "Play", Some(icon::PLAY), true).clicked() && !tracks.is_empty() {
-                    app.actions.push(Action::Play(tracks.clone(), 0));
-                }
+                let target = if is_album { Target::Album(id.to_owned()) } else { Target::Playlist(id.to_owned()) };
+                play_pill(ui, &mut app.actions, &target, &tracks);
                 if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() && !tracks.is_empty() {
                     let mut t = tracks.clone();
                     super::shuffle(&mut t);
@@ -368,9 +386,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     ui.add_space(18.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
-        if pill(ui, "Play", Some(icon::PLAY), true).clicked() && !top.is_empty() {
-            app.actions.push(Action::Play(top.clone(), 0));
-        }
+        play_pill(ui, &mut app.actions, &Target::Artist(id.to_owned()), &top);
         if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() && !top.is_empty() {
             let mut t = top.clone();
             super::shuffle(&mut t);

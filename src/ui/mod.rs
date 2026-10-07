@@ -74,6 +74,8 @@ pub enum Action {
     Like(String, bool),
     HomeChip(Option<String>),
     OpenNowPlaying(bool),
+    /// Play/pause what's already loaded (a card's button on the playing item).
+    TogglePlay,
 }
 
 pub struct HomeState {
@@ -99,8 +101,10 @@ pub struct App {
     discord_sent: Option<crate::discord::Presence>,
     /// Last session's song, restored paused: Play starts it from here.
     resume_at: Option<Duration>,
-    /// Position to jump to once the restored song starts playing.
-    pending_seek: Option<Duration>,
+    /// Album / playlist / artist the queue was started from, so its card shows pause.
+    queue_source: Option<Target>,
+    /// Source of a PlayCollection request until its tracks arrive.
+    pending_source: Option<Target>,
     bg: Option<Background>,
 
     // navigation
@@ -191,7 +195,8 @@ impl App {
             discord: crate::discord::Discord::spawn(),
             discord_sent: None,
             resume_at: None,
-            pending_seek: None,
+            queue_source: None,
+            pending_source: None,
             bg,
             page: Page::Home,
             back: Vec::new(),
@@ -419,16 +424,20 @@ impl App {
     }
 
     fn play_current(&mut self) {
+        self.play_current_at(Duration::ZERO);
+    }
+
+    /// Start the current track, opened directly at `at` so nothing plays from 0:00 first.
+    fn play_current_at(&mut self, at: Duration) {
         let Some(track) = self.current().cloned() else { return };
         self.resume_at = None;
-        self.pending_seek = None;
         self.generation += 1;
         self.audio.status.wanted_gen.store(self.generation, Ordering::Relaxed);
         self.audio.status.duration_ms.store(track.duration.map_or(0, |d| d as u64 * 1000), Ordering::Relaxed);
         self.audio.send(AudioCmd::Stop);
         self.buffering = true;
         self.seek_drag = None;
-        self.backend.request(Req::Play { video_id: track.id.clone(), generation: self.generation });
+        self.backend.request(Req::Play { video_id: track.id.clone(), generation: self.generation, at });
         if let Some(m) = &mut self.media {
             m.set_track(
                 &track.title,
@@ -495,8 +504,7 @@ impl App {
             return;
         }
         if let Some(at) = self.resume_at {
-            self.play_current();
-            self.pending_seek = Some(at);
+            self.play_current_at(at);
             return;
         }
         let playing = self.playing();
@@ -521,12 +529,24 @@ impl App {
 
     fn apply(&mut self, a: Action) {
         match a {
-            Action::Play(tracks, i) => self.play_list(tracks, i),
+            Action::Play(tracks, i) => {
+                // Play buttons and rows live on the page they play from.
+                self.queue_source = match &self.page {
+                    Page::Album(id) => Some(Target::Album(id.clone())),
+                    Page::Playlist(id) => Some(Target::Playlist(id.clone())),
+                    Page::Artist(id) => Some(Target::Artist(id.clone())),
+                    _ => None,
+                };
+                self.play_list(tracks, i);
+            }
+            Action::TogglePlay => self.toggle(),
             Action::PlayCollection(target, shuffle) => {
                 self.toast("Starting playback…");
+                self.pending_source = Some(target.clone());
                 self.backend.request(Req::PlayCollection { target, shuffle });
             }
             Action::Open(Target::Song(t)) | Action::Radio(t) => {
+                self.queue_source = None;
                 self.play_list(vec![t.clone()], 0);
                 if !self.radio_pending {
                     self.radio_pending = true;
@@ -652,9 +672,6 @@ impl App {
         if self.buffering && self.playing() {
             self.buffering = false;
             self.prefetch_next();
-            if let Some(at) = self.pending_seek.take().filter(|d| *d > Duration::from_secs(1)) {
-                self.audio.send(AudioCmd::Seek(at));
-            }
             // Dev hook: YTM_SEEK=<secs> jumps into the first track once it starts.
             if self.generation == 1 {
                 if let Some(s) = std::env::var("YTM_SEEK").ok().and_then(|v| v.parse::<f32>().ok()) {
@@ -764,7 +781,10 @@ impl App {
                     self.prefetch_next();
                 }
             }
-            Resp::PlayQueue { tracks } => self.play_list(tracks, 0),
+            Resp::PlayQueue { tracks } => {
+                self.queue_source = self.pending_source.take();
+                self.play_list(tracks, 0);
+            }
             Resp::Liked { video_id, like } => {
                 if like {
                     self.liked.insert(video_id);
@@ -905,6 +925,12 @@ impl eframe::App for App {
         }
         fit_window_to_monitor(ctx);
         self.sync_discord();
+        let np = widgets::NowPlaying {
+            song: self.current_id().map(str::to_owned),
+            source: self.queue_source.clone(),
+            playing: self.playing() || self.buffering,
+        };
+        ctx.data_mut(|d| d.insert_temp(widgets::NowPlaying::id(), np));
         if let Some((_, t)) = &mut self.toast {
             if *t < 0.0 {
                 *t = now;

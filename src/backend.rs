@@ -42,7 +42,8 @@ pub enum Req {
     Radio(String),
     /// Fetch an album/playlist and play it from the start.
     PlayCollection { target: Target, shuffle: bool },
-    Play { video_id: String, generation: u64 },
+    /// `at`: start position (non-zero when resuming last session's song).
+    Play { video_id: String, generation: u64, at: std::time::Duration },
     /// Resolve and download a track ahead of time so skipping to it is instant.
     Prefetch(String),
     Like { video_id: String, like: bool },
@@ -314,7 +315,7 @@ impl Backend {
                     }
                     Resp::PlayQueue { tracks }
                 }
-                Req::Play { video_id, generation } => match self.start_playback(&video_id, generation).await {
+                Req::Play { video_id, generation, at } => match self.start_playback(&video_id, generation, at).await {
                     Ok(()) => return Ok(None),
                     Err(e) => Resp::PlayError { generation, msg: format!("{e:#}") },
                 },
@@ -445,7 +446,7 @@ impl Backend {
         })
     }
 
-    async fn start_playback(&self, video_id: &str, generation: u64) -> anyhow::Result<()> {
+    async fn start_playback(&self, video_id: &str, generation: u64, at: std::time::Duration) -> anyhow::Result<()> {
         let t0 = std::time::Instant::now();
         let ready = {
             let mut slot = self.prefetched.lock().unwrap();
@@ -474,11 +475,22 @@ impl Backend {
         let tx = self.tx.clone();
         let wake = self.wake.clone();
         // Opening the decoder reads the container header, which blocks on the download.
-        tokio::task::spawn_blocking(move || match stream::decoder(shared.clone(), false) {
+        // Starting mid-song needs the seekable decoder (it waits for every fragment
+        // header); from the top, the non-seekable one starts sooner.
+        let seek = !at.is_zero();
+        let shared2 = shared.clone();
+        let open = move || -> anyhow::Result<crate::audio::TrackDecoder> {
+            let mut d = stream::decoder(shared.clone(), seek)?;
+            if seek {
+                rodio::Source::try_seek(&mut d, at).map_err(|e| anyhow::anyhow!("seek: {e}"))?;
+            }
+            Ok(d)
+        };
+        tokio::task::spawn_blocking(move || match open() {
             Ok(decoder) => {
-                log::debug!("play gen {generation}: decoder ready in {:?}", t0.elapsed());
-                let duration_ms = shared.duration_ms;
-                audio.send(AudioCmd::Start { generation, decoder, shared, duration_ms })
+                log::debug!("play gen {generation}: decoder ready at {at:?} in {:?}", t0.elapsed());
+                let (shared, duration_ms) = (shared2.clone(), shared2.duration_ms);
+                audio.send(AudioCmd::Start { generation, decoder, shared, duration_ms, at })
             }
             Err(e) => {
                 let _ = tx.send(Resp::PlayError { generation, msg: format!("decode: {e}") });

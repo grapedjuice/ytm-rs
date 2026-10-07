@@ -529,6 +529,10 @@ impl App {
 
     fn apply(&mut self, a: Action) {
         match a {
+            // Clicking the song that's already playing pauses/resumes it, not restart it.
+            Action::Play(tracks, i) if tracks.get(i).is_some_and(|t| self.current_id() == Some(t.id.as_str())) && self.resume_at.is_none() => {
+                self.toggle()
+            }
             Action::Play(tracks, i) => {
                 // Play buttons and rows live on the page they play from.
                 self.queue_source = match &self.page {
@@ -1044,7 +1048,9 @@ impl eframe::App for App {
         storage.set_string("autoplay", b(self.autoplay));
         storage.set_string("anim_bg", b(self.anim_bg));
         storage.set_string("reactive_bg", b(self.reactive_bg));
-        if let Some(s) = self.session_json() {
+        // Background test runs leave the user's real "last song" alone unless asked.
+        let test_run = std::env::var_os("YTM_BACKGROUND").is_some() && std::env::var_os("YTM_SAVE_SESSION").is_none();
+        if let Some(s) = self.session_json().filter(|_| !test_run) {
             storage.set_string(SESSION_KEY, s);
         }
     }
@@ -1100,6 +1106,15 @@ fn dev_screenshot(ctx: &egui::Context, now: f64) {
 fn fit_window_to_monitor(ctx: &egui::Context) {
     let done = egui::Id::new("fit-window-checked");
     if ctx.data(|d| d.get_temp::<bool>(done).unwrap_or(false)) {
+        return;
+    }
+    if std::env::var_os("YTM_BACKGROUND").is_some() {
+        // eframe re-applies the saved (often maximized) window state regardless of the
+        // builder, so push the test window off-screen here, before it's ever shown.
+        ctx.data_mut(|d| d.insert_temp(done, true));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(-4000.0, 0.0)));
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(1920.0, 1057.0)));
         return;
     }
     let (outer, monitor, maximized) = ctx.input(|i| (i.viewport().outer_rect, i.viewport().monitor_size, i.viewport().maximized));

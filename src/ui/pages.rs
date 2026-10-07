@@ -98,7 +98,7 @@ fn song_grid(app: &mut App, ui: &mut Ui, id: &str, title: &str, strap: Option<&s
                 ui.vertical(|ui| {
                     for (i, t) in col.iter().enumerate() {
                         let o = opts(app, t, None, false, now);
-                        let resp = track_row(ui, t, &o);
+                        let resp = track_row(ui, t, &o, &mut app.actions);
                         if resp.clicked() {
                             picked = Some(c * rows + i);
                         }
@@ -210,6 +210,7 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
                 thumbs: t.thumbs.clone(),
                 target: Target::Song(t.clone()),
                 round: false,
+                links: t.artists.clone(),
             };
             top_result(ui, &c, &mut app.actions);
         }
@@ -219,7 +220,7 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
             ui.add_space(8.0);
             for (i, t) in tracks.iter().take(4).enumerate() {
                 let o = opts(app, t, None, false, now);
-                let resp = track_row(ui, t, &o);
+                let resp = track_row(ui, t, &o, &mut app.actions);
                 if resp.clicked() {
                     app.actions.push(Action::Play(tracks.clone(), i));
                 }
@@ -236,7 +237,7 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
         ui.add_space(10.0);
         for (i, t) in tracks.iter().enumerate().skip(4) {
             let o = opts(app, t, None, true, now);
-            let resp = track_row(ui, t, &o);
+            let resp = track_row(ui, t, &o, &mut app.actions);
             if resp.clicked() {
                 app.actions.push(Action::Play(tracks.clone(), i));
             }
@@ -259,7 +260,7 @@ fn top_result(ui: &mut Ui, c: &Card, acts: &mut Vec<Action>) {
         paint_cover(ui, img, &c.thumbs, if c.round { 55.0 } else { 8.0 }, 1.0);
         let x = rect.left() + 20.0;
         widgets::text_at(ui, pos2(x, img.bottom() + 16.0), &c.title, theme::bold(26.0), theme::TEXT, rect.width() - 40.0);
-        widgets::text_at(ui, pos2(x, img.bottom() + 52.0), &c.subtitle, theme::regular(14.0), theme::TEXT_DIM, rect.width() - 40.0);
+        widgets::linked_text(ui, pos2(x, img.bottom() + 52.0), &c.subtitle, &c.links, theme::regular(14.0), theme::TEXT_DIM, rect.width() - 40.0, acts);
         // Floating play button
         let pc = rect.right_bottom() + vec2(-44.0, -44.0 + 6.0 * (1.0 - h));
         let pr = Rect::from_center_size(pc, Vec2::splat(52.0));
@@ -289,8 +290,8 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         widgets::skeleton(ui, now, 1, 232.0);
         return;
     };
-    let (title, subtitle, desc, thumbs, tracks, is_album) =
-        (c.title.clone(), c.subtitle.clone(), c.description.clone(), c.thumbs.clone(), c.tracks.clone(), c.is_album);
+    let (title, subtitle, artists, desc, thumbs, tracks, is_album) =
+        (c.title.clone(), c.subtitle.clone(), c.artists.clone(), c.description.clone(), c.thumbs.clone(), c.tracks.clone(), c.is_album);
     ui.add_space(18.0);
     ui.horizontal_top(|ui| {
         let (img, _) = ui.allocate_exact_size(Vec2::splat(232.0), Sense::hover());
@@ -303,7 +304,8 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             ui.label(RichText::new(if is_album { "ALBUM" } else { "PLAYLIST" }).font(theme::semibold(12.0)).color(theme::TEXT_DIM));
             ui.label(RichText::new(&title).font(theme::bold(40.0)).color(theme::TEXT));
             ui.add_space(2.0);
-            ui.label(RichText::new(&subtitle).font(theme::regular(15.0)).color(theme::TEXT_DIM));
+            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
+            widgets::linked_text(ui, r.min, &subtitle, &artists, theme::regular(15.0), theme::TEXT_DIM, r.width(), &mut app.actions);
             let total: u32 = tracks.iter().filter_map(|t| t.duration).sum();
             if total > 0 {
                 ui.label(
@@ -337,7 +339,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     for (i, t) in tracks.iter().enumerate() {
         let number = is_album.then(|| t.track_nr.map_or(i + 1, |n| n as usize));
         let o = opts(app, t, number, !is_album, now);
-        let resp = track_row(ui, t, &o);
+        let resp = track_row(ui, t, &o, &mut app.actions);
         if resp.clicked() {
             app.actions.push(Action::Play(tracks.clone(), i));
         }
@@ -413,7 +415,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         ui.add_space(12.0);
         for (i, t) in top.iter().enumerate().take(5) {
             let o = opts(app, t, None, true, now);
-            let resp = track_row(ui, t, &o);
+            let resp = track_row(ui, t, &o, &mut app.actions);
             if resp.clicked() {
                 app.actions.push(Action::Play(top.clone(), i));
             }
@@ -512,7 +514,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
 fn list(app: &mut App, ui: &mut Ui, tracks: &[Track], now: f64) {
     for (i, t) in tracks.iter().enumerate() {
         let o = opts(app, t, None, true, now);
-        let resp = track_row(ui, t, &o);
+        let resp = track_row(ui, t, &o, &mut app.actions);
         if resp.clicked() {
             app.actions.push(Action::Play(tracks.to_vec(), i));
         }

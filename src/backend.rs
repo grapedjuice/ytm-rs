@@ -101,6 +101,8 @@ pub struct Collection {
     pub is_album: bool,
     pub title: String,
     pub subtitle: String,
+    /// Album artists / playlist owner named in the subtitle, clickable.
+    pub artists: Vec<model::Link>,
     pub description: Option<String>,
     pub thumbs: Vec<Thumb>,
     pub tracks: Vec<Track>,
@@ -198,9 +200,28 @@ impl Backend {
     }
 
     pub fn request(&self, req: Req) {
+        let (what, quiet) = (req.name(), req.quiet());
+        let play_gen = match &req {
+            Req::Play { generation, .. } => Some(*generation),
+            _ => None,
+        };
+        let this = self.clone();
+        let task = self.rt.spawn(async move { this.handle(req).await });
         let this = self.clone();
         self.rt.spawn(async move {
-            let resp = this.handle(req).await;
+            // rustypipe has unwraps on network paths (visitor data on a 302); a panic
+            // there fails just this request, reported like any other error.
+            let resp = match task.await {
+                Ok(resp) => resp,
+                Err(e) if e.is_panic() => {
+                    log::error!("{what}: request panicked");
+                    match play_gen {
+                        Some(generation) => Some(Resp::PlayError { generation, msg: "YouTube didn't respond properly".into() }),
+                        None => (!quiet).then(|| Resp::Error(format!("{what} failed: YouTube didn't respond properly"))),
+                    }
+                }
+                Err(_) => None,
+            };
             if let Some(resp) = resp {
                 let _ = this.tx.send(resp);
                 this.wake();
@@ -370,6 +391,7 @@ impl Backend {
             }
         }
         Ok(Collection {
+            artists: model::links(&a.artists),
             id: a.id,
             is_album: true,
             title: a.name,
@@ -392,6 +414,7 @@ impl Backend {
         }
         sub.push(format!("{} songs", pl.track_count.unwrap_or(pl.tracks.items.len() as u64)));
         Ok(Collection {
+            artists: pl.channel.iter().map(|c| model::Link { name: c.name.clone(), id: Some(c.id.clone()) }).collect(),
             id: pl.id,
             is_album: false,
             title: pl.name,
@@ -585,6 +608,7 @@ fn album_card(a: &AlbumItem) -> Card {
         thumbs: model::thumbs(&a.cover),
         target: Target::Album(a.id.clone()),
         round: false,
+        links: model::links(&a.artists),
     }
 }
 
@@ -599,6 +623,7 @@ fn playlist_card(p: &MusicPlaylistItem) -> Card {
         thumbs: model::thumbs(&p.thumbnail),
         target: Target::Playlist(p.id.clone()),
         round: false,
+        links: p.channel.iter().map(|c| model::Link { name: c.name.clone(), id: Some(c.id.clone()) }).collect(),
     }
 }
 
@@ -609,6 +634,7 @@ fn artist_card(a: &ArtistItem) -> Card {
         thumbs: model::thumbs(&a.avatar),
         target: Target::Artist(a.id.clone()),
         round: true,
+        links: Vec::new(),
     }
 }
 

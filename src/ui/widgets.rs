@@ -4,7 +4,7 @@
 use egui::{Align2, Color32, CornerRadius, Pos2, Rect, Response, Sense, Ui, Vec2, pos2, vec2};
 
 use super::Action;
-use crate::model::{Card, Target, Thumb, Track, pick_thumb, sized};
+use crate::model::{Card, Link, Target, Thumb, Track, pick_thumb, sized};
 use crate::theme::{self, icon};
 
 pub fn named(resp: Response, name: &str) -> Response {
@@ -42,8 +42,89 @@ pub fn text_at(ui: &Ui, pos: Pos2, text: &str, font: egui::FontId, color: Color3
     rect
 }
 
+/// Single-line text whose artist names are links: underlined on hover, and a click
+/// opens the artist's page. Names without a channel id stay plain text.
+pub fn linked_text(
+    ui: &Ui,
+    pos: Pos2,
+    text: &str,
+    links: &[Link],
+    font: egui::FontId,
+    color: Color32,
+    width: f32,
+    acts: &mut Vec<Action>,
+) -> Rect {
+    let g = galley(ui, text, font, color, width);
+    let rect = Rect::from_min_size(pos, g.size());
+    let mut search_from = 0;
+    for (i, l) in links.iter().enumerate() {
+        let Some(id) = &l.id else { continue };
+        let Some(off) = text[search_from..].find(l.name.as_str()) else { continue };
+        let start = search_from + off;
+        let end = start + l.name.len();
+        search_from = end;
+        let c0 = text[..start].chars().count();
+        let c1 = text[..end].chars().count();
+        let x0 = g.pos_from_cursor(egui::text::CCursor::new(c0)).min.x;
+        let x1 = g.pos_from_cursor(egui::text::CCursor::new(c1)).min.x;
+        if x1 - x0 < 2.0 {
+            continue; // truncated away
+        }
+        let r = Rect::from_min_max(pos2(pos.x + x0, rect.top()), pos2(pos.x + x1, rect.bottom()));
+        let resp = ui.interact(r, ui.id().with(("artist-link", text, i, pos.x as i32, pos.y as i32)), Sense::click());
+        let resp = named(resp, &l.name).on_hover_cursor(egui::CursorIcon::PointingHand);
+        if resp.hovered() {
+            ui.painter().hline(r.x_range(), r.bottom() - 1.0, egui::Stroke::new(1.0, color));
+        }
+        if resp.clicked() {
+            acts.push(Action::Open(Target::Artist(id.clone())));
+        }
+    }
+    ui.painter().galley(pos, g, color);
+    rect
+}
+
 pub fn icon_at(ui: &Ui, center: Pos2, glyph: char, size: f32, color: Color32) {
     ui.painter().text(center, Align2::CENTER_CENTER, glyph, theme::icon_font(size), color);
+}
+
+/// Heart drawn from its parametric curve: an outline, filled by `fill` (0..1). The
+/// icon font only has the outline, and a liked song needs to read at a glance.
+pub fn heart(ui: &Ui, center: Pos2, size: f32, fill: f32, outline: Color32, fill_color: Color32) {
+    use std::f32::consts::TAU;
+    // x = 16 sin^3 t, y = 13 cos t - 5 cos 2t - 2 cos 3t - cos 4t spans x ±16, y -17..12;
+    // shift so the box is centred, flip y for screen space.
+    let s = size / 34.0;
+    let pts: Vec<Pos2> = (0..64)
+        .map(|i| {
+            let t = i as f32 / 64.0 * TAU;
+            let x = 16.0 * t.sin().powi(3);
+            let y = 13.0 * t.cos() - 5.0 * (2.0 * t).cos() - 2.0 * (3.0 * t).cos() - (4.0 * t).cos();
+            center + vec2(x * s, (-y - 2.5) * s)
+        })
+        .collect();
+    if fill > 0.0 {
+        // The heart is star-shaped around a point just below its middle, so a fan fills it.
+        let mut mesh = egui::Mesh::default();
+        let c = theme::with_alpha(fill_color, fill * fill_color.a() as f32 / 255.0);
+        mesh.colored_vertex(center + vec2(0.0, 1.0 * s), c);
+        for p in &pts {
+            mesh.colored_vertex(*p, c);
+        }
+        let n = pts.len() as u32;
+        for i in 0..n {
+            mesh.add_triangle(0, 1 + i, 1 + (i + 1) % n);
+        }
+        ui.painter().add(egui::Shape::mesh(mesh));
+    }
+    // Separate segments with round joins: a closed polyline mitres the tip and the
+    // notch into long spikes.
+    let w = 1.7;
+    for (i, p) in pts.iter().enumerate() {
+        let q = pts[(i + 1) % pts.len()];
+        ui.painter().line_segment([*p, q], egui::Stroke::new(w, outline));
+        ui.painter().circle_filled(*p, w / 2.0, outline);
+    }
 }
 
 /// Circular icon button with an animated hover halo.
@@ -160,7 +241,7 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, acts: &mut Vec<Action>) {
     let title = galley_wrapped(ui, &c.title, theme::semibold(14.5), tcolor, width, 2);
     let title_h = title.size().y;
     ui.painter().galley(pos2(rect.left(), img.bottom() + 10.0), title, tcolor);
-    text_at(ui, pos2(rect.left(), img.bottom() + 14.0 + title_h), &c.subtitle, theme::regular(13.0), theme::TEXT_DIM, width);
+    linked_text(ui, pos2(rect.left(), img.bottom() + 14.0 + title_h), &c.subtitle, &c.links, theme::regular(13.0), theme::TEXT_DIM, width, acts);
 
     if play_hit {
         match &c.target {
@@ -301,7 +382,7 @@ pub struct RowOpts {
 }
 
 /// Song row: cover (or index), title, artists, album, duration. Click plays.
-pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts) -> Response {
+pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 56.0), Sense::click());
     if !ui.is_rect_visible(rect) {
         return resp;
@@ -360,18 +441,27 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts) -> Response {
     let title_y = if sub.is_some() { cy - 18.0 } else { cy - 9.0 };
     text_at(ui, pos2(x, title_y), &t.title, theme::semibold(14.5), title_col, title_w);
     if let Some(sub) = &sub {
-        text_at(ui, pos2(x, cy + 2.0), sub, theme::regular(13.0), theme::TEXT_DIM, title_w);
+        linked_text(ui, pos2(x, cy + 2.0), sub, &t.artists, theme::regular(13.0), theme::TEXT_DIM, title_w, acts);
     }
     if let (Some(px), Some(p)) = (plays_x, &plays) {
         ui.painter().text(pos2(px, cy), Align2::LEFT_CENTER, p, theme::regular(13.5), theme::TEXT_DIM);
     }
     if let (Some(ax), Some(album)) = (album_x, &t.album) {
         let w = plays_x.unwrap_or(right - dur_w) - ax - 10.0;
-        ui.painter().galley(
-            pos2(ax, cy - 9.0),
-            galley(ui, &album.name, theme::regular(13.5), theme::TEXT_DIM, w),
-            theme::TEXT_DIM,
-        );
+        let g = galley(ui, &album.name, theme::regular(13.5), theme::TEXT_DIM, w);
+        let ar = Rect::from_min_size(pos2(ax, cy - 9.0), g.size());
+        ui.painter().galley(ar.min, g, theme::TEXT_DIM);
+        // Album name opens the album, like the artist names.
+        if let Some(id) = &album.id {
+            let r = named(ui.interact(ar, resp.id.with("album"), Sense::click()), &album.name);
+            let r = r.on_hover_cursor(egui::CursorIcon::PointingHand);
+            if r.hovered() {
+                ui.painter().hline(ar.x_range(), ar.bottom() - 1.0, egui::Stroke::new(1.0, theme::TEXT_DIM));
+            }
+            if r.clicked() {
+                acts.push(Action::Open(Target::Album(id.clone())));
+            }
+        }
     }
     if let Some(d) = t.duration {
         ui.painter().text(pos2(right, cy), Align2::RIGHT_CENTER, super::fmt_time(d), theme::regular(13.0), theme::TEXT_DIM);

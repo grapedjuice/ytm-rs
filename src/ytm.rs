@@ -118,7 +118,11 @@ fn two_row(r: &Value) -> Option<Card> {
         }
     };
     let round = matches!(target, Target::Artist(_));
-    Some(Card { title, subtitle, thumbs, target, round })
+    let links = runs(&r["subtitle"])
+        .filter(|run| matches!(page_type(run), Some("MUSIC_PAGE_TYPE_ARTIST" | "MUSIC_PAGE_TYPE_USER_CHANNEL")))
+        .map(|run| Link { name: run["text"].as_str().unwrap_or_default().to_owned(), id: browse_id(run) })
+        .collect();
+    Some(Card { title, subtitle, thumbs, target, round, links })
 }
 
 fn list_item(r: &Value) -> Option<Track> {

@@ -37,16 +37,24 @@ fn main() -> eframe::Result {
     }
     init_logging();
 
+    // Dev hook: YTM_BACKGROUND opens the window off-screen, unfocused and off the
+    // taskbar, so automated test runs don't pop up over whatever the user is doing.
+    let background = std::env::var_os("YTM_BACKGROUND").is_some();
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("YT Music")
+        .with_app_id("ytm-rs")
+        .with_inner_size([1200.0, 780.0])
+        .with_min_inner_size([760.0, 480.0])
+        .with_icon(
+            eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon/icon.png"))
+                .expect("bundled icon is a valid PNG"),
+        );
+    if background {
+        viewport = viewport.with_position([-4000.0, 0.0]).with_inner_size([1920.0, 1057.0]).with_active(false).with_taskbar(false);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("YT Music")
-            .with_app_id("ytm-rs")
-            .with_inner_size([1200.0, 780.0])
-            .with_min_inner_size([760.0, 480.0])
-            .with_icon(
-                eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon/icon.png"))
-                    .expect("bundled icon is a valid PNG"),
-            ),
+        viewport,
+        persist_window: !background,
         // No MSAA/depth/stencil: egui doesn't need them and they cost VRAM.
         multisampling: 0,
         depth_buffer: 0,

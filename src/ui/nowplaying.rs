@@ -8,7 +8,6 @@ use egui::{Align2, Color32, Pos2, Rect, Sense, Ui, Vec2, pos2, vec2};
 use super::widgets::{self, icon_button, named, paint_cover, text_at};
 use super::{Action, App, NpTab};
 use crate::lyrics::{Line, Lyrics, Sync};
-use crate::model::Target;
 use crate::shader::Params;
 use crate::theme::{self, icon};
 
@@ -85,13 +84,9 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         let w = side;
         let title_y = art.bottom() + 22.0;
         text_at(ui, pos2(art.left(), title_y), &track.title, theme::bold(28.0), Color32::WHITE, w);
-        let ar = text_at(ui, pos2(art.left(), title_y + 40.0), &track.artist_line(), theme::regular(17.0), theme::TEXT_DIM, w);
-        if let Some(id) = track.first_artist_id() {
-            let resp = named(ui.interact(ar, ui.id().with("np-artist"), Sense::click()), &track.artist_line());
-            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                app.actions.push(Action::Open(Target::Artist(id.to_owned())));
-            }
-        }
+        // Each artist opens their own page (features included).
+        let line = track.artist_line();
+        widgets::linked_text(ui, pos2(art.left(), title_y + 40.0), &line, &track.artists, theme::regular(17.0), theme::TEXT_DIM, w, &mut app.actions);
         Rect::from_min_max(pos2(col.right() + 28.0, content.top()), content.max)
     };
     let mut rui = ui.new_child(egui::UiBuilder::new().max_rect(right));
@@ -245,6 +240,9 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, lyrics: &Lyrics, now: f64, cen
                 };
                 let pos = Pos2::new(x, top);
                 let line_rect = Rect::from_min_size(pos, g.size());
+                // Where the glyphs actually are: CJK fallback glyphs sit higher and taller
+                // than the Latin row box, so hover/click use the inked bounds.
+                let ink = g.mesh_bounds.translate(pos.to_vec2()).union(Rect::from_x_y_ranges(line_rect.x_range(), line_rect.center().y..=line_rect.center().y));
                 if !rect.intersects(line_rect) {
                     continue;
                 }
@@ -268,10 +266,10 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, lyrics: &Lyrics, now: f64, cen
                     sweep(&painter, &g, pos, progress, theme::with_alpha(Color32::WHITE, lit_amt * fade(line_rect.center().y)));
                 }
                 // Click a line to jump there.
-                let resp = ui.interact(line_rect, ui.id().with(("lyr", k)), Sense::click());
+                let resp = ui.interact(ink, ui.id().with(("lyr", k)), Sense::click());
                 let resp = named(resp, &l.text);
                 if resp.hovered() {
-                    painter.rect_filled(line_rect.expand2(vec2(10.0, 4.0)), 8.0, theme::glass(0.05));
+                    painter.rect_filled(ink.expand2(vec2(10.0, 6.0)), 8.0, theme::glass(0.05));
                 }
                 if resp.clicked() {
                     app.actions.push(Action::Seek(l.start as f32 / 1000.0));

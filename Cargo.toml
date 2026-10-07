@@ -1,6 +1,6 @@
 [package]
 name = "ytm-rs"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 
 [dependencies]
@@ -33,7 +33,9 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
-panic = "abort"
+# Unwind, not abort: a panic inside a library (rustypipe) must fail one request,
+# not close the app.
+panic = "unwind"
 
 # Keep debug builds usable: optimize dependencies (decoders, egui) even in dev.
 [profile.dev.package."*"]

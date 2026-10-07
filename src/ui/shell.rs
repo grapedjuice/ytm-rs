@@ -345,9 +345,10 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
                 break;
             }
         }
-        // Like
+        // Like: a heart right after the title/artist, filled red when liked.
         let liked = app.liked.contains(&t.id);
-        let lpos = pos2(x + w + 22.0, cy);
+        let text_end = tr.right().max(ax).min(x + w);
+        let lpos = pos2(text_end + 24.0, cy);
         let lr = Rect::from_center_size(lpos, Vec2::splat(36.0));
         let lresp = ui.interact(lr, ui.id().with("like"), Sense::click());
         let lresp = named(lresp, if liked { "Remove like" } else { "Like" }).on_hover_text(if liked { "Remove like" } else { "Like" });
@@ -355,8 +356,9 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let pop = theme::anim_bool(ui.ctx(), ("liked", &t.id), liked, 0.3);
         ui.painter().circle_filled(lpos, 18.0, theme::glass(0.1 * lh));
         let size = 19.0 * (1.0 + 0.25 * (pop * std::f32::consts::PI).sin());
-        let col = theme::lerp_color(theme::TEXT_DIM, app.accent, pop);
-        icon_at(ui, lpos, icon::THUMBS_UP, size, col);
+        let idle = theme::lerp_color(theme::TEXT_DIM, theme::TEXT, lh);
+        let outline = theme::lerp_color(idle, theme::RED, pop);
+        widgets::heart(ui, lpos, size, pop, outline, theme::RED);
         if lresp.clicked() {
             app.actions.push(Action::Like(t.id.clone(), !liked));
         }
@@ -525,9 +527,10 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
             let t = app.queue[i].clone();
             let current = Some(i) == app.index;
             let opts = widgets::RowOpts { number: None, show_album: false, current, playing, accent, time: now, level };
-            let resp = widgets::track_row(ui, &t, &opts);
-            if resp.clicked() && !current {
-                app.actions.push(Action::QueueJump(i));
+            let resp = widgets::track_row(ui, &t, &opts, &mut app.actions);
+            if resp.clicked() {
+                // The playing row pauses/resumes instead of doing nothing.
+                app.actions.push(if current { Action::TogglePlay } else { Action::QueueJump(i) });
             }
             if !current && resp.hovered() {
                 // Remove button over the duration column.

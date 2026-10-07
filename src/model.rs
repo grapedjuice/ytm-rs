@@ -128,6 +128,8 @@ pub struct Card {
     pub target: Target,
     /// Artists are shown as circles.
     pub round: bool,
+    /// Artists named in the subtitle; clicking one opens their page.
+    pub links: Vec<Link>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

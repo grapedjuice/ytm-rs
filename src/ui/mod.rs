@@ -94,6 +94,9 @@ pub struct App {
     audio: AudioHandle,
     ch: Channels,
     media: Option<Media>,
+    discord: Option<crate::discord::Discord>,
+    /// Last state sent to Discord, to send only real changes.
+    discord_sent: Option<crate::discord::Presence>,
     bg: Option<Background>,
 
     // navigation
@@ -181,6 +184,8 @@ impl App {
             audio,
             ch,
             media,
+            discord: crate::discord::Discord::spawn(),
+            discord_sent: None,
             bg,
             page: Page::Home,
             back: Vec::new(),
@@ -329,6 +334,40 @@ impl App {
 
     fn playing(&self) -> bool {
         self.audio.status.playing.load(Ordering::Relaxed)
+    }
+
+    /// Mirror playback into Discord. Cheap enough to run every frame: it only sends on a
+    /// new song, play/pause, a seek, or a newly learned duration.
+    fn sync_discord(&mut self) {
+        let Some(d) = &self.discord else { return };
+        let want = self.current().filter(|_| self.playing() && !self.buffering).map(|t| {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+            let start_ms = now - self.audio.status.position().as_millis() as i64;
+            let dur = self.audio.status.duration_ms.load(Ordering::Relaxed) as i64;
+            crate::discord::Presence {
+                video_id: t.id.clone(),
+                title: t.title.clone(),
+                artist: t.artist_line(),
+                album: t.album.as_ref().map(|a| a.name.clone()),
+                art: backend::art_url(t),
+                start_ms,
+                end_ms: (dur > 0).then_some(start_ms + dur),
+            }
+        });
+        // Position ticks every 100 ms; only a jump of 2 s or more is a real seek.
+        let same = match (&want, &self.discord_sent) {
+            (Some(a), Some(b)) => {
+                (a.start_ms - b.start_ms).abs() < 2000
+                    && a.end_ms.is_some() == b.end_ms.is_some()
+                    && crate::discord::Presence { start_ms: b.start_ms, end_ms: b.end_ms, ..a.clone() } == *b
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            d.set(want.clone());
+            self.discord_sent = want;
+        }
     }
 
     fn play_list(&mut self, tracks: Vec<Track>, start: usize) {
@@ -808,6 +847,7 @@ impl eframe::App for App {
             self.page_changed = now;
         }
         fit_window_to_monitor(ctx);
+        self.sync_discord();
         if let Some((_, t)) = &mut self.toast {
             if *t < 0.0 {
                 *t = now;

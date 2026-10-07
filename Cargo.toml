@@ -1,6 +1,6 @@
 [package]
 name = "ytm-rs"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
@@ -8,6 +8,7 @@ anyhow = "1.0.104"
 base64 = "0.23.1"
 crossbeam-channel = "0.5.17"
 directories = "6.0.0"
+discord-rich-presence = "1.1.0"
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit", "persistence", "wayland", "x11"] }
 egui = "0.36.2"
 egui_extras = { version = "0.36.2", default-features = false, features = ["image"] }

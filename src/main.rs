@@ -3,6 +3,7 @@
 mod art;
 mod audio;
 mod backend;
+mod discord;
 mod images;
 mod innertube;
 mod login;

@@ -104,6 +104,7 @@ fn two_row(r: &Value) -> Option<Card> {
             duration: None,
             thumbs: thumbs.clone(),
             track_nr: None,
+            plays: None,
         })
     } else if let Some(playlist) = nav["watchPlaylistEndpoint"]["playlistId"].as_str() {
         Target::Playlist(playlist.to_owned())
@@ -148,7 +149,7 @@ fn list_item(r: &Value) -> Option<Track> {
             artists.push(Link { name: name.to_owned(), id: None });
         }
     }
-    Some(Track { id, title, artists, album, duration: None, thumbs: thumbs(&r["thumbnail"]["musicThumbnailRenderer"]), track_nr: None })
+    Some(Track { id, title, artists, album, duration: None, thumbs: thumbs(&r["thumbnail"]["musicThumbnailRenderer"]), track_nr: None, plays: None })
 }
 
 fn runs(v: &Value) -> impl Iterator<Item = &Value> {

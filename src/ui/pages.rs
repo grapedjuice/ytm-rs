@@ -335,12 +335,13 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         widgets::skeleton(ui, now, 2, CARD);
         return;
     };
-    let (name, banner, subs, desc, top, albums, playlists, similar) = (
+    let (name, banner, subs, desc, top, top_playlist, albums, playlists, similar) = (
         a.name.clone(),
         a.banner.clone(),
         a.subscribers,
         a.description.clone(),
         a.top.clone(),
+        a.top_playlist.clone(),
         a.albums.clone(),
         a.playlists.clone(),
         a.similar.clone(),
@@ -382,7 +383,18 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         }
     });
     if !top.is_empty() {
-        shelf_header(ui, "Songs", None, None, false);
+        ui.add_space(26.0);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Top songs").font(theme::bold(24.0)).color(theme::TEXT));
+            if let Some(pl) = &top_playlist {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if pill(ui, "Show all", None, false).clicked() {
+                        app.actions.push(Action::Open(Target::Playlist(pl.clone())));
+                    }
+                });
+            }
+        });
+        ui.add_space(12.0);
         for (i, t) in top.iter().enumerate().take(5) {
             let o = opts(app, t, None, true, now);
             let resp = track_row(ui, t, &o);

@@ -296,12 +296,34 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts) -> Response {
     let right = rect.right() - 14.0;
     let dur_w = 52.0;
     let avail = right - dur_w - x;
-    let (title_w, album_x) = if o.show_album && avail > 520.0 { (avail * 0.55, Some(x + avail * 0.6)) } else { (avail, None) };
+    let wide = avail > 520.0;
+    // Album rows (numbered) are just song name and plays; other rows are
+    // title + artists, then album, then plays when there's room.
+    let album_row = o.number.is_some();
+    let (title_w, plays_x, album_x) = match (wide, o.show_album, t.plays) {
+        (true, true, Some(_)) => (avail * 0.45, Some(x + avail * 0.82), Some(x + avail * 0.5)),
+        (true, true, None) => (avail * 0.55, None, Some(x + avail * 0.6)),
+        (true, false, Some(_)) => (avail * 0.78, Some(x + avail * 0.82), None),
+        _ => (avail, None, None),
+    };
+    let plays = t.plays.map(|n| format!("{} plays", crate::backend::compact(n)));
     let title_col = if o.current { o.accent } else { theme::TEXT };
-    text_at(ui, pos2(x, cy - 18.0), &t.title, theme::semibold(14.5), title_col, title_w);
-    text_at(ui, pos2(x, cy + 2.0), &t.artist_line(), theme::regular(13.0), theme::TEXT_DIM, title_w);
+    let sub = match (album_row, &plays, plays_x) {
+        (true, Some(p), None) => Some(p.clone()),
+        (true, _, _) => None,
+        (false, Some(p), None) => Some(format!("{} \u{2022} {p}", t.artist_line())),
+        (false, _, _) => Some(t.artist_line()),
+    };
+    let title_y = if sub.is_some() { cy - 18.0 } else { cy - 9.0 };
+    text_at(ui, pos2(x, title_y), &t.title, theme::semibold(14.5), title_col, title_w);
+    if let Some(sub) = &sub {
+        text_at(ui, pos2(x, cy + 2.0), sub, theme::regular(13.0), theme::TEXT_DIM, title_w);
+    }
+    if let (Some(px), Some(p)) = (plays_x, &plays) {
+        ui.painter().text(pos2(px, cy), Align2::LEFT_CENTER, p, theme::regular(13.5), theme::TEXT_DIM);
+    }
     if let (Some(ax), Some(album)) = (album_x, &t.album) {
-        let w = right - dur_w - ax - 10.0;
+        let w = plays_x.unwrap_or(right - dur_w) - ax - 10.0;
         ui.painter().galley(
             pos2(ax, cy - 9.0),
             galley(ui, &album.name, theme::regular(13.5), theme::TEXT_DIM, w),

@@ -46,6 +46,8 @@ pub struct Track {
     pub duration: Option<u32>,
     pub thumbs: Vec<Thumb>,
     pub track_nr: Option<u16>,
+    /// Play count, as YouTube Music shows it on artist pages and in search.
+    pub plays: Option<u64>,
 }
 
 impl Track {
@@ -80,6 +82,7 @@ impl From<&TrackItem> for Track {
             duration: t.duration,
             thumbs: thumbs(&t.cover),
             track_nr: t.track_nr,
+            plays: t.view_count,
         }
     }
 }

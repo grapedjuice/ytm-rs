@@ -112,6 +112,8 @@ pub struct ArtistPage {
     pub subscribers: Option<u64>,
     pub description: Option<String>,
     pub top: Vec<Track>,
+    /// "Top songs" playlist behind the shelf's Show all button.
+    pub top_playlist: Option<String>,
     pub albums: Vec<Card>,
     pub playlists: Vec<Card>,
     pub similar: Vec<Card>,
@@ -257,7 +259,8 @@ impl Backend {
                         banner: model::thumbs(&a.header_image),
                         subscribers: a.subscriber_count,
                         description: a.description,
-                        top: model::tracks(&a.tracks),
+                        top: artist_songs(&a.tracks),
+                        top_playlist: a.tracks_playlist_id,
                         albums: a.albums.iter().map(album_card).collect(),
                         playlists: a.playlists.iter().map(playlist_card).collect(),
                         similar: a.similar_artists.iter().map(artist_card).collect(),
@@ -302,7 +305,7 @@ impl Backend {
                         Target::Playlist(id) => self.playlist(&id).await?.tracks,
                         Target::Artist(id) => {
                             let a = q.music_artist(&id, false).await?;
-                            model::tracks(&a.tracks)
+                            artist_songs(&a.tracks)
                         }
                         Target::Song(t) => vec![t],
                     };
@@ -598,12 +601,21 @@ fn artist_card(a: &ArtistItem) -> Card {
 }
 
 pub fn compact(n: u64) -> String {
-    match n {
-        0..1_000 => n.to_string(),
-        1_000..1_000_000 => format!("{:.1}K", n as f64 / 1e3),
-        1_000_000..1_000_000_000 => format!("{:.1}M", n as f64 / 1e6),
-        _ => format!("{:.1}B", n as f64 / 1e9),
-    }
+    let (v, unit) = match n {
+        0..1_000 => return n.to_string(),
+        1_000..1_000_000 => (n as f64 / 1e3, "K"),
+        1_000_000..1_000_000_000 => (n as f64 / 1e6, "M"),
+        _ => (n as f64 / 1e9, "B"),
+    };
+    // "6M", not "6.0M"; three significant figures and up need no decimal.
+    let s = if v >= 100.0 { format!("{v:.0}") } else { format!("{v:.1}") };
+    format!("{}{unit}", s.strip_suffix(".0").unwrap_or(&s))
+}
+
+/// An artist page's song shelf. rustypipe appends the videos shelf to it, and those
+/// aren't songs.
+fn artist_songs(items: &[rustypipe::model::TrackItem]) -> Vec<Track> {
+    items.iter().filter(|t| t.track_type == rustypipe::model::TrackType::Track).map(Track::from).collect()
 }
 
 /// Larger art URL for the background / now-playing view.

@@ -131,7 +131,9 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, acts: &mut Vec<Action>) {
         return;
     }
     let resp = named(resp, &c.title);
-    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.22);
+    // contains_pointer, not hovered: the play button on top takes the hover, and the
+    // card must stay "hovered" while the pointer is on it or the button would vanish.
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.contains_pointer(), 0.22);
     let img = Rect::from_min_size(rect.min, Vec2::splat(width));
     let radius = if c.round { width / 2.0 } else { 8.0 };
     paint_cover(ui, img, &c.thumbs, radius, 1.0 + 0.06 * h);

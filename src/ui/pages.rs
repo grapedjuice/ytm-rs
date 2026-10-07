@@ -239,7 +239,7 @@ fn top_result(ui: &mut Ui, c: &Card, acts: &mut Vec<Action>) {
         ui.add_space(8.0);
         let (rect, resp) = ui.allocate_exact_size(vec2(420.0, 236.0), Sense::click());
         let resp = named(resp, &c.title);
-        let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.2);
+        let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.contains_pointer(), 0.2);
         ui.painter().rect_filled(rect, 14.0, theme::glass(0.07 + 0.05 * h));
         let img = Rect::from_min_size(rect.min + vec2(20.0, 20.0), Vec2::splat(110.0));
         paint_cover(ui, img, &c.thumbs, if c.round { 55.0 } else { 8.0 }, 1.0);

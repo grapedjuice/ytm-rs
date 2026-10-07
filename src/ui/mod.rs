@@ -843,6 +843,18 @@ impl eframe::App for App {
         }
     }
 
+    /// Dev hook: `YTM_FAKE_POINTER=x,y` parks a synthetic pointer there, for testing
+    /// hover behaviour without touching the real mouse.
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        if let Some((x, y)) = std::env::var("YTM_FAKE_POINTER").ok().and_then(|v| {
+            let (x, y) = v.split_once(',')?;
+            Some((x.trim().parse::<f32>().ok()?, y.trim().parse::<f32>().ok()?))
+        }) {
+            raw.events.retain(|e| !matches!(e, egui::Event::PointerMoved(_) | egui::Event::PointerGone));
+            raw.events.push(egui::Event::PointerMoved(egui::pos2(x, y)));
+        }
+    }
+
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         if std::env::var_os("YTM_MUTE").is_none() {
             storage.set_string("volume", self.audio.volume().to_string());

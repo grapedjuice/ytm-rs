@@ -72,7 +72,7 @@ downloaded, so Next and auto-advance open a decoder in under a millisecond.
 - `cargo run --release --example probe -- "query"` runs the headless playback path:
   search → resolve → download → decode → seek, with timings
 - `cargo run --example apis` reports which rustypipe endpoints currently work
-- Dev hooks (environment variables): `YTM_SMOKE="query"` plays the first search hit, `YTM_SEARCH`, `YTM_PAGE=home|explore|library|settings|album:<id>|artist:<id>|playlist:<id>`, `YTM_NOWPLAYING=1`, `YTM_SEEK=<secs>`, `YTM_MUTE=1` (silent, volume isn't saved), `YTM_SCREENSHOT=out.png` (the app saves its own framebuffer), `YTM_NO_SHADER=1`
+- Dev hooks (environment variables): `YTM_SMOKE="query"` plays the first search hit, `YTM_SEARCH`, `YTM_PAGE=home|explore|library|settings|album:<id>|artist:<id>|playlist:<id>`, `YTM_NOWPLAYING=1`, `YTM_SEEK=<secs>`, `YTM_MUTE=1` (silent, volume isn't saved), `YTM_SCREENSHOT=out.png` (the app saves its own framebuffer), `YTM_NO_SHADER=1`, `YTM_FAKE_POINTER=x,y` / `YTM_FAKE_WHEEL=secs,notches` (synthetic input for testing hover and scrolling)
 - `cargo run --example lyrics_check -- body.txt` summarises a saved Better Lyrics response
 
 ## Credits

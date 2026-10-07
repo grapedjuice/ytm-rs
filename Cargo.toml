@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.104"
+base64 = "0.23.1"
 crossbeam-channel = "0.5.17"
 directories = "6.0.0"
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit", "persistence", "wayland", "x11"] }
@@ -17,6 +18,7 @@ memmap2 = "0.9.11"
 raw-window-handle = "0.6"
 reqwest = { version = "0.12", default-features = false, features = ["default-tls"] }
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "symphonia-aac", "symphonia-isomp4"] }
+roxmltree = "0.21.1"
 rustypipe = { version = "0.11.4", features = ["userdata"] }
 serde_json = "1.0.151"
 souvlaki = "0.8.3"

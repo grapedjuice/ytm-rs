@@ -7,20 +7,27 @@ mod fonts;
 mod images;
 mod innertube;
 mod login;
+mod lyrics;
 mod media;
 mod stream;
+mod turnstile;
 
 use std::sync::{Arc, OnceLock};
 
 use crossbeam_channel::unbounded;
 
 fn main() -> eframe::Result {
+    // Child-process modes for the webview windows (see login.rs / turnstile.rs).
     let mut args = std::env::args_os().skip(1);
-    if args.next().is_some_and(|a| a == login::FLAG) {
-        if let Some(dir) = args.next() {
+    if let (Some(flag), Some(dir)) = (args.next(), args.next()) {
+        if flag == login::FLAG {
             login::child_main(dir.into());
+            return Ok(());
         }
-        return Ok(());
+        if flag == turnstile::FLAG {
+            turnstile::child_main(dir.into());
+            return Ok(());
+        }
     }
     init_logging();
 

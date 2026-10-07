@@ -4389,6 +4389,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "roxmltree"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "rquickjs"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6770,6 +6779,7 @@ name = "ytm-rs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.23.1",
  "crossbeam-channel",
  "directories",
  "eframe",
@@ -6782,6 +6792,7 @@ dependencies = [
  "raw-window-handle",
  "reqwest",
  "rodio",
+ "roxmltree",
  "rustypipe",
  "serde_json",
  "souvlaki",

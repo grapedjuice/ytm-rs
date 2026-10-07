@@ -49,15 +49,6 @@ pub struct Lyrics {
 }
 
 impl Lyrics {
-    /// Index of the line being sung at `ms` (the last one that has started).
-    pub fn active_line(&self, ms: u32) -> Option<usize> {
-        if self.sync == Sync::None {
-            return None;
-        }
-        let i = self.lines.partition_point(|l| l.start <= ms);
-        (i > 0).then(|| i - 1)
-    }
-
     pub fn plain(text: &str, source: &'static str) -> Self {
         let lines = text
             .lines()

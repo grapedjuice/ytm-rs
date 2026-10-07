@@ -101,13 +101,3 @@ impl BytesLoader for HttpImages {
         self.cache.lock().unwrap().values().any(|e| matches!(e, Entry::Pending))
     }
 }
-
-/// Pick the smallest thumbnail at least `min_px` wide (falls back to the largest).
-pub fn pick(thumbs: &[rustypipe::model::Thumbnail], min_px: u32) -> Option<&str> {
-    thumbs
-        .iter()
-        .filter(|t| t.width >= min_px)
-        .min_by_key(|t| t.width)
-        .or_else(|| thumbs.iter().max_by_key(|t| t.width))
-        .map(|t| t.url.as_str())
-}

@@ -39,10 +39,12 @@ pub struct Shared {
     inner: Mutex<Inner>,
     ready: Condvar,
     pub total: u64,
+    /// Track length reported by the stream metadata (0 if unknown).
+    pub duration_ms: u64,
 }
 
 impl Shared {
-    pub fn new(total: u64) -> Arc<Self> {
+    pub fn new(total: u64, duration_ms: u64) -> Arc<Self> {
         let n = total.div_ceil(BLOCK) as usize;
         Arc::new(Self {
             inner: Mutex::new(Inner {
@@ -55,6 +57,7 @@ impl Shared {
             }),
             ready: Condvar::new(),
             total,
+            duration_ms,
         })
     }
 

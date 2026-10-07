@@ -6,14 +6,15 @@ bundled browser engine. It's inspired by [spotifast](https://github.com/crmne/sp
 
 ## Features
 
-- Search (songs, albums, artists, playlists), plus home with new releases and charts
-- Album, artist and playlist pages, and your library (liked songs, playlists, albums) after sign-in
-- Queue with play next, add to queue, shuffle and repeat (off / all / one)
-- Radio from any track, with autoplay that keeps the queue going when it runs out
-- Lyrics panel
+- Your real YouTube Music home feed when signed in: Listen again, Quick picks, mixes and mood chips, with infinite scroll
+- Explore (new releases, charts), search with live suggestions, album/playlist/artist pages, and a library with liked songs, playlists, albums and history
+- Time-synced lyrics from the Better Lyrics API (Musixmatch, LRCLIB, QQ, KuGou and Better Lyrics' own syllable-synced TTML), shown better-lyrics style: word-by-word fill, background vocals, duet alignment, instrumental-break dots, click a line to seek
+- An animated album-art background: a port of Kawarp, the effect behind better-lyrics-shaders, which pulses with the music
+- A now-playing view with full-screen lyrics (`F`), a queue drawer, radio and autoplay, shuffle and repeat, and liking songs
 - OS media controls: Windows SMTC, MPRIS on Linux, Now Playing on macOS (via souvlaki)
-- Keyboard: `Space` play/pause, `Ctrl+→/←` next/previous, `Ctrl+F` search, `Alt+←` or mouse back to go back
 - Every control has an accessible name, so the app works with screen readers through AccessKit
+
+Lyrics access uses the same Cloudflare Turnstile check as the browser extension. The API's challenge page runs in a hidden WebView2 window, where it normally passes invisibly; if Cloudflare asks for a click, the window is shown. The resulting token lasts 24 h.
 
 ## Build
 
@@ -55,8 +56,8 @@ downloaded, so Next and auto-advance open a decoder in under a millisecond.
 
 ### Measured (Windows 11, Ryzen + RX 6750 XT, release build)
 
-- Binary: 14 MB
-- CPU: 0% idle, about 0.3% of one core while playing
+- Binary: about 15 MB (Inter and the Lucide icons are subset to roughly 300 KB)
+- CPU: 0% idle; while playing, about 8% of one core on content pages (background at 15 fps) and about 6% in the now-playing view (30 fps). With the animated background off, the UI only ticks at 4 fps
 - Memory: about 126 MB private at idle. Most of that is AMD's OpenGL driver
   (`atio6axx.dll` alone maps 62 MB). The wgpu/DX12 renderer measured 407 MB on the
   same machine, so glow stays.
@@ -69,4 +70,9 @@ downloaded, so Next and auto-advance open a decoder in under a millisecond.
 - `cargo run --release --example probe -- "query"` runs the headless playback path:
   search → resolve → download → decode → seek, with timings
 - `cargo run --example apis` reports which rustypipe endpoints currently work
-- `YTM_SMOKE="query" cargo run` searches and plays the first song on launch
+- Dev hooks (environment variables): `YTM_SMOKE="query"` plays the first search hit, `YTM_SEARCH`, `YTM_PAGE=home|explore|library|settings|album:<id>|artist:<id>|playlist:<id>`, `YTM_NOWPLAYING=1`, `YTM_SEEK=<secs>`, `YTM_MUTE=1` (silent, volume isn't saved), `YTM_SCREENSHOT=out.png` (the app saves its own framebuffer), `YTM_NO_SHADER=1`
+- `cargo run --example lyrics_check -- body.txt` summarises a saved Better Lyrics response
+
+## Credits
+
+Kawarp background (MIT © Better Lyrics) • Better Lyrics API • Inter (SIL OFL 1.1) • Lucide icons (ISC) • rustypipe • egui

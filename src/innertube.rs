@@ -13,6 +13,7 @@ pub const UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit
 pub struct Stream {
     pub url: String,
     pub size: u64,
+    pub duration_ms: u64,
 }
 
 pub async fn audio_stream(http: &reqwest::Client, video_id: &str, visitor_data: &str) -> anyhow::Result<Stream> {
@@ -65,6 +66,7 @@ pub async fn audio_stream(http: &reqwest::Client, video_id: &str, visitor_data: 
             Some(Stream {
                 url: f["url"].as_str()?.to_owned(),
                 size: f["contentLength"].as_str()?.parse().ok()?,
+                duration_ms: f["approxDurationMs"].as_str().and_then(|d| d.parse().ok()).unwrap_or(0),
             })
         })
         .ok_or_else(|| anyhow::anyhow!("no AAC stream in visionOS player response"))

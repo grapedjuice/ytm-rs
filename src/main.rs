@@ -1,16 +1,20 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod app;
+mod art;
 mod audio;
 mod backend;
-mod fonts;
 mod images;
 mod innertube;
 mod login;
 mod lyrics;
 mod media;
+mod model;
+mod shader;
 mod stream;
+mod theme;
 mod turnstile;
+mod ui;
+mod ytm;
 
 use std::sync::{Arc, OnceLock};
 
@@ -49,8 +53,8 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             let ctx = cc.egui_ctx.clone();
-            style(&ctx);
-            fonts::install(&ctx);
+            theme::install_style(&ctx);
+            theme::install_fonts(&ctx);
 
             // Background threads wake the UI through this; set once the context exists.
             static CTX: OnceLock<egui::Context> = OnceLock::new();
@@ -66,6 +70,8 @@ fn main() -> eframe::Result {
                 .and_then(|s| s.get_string("volume"))
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0.8f32);
+            // Dev hook: YTM_MUTE starts silent and never persists the volume.
+            let volume = if std::env::var_os("YTM_MUTE").is_some() { 0.0 } else { volume };
 
             let (audio_tx, audio_rx) = unbounded();
             let audio = audio::spawn(volume, audio_tx, wake);
@@ -80,11 +86,18 @@ fn main() -> eframe::Result {
             let (media_tx, media_rx) = unbounded();
             let media = media::Media::new(hwnd(cc), media_tx, wake);
 
-            Ok(Box::new(app::App::new(
+            // The animated background needs the GL context; without it the UI falls back
+            // to a flat gradient.
+            let bg = cc.gl.as_ref().filter(|_| std::env::var_os("YTM_NO_SHADER").is_none()).and_then(|gl| {
+                shader::Background::new(gl).map_err(|e| log::warn!("background shader unavailable: {e:#}")).ok()
+            });
+
+            Ok(Box::new(ui::App::new(
                 backend,
                 audio,
-                app::Channels { resp_rx, audio_rx, media_rx },
+                ui::Channels { resp_rx, audio_rx, media_rx },
                 media,
+                bg,
                 cc.storage,
             )))
         }),
@@ -103,20 +116,6 @@ fn hwnd(cc: &eframe::CreationContext) -> Option<*mut std::ffi::c_void> {
 #[cfg(not(windows))]
 fn hwnd(_: &eframe::CreationContext) -> Option<*mut std::ffi::c_void> {
     None
-}
-
-fn style(ctx: &egui::Context) {
-    ctx.set_theme(egui::Theme::Dark);
-    ctx.global_style_mut(|s| {
-        s.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        s.spacing.button_padding = egui::vec2(10.0, 5.0);
-        s.visuals.panel_fill = egui::Color32::from_gray(5);
-        s.visuals.selection.bg_fill = egui::Color32::from_rgb(0xff, 0x33, 0x4b);
-        s.visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
-        s.visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
-        s.visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
-        s.interaction.selectable_labels = false;
-    });
 }
 
 /// Log to stderr in debug builds; release builds have no console, so log to a file

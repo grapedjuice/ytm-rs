@@ -27,7 +27,7 @@ async fn main() -> anyhow::Result<()> {
     let s = innertube::audio_stream(&http, &track.id, &vd).await?;
     println!("resolve    {:>6} ms  {} bytes", t.elapsed().as_millis(), s.size);
 
-    let shared = stream::Shared::new(s.size);
+    let shared = stream::Shared::new(s.size, s.duration_ms);
     let sh = shared.clone();
     let t = Instant::now();
     let td = Instant::now();

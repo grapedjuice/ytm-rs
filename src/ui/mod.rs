@@ -807,6 +807,7 @@ impl eframe::App for App {
         if self.page_changed < 0.0 {
             self.page_changed = now;
         }
+        fit_window_to_monitor(ctx);
         if let Some((_, t)) = &mut self.toast {
             if *t < 0.0 {
                 *t = now;
@@ -957,13 +958,31 @@ fn dev_screenshot(ctx: &egui::Context, now: f64) {
     }
 }
 
+/// A restored window size can exceed the monitor (e.g. saved after maximizing),
+/// leaving the player bar partly off-screen. Once at startup, maximize instead.
+fn fit_window_to_monitor(ctx: &egui::Context) {
+    let done = egui::Id::new("fit-window-checked");
+    if ctx.data(|d| d.get_temp::<bool>(done).unwrap_or(false)) {
+        return;
+    }
+    let (outer, monitor, maximized) = ctx.input(|i| (i.viewport().outer_rect, i.viewport().monitor_size, i.viewport().maximized));
+    let (Some(outer), Some(monitor)) = (outer, monitor) else { return };
+    ctx.data_mut(|d| d.insert_temp(done, true));
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, monitor);
+    // A little slack for the invisible resize borders Windows adds around the frame.
+    if maximized != Some(true) && !screen.expand(12.0).contains_rect(outer) {
+        log::info!("window {outer:?} exceeds monitor {monitor:?}; maximizing");
+        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+    }
+}
+
 /// Smooth scrolling: mouse-wheel notches (line units) are collected and replayed as
 /// small pixel steps with an exponential ease-out (~0.3 s glide), like browsers do.
 /// Touchpads already report smooth pixel deltas and pass through untouched, as does
 /// Ctrl+wheel zoom.
 fn smooth_wheel(app: &mut App, ctx: &egui::Context, raw: &mut egui::RawInput) {
-    const NOTCH_PX: f32 = 64.0;
-    const GLIDE: f32 = 0.085; // time constant, seconds
+    const NOTCH_PX: f32 = 110.0;
+    const GLIDE: f32 = 0.06; // time constant, seconds (settles in ~0.18 s)
     let viewport_h = raw.screen_rect.map_or(800.0, |r| r.height());
     raw.events.retain(|e| match e {
         egui::Event::MouseWheel { unit, delta, modifiers, .. } if !modifiers.command && !modifiers.ctrl => {

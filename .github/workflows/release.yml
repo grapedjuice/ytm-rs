@@ -1,0 +1,61 @@
+name: Release
+
+# Builds the Windows installer from the tagged source and attaches it to the
+# GitHub release for that tag (created as a draft if it doesn't exist yet).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check versions match
+        shell: bash
+        run: |
+          cargo_ver=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          iss_ver=$(grep -m1 '#define AppVersion' installer/ytm-rs.iss | cut -d'"' -f2)
+          echo "Cargo.toml $cargo_ver, ytm-rs.iss $iss_ver"
+          [ "$cargo_ver" = "$iss_ver" ] || { echo "version mismatch"; exit 1; }
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$cargo_ver" ]; then
+            echo "tag $GITHUB_REF_NAME does not match v$cargo_ver"; exit 1
+          fi
+          echo "VERSION=$cargo_ver" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q installer\ytm-rs.iss'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ytm-rs-setup-${{ env.VERSION }}
+          path: installer/Output/ytm-rs-setup-${{ env.VERSION }}.exe
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          file="installer/Output/ytm-rs-setup-$VERSION.exe"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$file" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$file" --draft --title "ytm-rs $VERSION" --notes ""
+          fi

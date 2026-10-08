@@ -6897,7 +6897,7 @@ dependencies = [
 
 [[package]]
 name = "ytm-rs"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "base64 0.23.1",

@@ -205,7 +205,7 @@ pub fn paint_cover(ui: &Ui, rect: Rect, thumbs: &[Thumb], radius: f32, zoom: f32
 }
 
 /// Album/playlist/artist/song card with hover zoom, scrim and a play button.
-pub fn card(ui: &mut Ui, c: &Card, width: f32, acts: &mut Vec<Action>) {
+pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Action>) {
     let height = width + 58.0;
     let (rect, resp) = ui.allocate_exact_size(vec2(width, height), Sense::click());
     if !ui.is_rect_visible(rect) {
@@ -241,7 +241,10 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, acts: &mut Vec<Action>) {
     let title = galley_wrapped(ui, &c.title, theme::semibold(14.5), tcolor, width, 2);
     let title_h = title.size().y;
     ui.painter().galley(pos2(rect.left(), img.bottom() + 10.0), title, tcolor);
-    linked_text(ui, pos2(rect.left(), img.bottom() + 14.0 + title_h), &c.subtitle, &c.links, theme::regular(13.0), theme::TEXT_DIM, width, acts);
+    linked_text(ui, pos2(rect.left(), img.bottom() + 14.0 + title_h), &c.subtitle, &c.links, theme::regular(13.0), theme::TEXT_DIM, width - 36.0, acts);
+    let more_rect = Rect::from_center_size(pos2(rect.right() - 16.0, rect.bottom() - 17.0), Vec2::splat(30.0));
+    let more = more_button(ui, more_rect, resp.id.with("more"), "Options");
+    egui::Popup::menu(&more).show(|ui| card_menu_contents(ui, c, liked, acts));
 
     if play_hit {
         match &c.target {
@@ -249,52 +252,102 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, acts: &mut Vec<Action>) {
             Target::Song(t) => acts.push(Action::Radio(t.clone())),
             t => acts.push(Action::PlayCollection(t.clone(), false)),
         }
-    } else if resp.clicked() {
+    } else if resp.clicked() && !more.clicked() {
         acts.push(Action::Open(c.target.clone()));
     }
-    card_menu(&resp, c, acts);
 }
 
-fn card_menu(resp: &Response, c: &Card, acts: &mut Vec<Action>) {
-    resp.context_menu(|ui| match &c.target {
-        Target::Song(t) => song_menu(ui, t, acts),
+fn card_menu_contents(ui: &mut Ui, c: &Card, liked: bool, acts: &mut Vec<Action>) {
+    match &c.target {
+        Target::Song(t) => song_menu(ui, t, liked, acts),
         t => {
-            if ui.button("Play").clicked() {
+            ui.set_width(226.0);
+            ui.add_space(3.0);
+            if menu_action(ui, Some(icon::PLAY), "Play") {
                 acts.push(Action::PlayCollection(t.clone(), false));
             }
-            if ui.button("Shuffle play").clicked() {
+            if menu_action(ui, Some(icon::SHUFFLE), "Shuffle play") {
                 acts.push(Action::PlayCollection(t.clone(), true));
             }
-            if ui.button("Open").clicked() {
+            if menu_action(ui, None, "Open") {
                 acts.push(Action::Open(t.clone()));
             }
+            ui.separator();
+            if menu_action(ui, None, "Copy link") {
+                acts.push(Action::Share(t.clone()));
+            }
+            ui.add_space(3.0);
         }
-    });
+    }
 }
 
-pub fn song_menu(ui: &mut Ui, t: &Track, acts: &mut Vec<Action>) {
-    if ui.button("Play next").clicked() {
+fn more_button(ui: &mut Ui, rect: Rect, id: egui::Id, label: &str) -> Response {
+    let response = named(ui.interact(rect, id, Sense::click()), label)
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    if response.hovered() || egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response)) {
+        ui.painter().rect_filled(rect, 7.0, theme::glass(0.16));
+    }
+    let color = if response.hovered() { theme::TEXT } else { theme::TEXT_DIM };
+    icon_at(ui, rect.center(), icon::ELLIPSIS_VERTICAL, 18.0, color);
+    response
+}
+
+fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
+    let (rect, response) = ui.allocate_exact_size(vec2(218.0, 32.0), Sense::click());
+    let response = named(response, label).on_hover_cursor(egui::CursorIcon::PointingHand);
+    if response.hovered() {
+        ui.painter().rect_filled(rect, 7.0, theme::glass(0.12));
+    }
+    let color = if response.hovered() { theme::TEXT } else { theme::TEXT_DIM };
+    if let Some(glyph) = glyph {
+        icon_at(ui, pos2(rect.left() + 19.0, rect.center().y), glyph, 16.0, color);
+    } else {
+        ui.painter().text(pos2(rect.left() + 19.0, rect.center().y), Align2::CENTER_CENTER, "↗", theme::semibold(17.0), color);
+    }
+    ui.painter().text(pos2(rect.left() + 40.0, rect.center().y), Align2::LEFT_CENTER, label, theme::regular(14.0), theme::TEXT);
+    if response.clicked() { ui.close(); }
+    response.clicked()
+}
+
+pub fn song_menu(ui: &mut Ui, t: &Track, liked: bool, acts: &mut Vec<Action>) {
+    ui.set_width(226.0);
+    ui.add_space(3.0);
+    if menu_action(ui, Some(icon::HEART), if liked { "Remove like" } else { "Like song" }) {
+        acts.push(Action::Like(t.id.clone(), !liked));
+    }
+    if menu_action(ui, Some(icon::THUMBS_DOWN), "Dislike song") {
+        acts.push(Action::Dislike(t.id.clone()));
+    }
+    if menu_action(ui, Some(icon::LIST_PLUS), "Add to playlist") {
+        acts.push(Action::AddToPlaylist(t.clone()));
+    }
+    if menu_action(ui, None, "Copy link") {
+        acts.push(Action::Share(Target::Song(t.clone())));
+    }
+    ui.separator();
+    if menu_action(ui, Some(icon::SKIP_FORWARD), "Play next") {
         acts.push(Action::PlayNext(t.clone()));
     }
-    if ui.button("Add to queue").clicked() {
+    if menu_action(ui, Some(icon::LIST_MUSIC), "Add to queue") {
         acts.push(Action::Enqueue(t.clone()));
     }
-    if ui.button("Start radio").clicked() {
+    if menu_action(ui, Some(icon::RADIO), "Start radio") {
         acts.push(Action::Radio(t.clone()));
     }
     if t.album.as_ref().and_then(|a| a.id.as_ref()).is_some() || t.first_artist_id().is_some() {
         ui.separator();
     }
     if let Some(id) = t.album.as_ref().and_then(|a| a.id.clone()) {
-        if ui.button("Go to album").clicked() {
+        if menu_action(ui, Some(icon::DISC_3), "Go to album") {
             acts.push(Action::Open(Target::Album(id)));
         }
     }
     if let Some(id) = t.first_artist_id() {
-        if ui.button("Go to artist").clicked() {
+        if menu_action(ui, Some(icon::USER), "Go to artist") {
             acts.push(Action::Open(Target::Artist(id.to_owned())));
         }
     }
+    ui.add_space(3.0);
 }
 
 /// Soft drop shadow under a rounded rect (e.g. artwork).
@@ -379,16 +432,18 @@ pub struct RowOpts {
     pub accent: Color32,
     pub time: f64,
     pub level: f32,
+    pub liked: bool,
 }
 
 /// Song row: cover (or index), title, artists, album, duration. Click plays.
 pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 56.0), Sense::click());
+    let (rect, base) = ui.allocate_exact_size(vec2(ui.available_width(), 56.0), Sense::hover());
     if !ui.is_rect_visible(rect) {
-        return resp;
+        return base;
     }
-    let resp = named(resp, &t.title);
-    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
+    let hit_rect = Rect::from_min_max(rect.min, pos2(rect.right() - 42.0, rect.bottom()));
+    let resp = named(ui.interact(hit_rect, base.id.with("play"), Sense::click()), &t.title);
+    let h = theme::anim_bool(ui.ctx(), base.id.with("h"), base.contains_pointer(), 0.15);
     if h > 0.0 || o.current {
         let a = if o.current { 0.07 + 0.05 * h } else { 0.07 * h };
         ui.painter().rect_filled(rect, 8.0, theme::glass(a));
@@ -417,7 +472,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         }
         x += 54.0;
     }
-    let right = rect.right() - 14.0;
+    let right = rect.right() - 51.0;
     let dur_w = 52.0;
     let avail = right - dur_w - x;
     let wide = avail > 520.0;
@@ -466,6 +521,9 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     if let Some(d) = t.duration {
         ui.painter().text(pos2(right, cy), Align2::RIGHT_CENTER, super::fmt_time(d), theme::regular(13.0), theme::TEXT_DIM);
     }
+    let more_rect = Rect::from_center_size(pos2(rect.right() - 20.0, cy), Vec2::splat(30.0));
+    let more = more_button(ui, more_rect, base.id.with("more"), "Song options");
+    egui::Popup::menu(&more).show(|ui| song_menu(ui, t, o.liked, acts));
     resp
 }
 
@@ -498,16 +556,21 @@ pub fn shelf_header(ui: &mut Ui, title: &str, strap: Option<&str>, strap_thumb: 
     res
 }
 
-/// Horizontal scroller that animates to a new offset when the arrows are used.
-pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, add: impl FnOnce(&mut Ui) -> R) -> R {
+/// Horizontal scroller that animates by whole cards or song columns.
+pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, item_width: f32, gap: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
     let sid = egui::Id::new(("hscroll", id));
     let anim_id = sid.with("anim");
-    let current = egui::scroll_area::State::load(ui.ctx(), ui.make_persistent_id(sid)).map_or(0.0, |s| s.offset.x);
+    // ScrollArea hashes its id_salt once more. Read that same ID, or left clicks
+    // always appear to start from zero.
+    let state_id = ui.make_persistent_id(egui::IdSalt::new(sid));
+    let current = egui::scroll_area::State::load(ui.ctx(), state_id).map_or(0.0, |s| s.offset.x);
     let target_id = sid.with("target");
+    let max_id = sid.with("max");
     let mut target: Option<f32> = ui.ctx().data(|d| d.get_temp(target_id));
     if nudge != 0 {
-        let step = ui.available_width() * 0.8 * nudge as f32;
-        let t = (current + step).max(0.0);
+        let step = item_width + gap;
+        let max = ui.ctx().data(|d| d.get_temp::<f32>(max_id)).unwrap_or(f32::INFINITY);
+        let t = (target.unwrap_or(current) + step * nudge as f32).clamp(0.0, max);
         // Snap the animator to the real position, then glide to the target.
         ui.ctx().animate_value_with_time(anim_id, current, 0.0);
         target = Some(t);
@@ -521,7 +584,17 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, add: impl FnOnce(&mut Ui) 
             ui.ctx().data_mut(|d| d.remove::<f32>(target_id));
         }
     }
-    area.show(ui, |ui| ui.horizontal_top(add).inner).inner
+    // Extra end space lets the final arrow stop on a card boundary instead of
+    // clipping the leading card when the viewport width is not a whole multiple.
+    let end_space = (ui.available_width() + gap) % (item_width + gap);
+    let out = area.show(ui, |ui| ui.horizontal_top(|ui| {
+        let result = add(ui);
+        ui.add_space(end_space);
+        result
+    }).inner);
+    let max = (out.content_size.x - out.inner_rect.width()).max(0.0);
+    ui.ctx().data_mut(|d| d.insert_temp(max_id, max));
+    out.inner
 }
 
 /// Shimmering placeholder blocks while a page loads.

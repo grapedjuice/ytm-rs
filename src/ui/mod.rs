@@ -72,10 +72,24 @@ pub enum Action {
     QueueRemove(usize),
     Seek(f32),
     Like(String, bool),
+    Dislike(String),
+    Share(Target),
+    AddToPlaylist(Track),
+    NewPlaylist(Option<Track>),
+    EditPlaylist,
+    DeletePlaylist,
+    SaveCollection(String, bool),
     HomeChip(Option<String>),
     OpenNowPlaying(bool),
     /// Play/pause what's already loaded (a card's button on the playing item).
     TogglePlay,
+}
+
+enum Dialog {
+    PickPlaylist(Track),
+    NewPlaylist { title: String, track: Option<Track> },
+    EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
+    ConfirmDelete { id: String, title: String },
 }
 
 pub struct HomeState {
@@ -97,6 +111,7 @@ pub struct App {
     ch: Channels,
     media: Option<Media>,
     discord: Option<crate::discord::Discord>,
+    discord_enabled: bool,
     /// Last state sent to Discord, to send only real changes.
     discord_sent: Option<crate::discord::Presence>,
     /// Last session's song, restored paused: Play starts it from here.
@@ -143,6 +158,7 @@ pub struct App {
     art_key: Option<String>,
     art_changed: f64,
     accent: Color32,
+    default_theme: bool,
     anim_bg: bool,
     reactive_bg: bool,
     /// Background animation clock: advances only while music plays, so pausing
@@ -169,6 +185,8 @@ pub struct App {
     cookie_input: String,
     toast: Option<(String, f64)>,
     actions: Vec<Action>,
+    dialog: Option<Dialog>,
+    share_pending: Option<String>,
     smoke: Option<String>,
 }
 
@@ -182,6 +200,7 @@ impl App {
         storage: Option<&dyn eframe::Storage>,
     ) -> Self {
         let get = |k: &str| storage.and_then(|s| s.get_string(k));
+        let discord_enabled = get("discord_enabled").is_none_or(|v| v == "1");
         let logged_in = backend.is_logged_in();
         backend.request(Req::Home(None));
         if logged_in {
@@ -192,7 +211,8 @@ impl App {
             audio,
             ch,
             media,
-            discord: crate::discord::Discord::spawn(),
+            discord: discord_enabled.then(crate::discord::Discord::spawn).flatten(),
+            discord_enabled,
             discord_sent: None,
             resume_at: None,
             queue_source: None,
@@ -231,6 +251,7 @@ impl App {
             art_key: None,
             art_changed: -10.0,
             accent: theme::RED,
+            default_theme: get("default_theme").is_some_and(|v| v == "1"),
             anim_bg: get("anim_bg").is_none_or(|v| v == "1"),
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
             bg_time: 0.0,
@@ -250,6 +271,8 @@ impl App {
             cookie_input: String::new(),
             toast: None,
             actions: Vec::new(),
+            dialog: None,
+            share_pending: None,
             smoke: None,
         };
         // Dev hooks: YTM_SMOKE="query" searches and plays the first song; YTM_SEARCH
@@ -348,6 +371,24 @@ impl App {
 
     fn playing(&self) -> bool {
         self.audio.status.playing.load(Ordering::Relaxed)
+    }
+
+    fn accent_color(&self) -> Color32 {
+        if self.default_theme { theme::RED } else { self.accent }
+    }
+
+    fn set_discord_enabled(&mut self, enabled: bool) {
+        self.discord_enabled = enabled;
+        if enabled {
+            if self.discord.is_none() {
+                self.discord = crate::discord::Discord::spawn();
+            }
+        } else {
+            if let Some(discord) = self.discord.take() {
+                discord.set(None);
+            }
+            self.discord_sent = None;
+        }
     }
 
     /// Mirror playback into Discord. Cheap enough to run every frame: it only sends on a
@@ -625,6 +666,40 @@ impl App {
                 }
                 self.backend.request(Req::Like { video_id: id, like });
             }
+            Action::Dislike(id) => {
+                if !self.logged_in { self.toast("Sign in to rate songs"); return; }
+                self.liked.remove(&id);
+                if let Some(lib) = &mut self.library { lib.liked.retain(|t| t.id != id); }
+                self.backend.request(Req::Dislike(id));
+            }
+            Action::Share(target) => {
+                self.share_pending = Some(share_url(&target));
+                self.toast("Link copied");
+            }
+            Action::AddToPlaylist(track) => {
+                if self.logged_in { self.dialog = Some(Dialog::PickPlaylist(track)); }
+                else { self.toast("Sign in to edit playlists"); }
+            }
+            Action::NewPlaylist(track) => {
+                if self.logged_in { self.dialog = Some(Dialog::NewPlaylist { title: String::new(), track }); }
+                else { self.toast("Sign in to create playlists"); }
+            }
+            Action::EditPlaylist => {
+                if let Some(c) = self.collection.as_ref().filter(|c| !c.is_album) {
+                    self.dialog = Some(Dialog::EditPlaylist {
+                        id: c.id.clone(), title: c.title.clone(), description: c.description.clone().unwrap_or_default(), privacy: None,
+                    });
+                }
+            }
+            Action::DeletePlaylist => {
+                if let Some(c) = self.collection.as_ref().filter(|c| !c.is_album) {
+                    self.dialog = Some(Dialog::ConfirmDelete { id: c.id.clone(), title: c.title.clone() });
+                }
+            }
+            Action::SaveCollection(id, save) => {
+                if self.logged_in { self.backend.request(Req::SaveCollection { id, save }); }
+                else { self.toast("Sign in to save to library"); }
+            }
             Action::HomeChip(params) => {
                 self.home_loading = true;
                 if let Some(h) = &mut self.home {
@@ -794,6 +869,20 @@ impl App {
                     self.liked.insert(video_id);
                 }
             }
+            Resp::PlaylistCreated { id, had_song } => {
+                self.backend.request(Req::Library);
+                self.toast(if had_song { "Song added to new playlist" } else { "Playlist created" });
+                self.go(Page::Playlist(id));
+            }
+            Resp::PlaylistChanged { id, message } => {
+                self.backend.request(Req::Library);
+                if let Some(id) = id {
+                    if self.page == Page::Playlist(id.clone()) { self.backend.request(Req::Playlist(id)); }
+                } else if matches!(self.page, Page::Playlist(_)) {
+                    self.go(Page::Library(LibTab::Playlists));
+                }
+                self.toast(message);
+            }
             Resp::PlayError { generation, msg } => {
                 if generation == self.generation {
                     self.buffering = false;
@@ -917,6 +1006,103 @@ impl App {
     }
 }
 
+fn share_url(target: &Target) -> String {
+    match target {
+        Target::Song(t) => format!("https://music.youtube.com/watch?v={}", t.id),
+        Target::Playlist(id) => format!("https://music.youtube.com/playlist?list={id}"),
+        Target::Album(id) => format!("https://music.youtube.com/browse/{id}"),
+        Target::Artist(id) => format!("https://music.youtube.com/channel/{id}"),
+    }
+}
+
+#[cfg(test)]
+mod share_tests {
+    use super::*;
+
+    #[test]
+    fn shares_youtube_music_urls() {
+        let song = Track { id: "abc123".into(), title: String::new(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None };
+        assert_eq!(share_url(&Target::Song(song)), "https://music.youtube.com/watch?v=abc123");
+        assert_eq!(share_url(&Target::Playlist("PL123".into())), "https://music.youtube.com/playlist?list=PL123");
+        assert_eq!(share_url(&Target::Album("MPRE123".into())), "https://music.youtube.com/browse/MPRE123");
+        assert_eq!(share_url(&Target::Artist("UC123".into())), "https://music.youtube.com/channel/UC123");
+    }
+}
+
+impl App {
+    fn draw_dialog(&mut self, ctx: &egui::Context) {
+        let Some(mut dialog) = self.dialog.take() else { return };
+        let mut open = true;
+        let mut done = false;
+        let heading = match &dialog {
+            Dialog::PickPlaylist(_) => "Add to playlist",
+            Dialog::NewPlaylist { .. } => "New playlist",
+            Dialog::EditPlaylist { .. } => "Edit playlist",
+            Dialog::ConfirmDelete { .. } => "Delete playlist",
+        };
+        egui::Window::new(heading).collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
+            ui.set_min_width(340.0);
+            match &mut dialog {
+                Dialog::PickPlaylist(track) => {
+                    if ui.button("+ New playlist").clicked() {
+                        self.actions.push(Action::NewPlaylist(Some(track.clone())));
+                        done = true;
+                    }
+                    ui.separator();
+                    let cards = self.library.as_ref().map(|l| l.playlists.clone()).unwrap_or_default();
+                    egui::ScrollArea::vertical().max_height(330.0).show(ui, |ui| {
+                        for card in cards {
+                            if let Target::Playlist(id) = card.target {
+                                if !id.starts_with("PL") { continue; }
+                                if ui.button(&card.title).clicked() {
+                                    self.backend.request(Req::AddToPlaylist { playlist_id: id, video_id: track.id.clone() });
+                                    done = true;
+                                }
+                            }
+                        }
+                    });
+                }
+                Dialog::NewPlaylist { title, track } => {
+                    ui.label("Name");
+                    ui.text_edit_singleline(title);
+                    if ui.add_enabled(!title.trim().is_empty(), egui::Button::new("Create")).clicked() {
+                        self.backend.request(Req::CreatePlaylist { title: title.trim().to_owned(), video_id: track.as_ref().map(|t| t.id.clone()) });
+                        done = true;
+                    }
+                }
+                Dialog::EditPlaylist { id, title, description, privacy } => {
+                    ui.label("Name");
+                    ui.text_edit_singleline(title);
+                    ui.label("Description");
+                    ui.text_edit_multiline(description);
+                    egui::ComboBox::from_label("Visibility").selected_text(privacy.as_deref().unwrap_or("Keep current"))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(privacy, None, "Keep current");
+                            for value in ["PRIVATE", "UNLISTED", "PUBLIC"] {
+                                ui.selectable_value(privacy, Some(value.to_owned()), value);
+                            }
+                        });
+                    if ui.add_enabled(!title.trim().is_empty(), egui::Button::new("Save")).clicked() {
+                        self.backend.request(Req::EditPlaylist { id: id.clone(), title: title.trim().to_owned(), description: description.clone(), privacy: privacy.clone() });
+                        done = true;
+                    }
+                }
+                Dialog::ConfirmDelete { id, title } => {
+                    ui.label(format!("Delete \"{title}\"?"));
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() { done = true; }
+                        if ui.button("Delete playlist").clicked() {
+                            self.backend.request(Req::DeletePlaylist(id.clone()));
+                            done = true;
+                        }
+                    });
+                }
+            }
+        });
+        if open && !done { self.dialog = Some(dialog); }
+    }
+}
+
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let now = ctx.input(|i| i.time);
@@ -948,7 +1134,7 @@ impl eframe::App for App {
         let playing = self.playing();
         if self.np_open && playing {
             ctx.request_repaint_after(Duration::from_millis(33));
-        } else if playing && self.anim_bg {
+        } else if playing && self.anim_bg && !self.default_theme {
             ctx.request_repaint_after(Duration::from_millis(66));
         } else if playing || self.buffering {
             ctx.request_repaint_after(Duration::from_millis(250));
@@ -982,7 +1168,7 @@ impl eframe::App for App {
                     .show(ui, |ui| shell::queue_drawer(self, ui));
             }
             egui::CentralPanel::default()
-                .frame(egui::Frame::new().inner_margin(egui::Margin { left: 28, right: 20, top: 14, bottom: 0 }))
+                .frame(egui::Frame::new().inner_margin(egui::Margin { left: 28, right: 0, top: 14, bottom: 0 }))
                 .show(ui, |ui| {
                     shell::top_bar(self, ui);
                     ui.add_space(6.0);
@@ -990,6 +1176,8 @@ impl eframe::App for App {
                 });
         }
         nowplaying::overlay(self, &ctx, now);
+        self.draw_dialog(&ctx);
+        if let Some(url) = self.share_pending.take() { ctx.copy_text(url); }
         shell::suggestions(self, &ctx);
         shell::toast(self, &ctx, now);
 
@@ -1046,6 +1234,8 @@ impl eframe::App for App {
         storage.set_string("repeat", repeat.into());
         let b = |v: bool| if v { "1" } else { "0" }.to_owned();
         storage.set_string("autoplay", b(self.autoplay));
+        storage.set_string("discord_enabled", b(self.discord_enabled));
+        storage.set_string("default_theme", b(self.default_theme));
         storage.set_string("anim_bg", b(self.anim_bg));
         storage.set_string("reactive_bg", b(self.reactive_bg));
         // Background test runs leave the user's real "last song" alone unless asked.

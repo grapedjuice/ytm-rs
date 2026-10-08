@@ -54,6 +54,59 @@ pub async fn set_like(q: &RustyPipeQuery, video_id: &str, like: bool) -> anyhow:
     Ok(())
 }
 
+pub async fn dislike(q: &RustyPipeQuery, video_id: &str) -> anyhow::Result<()> {
+    write(q, "like/dislike", json!({"target": {"videoId": video_id}})).await?;
+    Ok(())
+}
+
+/// Write actions use the same authenticated InnerTube client as likes. Keep the
+/// response check here so a rejected edit never looks successful in the UI.
+async fn write(q: &RustyPipeQuery, endpoint: &str, body: Value) -> anyhow::Result<Value> {
+    let value: Value = serde_json::from_str(&q.raw(ClientType::DesktopMusic, endpoint, &body).await?)?;
+    if value["status"].as_str().is_some_and(|s| !s.contains("SUCCEEDED")) {
+        anyhow::bail!("YouTube Music rejected the change");
+    }
+    Ok(value)
+}
+
+pub async fn create_playlist(q: &RustyPipeQuery, title: &str, video_id: Option<&str>) -> anyhow::Result<String> {
+    let mut body = json!({"title": title, "description": "", "privacyStatus": "PRIVATE"});
+    if let Some(id) = video_id { body["videoIds"] = json!([id]); }
+    let value = write(q, "playlist/create", body).await?;
+    value["playlistId"].as_str().map(str::to_owned).ok_or_else(|| anyhow::anyhow!("YouTube Music did not return a playlist"))
+}
+
+pub async fn edit_playlist(q: &RustyPipeQuery, id: &str, title: &str, description: &str, privacy: Option<&str>) -> anyhow::Result<()> {
+    let mut actions = vec![
+        json!({"action": "ACTION_SET_PLAYLIST_NAME", "playlistName": title}),
+        json!({"action": "ACTION_SET_PLAYLIST_DESCRIPTION", "playlistDescription": description}),
+    ];
+    if let Some(privacy) = privacy { actions.push(json!({"action": "ACTION_SET_PLAYLIST_PRIVACY", "playlistPrivacy": privacy})); }
+    write(q, "browse/edit_playlist", json!({"playlistId": id, "actions": actions})).await?;
+    Ok(())
+}
+
+pub async fn add_to_playlist(q: &RustyPipeQuery, playlist_id: &str, video_id: &str) -> anyhow::Result<()> {
+    write(q, "browse/edit_playlist", json!({"playlistId": playlist_id, "actions": [
+        {"action": "ACTION_ADD_VIDEO", "addedVideoId": video_id, "dedupeOption": "DEDUPE_OPTION_SKIP"}
+    ]})).await?;
+    Ok(())
+}
+
+pub async fn delete_playlist(q: &RustyPipeQuery, id: &str) -> anyhow::Result<()> {
+    let response = write(q, "playlist/delete", json!({"playlistId": id})).await?;
+    let deleted_id = response["command"]["commandExecutorCommand"]["commands"]
+        .as_array().and_then(|commands| commands.iter().find_map(|command| command["handlePlaylistDeletionCommand"]["playlistId"].as_str()));
+    anyhow::ensure!(deleted_id == Some(id), "YouTube Music did not confirm playlist deletion");
+    Ok(())
+}
+
+pub async fn save_collection(q: &RustyPipeQuery, playlist_id: &str, save: bool) -> anyhow::Result<()> {
+    let endpoint = if save { "like/like" } else { "like/removelike" };
+    write(q, endpoint, json!({"target": {"playlistId": playlist_id}})).await?;
+    Ok(())
+}
+
 fn continuation(sec: &Value) -> Option<String> {
     sec["continuations"][0]["nextContinuationData"]["continuation"].as_str().map(str::to_owned)
 }

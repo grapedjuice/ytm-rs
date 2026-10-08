@@ -25,12 +25,12 @@ pub fn vgradient(ui: &Ui, rect: Rect, top: Color32, bottom: Color32) {
 pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64) {
     let dt = (now - app.last_frame).clamp(0.0, 0.1);
     app.last_frame = now;
-    let moving = app.anim_bg && app.playing();
+    let moving = !app.default_theme && app.anim_bg && app.playing();
     if moving {
         app.bg_time += dt;
     }
     ui.painter().rect_filled(screen, 0.0, theme::BG);
-    if let Some(bg) = &app.bg {
+    if let Some(bg) = app.bg.as_ref().filter(|_| !app.default_theme) {
         let blend = theme::ease_in_out(((now - app.art_changed) / 1.4) as f32);
         let level = if app.reactive_bg && app.playing() { app.audio.status.level() } else { 0.0 };
         bg.paint(
@@ -46,7 +46,7 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64) {
             },
         );
     } else {
-        vgradient(ui, screen, theme::with_alpha(app.accent, 0.18), theme::BG);
+        vgradient(ui, screen, theme::with_alpha(app.accent_color(), 0.18), theme::BG);
     }
     // Keep text readable: darken toward the bottom and under the sidebar.
     vgradient(ui, screen, theme::shade(0.12), theme::shade(0.55));
@@ -193,11 +193,12 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add_space(20.0);
             let (r, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
             let resp = named(resp, "Account");
             let initial = app.account_name.as_deref().and_then(|n| n.chars().next()).unwrap_or('?');
             if app.logged_in {
-                ui.painter().circle_filled(r.center(), 18.0, theme::lerp_color(app.accent, Color32::BLACK, 0.35));
+                ui.painter().circle_filled(r.center(), 18.0, theme::lerp_color(app.accent_color(), Color32::BLACK, 0.35));
                 ui.painter().text(r.center(), Align2::CENTER_CENTER, initial, theme::bold(16.0), Color32::WHITE);
             } else {
                 ui.painter().circle_filled(r.center(), 18.0, theme::glass(0.12));
@@ -277,9 +278,9 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     ui.painter().rect_filled(line, 0.0, theme::glass(0.12));
     let frac = if total > 0.0 { pos / total } else { 0.0 };
     let filled = Rect::from_min_size(line.min, vec2(line.width() * frac, thick));
-    ui.painter().rect_filled(filled, 0.0, app.accent);
+    ui.painter().rect_filled(filled, 0.0, app.accent_color());
     if h > 0.0 && total > 0.0 {
-        ui.painter().circle_filled(pos2(filled.right(), line.center().y), 7.0 * h, app.accent);
+        ui.painter().circle_filled(pos2(filled.right(), line.center().y), 7.0 * h, app.accent_color());
         if let Some(p) = resp.hover_pos() {
             let t = ((p.x - full.left()) / full.width()).clamp(0.0, 1.0) * total;
             let tip = pos2(p.x, line.top() - 16.0);
@@ -365,7 +366,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     }
 
     // Centre: transport
-    let accent = app.accent;
+    let accent = app.accent_color();
     let center = pos2(row.center().x, cy);
     let ctl = |ui: &mut Ui, dx: f32, glyph: char, name: &str, active: bool, size: f32| -> bool {
         let r = Rect::from_center_size(center + vec2(dx, 0.0), Vec2::splat(size + 16.0));
@@ -514,7 +515,7 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
     let now = ui.input(|i| i.time);
     let level = app.audio.status.level();
     let playing = app.playing();
-    let accent = app.accent;
+    let accent = app.accent_color();
     egui::ScrollArea::vertical().id_salt(("queue", salt)).auto_shrink(false).show(ui, |ui| {
         if app.queue.is_empty() {
             ui.label(egui::RichText::new("Nothing queued yet").color(theme::TEXT_DIM));
@@ -526,13 +527,13 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
         for i in start..app.queue.len() {
             let t = app.queue[i].clone();
             let current = Some(i) == app.index;
-            let opts = widgets::RowOpts { number: None, show_album: false, current, playing, accent, time: now, level };
+            let opts = widgets::RowOpts { number: None, show_album: false, current, playing, accent, time: now, level, liked: app.liked.contains(&t.id) };
             let resp = widgets::track_row(ui, &t, &opts, &mut app.actions);
             if resp.clicked() {
                 // The playing row pauses/resumes instead of doing nothing.
                 app.actions.push(if current { Action::TogglePlay } else { Action::QueueJump(i) });
             }
-            if !current && resp.hovered() {
+            if !current && ui.rect_contains_pointer(Rect::from_min_max(resp.rect.min, pos2(resp.rect.right() + 42.0, resp.rect.bottom()))) {
                 // Remove button over the duration column.
                 let x = Rect::from_center_size(resp.rect.right_center() - vec2(26.0, 0.0), Vec2::splat(28.0));
                 let xr = named(ui.interact(x, resp.id.with("rm"), Sense::click()), "Remove from queue");
@@ -542,8 +543,6 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
                     app.actions.push(Action::QueueRemove(i));
                 }
             }
-            let acts = &mut app.actions;
-            resp.context_menu(|ui| widgets::song_menu(ui, &t, acts));
         }
     });
 }

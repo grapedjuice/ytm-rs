@@ -18,6 +18,7 @@ pub fn page(app: &mut App, ui: &mut Ui, now: f64) {
     let page = app.page.clone();
     let scroll_id = format!("{:?}", std::mem::discriminant(&page));
     let out = egui::ScrollArea::vertical().id_salt(&scroll_id).auto_shrink(false).show(ui, |ui| {
+        ui.set_max_width((ui.available_width() - 20.0).max(0.0));
         ui.add_space(18.0 * (1.0 - t));
         match &page {
             Page::Home => home(app, ui, now),
@@ -64,9 +65,10 @@ fn opts(app: &App, t: &Track, number: Option<usize>, show_album: bool, now: f64)
         show_album,
         current: app.current_id() == Some(t.id.as_str()),
         playing: app.audio.status.playing.load(Ordering::Relaxed),
-        accent: app.accent,
+        accent: app.accent_color(),
         time: now,
         level: app.audio.status.level(),
+        liked: app.liked.contains(&t.id),
     }
 }
 
@@ -76,10 +78,10 @@ fn card_row(ui: &mut Ui, id: &str, title: &str, cards: &[Card], acts: &mut Vec<A
     }
     let (l, r) = shelf_header(ui, title, None, None, true);
     let nudge = r as i32 - l as i32;
-    h_scroll(ui, id, nudge, |ui| {
+    h_scroll(ui, id, nudge, CARD, 18.0, |ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
         for c in cards {
-            card(ui, c, CARD, acts);
+            card(ui, c, CARD, false, acts);
         }
     });
 }
@@ -90,7 +92,7 @@ fn song_grid(app: &mut App, ui: &mut Ui, id: &str, title: &str, strap: Option<&s
     let nudge = r as i32 - l as i32;
     let col_w = (ui.available_width() / 2.6).clamp(300.0, 420.0);
     let mut picked = None;
-    h_scroll(ui, id, nudge, |ui| {
+    h_scroll(ui, id, nudge, col_w, 16.0, |ui| {
         ui.spacing_mut().item_spacing.x = 16.0;
         for (c, col) in tracks.chunks(rows.max(1)).enumerate() {
             ui.allocate_ui(vec2(col_w, rows as f32 * 60.0), |ui| {
@@ -102,8 +104,6 @@ fn song_grid(app: &mut App, ui: &mut Ui, id: &str, title: &str, strap: Option<&s
                         if resp.clicked() {
                             picked = Some(c * rows + i);
                         }
-                        let acts = &mut app.actions;
-                        resp.context_menu(|ui| widgets::song_menu(ui, t, acts));
                     }
                 });
             });
@@ -148,10 +148,12 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
                 let (l, r) = shelf_header(ui, &s.title, s.strapline.as_deref(), s.strap_thumb.as_deref(), true);
                 let nudge = r as i32 - l as i32;
                 let acts = &mut app.actions;
-                h_scroll(ui, &id, nudge, |ui| {
+                let liked = &app.liked;
+                h_scroll(ui, &id, nudge, CARD, 18.0, |ui| {
                     ui.spacing_mut().item_spacing.x = 18.0;
                     for c in cards {
-                        card(ui, c, CARD, acts);
+                        let is_liked = matches!(&c.target, Target::Song(t) if liked.contains(&t.id));
+                        card(ui, c, CARD, is_liked, acts);
                     }
                 });
             }
@@ -173,12 +175,14 @@ fn explore(app: &mut App, ui: &mut Ui, now: f64) {
         widgets::skeleton(ui, now, 2, CARD);
         return;
     };
-    let (albums, charts, top) = (e.new_albums.clone(), e.charts.clone(), e.top.clone());
-    card_row(ui, "ex-new", "New releases", &albums, &mut app.actions);
+    card_row(ui, "ex-new", "Popular new releases", &e.new_albums, &mut app.actions);
+    let top = e.top.clone();
     if !top.is_empty() {
         song_grid(app, ui, "ex-top", "Top songs", None, &top, 4, now);
     }
-    card_row(ui, "ex-charts", "Charts", &charts, &mut app.actions);
+    if let Some(e) = &app.explore {
+        card_row(ui, "ex-charts", "Charts", &e.charts, &mut app.actions);
+    }
 }
 
 fn page_title(ui: &mut Ui, title: &str) {
@@ -224,8 +228,6 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
                 if resp.clicked() {
                     app.actions.push(Action::Play(tracks.clone(), i));
                 }
-                let acts = &mut app.actions;
-                resp.context_menu(|ui| widgets::song_menu(ui, t, acts));
             }
         });
     });
@@ -241,8 +243,6 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
             if resp.clicked() {
                 app.actions.push(Action::Play(tracks.clone(), i));
             }
-            let acts = &mut app.actions;
-            resp.context_menu(|ui| widgets::song_menu(ui, t, acts));
         }
     }
     card_row(ui, "s-pl", "Playlists", &playlists, &mut app.actions);
@@ -290,8 +290,8 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         widgets::skeleton(ui, now, 1, 232.0);
         return;
     };
-    let (title, subtitle, artists, desc, thumbs, tracks, is_album) =
-        (c.title.clone(), c.subtitle.clone(), c.artists.clone(), c.description.clone(), c.thumbs.clone(), c.tracks.clone(), c.is_album);
+    let (title, subtitle, artists, desc, thumbs, tracks, is_album, save_id) =
+        (c.title.clone(), c.subtitle.clone(), c.artists.clone(), c.description.clone(), c.thumbs.clone(), c.tracks.clone(), c.is_album, c.save_id.clone());
     ui.add_space(18.0);
     ui.horizontal_top(|ui| {
         let (img, _) = ui.allocate_exact_size(Vec2::splat(232.0), Sense::hover());
@@ -332,6 +332,24 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                         app.actions.push(Action::Radio(first.clone()));
                     }
                 }
+                if pill(ui, "Share", None, false).clicked() {
+                    app.actions.push(Action::Share(target.clone()));
+                }
+                if app.logged_in {
+                    let saved = app.library.as_ref().is_some_and(|l| {
+                        let cards = if is_album { &l.albums } else { &l.playlists };
+                        cards.iter().any(|card| card.target == target)
+                    });
+                    if let Some(save_id) = if is_album { save_id.clone() } else { Some(id.to_owned()) } {
+                        if pill(ui, if saved { "Remove from library" } else { "Save to library" }, None, false).clicked() {
+                            app.actions.push(Action::SaveCollection(save_id, !saved));
+                        }
+                    }
+                    if !is_album {
+                        if pill(ui, "Edit", None, false).clicked() { app.actions.push(Action::EditPlaylist); }
+                        if pill(ui, "Delete", None, false).clicked() { app.actions.push(Action::DeletePlaylist); }
+                    }
+                }
             });
         });
     });
@@ -343,8 +361,6 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         if resp.clicked() {
             app.actions.push(Action::Play(tracks.clone(), i));
         }
-        let acts = &mut app.actions;
-        resp.context_menu(|ui| widgets::song_menu(ui, t, acts));
     }
 }
 
@@ -377,7 +393,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, vis_h));
         egui::Image::new(t.url.clone()).uv(uv).corner_radius(14).paint_at(ui, hero);
     } else {
-        ui.painter().rect_filled(hero, 14.0, theme::with_alpha(app.accent, 0.25));
+        ui.painter().rect_filled(hero, 14.0, theme::with_alpha(app.accent_color(), 0.25));
     }
     super::shell::vgradient(ui, Rect::from_min_max(pos2(hero.left(), hero.center().y - 40.0), hero.max), Color32::TRANSPARENT, theme::shade(0.85));
     let base = hero.left_bottom() + vec2(28.0, -30.0);
@@ -419,8 +435,6 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             if resp.clicked() {
                 app.actions.push(Action::Play(top.clone(), i));
             }
-            let acts = &mut app.actions;
-            resp.context_menu(|ui| widgets::song_menu(ui, t, acts));
         }
     }
     card_row(ui, "a-albums", "Albums & singles", &albums, &mut app.actions);
@@ -462,7 +476,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(20.0, 22.0);
             for c in cards {
-                card(ui, c, CARD, acts);
+                card(ui, c, CARD, false, acts);
             }
         });
     };
@@ -482,6 +496,10 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
             match tab {
                 LibTab::Playlists => {
                     let cards = lib.playlists.clone();
+                    if pill(ui, "New playlist", None, false).clicked() {
+                        app.actions.push(Action::NewPlaylist(None));
+                    }
+                    ui.add_space(14.0);
                     grid(ui, &cards, &mut app.actions)
                 }
                 LibTab::Albums => {
@@ -518,8 +536,6 @@ fn list(app: &mut App, ui: &mut Ui, tracks: &[Track], now: f64) {
         if resp.clicked() {
             app.actions.push(Action::Play(tracks.to_vec(), i));
         }
-        let acts = &mut app.actions;
-        resp.context_menu(|ui| widgets::song_menu(ui, t, acts));
     }
 }
 
@@ -582,12 +598,23 @@ fn settings(app: &mut App, ui: &mut Ui) {
     if let Some(c) = cookie_submit {
         app.backend.request(crate::backend::Req::SetCookie(c));
     }
-    let (autoplay, anim, reactive) = (&mut app.autoplay, &mut app.anim_bg, &mut app.reactive_bg);
-    section(ui, "Playback & visuals", &mut |ui| {
-        ui.checkbox(autoplay, "Autoplay similar songs when the queue ends");
-        ui.checkbox(anim, "Animated album-art background (Kawarp)");
-        ui.checkbox(reactive, "Background pulses with the music");
+    section(ui, "Playback", &mut |ui| {
+        ui.checkbox(&mut app.autoplay, "Autoplay similar songs when the queue ends");
     });
+    section(ui, "Appearance", &mut |ui| {
+        ui.checkbox(&mut app.default_theme, "Keep default theme (dark with red accents)");
+        ui.add_enabled_ui(!app.default_theme, |ui| {
+            ui.checkbox(&mut app.anim_bg, "Animated album-art background (Kawarp)");
+            ui.checkbox(&mut app.reactive_bg, "Background pulses with the music");
+        });
+    });
+    let mut discord_enabled = app.discord_enabled;
+    section(ui, "Connections", &mut |ui| {
+        ui.checkbox(&mut discord_enabled, "Show what I'm playing on Discord");
+    });
+    if discord_enabled != app.discord_enabled {
+        app.set_discord_enabled(discord_enabled);
+    }
     section(ui, "Shortcuts", &mut |ui| {
         for (k, v) in [
             ("Space", "Play / pause"),

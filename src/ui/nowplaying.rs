@@ -26,7 +26,7 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
             // Swallow input so the page underneath doesn't react.
             ui.allocate_rect(rect, Sense::click_and_drag());
             let painter = ui.painter_at(rect);
-            if let Some(bg) = &app.bg {
+            if let Some(bg) = app.bg.as_ref().filter(|_| !app.default_theme) {
                 let blend = theme::ease_in_out(((now - app.art_changed) / 1.4) as f32);
                 let level = if app.reactive_bg && app.playing() { app.audio.status.level() } else { 0.0 };
                 bg.paint(
@@ -35,7 +35,7 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
                     Params { time: app.bg_time as f32, blend, intensity: 1.0, saturation: 1.5, dim: 0.85, scale: 1.2 + level.min(0.5) * 0.12 },
                 );
             } else {
-                painter.rect_filled(rect, 0.0, theme::lerp_color(theme::BG, app.accent, 0.25));
+                painter.rect_filled(rect, 0.0, theme::lerp_color(theme::BG, app.accent_color(), 0.25));
             }
             super::shell::vgradient(ui, rect, theme::shade(0.18), theme::shade(0.42));
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(32.0, 20.0))));
@@ -62,6 +62,10 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
             app.set_fullscreen(ui.ctx(), fs);
         }
         ui.add_space(8.0);
+        let more = icon_button(ui, icon::ELLIPSIS_VERTICAL, 20.0, "Song options", false);
+        let liked = app.liked.contains(&track.id);
+        egui::Popup::menu(&more).show(|ui| widgets::song_menu(ui, &track, liked, &mut app.actions));
+        ui.add_space(8.0);
         if widgets::chip(ui, "Up next", app.np_tab == NpTab::UpNext).clicked() {
             app.np_tab = NpTab::UpNext;
         }
@@ -71,7 +75,7 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     });
 
     let content = Rect::from_min_max(pos2(area.left(), header.bottom() + 12.0), area.max);
-    let lyrics_only = app.fullscreen || content.width() < 860.0;
+    let lyrics_only = content.width() < 860.0;
     let right = if lyrics_only {
         content
     } else {
@@ -81,6 +85,15 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         let art = Rect::from_center_size(pos2(col.center().x, col.top() + side / 2.0 + (col.height() - side - 110.0).max(0.0) * 0.35), Vec2::splat(side));
         widgets::soft_shadow(ui, art, 12.0, 60.0, 0.55);
         paint_cover(ui, art, &track.thumbs, 12.0, 1.0);
+        let cover = named(ui.interact(art, ui.id().with(("cover-playback", &track.id)), Sense::click()), if app.playing() { "Pause" } else { "Play" })
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        let hover = theme::anim_bool(ui.ctx(), ("cover-playback-hover", &track.id), cover.hovered(), 0.16);
+        if hover > 0.0 {
+            ui.painter().rect_filled(art, 12.0, theme::shade(0.28 * hover));
+            ui.painter().circle_filled(art.center(), 38.0, theme::shade(0.58 * hover));
+            widgets::icon_at(ui, art.center(), if app.playing() || app.buffering { icon::PAUSE } else { icon::PLAY }, 37.0, theme::with_alpha(Color32::WHITE, hover));
+        }
+        if cover.clicked() { app.actions.push(Action::TogglePlay); }
         let w = side;
         let title_y = art.bottom() + 22.0;
         text_at(ui, pos2(art.left(), title_y), &track.title, theme::bold(28.0), Color32::WHITE, w);

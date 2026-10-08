@@ -47,6 +47,12 @@ pub enum Req {
     /// Resolve and download a track ahead of time so skipping to it is instant.
     Prefetch(String),
     Like { video_id: String, like: bool },
+    Dislike(String),
+    CreatePlaylist { title: String, video_id: Option<String> },
+    EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
+    AddToPlaylist { playlist_id: String, video_id: String },
+    DeletePlaylist(String),
+    SaveCollection { id: String, save: bool },
     SetCookie(String),
     Logout,
 }
@@ -70,6 +76,12 @@ impl Req {
             Req::Play { .. } => "Playback",
             Req::Prefetch(_) => "Prefetch",
             Req::Like { .. } => "Like",
+            Req::Dislike(_) => "Dislike",
+            Req::CreatePlaylist { .. } => "Create playlist",
+            Req::EditPlaylist { .. } => "Edit playlist",
+            Req::AddToPlaylist { .. } => "Add to playlist",
+            Req::DeletePlaylist(_) => "Delete playlist",
+            Req::SaveCollection { .. } => "Save to library",
             Req::SetCookie(_) => "Sign in",
             Req::Logout => "Sign out",
         }
@@ -99,6 +111,8 @@ pub struct SearchResults {
 pub struct Collection {
     pub id: String,
     pub is_album: bool,
+    /// Album's playlist ID for saving it to the account library.
+    pub save_id: Option<String>,
     pub title: String,
     pub subtitle: String,
     /// Album artists / playlist owner named in the subtitle, clickable.
@@ -143,6 +157,8 @@ pub enum Resp {
     Radio { seed: String, tracks: Vec<Track> },
     PlayQueue { tracks: Vec<Track> },
     Liked { video_id: String, like: bool },
+    PlaylistCreated { id: String, had_song: bool },
+    PlaylistChanged { id: Option<String>, message: &'static str },
     /// Playback for `generation` failed before reaching the audio engine.
     PlayError { generation: u64, msg: String },
     LoggedIn(bool),
@@ -247,7 +263,7 @@ impl Backend {
                     let (charts, new) = tokio::join!(q.music_charts(None), q.music_new_albums());
                     let charts = charts?;
                     Resp::Explore(Explore {
-                        new_albums: new.unwrap_or_default().iter().map(album_card).collect(),
+                        new_albums: popular_new_albums(&new.unwrap_or_default(), &charts.artists),
                         charts: charts.playlists.iter().map(playlist_card).collect(),
                         top: model::tracks(if charts.top_tracks.is_empty() { &charts.trending_tracks } else { &charts.top_tracks }),
                     })
@@ -354,6 +370,30 @@ impl Backend {
                     ytm::set_like(&q.authenticated(), &video_id, like).await?;
                     Resp::Liked { video_id, like }
                 }
+                Req::Dislike(video_id) => {
+                    ytm::dislike(&q.authenticated(), &video_id).await?;
+                    Resp::Liked { video_id, like: false }
+                }
+                Req::CreatePlaylist { title, video_id } => {
+                    let id = ytm::create_playlist(&q.authenticated(), &title, video_id.as_deref()).await?;
+                    Resp::PlaylistCreated { id, had_song: video_id.is_some() }
+                }
+                Req::EditPlaylist { id, title, description, privacy } => {
+                    ytm::edit_playlist(&q.authenticated(), &id, &title, &description, privacy.as_deref()).await?;
+                    Resp::PlaylistChanged { id: Some(id), message: "Playlist updated" }
+                }
+                Req::AddToPlaylist { playlist_id, video_id } => {
+                    ytm::add_to_playlist(&q.authenticated(), &playlist_id, &video_id).await?;
+                    Resp::PlaylistChanged { id: Some(playlist_id), message: "Added to playlist" }
+                }
+                Req::DeletePlaylist(id) => {
+                    ytm::delete_playlist(&q.authenticated(), &id).await?;
+                    Resp::PlaylistChanged { id: None, message: "Playlist deleted" }
+                }
+                Req::SaveCollection { id, save } => {
+                    ytm::save_collection(&q.authenticated(), &id, save).await?;
+                    Resp::PlaylistChanged { id: Some(id), message: if save { "Saved to library" } else { "Removed from library" } }
+                }
                 Req::SetCookie(input) => {
                     self.set_cookie(&input).await?;
                     log::info!("signed in");
@@ -392,6 +432,7 @@ impl Backend {
         }
         Ok(Collection {
             artists: model::links(&a.artists),
+            save_id: a.playlist_id,
             id: a.id,
             is_album: true,
             title: a.name,
@@ -415,6 +456,7 @@ impl Backend {
         sub.push(format!("{} songs", pl.track_count.unwrap_or(pl.tracks.items.len() as u64)));
         Ok(Collection {
             artists: pl.channel.iter().map(|c| model::Link { name: c.name.clone(), id: Some(c.id.clone()) }).collect(),
+            save_id: None,
             id: pl.id,
             is_album: false,
             title: pl.name,
@@ -609,6 +651,37 @@ fn album_card(a: &AlbumItem) -> Card {
         target: Target::Album(a.id.clone()),
         round: false,
         links: model::links(&a.artists),
+    }
+}
+
+/// The public new-albums feed is ordered by recency, not popularity. Use the
+/// artist ranking already fetched for Charts to keep Explore relevant without
+/// making extra per-album requests.
+fn popular_new_albums(albums: &[AlbumItem], ranked_artists: &[ArtistItem]) -> Vec<Card> {
+    let mut seen = std::collections::HashSet::new();
+    ranked_artists.iter().flat_map(|artist| {
+        albums.iter().filter(move |album| album.artists.iter().any(|a| a.id.as_deref() == Some(artist.id.as_str())))
+    }).filter(|album| seen.insert(album.id.as_str())).take(16).map(album_card).collect()
+}
+
+#[cfg(test)]
+mod explore_tests {
+    use super::*;
+
+    #[test]
+    fn new_releases_only_include_charting_artists_and_deduplicate() {
+        let artist: ArtistItem = serde_json::from_value(serde_json::json!({
+            "id": "popular", "name": "Artist", "avatar": [], "subscriber_count": null
+        })).unwrap();
+        let album = |id: &str, artist_id: &str| serde_json::from_value::<AlbumItem>(serde_json::json!({
+            "id": id, "name": id, "cover": [],
+            "artists": [{"id": artist_id, "name": "Artist"}],
+            "artist_id": artist_id, "album_type": "album", "year": null, "by_va": false
+        })).unwrap();
+        let albums = vec![album("obscure", "other"), album("popular-album", "popular")];
+        let found = popular_new_albums(&albums, &[artist.clone(), artist]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].title, "popular-album");
     }
 }
 

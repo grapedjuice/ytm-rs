@@ -50,10 +50,6 @@ The built application is at `target\release\ytm-rs.exe`.
 - Age-restricted tracks use an automatic `yt-dlp` fallback and require Node.js. Regular playback does not.
 - ytm-rs is an unofficial client. Changes to YouTube Music or third-party services can affect playback, sign-in, or lyrics.
 
-## Code signing
-
-Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). See the [code signing policy](CODE_SIGNING.md).
-
 ## License
 
 [GPL-3.0](LICENSE). ytm-rs uses rustypipe, which is GPL-3.0.

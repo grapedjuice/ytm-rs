@@ -78,7 +78,7 @@ fn card_row(ui: &mut Ui, id: &str, title: &str, cards: &[Card], acts: &mut Vec<A
     }
     let (l, r) = shelf_header(ui, title, None, None, true);
     let nudge = r as i32 - l as i32;
-    h_scroll(ui, id, nudge, CARD, 18.0, |ui| {
+    h_scroll(ui, id, nudge, cards.len(), CARD, 18.0, |ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
         for c in cards {
             card(ui, c, CARD, false, acts);
@@ -87,12 +87,12 @@ fn card_row(ui: &mut Ui, id: &str, title: &str, cards: &[Card], acts: &mut Vec<A
 }
 
 /// Songs laid out in columns of `rows`, scrolling sideways (Quick picks).
-fn song_grid(app: &mut App, ui: &mut Ui, id: &str, title: &str, strap: Option<&str>, tracks: &[Track], rows: usize, now: f64) {
+fn song_grid(app: &mut App, ui: &mut Ui, id: &str, title: &str, strap: Option<&str>, tracks: &[Track], rows: usize, now: f64) -> bool {
     let (l, r) = shelf_header(ui, title, strap, None, true);
     let nudge = r as i32 - l as i32;
     let col_w = (ui.available_width() / 2.6).clamp(300.0, 420.0);
     let mut picked = None;
-    h_scroll(ui, id, nudge, col_w, 16.0, |ui| {
+    let (_, reached_end) = h_scroll(ui, id, nudge, tracks.len().div_ceil(rows.max(1)), col_w, 16.0, |ui| {
         ui.spacing_mut().item_spacing.x = 16.0;
         for (c, col) in tracks.chunks(rows.max(1)).enumerate() {
             ui.allocate_ui(vec2(col_w, rows as f32 * 60.0), |ui| {
@@ -112,6 +112,7 @@ fn song_grid(app: &mut App, ui: &mut Ui, id: &str, title: &str, strap: Option<&s
     if let Some(i) = picked {
         app.actions.push(Action::Radio(tracks[i].clone()));
     }
+    reached_end
 }
 
 // ------------------------------------------------------------------ home
@@ -145,11 +146,12 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
         let id = format!("home-{i}-{}", s.title);
         match &s.kind {
             ShelfKind::Cards(cards) => {
-                let (l, r) = shelf_header(ui, &s.title, s.strapline.as_deref(), s.strap_thumb.as_deref(), true);
+                let (strap, thumb) = if s.title == "Listen again" { (None, None) } else { (s.strapline.as_deref(), s.strap_thumb.as_deref()) };
+                let (l, r) = shelf_header(ui, &s.title, strap, thumb, true);
                 let nudge = r as i32 - l as i32;
                 let acts = &mut app.actions;
                 let liked = &app.liked;
-                h_scroll(ui, &id, nudge, CARD, 18.0, |ui| {
+                h_scroll(ui, &id, nudge, cards.len(), CARD, 18.0, |ui| {
                     ui.spacing_mut().item_spacing.x = 18.0;
                     for c in cards {
                         let is_liked = matches!(&c.target, Target::Song(t) if liked.contains(&t.id));
@@ -158,7 +160,17 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
                 });
             }
             ShelfKind::Songs { tracks, rows } => {
-                song_grid(app, ui, &id, &s.title, s.strapline.as_deref(), tracks, *rows, now);
+                let reached_end = song_grid(app, ui, &id, &s.title, s.strapline.as_deref(), tracks, *rows, now);
+                if s.title == "Quick picks" && reached_end {
+                    if let Some(h) = &mut app.home {
+                        if !h.picks_loading && !h.picks_expanded {
+                            if let Some(seed) = tracks.last() {
+                                h.picks_loading = true;
+                                app.backend.request(crate::backend::Req::MoreQuickPicks(seed.id.clone()));
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -175,7 +187,7 @@ fn explore(app: &mut App, ui: &mut Ui, now: f64) {
         widgets::skeleton(ui, now, 2, CARD);
         return;
     };
-    card_row(ui, "ex-new", "Popular new releases", &e.new_albums, &mut app.actions);
+    card_row(ui, "ex-new", if app.logged_in { "New releases for you" } else { "Popular new releases" }, &e.new_albums, &mut app.actions);
     let top = e.top.clone();
     if !top.is_empty() {
         song_grid(app, ui, "ex-top", "Top songs", None, &top, 4, now);

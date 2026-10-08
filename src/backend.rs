@@ -13,7 +13,7 @@ use crossbeam_channel::Sender;
 use rustypipe::client::RustyPipe;
 use rustypipe::model::richtext::ToPlaintext;
 use rustypipe::model::{AlbumItem, ArtistItem, AudioCodec, MusicPlaylistItem};
-use rustypipe::param::StreamFilter;
+use rustypipe::param::{Country, StreamFilter};
 use tokio::runtime::Runtime;
 
 use crate::art::Art;
@@ -27,7 +27,8 @@ pub enum Req {
     /// Home feed, optionally filtered by a mood chip's params.
     Home(Option<String>),
     HomeMore(String),
-    Explore,
+    MoreQuickPicks(String),
+    Explore(Vec<String>),
     Search(String),
     Suggest(String),
     Album(String),
@@ -61,7 +62,8 @@ impl Req {
     fn name(&self) -> &'static str {
         match self {
             Req::Home(_) | Req::HomeMore(_) => "Loading home",
-            Req::Explore => "Loading explore",
+            Req::MoreQuickPicks(_) => "Loading more picks",
+            Req::Explore(_) => "Loading explore",
             Req::Search(_) => "Search",
             Req::Suggest(_) => "Suggest",
             Req::Album(_) => "Loading album",
@@ -145,6 +147,7 @@ pub struct Library {
 pub enum Resp {
     Home(ytm::HomePage),
     HomeMore(ytm::HomePage),
+    QuickPicksMore { seed: String, tracks: Vec<Track> },
     Explore(Explore),
     Search(SearchResults),
     Suggest { query: String, terms: Vec<String> },
@@ -259,11 +262,19 @@ impl Backend {
                     let q = if self.is_logged_in() { q.authenticated() } else { q };
                     Resp::HomeMore(ytm::home_more(&q, &token).await?)
                 }
-                Req::Explore => {
-                    let (charts, new) = tokio::join!(q.music_charts(None), q.music_new_albums());
+                Req::MoreQuickPicks(seed) => {
+                    let q = if self.is_logged_in() { q.authenticated() } else { q };
+                    let radio = q.music_radio_track(&seed).await?;
+                    Resp::QuickPicksMore { seed, tracks: model::tracks(&radio.items) }
+                }
+                Req::Explore(preferred_artists) => {
+                    let releases = if self.is_logged_in() { q.clone().authenticated() } else { q.clone() };
+                    let (charts, new) = tokio::join!(
+                        q.music_charts(Some(Country::Us)), releases.music_new_albums(),
+                    );
                     let charts = charts?;
                     Resp::Explore(Explore {
-                        new_albums: popular_new_albums(&new.unwrap_or_default(), &charts.artists),
+                        new_albums: popular_new_albums(&new.unwrap_or_default(), &charts.artists, &preferred_artists),
                         charts: charts.playlists.iter().map(playlist_card).collect(),
                         top: model::tracks(if charts.top_tracks.is_empty() { &charts.trending_tracks } else { &charts.top_tracks }),
                     })
@@ -312,7 +323,9 @@ impl Backend {
                     let _ = liked.tracks.extend_limit(&q, 1000).await;
                     Resp::Library(Library {
                         liked: model::tracks(&liked.tracks.items),
-                        playlists: pls.map(|p| p.items.iter().map(playlist_card).collect()).unwrap_or_default(),
+                        playlists: pls.map(|p| p.items.iter()
+                            .filter(|item| saved_playlist_visible(item))
+                            .map(playlist_card).collect()).unwrap_or_default(),
                         albums: albums.map(|p| p.items.iter().map(album_card).collect()).unwrap_or_default(),
                     })
                 }
@@ -654,14 +667,14 @@ fn album_card(a: &AlbumItem) -> Card {
     }
 }
 
-/// The public new-albums feed is ordered by recency, not popularity. Use the
-/// artist ranking already fetched for Charts to keep Explore relevant without
-/// making extra per-album requests.
-fn popular_new_albums(albums: &[AlbumItem], ranked_artists: &[ArtistItem]) -> Vec<Card> {
+/// Keep the signed-in release feed's order, using US charts and the user's home artists.
+fn popular_new_albums(albums: &[AlbumItem], ranked_artists: &[ArtistItem], preferred_artists: &[String]) -> Vec<Card> {
+    let chart_ids: std::collections::HashSet<&str> = ranked_artists.iter().map(|a| a.id.as_str()).chain(preferred_artists.iter().map(String::as_str)).collect();
     let mut seen = std::collections::HashSet::new();
-    ranked_artists.iter().flat_map(|artist| {
-        albums.iter().filter(move |album| album.artists.iter().any(|a| a.id.as_deref() == Some(artist.id.as_str())))
-    }).filter(|album| seen.insert(album.id.as_str())).take(16).map(album_card).collect()
+    albums.iter()
+        .filter(|album| album.artists.iter().any(|a| a.id.as_deref().is_some_and(|id| chart_ids.contains(id))))
+        .filter(|album| seen.insert(album.id.as_str()))
+        .take(16).map(album_card).collect()
 }
 
 #[cfg(test)]
@@ -678,10 +691,20 @@ mod explore_tests {
             "artists": [{"id": artist_id, "name": "Artist"}],
             "artist_id": artist_id, "album_type": "album", "year": null, "by_va": false
         })).unwrap();
-        let albums = vec![album("obscure", "other"), album("popular-album", "popular")];
-        let found = popular_new_albums(&albums, &[artist.clone(), artist]);
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].title, "popular-album");
+        let albums = vec![album("obscure", "other"), album("favorite-release", "favorite"), album("first-release", "popular"), album("second-release", "popular"), album("first-release", "popular")];
+        let found = popular_new_albums(&albums, &[artist.clone(), artist], &["favorite".into()]);
+        assert_eq!(found.iter().map(|c| c.title.as_str()).collect::<Vec<_>>(), ["favorite-release", "first-release", "second-release"]);
+    }
+
+    #[test]
+    fn empty_episodes_for_later_is_hidden() {
+        let item = |id: &str, count: Option<u64>| serde_json::from_value::<MusicPlaylistItem>(serde_json::json!({
+            "id": id, "name": "Episodes for later", "thumbnail": [], "channel": null,
+            "track_count": count, "from_ytm": true, "is_podcast": false
+        })).unwrap();
+        assert!(!saved_playlist_visible(&item("SE", None)));
+        assert!(saved_playlist_visible(&item("SE", Some(2))));
+        assert!(saved_playlist_visible(&item("PLcustom", None)));
     }
 }
 
@@ -698,6 +721,10 @@ fn playlist_card(p: &MusicPlaylistItem) -> Card {
         round: false,
         links: p.channel.iter().map(|c| model::Link { name: c.name.clone(), id: Some(c.id.clone()) }).collect(),
     }
+}
+
+fn saved_playlist_visible(item: &MusicPlaylistItem) -> bool {
+    item.id != "SE" || item.track_count.unwrap_or(0) > 0
 }
 
 fn artist_card(a: &ArtistItem) -> Card {

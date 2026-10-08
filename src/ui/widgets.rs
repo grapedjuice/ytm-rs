@@ -556,8 +556,33 @@ pub fn shelf_header(ui: &mut Ui, title: &str, strap: Option<&str>, strap_thumb: 
     res
 }
 
-/// Horizontal scroller that animates by whole cards or song columns.
-pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, item_width: f32, gap: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+/// Aligned starts for complete viewport pages, with a full final page.
+fn shelf_page_starts(count: usize, visible: usize) -> Vec<usize> {
+    let visible = visible.max(1);
+    let last = count.saturating_sub(visible);
+    let mut starts = vec![0];
+    let mut next = visible;
+    while next < last {
+        starts.push(next);
+        next += visible;
+    }
+    if last > *starts.last().unwrap() {
+        starts.push(last);
+    }
+    starts
+}
+
+fn shelf_page_target(starts: &[usize], step: f32, from: f32, nudge: i32) -> f32 {
+    let next = if nudge > 0 {
+        starts.iter().copied().find(|&start| start as f32 * step > from + 0.5).unwrap_or(*starts.last().unwrap())
+    } else {
+        starts.iter().copied().rev().find(|&start| (start as f32 * step) < from - 0.5).unwrap_or(starts[0])
+    };
+    next as f32 * step
+}
+
+/// Horizontal scroller that animates between aligned pages of cards or song columns.
+pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: f32, gap: f32, add: impl FnOnce(&mut Ui) -> R) -> (R, bool) {
     let sid = egui::Id::new(("hscroll", id));
     let anim_id = sid.with("anim");
     // ScrollArea hashes its id_salt once more. Read that same ID, or left clicks
@@ -565,12 +590,17 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, item_width: f32, gap: f32,
     let state_id = ui.make_persistent_id(egui::IdSalt::new(sid));
     let current = egui::scroll_area::State::load(ui.ctx(), state_id).map_or(0.0, |s| s.offset.x);
     let target_id = sid.with("target");
-    let max_id = sid.with("max");
+    let viewport_id = sid.with("viewport");
+    let viewport = ui.ctx().data(|d| d.get_temp::<f32>(viewport_id)).unwrap_or_else(|| ui.available_width());
+    let step = item_width + gap;
+    let visible = ((viewport + gap) / step).floor().max(1.0) as usize;
+    let starts = shelf_page_starts(count, visible);
+    let last_start = *starts.last().unwrap();
+    let mut reached_end = false;
     let mut target: Option<f32> = ui.ctx().data(|d| d.get_temp(target_id));
     if nudge != 0 {
-        let step = item_width + gap;
-        let max = ui.ctx().data(|d| d.get_temp::<f32>(max_id)).unwrap_or(f32::INFINITY);
-        let t = (target.unwrap_or(current) + step * nudge as f32).clamp(0.0, max);
+        let t = shelf_page_target(&starts, step, target.unwrap_or(current), nudge);
+        reached_end = nudge > 0 && count > visible && (t - last_start as f32 * step).abs() < 0.5;
         // Snap the animator to the real position, then glide to the target.
         ui.ctx().animate_value_with_time(anim_id, current, 0.0);
         target = Some(t);
@@ -584,17 +614,68 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, item_width: f32, gap: f32,
             ui.ctx().data_mut(|d| d.remove::<f32>(target_id));
         }
     }
-    // Extra end space lets the final arrow stop on a card boundary instead of
-    // clipping the leading card when the viewport width is not a whole multiple.
-    let end_space = (ui.available_width() + gap) % (item_width + gap);
+    // Give the last page enough trailing room to land exactly on its first item.
+    let content_width = (last_start as f32 * step + viewport).max(count as f32 * step - gap);
     let out = area.show(ui, |ui| ui.horizontal_top(|ui| {
+        ui.set_min_width(content_width);
         let result = add(ui);
-        ui.add_space(end_space);
         result
     }).inner);
-    let max = (out.content_size.x - out.inner_rect.width()).max(0.0);
-    ui.ctx().data_mut(|d| d.insert_temp(max_id, max));
-    out.inner
+    ui.ctx().data_mut(|d| d.insert_temp(viewport_id, out.inner_rect.width()));
+    (out.inner, reached_end)
+}
+
+#[cfg(test)]
+mod shelf_scroll_tests {
+    use super::{shelf_page_starts, shelf_page_target};
+
+    #[test]
+    fn arrows_visit_aligned_pages_in_both_directions() {
+        let pages = shelf_page_starts(14, 5);
+        assert_eq!(pages, [0, 5, 9]);
+        let mut target = 0.0;
+        for direction in [1, 1, -1] {
+            target = shelf_page_target(&pages, 198.0, target, direction);
+        }
+        assert_eq!(target, 5.0 * 198.0);
+        assert_eq!(shelf_page_target(&pages, 198.0, 0.0, -1), 0.0);
+    }
+
+    #[test]
+    fn short_final_page_is_filled_without_overscrolling() {
+        assert_eq!(shelf_page_starts(4, 3), [0, 1]);
+        assert_eq!(shelf_page_starts(3, 3), [0]);
+        assert_eq!(shelf_page_starts(1, 3), [0]);
+        // The old last page is between new page starts after more picks arrive.
+        assert_eq!(shelf_page_target(&shelf_page_starts(11, 3), 436.0, 2.0 * 436.0, 1), 3.0 * 436.0);
+    }
+
+    #[test]
+    fn final_page_has_exactly_enough_scrollable_width() {
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 400.0))),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| {
+                let viewport = ui.available_width();
+                let step = 198.0;
+                let last = *shelf_page_starts(8, ((viewport + 18.0) / step).floor() as usize).last().unwrap();
+                let desired = last as f32 * step + viewport;
+                let out = egui::ScrollArea::horizontal().show(ui, |ui| {
+                    ui.horizontal_top(|ui| {
+                        ui.set_min_width(desired);
+                        ui.spacing_mut().item_spacing.x = 18.0;
+                        for _ in 0..8 {
+                            ui.allocate_exact_size(egui::vec2(180.0, 200.0), egui::Sense::hover());
+                        }
+                    });
+                });
+                assert!((out.content_size.x - out.inner_rect.width() - last as f32 * step).abs() < 1.0,
+                    "viewport={viewport}, content={}, inner={}, last={last}", out.content_size.x, out.inner_rect.width());
+        });
+        output.textures_delta.clear();
+    }
 }
 
 /// Shimmering placeholder blocks while a page loads.

@@ -199,7 +199,11 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
             let initial = app.account_name.as_deref().and_then(|n| n.chars().next()).unwrap_or('?');
             if app.logged_in {
                 ui.painter().circle_filled(r.center(), 18.0, theme::lerp_color(app.accent_color(), Color32::BLACK, 0.35));
-                ui.painter().text(r.center(), Align2::CENTER_CENTER, initial, theme::bold(16.0), Color32::WHITE);
+                if let Some(avatar) = &app.account_avatar {
+                    egui::Image::new(avatar.clone()).corner_radius(18).paint_at(ui, r);
+                } else {
+                    ui.painter().text(r.center(), Align2::CENTER_CENTER, initial, theme::bold(16.0), Color32::WHITE);
+                }
             } else {
                 ui.painter().circle_filled(r.center(), 18.0, theme::glass(0.12));
                 icon_at(ui, r.center(), icon::USER, 18.0, theme::TEXT_DIM);

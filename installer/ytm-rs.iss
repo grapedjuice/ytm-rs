@@ -4,7 +4,7 @@
 ; Output: installer\Output\ytm-rs-setup-<version>.exe
 
 #define AppName "ytm-rs"
-#define AppVersion "0.2.5"
+#define AppVersion "0.2.6"
 #define AppExe "ytm-rs.exe"
 
 [Setup]
@@ -24,8 +24,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputBaseFilename=ytm-rs-setup-{#AppVersion}
-Compression=lzma2/ultra
-SolidCompression=yes
+Compression=none
+SolidCompression=no
 WizardStyle=modern
 SetupIconFile=..\assets\icon\icon.ico
 UninstallDisplayIcon={app}\{#AppExe}

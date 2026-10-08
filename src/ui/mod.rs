@@ -21,7 +21,7 @@ use crate::audio::{AudioCmd, AudioEvent, AudioHandle};
 use crate::backend::{self, ArtistPage, Backend, Collection, Explore, Library, Req, Resp, SearchResults};
 use crate::lyrics::Lyrics;
 use crate::media::Media;
-use crate::model::{Chip, Shelf, Target, Track};
+use crate::model::{Chip, Shelf, ShelfKind, Target, Track};
 use crate::shader::Background;
 use crate::theme;
 
@@ -97,6 +97,8 @@ pub struct HomeState {
     pub shelves: Vec<Shelf>,
     pub continuation: Option<String>,
     pub loading_more: bool,
+    pub picks_loading: bool,
+    pub picks_expanded: bool,
 }
 
 pub struct Channels {
@@ -143,6 +145,7 @@ pub struct App {
     history: Option<Vec<Track>>,
     liked: HashSet<String>,
     account_name: Option<String>,
+    account_avatar: Option<String>,
 
     // playback
     queue: Vec<Track>,
@@ -236,6 +239,7 @@ impl App {
             history: None,
             liked: HashSet::new(),
             account_name: None,
+            account_avatar: None,
             queue: Vec::new(),
             index: None,
             generation: 0,
@@ -338,7 +342,7 @@ impl App {
         self.page_changed = -1.0; // stamped with the frame time on the next pass
         let req = match &self.page {
             Page::Home if self.home.is_none() && !self.home_loading => Some(Req::Home(None)),
-            Page::Explore if self.explore.is_none() => Some(Req::Explore),
+            Page::Explore if self.explore.is_none() => Some(Req::Explore(self.preferred_artist_ids())),
             Page::Search(q) if self.search.as_ref().is_none_or(|s| &s.query != q) => Some(Req::Search(q.clone())),
             Page::Album(id) if self.collection.as_ref().is_none_or(|c| &c.id != id) => Some(Req::Album(id.clone())),
             Page::Playlist(id) if self.collection.as_ref().is_none_or(|c| &c.id != id) => {
@@ -357,6 +361,31 @@ impl App {
         if let Some(r) = req {
             self.backend.request(r);
         }
+    }
+
+    fn preferred_artist_ids(&self) -> Vec<String> {
+        let mut ids = HashSet::new();
+        if let Some(home) = &self.home {
+            for shelf in &home.shelves {
+                if shelf.title != "Listen again" && shelf.title != "Quick picks" { continue; }
+                match &shelf.kind {
+                    ShelfKind::Cards(cards) => {
+                        for card in cards {
+                            ids.extend(card.links.iter().filter_map(|link| link.id.clone()));
+                            if let Target::Song(track) = &card.target {
+                                ids.extend(track.artists.iter().filter_map(|artist| artist.id.clone()));
+                            }
+                        }
+                    }
+                    ShelfKind::Songs { tracks, .. } => {
+                        for track in tracks {
+                            ids.extend(track.artists.iter().filter_map(|artist| artist.id.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        ids.into_iter().collect()
     }
 
     // ---------------------------------------------------------------- playback
@@ -773,6 +802,9 @@ impl App {
                 if self.account_name.is_none() {
                     self.account_name = page.shelves.iter().find_map(|s| s.strapline.clone());
                 }
+                if let Some(avatar) = page.shelves.iter().find(|s| s.title == "Listen again").and_then(|s| s.strap_thumb.clone()) {
+                    self.account_avatar = Some(avatar);
+                }
                 let mut chips = page.chips;
                 // The feed marks the active mood itself; keep the bar when it doesn't send chips.
                 if chips.is_empty() {
@@ -783,6 +815,8 @@ impl App {
                     shelves: page.shelves,
                     continuation: page.continuation,
                     loading_more: false,
+                    picks_loading: false,
+                    picks_expanded: false,
                 });
                 self.home_loading = false;
                 if self.page == Page::Home {
@@ -869,6 +903,20 @@ impl App {
                     self.liked.insert(video_id);
                 }
             }
+            Resp::QuickPicksMore { seed, tracks } => {
+                if let Some(h) = &mut self.home {
+                    h.picks_loading = false;
+                    if let Some(shelf) = h.shelves.iter_mut().find(|s| s.title == "Quick picks") {
+                        if let ShelfKind::Songs { tracks: picks, .. } = &mut shelf.kind {
+                            if picks.iter().any(|t| t.id == seed) {
+                                h.picks_expanded = true;
+                                let mut seen: HashSet<String> = picks.iter().map(|t| t.id.clone()).collect();
+                                picks.extend(tracks.into_iter().filter(|t| seen.insert(t.id.clone())).take(24));
+                            }
+                        }
+                    }
+                }
+            }
             Resp::PlaylistCreated { id, had_song } => {
                 self.backend.request(Req::Library);
                 self.toast(if had_song { "Song added to new playlist" } else { "Playlist created" });
@@ -904,6 +952,8 @@ impl App {
             }
             Resp::LoggedIn(v) => {
                 self.logged_in = v;
+                self.account_name = None;
+                self.account_avatar = None;
                 self.library = None;
                 self.history = None;
                 self.home = None;
@@ -913,7 +963,6 @@ impl App {
                     self.backend.request(Req::Library);
                 } else {
                     self.liked.clear();
-                    self.account_name = None;
                 }
                 self.toast(if v { "Signed in" } else { "Signed out" });
             }
@@ -923,6 +972,7 @@ impl App {
                 self.radio_pending = false;
                 if let Some(h) = &mut self.home {
                     h.loading_more = false;
+                    h.picks_loading = false;
                 }
                 self.toast(e);
             }

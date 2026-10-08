@@ -15,7 +15,7 @@
 | Feature                 | What you can do                                                                                                                                         |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Your music feed**     | Browse your personalized YouTube Music home feed, including Listen again, Quick picks, mixes, and mood filters. Keep scrolling for more.                |
-| **Explore and search**  | Find new releases from charting artists and browse charts, search with live suggestions, and open artist, album, and playlist pages.                      |
+| **Explore and search**  | Find new releases from US charting artists and artists in your music feed, browse charts, and search for songs, albums, and playlists.              |
 | **Your library**        | Access liked songs, saved albums and playlists, and listening history after signing in.                                                                 |
 | **Playback controls**   | Manage the queue, start radio from a song, and use shuffle, repeat, and autoplay. The next track is prefetched for quicker skips.                       |
 | **Lyrics and visuals**  | Follow synced lyrics when available, click a line to seek, switch to full-screen lyrics, and turn on the animated, music-reactive album-art background. |

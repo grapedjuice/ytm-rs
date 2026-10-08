@@ -14,7 +14,7 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -41,7 +41,7 @@ jobs:
       - name: Build installer
         run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q installer\ytm-rs.iss'
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ytm-rs-setup-${{ env.VERSION }}
           path: installer/Output/ytm-rs-setup-${{ env.VERSION }}.exe

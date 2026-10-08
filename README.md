@@ -1,91 +1,57 @@
-# ytm-rs
-
-A native YouTube Music desktop client written in Rust. No Electron, no webview, no
-bundled browser engine. It's inspired by [spotifast](https://github.com/crmne/spotifast)
-(egui Spotify client) and [Pear Desktop](https://github.com/pear-devs/pear-desktop).
+<div align="center">
+  <img src="assets/icon/icon.png" alt="ytm-rs app icon" width="88">
+  <h1>ytm-rs</h1>
+  <p><strong>YouTube Music in a fast, native desktop app.</strong></p>
+  <p>Built with Rust, egui, and rodio. No Electron or browser-based player.</p>
+  <p>
+    <a href="https://github.com/grapedjuice/ytm-rs/releases/latest">Download for Windows</a>
+    · <a href="#features">Features</a>
+    · <a href="#build-from-source">Build from source</a>
+  </p>
+</div>
 
 ## Features
 
-- Your real YouTube Music home feed when signed in: Listen again, Quick picks, mixes and mood chips, with infinite scroll
-- Explore (new releases, charts), search with live suggestions, album/playlist/artist pages, and a library with liked songs, playlists, albums and history
-- Time-synced lyrics from the Better Lyrics API (Musixmatch, LRCLIB, QQ, KuGou and Better Lyrics' own syllable-synced TTML), shown better-lyrics style: word-by-word fill, background vocals, duet alignment, instrumental-break dots, click a line to seek
-- An animated album-art background: a port of Kawarp, the effect behind better-lyrics-shaders, which pulses with the music
-- A now-playing view with full-screen lyrics (`F`), a queue drawer, radio and autoplay, shuffle and repeat, and liking songs
-- OS media controls: Windows SMTC, MPRIS on Linux, Now Playing on macOS (via souvlaki)
-- Every control has an accessible name, so the app works with screen readers through AccessKit
+| Feature                 | What you can do                                                                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Your music feed**     | Browse your personalized YouTube Music home feed, including Listen again, Quick picks, mixes, and mood filters. Keep scrolling for more.                |
+| **Explore and search**  | Find new releases and charts, search with live suggestions, and open artist, album, and playlist pages.                                                 |
+| **Your library**        | Access liked songs, saved albums and playlists, and listening history after signing in.                                                                 |
+| **Playback controls**   | Manage the queue, start radio from a song, and use shuffle, repeat, and autoplay. The next track is prefetched for quicker skips.                       |
+| **Lyrics and visuals**  | Follow synced lyrics when available, click a line to seek, switch to full-screen lyrics, and turn on the animated, music-reactive album-art background. |
+| **Desktop integration** | Use system media controls, Discord Rich Presence, and screen-reader-accessible controls.                                                                |
 
-Lyrics access uses the same Cloudflare Turnstile check as the browser extension. The API's challenge page runs in a hidden WebView2 window, where it normally passes invisibly; if Cloudflare asks for a click, the window is shown. The resulting token lasts 24 h.
+## Get started
 
-## Install (Windows)
+### Install on Windows
 
-Download `ytm-rs-setup-<version>.exe` from [Releases](https://github.com/grapedjuice/ytm-rs/releases) and run it. It installs for the current user by default (no admin prompt), adds a Start menu entry, and registers an uninstaller in Settings → Apps. Lyrics need the WebView2 runtime, which ships with Windows 11.
+Download the latest `ytm-rs-setup-<version>.exe` from [GitHub Releases](https://github.com/grapedjuice/ytm-rs/releases/latest) and run it. The installer works for the current user without administrator access and adds a Start menu shortcut and an entry in Windows Settings for uninstalling.
 
-To build the installer yourself, install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then:
+### Sign in
 
-```sh
+Open **Settings → Sign in with Google** in the app. Signing in unlocks your music feed, library, likes, and history. You can also browse and search without signing in.
+
+## Build from source
+
+On Windows, install the [Rust toolchain](https://rustup.rs/) and the MSVC C++ build tools, then build the app itself:
+
+```powershell
+git clone https://github.com/grapedjuice/ytm-rs.git
+cd ytm-rs
 cargo build --release
-iscc installer/ytm-rs.iss   # -> installer/Output/ytm-rs-setup-<version>.exe
 ```
 
-## Build
+The built application is at `target\release\ytm-rs.exe`.
 
-```sh
-cargo run --release
-```
+## Notes
 
-On Windows this needs the MSVC build tools. Settings live in the eframe storage dir
-(`%APPDATA%\ytm-rs`), and rustypipe's cache sits next to them.
+- The app interface and audio playback are native. Google sign-in and lyrics verification use temporary system webview windows; on Windows, these use WebView2.
+- Synced lyrics come from the Better Lyrics API. If they are unavailable, the app can fall back to YouTube Music's plain lyrics. Lyrics availability depends on the track and the providers.
+- Age-restricted tracks use an automatic `yt-dlp` fallback and require Node.js. Regular playback does not.
+- ytm-rs is an unofficial client. Changes to YouTube Music or third-party services can affect playback, sign-in, or lyrics.
 
-To sign in, open Settings and paste the `cookie` request header from a signed-in
-music.youtube.com tab (DevTools → Network).
+## Built with
 
-## How it stays light
+[egui](https://github.com/emilk/egui) for the interface, [rodio](https://github.com/RustAudio/rodio) and Symphonia for audio, and [rustypipe](https://crates.io/crates/rustypipe) for YouTube Music browsing. The animated background is based on Kawarp from Better Lyrics. The app also uses Inter and Lucide icons.
 
-| | |
-|---|---|
-| UI | egui on glow (OpenGL). It repaints only on input, on network events, or twice a second while playing |
-| Audio | rodio + symphonia, pure-Rust AAC decoding (itag 140) |
-| API | [rustypipe](https://crates.io/crates/rustypipe) for search, browse, library, radio and lyrics |
-| Threads | UI, a 2-worker tokio runtime, the audio thread and the OS audio callback |
-
-**Stream resolution.** As of October 2026, rustypipe's player clients either fail
-signature deobfuscation or get cut off after 1 MiB without a PO token. Instead,
-`src/innertube.rs` calls InnerTube `/player` as the visionOS client, the same client
-yt-dlp uses. It returns plain URLs that need no JS player and no PO token. rustypipe
-is kept as a fallback.
-
-**Progressive, parallel download.** `src/stream.rs` splits the file into 256 KiB
-blocks and fetches them with 4 concurrent range requests. Workers start from the
-block the decoder is waiting on. Playback opens a *non-seekable* decoder, which
-starts at the first MP4 fragment; symphonia's seekable mode would index every
-fragment first, which means waiting for the whole file. A seek builds a seekable
-decoder over the same buffer and swaps it in. If googlevideo starts answering 403
-partway through, the URL is re-resolved and the download resumes.
-
-**Age-restricted songs.** YouTube serves these only to signed-in web players, and their stream URLs are signature-ciphered, so YouTube's JS player has to decode them. For just those tracks, the app falls back to [yt-dlp](https://github.com/yt-dlp/yt-dlp), which needs Node. yt-dlp is downloaded into the data folder on first use and refreshed weekly, and the session goes in as a cookies file that exists only for that call. Everything else stays pure Rust.
-
-**Prefetch.** Once a track starts, the next one in the queue is resolved and
-downloaded, so Next and auto-advance open a decoder in under a millisecond.
-
-### Measured (Windows 11, Ryzen + RX 6750 XT, release build)
-
-- Binary: about 15 MB (Inter and the Lucide icons are subset to roughly 300 KB)
-- CPU: 0% idle; while playing, about 8% of one core on content pages (background at 15 fps) and about 6% in the now-playing view (30 fps). With the animated background off, the UI only ticks at 4 fps
-- Memory: about 126 MB private at idle. Most of that is AMD's OpenGL driver
-  (`atio6axx.dll` alone maps 62 MB). The wgpu/DX12 renderer measured 407 MB on the
-  same machine, so glow stays.
-- Click to audio: about 150 ms to resolve, then the first fragment arrives in
-  0.1–1.1 s depending on googlevideo throttling. Skipping to a prefetched track
-  takes under 1 ms.
-
-## Development
-
-- `cargo run --release --example probe -- "query"` runs the headless playback path:
-  search → resolve → download → decode → seek, with timings
-- `cargo run --example apis` reports which rustypipe endpoints currently work
-- Dev hooks (environment variables): `YTM_SMOKE="query"` plays the first search hit, `YTM_SEARCH`, `YTM_PAGE=home|explore|library|settings|album:<id>|artist:<id>|playlist:<id>`, `YTM_NOWPLAYING=1`, `YTM_SEEK=<secs>`, `YTM_MUTE=1` (silent, volume isn't saved), `YTM_SCREENSHOT=out.png` (the app saves its own framebuffer), `YTM_NO_SHADER=1`, `YTM_FAKE_POINTER=x,y` / `YTM_FAKE_WHEEL=secs,notches` (synthetic input for testing hover and scrolling)
-- `cargo run --example lyrics_check -- body.txt` summarises a saved Better Lyrics response
-
-## Credits
-
-Kawarp background (MIT © Better Lyrics) • Better Lyrics API • Inter (SIL OFL 1.1) • Lucide icons (ISC) • rustypipe • egui
+Found a bug or have an idea? [Open an issue](https://github.com/grapedjuice/ytm-rs/issues).

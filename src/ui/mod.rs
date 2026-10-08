@@ -402,6 +402,22 @@ impl App {
         self.audio.status.playing.load(Ordering::Relaxed)
     }
 
+    /// Fetch the current song's art for the background and accent. The default theme
+    /// shows neither, so it skips the download and blur until the theme is turned off.
+    fn request_art(&mut self) {
+        if self.default_theme {
+            return;
+        }
+        let Some(track) = self.current() else { return };
+        if self.art_key.as_deref() == Some(track.id.as_str()) {
+            return;
+        }
+        if let Some(url) = backend::art_url(track) {
+            let key = track.id.clone();
+            self.backend.request(Req::Art { key, url });
+        }
+    }
+
     fn accent_color(&self) -> Color32 {
         if self.default_theme { theme::RED } else { self.accent }
     }
@@ -473,9 +489,7 @@ impl App {
         self.audio.status.duration_ms.store(dur, Ordering::Relaxed);
         self.audio.status.position_ms.store(s.position_ms, Ordering::Relaxed);
         self.resume_at = Some(Duration::from_millis(s.position_ms));
-        if let Some(url) = backend::art_url(&track) {
-            self.backend.request(Req::Art { key: track.id.clone(), url });
-        }
+        self.request_art();
         self.backend.request(Req::Lyrics(track));
     }
 
@@ -519,11 +533,7 @@ impl App {
             m.set_playing(true);
         }
         // Background art and lyrics follow the track.
-        if let Some(url) = backend::art_url(&track) {
-            if self.art_key.as_deref() != Some(track.id.as_str()) {
-                self.backend.request(Req::Art { key: track.id.clone(), url });
-            }
-        }
+        self.request_art();
         self.lyrics = None;
         self.backend.request(Req::Lyrics(track.clone()));
         // Keep the queue topped up so autoplay never stalls at the end.
@@ -1065,20 +1075,6 @@ fn share_url(target: &Target) -> String {
     }
 }
 
-#[cfg(test)]
-mod share_tests {
-    use super::*;
-
-    #[test]
-    fn shares_youtube_music_urls() {
-        let song = Track { id: "abc123".into(), title: String::new(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None };
-        assert_eq!(share_url(&Target::Song(song)), "https://music.youtube.com/watch?v=abc123");
-        assert_eq!(share_url(&Target::Playlist("PL123".into())), "https://music.youtube.com/playlist?list=PL123");
-        assert_eq!(share_url(&Target::Album("MPRE123".into())), "https://music.youtube.com/browse/MPRE123");
-        assert_eq!(share_url(&Target::Artist("UC123".into())), "https://music.youtube.com/channel/UC123");
-    }
-}
-
 impl App {
     fn draw_dialog(&mut self, ctx: &egui::Context) {
         let Some(mut dialog) = self.dialog.take() else { return };
@@ -1425,4 +1421,18 @@ pub fn shuffle<T>(v: &mut [T]) {
 
 pub fn fmt_time(secs: u32) -> String {
     format!("{}:{:02}", secs / 60, secs % 60)
+}
+
+#[cfg(test)]
+mod share_tests {
+    use super::*;
+
+    #[test]
+    fn shares_youtube_music_urls() {
+        let song = Track { id: "abc123".into(), title: String::new(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None };
+        assert_eq!(share_url(&Target::Song(song)), "https://music.youtube.com/watch?v=abc123");
+        assert_eq!(share_url(&Target::Playlist("PL123".into())), "https://music.youtube.com/playlist?list=PL123");
+        assert_eq!(share_url(&Target::Album("MPRE123".into())), "https://music.youtube.com/browse/MPRE123");
+        assert_eq!(share_url(&Target::Artist("UC123".into())), "https://music.youtube.com/channel/UC123");
+    }
 }

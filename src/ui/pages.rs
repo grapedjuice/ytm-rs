@@ -613,6 +613,7 @@ fn settings(app: &mut App, ui: &mut Ui) {
     section(ui, "Playback", &mut |ui| {
         ui.checkbox(&mut app.autoplay, "Autoplay similar songs when the queue ends");
     });
+    let was_default = app.default_theme;
     section(ui, "Appearance", &mut |ui| {
         ui.checkbox(&mut app.default_theme, "Keep default theme (dark with red accents)");
         ui.add_enabled_ui(!app.default_theme, |ui| {
@@ -620,6 +621,9 @@ fn settings(app: &mut App, ui: &mut Ui) {
             ui.checkbox(&mut app.reactive_bg, "Background pulses with the music");
         });
     });
+    if was_default && !app.default_theme {
+        app.request_art();
+    }
     let mut discord_enabled = app.discord_enabled;
     section(ui, "Connections", &mut |ui| {
         ui.checkbox(&mut discord_enabled, "Show what I'm playing on Discord");

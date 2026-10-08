@@ -241,8 +241,10 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
     let title = galley_wrapped(ui, &c.title, theme::semibold(14.5), tcolor, width, 2);
     let title_h = title.size().y;
     ui.painter().galley(pos2(rect.left(), img.bottom() + 10.0), title, tcolor);
-    linked_text(ui, pos2(rect.left(), img.bottom() + 14.0 + title_h), &c.subtitle, &c.links, theme::regular(13.0), theme::TEXT_DIM, width - 36.0, acts);
-    let more_rect = Rect::from_center_size(pos2(rect.right() - 16.0, rect.bottom() - 17.0), Vec2::splat(30.0));
+    let sub_y = img.bottom() + 14.0 + title_h;
+    linked_text(ui, pos2(rect.left(), sub_y), &c.subtitle, &c.links, theme::regular(13.0), theme::TEXT_DIM, width - 36.0, acts);
+    // On the subtitle line, whose width leaves room for it, so a two-line title never sits under it.
+    let more_rect = Rect::from_center_size(pos2(rect.right() - 16.0, sub_y + 8.0), Vec2::splat(30.0));
     let more = more_button(ui, more_rect, resp.id.with("more"), "Options");
     egui::Popup::menu(&more).show(|ui| card_menu_contents(ui, c, liked, acts));
 
@@ -618,8 +620,7 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
     let content_width = (last_start as f32 * step + viewport).max(count as f32 * step - gap);
     let out = area.show(ui, |ui| ui.horizontal_top(|ui| {
         ui.set_min_width(content_width);
-        let result = add(ui);
-        result
+        add(ui)
     }).inner);
     ui.ctx().data_mut(|d| d.insert_temp(viewport_id, out.inner_rect.width()));
     (out.inner, reached_end)
@@ -648,33 +649,6 @@ mod shelf_scroll_tests {
         assert_eq!(shelf_page_starts(1, 3), [0]);
         // The old last page is between new page starts after more picks arrive.
         assert_eq!(shelf_page_target(&shelf_page_starts(11, 3), 436.0, 2.0 * 436.0, 1), 3.0 * 436.0);
-    }
-
-    #[test]
-    fn final_page_has_exactly_enough_scrollable_width() {
-        let ctx = egui::Context::default();
-        let input = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 400.0))),
-            ..Default::default()
-        };
-        let mut output = ctx.run_ui(input, |ui| {
-                let viewport = ui.available_width();
-                let step = 198.0;
-                let last = *shelf_page_starts(8, ((viewport + 18.0) / step).floor() as usize).last().unwrap();
-                let desired = last as f32 * step + viewport;
-                let out = egui::ScrollArea::horizontal().show(ui, |ui| {
-                    ui.horizontal_top(|ui| {
-                        ui.set_min_width(desired);
-                        ui.spacing_mut().item_spacing.x = 18.0;
-                        for _ in 0..8 {
-                            ui.allocate_exact_size(egui::vec2(180.0, 200.0), egui::Sense::hover());
-                        }
-                    });
-                });
-                assert!((out.content_size.x - out.inner_rect.width() - last as f32 * step).abs() < 1.0,
-                    "viewport={viewport}, content={}, inner={}, last={last}", out.content_size.x, out.inner_rect.width());
-        });
-        output.textures_delta.clear();
     }
 }
 

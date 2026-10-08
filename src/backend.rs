@@ -677,37 +677,6 @@ fn popular_new_albums(albums: &[AlbumItem], ranked_artists: &[ArtistItem], prefe
         .take(16).map(album_card).collect()
 }
 
-#[cfg(test)]
-mod explore_tests {
-    use super::*;
-
-    #[test]
-    fn new_releases_only_include_charting_artists_and_deduplicate() {
-        let artist: ArtistItem = serde_json::from_value(serde_json::json!({
-            "id": "popular", "name": "Artist", "avatar": [], "subscriber_count": null
-        })).unwrap();
-        let album = |id: &str, artist_id: &str| serde_json::from_value::<AlbumItem>(serde_json::json!({
-            "id": id, "name": id, "cover": [],
-            "artists": [{"id": artist_id, "name": "Artist"}],
-            "artist_id": artist_id, "album_type": "album", "year": null, "by_va": false
-        })).unwrap();
-        let albums = vec![album("obscure", "other"), album("favorite-release", "favorite"), album("first-release", "popular"), album("second-release", "popular"), album("first-release", "popular")];
-        let found = popular_new_albums(&albums, &[artist.clone(), artist], &["favorite".into()]);
-        assert_eq!(found.iter().map(|c| c.title.as_str()).collect::<Vec<_>>(), ["favorite-release", "first-release", "second-release"]);
-    }
-
-    #[test]
-    fn empty_episodes_for_later_is_hidden() {
-        let item = |id: &str, count: Option<u64>| serde_json::from_value::<MusicPlaylistItem>(serde_json::json!({
-            "id": id, "name": "Episodes for later", "thumbnail": [], "channel": null,
-            "track_count": count, "from_ytm": true, "is_podcast": false
-        })).unwrap();
-        assert!(!saved_playlist_visible(&item("SE", None)));
-        assert!(saved_playlist_visible(&item("SE", Some(2))));
-        assert!(saved_playlist_visible(&item("PLcustom", None)));
-    }
-}
-
 fn playlist_card(p: &MusicPlaylistItem) -> Card {
     let mut sub = vec!["Playlist".to_owned()];
     if let Some(c) = &p.channel {
@@ -759,4 +728,35 @@ fn artist_songs(items: &[rustypipe::model::TrackItem]) -> Vec<Track> {
 /// Larger art URL for the background / now-playing view.
 pub fn art_url(t: &Track) -> Option<String> {
     model::pick(&t.thumbs, 120).map(|u| sized(u, 544))
+}
+
+#[cfg(test)]
+mod explore_tests {
+    use super::*;
+
+    #[test]
+    fn new_releases_only_include_charting_artists_and_deduplicate() {
+        let artist: ArtistItem = serde_json::from_value(serde_json::json!({
+            "id": "popular", "name": "Artist", "avatar": [], "subscriber_count": null
+        })).unwrap();
+        let album = |id: &str, artist_id: &str| serde_json::from_value::<AlbumItem>(serde_json::json!({
+            "id": id, "name": id, "cover": [],
+            "artists": [{"id": artist_id, "name": "Artist"}],
+            "artist_id": artist_id, "album_type": "album", "year": null, "by_va": false
+        })).unwrap();
+        let albums = vec![album("obscure", "other"), album("favorite-release", "favorite"), album("first-release", "popular"), album("second-release", "popular"), album("first-release", "popular")];
+        let found = popular_new_albums(&albums, &[artist.clone(), artist], &["favorite".into()]);
+        assert_eq!(found.iter().map(|c| c.title.as_str()).collect::<Vec<_>>(), ["favorite-release", "first-release", "second-release"]);
+    }
+
+    #[test]
+    fn empty_episodes_for_later_is_hidden() {
+        let item = |id: &str, count: Option<u64>| serde_json::from_value::<MusicPlaylistItem>(serde_json::json!({
+            "id": id, "name": "Episodes for later", "thumbnail": [], "channel": null,
+            "track_count": count, "from_ytm": true, "is_podcast": false
+        })).unwrap();
+        assert!(!saved_playlist_visible(&item("SE", None)));
+        assert!(saved_playlist_visible(&item("SE", Some(2))));
+        assert!(saved_playlist_visible(&item("PLcustom", None)));
+    }
 }

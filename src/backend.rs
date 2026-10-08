@@ -21,7 +21,7 @@ use crate::audio::{AudioCmd, AudioHandle};
 use crate::lyrics::{self, Lyrics};
 use crate::model::{self, Card, Target, Thumb, Track, sized};
 use crate::stream::{self, Shared};
-use crate::{innertube, ytdlp, ytm};
+use crate::{innertube, jsc, webmusic, ytdlp, ytm};
 
 pub enum Req {
     /// Home feed, optionally filtered by a mood chip's params.
@@ -180,6 +180,9 @@ pub struct Backend {
     lyrics: Arc<lyrics::Client>,
     /// The upcoming track, resolved and downloading ahead of time.
     prefetched: Arc<std::sync::Mutex<Option<(String, Arc<Shared>)>>>,
+    jsc: Arc<jsc::Solver>,
+    /// Whether the signed-in account has Premium; checked once per sign-in.
+    premium: Arc<tokio::sync::Mutex<Option<bool>>>,
 }
 
 impl Backend {
@@ -203,7 +206,8 @@ impl Backend {
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36")
             .build()?;
         let lyrics = Arc::new(lyrics::Client::new(http.clone(), &data_dir));
-        Ok(Self { rt: Arc::new(rt), rp, http, tx, audio, wake, prefetched: Default::default(), data_dir, lyrics })
+        let jsc = Arc::new(jsc::Solver::new(&data_dir));
+        Ok(Self { rt: Arc::new(rt), rp, http, tx, audio, wake, prefetched: Default::default(), data_dir, lyrics, jsc, premium: Default::default() })
     }
 
     pub fn http(&self) -> &reqwest::Client {
@@ -409,11 +413,14 @@ impl Backend {
                 }
                 Req::SetCookie(input) => {
                     self.set_cookie(&input).await?;
+                    *self.premium.lock().await = None;
+                    self.warm_signed_in();
                     log::info!("signed in");
                     Resp::LoggedIn(true)
                 }
                 Req::Logout => {
                     let _ = self.rp.user_auth_remove_cookie().await;
+                    *self.premium.lock().await = None;
                     crate::login::forget(&self.login_profile());
                     Resp::LoggedIn(false)
                 }
@@ -580,18 +587,55 @@ impl Backend {
 
     /// Resolve a stream URL and start downloading it into a new buffer.
     async fn open_stream(&self, video_id: &str) -> anyhow::Result<Arc<Shared>> {
-        let mut via_ytdlp = false;
-        let (url, size, ua, duration_ms) = match self.visionos_stream(video_id).await {
-            Ok(s) => (s.url, s.size, innertube::UA.to_owned(), s.duration_ms),
-            // Age-restricted: only signed-in web players get it, with ciphered URLs.
-            Err(e) if e.to_string().contains("LOGIN_REQUIRED") => {
-                log::info!("{video_id} needs a signed-in player ({e:#}); using yt-dlp");
-                via_ytdlp = true;
-                let s = ytdlp::resolve(&self.http, &self.data_dir, video_id).await?;
-                (s.url, s.size, s.user_agent, s.duration_ms)
+        let (source, s) = self.resolve(video_id).await?;
+        let shared = Shared::new(s.size, s.duration_ms);
+        let refresh: stream::Refresh = {
+            let (this, id) = (self.clone(), video_id.to_owned());
+            Arc::new(move || {
+                let (this, id) = (this.clone(), id.clone());
+                Box::pin(async move { Ok(this.resolve_from(source, &id).await?.url) })
+            })
+        };
+        self.rt.spawn(stream::download(self.http.clone(), s.url, s.user_agent, shared.clone(), Some(refresh)));
+        Ok(shared)
+    }
+
+    /// Find a stream URL, trying the fastest source that can play the song.
+    async fn resolve(&self, video_id: &str) -> anyhow::Result<(Source, ResolvedStream)> {
+        match self.resolve_from(Source::VisionOs, video_id).await {
+            Ok(s) => Ok((Source::VisionOs, s)),
+            // Age-restricted or Premium-only: only signed-in web players get it.
+            Err(e) if needs_account(&e) => {
+                log::info!("{video_id} needs a signed-in player ({e:#})");
+                let session = webmusic::Session::load(&self.data_dir).ok_or_else(|| anyhow::anyhow!("sign in to play this song"))?;
+                if self.is_premium(&session).await {
+                    match self.resolve_from(Source::WebMusic, video_id).await {
+                        Ok(s) => return Ok((Source::WebMusic, s)),
+                        Err(e) => log::warn!("web music player failed ({e:#}); using yt-dlp"),
+                    }
+                }
+                Ok((Source::YtDlp, self.resolve_from(Source::YtDlp, video_id).await?))
             }
             Err(e) => {
                 log::warn!("visionOS player failed ({e:#}), falling back to rustypipe");
+                Ok((Source::RustyPipe, self.resolve_from(Source::RustyPipe, video_id).await?))
+            }
+        }
+    }
+
+    async fn resolve_from(&self, source: Source, video_id: &str) -> anyhow::Result<ResolvedStream> {
+        let plain = |s: innertube::Stream, ua: &str| ResolvedStream { url: s.url, size: s.size, duration_ms: s.duration_ms, user_agent: ua.to_owned() };
+        Ok(match source {
+            Source::VisionOs => plain(self.visionos_stream(video_id).await?, innertube::UA),
+            Source::WebMusic => {
+                let session = webmusic::Session::load(&self.data_dir).ok_or_else(|| anyhow::anyhow!("signed out"))?;
+                plain(session.audio_stream(&self.http, &self.jsc, video_id).await?, webmusic::UA)
+            }
+            Source::YtDlp => {
+                let s = ytdlp::resolve(&self.http, &self.data_dir, video_id).await?;
+                ResolvedStream { url: s.url, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent }
+            }
+            Source::RustyPipe => {
                 let q = self.rp.query();
                 let player = q.player(video_id).await?;
                 // AAC in MP4 decodes in pure Rust (symphonia); Opus would need libopus.
@@ -599,32 +643,55 @@ impl Backend {
                 let s = player
                     .select_audio_stream(&filter)
                     .ok_or_else(|| anyhow::anyhow!("no AAC audio stream available"))?;
-                let dur = s.duration_ms.unwrap_or(0) as u64;
-                (s.url.clone(), s.size, q.user_agent(player.client_type).into_owned(), dur)
+                ResolvedStream {
+                    url: s.url.clone(),
+                    size: s.size,
+                    duration_ms: s.duration_ms.unwrap_or(0) as u64,
+                    user_agent: q.user_agent(player.client_type).into_owned(),
+                }
             }
-        };
-        let shared = Shared::new(size, duration_ms);
-        let refresh: stream::Refresh = {
-            let (this, id) = (self.clone(), video_id.to_owned());
-            Arc::new(move || {
-                let (this, id) = (this.clone(), id.clone());
-                Box::pin(async move {
-                    if via_ytdlp {
-                        Ok(ytdlp::resolve(&this.http, &this.data_dir, &id).await?.url)
-                    } else {
-                        Ok(this.visionos_stream(&id).await?.url)
-                    }
-                })
-            })
-        };
-        self.rt.spawn(stream::download(self.http.clone(), url, ua, shared.clone(), Some(refresh)));
-        Ok(shared)
+        })
+    }
+
+    /// Get the signed-in playback path ready in the background, so the first Premium-only
+    /// or age-restricted song doesn't wait for the Premium check or the solver setup that
+    /// each new YouTube player version needs (~5 s, every few days).
+    pub fn warm_signed_in(&self) {
+        let this = self.clone();
+        self.rt.spawn(async move {
+            let Some(session) = webmusic::Session::load(&this.data_dir) else { return };
+            if this.is_premium(&session).await
+                && let Err(e) = this.jsc.warm(&this.http).await
+            {
+                log::warn!("solver warm-up failed: {e:#}");
+            }
+        });
+    }
+
+    /// Premium accounts can stream signed-in web player URLs without a PO token.
+    async fn is_premium(&self, session: &webmusic::Session) -> bool {
+        let mut premium = self.premium.lock().await;
+        if let Some(p) = *premium {
+            return p;
+        }
+        match session.is_premium(&self.http).await {
+            Ok(p) => {
+                log::info!("account has Premium: {p}");
+                *premium = Some(p);
+                p
+            }
+            Err(e) => {
+                log::warn!("Premium check failed: {e:#}");
+                false
+            }
+        }
     }
 
     async fn visionos_stream(&self, video_id: &str) -> anyhow::Result<innertube::Stream> {
         let vd = self.rp.query().get_visitor_data(false).await?;
         match innertube::audio_stream(&self.http, video_id, &vd).await {
             Ok(s) => Ok(s),
+            Err(e) if needs_account(&e) => Err(e),
             Err(e) => {
                 // A stale/flagged visitor ID is the usual cause; retry once with a fresh one.
                 log::info!("visionOS player: {e:#}; retrying with new visitor data");
@@ -649,6 +716,28 @@ impl Backend {
     pub fn is_logged_in(&self) -> bool {
         self.rp.query().auth_enabled(rustypipe::client::ClientType::Desktop)
     }
+}
+
+#[derive(Clone, Copy)]
+enum Source {
+    VisionOs,
+    WebMusic,
+    YtDlp,
+    RustyPipe,
+}
+
+struct ResolvedStream {
+    url: String,
+    size: u64,
+    duration_ms: u64,
+    user_agent: String,
+}
+
+/// The anonymous visionOS player refused because the song needs an account:
+/// age-restricted (LOGIN_REQUIRED) or Music Premium only.
+fn needs_account(e: &anyhow::Error) -> bool {
+    let msg = e.to_string();
+    msg.contains("LOGIN_REQUIRED") || msg.contains("Premium")
 }
 
 fn album_card(a: &AlbumItem) -> Card {

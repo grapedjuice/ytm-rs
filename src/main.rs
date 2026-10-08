@@ -6,6 +6,7 @@ mod backend;
 mod discord;
 mod images;
 mod innertube;
+mod jsc;
 mod login;
 mod lyrics;
 mod media;
@@ -15,6 +16,7 @@ mod stream;
 mod theme;
 mod turnstile;
 mod ui;
+mod webmusic;
 mod ytdlp;
 mod ytm;
 

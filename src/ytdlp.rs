@@ -1,6 +1,6 @@
-//! Fallback stream resolution through yt-dlp, used only for videos YouTube serves to
-//! signed-in players exclusively (age-restricted). Those come with signature-ciphered
-//! URLs that need YouTube's JS player to decode; yt-dlp does that with Node.
+//! Last-resort stream resolution through yt-dlp: age-restricted songs on accounts
+//! without Premium (whose signed-in web streams need a PO token), or when the native
+//! signed-in path in `webmusic` breaks. yt-dlp solves the URL challenges with Node.
 //!
 //! yt-dlp is downloaded into the app's data folder on first use and refreshed
 //! weekly. The signed-in session is passed as a Netscape cookies file that exists
@@ -55,14 +55,8 @@ async fn ensure(http: &reqwest::Client, data_dir: &Path) -> anyhow::Result<PathB
     Ok(bin)
 }
 
-/// The signed-in session as stored by rustypipe, or `None` when signed out.
-fn session_cookie(data_dir: &Path) -> Option<String> {
-    let cache: Value = serde_json::from_str(&std::fs::read_to_string(data_dir.join("rustypipe_cache.json")).ok()?).ok()?;
-    cache["auth_cookie"]["cookie"].as_str().map(str::to_owned)
-}
-
 pub async fn resolve(http: &reqwest::Client, data_dir: &Path, video_id: &str) -> anyhow::Result<Stream> {
-    let cookie = session_cookie(data_dir).ok_or_else(|| anyhow::anyhow!("sign in to play age-restricted songs"))?;
+    let cookie = crate::webmusic::Session::load(data_dir).ok_or_else(|| anyhow::anyhow!("sign in to play this song"))?.cookie;
     let bin = ensure(http, data_dir).await?;
     let data_dir = data_dir.to_owned();
     let video_id = video_id.to_owned();

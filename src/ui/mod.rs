@@ -208,6 +208,7 @@ impl App {
         backend.request(Req::Home(None));
         if logged_in {
             backend.request(Req::Library);
+            backend.warm_signed_in();
         }
         let mut app = Self {
             backend,
@@ -279,12 +280,17 @@ impl App {
             share_pending: None,
             smoke: None,
         };
-        // Dev hooks: YTM_SMOKE="query" searches and plays the first song; YTM_SEARCH
+        // Dev hooks: YTM_SMOKE="query" searches and plays the first song ("id:<videoId>"
+        // plays that video); YTM_SEARCH
         // only searches; YTM_PAGE opens a page; YTM_NOWPLAYING opens the overlay.
         if let Some(s) = get(SESSION_KEY).filter(|_| std::env::var_os("YTM_SMOKE").is_none()) {
             app.restore_session(&s);
         }
-        if let Some(q) = std::env::var("YTM_SMOKE").ok().filter(|q| !q.is_empty()) {
+        let smoke = std::env::var("YTM_SMOKE").ok().filter(|q| !q.is_empty());
+        if let Some(id) = smoke.as_deref().and_then(|q| q.strip_prefix("id:")) {
+            let track = Track { id: id.to_owned(), title: id.to_owned(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None };
+            app.play_list(vec![track], 0);
+        } else if let Some(q) = smoke {
             app.search_text = q.clone();
             app.go(Page::Search(q.clone()));
             app.smoke = Some(q);

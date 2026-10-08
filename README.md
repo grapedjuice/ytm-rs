@@ -47,7 +47,7 @@ The built application is at `target\release\ytm-rs.exe`.
 
 - The app interface and audio playback are native. Google sign-in and lyrics verification use temporary system webview windows; on Windows, these use WebView2.
 - Synced lyrics come from the Better Lyrics API. If they are unavailable, the app can fall back to YouTube Music's plain lyrics. Lyrics availability depends on the track and the providers.
-- Age-restricted tracks use an automatic `yt-dlp` fallback and require Node.js. Regular playback does not.
+- Premium-only and age-restricted songs play through your signed-in account. With YouTube Premium they play natively; without it, age-restricted songs fall back to `yt-dlp`, which needs Node.js.
 - ytm-rs is an unofficial client. Changes to YouTube Music or third-party services can affect playback, sign-in, or lyrics.
 
 ## License
@@ -56,6 +56,6 @@ The built application is at `target\release\ytm-rs.exe`.
 
 ## Built with
 
-[egui](https://github.com/emilk/egui) for the interface, [rodio](https://github.com/RustAudio/rodio) and Symphonia for audio, and [rustypipe](https://crates.io/crates/rustypipe) for YouTube Music browsing. The animated background is based on Kawarp from Better Lyrics. The app also uses Inter and Lucide icons.
+[egui](https://github.com/emilk/egui) for the interface, [rodio](https://github.com/RustAudio/rodio) and Symphonia for audio, and [rustypipe](https://crates.io/crates/rustypipe) for YouTube Music browsing. Signed-in stream URLs are decoded with yt-dlp's [EJS](https://github.com/yt-dlp/ejs) solver running in QuickJS. The animated background is based on Kawarp from Better Lyrics. The app also uses Inter and Lucide icons.
 
 Found a bug or have an idea? [Open an issue](https://github.com/grapedjuice/ytm-rs/issues).

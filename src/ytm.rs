@@ -400,10 +400,41 @@ fn grid_cards(sections: &[Value]) -> Vec<Card> {
 // ------------------------------------------------------------------------ library
 
 /// Saved playlists or albums: a library page, opened with its fixed continuation token
-/// (that's how music.youtube.com sorts it by recent activity).
+/// (that's how music.youtube.com sorts it by recent activity), then every following page.
 async fn saved(api: &Api, token: &str) -> anyhow::Result<Vec<Card>> {
     let v = api.call_signed_in("browse", json!({ "continuation": token })).await?;
-    Ok(grid_cards(arr(&v["continuationContents"]["sectionListContinuation"]["contents"])))
+    let sections = arr(&v["continuationContents"]["sectionListContinuation"]["contents"]);
+    let mut cards = grid_cards(sections);
+    let mut token = sections.iter().find_map(|s| grid_next(&s["gridRenderer"]));
+    for _ in 0..100 {
+        let Some(t) = token.take() else { break };
+        let v = api.call_signed_in("browse", json!({ "continuation": t })).await?;
+        let (more, next) = grid_continuation(&v);
+        if more.is_empty() {
+            break;
+        }
+        cards.extend(more);
+        token = next;
+    }
+    Ok(cards)
+}
+
+/// The cards of a grid's next page, and the token for the page after it.
+fn grid_continuation(v: &Value) -> (Vec<Card>, Option<String>) {
+    let items = &v["onResponseReceivedActions"][0]["appendContinuationItemsAction"]["continuationItems"];
+    let grid = &v["continuationContents"]["gridContinuation"];
+    let (items, grid) = if items.is_null() { (&grid["items"], grid) } else { (items, &Value::Null) };
+    let cards = arr(items).iter().filter_map(|i| two_row(&i["musicTwoRowItemRenderer"])).collect();
+    (cards, grid_next(grid).or_else(|| item_token(arr(items))))
+}
+
+/// A grid's next-page token: in its continuations, or as a trailing continuation item.
+fn grid_next(grid: &Value) -> Option<String> {
+    continuation(grid).or_else(|| item_token(arr(&grid["items"])))
+}
+
+fn item_token(items: &[Value]) -> Option<String> {
+    items.iter().find_map(|i| i["continuationItemRenderer"]["continuationEndpoint"]["continuationCommand"]["token"].as_str().map(str::to_owned))
 }
 
 pub async fn saved_playlists(api: &Api) -> anyhow::Result<Vec<Card>> {
@@ -935,6 +966,30 @@ mod tests {
         assert_eq!(p.artists[0].id.as_deref(), Some("UC0"));
         assert_eq!(p.tracks.len(), 1);
         assert_eq!(token.as_deref(), Some("NEXT"));
+    }
+
+    #[test]
+    fn library_grid_pages() {
+        let card = |id: &str| json!({"musicTwoRowItemRenderer": {"title": {"runs": [{"text": id}]}, "navigationEndpoint": {"browseEndpoint": {"browseId": id,
+            "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_PLAYLIST"}}}}}});
+        let first = json!({"gridRenderer": {"items": [card("VLa")], "continuations": [{"nextContinuationData": {"continuation": "P2"}}]}});
+        assert_eq!(grid_next(&first["gridRenderer"]).as_deref(), Some("P2"));
+
+        let old = json!({"continuationContents": {"gridContinuation": {"items": [card("VLb"), card("VLc")], "continuations": [{"nextContinuationData": {"continuation": "P3"}}]}}});
+        let (cards, next) = grid_continuation(&old);
+        assert_eq!(cards.len(), 2);
+        assert_eq!(next.as_deref(), Some("P3"));
+
+        let new = json!({"onResponseReceivedActions": [{"appendContinuationItemsAction": {"continuationItems": [
+            card("VLd"),
+            {"continuationItemRenderer": {"continuationEndpoint": {"continuationCommand": {"token": "P4"}}}}
+        ]}}]});
+        let (cards, next) = grid_continuation(&new);
+        assert_eq!(cards.len(), 1);
+        assert_eq!(next.as_deref(), Some("P4"));
+
+        let last = json!({"continuationContents": {"gridContinuation": {"items": [card("VLe")]}}});
+        assert_eq!(grid_continuation(&last).1, None);
     }
 
     #[test]

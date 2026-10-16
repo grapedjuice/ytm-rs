@@ -240,10 +240,7 @@ fn playlist_continuation(v: &Value) -> (Vec<Track>, Option<String>) {
 /// Song rows, and the token for the next page when the list continues.
 fn list_page(items: &[Value]) -> (Vec<Track>, Option<String>) {
     let tracks = items.iter().filter_map(|i| list_item(&i["musicResponsiveListItemRenderer"])).collect();
-    let token = items.iter().find_map(|i| {
-        i["continuationItemRenderer"]["continuationEndpoint"]["continuationCommand"]["token"].as_str().map(str::to_owned)
-    });
-    (tracks, token)
+    (tracks, item_token(items))
 }
 
 // ----------------------------------------------------------------------- artists
@@ -408,7 +405,14 @@ async fn saved(api: &Api, token: &str) -> anyhow::Result<Vec<Card>> {
     let mut token = sections.iter().find_map(|s| grid_next(&s["gridRenderer"]));
     for _ in 0..100 {
         let Some(t) = token.take() else { break };
-        let v = api.call_signed_in("browse", json!({ "continuation": t })).await?;
+        // A later page failing keeps the pages already loaded.
+        let v = match api.call_signed_in("browse", json!({ "continuation": t })).await {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!("library page: {e}");
+                break;
+            }
+        };
         let (more, next) = grid_continuation(&v);
         if more.is_empty() {
             break;
@@ -422,10 +426,11 @@ async fn saved(api: &Api, token: &str) -> anyhow::Result<Vec<Card>> {
 /// The cards of a grid's next page, and the token for the page after it.
 fn grid_continuation(v: &Value) -> (Vec<Card>, Option<String>) {
     let items = &v["onResponseReceivedActions"][0]["appendContinuationItemsAction"]["continuationItems"];
+    if !items.is_null() {
+        return (two_rows(arr(items)), item_token(arr(items)));
+    }
     let grid = &v["continuationContents"]["gridContinuation"];
-    let (items, grid) = if items.is_null() { (&grid["items"], grid) } else { (items, &Value::Null) };
-    let cards = arr(items).iter().filter_map(|i| two_row(&i["musicTwoRowItemRenderer"])).collect();
-    (cards, grid_next(grid).or_else(|| item_token(arr(items))))
+    (two_rows(arr(&grid["items"])), grid_next(grid))
 }
 
 /// A grid's next-page token: in its continuations, or as a trailing continuation item.
@@ -433,6 +438,11 @@ fn grid_next(grid: &Value) -> Option<String> {
     continuation(grid).or_else(|| item_token(arr(&grid["items"])))
 }
 
+fn two_rows(items: &[Value]) -> Vec<Card> {
+    items.iter().filter_map(|i| two_row(&i["musicTwoRowItemRenderer"])).collect()
+}
+
+/// The token of a trailing "load more" item.
 fn item_token(items: &[Value]) -> Option<String> {
     items.iter().find_map(|i| i["continuationItemRenderer"]["continuationEndpoint"]["continuationCommand"]["token"].as_str().map(str::to_owned))
 }

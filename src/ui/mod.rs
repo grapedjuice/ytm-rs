@@ -178,6 +178,8 @@ pub struct Opened {
     pub c: Collection,
     /// The load it came from; only that load's next pages are added.
     load: u64,
+    /// When that load came in.
+    at: std::time::Instant,
 }
 
 /// An album or playlist load under way (one each at a time). A playlist not kept yet
@@ -188,6 +190,10 @@ struct ListLoad {
     /// It changed meanwhile, so it's loaded again afterwards.
     stale: bool,
 }
+
+/// Going back to a kept album or playlist reloads it when it's older than this. Edits
+/// made here show at once anyway, and a Spotify transfer reloads Liked Music when done.
+const REFRESH_EVERY: Duration = Duration::from_secs(5 * 60);
 
 /// Liked Music's playlist id.
 const LIKED_MUSIC: &str = "LM";
@@ -286,6 +292,9 @@ pub struct App {
     /// Files chosen in the upload dialog, handed over from its thread.
     picked_uploads: Arc<std::sync::Mutex<Option<Vec<std::path::PathBuf>>>>,
     liked: HashSet<String>,
+    /// Likes and playlist removals made here lately. YouTube Music goes on listing the old
+    /// state for a while after it takes an edit, so lists that arrive are corrected with these.
+    edits: RecentEdits,
     selection: Selection,
     account_name: Option<String>,
     account_avatar: Option<String>,
@@ -530,6 +539,7 @@ impl App {
             uploads: None,
             picked_uploads: Default::default(),
             liked: HashSet::new(),
+            edits: RecentEdits::default(),
             selection: Selection::default(),
             account_name: None,
             account_avatar: None,
@@ -766,14 +776,16 @@ impl App {
             Page::Explore => Some(Req::Explore(self.preferred_artist_ids())),
             Page::Search(q) if self.search.as_ref().is_none_or(|s| &s.query != q) => Some(Req::Search(q.clone())),
             Page::Album(id) | Page::Playlist(id) => {
-                self.load_list(id, matches!(self.page, Page::Album(_)), false);
+                self.visit_list(id, matches!(self.page, Page::Album(_)));
                 None
             }
             Page::Artist(id) => Some(Req::Artist(id.clone())),
             Page::Library(LibTab::History) if self.logged_in => Some(Req::History),
             Page::Library(LibTab::Uploads) if self.logged_in => Some(Req::Uploads),
             Page::Library(LibTab::Songs) => {
-                self.request_liked(false);
+                if self.logged_in {
+                    self.visit_list(LIKED_MUSIC, false);
+                }
                 None
             }
             Page::Library(_) if self.logged_in => Some(Req::Library),
@@ -821,6 +833,13 @@ impl App {
         });
     }
 
+    /// Opening an album or playlist page: loaded unless a copy from the last few minutes is kept.
+    fn visit_list(&mut self, id: &str, album: bool) {
+        if self.opened(id).is_none_or(|o| o.at.elapsed() > REFRESH_EVERY) {
+            self.load_list(id, album, false);
+        }
+    }
+
     fn opened(&self, id: &str) -> Option<&Opened> {
         self.opened.iter().find(|o| o.c.id == id)
     }
@@ -850,6 +869,9 @@ impl App {
     /// Likes made here show at once, in the hearts and in Liked Music as kept. (A whole
     /// reload asked for just before can still come back without them.)
     fn set_liked(&mut self, tracks: &[Track], like: bool) {
+        for t in tracks {
+            self.edits.like(&t.id, like, Some(t.clone()));
+        }
         let mut lm = self.opened.iter_mut().find(|o| o.c.id == LIKED_MUSIC).map(|o| &mut o.c);
         for t in tracks.iter().rev() {
             if like {
@@ -893,10 +915,11 @@ impl App {
 
     /// An album or playlist (or a playlist's first page) came in. Only the load under way
     /// counts: one from before a sign-in change or a deletion is dropped.
-    fn collection_in(&mut self, load: u64, c: Collection, more: bool) {
+    fn collection_in(&mut self, load: u64, mut c: Collection, more: bool) {
         if self.running.get(&c.id).is_none_or(|l| l.load != load) {
             return;
         }
+        self.edits.correct_collection(&mut c);
         let id = c.id.clone();
         if self.page_list() == Some(id.as_str()) {
             self.loading = false;
@@ -926,6 +949,9 @@ impl App {
         if self.running.get(&id).is_none_or(|l| l.load != load) {
             return;
         }
+        self.edits.prune();
+        let edits = &self.edits;
+        (tracks, set_ids) = tracks.into_iter().zip(set_ids).filter(|(t, set)| edits.keeps(&id, t, set.as_deref())).unzip();
         if let Some(o) = self.opened.iter_mut().find(|o| o.c.id == id && o.load == load) {
             // Liked Music has each song once; one liked here meanwhile is at its top already.
             if id == LIKED_MUSIC {
@@ -964,8 +990,8 @@ impl App {
 
     fn keep(&mut self, load: u64, c: Collection) {
         match self.opened.iter_mut().find(|o| o.c.id == c.id) {
-            Some(o) => *o = Opened { c, load },
-            None => self.opened.insert(0, Opened { c, load }),
+            Some(o) => *o = Opened { c, load, at: std::time::Instant::now() },
+            None => self.opened.insert(0, Opened { c, load, at: std::time::Instant::now() }),
         }
         self.trim();
     }
@@ -1787,16 +1813,16 @@ impl App {
                     self.toast("YouTube Music didn't say where these songs are in the playlist. Reload it and try again.");
                     return;
                 }
-                let items = rows.iter().map(|&i| (c.tracks[i].id.clone(), c.set_ids[i].clone().unwrap_or_default())).collect();
-                // Optimistic: drop the rows now. YouTube Music still lists them for a moment,
-                // so no reload follows.
+                let items: Vec<(String, String)> = rows.iter().map(|&i| (c.tracks[i].id.clone(), c.set_ids[i].clone().unwrap_or_default())).collect();
+                let playlist = c.id.clone();
+                // Optimistic: drop the rows now; the playlist reloads once YouTube confirms.
                 for &i in rows.iter().rev() {
                     c.tracks.remove(i);
                     c.set_ids.remove(i);
                 }
-                let playlist_id = c.id.clone();
+                self.edits.remove(&playlist, items.iter().map(|(_, set)| set.clone()));
                 self.selection.clear();
-                self.backend.request(Req::RemoveFromPlaylist { playlist_id, items });
+                self.backend.request(Req::RemoveFromPlaylist { playlist_id: playlist, items });
             }
             Action::NewPlaylist(tracks) => {
                 if self.logged_in { self.dialog = Some(Dialog::NewPlaylist { title: String::new(), tracks }); }
@@ -2104,6 +2130,7 @@ impl App {
                 }
             }
             Resp::Liked { video_id, like } => {
+                self.edits.confirm_likes(std::slice::from_ref(&video_id), &[]);
                 if like {
                     self.liked.insert(video_id);
                 }
@@ -2122,8 +2149,18 @@ impl App {
                     }
                 }
             }
-            Resp::LikedMany { count, like } => {
-                self.toast(format!("{} {count} {}", if like { "Liked" } else { "Removed like from" }, if count == 1 { "song" } else { "songs" }));
+            Resp::LikedMany { video_ids, failed, like } => {
+                self.edits.confirm_likes(&video_ids, &failed);
+                // The refused ones come back as they were with a reload.
+                if !failed.is_empty() {
+                    self.request_liked(true);
+                }
+                let count = video_ids.len();
+                let mut msg = format!("{} {count} {}", if like { "Liked" } else { "Removed like from" }, if count == 1 { "song" } else { "songs" });
+                if !failed.is_empty() {
+                    msg += &format!("; YouTube Music refused {}", failed.len());
+                }
+                self.toast(msg);
             }
             Resp::PlaylistCreated { id, songs } => {
                 self.request_library();
@@ -2136,9 +2173,6 @@ impl App {
             }
             Resp::PlaylistChanged { id, message } => {
                 self.request_library();
-                // A removal already shows (the rows went right away), and a reload this soon
-                // still gets the songs back from YouTube Music.
-                let removed = message == "Removed from playlist";
                 if message == "Playlist deleted" {
                     // Its load is dropped too, and the queue stops waiting for it.
                     self.opened.retain(|o| o.c.id != id);
@@ -2155,9 +2189,15 @@ impl App {
                     self.back.dedup();
                     self.forward.retain(|p| *p != gone);
                     self.forward.dedup();
-                } else if !removed && (self.opened(&id).is_some() || self.running.contains_key(&id)) {
-                    // Kept for going back (or playing): reload it.
-                    self.load_list(&id, false, true);
+                } else {
+                    if message == "Removed from playlist" {
+                        self.edits.confirm_removal(&id);
+                    }
+                    // Kept for going back (or playing): reload it. What YouTube Music still
+                    // lists after a removal is dropped as it arrives.
+                    if self.opened(&id).is_some() || self.running.contains_key(&id) {
+                        self.load_list(&id, false, true);
+                    }
                 }
                 self.toast(message);
             }
@@ -3306,6 +3346,59 @@ mod account_block_tests {
     }
 }
 
+#[cfg(test)]
+mod recent_edits_tests {
+    use super::{Collection, RecentEdits, Track};
+
+    fn track(id: &str) -> Track {
+        Track { id: id.into(), title: id.into(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None }
+    }
+
+    fn collection(id: &str, songs: &[&str]) -> Collection {
+        Collection {
+            id: id.into(),
+            is_album: false,
+            save_id: None,
+            title: String::new(),
+            subtitle: String::new(),
+            artists: vec![],
+            description: None,
+            thumbs: vec![],
+            tracks: songs.iter().map(|s| track(s)).collect(),
+            set_ids: songs.iter().map(|s| Some(format!("set-{s}"))).collect(),
+            owned: true,
+        }
+    }
+
+    #[test]
+    fn stale_lists_drop_recent_removals_and_unlikes() {
+        let mut edits = RecentEdits::default();
+        edits.remove("PL1", ["set-b".to_owned(), "set-c".to_owned()]);
+        edits.confirm_removal("PL1");
+        let mut c = collection("PL1", &["a", "b", "c", "d"]);
+        edits.correct_collection(&mut c);
+        assert_eq!(c.tracks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["a", "d"]);
+        assert_eq!(c.set_ids, [Some("set-a".to_owned()), Some("set-d".to_owned())]);
+        // Another playlist is left alone.
+        let mut other = collection("PL2", &["b"]);
+        edits.correct_collection(&mut other);
+        assert_eq!(other.tracks.len(), 1);
+
+        edits.like("x", false, None);
+        edits.like("y", true, Some(track("y")));
+        edits.like("z", false, None);
+        edits.confirm_likes(&["x".to_owned(), "y".to_owned()], &["z".to_owned()]);
+        let mut lm = collection("LM", &["x", "z", "w"]);
+        edits.correct_collection(&mut lm);
+        // x unliked; y liked but not listed yet; z's unlike was refused, so it stays.
+        assert_eq!(lm.tracks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["y", "z", "w"]);
+        assert_eq!(lm.set_ids.len(), 3);
+        // A later page drops an unliked song too.
+        assert!(!edits.keeps("LM", &track("x"), Some("set-x")));
+        assert!(edits.keeps("PL9", &track("x"), Some("set-x")));
+    }
+}
+
 /// Dev hook: YTM_FPS=<hz> holds each frame to 1/<hz> s, as vsync does on a visible window
 /// of that refresh rate (test windows sit off-screen, where Windows gives them ~21 fps);
 /// YTM_FPS_LOG logs the rate reached every 5 s.
@@ -3332,5 +3425,102 @@ fn dev_pace() {
         }
         *window = *last;
         *frames = 0;
+    }
+}
+
+/// How long YouTube Music may go on listing the old state after taking an edit.
+const EDIT_LAG: Duration = Duration::from_secs(180);
+/// How long a removal counts while YouTube Music hasn't answered (one it refused shows only
+/// as an error), and likes, which a few hundred at a time take a while.
+const REMOVAL_UNANSWERED: Duration = Duration::from_secs(60);
+const LIKE_UNANSWERED: Duration = Duration::from_secs(600);
+
+#[derive(Default)]
+struct RecentEdits {
+    /// Song: liked or not, the song when known (to put back a like the list lacks yet), and when.
+    likes: HashMap<String, (bool, Option<Track>, EditAge)>,
+    /// Playlist: the entries (`setVideoId`s) taken out of it, and when.
+    removals: HashMap<String, (HashSet<String>, EditAge)>,
+}
+
+#[derive(Clone, Copy)]
+struct EditAge {
+    made: std::time::Instant,
+    confirmed: Option<std::time::Instant>,
+}
+
+impl EditAge {
+    fn new() -> Self {
+        Self { made: std::time::Instant::now(), confirmed: None }
+    }
+
+    fn live(&self, unanswered: Duration) -> bool {
+        match self.confirmed {
+            Some(t) => t.elapsed() < EDIT_LAG,
+            None => self.made.elapsed() < unanswered,
+        }
+    }
+}
+
+impl RecentEdits {
+    fn like(&mut self, id: &str, like: bool, track: Option<Track>) {
+        self.likes.insert(id.to_owned(), (like, track, EditAge::new()));
+    }
+
+    fn confirm_likes(&mut self, done: &[String], refused: &[String]) {
+        for id in done {
+            if let Some((_, _, age)) = self.likes.get_mut(id) {
+                age.confirmed = Some(std::time::Instant::now());
+            }
+        }
+        for id in refused {
+            self.likes.remove(id);
+        }
+    }
+
+    fn remove(&mut self, playlist: &str, set_ids: impl IntoIterator<Item = String>) {
+        let (set, age) = self.removals.entry(playlist.to_owned()).or_insert_with(|| (HashSet::new(), EditAge::new()));
+        set.extend(set_ids);
+        *age = EditAge::new();
+    }
+
+    fn confirm_removal(&mut self, playlist: &str) {
+        if let Some((_, age)) = self.removals.get_mut(playlist) {
+            age.confirmed = Some(std::time::Instant::now());
+        }
+    }
+
+    fn prune(&mut self) {
+        self.likes.retain(|_, (_, _, age)| age.live(LIKE_UNANSWERED));
+        self.removals.retain(|_, (_, age)| age.live(REMOVAL_UNANSWERED));
+    }
+
+    /// Whether a song row YouTube Music sent still stands: not taken out of that
+    /// playlist, nor unliked when it's Liked Music.
+    fn keeps(&self, list: &str, t: &Track, set_id: Option<&str>) -> bool {
+        let unliked = list == LIKED_MUSIC && self.likes.get(&t.id).is_some_and(|(like, _, _)| !*like);
+        let taken = set_id.is_some_and(|s| self.removals.get(list).is_some_and(|(r, _)| r.contains(s)));
+        !unliked && !taken
+    }
+
+    /// A list as YouTube Music sent it, with the edits made here since; Liked Music also
+    /// gets the songs liked here that it doesn't list yet, at the top.
+    fn correct_collection(&mut self, c: &mut Collection) {
+        self.prune();
+        let keep: Vec<bool> = c.tracks.iter().enumerate().map(|(i, t)| self.keeps(&c.id, t, c.set_ids.get(i).and_then(Option::as_deref))).collect();
+        let mut k = keep.iter();
+        c.tracks.retain(|_| k.next().copied().unwrap_or(true));
+        let mut k = keep.iter();
+        c.set_ids.retain(|_| k.next().copied().unwrap_or(true));
+        if c.id == LIKED_MUSIC {
+            for (id, (like, track, _)) in &self.likes {
+                if let (true, Some(t)) = (*like, track)
+                    && !c.tracks.iter().any(|x| &x.id == id)
+                {
+                    c.tracks.insert(0, t.clone());
+                    c.set_ids.insert(0, None);
+                }
+            }
+        }
     }
 }

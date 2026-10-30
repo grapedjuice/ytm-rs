@@ -853,41 +853,64 @@ impl Transfer {
     /// Spotify's order (newest at the top). Returns how many were liked before the
     /// transfer. Resuming skips what's liked by then, this transfer's likes included.
     async fn like_all(&self, api: &Api, ids: &[String]) -> Result<usize> {
-        let liked: HashSet<String> = retry(|| ytm::playlist(api, "LM", true, Some(20_000))).await.context("Reading your Liked Music failed")?.tracks.into_iter().map(|t| t.id).collect();
+        let read_liked = || async {
+            let lm = retry(|| ytm::playlist(api, "LM", true, Some(20_000))).await.context("Reading your Liked Music failed")?;
+            anyhow::Ok(lm.tracks.into_iter().map(|t| t.id).collect::<HashSet<String>>())
+        };
+        let liked = read_liked().await?;
         let todo: Vec<&String> = ids.iter().rev().filter(|id| !liked.contains(*id)).collect();
         let earlier = self.with_job(|j| {
             j.saving = (j.liked, j.liked + todo.len());
             j.liked
         });
-        let already = (ids.len() - todo.len()).saturating_sub(earlier);
         let mut last_save = Instant::now();
-        for id in todo {
-            self.checkpoint().await?;
-            let mut tries = 0;
-            loop {
-                tries += 1;
-                match ytm::set_like(api, id, true).await {
-                    Ok(()) => break,
-                    Err(e) if signed_out(&e) => return Err(e.context("YouTube Music signed you out; sign in again and try again")),
-                    Err(e) if tries < 4 => {
-                        log::debug!("like {id}: {e:#}");
-                        tokio::time::sleep(Duration::from_millis(800 * tries)).await;
-                    }
-                    Err(e) => return Err(e.context("Liking songs failed")),
-                }
-            }
-            self.with_job(|j| {
-                j.liked += 1;
-                j.saving.0 = j.liked;
-            });
+        for id in &todo {
+            self.like_one(api, id).await?;
             if last_save.elapsed() > SAVE_EVERY {
                 self.save();
                 last_save = Instant::now();
             }
-            self.wake();
+        }
+        // Songs unliked while this ran, or just before (YouTube Music lists an unlike for a
+        // while after taking it), were skipped above as liked: look again and like those.
+        let skipped: Vec<&String> = ids.iter().rev().filter(|id| liked.contains(*id)).collect();
+        let mut gone = Vec::new();
+        if !skipped.is_empty() {
+            let now = read_liked().await?;
+            gone = skipped.into_iter().filter(|id| !now.contains(*id)).collect();
+            if !gone.is_empty() {
+                log::info!("transfer: {} songs were unliked meanwhile; liking them again", gone.len());
+                self.with_job(|j| j.saving.1 += gone.len());
+            }
+            for id in &gone {
+                self.like_one(api, id).await?;
+            }
         }
         self.save();
-        Ok(already)
+        Ok((ids.len() - todo.len() - gone.len()).saturating_sub(earlier))
+    }
+
+    async fn like_one(&self, api: &Api, id: &str) -> Result<()> {
+        self.checkpoint().await?;
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            match ytm::set_like(api, id, true).await {
+                Ok(()) => break,
+                Err(e) if signed_out(&e) => return Err(e.context("YouTube Music signed you out; sign in again and try again")),
+                Err(e) if tries < 4 => {
+                    log::debug!("like {id}: {e:#}");
+                    tokio::time::sleep(Duration::from_millis(800 * tries)).await;
+                }
+                Err(e) => return Err(e.context("Liking songs failed")),
+            }
+        }
+        self.with_job(|j| {
+            j.liked += 1;
+            j.saving.0 = j.liked;
+        });
+        self.wake();
+        Ok(())
     }
 }
 

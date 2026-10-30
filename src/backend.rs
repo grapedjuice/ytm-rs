@@ -211,7 +211,8 @@ pub enum Resp {
     /// What was asked to play (a `Req::PlayCollection`), and its songs.
     PlayQueue { target: Target, tracks: Vec<Track> },
     Liked { video_id: String, like: bool },
-    LikedMany { count: usize, like: bool },
+    /// The songs YouTube Music took, and the ones it refused.
+    LikedMany { video_ids: Vec<String>, failed: Vec<String>, like: bool },
     PlaylistCreated { id: String, songs: usize },
     PlaylistChanged { id: String, message: &'static str },
     Collaboration(ytm::Collaboration),
@@ -564,10 +565,28 @@ impl Backend {
                     Resp::Liked { video_id, like }
                 }
                 Req::LikeMany { video_ids, like } => {
-                    for id in &video_ids {
-                        ytm::set_like(api, id, like).await?;
-                    }
-                    Resp::LikedMany { count: video_ids.len(), like }
+                    use futures_util::StreamExt;
+                    // A few at a time, each tried up to three times: one at a time took minutes
+                    // for a few hundred songs, and one refusal stopped the rest.
+                    let results: Vec<(String, bool)> = futures_util::stream::iter(video_ids)
+                        .map(|id| async move {
+                            for tries in 1..=3u64 {
+                                match ytm::set_like(api, &id, like).await {
+                                    Ok(()) => return (id, true),
+                                    Err(e) => {
+                                        log::debug!("like {id}: {e:#}");
+                                        if tries < 3 { tokio::time::sleep(std::time::Duration::from_millis(700 * tries)).await; }
+                                    }
+                                }
+                            }
+                            (id, false)
+                        })
+                        .buffer_unordered(6)
+                        .collect()
+                        .await;
+                    let (done, failed): (Vec<_>, Vec<_>) = results.into_iter().partition(|(_, ok)| *ok);
+                    anyhow::ensure!(!done.is_empty(), "YouTube Music refused all {} songs", failed.len());
+                    Resp::LikedMany { video_ids: done.into_iter().map(|(id, _)| id).collect(), failed: failed.into_iter().map(|(id, _)| id).collect(), like }
                 }
                 Req::Dislike(video_id) => {
                     ytm::dislike(api, &video_id).await?;

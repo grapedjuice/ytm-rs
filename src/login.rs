@@ -71,6 +71,10 @@ pub enum Outcome {
     Failed(String),
 }
 
+/// Safari's user agent (macOS always reports 10_15_7 here, whatever the version).
+#[cfg(target_os = "macos")]
+const SAFARI_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
+
 /// Command-line flags that make the binary run only a sign-in window.
 pub const FLAG: &str = "--login";
 pub const SPOTIFY_FLAG: &str = "--login-spotify";
@@ -181,7 +185,10 @@ fn run(site: Site, profile_dir: PathBuf) -> anyhow::Result<Outcome> {
     #[cfg(target_os = "macos")]
     let builder = {
         use wry::WebViewBuilderExtDarwin;
-        builder.with_data_store_identifier(store)
+        // WKWebView's own user agent has no "Version/… Safari/…", so YouTube Music takes it
+        // for an unknown browser and shows "not optimized for your browser" instead of the
+        // site. Say it's Safari, which is the engine it is.
+        builder.with_data_store_identifier(store).with_user_agent(SAFARI_UA)
     };
     let webview = crate::proxy::webview(builder)
         .with_url(site.start())

@@ -1,6 +1,6 @@
 [package]
 name = "ytm-rs"
-version = "0.2.26"
+version = "0.2.27"
 edition = "2024"
 license = "GPL-3.0-only"
 repository = "https://github.com/grapedjuice/ytm-rs"

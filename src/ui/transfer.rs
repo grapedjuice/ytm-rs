@@ -1498,6 +1498,7 @@ pub fn poll(app: &mut App, ctx: &egui::Context, now: f64) {
         Some(Phase::Done) => {
             // Liked Music and the sidebar's playlists changed.
             app.request_library();
+            app.request_liked(true);
             if !on_page {
                 app.toast(format!("Finished copying {name} from Spotify"));
             }

@@ -23,7 +23,7 @@ localzone = "0.3.1"
 log = "0.4.34"
 memmap2 = "0.9.11"
 raw-window-handle = "0.6"
-reqwest = { version = "0.12", default-features = false, features = ["default-tls", "json", "socks"] }
+reqwest = { version = "0.12", default-features = false, features = ["default-tls", "gzip", "json", "socks"] }
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "symphonia-aac", "symphonia-isomp4"] }
 rquickjs = "0.14.0"
 roxmltree = "0.21.1"

@@ -183,20 +183,12 @@ fn parse_album(v: &Value, id: &str) -> Option<Collection> {
     })
 }
 
-/// A playlist (including mixes and Liked Music), with up to `limit` tracks.
-pub async fn playlist(api: &Api, id: &str, auth: bool, limit: usize) -> anyhow::Result<Collection> {
-    let v = api.call("browse", json!({ "browseId": format!("VL{id}") }), auth).await?;
-    let Some((mut pl, mut token, count)) = parse_playlist(&v, id) else {
-        // A session Google has revoked still gets answers, just signed-out ones.
-        anyhow::ensure!(!(auth && api.account().is_some() && crate::ytmapi::logged_out(&v)), "Your YouTube sign-in has expired");
-        anyhow::bail!("YouTube Music returned an empty playlist");
-    };
-    // Mixes continue without end; stop at the length the header gives.
-    let limit = count.map_or(limit, |c| limit.min(c as usize));
+/// A playlist (including mixes and Liked Music), with up to `limit` tracks (`None`: all of them).
+pub async fn playlist(api: &Api, id: &str, auth: bool, limit: Option<usize>) -> anyhow::Result<Collection> {
+    let (mut pl, mut token, limit) = playlist_start(api, id, auth, limit).await?;
     while pl.tracks.len() < limit {
         let Some(t) = token.take() else { break };
-        let v = api.call("browse", json!({ "continuation": t }), auth).await?;
-        let (more, ids, next) = playlist_continuation(&v);
+        let (more, ids, next) = playlist_more(api, &t, auth).await?;
         if more.is_empty() {
             break;
         }
@@ -207,6 +199,30 @@ pub async fn playlist(api: &Api, id: &str, auth: bool, limit: usize) -> anyhow::
     pl.tracks.truncate(limit);
     pl.set_ids.truncate(limit);
     Ok(pl)
+}
+
+/// A playlist's first page (about 100 songs), the next page's token, and how many
+/// songs to stop at: `limit` (`None`: all), or fewer when the header says so.
+pub async fn playlist_start(api: &Api, id: &str, auth: bool, limit: Option<usize>) -> anyhow::Result<(Collection, Option<String>, usize)> {
+    let v = api.call("browse", json!({ "browseId": format!("VL{id}") }), auth).await?;
+    let Some((mut pl, token, count)) = parse_playlist(&v, id) else {
+        // A session Google has revoked still gets answers, just signed-out ones.
+        anyhow::ensure!(!(auth && api.account().is_some() && crate::ytmapi::logged_out(&v)), "Your YouTube sign-in has expired");
+        anyhow::bail!("YouTube Music returned an empty playlist");
+    };
+    // Mixes (RD…) continue without end: stop at the length the header gives, or at 500.
+    let all = count.map_or(if id.starts_with("RD") { 500 } else { usize::MAX }, |c| c as usize);
+    let limit = limit.map_or(all, |l| l.min(all));
+    pl.tracks.truncate(limit);
+    pl.set_ids.truncate(limit);
+    Ok((pl, token, limit))
+}
+
+/// The playlist page after `token`: its songs, their entry ids, and the next token.
+/// Each page names the next, so they can only be read one after another.
+pub async fn playlist_more(api: &Api, token: &str, auth: bool) -> anyhow::Result<(Vec<Track>, Vec<Option<String>>, Option<String>)> {
+    let v = api.call("browse", json!({ "continuation": token }), auth).await?;
+    Ok(playlist_continuation(&v))
 }
 
 /// The page, the next page's token, and the song count from the header.

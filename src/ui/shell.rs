@@ -718,7 +718,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let outline = theme::lerp_color(idle, theme::RED, pop);
         widgets::heart(ui, lpos, size, pop, outline, theme::RED);
         if lresp.clicked() {
-            app.actions.push(Action::Like(t.id.clone(), !liked));
+            app.actions.push(Action::Like(t.clone(), !liked));
         }
     }
 

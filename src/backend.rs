@@ -29,9 +29,12 @@ pub enum Req {
     Suggest { query: String, round: u64 },
     /// Remove a past search (its token) from the account's history.
     ForgetSearch(String),
-    Album(String),
+    /// `load` comes back with the album, so an older answer can't replace a newer one.
+    Album { id: String, load: u64 },
     Artist(String),
-    Playlist(String),
+    /// `stream`: send the first page as soon as it's in and the rest as they come,
+    /// rather than all of it at the end.
+    Playlist { id: String, load: u64, stream: bool },
     Library,
     History,
     /// Songs the account uploaded to YouTube Music.
@@ -54,7 +57,7 @@ pub enum Req {
     /// Radio seeded from a track; appended to the queue.
     Radio(String),
     /// Fetch an album/playlist and play it from the start.
-    PlayCollection { target: Target, shuffle: bool },
+    PlayCollection { target: Target },
     /// `at`: start position (non-zero when resuming last session's song). `report`: tell
     /// YouTube about the play (not when picking up a song already counted).
     Play { video_id: String, generation: u64, at: std::time::Duration, report: bool },
@@ -87,9 +90,9 @@ impl Req {
             Req::Search(_) => "Search",
             Req::Suggest { .. } => "Suggest",
             Req::ForgetSearch(_) => "Removing the search",
-            Req::Album(_) => "Loading album",
+            Req::Album { .. } => "Loading album",
             Req::Artist(_) => "Loading artist",
-            Req::Playlist(_) => "Loading playlist",
+            Req::Playlist { .. } => "Loading playlist",
             Req::Library => "Loading library",
             Req::History => "Loading history",
             Req::Uploads => "Loading uploads",
@@ -174,7 +177,6 @@ pub struct ArtistPage {
 }
 
 pub struct Library {
-    pub liked: Vec<Track>,
     pub playlists: Vec<Card>,
     pub albums: Vec<Card>,
 }
@@ -186,7 +188,10 @@ pub enum Resp {
     Explore(Explore),
     Search(SearchResults),
     Suggest { query: String, round: u64, terms: Vec<ytm::Suggestion> },
-    Collection(Collection),
+    /// An album or playlist; `more`: the rest of its songs follow in `CollectionMore`.
+    Collection { load: u64, c: Collection, more: bool },
+    /// The next page of a playlist sent as `Collection` with the same `load`.
+    CollectionMore { id: String, load: u64, tracks: Vec<Track>, set_ids: Vec<Option<String>>, more: bool },
     Artist(ArtistPage),
     Library(Library),
     History(Vec<Track>),
@@ -203,11 +208,12 @@ pub enum Resp {
     LyricsExtras { video_id: String, source: String, target: String, extras: crate::translate::Extras },
     Art { key: String, art: Art },
     Radio { seed: String, tracks: Vec<Track> },
-    PlayQueue { tracks: Vec<Track> },
+    /// What was asked to play (a `Req::PlayCollection`), and its songs.
+    PlayQueue { target: Target, tracks: Vec<Track> },
     Liked { video_id: String, like: bool },
     LikedMany { count: usize, like: bool },
     PlaylistCreated { id: String, songs: usize },
-    PlaylistChanged { id: Option<String>, message: &'static str },
+    PlaylistChanged { id: String, message: &'static str },
     Collaboration(ytm::Collaboration),
     /// Playback for `generation` failed before reaching the audio engine.
     PlayError { generation: u64, msg: String },
@@ -215,6 +221,14 @@ pub enum Resp {
     /// A past search left the account's history; the list already shows it gone.
     SearchForgotten,
     Error(String),
+}
+
+impl Resp {
+    /// An album or playlist load that ends without more songs: also sent when it fails,
+    /// so the page stops waiting for it.
+    fn ended(id: String, load: u64) -> Self {
+        Resp::CollectionMore { id, load, tracks: Vec::new(), set_ids: Vec::new(), more: false }
+    }
 }
 
 /// A video id and its stream buffer.
@@ -342,6 +356,10 @@ impl Backend {
             Req::Play { generation, .. } => Some(*generation),
             _ => None,
         };
+        let collection = match &req {
+            Req::Album { id, load } | Req::Playlist { id, load, .. } => Some((id.clone(), *load)),
+            _ => None,
+        };
         let this = self.clone();
         let t0 = std::time::Instant::now();
         let task = self.rt.spawn(async move {
@@ -364,6 +382,12 @@ impl Backend {
                 }
                 Err(_) => None,
             };
+            // An album or playlist load that failed ends too, so its page stops waiting.
+            if let Some((id, load)) = collection
+                && !matches!(resp, Some(Resp::Collection { .. } | Resp::CollectionMore { .. }))
+            {
+                let _ = this.tx.send(Resp::ended(id, load));
+            }
             if let Some(resp) = resp {
                 let _ = this.tx.send(resp);
                 this.wake();
@@ -419,14 +443,19 @@ impl Backend {
                     ytm::forget_search(api, &token).await?;
                     Resp::SearchForgotten
                 }
-                Req::Album(id) => Resp::Collection(ytm::album(api, &id).await?),
-                Req::Playlist(id) => Resp::Collection(ytm::playlist(api, &id, me, 500).await?),
+                Req::Album { id, load } => Resp::Collection { load, c: ytm::album(api, &id).await?, more: false },
+                Req::Playlist { id, load, stream: false } => Resp::Collection { load, c: ytm::playlist(api, &id, me, None).await?, more: false },
+                Req::Playlist { id, load, stream: true } => self.stream_playlist(id, load, me).await?,
                 Req::Artist(id) => Resp::Artist(ytm::artist(api, &id).await?),
                 Req::Library => {
-                    let (liked, pls, albums) =
-                        tokio::join!(ytm::playlist(api, "LM", true, 1000), ytm::saved_playlists(api), ytm::saved_albums(api));
+                    // Liked songs are Liked Music, loaded like any playlist. Each half shows
+                    // without the other; it only fails when both do.
+                    let (pls, albums) = tokio::join!(ytm::saved_playlists(api), ytm::saved_albums(api));
+                    let pls = match (pls, &albums) {
+                        (Err(e), Err(_)) => return Err(e),
+                        (pls, _) => pls,
+                    };
                     Resp::Library(Library {
-                        liked: liked?.tracks,
                         playlists: pls.map(|p| p.into_iter().filter(saved_playlist_visible).collect()).unwrap_or_default(),
                         albums: albums.unwrap_or_default(),
                     })
@@ -493,17 +522,14 @@ impl Backend {
                     let tracks = ytm::radio(api, &seed, false, 50).await?;
                     Resp::Radio { seed, tracks }
                 }
-                Req::PlayCollection { target, shuffle } => {
-                    let mut tracks = match target {
-                        Target::Album(id) => ytm::album(api, &id).await?.tracks,
-                        Target::Playlist(id) => ytm::playlist(api, &id, me, 500).await?.tracks,
-                        Target::Artist(id) => ytm::artist(api, &id).await?.top,
-                        Target::Song(t) => vec![t],
+                Req::PlayCollection { target } => {
+                    let tracks = match &target {
+                        Target::Album(id) => ytm::album(api, id).await?.tracks,
+                        Target::Playlist(id) => ytm::playlist(api, id, me, None).await?.tracks,
+                        Target::Artist(id) => ytm::artist(api, id).await?.top,
+                        Target::Song(t) => vec![t.clone()],
                     };
-                    if shuffle {
-                        crate::ui::shuffle(&mut tracks);
-                    }
-                    Resp::PlayQueue { tracks }
+                    Resp::PlayQueue { target, tracks }
                 }
                 Req::Download(t) => {
                     let path = self.download(&t).await?;
@@ -557,19 +583,19 @@ impl Backend {
                 }
                 Req::EditPlaylist { id, title, description, privacy } => {
                     ytm::edit_playlist(api, &id, &title, &description, privacy.as_deref()).await?;
-                    Resp::PlaylistChanged { id: Some(id), message: "Playlist updated" }
+                    Resp::PlaylistChanged { id, message: "Playlist updated" }
                 }
                 Req::AddToPlaylist { playlist_id, video_ids } => {
                     ytm::add_videos(api, &playlist_id, &video_ids).await?;
-                    Resp::PlaylistChanged { id: Some(playlist_id), message: "Added to playlist" }
+                    Resp::PlaylistChanged { id: playlist_id, message: "Added to playlist" }
                 }
                 Req::RemoveFromPlaylist { playlist_id, items } => {
                     ytm::remove_videos(api, &playlist_id, &items).await?;
-                    Resp::PlaylistChanged { id: Some(playlist_id), message: "Removed from playlist" }
+                    Resp::PlaylistChanged { id: playlist_id, message: "Removed from playlist" }
                 }
                 Req::DeletePlaylist(id) => {
                     ytm::delete_playlist(api, &id).await?;
-                    Resp::PlaylistChanged { id: None, message: "Playlist deleted" }
+                    Resp::PlaylistChanged { id, message: "Playlist deleted" }
                 }
                 Req::Collaboration(id) => Resp::Collaboration(ytm::collaboration(api, &id).await?),
                 Req::SetCollaboration { info, change } => {
@@ -578,7 +604,7 @@ impl Backend {
                 }
                 Req::SaveCollection { id, save } => {
                     ytm::save_collection(api, &id, save).await?;
-                    Resp::PlaylistChanged { id: Some(id), message: if save { "Saved to library" } else { "Removed from library" } }
+                    Resp::PlaylistChanged { id, message: if save { "Saved to library" } else { "Removed from library" } }
                 }
                 Req::SetCookie(input) => {
                     self.set_cookie(&input).await?;
@@ -956,6 +982,26 @@ impl Backend {
 
     pub fn set_high_quality(&self, on: bool) {
         self.hq.store(on, Ordering::Relaxed);
+    }
+
+    /// Send a playlist's first page right away, then each next page as it arrives
+    /// (YouTube takes about half a second per page of 100). The last one is returned.
+    async fn stream_playlist(&self, id: String, load: u64, me: bool) -> anyhow::Result<Resp> {
+        let (c, mut token, limit) = ytm::playlist_start(&self.api, &id, me, None).await?;
+        let mut have = c.tracks.len();
+        let mut resp = Resp::Collection { load, c, more: token.is_some() && have < limit };
+        while let Some(t) = token.take().filter(|_| have < limit) {
+            let _ = self.tx.send(resp);
+            self.wake();
+            // Failing here, the page keeps what came.
+            let (mut tracks, mut set_ids, next) = ytm::playlist_more(&self.api, &t, me).await?;
+            tracks.truncate(limit - have);
+            set_ids.truncate(limit - have);
+            have += tracks.len();
+            token = next.filter(|_| !tracks.is_empty());
+            resp = Resp::CollectionMore { id: id.clone(), load, more: token.is_some() && have < limit, tracks, set_ids };
+        }
+        Ok(resp)
     }
 
     pub fn is_logged_in(&self) -> bool {

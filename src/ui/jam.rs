@@ -436,6 +436,9 @@ fn apply_state(app: &mut App, state: RoomState, at: Instant) {
     let tick = Tick { vid: state.vid.clone(), pos: state.pos, playing: state.playing };
     app.jam.by = state.by;
     app.jam.owner = state.owner;
+    app.queue_source = None;
+    app.queue_fill = None;
+    app.play_pending = None;
     if state.queue.is_empty() {
         app.queue.clear();
         app.index = None;
@@ -446,7 +449,6 @@ fn apply_state(app: &mut App, state: RoomState, at: Instant) {
     }
     app.index = Some(state.index.min(state.queue.len() - 1));
     app.queue = state.queue;
-    app.queue_source = None;
     app.jam.last = Some((tick, at));
     sync(app);
 }

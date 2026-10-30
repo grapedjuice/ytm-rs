@@ -425,10 +425,10 @@ pub fn song_menu(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, act
 /// The song menu's items, for menus that add their own (now playing's options).
 pub fn song_actions(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, acts: &mut Vec<Action>) {
     if menu_action(ui, Some(icon::HEART), if liked { "Remove like" } else { "Like song" }) {
-        acts.push(Action::Like(t.id.clone(), !liked));
+        acts.push(Action::Like(t.clone(), !liked));
     }
     if menu_action(ui, Some(icon::THUMBS_DOWN), "Dislike song") {
-        acts.push(Action::Dislike(t.id.clone()));
+        acts.push(Action::Dislike(t.clone()));
     }
     if menu_action(ui, Some(icon::LIST_PLUS), "Add to playlist") {
         acts.push(Action::AddToPlaylist(vec![t.clone()]));
@@ -914,6 +914,26 @@ pub fn paint_remote(ui: &Ui, url: &str, rect: Rect, radius: f32, uv: Rect, tint:
         }
         // A failed image keeps its plain placeholder.
         Err(_) => {}
+    }
+}
+
+/// Song rows still on their way, at the end of a list that's coming in.
+pub fn skeleton_rows(ui: &mut Ui, time: f64, rows: usize) {
+    for _ in 0..rows {
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
+        if !ui.is_rect_visible(r) {
+            continue;
+        }
+        let cy = r.center().y;
+        for (b, radius) in [
+            (Rect::from_min_size(pos2(r.left() + 10.0, cy - 20.0), Vec2::splat(40.0)), theme::thumb_radius()),
+            (Rect::from_min_size(pos2(r.left() + 64.0, cy - 13.0), vec2((r.width() * 0.3).min(260.0), 11.0)), 4.0),
+            (Rect::from_min_size(pos2(r.left() + 64.0, cy + 4.0), vec2((r.width() * 0.18).min(160.0), 9.0)), 4.0),
+        ] {
+            ui.painter().rect_filled(b, radius, theme::glass(0.06));
+            shimmer_band(ui, b, radius, time);
+        }
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(66));
     }
 }
 

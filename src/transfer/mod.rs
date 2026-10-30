@@ -853,7 +853,7 @@ impl Transfer {
     /// Spotify's order (newest at the top). Returns how many were liked before the
     /// transfer. Resuming skips what's liked by then, this transfer's likes included.
     async fn like_all(&self, api: &Api, ids: &[String]) -> Result<usize> {
-        let liked: HashSet<String> = retry(|| ytm::playlist(api, "LM", true, 20_000)).await.context("Reading your Liked Music failed")?.tracks.into_iter().map(|t| t.id).collect();
+        let liked: HashSet<String> = retry(|| ytm::playlist(api, "LM", true, Some(20_000))).await.context("Reading your Liked Music failed")?.tracks.into_iter().map(|t| t.id).collect();
         let todo: Vec<&String> = ids.iter().rev().filter(|id| !liked.contains(*id)).collect();
         let earlier = self.with_job(|j| {
             j.saving = (j.liked, j.liked + todo.len());
@@ -1284,7 +1284,7 @@ mod live {
         assert!(api.account().is_some(), "no session in the vault");
         for limit in [100, 1000, 20_000] {
             let t = std::time::Instant::now();
-            match crate::ytm::playlist(&api, "LM", true, limit).await {
+            match crate::ytm::playlist(&api, "LM", true, Some(limit)).await {
                 Ok(p) => println!("limit {limit}: {} tracks in {:?}", p.tracks.len(), t.elapsed()),
                 Err(e) => println!("limit {limit}: {e:#}"),
             }

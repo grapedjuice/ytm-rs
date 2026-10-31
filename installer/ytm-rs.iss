@@ -6,7 +6,7 @@
 ;   iscc /DArm64 installer\ytm-rs.iss  ->  ytm-rs-setup-<version>-arm64.exe
 
 #define AppName "ytm-rs"
-#define AppVersion "0.2.27"
+#define AppVersion "0.2.28"
 #define AppExe "ytm-rs.exe"
 #ifdef Arm64
   #define Arch "arm64"

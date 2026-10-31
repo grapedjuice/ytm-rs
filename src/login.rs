@@ -123,7 +123,6 @@ pub fn child_main(site: Site, profile_dir: PathBuf) {
     }
 }
 
-/// Delete the webview profile so the next sign-in starts fresh (used on sign-out).
 /// Put the webview in its window. On Linux it goes in the GTK box tao made for it:
 /// wry's plain `build` only works with an X11 window that already exists, and these
 /// start hidden (and Wayland has no such window at all).
@@ -144,8 +143,56 @@ impl<'a> BuildIn<'a> for WebViewBuilder<'a> {
     }
 }
 
+/// The cookies the browser would send to `url`.
+#[cfg(not(target_os = "macos"))]
+fn cookies_for(webview: &wry::WebView, url: &str) -> wry::Result<Vec<wry::cookie::Cookie<'static>>> {
+    webview.cookies_for_url(url)
+}
+
+/// On macOS wry's `cookies_for_url` keeps only cookies set for exactly the page's host, so
+/// Google's, set for `.youtube.com`, never came back and signing in never finished.
+#[cfg(target_os = "macos")]
+fn cookies_for(webview: &wry::WebView, url: &str) -> wry::Result<Vec<wry::cookie::Cookie<'static>>> {
+    let host = url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
+    Ok(webview.cookies()?.into_iter().filter(|c| c.domain().is_some_and(|d| domain_matches(&host, d))).collect())
+}
+
+/// Whether a cookie for `domain` (".youtube.com", "youtube.com", "music.youtube.com")
+/// goes to `host`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn domain_matches(host: &str, domain: &str) -> bool {
+    let domain = domain.trim_start_matches('.').to_ascii_lowercase();
+    let host = host.to_ascii_lowercase();
+    !domain.is_empty() && (host == domain || host.ends_with(&format!(".{domain}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::domain_matches;
+
+    #[test]
+    fn parent_domain_cookies_go_to_subdomains() {
+        assert!(domain_matches("music.youtube.com", ".youtube.com"));
+        assert!(domain_matches("music.youtube.com", "youtube.com"));
+        assert!(domain_matches("music.youtube.com", "music.youtube.com"));
+        assert!(!domain_matches("music.youtube.com", "accounts.google.com"));
+        assert!(!domain_matches("music.youtube.com", "tube.com"));
+        assert!(!domain_matches("evilyoutube.com", ".youtube.com"));
+    }
+}
+
+/// Delete the webview profile so the next sign-in starts fresh (on sign-out, and after
+/// signing in). The browser processes can hold its files for a moment after the
+/// window closes, so it tries again for a few seconds; blocks meanwhile.
 pub fn forget(profile_dir: &std::path::Path) {
-    let _ = std::fs::remove_dir_all(profile_dir);
+    for tries in 1..=10 {
+        match std::fs::remove_dir_all(profile_dir) {
+            Ok(()) => return,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+            Err(e) if tries == 10 => log::warn!("couldn't delete the sign-in window's profile {}: {e}", profile_dir.display()),
+            Err(_) => std::thread::sleep(std::time::Duration::from_millis(500)),
+        }
+    }
 }
 
 /// WKWebView has no profile folder (wry ignores the context's on macOS), so each
@@ -203,7 +250,7 @@ fn run(site: Site, profile_dir: PathBuf) -> anyhow::Result<Outcome> {
     event_loop.run_return(|event, _, flow| {
         *flow = ControlFlow::Wait;
         match event {
-            Event::UserEvent(()) => match webview.cookies_for_url(site.home()) {
+            Event::UserEvent(()) => match cookies_for(&webview, site.home()) {
                 Ok(cookies) => {
                     // Landing there while signed out also fires this; only a signed-in
                     // session has the session cookie (SAPISID, sp_dc).

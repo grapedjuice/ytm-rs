@@ -343,7 +343,7 @@ impl Updater {
             installer.display()
         );
         if relaunch {
-            script += &format!(" & start \"\" \"{}\"", exe.display());
+            script += &format!(" & start \"\" \"{}\" {}", exe.display(), crate::deeplink::RELAUNCH_FLAG);
         }
         if std::env::var_os("YTM_UPDATE_DRYRUN").is_some() {
             log::info!("update (dry run): cmd /C {script}");
@@ -375,7 +375,7 @@ fn swap_exe(new: &Path, exe: &Path, relaunch: bool) {
     log::info!("update: replaced {}", exe.display());
     if relaunch {
         // Once this process has saved and exited.
-        run_detached(&format!("ping -n 3 127.0.0.1 >NUL & start \"\" \"{}\"", exe.display()));
+        run_detached(&format!("ping -n 3 127.0.0.1 >NUL & start \"\" \"{}\" {}", exe.display(), crate::deeplink::RELAUNCH_FLAG));
     }
 }
 

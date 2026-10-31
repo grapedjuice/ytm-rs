@@ -28,6 +28,14 @@ pub struct Session {
     /// Brand channel to act as (X-Goog-PageId), when it isn't the account's own.
     #[serde(default)]
     page_id: Option<String>,
+    /// The signed-in browser's visitor ID: signed-in requests carry it, as the site's do,
+    /// not an anonymous visitor's.
+    #[serde(default)]
+    pub visitor_data: Option<String>,
+    /// Cookies Google replaced while answering a request made from here (the Premium
+    /// check, the web player), for the API to take into the session.
+    #[serde(skip)]
+    replaced: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 /// Google has signed the session out (password change, "sign out everywhere", or a
@@ -53,7 +61,7 @@ const LEGACY: &str = "rustypipe_cache.json";
 
 impl Session {
     pub fn new(cookie: String, session_index: u32, page_id: Option<String>) -> Self {
-        Self { cookie, session_index, page_id }
+        Self { cookie, session_index, page_id, visitor_data: None, replaced: Default::default() }
     }
 
     /// `None` when signed out. A session saved by an older version is carried over.
@@ -203,6 +211,19 @@ impl Session {
         Ok(resp.error_for_status()?.headers().get_all("set-cookie").iter().filter_map(|c| c.to_str().ok().map(str::to_owned)).collect())
     }
 
+    /// The `Set-Cookie` lines collected since the last call.
+    pub fn take_replaced(&self) -> Vec<String> {
+        std::mem::take(&mut *self.replaced.lock().unwrap())
+    }
+
+    /// Note a response's `Set-Cookie` lines for the API to take in.
+    pub fn note_replaced(&self, headers: &reqwest::header::HeaderMap) {
+        let lines: Vec<String> = headers.get_all("set-cookie").iter().filter_map(|c| c.to_str().ok().map(str::to_owned)).collect();
+        if !lines.is_empty() {
+            self.replaced.lock().unwrap().extend(lines);
+        }
+    }
+
     /// The same Google account and channel as `other`, whatever the cookies' age.
     pub fn same_account(&self, other: &Self) -> bool {
         self.session_index == other.session_index && self.page_id == other.page_id
@@ -217,16 +238,15 @@ impl Session {
             .header("X-YouTube-Client-Version", version)
             .header("Origin", origin)
             .header("X-Origin", origin);
-        Ok(self
+        let resp = self
             .sign(req, origin)?
             // The Premium check's browse page is about 1 MB, slow through Tor.
             .timeout(std::time::Duration::from_secs(if crate::proxy::active().resolve().is_some() { 30 } else { 10 }))
             .json(&body)
             .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?)
+            .await?;
+        self.note_replaced(resp.headers());
+        Ok(resp.error_for_status()?.json().await?)
     }
 
     /// Upload an audio file to the account's library, like "Upload music" on

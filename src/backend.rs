@@ -158,8 +158,35 @@ pub struct Collection {
     pub tracks: Vec<Track>,
     /// Each track's playlist entry id (`setVideoId`), for removing it; empty for albums.
     pub set_ids: Vec<Option<String>>,
+    /// How many songs the playlist's header counts (unplayable ones too, so it can be more
+    /// than `tracks`); kept in step with removals and unlikes made here.
+    pub count: Option<u64>,
     /// The account's own playlist (editable), not one saved from someone else.
     pub owned: bool,
+}
+
+impl Collection {
+    /// The subtitle, with the song count for a playlist.
+    pub fn byline(&self) -> String {
+        match self.count {
+            Some(n) if self.subtitle.is_empty() => format!("{n} songs"),
+            Some(n) => format!("{} • {n} songs", self.subtitle),
+            None => self.subtitle.clone(),
+        }
+    }
+
+    /// Take rows out (sorted indices), and out of the count.
+    pub fn remove_rows(&mut self, rows: &[usize]) {
+        for &i in rows.iter().rev() {
+            if i < self.tracks.len() {
+                self.tracks.remove(i);
+                if i < self.set_ids.len() {
+                    self.set_ids.remove(i);
+                }
+                self.count = self.count.map(|n| n.saturating_sub(1));
+            }
+        }
+    }
 }
 
 pub struct ArtistPage {
@@ -179,6 +206,9 @@ pub struct ArtistPage {
 pub struct Library {
     pub playlists: Vec<Card>,
     pub albums: Vec<Card>,
+    /// That half didn't load (YouTube Music refused it, say): the one shown stays.
+    pub playlists_failed: bool,
+    pub albums_failed: bool,
 }
 
 pub enum Resp {
@@ -211,6 +241,8 @@ pub enum Resp {
     /// What was asked to play (a `Req::PlayCollection`), and its songs.
     PlayQueue { target: Target, tracks: Vec<Track> },
     Liked { video_id: String, like: bool },
+    /// A run of likes or unlikes: `taken` just went through, `done` of `total` tried.
+    LikeProgress { taken: Vec<String>, done: usize, total: usize, like: bool },
     /// The songs YouTube Music took, and the ones it refused.
     LikedMany { video_ids: Vec<String>, failed: Vec<String>, like: bool },
     PlaylistCreated { id: String, songs: usize },
@@ -230,6 +262,105 @@ impl Resp {
     fn ended(id: String, load: u64) -> Self {
         Resp::CollectionMore { id, load, tracks: Vec::new(), set_ids: Vec::new(), more: false }
     }
+}
+
+/// Likes and unlikes go one after another, this far apart. YouTube Music answers faster
+/// ones as taken and then drops many: on a test account 9 of 20 unlikes sent back to back
+/// stayed liked, against 1 of 20 sent 400 ms apart; on a limited account 576 of 1,296
+/// likes sent back to back were dropped, and liking those again took as long as pacing.
+pub const LIKE_GAP: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// One run of many likes at a time (a selection here, or a Spotify transfer): run side by
+/// side, one undoes the other (a transfer skips songs as liked that an unlike run then
+/// takes out).
+pub static LIKES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// How long one like or unlike may take. Taken ones answer in about a quarter second;
+/// ones YouTube Music refuses while it limits the account are held 8–9 s before the 403
+/// (two of ten unlikes cost 17 of 27 s; in a transfer one like in six or so hangs).
+/// Sending it again is harmless (liking a liked song changes nothing) and usually goes
+/// straight through.
+pub const LIKE_WAIT: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// Like or unlike one song; whether YouTube Music took it. Refusals are retried by the
+/// API (after its shared pause while the account is limited); one that hangs or fails is
+/// sent again, up to three times in all.
+async fn like_one(api: &ytmapi::Api, id: &str, like: bool) -> bool {
+    for tries in 0..3 {
+        match tokio::time::timeout(LIKE_WAIT, ytm::set_like(api, id, like)).await {
+            Ok(Ok(())) => return true,
+            Ok(Err(e)) => log::debug!("like={like} {id}: {e:#}"),
+            // Not refused yet: again right away.
+            Err(_) => {
+                log::debug!("like={like} {id}: no answer in {LIKE_WAIT:?}; sending it again");
+                continue;
+            }
+        }
+        if tries < 2 {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+    }
+    false
+}
+
+/// Like or unlike a selection, one at a time (paced, see `LIKE_GAP`), then check
+/// Liked Music and try again what didn't take. `progress(taken, tried)` after each song.
+/// Returns the ones taken and the ones refused; unlikes still listed once checking stops
+/// getting anywhere count as refused, likes don't (songs that can't be played are liked but not listed).
+/// One run at a time, transfers included (`LIKES`); `progress(None, 0)` while waiting its turn.
+pub async fn like_many(api: &ytmapi::Api, ids: Vec<String>, like: bool, mut progress: impl FnMut(Option<&str>, usize)) -> (Vec<String>, Vec<String>) {
+    let _turn = match LIKES.try_lock() {
+        Ok(turn) => turn,
+        Err(_) => {
+            progress(None, 0);
+            LIKES.lock().await
+        }
+    };
+    let total = ids.len();
+    let mut failed = Vec::new();
+    for (i, id) in ids.iter().enumerate() {
+        let taken = like_one(api, id, like).await;
+        if !taken {
+            failed.push(id.clone());
+        }
+        progress(taken.then_some(id.as_str()), i + 1);
+        tokio::time::sleep(LIKE_GAP).await;
+    }
+    // Check and try again while it gets anywhere: a throttled account takes a few rounds.
+    let (mut before, mut stuck) = (usize::MAX, 0);
+    for round in 0..10 {
+        if total < 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let listed: std::collections::HashSet<String> = match ytm::playlist(api, "LM", true, None).await {
+            Ok(lm) => lm.tracks.into_iter().map(|t| t.id).collect(),
+            Err(e) => {
+                log::warn!("checking likes: {e:#}");
+                break;
+            }
+        };
+        let left: Vec<String> = ids.iter().filter(|id| listed.contains(*id) != like && !failed.contains(*id)).cloned().collect();
+        log::debug!("like={like} check {round}: Liked Music lists {}, {} of {total} not taken yet", listed.len(), left.len());
+        if left.is_empty() {
+            break;
+        }
+        stuck = if left.len() < before { 0 } else { stuck + 1 };
+        before = left.len();
+        if stuck == 2 || round == 9 {
+            if !like {
+                failed.extend(left);
+            }
+            break;
+        }
+        // The second go is paced either way.
+        for id in &left {
+            like_one(api, id, like).await;
+            tokio::time::sleep(LIKE_GAP).await;
+        }
+    }
+    let done: Vec<String> = ids.into_iter().filter(|id| !failed.contains(id)).collect();
+    (done, failed)
 }
 
 /// A video id and its stream buffer.
@@ -296,6 +427,7 @@ impl Backend {
         self.rt.spawn(async move {
             loop {
                 if this.api.account().is_some() {
+                    this.api.ensure_visitor().await;
                     match this.api.rotate().await {
                         Ok(()) => log::debug!("session cookies refreshed"),
                         Err(e) if e.is::<webmusic::Revoked>() => this.check_session().await,
@@ -314,13 +446,35 @@ impl Backend {
         // Several requests answered at once ask together; one check is enough.
         static CHECKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
         let _one = CHECKING.lock().await;
-        let Some(account) = self.api.account() else { return };
-        match self.api.session_from_cookie(&account.cookie).await {
-            Ok(_) => return,
-            // Offline or similar: nothing learned.
-            Err(e) if e.is::<reqwest::Error>() => return,
-            Err(e) => log::warn!("signed-in session no longer valid: {e:#}"),
+        if self.api.account().is_none() {
+            return;
         }
+        // Signing out deletes the session, so only once youtube.com shows it signed out
+        // twice, a minute apart (each after a rotation, which can bring it back). One
+        // signed-out answer can be a hiccup (throttling, a consent or "unusual traffic"
+        // page), and a refused rotation alone isn't proof either: the clients whose
+        // sessions last never sign out on their own.
+        for attempt in 0..2 {
+            if let Err(e) = self.api.rotate().await {
+                log::info!("rotating cookies while checking the session: {e:#}");
+            }
+            let Some(account) = self.api.account() else { return };
+            match self.api.session_from_cookie(&account.cookie).await {
+                Ok(_) => return,
+                Err(e) if e.is::<ytmapi::NotSignedIn>() => {
+                    log::warn!("signed-in session looks signed out ({}): {e:#}", if attempt == 0 { "checking again in a minute" } else { "twice" });
+                    if attempt == 0 {
+                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    }
+                }
+                // Offline, throttled or similar: nothing learned.
+                Err(e) => {
+                    log::info!("couldn't check the session: {e:#}");
+                    return;
+                }
+            }
+        }
+        log::warn!("signed-in session no longer valid");
         self.forget_session().await;
         let _ = self.tx.send(Resp::LoggedIn(false));
         let _ = self.tx.send(Resp::Error("Your YouTube sign-in expired. Sign in again to get your library back".into()));
@@ -331,7 +485,8 @@ impl Backend {
         webmusic::Session::remove(&self.data_dir);
         self.api.set_account(None);
         *self.premium.lock().await = Err(None);
-        crate::login::forget(&self.login_profile());
+        let profile = self.login_profile();
+        let _ = tokio::task::spawn_blocking(move || crate::login::forget(&profile)).await;
     }
 
     pub fn api(&self) -> Arc<ytmapi::Api> {
@@ -456,7 +611,15 @@ impl Backend {
                         (Err(e), Err(_)) => return Err(e),
                         (pls, _) => pls,
                     };
+                    if let Err(e) = &pls {
+                        log::warn!("saved playlists didn't load: {e:#}");
+                    }
+                    if let Err(e) = &albums {
+                        log::warn!("saved albums didn't load: {e:#}");
+                    }
                     Resp::Library(Library {
+                        playlists_failed: pls.is_err(),
+                        albums_failed: albums.is_err(),
                         playlists: pls.map(|p| p.into_iter().filter(saved_playlist_visible).collect()).unwrap_or_default(),
                         albums: albums.unwrap_or_default(),
                     })
@@ -564,30 +727,7 @@ impl Backend {
                     ytm::set_like(api, &video_id, like).await?;
                     Resp::Liked { video_id, like }
                 }
-                Req::LikeMany { video_ids, like } => {
-                    use futures_util::StreamExt;
-                    // A few at a time, each tried up to three times: one at a time took minutes
-                    // for a few hundred songs, and one refusal stopped the rest.
-                    let results: Vec<(String, bool)> = futures_util::stream::iter(video_ids)
-                        .map(|id| async move {
-                            for tries in 1..=3u64 {
-                                match ytm::set_like(api, &id, like).await {
-                                    Ok(()) => return (id, true),
-                                    Err(e) => {
-                                        log::debug!("like {id}: {e:#}");
-                                        if tries < 3 { tokio::time::sleep(std::time::Duration::from_millis(700 * tries)).await; }
-                                    }
-                                }
-                            }
-                            (id, false)
-                        })
-                        .buffer_unordered(6)
-                        .collect()
-                        .await;
-                    let (done, failed): (Vec<_>, Vec<_>) = results.into_iter().partition(|(_, ok)| *ok);
-                    anyhow::ensure!(!done.is_empty(), "YouTube Music refused all {} songs", failed.len());
-                    Resp::LikedMany { video_ids: done.into_iter().map(|(id, _)| id).collect(), failed: failed.into_iter().map(|(id, _)| id).collect(), like }
-                }
+                Req::LikeMany { video_ids, like } => self.like_many(video_ids, like).await?,
                 Req::Dislike(video_id) => {
                     ytm::dislike(api, &video_id).await?;
                     Resp::Liked { video_id, like: false }
@@ -696,6 +836,11 @@ impl Backend {
         })?;
         session.save(&self.data_dir);
         self.api.set_account(Some(session));
+        // The sign-in window's copy of the session would go stale as the app takes new
+        // cookies, and opening it again would show Google the old ones, which it treats
+        // as stolen and signs the session out. Keep only the app's copy.
+        let profile = self.login_profile();
+        let _ = tokio::task::spawn_blocking(move || crate::login::forget(&profile)).await;
         Ok(())
     }
 
@@ -926,6 +1071,8 @@ impl Backend {
             Source::YtDlp => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("sign in to play this song"))?;
                 let s = ytdlp::resolve(&self.http(), &self.data_dir, &session.cookie, video_id).await?;
+                // Cookies Google replaced while yt-dlp used the session.
+                self.api.keep(&session, s.replaced.iter().map(String::as_str));
                 // yt-dlp's JSON doesn't carry YouTube's loudness figure.
                 ResolvedStream { url: s.url, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None }
             }
@@ -1001,6 +1148,20 @@ impl Backend {
 
     pub fn set_high_quality(&self, on: bool) {
         self.hq.store(on, Ordering::Relaxed);
+    }
+
+    /// Like or unlike a selection, one at a time, then check Liked Music and try again
+    /// what didn't take. Unlikes still listed after that count as refused; likes aren't
+    /// counted so (songs that can't be played are liked but not listed).
+    async fn like_many(&self, ids: Vec<String>, like: bool) -> anyhow::Result<Resp> {
+        let total = ids.len();
+        let (done, failed) = like_many(&self.api, ids, like, |taken, n| {
+            let _ = self.tx.send(Resp::LikeProgress { taken: taken.into_iter().map(str::to_owned).collect(), done: n, total, like });
+            self.wake();
+        })
+        .await;
+        // Even when all were refused: the app stops waiting on them and shows them as they are.
+        Ok(Resp::LikedMany { video_ids: done, failed, like })
     }
 
     /// Send a playlist's first page right away, then each next page as it arrives

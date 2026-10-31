@@ -10,6 +10,13 @@ use std::sync::Mutex;
 use crate::jam::normalize_code as normalize;
 
 static PENDING: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// A plain later launch asked for the window (see `forward_show`).
+static SHOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// What a plain later launch sends instead of a code.
+#[cfg_attr(not(windows), allow(dead_code))]
+const SHOW_MSG: &str = "show";
+/// The updater's relaunch passes this: the old copy may still be exiting, so don't hand over to it.
+pub const RELAUNCH_FLAG: &str = "--relaunch";
 
 /// The room code in a launch argument, if it is a jam link:
 /// `ytm-rs://jam/CODE[/]` (any case) or the https share link with `?c=CODE`.
@@ -62,6 +69,29 @@ pub fn push(code: String) {
 /// Codes received since the last call, oldest first.
 pub fn take() -> Vec<String> {
     std::mem::take(&mut *PENDING.lock().unwrap())
+}
+
+/// Whether a later launch asked for the window since the last call.
+pub fn take_show() -> bool {
+    SHOW.swap(false, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// A plain launch while another copy runs: bring that one's window up instead, so only
+/// one copy uses (and refreshes) the Google session. Two copies refreshing it apart
+/// leave one with old cookies, which Google treats as stolen and signs out. True if
+/// a running copy took it.
+pub fn forward_show() -> bool {
+    if std::env::args_os().any(|a| a == RELAUNCH_FLAG) {
+        return false;
+    }
+    // Windows only lets a background process take the foreground when the one the user
+    // just started allows it.
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::UI::WindowsAndMessaging::{ASFW_ANY, AllowSetForegroundWindow};
+        let _ = AllowSetForegroundWindow(ASFW_ANY);
+    }
+    forward_to_running(SHOW_MSG)
 }
 
 /// Per-user pipe name. A dev profile (`YTM_DATA_DIR`) gets its own, so test runs
@@ -196,6 +226,12 @@ mod win {
             }
             unsafe {
                 let _ = DisconnectNamedPipe(pipe.0);
+            }
+            if String::from_utf8_lossy(&msg).trim() == super::SHOW_MSG {
+                log::info!("another launch asked for the window");
+                super::SHOW.store(true, std::sync::atomic::Ordering::Relaxed);
+                wake();
+                continue;
             }
             match normalize(String::from_utf8_lossy(&msg).trim()) {
                 Some(code) => {

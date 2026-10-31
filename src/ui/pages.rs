@@ -501,7 +501,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             ui.label(RichText::new(&c.title).font(theme::bold(40.0)).color(theme::TEXT));
             ui.add_space(2.0);
             let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
-            widgets::linked_text(ui, r.min, &c.subtitle, &c.artists, theme::regular(15.0), theme::text_dim(), r.width(), acts);
+            widgets::linked_text(ui, r.min, &c.byline(), &c.artists, theme::regular(15.0), theme::text_dim(), r.width(), acts);
             let total: u32 = tracks.iter().filter_map(|t| t.duration).sum();
             if total > 0 {
                 ui.label(

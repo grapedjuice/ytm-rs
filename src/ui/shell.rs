@@ -251,7 +251,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 ui.label(egui::RichText::new("Sign in to see your playlists").color(theme::text_dim()));
                 ui.add_space(8.0);
                 if widgets::pill(ui, "Sign in", Some(icon::CIRCLE_USER), false).clicked() {
-                    app.actions.push(Action::Go(Page::Settings));
+                    app.start_sign_in(ui.ctx());
                 }
             } else {
                 ui.multiply_opacity(2.0 * t - 1.0);

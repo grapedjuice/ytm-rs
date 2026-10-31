@@ -179,6 +179,7 @@ fn parse_album(v: &Value, id: &str) -> Option<Collection> {
         thumbs,
         tracks,
         set_ids: Vec::new(),
+        count: None,
         owned: false,
     })
 }
@@ -244,8 +245,8 @@ fn parse_playlist(v: &Value, id: &str) -> Option<(Collection, Option<String>, Op
         .filter_map(|r| r["text"].as_str())
         .find(|t| ["song", "track", "episode", "video"].iter().any(|w| t.contains(w)))
         .and_then(|t| t.split_whitespace().next()?.replace(',', "").parse::<u64>().ok());
-    let mut sub: Vec<String> = owners.first().map(|o| o.name.clone()).into_iter().collect();
-    sub.push(format!("{} songs", count.unwrap_or(tracks.len() as u64)));
+    let sub: Vec<String> = owners.first().map(|o| o.name.clone()).into_iter().collect();
+    let count = count.or(Some(tracks.len() as u64));
     let thumb = &h["thumbnail"];
     let thumb = if thumb["musicThumbnailRenderer"].is_null() { &thumb["croppedSquareThumbnailRenderer"] } else { &thumb["musicThumbnailRenderer"] };
     Some((
@@ -255,6 +256,7 @@ fn parse_playlist(v: &Value, id: &str) -> Option<(Collection, Option<String>, Op
             save_id: None,
             title: text(&h["title"])?,
             subtitle: sub.join(" • "),
+            count,
             artists: owners.into_iter().filter(|o| o.id.is_some()).collect(),
             description: text(&h["description"]["musicDescriptionShelfRenderer"]["description"]),
             thumbs: thumbs(thumb),
@@ -1252,7 +1254,7 @@ mod tests {
         }}});
         let (p, token, count) = parse_playlist(&v, "PLx").unwrap();
         assert_eq!(count, Some(1046));
-        assert_eq!(p.subtitle, "The Weeknd • 1046 songs");
+        assert_eq!(p.byline(), "The Weeknd • 1046 songs");
         assert_eq!(p.artists[0].id.as_deref(), Some("UC0"));
         assert_eq!(p.tracks.len(), 1);
         assert_eq!(token.as_deref(), Some("NEXT"));

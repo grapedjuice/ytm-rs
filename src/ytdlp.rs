@@ -32,6 +32,8 @@ pub struct Stream {
     pub size: u64,
     pub duration_ms: u64,
     pub user_agent: String,
+    /// youtube.com cookies yt-dlp saved changed, as `Set-Cookie` lines.
+    pub replaced: Vec<String>,
 }
 
 /// Path to an up-to-date yt-dlp, downloading it if missing or stale.
@@ -102,6 +104,13 @@ fn run(bin: &Path, data_dir: &Path, video_id: &str, cookie: &str) -> anyhow::Res
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
+    // Its own process group, so the whole tree (the onefile binary unpacks into a child,
+    // plus Node) can be ended together.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
     // A stuck run (yt-dlp or its Node child hung on the network) would leave the song
     // buffering for good: give it a minute and a half, then end its process tree.
     let child = cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn()?;
@@ -115,14 +124,19 @@ fn run(bin: &Path, data_dir: &Path, video_id: &str, cookie: &str) -> anyhow::Res
             }
         }
         log::warn!("yt-dlp took too long; stopping it");
-        let mut kill = Command::new("taskkill");
-        kill.args(["/PID", &pid.to_string(), "/T", "/F"]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
+            let mut kill = Command::new("taskkill");
+            kill.args(["/PID", &pid.to_string(), "/T", "/F"]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
             kill.creation_flags(0x0800_0000);
+            let _ = kill.status();
         }
-        let _ = kill.status();
+        // The process group it leads (see `process_group` above).
+        #[cfg(unix)]
+        unsafe {
+            libc::killpg(pid as libc::pid_t, libc::SIGKILL);
+        }
     });
     let out = child.wait_with_output();
     done.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -133,7 +147,20 @@ fn run(bin: &Path, data_dir: &Path, video_id: &str, cookie: &str) -> anyhow::Res
         anyhow::bail!("{}", line.trim_start_matches("ERROR: ").trim());
     }
     let v: Value = serde_json::from_slice(&out.stdout)?;
+    // yt-dlp writes the cookies back, with any Google replaced while it ran.
+    let replaced = std::fs::read_to_string(&jar)
+        .unwrap_or_default()
+        .lines()
+        // HttpOnly cookies (the session ones) may be written as `#HttpOnly_.youtube.com…`.
+        .map(|l| l.strip_prefix("#HttpOnly_").unwrap_or(l))
+        .filter(|l| !l.starts_with('#'))
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            (f.len() >= 7 && f[0].trim_start_matches('.').eq_ignore_ascii_case("youtube.com")).then(|| format!("{}={}; Domain=.youtube.com", f[5], f[6]))
+        })
+        .collect();
     Ok(Stream {
+        replaced,
         url: v["url"].as_str().ok_or_else(|| anyhow::anyhow!("yt-dlp returned no URL"))?.to_owned(),
         size: v["filesize"].as_u64().unwrap_or(0),
         duration_ms: v["duration"].as_f64().map_or(0, |d| (d * 1000.0) as u64),

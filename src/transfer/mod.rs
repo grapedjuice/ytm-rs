@@ -22,8 +22,13 @@ use crate::ytm;
 use crate::ytmapi::Api;
 use spotify::{Source, Track};
 
-/// YouTube Music searches in flight at once. More gets the account rate limited on long lists.
+/// Doubtful songs looked up at once for review (two signed-in searches each). More gets
+/// the account rate limited on long lists.
 const CONCURRENCY: usize = 8;
+/// Songs matched at once. Their searches are signed out (see `search_song`), so they
+/// don't count against the account; YouTube refuses some in short bursts, and more at
+/// once keeps the rest going meanwhile (16 matched about a third faster than 8).
+const SEARCHES: usize = 16;
 /// The most songs a YouTube Music playlist holds; longer lists are split into parts.
 const PLAYLIST_MAX: usize = 5000;
 /// How often progress is written while searching or liking.
@@ -109,6 +114,8 @@ pub struct Summary {
 }
 
 pub struct Job {
+    /// Adding to Liked Music waits for likes or unlikes the app is still sending.
+    pub waiting: bool,
     pub source: Source,
     pub name: String,
     pub dest: Dest,
@@ -125,6 +132,8 @@ pub struct Job {
     pub doubts: Vec<Doubt>,
     /// Liking or adding: done, of the total.
     pub saving: (usize, usize),
+    /// Liking again the songs YouTube Music dropped: done, of how many.
+    pub redo: Option<(usize, usize)>,
     pub summary: Option<Summary>,
     pub paused: bool,
     started: Instant,
@@ -498,6 +507,8 @@ impl Transfer {
             search_started: None,
             doubts: Vec::new(),
             saving: (0, 0),
+            redo: None,
+            waiting: false,
             summary: None,
             paused: false,
             started: Instant::now(),
@@ -771,7 +782,7 @@ impl Transfer {
                 }
                 (i, search_song(api, &t).await)
             })
-            .buffer_unordered(CONCURRENCY);
+            .buffer_unordered(SEARCHES);
         let (mut failed, mut last_save, mut last_wake) = (0, Instant::now(), Instant::now());
         while let Some((i, res)) = results.next().await {
             self.checkpoint().await?;
@@ -853,49 +864,87 @@ impl Transfer {
     /// Spotify's order (newest at the top). Returns how many were liked before the
     /// transfer. Resuming skips what's liked by then, this transfer's likes included.
     async fn like_all(&self, api: &Api, ids: &[String]) -> Result<usize> {
+        // Not beside likes or unlikes of a selection in the app: they'd undo each other.
+        let _turn = match crate::backend::LIKES.try_lock() {
+            Ok(turn) => turn,
+            Err(_) => {
+                self.with_job(|j| j.waiting = true);
+                self.wake();
+                let turn = crate::backend::LIKES.lock().await;
+                self.with_job(|j| j.waiting = false);
+                turn
+            }
+        };
         let read_liked = || async {
             let lm = retry(|| ytm::playlist(api, "LM", true, Some(20_000))).await.context("Reading your Liked Music failed")?;
             anyhow::Ok(lm.tracks.into_iter().map(|t| t.id).collect::<HashSet<String>>())
         };
         let liked = read_liked().await?;
         let todo: Vec<&String> = ids.iter().rev().filter(|id| !liked.contains(*id)).collect();
+        log::debug!("transfer: {} matched, Liked Music lists {}, {} of the matched already in it, {} to like", ids.len(), liked.len(), ids.len() - todo.len(), todo.len());
         let earlier = self.with_job(|j| {
             j.saving = (j.liked, j.liked + todo.len());
             j.liked
         });
         let mut last_save = Instant::now();
         for id in &todo {
-            self.like_one(api, id).await?;
+            self.like_one(api, id, true).await?;
+            tokio::time::sleep(crate::backend::LIKE_GAP).await;
             if last_save.elapsed() > SAVE_EVERY {
                 self.save();
                 last_save = Instant::now();
             }
         }
-        // Songs unliked while this ran, or just before (YouTube Music lists an unlike for a
-        // while after taking it), were skipped above as liked: look again and like those.
-        let skipped: Vec<&String> = ids.iter().rev().filter(|id| liked.contains(*id)).collect();
-        let mut gone = Vec::new();
-        if !skipped.is_empty() {
+        // Look again: YouTube Music drops some likes it answered as taken, and songs unliked
+        // just before were skipped above as liked. Like what's missing once more. (Songs
+        // that can't be played are liked but never listed; liking them again is harmless.)
+        // Again while that gets anywhere (unplayable songs stay missing).
+        let (mut gone, mut before) = (0, usize::MAX);
+        for round in 0..3 {
+            tokio::time::sleep(Duration::from_secs(2)).await;
             let now = read_liked().await?;
-            gone = skipped.into_iter().filter(|id| !now.contains(*id)).collect();
-            if !gone.is_empty() {
-                log::info!("transfer: {} songs were unliked meanwhile; liking them again", gone.len());
-                self.with_job(|j| j.saving.1 += gone.len());
+            let missing: Vec<&String> = ids.iter().rev().filter(|id| !now.contains(*id)).collect();
+            if round == 0 {
+                // Of those, the ones skipped as liked count as liked by this transfer now.
+                gone = missing.iter().filter(|id| liked.contains(**id)).count();
+                self.with_job(|j| j.saving.1 += gone);
             }
-            for id in &gone {
-                self.like_one(api, id).await?;
+            log::debug!("transfer: re-check {round}: Liked Music lists {}, {} missing ({gone} skipped as liked)", now.len(), missing.len());
+            if missing.is_empty() || missing.len() >= before {
+                break;
+            }
+            before = missing.len();
+            self.with_job(|j| j.redo = Some((0, missing.len())));
+            self.wake();
+            for (i, id) in missing.iter().enumerate() {
+                self.like_one(api, id, round == 0 && liked.contains(*id)).await?;
+                self.with_job(|j| j.redo = Some((i + 1, missing.len())));
+                tokio::time::sleep(crate::backend::LIKE_GAP).await;
             }
         }
+        self.with_job(|j| j.redo = None);
         self.save();
-        Ok((ids.len() - todo.len() - gone.len()).saturating_sub(earlier))
+        Ok((ids.len() - todo.len() - gone).saturating_sub(earlier))
     }
 
-    async fn like_one(&self, api: &Api, id: &str) -> Result<()> {
+    /// Like one song; `count`: it adds to the transfer's liked songs (not when it's one
+    /// liked once already that YouTube Music dropped).
+    async fn like_one(&self, api: &Api, id: &str, count: bool) -> Result<()> {
         self.checkpoint().await?;
-        let mut tries = 0;
+        let (mut tries, mut hung) = (0, 0);
         loop {
+            // Refusals are held seconds before they're answered: send a slow one again
+            // right away (it isn't a refusal yet, so no pause).
+            let Ok(sent) = tokio::time::timeout(crate::backend::LIKE_WAIT, ytm::set_like(api, id, true)).await else {
+                log::debug!("like {id}: no answer in {:?}; sending it again", crate::backend::LIKE_WAIT);
+                hung += 1;
+                if hung == 10 {
+                    bail!("Liking songs failed: YouTube Music stopped answering");
+                }
+                continue;
+            };
             tries += 1;
-            match ytm::set_like(api, id, true).await {
+            match sent {
                 Ok(()) => break,
                 Err(e) if signed_out(&e) => return Err(e.context("YouTube Music signed you out; sign in again and try again")),
                 Err(e) if tries < 4 => {
@@ -905,11 +954,17 @@ impl Transfer {
                 Err(e) => return Err(e.context("Liking songs failed")),
             }
         }
-        self.with_job(|j| {
-            j.liked += 1;
-            j.saving.0 = j.liked;
-        });
+        if count {
+            self.with_job(|j| {
+                j.liked += 1;
+                j.saving.0 = j.liked;
+            });
+        }
         self.wake();
+        let n = self.with_job(|j| j.liked);
+        if count && n % 25 == 0 {
+            log::debug!("transfer: {n} liked");
+        }
         Ok(())
     }
 }
@@ -968,13 +1023,37 @@ fn plain_title(s: &str) -> &str {
 /// YouTube's top hit is sometimes another song by the same artist or someone's cover,
 /// so the first five of each search are ranked by title and artist and the top hit only
 /// wins ties. The fuller query runs only when the plain one finds nothing sure.
+///
+/// Searched signed out first: YouTube refuses far fewer of those (about 1 in 20 against
+/// a quarter or more of an account's when it's busy), and a refusal costs only that
+/// search. Signed-out results miss some major-label releases, so a song still not
+/// found surely gets one signed-in search before settling.
 async fn search_song(api: &Api, t: &Track) -> Result<Option<(YtTrack, bool)>> {
     let mut hits: Vec<YtTrack> = Vec::new();
-    for q in queries(t) {
-        let found = ytm::search_tracks_signed_in(api, &q, ytm::Filter::Songs).await?;
-        hits.extend(found.into_iter().take(5).filter(|h| !hits.iter().any(|x| x.id == h.id)).collect::<Vec<_>>());
+    let add = |hits: &mut Vec<YtTrack>, found: Vec<YtTrack>| {
+        let new: Vec<YtTrack> = found.into_iter().take(5).filter(|h| !hits.iter().any(|x| x.id == h.id)).collect();
+        hits.extend(new);
+    };
+    let queries = queries(t);
+    for q in &queries {
+        let found = match ytm::search_songs(api, q, false).await {
+            Ok(found) => found,
+            // Refused even after retries: the account's search may still answer.
+            Err(e) => {
+                log::debug!("transfer: signed-out search refused ({e:#}); searching signed in");
+                ytm::search_tracks_signed_in(api, q, ytm::Filter::Songs).await?
+            }
+        };
+        add(&mut hits, found);
         if let Some(b) = best(&hits, t).filter(|(_, sure)| *sure) {
             return Ok(Some(b));
+        }
+    }
+    if api.account().is_some() {
+        match ytm::search_tracks_signed_in(api, &queries[0], ytm::Filter::Songs).await {
+            Ok(found) => add(&mut hits, found),
+            Err(e) if hits.is_empty() => return Err(e),
+            Err(e) => log::debug!("transfer: signed-in search: {e:#}"),
         }
     }
     Ok(best(&hits, t))
@@ -1273,6 +1352,366 @@ mod tests {
 
 #[cfg(test)]
 mod live {
+    /// A signed-in session's health: the validity check the app signs out on, a signed-in
+    /// request, a cookie rotation, then both again.
+    /// `YTM_DATA_DIR=<profile> cargo test --release -- --ignored session_live --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn session_live() {
+        let dir = std::path::PathBuf::from(std::env::var("YTM_DATA_DIR").unwrap());
+        let api = crate::ytmapi::Api::new(&dir);
+        let a = api.account().expect("no session in the vault");
+        let names = |c: &str| c.split(';').filter_map(|kv| kv.trim().split_once('=').map(|(k, _)| k.to_owned())).collect::<Vec<_>>().join(",");
+        println!("cookies: {}", names(&a.cookie));
+        for round in 0..2 {
+            let a = api.account().unwrap();
+            match api.session_from_cookie(&a.cookie).await {
+                Ok(_) => println!("[{round}] youtube.com check: signed in"),
+                Err(e) => println!("[{round}] youtube.com check: {e:#}"),
+            }
+            match api.call("browse", serde_json::json!({"browseId": "FEmusic_liked_playlists"}), true).await {
+                Ok(v) => println!("[{round}] signed-in browse: logged_out={}", crate::ytmapi::logged_out(&v)),
+                Err(e) => println!("[{round}] signed-in browse: {e:#}"),
+            }
+            if round == 0 {
+                match api.rotate().await {
+                    Ok(()) => println!("rotate: ok; cookies now {}", names(&api.account().unwrap().cookie)),
+                    Err(e) => println!("rotate: {e:#}"),
+                }
+            }
+        }
+    }
+
+    /// The bulk paths end to end on a test account: searches the way a transfer does,
+    /// likes everything found the way a selection or transfer does, then unlikes it all,
+    /// checking Liked Music after each and timing them.
+    /// `YTM_DATA_DIR=<test profile> cargo test --release -- --ignored bulk_live --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn bulk_live() {
+        use futures_util::{StreamExt, stream};
+        use std::time::Instant;
+        let _ = env_logger::builder().filter_level(log::LevelFilter::Warn).filter_module("ytm_rs::ytmapi", log::LevelFilter::Info).try_init();
+        let dir = std::path::PathBuf::from(std::env::var("YTM_DATA_DIR").unwrap());
+        let api = crate::ytmapi::Api::new(&dir);
+        assert!(api.account().is_some(), "no session in the vault");
+        let n: usize = std::env::var("YTM_BULK_N").ok().and_then(|v| v.parse().ok()).unwrap_or(150);
+        async fn listed(api: &crate::ytmapi::Api) -> std::collections::HashSet<String> {
+            crate::ytm::playlist(api, "LM", true, None).await.map(|p| p.tracks.into_iter().map(|t| t.id).collect()).unwrap_or_default()
+        }
+
+        // Songs to work with, from a few searches.
+        let mut tracks: Vec<super::Track> = Vec::new();
+        for q in ["drake", "taylor swift", "the weeknd", "kendrick lamar", "billie eilish", "travis scott", "sza", "bad bunny", "doja cat", "post malone", "ariana grande", "frank ocean", "tyler the creator", "lana del rey", "j cole"] {
+            for t in crate::ytm::search_songs(&api, q, false).await.unwrap_or_default() {
+                if tracks.len() < n && !tracks.iter().any(|x| x.name == t.title) {
+                    tracks.push(super::Track { name: t.title.clone(), artists: t.artists.iter().map(|a| a.name.clone()).collect(), local: false, art: None, duration: None });
+                }
+            }
+        }
+        println!("{} songs to search", tracks.len());
+
+        // Search as a transfer does: SEARCHES songs at once.
+        let t = Instant::now();
+        let found: Vec<String> = stream::iter(tracks.iter())
+            .map(|tr| super::search_song(&api, tr))
+            .buffer_unordered(super::SEARCHES)
+            .filter_map(|r| async move { r.ok().flatten().map(|(t, _)| t.id) })
+            .collect()
+            .await;
+        let mut ids: Vec<String> = Vec::new();
+        for id in found {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        println!("search: {} found of {} in {:.1}s ({:.2} s/song), paused now: {}", ids.len(), tracks.len(), t.elapsed().as_secs_f32(), t.elapsed().as_secs_f32() / tracks.len().max(1) as f32, api.limited());
+
+        let before = listed(&api).await.len();
+        let t = Instant::now();
+        let (done, failed) = crate::backend::like_many(&api, ids.clone(), true, |_, _| {}).await;
+        let now = listed(&api).await;
+        let have = ids.iter().filter(|id| now.contains(*id)).count();
+        println!("like: {} taken, {} refused in {:.1}s ({:.2} s/song); Liked Music {} -> {}, {have} of {} listed", done.len(), failed.len(), t.elapsed().as_secs_f32(), t.elapsed().as_secs_f32() / ids.len().max(1) as f32, before, now.len(), ids.len());
+
+        let t = Instant::now();
+        let (done, failed) = crate::backend::like_many(&api, ids.clone(), false, |_, _| {}).await;
+        let now = listed(&api).await;
+        let left = ids.iter().filter(|id| now.contains(*id)).count();
+        println!("unlike: {} taken, {} refused in {:.1}s ({:.2} s/song); Liked Music now {}, {left} of {} still listed", done.len(), failed.len(), t.elapsed().as_secs_f32(), t.elapsed().as_secs_f32() / ids.len().max(1) as f32, now.len(), ids.len());
+    }
+
+    /// Unlikes everything in Liked Music the way a selection does, and checks.
+    /// `YTM_DATA_DIR=<test profile> cargo test --release -- --ignored unlike_all_live --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn unlike_all_live() {
+        let dir = std::path::PathBuf::from(std::env::var("YTM_DATA_DIR").unwrap());
+        let api = crate::ytmapi::Api::new(&dir);
+        let ids: Vec<String> = crate::ytm::playlist(&api, "LM", true, None).await.unwrap().tracks.into_iter().map(|t| t.id).collect();
+        let t = std::time::Instant::now();
+        let (done, failed) = crate::backend::like_many(&api, ids.clone(), false, |_, _| {}).await;
+        let left = crate::ytm::playlist(&api, "LM", true, None).await.map(|p| p.tracks.len()).unwrap_or(usize::MAX);
+        println!("unlike all: {} listed, {} taken, {} refused in {:.1}s; Liked Music now lists {left}", ids.len(), done.len(), failed.len(), t.elapsed().as_secs_f32());
+    }
+
+    /// Read-only, signed out: how often YouTube Music refuses searches sent as the app sends
+    /// them against ones with a browser's headers, alternating, from this connection.
+    /// `cargo test --release -- --ignored refusals_live --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn refusals_live() {
+        let dir = std::env::temp_dir().join("ytm-rs-refusals-test");
+        let api = crate::ytmapi::Api::new(&dir);
+        let visitor = api.visitor_data(false).await.unwrap();
+        let http = crate::proxy::http();
+        let queries = ["drake", "sza", "adele", "queen", "abba", "eminem", "rihanna", "beyonce", "coldplay", "muse"];
+        let (mut ours, mut browser) = ((0, 0), (0, 0));
+        for i in 0..40 {
+            let q = format!("{} {}", queries[i % queries.len()], i);
+            let body = serde_json::json!({"query": q, "context": {"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20261027.10.00", "hl": "en", "gl": "US", "visitorData": visitor}}});
+            let as_app = i % 2 == 0;
+            let mut req = http.post("https://music.youtube.com/youtubei/v1/search?prettyPrint=false").json(&body).header("Origin", "https://music.youtube.com").header("X-Goog-Visitor-Id", &visitor);
+            req = if as_app {
+                req.header("User-Agent", crate::webmusic::UA).header("X-Origin", "https://music.youtube.com").header("Referer", "https://music.youtube.com").header("X-YouTube-Client-Name", "67").header("X-YouTube-Client-Version", "1.20261027.10.00").header("Cookie", "SOCS=CAISAiAD")
+            } else {
+                req.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0")
+                    .header("Accept-Language", "en-US,en;q=0.5")
+                    .header("Referer", "https://music.youtube.com/")
+                    .header("X-Goog-Api-Format-Version", "1")
+                    .header("X-YouTube-Client-Name", "67")
+                    .header("X-YouTube-Client-Version", "1.20261027.10.00")
+                    .header("Cookie", "SOCS=CAISAiAD")
+            };
+            let status = req.send().await.map(|r| r.status().as_u16()).unwrap_or(0);
+            let slot = if as_app { &mut ours } else { &mut browser };
+            slot.0 += 1;
+            if status == 403 {
+                slot.1 += 1;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        println!("as the app: {} of {} refused; as a browser: {} of {} refused", ours.1, ours.0, browser.1, browser.0);
+    }
+
+    /// Read-only, signed out: matches songs from a saved transfer the way a transfer's
+    /// first pass does, and times it. `YTM_MATCH_N` songs (200) after `YTM_MATCH_SKIP` (0),
+    /// `YTM_CONC` at once (`SEARCHES`).
+    /// `YTM_SAVED=<transfers/x.json> cargo test --release -- --ignored match_speed_live --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn match_speed_live() {
+        use futures_util::{StreamExt, stream};
+        let file = std::env::var("YTM_SAVED").unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
+        let n: usize = std::env::var("YTM_MATCH_N").ok().and_then(|v| v.parse().ok()).unwrap_or(200);
+        let tracks: Vec<super::Track> = serde_json::from_value(v["tracks"].clone()).unwrap();
+        let tracks: Vec<super::Track> = tracks.into_iter().filter(|t| !t.local).skip(std::env::var("YTM_MATCH_SKIP").ok().and_then(|v| v.parse().ok()).unwrap_or(0)).take(n).collect();
+        let _ = env_logger::builder().filter_level(log::LevelFilter::Warn).filter_module("ytm_rs::ytmapi", log::LevelFilter::Info).is_test(false).try_init();
+        let api = crate::ytmapi::Api::new(&std::env::temp_dir().join("ytm-rs-match-speed"));
+        assert!(api.account().is_none());
+        let t0 = std::time::Instant::now();
+        let results: Vec<_> = stream::iter(tracks.iter()).map(|t| super::search_song(&api, t)).buffer_unordered(std::env::var("YTM_CONC").ok().and_then(|v| v.parse().ok()).unwrap_or(super::SEARCHES)).collect().await;
+        let sure = results.iter().filter(|r| matches!(r, Ok(Some((_, true))))).count();
+        let unsure = results.iter().filter(|r| matches!(r, Ok(Some((_, false))) | Ok(None))).count();
+        let failed = results.iter().filter(|r| r.is_err()).count();
+        let secs = t0.elapsed().as_secs_f32();
+        println!("{} songs in {secs:.1}s ({:.2} s/song): {sure} sure, {unsure} not sure (these get one signed-in search), {failed} failed", tracks.len(), secs / tracks.len() as f32);
+    }
+
+    /// Read-only, signed out: artist thumbnail links from a search.
+    /// `cargo test --release -- --ignored artist_thumbs_live --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn artist_thumbs_live() {
+        let dir = std::env::temp_dir().join("ytm-rs-thumbs-test");
+        let api = crate::ytmapi::Api::new(&dir);
+        for c in crate::ytm::search_cards(&api, "drake", crate::ytm::Filter::Artists, false).await.unwrap().iter().take(5) {
+            println!("{}: {:?}", c.title, c.thumbs.iter().map(|t| format!("{}x{} {}", t.width, t.height, t.url)).collect::<Vec<_>>());
+        }
+    }
+
+    /// Read-only: what music.youtube.com does from a Liked Music row's menu and like button.
+    /// `YTM_DATA_DIR=<profile> cargo test --release -- --ignored liked_menu_live --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn liked_menu_live() {
+        let dir = std::path::PathBuf::from(std::env::var("YTM_DATA_DIR").unwrap());
+        let api = crate::ytmapi::Api::new(&dir);
+        assert!(api.account().is_some(), "no session in the vault");
+        let v = api.call("browse", serde_json::json!({ "browseId": "VLLM" }), true).await.unwrap();
+        let shelf = &v["contents"]["twoColumnBrowseResultsRenderer"]["secondaryContents"]["sectionListRenderer"]["contents"][0];
+        let shelf = if shelf["musicPlaylistShelfRenderer"].is_null() { &shelf["musicShelfRenderer"] } else { &shelf["musicPlaylistShelfRenderer"] };
+        let row = &shelf["contents"][0]["musicResponsiveListItemRenderer"];
+        println!("playlistItemData: {}", row["playlistItemData"]);
+        for item in row["menu"]["menuRenderer"]["items"].as_array().into_iter().flatten() {
+            let (kind, r) = item.as_object().and_then(|o| o.iter().next()).unwrap();
+            let text = r["text"]["runs"][0]["text"].as_str().unwrap_or("?");
+            let ep = if r["serviceEndpoint"].is_null() { &r["navigationEndpoint"] } else { &r["serviceEndpoint"] };
+            println!("{kind} {text:?}: {}", serde_json::to_string(ep).unwrap().chars().take(400).collect::<String>());
+        }
+        for b in row["menu"]["menuRenderer"]["topLevelButtons"].as_array().into_iter().flatten() {
+            println!("top button: {}", serde_json::to_string(b).unwrap().chars().take(600).collect::<String>());
+        }
+    }
+
+    /// On a test account: likes songs from a radio, then takes them out of Liked Music three
+    /// ways, 20 each (fast unlikes, one playlist edit, unlikes 400 ms apart), and watches
+    /// what Liked Music lists after each.
+    /// `YTM_DATA_DIR=<test profile> cargo test --release -- --ignored removal_methods_live --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn removal_methods_live() {
+        use std::time::{Duration, Instant};
+        let dir = std::path::PathBuf::from(std::env::var("YTM_DATA_DIR").unwrap());
+        let api = crate::ytmapi::Api::new(&dir);
+        assert!(api.account().is_some(), "no session in the vault");
+        async fn liked(api: &crate::ytmapi::Api) -> crate::backend::Collection {
+            crate::ytm::playlist(api, "LM", true, None).await.unwrap()
+        }
+        async fn watch(api: &crate::ytmapi::Api, ids: &[String], t: Instant) {
+            for _ in 0..8 {
+                tokio::time::sleep(Duration::from_secs(4)).await;
+                let now: Vec<String> = liked(api).await.tracks.into_iter().map(|t| t.id).collect();
+                let left = ids.iter().filter(|id| now.contains(id)).count();
+                println!("  {:>5.1}s: {left} of {} still listed (Liked Music lists {})", t.elapsed().as_secs_f32(), ids.len(), now.len());
+                if left == 0 {
+                    return;
+                }
+            }
+        }
+        let mut songs: Vec<String> = Vec::new();
+        for q in ["drake", "taylor swift", "the weeknd", "kendrick lamar", "billie eilish", "travis scott"] {
+            for t in crate::ytm::search_songs(&api, q, true).await.unwrap() {
+                if !songs.contains(&t.id) {
+                    songs.push(t.id);
+                }
+            }
+        }
+        songs.truncate(60);
+        println!("liking {} songs, 500 ms apart", songs.len());
+        for id in songs.iter().rev() {
+            crate::ytm::set_like(&api, id, true).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        let t = Instant::now();
+        watch(&api, &[], t).await;
+        for _ in 0..8 {
+            let now: Vec<String> = liked(&api).await.tracks.into_iter().map(|t| t.id).collect();
+            let have = songs.iter().filter(|id| now.contains(id)).count();
+            println!("  {:>5.1}s: {have} of {} liked songs listed", t.elapsed().as_secs_f32(), songs.len());
+            if have == songs.len() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(4)).await;
+        }
+        let lm = liked(&api).await;
+        let set_of = |id: &str| lm.tracks.iter().position(|t| t.id == id).and_then(|i| lm.set_ids[i].clone());
+        let (a, rest) = songs.split_at(20.min(songs.len()));
+        let (b, c) = rest.split_at(20.min(rest.len()));
+
+        println!("A: {} unlikes, no gap", a.len());
+        let t = Instant::now();
+        for id in a {
+            if let Err(e) = crate::ytm::set_like(&api, id, false).await {
+                println!("  unlike {id}: {e:#}");
+            }
+        }
+        println!("  sent in {:.1}s", t.elapsed().as_secs_f32());
+        watch(&api, a, t).await;
+
+        let items: Vec<(String, String)> = b.iter().filter_map(|id| Some((id.clone(), set_of(id)?))).collect();
+        println!("B: one Liked Music edit removing {} ({} had entry ids)", b.len(), items.len());
+        let t = Instant::now();
+        match crate::ytm::remove_videos(&api, "LM", &items).await {
+            Ok(()) => println!("  edit taken in {:.1}s", t.elapsed().as_secs_f32()),
+            Err(e) => println!("  edit: {e:#}"),
+        }
+        watch(&api, b, t).await;
+
+        println!("C: {} unlikes, 400 ms apart", c.len());
+        let t = Instant::now();
+        for id in c {
+            if let Err(e) = crate::ytm::set_like(&api, id, false).await {
+                println!("  unlike {id}: {e:#}");
+            }
+            tokio::time::sleep(Duration::from_millis(400)).await;
+        }
+        println!("  sent in {:.1}s", t.elapsed().as_secs_f32());
+        watch(&api, c, t).await;
+    }
+
+    /// How YouTube Music takes a run of unlikes: unlikes the newest `YTM_LAG_N` liked songs
+    /// `YTM_LAG_GAP` ms apart, watches Liked Music, then likes them again oldest first so
+    /// the order is as before.
+    /// `YTM_DATA_DIR=<profile> cargo test --release -- --ignored unlike_lag_live --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn unlike_lag_live() {
+        use std::time::{Duration, Instant};
+        let dir = std::path::PathBuf::from(std::env::var("YTM_DATA_DIR").unwrap());
+        let api = crate::ytmapi::Api::new(&dir);
+        assert!(api.account().is_some(), "no session in the vault");
+        let n: usize = std::env::var("YTM_LAG_N").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
+        let gap = Duration::from_millis(std::env::var("YTM_LAG_GAP").ok().and_then(|v| v.parse().ok()).unwrap_or(0));
+        async fn listed(api: &crate::ytmapi::Api) -> anyhow::Result<Vec<String>> {
+            Ok(crate::ytm::playlist(api, "LM", true, None).await?.tracks.into_iter().map(|t| t.id).collect())
+        }
+        // YTM_LAG_MODE=edit: one edit of the Liked Music playlist taking the entries out.
+        let edit = std::env::var("YTM_LAG_MODE").is_ok_and(|m| m == "edit");
+        let lm = crate::ytm::playlist(&api, "LM", true, None).await.unwrap();
+        let before: Vec<String> = lm.tracks.iter().map(|t| t.id.clone()).collect();
+        let pick: Vec<String> = before.iter().take(n).cloned().collect();
+        let sets: Vec<(String, String)> = lm.tracks.iter().zip(&lm.set_ids).take(n).filter_map(|(t, s)| Some((t.id.clone(), s.clone()?))).collect();
+        println!("Liked Music lists {}; {} of the newest {n} have entry ids", before.len(), sets.len());
+        let t = Instant::now();
+        if edit {
+            println!("one playlist edit removing {}", sets.len());
+            if let Err(e) = crate::ytm::remove_videos(&api, "LM", &sets).await {
+                println!("edit: {e:#}");
+            }
+        } else {
+            println!("unliking one by one, {gap:?} apart");
+            for id in &pick {
+                if let Err(e) = crate::ytm::set_like(&api, id, false).await {
+                    println!("unlike {id}: {e:#}");
+                }
+                tokio::time::sleep(gap).await;
+            }
+        }
+        println!("{:?}: all sent", t.elapsed());
+        for _ in 0..12 {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            match listed(&api).await {
+                Ok(now) => {
+                    let left = pick.iter().filter(|id| now.contains(id)).count();
+                    println!("{:?}: Liked Music lists {}, {left} of the {n} still in it", t.elapsed(), now.len());
+                    if left == 0 {
+                        break;
+                    }
+                }
+                Err(e) => println!("{:?}: reading Liked Music: {e:#}", t.elapsed()),
+            }
+        }
+        // Back as they were: oldest first, so the newest ends up on top again.
+        for id in pick.iter().rev() {
+            if let Err(e) = crate::ytm::set_like(&api, id, true).await {
+                println!("like {id}: {e:#}");
+            }
+            tokio::time::sleep(Duration::from_millis(600)).await;
+        }
+        for _ in 0..12 {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            if let Ok(now) = listed(&api).await {
+                let top: Vec<String> = now.iter().take(n).cloned().collect();
+                println!("restore: top {n} match before: {}, listed {}", top == pick, now.len());
+                if top == pick {
+                    break;
+                }
+            }
+        }
+    }
+
     /// The songs that came back doubtful with the old query: `cargo test --release -- --ignored matching_live --nocapture`
     #[tokio::test]
     #[ignore]

@@ -70,6 +70,8 @@ fn main() -> eframe::Result {
             return Ok(());
         }
         deeplink::push(code);
+    } else if deeplink::forward_show() {
+        return Ok(());
     }
     init_logging();
     update::clean_portable();
@@ -206,7 +208,8 @@ fn hwnd(_: &eframe::CreationContext) -> Option<*mut std::ffi::c_void> {
 /// next to the settings (overwritten each launch).
 fn init_logging() {
     let mut builder = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("warn,ytm_rs=info"),
+        // A test build can be made more talkative: YTM_DEFAULT_LOG=warn,ytm_rs=debug cargo build.
+        env_logger::Env::default().default_filter_or(option_env!("YTM_DEFAULT_LOG").unwrap_or("warn,ytm_rs=info")),
     );
     // Dev hook: YTM_LOG=<path> logs there (test runs beside a running copy).
     if let Some(path) = std::env::var_os("YTM_LOG") {
@@ -216,6 +219,8 @@ fn init_logging() {
     } else if !cfg!(debug_assertions) {
         let dir = data_dir();
         let _ = std::fs::create_dir_all(&dir);
+        // The last run's log too: reopening the app after a problem would otherwise wipe it.
+        let _ = std::fs::rename(dir.join("ytm-rs.log"), dir.join("ytm-rs.prev.log"));
         if let Ok(file) = std::fs::File::create(dir.join("ytm-rs.log")) {
             builder.target(env_logger::Target::Pipe(Box::new(file)));
         }

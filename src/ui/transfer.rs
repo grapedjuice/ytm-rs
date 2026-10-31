@@ -610,6 +610,13 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
     let searched = job.searched();
     let (big, of, frac, eta) = match job.phase {
         Phase::Reading => (fmt_n(job.read.0), format!("of {} songs read from Spotify", fmt_n(job.read.1)), job.read.0 as f32 / job.read.1.max(1) as f32, None),
+        Phase::Saving if job.waiting => ("…".to_owned(), "waiting for the likes being changed in the app to finish".to_owned(), 0.0, None),
+        Phase::Saving if let Some((done, of)) = job.redo => (
+            fmt_n(done),
+            format!("of {} songs liked again: YouTube Music dropped them", fmt_n(of)),
+            done as f32 / of.max(1) as f32,
+            Some("checking Liked Music".to_owned()),
+        ),
         Phase::Saving => (
             fmt_n(job.saving.0),
             match job.dest {
@@ -623,7 +630,18 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
         Phase::Review => (fmt_n(searched), format!("of {} songs searched", fmt_n(total)), 1.0, None),
         _ => (fmt_n(searched), format!("of {} songs searched", fmt_n(total)), searched as f32 / total.max(1) as f32, job.eta().map(|s| format!("about {} left", fmt_secs(s)))),
     };
-    let eta = if paused { Some("paused".to_owned()) } else { eta };
+    let limited = app.backend.api().limited();
+    let eta = if paused {
+        Some("paused".to_owned())
+    } else if limited && job.phase.running() {
+        // YouTube Music refused requests: everything waits a little, then carries on.
+        Some("YouTube Music is limiting requests; carrying on in a moment".to_owned())
+    } else {
+        eta
+    };
+    if limited {
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+    }
     settings_card(ui, |ui| {
         ui.add_space(16.0);
         ui.horizontal(|ui| {
@@ -1431,7 +1449,10 @@ pub fn sidebar_card(app: &mut App, ui: &mut Ui, collapsed: bool, fade: f32, icon
             }
             Phase::Checking => (1.0, "Checking".to_owned()),
             Phase::Review => (1.0, "Review".to_owned()),
-            Phase::Saving => (job.saving.0 as f32 / job.saving.1.max(1) as f32, "Adding".to_owned()),
+            Phase::Saving => match job.redo {
+                Some((done, of)) => (done as f32 / of.max(1) as f32, "Re-adding".to_owned()),
+                None => (job.saving.0 as f32 / job.saving.1.max(1) as f32, "Adding".to_owned()),
+            },
             Phase::Done => (1.0, "Done".to_owned()),
             Phase::Failed(_) => (0.0, "Stopped".to_owned()),
         }

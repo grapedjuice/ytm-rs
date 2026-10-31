@@ -292,6 +292,8 @@ pub struct App {
     /// Files chosen in the upload dialog, handed over from its thread.
     picked_uploads: Arc<std::sync::Mutex<Option<Vec<std::path::PathBuf>>>>,
     liked: HashSet<String>,
+    /// Songs whose unlike is queued and hasn't gone through yet.
+    unliking: HashMap<String, Track>,
     /// Likes and playlist removals made here lately. YouTube Music goes on listing the old
     /// state for a while after it takes an edit, so lists that arrive are corrected with these.
     edits: RecentEdits,
@@ -539,6 +541,7 @@ impl App {
             uploads: None,
             picked_uploads: Default::default(),
             liked: HashSet::new(),
+            unliking: HashMap::new(),
             edits: RecentEdits::default(),
             selection: Selection::default(),
             account_name: None,
@@ -823,9 +826,11 @@ impl App {
     fn load_list(&mut self, id: &str, album: bool, changed: bool) {
         if let Some(l) = self.running.get_mut(id) {
             l.stale |= changed;
+            log::debug!("list {id}: load {} under way, stale={}", l.load, l.stale);
             return;
         }
         let load = self.next_load();
+        log::debug!("list {id}: load {load} (kept copy: {}, changed: {changed})", self.opened(id).is_some());
         self.running.insert(id.to_owned(), ListLoad { load, album, stale: false });
         self.backend.request(match album {
             true => Req::Album { id: id.to_owned(), load },
@@ -837,6 +842,8 @@ impl App {
     fn visit_list(&mut self, id: &str, album: bool) {
         if self.opened(id).is_none_or(|o| o.at.elapsed() > REFRESH_EVERY) {
             self.load_list(id, album, false);
+        } else if let Some(o) = self.opened(id) {
+            log::debug!("list {id}: kept copy is {:?} old, not reloading", o.at.elapsed());
         }
     }
 
@@ -869,6 +876,7 @@ impl App {
     /// Likes made here show at once, in the hearts and in Liked Music as kept. (A whole
     /// reload asked for just before can still come back without them.)
     fn set_liked(&mut self, tracks: &[Track], like: bool) {
+        log::debug!("like={like}: {} songs, e.g. {:?}", tracks.len(), tracks.iter().take(3).map(|t| &t.id).collect::<Vec<_>>());
         for t in tracks {
             self.edits.like(&t.id, like, Some(t.clone()));
         }
@@ -884,11 +892,9 @@ impl App {
                 (true, None) => {
                     c.tracks.insert(0, t.clone());
                     c.set_ids.insert(0, None);
+                    c.count = c.count.map(|n| n + 1);
                 }
-                (false, Some(i)) => {
-                    c.tracks.remove(i);
-                    c.set_ids.remove(i);
-                }
+                (false, Some(i)) => c.remove_rows(&[i]),
                 _ => {}
             }
         }
@@ -919,13 +925,16 @@ impl App {
         if self.running.get(&c.id).is_none_or(|l| l.load != load) {
             return;
         }
+        let sent = c.tracks.len();
         self.edits.correct_collection(&mut c);
         let id = c.id.clone();
+        log::debug!("list {id}: load {load} in, {sent} songs sent, {} after local edits, more={more}", c.tracks.len());
         if self.page_list() == Some(id.as_str()) {
             self.loading = false;
         }
         if id == LIKED_MUSIC {
             self.liked = c.tracks.iter().map(|t| t.id.clone()).collect();
+            log::debug!("hearts: {} liked (from Liked Music's first page or whole copy)", self.liked.len());
         }
         self.keep(load, c);
         if !more {
@@ -950,6 +959,7 @@ impl App {
             return;
         }
         self.edits.prune();
+        let sent = tracks.len();
         let edits = &self.edits;
         (tracks, set_ids) = tracks.into_iter().zip(set_ids).filter(|(t, set)| edits.keeps(&id, t, set.as_deref())).unzip();
         if let Some(o) = self.opened.iter_mut().find(|o| o.c.id == id && o.load == load) {
@@ -960,6 +970,12 @@ impl App {
             }
             o.c.tracks.extend(tracks.iter().cloned());
             o.c.set_ids.extend(set_ids);
+            log::debug!("list {id}: load {load} page, {sent} sent, {} added, {} total, more={more}", tracks.len(), o.c.tracks.len());
+        } else {
+            log::debug!("list {id}: load {load} page of {sent} for no kept copy (replaced when complete)");
+        }
+        if id == LIKED_MUSIC {
+            log::debug!("hearts: {} liked", self.liked.len());
         }
         self.fill_queue(&id, load, tracks, more);
         if !more {
@@ -1784,7 +1800,17 @@ impl App {
                 }
                 let tracks: Vec<Track> = tracks.into_iter().filter(|t| self.liked.contains(&t.id) != like).collect();
                 if tracks.is_empty() { return; }
-                self.set_liked(&tracks, like);
+                if like {
+                    self.set_liked(&tracks, true);
+                } else {
+                    // Unlikes go a few a second (YouTube Music drops faster ones): each song
+                    // leaves the list when its unlike goes through, not all at once.
+                    self.unliking.extend(tracks.iter().map(|t| (t.id.clone(), t.clone())));
+                }
+                if tracks.len() > 10 {
+                    // One at a time, then checked: a few hundred take a few minutes.
+                    self.toast(format!("{} {} songs…", if like { "Liking" } else { "Removing likes from" }, tracks.len()));
+                }
                 self.backend.request(Req::LikeMany { video_ids: tracks.into_iter().map(|t| t.id).collect(), like });
             }
             Action::Dislike(t) => {
@@ -1816,10 +1842,8 @@ impl App {
                 let items: Vec<(String, String)> = rows.iter().map(|&i| (c.tracks[i].id.clone(), c.set_ids[i].clone().unwrap_or_default())).collect();
                 let playlist = c.id.clone();
                 // Optimistic: drop the rows now; the playlist reloads once YouTube confirms.
-                for &i in rows.iter().rev() {
-                    c.tracks.remove(i);
-                    c.set_ids.remove(i);
-                }
+                c.remove_rows(&rows);
+                log::debug!("list {playlist}: removing {} entries", items.len());
                 self.edits.remove(&playlist, items.iter().map(|(_, set)| set.clone()));
                 self.selection.clear();
                 self.backend.request(Req::RemoveFromPlaylist { playlist_id: playlist, items });
@@ -2042,7 +2066,15 @@ impl App {
                 }
                 self.artist = Some(a);
             }
-            Resp::Library(l) => {
+            Resp::Library(mut l) => {
+                // A half that didn't load keeps what was shown (or last launch's sidebar),
+                // rather than emptying it.
+                if l.playlists_failed {
+                    l.playlists = self.library.as_ref().map(|o| o.playlists.clone()).or_else(|| self.sidebar_cache.clone()).unwrap_or_default();
+                }
+                if l.albums_failed {
+                    l.albums = self.library.as_ref().map(|o| o.albums.clone()).unwrap_or_default();
+                }
                 self.library = Some(l);
                 self.loading = false;
             }
@@ -2149,7 +2181,29 @@ impl App {
                     }
                 }
             }
+            Resp::LikeProgress { taken, done, total, like } => {
+                if !like {
+                    let tracks: Vec<Track> = taken.iter().filter_map(|id| self.unliking.remove(id)).collect();
+                    self.set_liked(&tracks, false);
+                }
+                if done == 0 {
+                    // A Spotify transfer is adding to Liked Music (maybe paused): this waits for it.
+                    self.toast("Waiting for the transfer to finish adding to Liked Music…");
+                } else if total > 1 && done < total {
+                    let note = if self.backend.api().limited() { " (YouTube Music is limiting requests; waiting)" } else { "" };
+                    self.toast(format!("{} {done} of {total} songs…{note}", if like { "Liking" } else { "Removing likes:" }));
+                }
+            }
             Resp::LikedMany { video_ids, failed, like } => {
+                // Any left (a retry took them) leave the list now.
+                if !like {
+                    let rest: Vec<Track> = video_ids.iter().filter_map(|id| self.unliking.remove(id)).collect();
+                    self.set_liked(&rest, false);
+                    for id in &failed {
+                        self.unliking.remove(id);
+                    }
+                }
+                log::debug!("like={like} answered: {} taken, {} refused {:?}", video_ids.len(), failed.len(), failed.iter().take(5).collect::<Vec<_>>());
                 self.edits.confirm_likes(&video_ids, &failed);
                 // The refused ones come back as they were with a reload.
                 if !failed.is_empty() {
@@ -2157,7 +2211,9 @@ impl App {
                 }
                 let count = video_ids.len();
                 let mut msg = format!("{} {count} {}", if like { "Liked" } else { "Removed like from" }, if count == 1 { "song" } else { "songs" });
-                if !failed.is_empty() {
+                if count == 0 {
+                    msg = format!("YouTube Music refused all {} songs; try again in a while", failed.len());
+                } else if !failed.is_empty() {
                     msg += &format!("; YouTube Music refused {}", failed.len());
                 }
                 self.toast(msg);
@@ -2760,6 +2816,9 @@ impl eframe::App for App {
             self.upload_files(files);
         }
         transfer::poll(self, ctx, now);
+        if crate::deeplink::take_show() {
+            self.show_window(ctx);
+        }
         for code in crate::deeplink::take() {
             self.show_window(ctx);
             jam::open_link(self, code);
@@ -3366,6 +3425,7 @@ mod recent_edits_tests {
             thumbs: vec![],
             tracks: songs.iter().map(|s| track(s)).collect(),
             set_ids: songs.iter().map(|s| Some(format!("set-{s}"))).collect(),
+            count: Some(songs.len() as u64),
             owned: true,
         }
     }
@@ -3379,6 +3439,7 @@ mod recent_edits_tests {
         edits.correct_collection(&mut c);
         assert_eq!(c.tracks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["a", "d"]);
         assert_eq!(c.set_ids, [Some("set-a".to_owned()), Some("set-d".to_owned())]);
+        assert_eq!(c.count, Some(2));
         // Another playlist is left alone.
         let mut other = collection("PL2", &["b"]);
         edits.correct_collection(&mut other);
@@ -3393,6 +3454,8 @@ mod recent_edits_tests {
         // x unliked; y liked but not listed yet; z's unlike was refused, so it stays.
         assert_eq!(lm.tracks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["y", "z", "w"]);
         assert_eq!(lm.set_ids.len(), 3);
+        assert_eq!(lm.count, Some(3));
+        assert_eq!(lm.byline(), "3 songs");
         // A later page drops an unliked song too.
         assert!(!edits.keeps("LM", &track("x"), Some("set-x")));
         assert!(edits.keeps("PL9", &track("x"), Some("set-x")));
@@ -3507,11 +3570,16 @@ impl RecentEdits {
     /// gets the songs liked here that it doesn't list yet, at the top.
     fn correct_collection(&mut self, c: &mut Collection) {
         self.prune();
+        log::debug!(
+            "edits: {} likes, {} unlikes, {} removals for {} pending",
+            self.likes.values().filter(|(l, _, _)| *l).count(),
+            self.likes.values().filter(|(l, _, _)| !*l).count(),
+            self.removals.get(&c.id).map_or(0, |(r, _)| r.len()),
+            c.id
+        );
         let keep: Vec<bool> = c.tracks.iter().enumerate().map(|(i, t)| self.keeps(&c.id, t, c.set_ids.get(i).and_then(Option::as_deref))).collect();
-        let mut k = keep.iter();
-        c.tracks.retain(|_| k.next().copied().unwrap_or(true));
-        let mut k = keep.iter();
-        c.set_ids.retain(|_| k.next().copied().unwrap_or(true));
+        let dropped: Vec<usize> = keep.iter().enumerate().filter(|(_, k)| !**k).map(|(i, _)| i).collect();
+        c.remove_rows(&dropped);
         if c.id == LIKED_MUSIC {
             for (id, (like, track, _)) in &self.likes {
                 if let (true, Some(t)) = (*like, track)
@@ -3519,6 +3587,7 @@ impl RecentEdits {
                 {
                     c.tracks.insert(0, t.clone());
                     c.set_ids.insert(0, None);
+                    c.count = c.count.map(|n| n + 1);
                 }
             }
         }

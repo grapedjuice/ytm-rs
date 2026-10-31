@@ -973,17 +973,22 @@ impl Backend {
             return Ok(shared);
         }
         let (source, s) = self.resolve(video_id, false).await?;
-        let shared = Shared::new(s.size, s.duration_ms, s.loudness_db, prefetch);
-        self.rt.spawn(stream::download(self.http(), s.url, s.user_agent, shared.clone(), Some(self.refresher(source, video_id))));
+        let shared = Shared::new(s.size, s.duration_ms, s.loudness_db, s.opus, prefetch);
+        self.rt.spawn(stream::download(self.http(), s.url, s.user_agent, shared.clone(), Some(self.refresher(source, video_id, s.opus))));
         Ok(shared)
     }
 
-    /// Resolves a fresh URL from the same source, for a download that got a 403.
-    fn refresher(&self, source: Source, video_id: &str) -> stream::Refresh {
+    /// Resolves a fresh URL from the same source and format, for a download that got a 403.
+    fn refresher(&self, source: Source, video_id: &str, opus: bool) -> stream::Refresh {
         let (this, id) = (self.clone(), video_id.to_owned());
         Arc::new(move || {
             let (this, id) = (this.clone(), id.clone());
-            Box::pin(async move { Ok(this.resolve_from(source, &id).await?.url) })
+            Box::pin(async move {
+                let s = this.resolve_from(source, &id, opus).await?;
+                // The buffer is laid out for the format it started with.
+                anyhow::ensure!(s.opus == opus, "the stream changed format");
+                Ok(s.url)
+            })
         })
     }
 
@@ -991,8 +996,8 @@ impl Backend {
     async fn download(&self, t: &Track) -> anyhow::Result<PathBuf> {
         let (source, s) = self.resolve(&t.id, true).await?;
         log::info!("download {}: {} bytes from {source:?}", t.id, s.size);
-        let shared = Shared::new(s.size, s.duration_ms, s.loudness_db, false);
-        stream::download(self.http(), s.url, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id))).await;
+        let shared = Shared::new(s.size, s.duration_ms, s.loudness_db, s.opus, false);
+        stream::download(self.http(), s.url, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus))).await;
         if let Some(e) = shared.error() {
             anyhow::bail!("{e}");
         }
@@ -1007,7 +1012,8 @@ impl Backend {
 
     /// Find a stream URL, trying the fastest source that can play the song. `best`
     /// (downloads) takes the high quality stream whatever the setting, and waits for
-    /// the solver it needs.
+    /// the solver it needs. Playback without Premium takes Opus where there is one;
+    /// downloads stay AAC, which saves as a tagged .m4a.
     async fn resolve(&self, video_id: &str, best: bool) -> anyhow::Result<(Source, ResolvedStream)> {
         let hq = best || self.hq.load(Ordering::Relaxed);
         if best
@@ -1030,40 +1036,42 @@ impl Backend {
             && let Some(session) = self.api.account()
             && self.is_premium(&session).await
         {
-            match self.resolve_from(Source::WebMusic, video_id).await {
+            match self.resolve_from(Source::WebMusic, video_id, false).await {
                 Ok(s) => return Ok((Source::WebMusic, s)),
                 // Not fatal: the usual 128 kbps stream still plays.
                 Err(e) => log::warn!("high quality stream failed for {video_id} ({e:#}); using standard quality"),
             }
         }
-        match self.resolve_from(Source::VisionOs, video_id).await {
+        match self.resolve_from(Source::VisionOs, video_id, !best).await {
             Ok(s) => Ok((Source::VisionOs, s)),
             // Age-restricted or Premium-only: only signed-in web players get it.
             Err(e) if needs_account(&e) => {
                 log::info!("{video_id} needs a signed-in player ({e:#})");
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("sign in to play this song"))?;
                 if self.is_premium(&session).await {
-                    match self.resolve_from(Source::WebMusic, video_id).await {
+                    match self.resolve_from(Source::WebMusic, video_id, false).await {
                         Ok(s) => return Ok((Source::WebMusic, s)),
                         Err(e) => log::warn!("web music player failed ({e:#}); using yt-dlp"),
                     }
                 }
-                Ok((Source::YtDlp, self.resolve_from(Source::YtDlp, video_id).await?))
+                Ok((Source::YtDlp, self.resolve_from(Source::YtDlp, video_id, false).await?))
             }
             Err(e) => Err(e),
         }
     }
 
-    async fn resolve_from(&self, source: Source, video_id: &str) -> anyhow::Result<ResolvedStream> {
+    /// `opus`: the visionOS player's Opus stream where there is one (the others are AAC).
+    async fn resolve_from(&self, source: Source, video_id: &str, opus: bool) -> anyhow::Result<ResolvedStream> {
         let plain = |s: innertube::Stream, ua: &str| ResolvedStream {
             url: s.url,
             size: s.size,
             duration_ms: s.duration_ms,
             user_agent: ua.to_owned(),
             loudness_db: s.loudness_db,
+            opus: s.opus,
         };
         Ok(match source {
-            Source::VisionOs => plain(self.visionos_stream(video_id).await?, innertube::UA),
+            Source::VisionOs => plain(self.visionos_stream(video_id, opus).await?, innertube::UA),
             Source::WebMusic => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
                 plain(session.audio_stream(&self.http(), &self.jsc, video_id).await?, webmusic::UA)
@@ -1074,7 +1082,7 @@ impl Backend {
                 // Cookies Google replaced while yt-dlp used the session.
                 self.api.keep(&session, s.replaced.iter().map(String::as_str));
                 // yt-dlp's JSON doesn't carry YouTube's loudness figure.
-                ResolvedStream { url: s.url, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None }
+                ResolvedStream { url: s.url, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
             }
         })
     }
@@ -1117,16 +1125,16 @@ impl Backend {
         }
     }
 
-    async fn visionos_stream(&self, video_id: &str) -> anyhow::Result<innertube::Stream> {
+    async fn visionos_stream(&self, video_id: &str, opus: bool) -> anyhow::Result<innertube::Stream> {
         let vd = self.api.visitor_data(false).await?;
-        match innertube::audio_stream(&self.http(), video_id, &vd).await {
+        match innertube::audio_stream(&self.http(), video_id, &vd, opus).await {
             Ok(s) => Ok(s),
             Err(e) if needs_account(&e) => Err(e),
             Err(e) => {
                 // A stale/flagged visitor ID is the usual cause; retry once with a fresh one.
                 log::info!("visionOS player: {e:#}; retrying with new visitor data");
                 let vd = self.api.visitor_data(true).await?;
-                innertube::audio_stream(&self.http(), video_id, &vd).await
+                innertube::audio_stream(&self.http(), video_id, &vd, opus).await
             }
         }
     }
@@ -1208,6 +1216,8 @@ struct ResolvedStream {
     duration_ms: u64,
     user_agent: String,
     loudness_db: Option<f32>,
+    /// Opus in WebM; otherwise AAC in MP4.
+    opus: bool,
 }
 
 /// The anonymous visionOS player refused because the song needs an account:

@@ -18,6 +18,7 @@ mod login;
 mod lyrics;
 mod media;
 mod model;
+mod opus;
 mod preset;
 mod shader;
 mod sponsorblock;

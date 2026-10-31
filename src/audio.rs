@@ -10,11 +10,11 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use rodio::cpal::traits::{DeviceTrait, HostTrait};
 use rodio::mixer::{Mixer, MixerSource};
-use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player};
+use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player};
 
-use crate::stream::{self, Shared, StreamReader};
+use crate::stream::{self, Shared};
 
-pub type TrackDecoder = Decoder<StreamReader>;
+pub use crate::stream::TrackDecoder;
 
 pub enum AudioCmd {
     /// A decoder is ready for playback generation `generation`; stale generations are dropped.
@@ -892,9 +892,9 @@ mod tests {
     #[test]
     fn normalization_only_turns_loud_tracks_down() {
         let status = AudioStatus::default();
-        let loud = Shared::new(1, 0, Some(7.29), false);
-        let quiet = Shared::new(1, 0, Some(-4.0), false);
-        let unknown = Shared::new(1, 0, None, false);
+        let loud = Shared::new(1, 0, Some(7.29), false, false);
+        let quiet = Shared::new(1, 0, Some(-4.0), false, false);
+        let unknown = Shared::new(1, 0, None, false, false);
         status.normalize.store(true, Ordering::Relaxed);
         assert!((norm_gain(&status, Some(&loud)) - 0.432).abs() < 0.001);
         assert_eq!(norm_gain(&status, Some(&quiet)), 1.0);

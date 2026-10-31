@@ -84,6 +84,8 @@ pub struct Shared {
     pub duration_ms: u64,
     /// YouTube's loudness for this stream, in dB above its -14 LUFS target.
     pub loudness_db: Option<f32>,
+    /// Opus in WebM; otherwise AAC in MP4.
+    pub opus: bool,
     /// Flips to true once the download task has stopped (complete, failed or cancelled).
     done: tokio::sync::watch::Sender<bool>,
     /// Wakes waiting workers: `limit` lifted, a reader moved or left, or cancelled.
@@ -93,7 +95,7 @@ pub struct Shared {
 impl Shared {
     /// A buffer for `total` bytes. `head_only` (a prefetch) fetches just the start until
     /// a reader opens it.
-    pub fn new(total: u64, duration_ms: u64, loudness_db: Option<f32>, head_only: bool) -> Arc<Self> {
+    pub fn new(total: u64, duration_ms: u64, loudness_db: Option<f32>, opus: bool, head_only: bool) -> Arc<Self> {
         let n = total.div_ceil(BLOCK) as usize;
         let limit = if head_only { HEAD_BLOCKS.min(n) } else { n };
         Arc::new(Self {
@@ -114,6 +116,7 @@ impl Shared {
             total,
             duration_ms,
             loudness_db,
+            opus,
             done: tokio::sync::watch::Sender::new(false),
             changed: tokio::sync::Notify::new(),
         })
@@ -126,7 +129,8 @@ impl Shared {
         let blocks: Vec<Option<Bytes>> =
             (0..total.div_ceil(BLOCK)).map(|i| Some(data.slice(i as usize * BLOCK as usize..((i + 1) * BLOCK).min(total) as usize))).collect();
         let n = blocks.len();
-        let shared = Self::new(total, duration_ms, loudness_db, false);
+        // Saved songs are AAC (downloads take that stream).
+        let shared = Self::new(total, duration_ms, loudness_db, false, false);
         {
             let mut inner = shared.inner.lock().unwrap();
             inner.blocks = blocks;
@@ -429,15 +433,73 @@ impl Seek for StreamReader {
     }
 }
 
-/// Open a decoder over `shared`. Non-seekable decoders start after the first fragment;
-/// seekable ones index every fragment first (i.e. effectively wait for the download).
-pub fn decoder(shared: Arc<Shared>, seekable: bool) -> Result<rodio::Decoder<StreamReader>, rodio::decoder::DecoderError> {
+/// Open a decoder over `shared`. Non-seekable AAC decoders start after the first
+/// fragment; seekable ones index every fragment first (i.e. effectively wait for the
+/// download). Opus ones are always seekable: WebM's index is at the start.
+pub fn decoder(shared: Arc<Shared>, seekable: bool) -> anyhow::Result<TrackDecoder> {
     let size = shared.total;
-    rodio::Decoder::builder()
-        .with_data(StreamReader::new(shared))
-        .with_byte_len(size)
-        .with_seekable(seekable)
-        .with_mime_type("audio/mp4")
-        .with_hint("m4a")
-        .build()
+    if shared.opus {
+        let duration_ms = shared.duration_ms;
+        return Ok(TrackDecoder::Opus(Box::new(crate::opus::OpusSource::new(StreamReader::new(shared), size, duration_ms)?)));
+    }
+    Ok(TrackDecoder::Aac(
+        rodio::Decoder::builder()
+            .with_data(StreamReader::new(shared))
+            .with_byte_len(size)
+            .with_seekable(seekable)
+            .with_mime_type("audio/mp4")
+            .with_hint("m4a")
+            .build()?,
+    ))
+}
+
+/// A song's decoder: AAC (rodio's own) or Opus.
+pub enum TrackDecoder {
+    Aac(rodio::Decoder<StreamReader>),
+    /// Boxed: its decoder state is about 11 KB.
+    Opus(Box<crate::opus::OpusSource>),
+}
+
+impl Iterator for TrackDecoder {
+    type Item = rodio::Sample;
+
+    fn next(&mut self) -> Option<rodio::Sample> {
+        match self {
+            Self::Aac(d) => d.next(),
+            Self::Opus(d) => d.next(),
+        }
+    }
+}
+
+impl rodio::Source for TrackDecoder {
+    fn current_span_len(&self) -> Option<usize> {
+        match self {
+            Self::Aac(d) => d.current_span_len(),
+            Self::Opus(d) => d.current_span_len(),
+        }
+    }
+    fn channels(&self) -> rodio::ChannelCount {
+        match self {
+            Self::Aac(d) => d.channels(),
+            Self::Opus(d) => d.channels(),
+        }
+    }
+    fn sample_rate(&self) -> rodio::SampleRate {
+        match self {
+            Self::Aac(d) => d.sample_rate(),
+            Self::Opus(d) => d.sample_rate(),
+        }
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        match self {
+            Self::Aac(d) => d.total_duration(),
+            Self::Opus(d) => d.total_duration(),
+        }
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), rodio::source::SeekError> {
+        match self {
+            Self::Aac(d) => d.try_seek(pos),
+            Self::Opus(d) => d.try_seek(pos),
+        }
+    }
 }

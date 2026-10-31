@@ -44,6 +44,8 @@ tokio-tungstenite = { version = "0.30.0", default-features = false, features = [
 mp4ameta = "0.13.0"
 md-5 = "0.10"
 unicode-normalization = "0.1.26"
+symphonia = { version = "0.5.5", default-features = false, features = ["mkv"] }
+rusty-opus = "1.0.2"
 
 [target.'cfg(windows)'.dependencies]
 # Windows Credential Manager, for the Google and Spotify sign-ins.

@@ -16,6 +16,8 @@ pub struct Stream {
     pub duration_ms: u64,
     /// dB above YouTube's -14 LUFS loudness target (positive = louder).
     pub loudness_db: Option<f32>,
+    /// Opus in WebM; otherwise AAC in MP4.
+    pub opus: bool,
 }
 
 /// A format's loudness relative to YouTube's target, falling back to the track-level
@@ -28,7 +30,8 @@ pub fn loudness(resp: &Value, format: &Value) -> Option<f32> {
     })
 }
 
-pub async fn audio_stream(http: &reqwest::Client, video_id: &str, visitor_data: &str) -> anyhow::Result<Stream> {
+/// `opus`: Opus (itag 251, about 130-160 kbps) when the song has it, else AAC.
+pub async fn audio_stream(http: &reqwest::Client, video_id: &str, visitor_data: &str, opus: bool) -> anyhow::Result<Stream> {
     let body = json!({
         "context": {"client": {
             "clientName": "VISIONOS",
@@ -69,18 +72,21 @@ pub async fn audio_stream(http: &reqwest::Client, video_id: &str, visitor_data: 
             status["reason"].as_str().unwrap_or("no reason given")
         );
     }
-    // AAC-LC in MP4 (itag 140) decodes in pure Rust; HE-AAC (139) as a fallback.
+    // Opus in WebM (251) when asked for; AAC-LC in MP4 (140), HE-AAC (139) as fallbacks.
     let formats = resp["streamingData"]["adaptiveFormats"].as_array().map(Vec::as_slice).unwrap_or_default();
-    [140, 139]
+    let itags: &[u64] = if opus { &[251, 140, 139] } else { &[140, 139] };
+    itags
         .iter()
         .find_map(|itag| {
             let f = formats.iter().find(|f| f["itag"] == *itag)?;
+            log::info!("visionOS: {video_id} itag {itag} ({} kbps)", f["averageBitrate"].as_u64().or(f["bitrate"].as_u64()).unwrap_or(0) / 1000);
             Some(Stream {
                 url: f["url"].as_str()?.to_owned(),
                 size: f["contentLength"].as_str()?.parse().ok()?,
                 duration_ms: f["approxDurationMs"].as_str().and_then(|d| d.parse().ok()).unwrap_or(0),
                 loudness_db: loudness(&resp, f),
+                opus: *itag == 251,
             })
         })
-        .ok_or_else(|| anyhow::anyhow!("no AAC stream in visionOS player response"))
+        .ok_or_else(|| anyhow::anyhow!("no audio stream in visionOS player response"))
 }

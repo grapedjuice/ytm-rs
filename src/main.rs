@@ -6,6 +6,7 @@ mod proxy;
 mod art;
 mod audio;
 mod backend;
+mod bidi;
 mod deeplink;
 mod discord;
 mod downloads;

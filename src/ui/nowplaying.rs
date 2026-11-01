@@ -446,7 +446,18 @@ fn plain_lyrics(app: &mut App, ui: &mut Ui, rect: Rect, lyrics: &Lyrics) {
         let style = &app.look().lyrics;
         let size = (32.0 * style.size.clamp(0.6, 1.6)).min(rect.width() / 14.0).max(18.0);
         for l in &lyrics.lines {
-            ui.label(egui::RichText::new(&l.text).font(theme::lyric_font_for(&style.font, style.weight, size, &l.text)).color(theme::with_alpha(Color32::WHITE, 0.85)));
+            let font = theme::lyric_font_for(&style.font, style.weight, size, &l.text);
+            let color = theme::with_alpha(Color32::WHITE, 0.85);
+            if crate::bidi::has_rtl(&l.text) {
+                // Wrapped in reading order, each row in display order; RTL lines start on the right.
+                let width = ui.available_width();
+                let g = super::widgets::galley_wrapped(ui, &l.text, font, color, width, usize::MAX);
+                let (r, _) = ui.allocate_exact_size(vec2(width, g.size().y), Sense::hover());
+                let x = if crate::bidi::rtl_base(&l.text) { r.right() - g.size().x } else { r.left() };
+                ui.painter().galley(pos2(x, r.top()), g, color);
+            } else {
+                ui.label(egui::RichText::new(&l.text).font(font).color(color));
+            }
             ui.add_space(size * 0.25);
         }
         ui.add_space(80.0);

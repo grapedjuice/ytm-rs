@@ -278,23 +278,28 @@ async fn relay_one(client: &mut TcpStream) -> anyhow::Result<()> {
 
 /// A sign-in window's webview. WebView2 follows Windows' proxy by itself, so only a
 /// custom proxy, or none at all, needs saying. (Chromium takes no password here: an
-/// authenticated proxy asks for it in the window.)
-pub fn webview(b: wry::WebViewBuilder<'_>) -> wry::WebViewBuilder<'_> {
+/// authenticated proxy asks for it in the window.) `unbound`: no device-bound sessions
+/// (see `login::run`).
+pub fn webview(b: wry::WebViewBuilder<'_>, unbound: bool) -> wry::WebViewBuilder<'_> {
     #[cfg(windows)]
     {
         use wry::WebViewBuilderExtWindows;
         // wry's own defaults, which these arguments replace.
         const DEFAULT: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection";
+        let features = if unbound { format!("{DEFAULT},DeviceBoundSessions,EnableBoundSessionCredentials") } else { DEFAULT.to_owned() };
         match (active(), active().resolve()) {
-            (Setting::Off, _) => return b.with_additional_browser_args(format!("{DEFAULT} --no-proxy-server")),
+            (Setting::Off, _) => return b.with_additional_browser_args(format!("{features} --no-proxy-server")),
             (Setting::Custom(_), Some(p)) => {
                 let scheme = if p.scheme().starts_with("socks") { "socks5" } else { p.scheme() };
                 let (host, port) = (p.host_str().unwrap_or_default(), p.port_or_known_default().unwrap_or(8080));
-                return b.with_additional_browser_args(format!("{DEFAULT} --proxy-server={scheme}://{host}:{port}"));
+                return b.with_additional_browser_args(format!("{features} --proxy-server={scheme}://{host}:{port}"));
             }
+            _ if unbound => return b.with_additional_browser_args(features),
             _ => {}
         }
     }
+    #[cfg(not(windows))]
+    let _ = unbound;
     b
 }
 

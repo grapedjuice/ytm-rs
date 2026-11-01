@@ -786,8 +786,25 @@ fn settings(app: &mut App, ui: &mut Ui) {
 
 fn settings_body(app: &mut App, ui: &mut Ui) {
     page_title(ui, "Settings");
+    settings_account(app, ui);
+    settings_playback(app, ui);
+    settings_downloads(ui);
+    settings_lyrics(app, ui);
+    settings_appearance(app, ui);
+    settings_window(app, ui);
+    settings_app_icon(app, ui);
+    settings_connections(app, ui);
+    section_label(ui, "Network", None);
+    settings_card(ui, |ui| network(app, ui));
+    super::transfer::settings_section(app, ui);
+    settings_updates(app, ui);
+    settings_shortcuts(ui);
+    settings_about(ui);
+    settings_sign_off(app, ui);
+}
 
-    // ---- account
+/// Settings › Account: signing in and out.
+fn settings_account(app: &mut App, ui: &mut Ui) {
     section_label(ui, "Account", None);
     let busy = app.signing_in.load(Ordering::Relaxed);
     let (mut sign_in, mut sign_out) = (false, false);
@@ -817,8 +834,10 @@ fn settings_body(app: &mut App, ui: &mut Ui) {
     if sign_out {
         app.backend.request(crate::backend::Req::Logout);
     }
+}
 
-    // ---- playback
+/// Settings › Playback.
+fn settings_playback(app: &mut App, ui: &mut Ui) {
     section_label(ui, "Playback", None);
     settings_card(ui, |ui| {
         setting_row(ui, "Autoplay", Some("Keep playing similar songs when the queue ends."), |ui| {
@@ -871,8 +890,10 @@ fn settings_body(app: &mut App, ui: &mut Ui) {
             }
         });
     });
+}
 
-    // ---- downloads
+/// Settings › Downloads.
+fn settings_downloads(ui: &mut Ui) {
     section_label(ui, "Downloads", None);
     ui.label(
         RichText::new("Download songs from their menu. They're saved at the best quality your account gets, tagged with their cover art, and play from the file, even offline.")
@@ -892,8 +913,10 @@ fn settings_body(app: &mut App, ui: &mut Ui) {
             }
         });
     });
+}
 
-    // ---- lyrics (the better-lyrics extension's options)
+/// Settings › Lyrics: the better-lyrics extension's options.
+fn settings_lyrics(app: &mut App, ui: &mut Ui) {
     section_label(ui, "Lyrics", None);
     settings_card(ui, |ui| {
         setting_row(ui, "Romanization", Some("Japanese, Korean, Chinese, Cyrillic and other scripts in Latin letters. Timed with the lyrics when the source has it."), |ui| {
@@ -999,8 +1022,10 @@ fn settings_body(app: &mut App, ui: &mut Ui) {
         }
         ui.add_space(6.0);
     });
+}
 
-    // ---- appearance
+/// Settings › Appearance and Theme.
+fn settings_appearance(app: &mut App, ui: &mut Ui) {
     let was_default = app.default_theme;
     let was_theme = app.theme_id.clone();
     section_label(ui, "Appearance", None);
@@ -1028,7 +1053,6 @@ fn settings_body(app: &mut App, ui: &mut Ui) {
         });
     });
 
-    // ---- themes
     let current = if app.default_theme { "Classic".to_owned() } else { crate::preset::get(&app.theme_id).name.clone() };
     section_label(ui, "Theme", Some(&current));
     ui.label(
@@ -1041,8 +1065,10 @@ fn settings_body(app: &mut App, ui: &mut Ui) {
     if (was_default && !app.default_theme) || was_theme != app.theme_id {
         app.request_art();
     }
+}
 
-    // ---- window
+/// Settings › Window.
+fn settings_window(app: &mut App, ui: &mut Ui) {
     section_label(ui, "Window", None);
     settings_card(ui, |ui| {
         setting_row(ui, "Close to tray", Some("Clicking × hides the window and keeps the music playing. Click the tray icon to bring it back, or right-click it to quit."), |ui| {
@@ -1053,8 +1079,10 @@ fn settings_body(app: &mut App, ui: &mut Ui) {
             toggle(ui, &mut app.sidebar_collapsed, "Collapse sidebar");
         });
     });
+}
 
-    // ---- app icon
+/// Settings › App icon.
+fn settings_app_icon(app: &mut App, ui: &mut Ui) {
     section_label(ui, "App icon", Some(crate::appicon::get(app.app_icon).name));
     ui.label(
         RichText::new("Changes the icon on the window, taskbar, tray and Start menu. A pinned taskbar icon can take a moment to catch up.")
@@ -1071,8 +1099,10 @@ fn settings_body(app: &mut App, ui: &mut Ui) {
             icon_preview(ui, crate::appicon::get(app.app_icon));
         });
     });
+}
 
-    // ---- connections
+/// Settings › Connections.
+fn settings_connections(app: &mut App, ui: &mut Ui) {
     let mut discord_enabled = app.discord_enabled;
     section_label(ui, "Connections", None);
     settings_card(ui, |ui| {
@@ -1106,15 +1136,10 @@ fn settings_body(app: &mut App, ui: &mut Ui) {
     if discord_enabled != app.discord_enabled {
         app.set_discord_enabled(discord_enabled);
     }
+}
 
-    // ---- network
-    section_label(ui, "Network", None);
-    settings_card(ui, |ui| network(app, ui));
-
-    // ---- import
-    super::transfer::settings_section(app, ui);
-
-    // ---- updates
+/// Settings › Updates.
+fn settings_updates(app: &mut App, ui: &mut Ui) {
     section_label(ui, "Updates", None);
     let state = app.updater.as_ref().map(|u| u.state());
     let installed = super::updatable();
@@ -1187,8 +1212,10 @@ fn settings_body(app: &mut App, ui: &mut Ui) {
     if restart {
         app.restart_to_update(ui.ctx());
     }
+}
 
-    // ---- shortcuts
+/// Settings › Keyboard shortcuts.
+fn settings_shortcuts(ui: &mut Ui) {
     section_label(ui, "Keyboard shortcuts", None);
     settings_card(ui, |ui| {
         let keys: &[(&str, &[&str])] = &[
@@ -1217,8 +1244,10 @@ fn settings_body(app: &mut App, ui: &mut Ui) {
             }
         }
     });
+}
 
-    // ---- about
+/// Settings › About.
+fn settings_about(ui: &mut Ui) {
     section_label(ui, "About", None);
     settings_card(ui, |ui| {
         setting_row(ui, &format!("ytm-rs {}", env!("CARGO_PKG_VERSION")), Some("A fast, native YouTube Music client."), |_| {});
@@ -1232,7 +1261,10 @@ fn settings_body(app: &mut App, ui: &mut Ui) {
             setting_row(ui, title, Some(desc), |_| {});
         }
     });
-    // ---- sign-off, last thing on the page: the app icon, its name and its download count
+}
+
+/// The last thing on the page: the app icon, its name and its download count.
+fn settings_sign_off(app: &mut App, ui: &mut Ui) {
     let downloads = app.updater.as_ref().and_then(|u| u.downloads());
     let text = match downloads {
         Some(1) => "1 download and counting".to_owned(),

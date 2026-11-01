@@ -483,7 +483,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         return;
     }
     let rows = Rows::new(app, now);
-    let Some(o) = app.opened.iter().find(|o| o.c.id == id) else { return };
+    let Some(o) = app.lists.get(id) else { return };
     let (c, more) = (&o.c, app.receiving(id));
     let acts = &mut app.actions;
     let tracks = &c.tracks;
@@ -726,7 +726,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 return;
             }
             let more = app.receiving(super::LIKED_MUSIC);
-            let Some(o) = app.opened.iter().find(|o| o.c.id == super::LIKED_MUSIC) else { return };
+            let Some(o) = app.lists.get(super::LIKED_MUSIC) else { return };
             let liked = &o.c.tracks;
             if !liked.is_empty() {
                 ui.horizontal(|ui| {

@@ -1396,7 +1396,7 @@ impl EdgeFade {
             out
         };
         let mut out = Mesh::with_texture(m.texture_id);
-        for tri in m.indices.chunks_exact(3) {
+        for tri in m.indices.as_chunks::<3>().0 {
             let poly = [m.vertices[tri[0] as usize], m.vertices[tri[1] as usize], m.vertices[tri[2] as usize]];
             let lo = poly.iter().map(|v| v.pos.y).fold(f32::INFINITY, f32::min);
             let hi = poly.iter().map(|v| v.pos.y).fold(f32::NEG_INFINITY, f32::max);

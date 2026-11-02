@@ -1026,8 +1026,9 @@ impl Backend {
         }
         // High quality needs the signed-in player's solver. Until it's prepared (a new
         // install, a new player version: ~5 s or more), play standard quality at once.
+        // Without Premium it's never prepared, and standard quality is all there is.
         let solver_ready = self.jsc.ready();
-        if hq && !solver_ready && self.api.account().is_some() {
+        if hq && !solver_ready && self.api.account().is_some() && !self.known_not_premium() {
             log::info!("{video_id}: solver not ready yet, standard quality for now");
             self.warm_signed_in();
         }
@@ -1100,6 +1101,12 @@ impl Backend {
                 log::warn!("solver warm-up failed: {e:#}");
             }
         });
+    }
+
+    /// The Premium check has answered, and the account doesn't have it. Doesn't ask or
+    /// wait: while a check is running, it's not known yet.
+    fn known_not_premium(&self) -> bool {
+        self.premium.try_lock().is_ok_and(|p| matches!(*p, Ok(false)))
     }
 
     /// Premium accounts can stream signed-in web player URLs without a PO token.

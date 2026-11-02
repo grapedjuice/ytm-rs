@@ -290,16 +290,16 @@ fn on_event(app: &mut App, e: Event) {
 /// of what would be sent: it runs every frame, so the state itself is only built
 /// (`host_state`) when the signature changed.
 fn host_tick(app: &App) -> (std::ops::Range<usize>, Tick, u64) {
-    let index = app.index.unwrap_or(0);
+    let index = app.queue.index.unwrap_or(0);
     let from = index.saturating_sub(BEFORE);
-    let to = (index + AFTER).min(app.queue.len()).max(from);
+    let to = (index + AFTER).min(app.queue.tracks.len()).max(from);
     let vid = app.current().map(|t| t.id.clone()).unwrap_or_default();
     let (pos, playing) = match app.resume_at {
         Some(at) => (at, false),
         None => (app.audio.status.position(), app.playing()),
     };
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    for t in app.queue.get(from..to).unwrap_or_default() {
+    for t in app.queue.tracks.get(from..to).unwrap_or_default() {
         t.id.hash(&mut h);
     }
     (index - from).hash(&mut h);
@@ -310,8 +310,8 @@ fn host_tick(app: &App) -> (std::ops::Range<usize>, Tick, u64) {
 }
 
 fn host_state(app: &App, range: std::ops::Range<usize>, tick: &Tick) -> RoomState {
-    let index = app.index.unwrap_or(0) - range.start;
-    let queue = app.queue.get(range).map(<[_]>::to_vec).unwrap_or_default();
+    let index = app.queue.index.unwrap_or(0) - range.start;
+    let queue = app.queue.tracks.get(range).map(<[_]>::to_vec).unwrap_or_default();
     let ids: std::collections::HashSet<&str> = queue.iter().map(|t| t.id.as_str()).collect();
     let pick = |m: &HashMap<String, String>| m.iter().filter(|(id, _)| ids.contains(id.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
     let (by, owner) = (pick(&app.jam.by), pick(&app.jam.owner));
@@ -342,7 +342,7 @@ fn host_send(app: &mut App) {
         );
         conn.send_state(&state);
         s.sent_sig = sig;
-        s.sent_from = app.index.unwrap_or(0).saturating_sub(BEFORE);
+        s.sent_from = app.queue.index.unwrap_or(0).saturating_sub(BEFORE);
         s.sent = Some((tick, now));
         return;
     }
@@ -359,8 +359,8 @@ fn host_send(app: &mut App) {
 
 /// Songs `member` added that haven't played yet.
 fn waiting(app: &App, member: &str) -> usize {
-    let start = app.index.map_or(0, |i| i + 1);
-    app.queue.get(start..).unwrap_or_default().iter().filter(|t| app.jam.owner.get(&t.id).is_some_and(|m| m == member)).count()
+    let start = app.queue.index.map_or(0, |i| i + 1);
+    app.queue.tracks.get(start..).unwrap_or_default().iter().filter(|t| app.jam.owner.get(&t.id).is_some_and(|m| m == member)).count()
 }
 
 fn host_request(app: &mut App, from: String, name: String, cmd: Cmd) {
@@ -380,27 +380,27 @@ fn host_request(app: &mut App, from: String, name: String, cmd: Cmd) {
         Cmd::Add { track } => {
             app.toast(format!("{name} added \"{}\"", track.title));
             app.jam.by.insert(track.id.clone(), name);
-            let Some(i) = app.index else {
-                app.queue.push(track);
-                app.index = Some(app.queue.len() - 1);
+            let Some(i) = app.queue.index else {
+                app.queue.tracks.push(track);
+                app.queue.index = Some(app.queue.tracks.len() - 1);
                 app.play_current();
                 return;
             };
             // After the current song and the other songs people added, ahead of autoplay.
             let mut at = i + 1;
-            while app.queue.get(at).is_some_and(|t| app.jam.by.contains_key(&t.id)) {
+            while app.queue.tracks.get(at).is_some_and(|t| app.jam.by.contains_key(&t.id)) {
                 at += 1;
             }
-            app.queue.insert(at.min(app.queue.len()), track);
+            app.queue.tracks.insert(at.min(app.queue.tracks.len()), track);
             app.prefetch_next();
         }
         Cmd::Next { track } => {
             app.toast(format!("{name} queued \"{}\" next", track.title));
             app.jam.by.insert(track.id.clone(), name);
-            let at = app.index.map_or(0, |i| i + 1).min(app.queue.len());
-            app.queue.insert(at, track);
-            if app.index.is_none() {
-                app.index = Some(0);
+            let at = app.queue.index.map_or(0, |i| i + 1).min(app.queue.tracks.len());
+            app.queue.tracks.insert(at, track);
+            if app.queue.index.is_none() {
+                app.queue.index = Some(0);
                 app.play_current();
             } else {
                 app.prefetch_next();
@@ -413,8 +413,8 @@ fn host_request(app: &mut App, from: String, name: String, cmd: Cmd) {
         Cmd::Seek { pos } => app.apply(Action::Seek(pos as f32 / 1000.0)),
         Cmd::Jump { index } => {
             let i = app.jam.sent_from + index;
-            if i < app.queue.len() {
-                app.index = Some(i);
+            if i < app.queue.tracks.len() {
+                app.queue.index = Some(i);
                 app.play_current();
             }
         }
@@ -437,18 +437,18 @@ fn apply_state(app: &mut App, state: RoomState, at: Instant) {
     app.jam.by = state.by;
     app.jam.owner = state.owner;
     app.queue_source = None;
-    app.queue_fill = None;
+    app.queue.fill = None;
     app.play_pending = None;
     if state.queue.is_empty() {
-        app.queue.clear();
-        app.index = None;
+        app.queue.tracks.clear();
+        app.queue.index = None;
         app.jam.loaded = None;
         app.audio.send(AudioCmd::Stop);
         app.jam.last = None;
         return;
     }
-    app.index = Some(state.index.min(state.queue.len() - 1));
-    app.queue = state.queue;
+    app.queue.index = Some(state.index.min(state.queue.len() - 1));
+    app.queue.tracks = state.queue;
     app.jam.last = Some((tick, at));
     sync(app);
 }
@@ -461,8 +461,8 @@ fn sync(app: &mut App) {
     }
     // A tick can name a song before its state arrives: wait for the state then.
     if app.current_id() != Some(tick.vid.as_str()) {
-        match app.queue.iter().position(|t| t.id == tick.vid) {
-            Some(i) => app.index = Some(i),
+        match app.queue.tracks.iter().position(|t| t.id == tick.vid) {
+            Some(i) => app.queue.index = Some(i),
             None => return,
         }
     }

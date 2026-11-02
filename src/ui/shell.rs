@@ -741,7 +741,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     if ctl(ui, -inner, icon::SKIP_BACK, "Previous", false, 22.0) {
         app.prev();
     }
-    let (rep_icon, rep_on) = match app.repeat {
+    let (rep_icon, rep_on) = match app.queue.repeat {
         Repeat::Off => (icon::REPEAT, false),
         Repeat::All => (icon::REPEAT, true),
         Repeat::One => (icon::REPEAT_1, true),
@@ -750,7 +750,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         app.next();
     }
     if ctl(ui, outer, rep_icon, "Repeat", rep_on, 18.0) {
-        app.repeat = match app.repeat {
+        app.queue.repeat = match app.queue.repeat {
             Repeat::Off => Repeat::All,
             Repeat::All => Repeat::One,
             Repeat::One => Repeat::Off,
@@ -913,14 +913,14 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
 pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
     let rows = super::pages::Rows::new(app, ui.input(|i| i.time));
     egui::ScrollArea::vertical().id_salt(("queue", salt)).auto_shrink(false).show(ui, |ui| {
-        if app.queue.is_empty() {
+        if app.queue.tracks.is_empty() {
             ui.label(egui::RichText::new("Nothing queued yet").color(theme::text_dim()));
             return;
         }
-        let start = app.index.unwrap_or(0);
+        let start = app.queue.index.unwrap_or(0);
         ui.checkbox(&mut app.autoplay, egui::RichText::new("Autoplay similar songs").color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
         ui.add_space(6.0);
-        let (queue, liked, acts, has_current, by) = (&app.queue, &app.liked, &mut app.actions, app.index.is_some(), &app.jam.by);
+        let (queue, liked, acts, has_current, by) = (&app.queue.tracks, &app.liked, &mut app.actions, app.queue.index.is_some(), &app.jam.by);
         widgets::visible_rows(ui, queue.len() - start, |ui, k| {
             let i = start + k;
             let t = &queue[i];

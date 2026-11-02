@@ -7,6 +7,7 @@ mod jam;
 mod notes;
 mod nowplaying;
 mod pages;
+mod queue;
 mod shell;
 mod transfer;
 mod karaoke;
@@ -31,6 +32,8 @@ use crate::model::{Card, Chip, Shelf, ShelfKind, Target, Track};
 use crate::shader::Background;
 use crate::theme;
 use lists::{Arrival, Done, LIKED_MUSIC, Lists, Opened, Start};
+use queue::{Queue, QueueFill};
+pub use queue::Repeat;
 
 /// File types YouTube Music accepts for upload.
 const UPLOAD_EXTS: &[&str] = &["mp3", "m4a", "flac", "ogg", "wma"];
@@ -58,13 +61,6 @@ pub enum LibTab {
     Albums,
     History,
     Uploads,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum Repeat {
-    Off,
-    All,
-    One,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -175,16 +171,6 @@ pub struct HomeState {
     pub picks_expanded: bool,
 }
 
-/// A playlist's load whose next pages also go to the queue, and whether that queue
-/// is shuffled (they're then mixed into what's still to come). `ran_out`: playback
-/// reached the end of what had come, and carries on when more does (or the load ends).
-struct QueueFill {
-    id: String,
-    load: u64,
-    shuffled: bool,
-    ran_out: bool,
-}
-
 pub struct Channels {
     pub resp_rx: Receiver<Resp>,
     pub audio_rx: Receiver<AudioEvent>,
@@ -220,9 +206,6 @@ pub struct App {
     /// Asked to play (shuffled?) before its songs are here: a playlist's first page, or
     /// an album's or artist's songs (`Req::PlayCollection`).
     play_pending: Option<(Target, bool)>,
-    /// The queue is a playlist played while its songs were still coming in: the rest
-    /// join the queue as they arrive.
-    queue_fill: Option<QueueFill>,
     bg: Option<Background>,
 
     // navigation
@@ -270,8 +253,7 @@ pub struct App {
     sidebar_cache: Option<Vec<Card>>,
 
     // playback
-    queue: Vec<Track>,
-    index: Option<usize>,
+    queue: Queue,
     generation: u64,
     buffering: bool,
     /// Unplayable songs skipped in a row; a run of them stops playback instead of
@@ -279,7 +261,6 @@ pub struct App {
     skip_streak: u32,
     /// Times the current song was reopened after its download failed.
     recoveries: u32,
-    repeat: Repeat,
     autoplay: bool,
     /// Turn loud tracks down to YouTube's loudness target.
     normalize: bool,
@@ -479,7 +460,6 @@ impl App {
             was_focused: false,
             queue_source: None,
             play_pending: None,
-            queue_fill: None,
             bg,
             page: Page::Home,
             back: Vec::new(),
@@ -510,17 +490,15 @@ impl App {
             account_name: None,
             account_avatar: None,
             sidebar_cache: None,
-            queue: Vec::new(),
-            index: None,
+            queue: Queue::new(match get("repeat").as_deref() {
+                Some("all") => Repeat::All,
+                Some("one") => Repeat::One,
+                _ => Repeat::Off,
+            }),
             generation: 0,
             buffering: false,
             skip_streak: 0,
             recoveries: 0,
-            repeat: match get("repeat").as_deref() {
-                Some("all") => Repeat::All,
-                Some("one") => Repeat::One,
-                _ => Repeat::Off,
-            },
             autoplay: get("autoplay").is_none_or(|v| v == "1"),
             normalize: get("normalize").is_none_or(|v| v == "1"),
             log_volume: get("log_volume").is_none_or(|v| v == "1"),
@@ -935,24 +913,11 @@ impl App {
 
     /// The next songs of a playlist played before all of it was in join the queue.
     fn fill_queue(&mut self, id: &str, load: u64, tracks: Vec<Track>, more: bool) {
-        let Some(fill) = self.queue_fill.as_mut().filter(|f| f.id == id && f.load == load) else { return };
-        let (shuffled, ran_out) = (fill.shuffled, std::mem::take(&mut fill.ran_out));
-        if !more {
-            self.queue_fill = None;
-        }
-        if self.queue_source != Some(Target::Playlist(id.to_owned())) {
-            return;
-        }
-        let was_at_end = self.index.is_some_and(|i| i + 1 >= self.queue.len());
-        self.queue.extend(tracks);
-        if shuffled {
-            // Mixed into what's still to come, past the next song (it may be loading already).
-            let from = self.index.map_or(0, |i| i + if was_at_end { 1 } else { 2 }).min(self.queue.len());
-            shuffle(&mut self.queue[from..]);
-        }
-        if ran_out {
+        let playing_it = self.queue_source == Some(Target::Playlist(id.to_owned()));
+        let Some(filled) = self.queue.fill_from(id, load, tracks, more, playing_it) else { return };
+        if filled.ran_out {
             self.next();
-        } else if was_at_end && !self.buffering {
+        } else if filled.was_at_end && !self.buffering {
             self.prefetch_next();
         }
         self.top_up();
@@ -991,7 +956,7 @@ impl App {
     // ---------------------------------------------------------------- playback
 
     pub fn current(&self) -> Option<&Track> {
-        self.index.and_then(|i| self.queue.get(i))
+        self.queue.current()
     }
 
     /// The lyrics shown for the current song: the song's pick, then the listener's order.
@@ -1196,14 +1161,11 @@ impl App {
 
     /// `fill`: the queue is a playlist still coming in, and its other songs follow.
     fn play_list_filling(&mut self, tracks: Vec<Track>, start: usize, fill: Option<QueueFill>) {
-        if tracks.is_empty() {
+        if !self.queue.replace(tracks, start, fill) {
             return;
         }
         // Whatever was about to play doesn't.
-        self.queue_fill = fill;
         self.play_pending = None;
-        self.queue = tracks;
-        self.index = Some(start.min(self.queue.len() - 1));
         self.play_current();
     }
 
@@ -1211,8 +1173,7 @@ impl App {
     fn restore_session(&mut self, json: &str) {
         let Ok(s) = serde_json::from_str::<Session>(json) else { return };
         let Some(track) = s.queue.get(s.index).cloned() else { return };
-        self.queue = s.queue;
-        self.index = Some(s.index);
+        self.queue.adopt(s.queue, s.index);
         let dur = track.duration.map_or(s.duration_ms, |d| d as u64 * 1000);
         self.audio.status.duration_ms.store(dur, Ordering::Relaxed);
         self.audio.status.position_ms.store(s.position_ms, Ordering::Relaxed);
@@ -1249,10 +1210,8 @@ impl App {
             return;
         }
         log::info!("picking up {} from another device ({} in its queue)", track.id, q.tracks.len());
-        self.queue = q.tracks;
-        self.index = Some(q.index);
+        self.queue.adopt(q.tracks, q.index);
         self.queue_source = None;
-        self.queue_fill = None;
         self.listened_at = q.watched_at;
         self.audio.send(AudioCmd::Stop);
         self.audio.status.duration_ms.store(track.duration.map_or(0, |d| d as u64 * 1000), Ordering::Relaxed);
@@ -1265,13 +1224,10 @@ impl App {
     }
 
     fn session_json(&self) -> Option<String> {
-        let i = self.index?;
-        // Keep the saved queue small: liked-songs queues can run to 1000+ tracks.
-        let from = i.saturating_sub(50);
-        let to = (i + 150).min(self.queue.len());
+        let (queue, index) = self.queue.saved()?;
         serde_json::to_string(&Session {
-            queue: self.queue[from..to].to_vec(),
-            index: i - from,
+            queue: queue.to_vec(),
+            index,
             position_ms: self.audio.status.position().as_millis() as u64,
             duration_ms: self.audio.status.duration_ms.load(Ordering::Relaxed),
             listened_at: if self.playing() { unix_now() } else { self.listened_at },
@@ -1325,10 +1281,7 @@ impl App {
     /// `report`: a new play for the account's history (not picking up last session's song).
     fn play_current_at(&mut self, at: Duration, report: bool) {
         let Some(track) = self.current().cloned() else { return };
-        // Something plays: it no longer waits for a playlist's next songs.
-        if let Some(fill) = &mut self.queue_fill {
-            fill.ran_out = false;
-        }
+        self.queue.started();
         self.resume_at = None;
         self.resume_counts = false;
         self.generation += 1;
@@ -1365,7 +1318,7 @@ impl App {
     /// Keep the queue topped up so autoplay never stalls at the end; a playlist still
     /// coming in goes first.
     fn top_up(&mut self) {
-        if self.autoplay && !self.radio_pending && !self.jam.guest() && self.queue_fill.is_none() && self.index.is_some_and(|i| i + 1 >= self.queue.len())
+        if self.autoplay && !self.radio_pending && !self.jam.guest() && self.queue.fill.is_none() && self.queue.at_end()
             && let Some(id) = self.current().map(|t| t.id.clone())
         {
             self.radio_pending = true;
@@ -1407,7 +1360,7 @@ impl App {
         let duration = self.audio.status.duration_ms.load(Ordering::Relaxed) as f64 / 1000.0;
         log::info!("sponsorblock: skipping {:.1}–{:.1} s", seg.start, seg.end);
         if duration > 0.0 && seg.end >= duration - 1.0 {
-            if self.repeat == Repeat::One {
+            if self.queue.repeat == Repeat::One {
                 self.play_current();
             } else {
                 self.next();
@@ -1419,13 +1372,7 @@ impl App {
 
     /// Fetch whatever plays after the current track so skipping is instant.
     fn prefetch_next(&self) {
-        let Some(i) = self.index else { return };
-        let next = match self.repeat {
-            Repeat::One => None,
-            Repeat::All => self.queue.get(i + 1).or(self.queue.first()),
-            Repeat::Off => self.queue.get(i + 1),
-        };
-        if let Some(t) = next {
+        if let Some(t) = self.queue.upcoming() {
             self.backend.request(Req::Prefetch(t.id.clone()));
         }
     }
@@ -1434,15 +1381,7 @@ impl App {
         if self.jam.guest() {
             return jam::request(self, crate::jam::Cmd::Skip);
         }
-        let Some(i) = self.index else { return };
-        if i + 1 < self.queue.len() {
-            self.index = Some(i + 1);
-        } else if let Some(fill) = &mut self.queue_fill {
-            fill.ran_out = true;
-            return;
-        } else if self.repeat == Repeat::All && !self.queue.is_empty() {
-            self.index = Some(0);
-        } else {
+        if !self.queue.advance() {
             return;
         }
         let ending = self.handoff;
@@ -1459,8 +1398,7 @@ impl App {
             self.seek_to(Duration::ZERO);
             return;
         }
-        if let Some(i) = self.index.filter(|&i| i > 0) {
-            self.index = Some(i - 1);
+        if self.queue.back() {
             self.play_current();
         }
     }
@@ -1476,7 +1414,7 @@ impl App {
     }
 
     fn toggle(&mut self) {
-        if self.index.is_none() {
+        if self.queue.index.is_none() {
             return;
         }
         if self.jam.guest() {
@@ -1498,12 +1436,7 @@ impl App {
         if self.jam.guest() {
             return self.toast("Only the host can shuffle the jam");
         }
-        let start = self.index.map_or(0, |i| i + 1);
-        if start < self.queue.len() {
-            shuffle(&mut self.queue[start..]);
-            if let Some(fill) = &mut self.queue_fill {
-                fill.shuffled = true;
-            }
+        if self.queue.shuffle_upcoming() {
             self.toast("Shuffled up next");
             self.prefetch_next();
         }
@@ -1652,38 +1585,28 @@ impl App {
             Action::Open(Target::Playlist(id)) => self.go(Page::Playlist(id)),
             Action::Open(Target::Artist(id)) => self.go(Page::Artist(id)),
             Action::PlayNext(t) => {
-                let at = self.index.map_or(0, |i| i + 1).min(self.queue.len());
-                self.queue.insert(at, t);
+                let start = self.queue.play_next(t);
                 self.toast("Playing next");
-                if self.index.is_none() {
-                    self.index = Some(0);
+                if start {
                     self.play_current();
                 } else {
                     self.prefetch_next();
                 }
             }
             Action::Enqueue(t) => {
-                self.queue.push(t);
+                let start = self.queue.enqueue(t);
                 self.toast("Added to queue");
-                if self.index.is_none() {
-                    self.index = Some(self.queue.len() - 1);
+                if start {
                     self.play_current();
                 }
             }
             Action::Go(p) => self.go(p),
             Action::QueueJump(i) => {
                 self.play_pending = None;
-                self.index = Some(i);
+                self.queue.index = Some(i);
                 self.play_current();
             }
-            Action::QueueRemove(i) => {
-                if i < self.queue.len() && Some(i) != self.index {
-                    self.queue.remove(i);
-                    if let Some(cur) = self.index.filter(|&c| c > i) {
-                        self.index = Some(cur - 1);
-                    }
-                }
-            }
+            Action::QueueRemove(i) => self.queue.remove(i),
             Action::Seek(secs) => {
                 self.seek_to(Duration::from_secs_f32(secs.max(0.0)));
                 self.lyric_view.resume();
@@ -1838,7 +1761,7 @@ impl App {
             match ev {
                 AudioEvent::Finished { generation } if generation == self.generation && self.jam.guest() => {}
                 AudioEvent::Finished { generation } if generation == self.generation => {
-                    if self.repeat == Repeat::One {
+                    if self.queue.repeat == Repeat::One {
                         self.play_current();
                     } else {
                         self.next();
@@ -1846,7 +1769,7 @@ impl App {
                 }
                 AudioEvent::Finished { .. } => {}
                 // Crossfade into the next song; repeat-one and the end of the queue wait for the end.
-                AudioEvent::Ending { generation } if generation == self.generation && !self.jam.guest() && self.repeat != Repeat::One => {
+                AudioEvent::Ending { generation } if generation == self.generation && !self.jam.guest() && self.queue.repeat != Repeat::One => {
                     self.handoff = true;
                     self.next();
                     self.handoff = false;
@@ -2043,10 +1966,8 @@ impl App {
             }
             Resp::Radio { seed, tracks } => {
                 self.radio_pending = false;
-                let have: HashSet<String> = self.queue.iter().map(|t| t.id.clone()).collect();
-                let was_at_end = self.index.is_some_and(|i| i + 1 >= self.queue.len());
-                self.queue.extend(tracks.into_iter().filter(|t| t.id != seed && !have.contains(&t.id)));
-                if was_at_end && self.index.is_some() && !self.buffering && !self.playing() {
+                let was_at_end = self.queue.add_radio(&seed, tracks);
+                if was_at_end && self.queue.index.is_some() && !self.buffering && !self.playing() {
                     // The track ended while radio was loading: continue now.
                     self.next();
                 } else if !self.buffering {
@@ -2136,8 +2057,8 @@ impl App {
                 if message == "Playlist deleted" {
                     // Its load is dropped too, and the queue stops waiting for it.
                     self.lists.forget(&id);
-                    if self.queue_fill.as_ref().is_some_and(|f| f.id == id) {
-                        self.queue_fill = None;
+                    if self.queue.fill.as_ref().is_some_and(|f| f.id == id) {
+                        self.queue.fill = None;
                     }
                     let gone = Page::Playlist(id);
                     if self.page == gone {
@@ -2177,7 +2098,7 @@ impl App {
                     } else {
                         msg
                     };
-                    let has_next = self.index.is_some_and(|i| i + 1 < self.queue.len());
+                    let has_next = !self.queue.at_end() && self.queue.index.is_some();
                     // Skipping can't help when the account is the problem: the rest of
                     // an album like this needs it too. Stop on the song instead.
                     if let Some(why) = account_block(&reason, self.logged_in) {
@@ -2216,7 +2137,7 @@ impl App {
                 self.uploads = None;
                 // Your own playlists show differently (and private ones not at all) to another account.
                 self.lists.clear();
-                self.queue_fill = None;
+                self.queue.fill = None;
                 self.play_pending = None;
                 if self.page_list().is_some() {
                     self.refresh();
@@ -2929,7 +2850,7 @@ impl eframe::App for App {
         if std::env::var_os("YTM_MUTE").is_none() {
             storage.set_string("volume", self.audio.volume().to_string());
         }
-        let repeat = match self.repeat {
+        let repeat = match self.queue.repeat {
             Repeat::Off => "off",
             Repeat::All => "all",
             Repeat::One => "one",

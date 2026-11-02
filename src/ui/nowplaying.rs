@@ -27,6 +27,10 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
         .show(ctx, |ui| {
             // Swallow input so the page underneath doesn't react.
             ui.allocate_rect(rect, Sense::click_and_drag());
+            // It covers the window's top too: that still moves the window.
+            if !app.fullscreen {
+                super::titlebar::drag_area(ui, Rect::from_min_size(rect.min, vec2(rect.width(), super::titlebar::HEIGHT)), "now-playing");
+            }
             let painter = ui.painter_at(rect);
             let themed = !app.default_theme;
             let art = matches!(b.mode, BgMode::Kawarp | BgMode::CoverStatic);
@@ -81,8 +85,9 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     let cs = &look.cover;
     let area = ui.max_rect();
     let no_lyrics = app.no_lyrics();
-    // Header
-    let header = Rect::from_min_size(area.min, vec2(area.width(), 44.0));
+    // Header: on the window buttons' line, when the app draws them.
+    let lift = 20.0 - f32::from(super::titlebar::top_margin(20, 44.0));
+    let header = Rect::from_min_size(area.min - vec2(0.0, if app.fullscreen { 0.0 } else { lift }), vec2(area.width(), 44.0));
     let mut hui = ui.new_child(egui::UiBuilder::new().max_rect(header).layout(egui::Layout::left_to_right(egui::Align::Center)));
     if icon_button(&mut hui, icon::CHEVRON_DOWN, 22.0, "Close now playing", false).clicked() {
         app.np_open = false;
@@ -91,6 +96,7 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         }
     }
     hui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.add_space(super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 0.0));
         let (g, name) = if app.fullscreen { (icon::SHRINK, "Exit full screen") } else { (icon::EXPAND, "Full screen") };
         if icon_button(ui, g, 18.0, name, false).clicked() {
             let fs = !app.fullscreen;

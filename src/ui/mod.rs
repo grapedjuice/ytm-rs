@@ -9,6 +9,8 @@ mod nowplaying;
 mod pages;
 mod queue;
 mod shell;
+mod titlebar;
+pub use titlebar::custom as custom_titlebar;
 mod transfer;
 mod karaoke;
 mod lists;
@@ -2733,7 +2735,12 @@ impl eframe::App for App {
         // bar, so the pages and the full-screen background under it aren't drawn.
         let covered = !self.fullscreen && theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), 0.42) >= 1.0;
         let bar_strip = egui::Rect::from_min_max(egui::pos2(screen.left(), screen.bottom() - self.bar_height()), screen.max);
+        titlebar::set_fullscreen(&ctx, self.fullscreen);
         shell::background(self, ui, screen, now, covered.then_some(bar_strip));
+        if !self.fullscreen && !covered {
+            // The top of the window, down to the search box's row: what's on it comes after.
+            titlebar::drag_area(ui, egui::Rect::from_min_size(screen.min, egui::vec2(screen.width(), titlebar::HEIGHT)), "main");
+        }
         if !self.fullscreen {
             let floating = look.chrome.player_bar == crate::preset::PlayerBar::Floating;
             let bar_alpha = app_style.bar_alpha.clamp(0.0, 1.0);
@@ -2766,10 +2773,12 @@ impl eframe::App for App {
         if !self.fullscreen && !covered {
             use crate::preset::SidebarStyle;
             let side_alpha = app_style.sidebar_alpha.clamp(0.0, 1.0);
+            // The logo's row is 32 points tall.
+            let side_margin = egui::Margin { left: 14, right: 14, top: titlebar::top_margin(16, 32.0), bottom: 16 };
             let side_frame = match app_style.sidebar {
-                SidebarStyle::Glass => egui::Frame::new().fill(theme::shade(side_alpha)).inner_margin(egui::Margin::symmetric(14, 16)),
-                SidebarStyle::Transparent => egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 16)),
-                SidebarStyle::Solid => egui::Frame::new().fill(look.solid()).inner_margin(egui::Margin::symmetric(14, 16)),
+                SidebarStyle::Glass => egui::Frame::new().fill(theme::shade(side_alpha)).inner_margin(side_margin),
+                SidebarStyle::Transparent => egui::Frame::new().inner_margin(side_margin),
+                SidebarStyle::Solid => egui::Frame::new().fill(look.solid()).inner_margin(side_margin),
                 SidebarStyle::Floating => egui::Frame::new()
                     .fill(theme::shade(side_alpha.max(0.3)))
                     .stroke(egui::Stroke::new(1.0, theme::glass(0.08)))
@@ -2791,7 +2800,7 @@ impl eframe::App for App {
                     .show(ui, |ui| shell::queue_drawer(self, ui));
             }
             egui::CentralPanel::default()
-                .frame(egui::Frame::new().inner_margin(egui::Margin { left: 28, right: 0, top: 14, bottom: 0 }))
+                .frame(egui::Frame::new().inner_margin(egui::Margin { left: 28, right: 0, top: titlebar::top_margin(14, 42.0), bottom: 0 }))
                 .show(ui, |ui| {
                     shell::top_bar(self, ui);
                     ui.add_space(6.0);
@@ -2805,6 +2814,9 @@ impl eframe::App for App {
         if let Some(url) = self.share_pending.take() { ctx.copy_text(url); }
         shell::suggestions(self, &ctx);
         shell::toast(self, &ctx, now);
+
+        titlebar::window_buttons(&ctx);
+        titlebar::resize_edges(&ctx);
 
         if dev_var("YTM_THEME_TOUR").is_some() {
             self.theme_tour(&ctx, now);

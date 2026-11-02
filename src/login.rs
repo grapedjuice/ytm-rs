@@ -237,7 +237,11 @@ fn run(site: Site, profile_dir: PathBuf) -> anyhow::Result<Outcome> {
         // site. Say it's Safari, which is the engine it is.
         builder.with_data_store_identifier(store).with_user_agent(SAFARI_UA)
     };
-    let webview = crate::proxy::webview(builder)
+    // Google binds a sign-in from a browser that offers device-bound sessions to a key
+    // only that browser holds (`__Secure-1PSIDRTS`, renewed every 10 minutes), so the
+    // copy the app takes stops working after some hours. Without them Google signs in
+    // the way it does Firefox and Safari, and the copy lasts.
+    let webview = crate::proxy::webview(builder, matches!(site, Site::Google))
         .with_url(site.start())
         .with_on_page_load_handler(move |ev, url| {
             if matches!(ev, PageLoadEvent::Finished) && url.starts_with(site.home()) {

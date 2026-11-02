@@ -75,6 +75,15 @@ pub fn drag_area(ui: &Ui, rect: Rect, id: &str) {
     if !shown(ui.ctx()) {
         return;
     }
+    if drag_strip(ui, rect, id).double_clicked() {
+        let max = maximized(ui.ctx());
+        ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(!max));
+    }
+}
+
+/// [`drag_area`] without the double-click, with or without the system's frame (the mini
+/// player moves by its background everywhere): the response, for the caller's double-click.
+pub fn drag_strip(ui: &Ui, rect: Rect, id: &str) -> egui::Response {
     let resp = ui.interact(rect, Id::unique(("titlebar-drag", id)), Sense::CLICK);
     let pressed_here = resp.id.with("pressed");
     let (pressed, down, dragging) = ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.is_decidedly_dragging()));
@@ -84,13 +93,11 @@ pub fn drag_area(ui: &Ui, rect: Rect, id: &str) {
     } else if !down {
         ui.ctx().data_mut(|d| d.remove::<bool>(pressed_here));
     }
-    if resp.double_clicked() {
-        let max = maximized(ui.ctx());
-        ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(!max));
-    } else if down && dragging && ui.ctx().data_mut(|d| d.remove_temp::<bool>(pressed_here)).unwrap_or(false) {
+    if !resp.double_clicked() && down && dragging && ui.ctx().data_mut(|d| d.remove_temp::<bool>(pressed_here)).unwrap_or(false) {
         // Once: the system moves the window until the button is let go.
         ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
     }
+    resp
 }
 
 /// How far in from the window's right edge a scroll bar there sits, clear of the edge
@@ -179,6 +186,15 @@ fn paint_button(ui: &Ui, r: Rect, kind: Kind, resp: &egui::Response) {
 /// Resize by the window's edges and corners (not while maximized). Drawn last, above
 /// everything, but only a few points deep.
 pub fn resize_edges(ctx: &egui::Context) {
+    edges(ctx, false);
+}
+
+/// Resize by the left and right edges only: the mini player is as tall as its contents.
+pub fn resize_sides(ctx: &egui::Context) {
+    edges(ctx, true);
+}
+
+fn edges(ctx: &egui::Context, sides_only: bool) {
     if !shown(ctx) || maximized(ctx) {
         return;
     }
@@ -201,6 +217,12 @@ pub fn resize_edges(ctx: &egui::Context) {
     egui::Area::new(Id::unique("resize-edges")).order(egui::Order::Foreground).fixed_pos(s.min).show(ctx, |ui| {
         ui.set_clip_rect(s);
         for (i, (rect, dir, cursor)) in edges.into_iter().enumerate() {
+            let side = matches!(dir, ResizeDirection::East | ResizeDirection::West);
+            if sides_only && !side {
+                continue;
+            }
+            // The sides run the full height when they're all there is.
+            let rect = if sides_only { Rect::from_x_y_ranges(rect.x_range(), s.y_range()) } else { rect };
             // Not focusable: twelve unnamed stops for Tab otherwise.
             let resp = ui.interact(rect, Id::unique(("resize-edge", i)), Sense::DRAG).on_hover_cursor(cursor);
             // On the press itself, so the edge doesn't lag behind the pointer.

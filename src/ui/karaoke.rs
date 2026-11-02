@@ -1577,7 +1577,7 @@ fn letter_float(e: f64, wave: (f64, f64), long: bool, cfg: &Cfg) -> (f32, f32) {
 
 /// The group's sideways pop: (translateX in em, scaleX).
 fn wobble(e: f64) -> (f32, f32) {
-    if e < 0.0 || e >= WOBBLE_DURATION {
+    if !(0.0..WOBBLE_DURATION).contains(&e) {
         return (0.0, 1.0);
     }
     let p = EASE.at((e / WOBBLE_DURATION) as f32);
@@ -2486,6 +2486,12 @@ impl Glow {
     }
 }
 
+/// Dev hook: YTM_LYR_OFF=glow,blur,view leaves those parts out (memory breakdowns).
+pub fn dev_off(what: &str) -> bool {
+    static OFF: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    OFF.get_or_init(|| std::env::var("YTM_LYR_OFF").unwrap_or_default()).split(',').any(|x| x == what)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2767,10 +2773,4 @@ mod tests {
         assert!(point_in_polygon(p, pos2(10.0, 17.0)));
         assert!(!point_in_polygon(p, pos2(2.0, 2.0)));
     }
-}
-
-/// Dev hook: YTM_LYR_OFF=glow,blur,view leaves those parts out (memory breakdowns).
-pub fn dev_off(what: &str) -> bool {
-    static OFF: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    OFF.get_or_init(|| std::env::var("YTM_LYR_OFF").unwrap_or_default()).split(',').any(|x| x == what)
 }

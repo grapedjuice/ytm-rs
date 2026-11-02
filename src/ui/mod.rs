@@ -177,6 +177,10 @@ pub struct Channels {
     pub media_rx: Receiver<MediaControlEvent>,
 }
 
+/// Settings › Network's connection test: not run (`None`), running (`Some(None)`), or
+/// its answer (works, message).
+type ProxyTest = Option<Option<(bool, String)>>;
+
 pub struct App {
     backend: Backend,
     audio: AudioHandle,
@@ -361,7 +365,7 @@ pub struct App {
     proxy_mode: crate::proxy::Setting,
     proxy_url: String,
     proxy_error: Option<String>,
-    proxy_test: Arc<std::sync::Mutex<Option<Option<(bool, String)>>>>,
+    proxy_test: Arc<std::sync::Mutex<ProxyTest>>,
     /// Close and start again (the proxy changed).
     restart_app: bool,
     /// The media controls' cover as a local file (video id, `file://` path), fetched
@@ -1995,14 +1999,13 @@ impl App {
             Resp::QuickPicksMore { seed, tracks } => {
                 if let Some(h) = &mut self.home {
                     h.picks_loading = false;
-                    if let Some(shelf) = h.shelves.iter_mut().find(|s| s.title == "Quick picks") {
-                        if let ShelfKind::Songs { tracks: picks, .. } = &mut shelf.kind {
-                            if picks.iter().any(|t| t.id == seed) {
-                                h.picks_expanded = true;
-                                let mut seen: HashSet<String> = picks.iter().map(|t| t.id.clone()).collect();
-                                picks.extend(tracks.into_iter().filter(|t| seen.insert(t.id.clone())).take(24));
-                            }
-                        }
+                    if let Some(shelf) = h.shelves.iter_mut().find(|s| s.title == "Quick picks")
+                        && let ShelfKind::Songs { tracks: picks, .. } = &mut shelf.kind
+                        && picks.iter().any(|t| t.id == seed)
+                    {
+                        h.picks_expanded = true;
+                        let mut seen: HashSet<String> = picks.iter().map(|t| t.id.clone()).collect();
+                        picks.extend(tracks.into_iter().filter(|t| seen.insert(t.id.clone())).take(24));
                     }
                 }
             }

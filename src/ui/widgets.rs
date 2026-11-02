@@ -90,6 +90,7 @@ pub fn text_at(ui: &Ui, pos: Pos2, text: &str, font: egui::FontId, color: Color3
 
 /// Single-line text whose artist names are links: underlined on hover, and a click
 /// opens the artist's page. Names without a channel id stay plain text.
+#[allow(clippy::too_many_arguments)]
 pub fn linked_text(
     ui: &Ui,
     pos: Pos2,
@@ -485,10 +486,10 @@ pub fn song_actions(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, 
     if menu_action(ui, Some(icon::LIST_PLUS), "Add to playlist") {
         acts.push(Action::AddToPlaylist(vec![t.clone()]));
     }
-    if let Some(i) = remove {
-        if menu_action(ui, Some(icon::LIST_MINUS), "Remove from playlist") {
-            acts.push(Action::RemoveFromPlaylist(vec![i]));
-        }
+    if let Some(i) = remove
+        && menu_action(ui, Some(icon::LIST_MINUS), "Remove from playlist")
+    {
+        acts.push(Action::RemoveFromPlaylist(vec![i]));
     }
     if menu_action(ui, None, "Copy link") {
         acts.push(Action::Share(Target::Song(t.clone())));
@@ -518,16 +519,15 @@ pub fn song_actions(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, 
     if t.album.as_ref().and_then(|a| a.id.as_ref()).is_some() || t.first_artist_id().is_some() {
         ui.separator();
     }
-    if let Some(id) = t.album.as_ref().and_then(|a| a.id.clone()) {
-        if menu_action(ui, Some(icon::DISC_3), "Go to album") {
-            acts.push(Action::Open(Target::Album(id)));
-        }
+    if let Some(id) = t.album.as_ref().and_then(|a| a.id.clone())
+        && menu_action(ui, Some(icon::DISC_3), "Go to album")
+    {
+        acts.push(Action::Open(Target::Album(id)));
     }
-    if let Some(id) = t.first_artist_id() {
-        if menu_action(ui, Some(icon::USER), "Go to artist") {
+    if let Some(id) = t.first_artist_id()
+        && menu_action(ui, Some(icon::USER), "Go to artist") {
             acts.push(Action::Open(Target::Artist(id.to_owned())));
         }
-    }
 }
 
 /// Soft drop shadow under a rounded rect (e.g. artwork).
@@ -900,32 +900,6 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
     (out.inner, reached_end)
 }
 
-#[cfg(test)]
-mod shelf_scroll_tests {
-    use super::{shelf_page_starts, shelf_page_target};
-
-    #[test]
-    fn arrows_visit_aligned_pages_in_both_directions() {
-        let pages = shelf_page_starts(14, 5);
-        assert_eq!(pages, [0, 5, 9]);
-        let mut target = 0.0;
-        for direction in [1, 1, -1] {
-            target = shelf_page_target(&pages, 198.0, target, direction);
-        }
-        assert_eq!(target, 5.0 * 198.0);
-        assert_eq!(shelf_page_target(&pages, 198.0, 0.0, -1), 0.0);
-    }
-
-    #[test]
-    fn short_final_page_is_filled_without_overscrolling() {
-        assert_eq!(shelf_page_starts(4, 3), [0, 1]);
-        assert_eq!(shelf_page_starts(3, 3), [0]);
-        assert_eq!(shelf_page_starts(1, 3), [0]);
-        // The old last page is between new page starts after more picks arrive.
-        assert_eq!(shelf_page_target(&shelf_page_starts(11, 3), 436.0, 2.0 * 436.0, 1), 3.0 * 436.0);
-    }
-}
-
 /// The skeleton's light band sweeping across `r`, for anything still loading.
 pub fn shimmer_band(ui: &Ui, r: Rect, radius: f32, time: f64) {
     let phase = ((time * 0.8) % 1.6) as f32 - 0.3;
@@ -1013,5 +987,31 @@ pub fn skeleton(ui: &mut Ui, time: f64, rows: usize, card: f32) {
     // The shimmer needs frames only while it's on screen, and 15 fps is plenty.
     if ui.is_rect_visible(Rect::from_x_y_ranges(ui.max_rect().x_range(), top..=ui.cursor().top())) {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(66));
+    }
+}
+
+#[cfg(test)]
+mod shelf_scroll_tests {
+    use super::{shelf_page_starts, shelf_page_target};
+
+    #[test]
+    fn arrows_visit_aligned_pages_in_both_directions() {
+        let pages = shelf_page_starts(14, 5);
+        assert_eq!(pages, [0, 5, 9]);
+        let mut target = 0.0;
+        for direction in [1, 1, -1] {
+            target = shelf_page_target(&pages, 198.0, target, direction);
+        }
+        assert_eq!(target, 5.0 * 198.0);
+        assert_eq!(shelf_page_target(&pages, 198.0, 0.0, -1), 0.0);
+    }
+
+    #[test]
+    fn short_final_page_is_filled_without_overscrolling() {
+        assert_eq!(shelf_page_starts(4, 3), [0, 1]);
+        assert_eq!(shelf_page_starts(3, 3), [0]);
+        assert_eq!(shelf_page_starts(1, 3), [0]);
+        // The old last page is between new page starts after more picks arrive.
+        assert_eq!(shelf_page_target(&shelf_page_starts(11, 3), 436.0, 2.0 * 436.0, 1), 3.0 * 436.0);
     }
 }

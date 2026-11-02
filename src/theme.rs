@@ -591,10 +591,10 @@ pub fn install_fonts(ctx: &egui::Context, ui_font: &str) {
                 }
                 chain.push(id);
             }
-            if *key == "inter" && w == 0 {
-                if let Some(mono) = defs.families.get_mut(&FontFamily::Monospace) {
-                    mono.extend(chain[1..].iter().cloned());
-                }
+            if *key == "inter" && w == 0
+                && let Some(mono) = defs.families.get_mut(&FontFamily::Monospace)
+            {
+                mono.extend(chain[1..].iter().cloned());
             }
             // egui's bundled emoji/icon font stays as a last resort.
             chain.extend(egui_default.iter().filter(|n| n.as_str() != "Ubuntu-Light").cloned());

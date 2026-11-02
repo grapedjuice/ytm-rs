@@ -629,16 +629,16 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             over.galley(bg.min + vec2(6.0, 3.0), g, Color32::WHITE);
         }
     }
-    if total > 0.0 {
-        if let Some(p) = resp.interact_pointer_pos() {
-            let t = ((p.x - full.left()) / full.width()).clamp(0.0, 1.0) * total;
-            if resp.dragged() {
-                app.seek_drag = Some(t);
-            }
-            if resp.drag_stopped() || resp.clicked() {
-                app.seek_drag = None;
-                app.actions.push(Action::Seek(t));
-            }
+    if total > 0.0
+        && let Some(p) = resp.interact_pointer_pos()
+    {
+        let t = ((p.x - full.left()) / full.width()).clamp(0.0, 1.0) * total;
+        if resp.dragged() {
+            app.seek_drag = Some(t);
+        }
+        if resp.drag_stopped() || resp.clicked() {
+            app.seek_drag = None;
+            app.actions.push(Action::Seek(t));
         }
     }
 
@@ -881,10 +881,10 @@ fn volume_slider(app: &mut App, ui: &mut Ui, slider: Rect, salt: &str) {
     let fill = Rect::from_min_size(track_r.min, vec2(track_r.width() * vol, 4.0));
     ui.painter().rect_filled(fill, 2.0, theme::lerp_color(theme::text_dim(), Color32::WHITE, vh));
     ui.painter().circle_filled(pos2(fill.right(), track_r.center().y), 2.0 + 4.5 * vh, Color32::WHITE);
-    if let Some(p) = vresp.interact_pointer_pos() {
-        if vresp.dragged() || vresp.clicked() {
-            app.audio.set_volume(((p.x - track_r.left()) / track_r.width()).clamp(0.0, 1.0));
-        }
+    if let Some(p) = vresp.interact_pointer_pos()
+        && (vresp.dragged() || vresp.clicked())
+    {
+        app.audio.set_volume(((p.x - track_r.left()) / track_r.width()).clamp(0.0, 1.0));
     }
     if vresp.hovered() {
         let scroll = ui.input(|i| i.smooth_scroll_delta.y);

@@ -94,10 +94,10 @@ impl ThumbBar {
     fn add(&self) {
         let buttons = self.buttons();
         // Adding twice fails; then the buttons are already there, so just refresh them.
-        if unsafe { self.taskbar.ThumbBarAddButtons(self.hwnd, &buttons) }.is_err() {
-            if let Err(e) = unsafe { self.taskbar.ThumbBarUpdateButtons(self.hwnd, &buttons) } {
-                log::warn!("taskbar buttons: {e}");
-            }
+        if unsafe { self.taskbar.ThumbBarAddButtons(self.hwnd, &buttons) }.is_err()
+            && let Err(e) = unsafe { self.taskbar.ThumbBarUpdateButtons(self.hwnd, &buttons) }
+        {
+            log::warn!("taskbar buttons: {e}");
         }
     }
 
@@ -142,10 +142,10 @@ unsafe extern "system" fn subclass(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM,
     }
     if shown || msg == hook.created {
         // The window showed, or Explorer (re)created the taskbar button.
-        if let Ok(bar) = unsafe { &*hook.bar }.try_borrow() {
-            if let Some(bar) = bar.as_ref() {
-                bar.add();
-            }
+        if let Ok(bar) = unsafe { &*hook.bar }.try_borrow()
+            && let Some(bar) = bar.as_ref()
+        {
+            bar.add();
         }
     }
     unsafe { DefSubclassProc(hwnd, msg, wp, lp) }
@@ -213,14 +213,16 @@ fn raster(px: i32, g: Glyph) -> Vec<u8> {
 fn icon(px: i32, g: Glyph) -> Option<HICON> {
     let alpha = raster(px, g);
     unsafe {
-        let mut info = BITMAPINFO::default();
-        info.bmiHeader = BITMAPINFOHEADER {
-            biSize: size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: px,
-            biHeight: -px,
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: BI_RGB.0,
+        let info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: px,
+                biHeight: -px,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut bits = std::ptr::null_mut();

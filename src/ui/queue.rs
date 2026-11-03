@@ -215,7 +215,7 @@ mod tests {
     use super::{Queue, QueueFill, Repeat, Track};
 
     fn track(id: &str) -> Track {
-        Track { id: id.into(), title: id.into(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None }
+        Track { id: id.into(), title: id.into(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false }
     }
 
     fn queue(songs: &[&str], index: usize, repeat: Repeat) -> Queue {

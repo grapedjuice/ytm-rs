@@ -27,7 +27,7 @@ impl App {
     /// new song, play/pause, a seek, or a newly learned duration.
     pub(super) fn sync_discord(&mut self) {
         let Some(d) = &self.discord else { return };
-        let track = self.current().filter(|_| self.playing() && !self.buffering);
+        let track = self.playing_track().filter(|_| self.playing() && !self.buffering);
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
         let start_ms = now - self.audio.status.position().as_millis() as i64;
         let dur = self.audio.status.duration_ms.load(Ordering::Relaxed) as i64;
@@ -70,7 +70,7 @@ impl App {
         if self.lastfm_user.is_none() {
             return;
         }
-        let Some(t) = self.current().filter(|_| self.playing() && !self.buffering) else { return };
+        let Some(t) = self.playing_track().filter(|_| self.playing() && !self.buffering) else { return };
         let pos = self.audio.status.position();
         let dur = Duration::from_millis(self.audio.status.duration_ms.load(Ordering::Relaxed));
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;

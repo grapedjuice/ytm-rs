@@ -75,6 +75,15 @@ pub fn drag_area(ui: &Ui, rect: Rect, id: &str) {
     if !shown(ui.ctx()) {
         return;
     }
+    if drag_strip(ui, rect, id).double_clicked() {
+        let max = maximized(ui.ctx());
+        ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(!max));
+    }
+}
+
+/// [`drag_area`] without the double-click, with or without the system's frame (the mini
+/// player moves by its background everywhere): the response, for the caller's double-click.
+pub fn drag_strip(ui: &Ui, rect: Rect, id: &str) -> egui::Response {
     let resp = ui.interact(rect, Id::unique(("titlebar-drag", id)), Sense::CLICK);
     let pressed_here = resp.id.with("pressed");
     let (pressed, down, dragging) = ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.is_decidedly_dragging()));
@@ -84,13 +93,11 @@ pub fn drag_area(ui: &Ui, rect: Rect, id: &str) {
     } else if !down {
         ui.ctx().data_mut(|d| d.remove::<bool>(pressed_here));
     }
-    if resp.double_clicked() {
-        let max = maximized(ui.ctx());
-        ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(!max));
-    } else if down && dragging && ui.ctx().data_mut(|d| d.remove_temp::<bool>(pressed_here)).unwrap_or(false) {
+    if !resp.double_clicked() && down && dragging && ui.ctx().data_mut(|d| d.remove_temp::<bool>(pressed_here)).unwrap_or(false) {
         // Once: the system moves the window until the button is let go.
         ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
     }
+    resp
 }
 
 /// How far in from the window's right edge a scroll bar there sits, clear of the edge
@@ -179,6 +186,15 @@ fn paint_button(ui: &Ui, r: Rect, kind: Kind, resp: &egui::Response) {
 /// Resize by the window's edges and corners (not while maximized). Drawn last, above
 /// everything, but only a few points deep.
 pub fn resize_edges(ctx: &egui::Context) {
+    edges(ctx, false);
+}
+
+/// Resize by the left and right edges only: the mini player is as tall as its contents.
+pub fn resize_sides(ctx: &egui::Context) {
+    edges(ctx, true);
+}
+
+fn edges(ctx: &egui::Context, sides_only: bool) {
     if !shown(ctx) || maximized(ctx) {
         return;
     }
@@ -201,6 +217,12 @@ pub fn resize_edges(ctx: &egui::Context) {
     egui::Area::new(Id::unique("resize-edges")).order(egui::Order::Foreground).fixed_pos(s.min).show(ctx, |ui| {
         ui.set_clip_rect(s);
         for (i, (rect, dir, cursor)) in edges.into_iter().enumerate() {
+            let side = matches!(dir, ResizeDirection::East | ResizeDirection::West);
+            if sides_only && !side {
+                continue;
+            }
+            // The sides run the full height when they're all there is.
+            let rect = if sides_only { Rect::from_x_y_ranges(rect.x_range(), s.y_range()) } else { rect };
             // Not focusable: twelve unnamed stops for Tab otherwise.
             let resp = ui.interact(rect, Id::unique(("resize-edge", i)), Sense::DRAG).on_hover_cursor(cursor);
             // On the press itself, so the edge doesn't lag behind the pointer.
@@ -209,4 +231,65 @@ pub fn resize_edges(ctx: &egui::Context) {
             }
         }
     });
+}
+
+/// The main window, from `main`: its whole area is the app's to draw on.
+///
+/// winit's frameless window keeps a one-pixel system frame along the top (it moves the
+/// window's drawable area down a pixel so Windows still draws the drop shadow), and that
+/// shows as a darker line above the app. Here that shift is undone, so the drawable area
+/// is the whole window, and the shadow comes from a one-pixel frame along the bottom
+/// instead. That frame sits under the app's bottom row, which the app always paints
+/// opaque, so it never shows. Anything else winit decides (the work area when maximized)
+/// stays as it is.
+#[cfg_attr(not(windows), allow(unused_variables))]
+pub fn set_hwnd(hwnd: *mut std::ffi::c_void) {
+    #[cfg(windows)]
+    if custom() {
+        frame::init(hwnd);
+    }
+}
+
+#[cfg(windows)]
+mod frame {
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
+    use windows::Win32::UI::Controls::MARGINS;
+    use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+    use windows::Win32::UI::WindowsAndMessaging::{NCCALCSIZE_PARAMS, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, WM_NCCALCSIZE};
+
+    pub fn init(hwnd: *mut std::ffi::c_void) {
+        let hwnd = HWND(hwnd);
+        // SAFETY: the app's own window, on the thread that made it (still hidden: eframe
+        // shows it after the first frame); the subclass lives as long as the window.
+        unsafe {
+            if !SetWindowSubclass(hwnd, Some(proc), 1, 0).as_bool() {
+                log::warn!("title bar: couldn't subclass the window");
+                return;
+            }
+            let _ = DwmExtendFrameIntoClientArea(hwnd, &MARGINS { cxLeftWidth: 0, cxRightWidth: 0, cyTopHeight: 0, cyBottomHeight: 1 });
+            // Have Windows ask for the window's areas again.
+            let _ = SetWindowPos(hwnd, None, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
+
+    unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM, _: usize, _: usize) -> LRESULT {
+        // SAFETY: called by Windows with the window's own message; for WM_NCCALCSIZE with
+        // wparam set, lparam points at an NCCALCSIZE_PARAMS.
+        unsafe {
+            if msg != WM_NCCALCSIZE || wparam.0 == 0 {
+                return DefSubclassProc(hwnd, msg, wparam, lparam);
+            }
+            let params = &mut *(lparam.0 as *mut NCCALCSIZE_PARAMS);
+            let proposed = params.rgrc[0];
+            let result = DefSubclassProc(hwnd, msg, wparam, lparam);
+            // winit's shift: the same rectangle a pixel lower. Anything else is its own
+            // sizing (maximized), kept.
+            let r = params.rgrc[0];
+            if (r.left, r.right, r.top, r.bottom) == (proposed.left, proposed.right, proposed.top + 1, proposed.bottom + 1) {
+                params.rgrc[0] = proposed;
+            }
+            result
+        }
+    }
 }

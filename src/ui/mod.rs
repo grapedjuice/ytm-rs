@@ -13,6 +13,7 @@ mod jam;
 mod karaoke;
 mod lists;
 mod lyric_prefs;
+mod mini;
 mod notes;
 mod nowplaying;
 mod pages;
@@ -21,7 +22,7 @@ mod queue;
 mod responses;
 mod shell;
 mod titlebar;
-pub use titlebar::custom as custom_titlebar;
+pub use titlebar::{custom as custom_titlebar, set_hwnd as set_titlebar_hwnd};
 mod transfer;
 mod widgets;
 
@@ -110,6 +111,8 @@ pub enum Action {
     SaveCollection(String, bool),
     HomeChip(Option<String>),
     OpenNowPlaying(bool),
+    /// Into the mini player (true) or back to the full window.
+    Mini(bool),
     /// Play/pause what's already loaded (a card's button on the playing item).
     TogglePlay,
     /// A song chosen on the search page as the Spotify transfer's match.
@@ -285,6 +288,10 @@ pub struct App {
     normalize: bool,
     log_volume: bool,
     high_quality: bool,
+    /// Play an official music video as its song version when one is found.
+    play_songs: bool,
+    /// The song version playing in place of the current music video.
+    playing_as: Option<PlayingAs>,
     /// The output device picked in settings (cpal's id and its name, for when it's not
     /// connected), and the devices last listed there.
     output_device: Option<(String, String)>,
@@ -337,6 +344,8 @@ pub struct App {
     np_tab: NpTab,
     queue_open: bool,
     fullscreen: bool,
+    /// The mini player: the window shrunk to a strip.
+    mini: mini::Mini,
     /// Every source's lyrics for the current song (by video ID).
     lyrics: Option<(String, LyricsSet)>,
     /// Romanization/translation for one source's lines: (video ID, source key, language, extras).
@@ -512,6 +521,8 @@ impl App {
             normalize: get("normalize").is_none_or(|v| v == "1"),
             log_volume: get("log_volume").is_none_or(|v| v == "1"),
             high_quality: get("high_quality").is_none_or(|v| v == "1"),
+            play_songs: get("play_songs").is_none_or(|v| v == "1"),
+            playing_as: None,
             output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
             output_devices: Vec::new(),
             updater: None,
@@ -576,6 +587,7 @@ impl App {
             np_tab: if get("np_art").is_some_and(|v| v == "1") { NpTab::Art } else { NpTab::Lyrics },
             queue_open: false,
             fullscreen: false,
+            mini: mini::Mini::load(get),
             lyrics: None,
             lyrics_extras: None,
             extras_asked: None,
@@ -606,7 +618,7 @@ impl App {
         let smoke = std::env::var("YTM_SMOKE").ok().filter(|q| !q.is_empty());
         if let Some(ids) = smoke.as_deref().and_then(|q| q.strip_prefix("id:")) {
             // "id:a,b,c" queues several.
-            let track = |id: &str| Track { id: id.to_owned(), title: id.to_owned(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None };
+            let track = |id: &str| Track { id: id.to_owned(), title: id.to_owned(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false };
             app.play_list(ids.split(',').map(track).collect(), 0);
         } else if let Some(q) = smoke {
             app.go(Page::Search(q.clone()));
@@ -855,6 +867,25 @@ impl eframe::App for App {
             }
         }
         fit_window_to_monitor(ctx);
+        // Dev hook: YTM_MINI=<secs>[,<secs>…] switches between the mini player and the
+        // full window at those times (YTM_MINI=1: the mini player after a second).
+        if let Some(v) = dev_var("YTM_MINI") {
+            let times: Vec<f64> = v.split(',').filter_map(|t| t.parse().ok()).collect();
+            let id = egui::Id::unique("dev-mini");
+            let done: usize = ctx.data(|d| d.get_temp(id)).unwrap_or(0);
+            if let Some(&t) = times.get(done) {
+                if now >= t {
+                    ctx.data_mut(|d| d.insert_temp(id, done + 1));
+                    self.mini.request(done.is_multiple_of(2));
+                } else {
+                    ctx.request_repaint_after(Duration::from_secs_f64((t - now).min(0.2)));
+                }
+            }
+        }
+        if let Some(on) = self.mini.take_request() {
+            self.set_mini(ctx, on, now);
+        }
+        self.mini.tick(ctx, now);
         self.tray_window(ctx);
         self.window_hidden = self.tray.is_some() || ctx.input(|i| i.viewport().minimized == Some(true));
         self.sync_discord();
@@ -885,7 +916,7 @@ impl eframe::App for App {
             if playing || self.buffering {
                 ctx.request_repaint_after(Duration::from_millis(250));
             }
-        } else if self.np_open && playing {
+        } else if self.np_open && playing && !self.mini.busy() {
             ctx.request_repaint_after(Duration::from_millis(33));
         } else if playing && widgets::equalizer_shown(ctx) {
             // The playing row's bars need a steady, full rate to read as smooth.
@@ -920,6 +951,20 @@ impl eframe::App for App {
         let covered = !self.fullscreen && theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), 0.42) >= 1.0;
         let bar_strip = egui::Rect::from_min_max(egui::pos2(screen.left(), screen.bottom() - self.bar_height()), screen.max);
         titlebar::set_fullscreen(&ctx, self.fullscreen);
+        // The mini player, or nothing but the background while the window changes size.
+        let layout = self.mini.layout(&ctx);
+        if layout != mini::Layout::Full {
+            shell::background(self, ui, screen, now, None);
+            if layout == mini::Layout::Mini {
+                mini::strip(self, ui, now);
+                titlebar::resize_sides(&ctx);
+                // "Sign in to like songs" and such: shown here too, not timed out unseen.
+                shell::toast(self, &ctx, now);
+                self.mini.fade_in(&ctx, now, shell::base_color(self));
+            }
+            dev_screenshot(&ctx, now);
+            return;
+        }
         shell::background(self, ui, screen, now, covered.then_some(bar_strip));
         if !self.fullscreen && !covered {
             // The top of the window, down to the search box's row: what's on it comes after.
@@ -1001,6 +1046,8 @@ impl eframe::App for App {
 
         titlebar::window_buttons(&ctx);
         titlebar::resize_edges(&ctx);
+        // Back from the mini player.
+        self.mini.fade_in(&ctx, now, shell::base_color(self));
 
         if dev_var("YTM_THEME_TOUR").is_some() {
             self.theme_tour(&ctx, now);
@@ -1064,6 +1111,7 @@ impl eframe::App for App {
         storage.set_string("normalize", b(self.normalize));
         storage.set_string("log_volume", b(self.log_volume));
         storage.set_string("high_quality", b(self.high_quality));
+        storage.set_string("play_songs", b(self.play_songs));
         let folder = crate::downloads::folder();
         storage.set_string("download_dir", if folder == crate::downloads::default_folder() { String::new() } else { folder.display().to_string() });
         let (device, device_name) = self.output_device.clone().unzip();
@@ -1078,6 +1126,12 @@ impl eframe::App for App {
             }
         } else {
             self.good_window = storage.get_string("window");
+        }
+        // In the mini player, the full window's place is the one to reopen at.
+        self.mini.save(storage);
+        if let Some(w) = self.mini.full_window() {
+            storage.set_string("window", w.clone());
+            self.good_window = Some(w);
         }
         storage.set_string("close_to_tray", b(self.close_to_tray));
         storage.set_string("sidebar_collapsed", b(self.sidebar_collapsed));
@@ -1168,6 +1222,16 @@ struct Session {
     duration_ms: u64,
     #[serde(default)]
     listened_at: u64,
+    /// The song version that was playing for the current music video: the position is its.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    playing_as: Option<Track>,
+}
+
+/// The song version playing in place of the music video `listed`, in play `generation`.
+struct PlayingAs {
+    generation: u64,
+    listed: String,
+    song: Track,
 }
 
 
@@ -1278,4 +1342,23 @@ fn updatable() -> bool {
 
 pub fn fmt_time(secs: u32) -> String {
     format!("{}:{:02}", secs / 60, secs % 60)
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::*;
+
+    #[test]
+    fn sessions_saved_before_song_versions_still_load() {
+        let old = r#"{"queue":[{"id":"a","title":"A","artists":[],"album":null,"duration":null,"thumbs":[],"track_nr":null,"plays":null}],"index":0,"position_ms":5000,"duration_ms":0}"#;
+        let s: Session = serde_json::from_str(old).unwrap();
+        assert!(!s.queue[0].music_video && s.playing_as.is_none());
+        // A song (or a session without a song version) saves as before, so an older
+        // version, or a jam guest on one, reads it too.
+        let saved = serde_json::to_string(&s).unwrap();
+        assert!(!saved.contains("music_video") && !saved.contains("playing_as"), "{saved}");
+        let video = Track { music_video: true, ..s.queue[0].clone() };
+        let back: Track = serde_json::from_str(&serde_json::to_string(&video).unwrap()).unwrap();
+        assert!(back.music_video);
+    }
 }

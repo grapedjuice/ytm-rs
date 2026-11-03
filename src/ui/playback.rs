@@ -11,7 +11,7 @@ use crate::lyrics::Lyrics;
 use crate::model::Track;
 
 use super::queue::QueueFill;
-use super::{App, Repeat, Session, jam, lyric_prefs};
+use super::{App, PlayingAs, Repeat, Session, jam, lyric_prefs};
 
 impl App {
     pub fn current(&self) -> Option<&Track> {
@@ -65,6 +65,45 @@ impl App {
         self.current().map(|t| t.id.as_str())
     }
 
+    /// The song version standing in for the current music video. Only for the play it
+    /// came with: a new play, or a queue that changed under it, leaves it behind.
+    pub(super) fn playing_as(&self) -> Option<&Track> {
+        self.playing_as.as_ref().filter(|p| p.generation == self.generation && self.current_id() == Some(p.listed.as_str())).map(|p| &p.song)
+    }
+
+    /// What actually plays: the current track, or the song version standing in for it.
+    /// Lyrics, SponsorBlock, Last.fm, Discord, media controls and Now playing's actions go
+    /// by this (timing, length and title are the upload's own); lists and the queue keep
+    /// the track as listed.
+    pub(super) fn playing_track(&self) -> Option<&Track> {
+        self.playing_as().or(self.current())
+    }
+
+    pub(super) fn playing_id(&self) -> Option<&str> {
+        self.playing_track().map(|t| t.id.as_str())
+    }
+
+    /// Play the current music video as itself again, from where its song is now: a jam
+    /// plays everyone the host's exact upload.
+    pub(super) fn play_listed_upload(&mut self) {
+        if self.playing_as().is_none() {
+            return;
+        }
+        let at = self.audio.status.position();
+        self.playing_as = None;
+        if self.playing() || self.buffering {
+            self.play_current_at(at, false);
+        } else {
+            self.resume_at = Some(at);
+        }
+    }
+
+    /// `t`, when it's a music video to play as its song version. Not in a jam: everyone
+    /// there plays the host's exact upload at the host's position.
+    pub(super) fn song_of(&self, t: &Track) -> Option<Track> {
+        (self.play_songs && t.music_video && !self.jam.active()).then(|| t.clone())
+    }
+
     pub(super) fn playing(&self) -> bool {
         self.audio.status.playing.load(Ordering::Relaxed)
     }
@@ -104,13 +143,15 @@ impl App {
         let Ok(s) = serde_json::from_str::<Session>(json) else { return };
         let Some(track) = s.queue.get(s.index).cloned() else { return };
         self.queue.adopt(s.queue, s.index);
-        let dur = track.duration.map_or(s.duration_ms, |d| d as u64 * 1000);
+        let shown = s.playing_as.clone().unwrap_or_else(|| track.clone());
+        self.playing_as = s.playing_as.map(|song| PlayingAs { generation: self.generation, listed: track.id.clone(), song });
+        let dur = shown.duration.map_or(s.duration_ms, |d| d as u64 * 1000);
         self.audio.status.duration_ms.store(dur, Ordering::Relaxed);
         self.audio.status.position_ms.store(s.position_ms, Ordering::Relaxed);
         self.resume_at = Some(Duration::from_millis(s.position_ms));
         self.listened_at = s.listened_at;
         self.request_art();
-        self.backend.request(Req::Lyrics(track));
+        self.backend.request(Req::Lyrics(shown));
     }
 
     /// Ask for the queue YouTube Music keeps across devices when the app starts and
@@ -141,6 +182,8 @@ impl App {
         }
         log::info!("picking up {} from another device ({} in its queue)", track.id, q.tracks.len());
         self.queue.adopt(q.tracks, q.index);
+        // Not a new play: an old song version mustn't come back with its video.
+        self.playing_as = None;
         self.queue_source = None;
         self.listened_at = q.watched_at;
         self.audio.send(AudioCmd::Stop);
@@ -161,6 +204,7 @@ impl App {
             position_ms: self.audio.status.position().as_millis() as u64,
             duration_ms: self.audio.status.duration_ms.load(Ordering::Relaxed),
             listened_at: if self.playing() { unix_now() } else { self.listened_at },
+            playing_as: self.playing_as().cloned(),
         })
         .ok()
     }
@@ -194,48 +238,68 @@ impl App {
     /// `report`: a new play for the account's history (not picking up last session's song).
     pub(super) fn play_current_at(&mut self, at: Duration, report: bool) {
         let Some(track) = self.current().cloned() else { return };
+        // Picking up mid-song (a resume, a download that broke off): the position is the
+        // song version's when one was playing, so that goes on; a music video stays one.
+        let carried = if at.is_zero() || self.jam.active() { None } else { self.playing_as().cloned() };
         self.queue.started();
         self.resume_at = None;
         self.resume_counts = false;
         self.generation += 1;
         self.audio.status.wanted_gen.store(self.generation, Ordering::Relaxed);
-        self.audio.status.duration_ms.store(track.duration.map_or(0, |d| d as u64 * 1000), Ordering::Relaxed);
+        let shown = carried.clone().unwrap_or_else(|| track.clone());
+        self.audio.status.duration_ms.store(shown.duration.map_or(0, |d| d as u64 * 1000), Ordering::Relaxed);
         // A song running into the next crossfades (so does Next, when that's switched
         // on); going back or picking a song cuts over.
         self.audio.send(if self.handoff && at.is_zero() { AudioCmd::Handoff } else { AudioCmd::Stop });
         self.buffering = true;
         self.seek_drag = None;
-        self.backend.request(Req::Play { video_id: track.id.clone(), generation: self.generation, at, report });
+        // A carried song version goes with its music video, which plays if the song won't.
+        let song_of = if carried.is_none() && at.is_zero() { self.song_of(&track) } else { None };
+        self.playing_as = carried.clone().map(|song| PlayingAs { generation: self.generation, listed: track.id.clone(), song });
+        self.backend.request(Req::Play { video_id: track.id.clone(), generation: self.generation, at, report, song_of, song: carried });
+        self.show_in_media(&shown);
         if let Some(m) = &mut self.media {
-            // Windows fetches a cover URL on its own, through its own proxy setting only.
-            let by_url = matches!(crate::proxy::active(), crate::proxy::Setting::System);
-            let art = backend::art_url(&track);
-            m.set_track(&track.title, &track.artist_line(), track.album.as_ref().map(|a| a.name.as_str()), art.as_deref().filter(|_| by_url), track.duration);
             m.set_playing(true);
-            if !by_url && let Some(url) = art {
-                self.fetch_media_cover(track.id.clone(), url);
-            }
         }
-        // Background art and lyrics follow the track.
+        // Background art follows the track; lyrics and segments, what plays.
         self.request_art();
+        self.refresh_lyrics(shown);
+        self.top_up();
+    }
+
+    /// The playing track's title, artist and length for the system's media controls,
+    /// with the listed track's art (what the app shows too).
+    pub(super) fn show_in_media(&mut self, shown: &Track) {
+        let Some(track) = self.current().cloned() else { return };
+        let Some(m) = &mut self.media else { return };
+        // Windows fetches a cover URL on its own, through its own proxy setting only.
+        let by_url = matches!(crate::proxy::active(), crate::proxy::Setting::System);
+        let art = backend::art_url(&track);
+        m.set_track(&shown.title, &shown.artist_line(), shown.album.as_ref().map(|a| a.name.as_str()), art.as_deref().filter(|_| by_url), shown.duration);
+        if !by_url && let Some(url) = art {
+            self.fetch_media_cover(track.id.clone(), url);
+        }
+    }
+
+    /// Lyrics and SponsorBlock segments for `playing`, which timing is its own.
+    pub(super) fn refresh_lyrics(&mut self, playing: Track) {
         self.lyrics = None;
         self.lyrics_extras = None;
         self.extras_asked = None;
         self.lyric_view.reset();
-        self.backend.request(Req::Lyrics(track.clone()));
+        self.backend.request(Req::Lyrics(playing));
         self.segments = None;
         self.request_segments();
-        self.top_up();
     }
 
     /// Keep the queue topped up so autoplay never stalls at the end; a playlist still
     /// coming in goes first.
     pub(super) fn top_up(&mut self) {
         if self.autoplay && !self.radio_pending && !self.jam.guest() && self.queue.fill.is_none() && self.queue.at_end()
-            && let Some(id) = self.current().map(|t| t.id.clone())
+            && let Some(t) = self.current().cloned()
         {
             self.radio_pending = true;
-            self.backend.request(Req::Radio(id));
+            self.backend.request(Req::Radio { song_of: self.song_of(&t), seed: t.id });
         }
     }
 
@@ -245,8 +309,12 @@ impl App {
 
     /// Ask SponsorBlock about the playing song, when that's switched on.
     pub(super) fn request_segments(&mut self) {
-        let Some(t) = self.current().filter(|_| self.sponsorblock && self.segments.is_none()) else { return };
-        self.backend.request(Req::Segments { video_id: t.id.clone() });
+        if !self.sponsorblock || self.segments.is_some() {
+            return;
+        }
+        // What plays: a song version's segments are its own.
+        let Some(video_id) = self.playing_id().map(str::to_owned) else { return };
+        self.backend.request(Req::Segments { video_id });
     }
 
     /// Jump over a SponsorBlock segment once playback is inside it; one that runs to the
@@ -257,7 +325,7 @@ impl App {
         }
         let Some((id, segs)) = &self.segments else { return };
         // A seek takes a moment to show in the position: don't send it twice.
-        if self.current_id() != Some(id.as_str()) || now - self.segment_skipped < 1.5 {
+        if self.playing_id() != Some(id.as_str()) || now - self.segment_skipped < 1.5 {
             return;
         }
         // The stream's own length: the song row's can be another cut's (the song's,
@@ -288,7 +356,7 @@ impl App {
     /// Fetch whatever plays after the current track so skipping is instant.
     pub(super) fn prefetch_next(&self) {
         if let Some(t) = self.queue.upcoming() {
-            self.backend.request(Req::Prefetch(t.id.clone()));
+            self.backend.request(Req::Prefetch { video_id: t.id.clone(), song_of: self.song_of(t) });
         }
     }
 

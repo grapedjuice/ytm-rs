@@ -58,7 +58,7 @@ impl App {
                 self.play_list(vec![t.clone()], 0);
                 if !self.radio_pending {
                     self.radio_pending = true;
-                    self.backend.request(Req::Radio(t.id));
+                    self.backend.request(Req::Radio { song_of: self.song_of(&t), seed: t.id });
                 }
             }
             Action::Open(Target::Album(id)) => self.go(Page::Album(id)),
@@ -131,7 +131,9 @@ impl App {
             }
             Action::Download(track) => {
                 self.toast(format!("Downloading \u{201c}{}\u{201d}", track.title));
-                self.backend.request(Req::Download(track));
+                // The song version playing for a music video: that video plays the file too.
+                let for_video = if self.playing_as().is_some_and(|s| s.id == track.id) { self.current_id().map(str::to_owned) } else { None };
+                self.backend.request(Req::Download { track, for_video });
             }
             Action::AddToPlaylist(tracks) => {
                 if self.logged_in { self.dialog = Some(Dialog::PickPlaylist(tracks)); }
@@ -196,29 +198,42 @@ impl App {
                     self.np_open = open;
                 }
             }
+            Action::Mini(on) => self.mini.request(on),
         }
     }
 
     pub(super) fn shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.egui_wants_keyboard_input();
+        // In a text box, Ctrl+arrows move the cursor by words (and lines) instead; on a
+        // focused button or slider they still skip and change the volume.
+        let editing = ctx.text_edit_focused();
         let i = ctx.input(|i| {
             let k = |key| !typing && i.key_pressed(key);
+            let ctrl = |key| !editing && i.modifiers.ctrl && i.key_pressed(key);
             (
                 k(egui::Key::Space),
                 i.pointer.button_pressed(egui::PointerButton::Extra1)
                     || (i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft)),
                 i.pointer.button_pressed(egui::PointerButton::Extra2)
                     || (i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight)),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowRight),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowLeft),
+                ctrl(egui::Key::ArrowRight),
+                ctrl(egui::Key::ArrowLeft),
                 k(egui::Key::L),
                 k(egui::Key::F),
                 i.key_pressed(egui::Key::Escape),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowUp),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowDown),
+                ctrl(egui::Key::ArrowUp),
+                ctrl(egui::Key::ArrowDown),
+                // Once per press: holding it doesn't flip back and forth.
+                i.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::M, pressed: true, repeat: false, modifiers, .. } if modifiers.ctrl)),
             )
         });
-        let (space, back, fwd, next, prev, lyr, full, esc, vol_up, vol_down) = i;
+        let (space, back, fwd, next, prev, lyr, full, esc, vol_up, vol_down, mini) = i;
+        if mini {
+            self.actions.push(Action::Mini(!self.mini.target()));
+        }
+        // The mini player has no pages or now playing to go to, nor does a window on
+        // its way back until it's there.
+        let (back, fwd, lyr, full, esc) = if self.mini.busy() { (false, false, false, false, false) } else { (back, fwd, lyr, full, esc) };
         if space {
             self.toggle();
         }
@@ -254,6 +269,19 @@ impl App {
         }
     }
 
+    /// Into the mini player or back. Full screen ends first, a frame ahead.
+    pub(super) fn set_mini(&mut self, ctx: &egui::Context, on: bool, now: f64) {
+        if on == self.mini.active() {
+            return;
+        }
+        if on && self.fullscreen {
+            self.set_fullscreen(ctx, false);
+            self.mini.request(true);
+            return;
+        }
+        self.mini.toggle(ctx, now);
+    }
+
     pub(super) fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {
         self.fullscreen = on;
         // Windows: in one step, without winit's unthemed-frame flash.
@@ -279,7 +307,7 @@ mod share_tests {
 
     #[test]
     fn shares_youtube_music_urls() {
-        let song = Track { id: "abc123".into(), title: String::new(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None };
+        let song = Track { id: "abc123".into(), title: String::new(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false };
         assert_eq!(share_url(&Target::Song(song)), "https://music.youtube.com/watch?v=abc123");
         assert_eq!(share_url(&Target::Playlist("PL123".into())), "https://music.youtube.com/playlist?list=PL123");
         assert_eq!(share_url(&Target::Album("MPRE123".into())), "https://music.youtube.com/browse/MPRE123");

@@ -45,6 +45,10 @@ pub struct Track {
     pub track_nr: Option<u16>,
     /// Play count, as YouTube Music shows it on artist pages and in search.
     pub plays: Option<u64>,
+    /// An official music video (not the song), which plays its song version instead
+    /// when one is found and that's switched on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub music_video: bool,
 }
 
 impl Track {

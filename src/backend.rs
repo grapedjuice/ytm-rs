@@ -55,8 +55,9 @@ pub enum Req {
     LyricsExtras { video_id: String, source: String, lines: Vec<String>, lang: Option<String>, target: String },
     /// Process cover art for the background; `key` is echoed back.
     Art { key: String, url: String },
-    /// Radio seeded from a track; appended to the queue.
-    Radio(String),
+    /// Radio seeded from a track (`seed`, its id); appended to the queue. `song_of`: the
+    /// track, when it's a music video to play as its song: the song's radio is asked for.
+    Radio { seed: String, song_of: Option<Track> },
     /// Fetch an album/playlist and play it from the start.
     PlayCollection { target: Target },
     /// `at`: start position (non-zero when resuming last session's song). `report`: tell
@@ -108,7 +109,7 @@ impl Req {
             Req::Segments { .. } => "SponsorBlock",
             Req::LyricsExtras { .. } => "Translation",
             Req::Art { .. } => "Art",
-            Req::Radio(_) => "Loading radio",
+            Req::Radio { .. } => "Loading radio",
             Req::PlayCollection { .. } => "Playback",
             Req::Play { .. } => "Playback",
             Req::Prefetch { .. } => "Prefetch",
@@ -630,8 +631,14 @@ impl Backend {
                     let art = tokio::task::spawn_blocking(move || crate::art::process(&bytes)).await??;
                     Resp::Art { key, art }
                 }
-                Req::Radio(seed) => {
-                    let tracks = ytm::radio(api, &seed, false, 50).await?;
+                Req::Radio { seed, song_of } => {
+                    // A music video's radio is music videos; its song's is songs, as from the
+                    // song itself. The lookup is shared with its play's (one per video).
+                    let song = self.song_version(&seed, song_of.as_ref(), PREFETCH_SONG_WAIT).await;
+                    let from = song.as_ref().map_or(&seed, |s| &s.id);
+                    let mut tracks = ytm::radio(api, from, false, 50).await?;
+                    // The radio starts with its seed, which is playing already.
+                    tracks.retain(|t| t.id != *from);
                     Resp::Radio { seed, tracks }
                 }
                 Req::PlayCollection { target } => {

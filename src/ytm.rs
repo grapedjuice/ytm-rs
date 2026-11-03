@@ -646,6 +646,8 @@ fn parse_artist(v: &Value, id: &str) -> Option<ArtistPage> {
 // ------------------------------------------------------------- radio and explore
 
 /// Songs to play after `video_id` (its radio), at least `limit` when there are enough.
+/// A music video's radio is music videos only (a song's is songs): then those, rather
+/// than nothing. Its song's radio is the one to ask for.
 pub async fn radio(api: &Api, video_id: &str, auth: bool, limit: usize) -> anyhow::Result<Vec<Track>> {
     let body = json!({
         "playlistId": format!("RDAMVM{video_id}"),
@@ -657,8 +659,8 @@ pub async fn radio(api: &Api, video_id: &str, auth: bool, limit: usize) -> anyho
     let v = api.call("next", body, auth).await?;
     let panel = &v["contents"]["singleColumnMusicWatchNextResultsRenderer"]["tabbedRenderer"]["watchNextTabbedResultsRenderer"]["tabs"][0]
         ["tabRenderer"]["content"]["musicQueueRenderer"]["content"]["playlistPanelRenderer"];
-    let (mut tracks, mut token) = panel_page(panel);
-    while tracks.len() < limit {
+    let (mut items, mut token) = panel_page(panel);
+    while radio_tracks(&items).count() < limit {
         let Some(t) = token.take() else { break };
         let body = json!({ "continuation": t, "enablePersistentPlaylistPanel": true, "isAudioOnly": true });
         let v = api.call("next", body, auth).await?;
@@ -666,10 +668,16 @@ pub async fn radio(api: &Api, video_id: &str, auth: bool, limit: usize) -> anyho
         if more.is_empty() {
             break;
         }
-        tracks.extend(more);
+        items.extend(more);
         token = next;
     }
-    Ok(tracks)
+    Ok(radio_tracks(&items).cloned().collect())
+}
+
+/// A radio's songs, without its videos (`is_video`); all of it when it's videos only.
+fn radio_tracks(items: &[(Track, bool)]) -> impl Iterator<Item = &Track> {
+    let songs = items.iter().any(|(_, video)| !video);
+    items.iter().filter(move |(_, video)| !songs || !video).map(|(t, _)| t)
 }
 
 /// The queue YouTube Music keeps for the account across devices: what the phone (or
@@ -705,13 +713,14 @@ fn parse_server_queue(v: &Value) -> Option<ServerQueue> {
     Some(ServerQueue { index: index?, tracks, watched_at })
 }
 
-fn panel_page(panel: &Value) -> (Vec<Track>, Option<String>) {
+/// A radio page's tracks, each with whether it's a video (`is_video`).
+fn panel_page(panel: &Value) -> (Vec<(Track, bool)>, Option<String>) {
     let tracks = arr(&panel["contents"])
         .iter()
         .filter_map(|i| {
             let wrapped = &i["playlistPanelVideoWrapperRenderer"]["primaryRenderer"]["playlistPanelVideoRenderer"];
             let r = if wrapped.is_null() { &i["playlistPanelVideoRenderer"] } else { wrapped };
-            if is_video(r) { None } else { panel_item(r) }
+            Some((panel_item(r)?, is_video(r)))
         })
         .collect();
     let token = panel["continuations"][0]["nextRadioContinuationData"]["continuation"].as_str().map(str::to_owned);
@@ -1839,6 +1848,16 @@ mod tests {
         assert_eq!(parse_paired_song(&v, "raBobo3GZYA"), None);
         // Not in the queue (or a free account's queue, which has no pairs).
         assert_eq!(parse_paired_song(&v, "BeyEGebJ1l4"), None);
+    }
+
+    #[test]
+    fn a_radio_is_its_songs_or_its_videos_when_it_has_only_those() {
+        let t = |id: &str| Track { id: id.into(), title: id.into(), artists: Vec::new(), album: None, duration: None, thumbs: Vec::new(), track_nr: None, plays: None, music_video: false };
+        let ids = |items: &[(Track, bool)]| radio_tracks(items).map(|t| t.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&[(t("a"), false), (t("v"), true), (t("b"), false)]), ["a", "b"]);
+        // A music video's radio: music videos only, kept rather than nothing.
+        assert_eq!(ids(&[(t("v1"), true), (t("v2"), true)]), ["v1", "v2"]);
+        assert!(ids(&[]).is_empty());
     }
 
     #[test]

@@ -58,7 +58,7 @@ impl App {
                 self.play_list(vec![t.clone()], 0);
                 if !self.radio_pending {
                     self.radio_pending = true;
-                    self.backend.request(Req::Radio(t.id));
+                    self.backend.request(Req::Radio { song_of: self.song_of(&t), seed: t.id });
                 }
             }
             Action::Open(Target::Album(id)) => self.go(Page::Album(id)),

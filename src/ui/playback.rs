@@ -296,10 +296,10 @@ impl App {
     /// coming in goes first.
     pub(super) fn top_up(&mut self) {
         if self.autoplay && !self.radio_pending && !self.jam.guest() && self.queue.fill.is_none() && self.queue.at_end()
-            && let Some(id) = self.current().map(|t| t.id.clone())
+            && let Some(t) = self.current().cloned()
         {
             self.radio_pending = true;
-            self.backend.request(Req::Radio(id));
+            self.backend.request(Req::Radio { song_of: self.song_of(&t), seed: t.id });
         }
     }
 

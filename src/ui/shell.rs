@@ -357,7 +357,11 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         }
         ui.add_space(12.0);
 
-        let width = (ui.available_width() - 70.0).clamp(240.0, 560.0);
+        // Room for the account button, and the window buttons when they're over this row;
+        // in a narrow window the box gives way rather than run under them.
+        let reserve = 50.0 + super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 20.0);
+        let narrowest = if super::titlebar::custom() { 120.0 } else { 240.0 };
+        let width = (ui.available_width() - reserve).clamp(narrowest, 560.0);
         // Anywhere on the pill focuses the box, not just on the text area inside it.
         let (rect, field) = ui.allocate_exact_size(vec2(width, 42.0), Sense::click());
         let field = field.on_hover_cursor(egui::CursorIcon::Text);
@@ -446,7 +450,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_space(20.0);
+            ui.add_space(super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 20.0));
             let (r, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
             let resp = named(resp, "Account").on_hover_cursor(egui::CursorIcon::PointingHand);
             let initial = app.account_name.as_deref().and_then(|n| n.chars().next()).unwrap_or('?');
@@ -900,6 +904,8 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Up next").font(theme::bold(20.0)));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Left of the window buttons, which sit over the drawer's top right.
+            ui.add_space(super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 0.0));
             if icon_button(ui, icon::X, 16.0, "Close queue", false).clicked() {
                 app.queue_open = false;
             }

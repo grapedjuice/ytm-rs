@@ -89,6 +89,8 @@ fn main() -> eframe::Result {
         .with_app_id("ytm-rs")
         .with_inner_size(DEFAULT_SIZE)
         .with_min_inner_size(MIN_SIZE)
+        // Windows: the app draws its own title bar (see `ui::titlebar`).
+        .with_decorations(!ui::custom_titlebar())
         .with_icon(appicon::get(appicon::load(&data_dir())).icon_data().expect("bundled icons are valid PNGs"));
     if background {
         viewport = viewport.with_position([-4000.0, 0.0]).with_inner_size([1920.0, 1057.0]).with_active(false).with_taskbar(false);

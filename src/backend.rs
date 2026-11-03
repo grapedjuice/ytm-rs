@@ -41,6 +41,11 @@ pub enum Req {
     Uploads,
     /// The signed-in account's name and photo.
     Account,
+    /// The channels the signed-in Google account can act as.
+    Channels,
+    /// Act as another of them from now on: a brand channel's page id, or `None` for the
+    /// account's own channel. `epoch`: the list's, picked from.
+    SwitchChannel { page_id: Option<String>, epoch: u64 },
     /// The queue another device left off with (YouTube Music's own cross-device queue).
     ServerQueue,
     /// Upload audio files to the account's library.
@@ -102,6 +107,8 @@ impl Req {
             Req::History => "Loading history",
             Req::Uploads => "Loading uploads",
             Req::Account => "Account",
+            Req::Channels => "Channels",
+            Req::SwitchChannel { .. } => "Switching channel",
             Req::ServerQueue => "Queue from other devices",
             Req::Upload(_) => "Upload",
             Req::Download { .. } => "Download",
@@ -130,7 +137,7 @@ impl Req {
 
     /// Background requests fail quietly (logged, no toast).
     fn quiet(&self) -> bool {
-        matches!(self, Req::Suggest { .. } | Req::Account | Req::ServerQueue | Req::Art { .. } | Req::Prefetch { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::LyricsExtras { .. })
+        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::Art { .. } | Req::Prefetch { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::LyricsExtras { .. })
     }
 }
 
@@ -216,6 +223,15 @@ pub struct Library {
     pub albums_failed: bool,
 }
 
+/// The signed-in account's channels.
+pub struct Channels {
+    pub list: Vec<ytm::Channel>,
+    /// The page id of the one requests go as (`None`: the account's own).
+    pub current: Option<String>,
+    /// [`ytmapi::Api::epoch`] when listed: a switch picked from here applies only then.
+    pub epoch: u64,
+}
+
 pub enum Resp {
     Home(ytm::HomePage),
     HomeMore(ytm::HomePage),
@@ -232,6 +248,9 @@ pub enum Resp {
     History(Vec<Track>),
     Uploads(Vec<Track>),
     Account { name: Option<String>, photo: Option<String> },
+    Channels(Channels),
+    /// A `Req::SwitchChannel` is done (requests go as `epoch` now), or `error` says why it isn't.
+    SwitchedChannel { page_id: Option<String>, epoch: u64, error: Option<String> },
     ServerQueue(ytm::ServerQueue),
     /// Upload finished: how many files went up, and which failed.
     Uploaded { done: usize, failed: Vec<String> },
@@ -265,6 +284,26 @@ pub enum Resp {
 }
 
 impl Resp {
+    /// An answer that belongs to the signed-in account and channel it was asked as.
+    fn is_account_scoped(&self) -> bool {
+        matches!(
+            self,
+            Resp::Home(_)
+                | Resp::HomeMore(_)
+                | Resp::QuickPicksMore { .. }
+                | Resp::Suggest { .. }
+                | Resp::Library(_)
+                | Resp::History(_)
+                | Resp::Uploads(_)
+                | Resp::Account { .. }
+                | Resp::Channels(_)
+                | Resp::ServerQueue(_)
+                | Resp::Liked { .. }
+                | Resp::LikeProgress { .. }
+                | Resp::LikedMany { .. }
+        )
+    }
+
     /// An album or playlist load that ends without more songs: also sent when it fails,
     /// so the page stops waiting for it.
     fn ended(id: String, load: u64) -> Self {
@@ -499,9 +538,22 @@ impl Backend {
         self.wake();
     }
 
+    /// Act as another of the account's channels. Not while likes of a selection or a
+    /// transfer are running: they'd go on as the new channel.
+    async fn switch_channel(&self, page_id: Option<String>, epoch: u64) -> anyhow::Result<u64> {
+        let _likes = LIKES.try_lock().map_err(|_| anyhow::anyhow!("Wait until the likes going through are done"))?;
+        // A Premium check running now is for the old channel: let it finish, then forget it.
+        let mut premium = self.premium.lock().await;
+        let epoch = self.api.switch_channel(page_id, epoch)?;
+        *premium = Err(None);
+        drop(premium);
+        self.warm_signed_in();
+        log::info!("switched channel");
+        Ok(epoch)
+    }
+
     async fn forget_session(&self) {
-        webmusic::Session::remove(&self.data_dir);
-        self.api.set_account(None);
+        self.api.sign_out();
         *self.premium.lock().await = Err(None);
         let profile = self.login_profile();
         let _ = tokio::task::spawn_blocking(move || crate::login::forget(&profile)).await;
@@ -536,6 +588,7 @@ impl Backend {
         };
         let this = self.clone();
         let t0 = std::time::Instant::now();
+        let epoch = self.api.epoch();
         let task = self.rt.spawn(async move {
             let r = this.handle(req).await;
             log::debug!("{what}: done in {:?}", t0.elapsed());
@@ -562,6 +615,14 @@ impl Backend {
             {
                 let _ = this.tx.send(Resp::ended(id, load));
             }
+            // Asked as another sign-in or channel than the one now used: it isn't this one's.
+            let resp = resp.filter(|r| {
+                let stale = this.api.epoch() != epoch && r.is_account_scoped();
+                if stale {
+                    log::debug!("{what}: answer for the previous account or channel dropped");
+                }
+                !stale
+            });
             if let Some(resp) = resp {
                 let _ = this.tx.send(resp);
                 this.wake();
@@ -606,6 +667,18 @@ impl Backend {
                     let (name, photo) = ytm::account(api).await?;
                     Resp::Account { name, photo }
                 }
+                Req::Channels => {
+                    let epoch = api.epoch();
+                    let list = ytm::channels(api).await?;
+                    Resp::Channels(Channels { list, current: api.account().and_then(|a| a.channel().map(str::to_owned)), epoch })
+                }
+                Req::SwitchChannel { page_id, epoch } => match self.switch_channel(page_id.clone(), epoch).await {
+                    Ok(epoch) => Resp::SwitchedChannel { page_id, epoch, error: None },
+                    Err(e) => {
+                        log::warn!("switching channel failed: {e:#}");
+                        Resp::SwitchedChannel { page_id, epoch, error: Some(e.to_string()) }
+                    }
+                },
                 Req::ServerQueue => match ytm::server_queue(api).await? {
                     Some(q) => Resp::ServerQueue(q),
                     None => return Ok(None),
@@ -887,8 +960,7 @@ impl Backend {
             let names: Vec<&str> = cookie.split(';').filter_map(|kv| kv.trim().split('=').next()).take(40).collect();
             log::warn!("cookie sign-in rejected: {e:#}; cookie names: {names:?}");
         })?;
-        session.save(&self.data_dir);
-        self.api.set_account(Some(session));
+        self.api.sign_in(session);
         // The sign-in window's copy of the session would go stale as the app takes new
         // cookies, and opening it again would show Google the old ones, which it treats
         // as stolen and signs the session out. Keep only the app's copy.
@@ -1025,6 +1097,8 @@ impl Backend {
     /// (10, 20 and 30 s in, then every 40 s), with a last report once it ends or is left.
     /// Each covers the stretch played since the one before; time paused doesn't count.
     async fn report_watchtime(&self, id: &str, generation: u64, w: ytm::Watchtime) {
+        // Reported as the sign-in and channel that started it, or not at all.
+        let epoch = self.api.epoch();
         let status = &self.audio.status;
         let started = std::time::Instant::now();
         let mut flush = w.flush_at.iter().copied();
@@ -1046,6 +1120,10 @@ impl Backend {
             let elapsed = started.elapsed().as_secs();
             if !gone && elapsed < due {
                 continue;
+            }
+            if self.api.epoch() != epoch {
+                log::debug!("stopped reporting listening time of {id}: the account or channel changed");
+                return;
             }
             if at > from || gone {
                 if let Err(e) = ytm::report_watchtime(&self.api, &w, from, at, started.elapsed().as_secs_f64(), gone).await {

@@ -36,6 +36,15 @@ pub struct Session {
     /// check, the web player), for the API to take into the session.
     #[serde(skip)]
     replaced: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    /// Which sign-in this is, in this run: every copy of it (newer cookies, another
+    /// channel) has the same, another sign-in never does.
+    #[serde(skip, default = "new_login")]
+    login: u64,
+}
+
+fn new_login() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Google has signed the session out (password change, "sign out everywhere", or a
@@ -61,7 +70,17 @@ const LEGACY: &str = "rustypipe_cache.json";
 
 impl Session {
     pub fn new(cookie: String, session_index: u32, page_id: Option<String>) -> Self {
-        Self { cookie, session_index, page_id, visitor_data: None, replaced: Default::default() }
+        Self { cookie, session_index, page_id, visitor_data: None, replaced: Default::default(), login: new_login() }
+    }
+
+    /// The brand channel this session acts as; `None` for the Google account's own.
+    pub fn channel(&self) -> Option<&str> {
+        self.page_id.as_deref()
+    }
+
+    /// The same sign-in acting as another of its channels (`None`: the account's own).
+    pub fn on_channel(&self, page_id: Option<String>) -> Self {
+        Self { page_id, ..self.clone() }
     }
 
     /// `None` when signed out. A session saved by an older version is carried over.
@@ -224,9 +243,10 @@ impl Session {
         }
     }
 
-    /// The same Google account and channel as `other`, whatever the cookies' age.
-    pub fn same_account(&self, other: &Self) -> bool {
-        self.session_index == other.session_index && self.page_id == other.page_id
+    /// The same Google sign-in as `other`, whatever the cookies' age and whichever of
+    /// its channels either acts as: the cookies are the sign-in's.
+    pub fn same_login(&self, other: &Self) -> bool {
+        self.login == other.login
     }
 
     async fn post(&self, http: &reqwest::Client, origin: &str, endpoint: &str, client: (&str, &str, &str), body: Value) -> anyhow::Result<Value> {
@@ -360,6 +380,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn channels_of_one_sign_in_share_its_cookies() {
+        let s = Session::new("SID=a; SAPISID=k".into(), 0, None);
+        let brand = s.on_channel(Some("42".into()));
+        assert!(brand.same_login(&s));
+        assert_eq!((brand.channel(), brand.on_channel(None).channel()), (Some("42"), None));
+        // Still the same once Google replaces cookies, SAPISID included.
+        assert!(brand.updated(["SAPISID=new; Domain=.youtube.com"]).unwrap().same_login(&s));
+        // Another sign-in isn't, even with the same cookies (or none of the ones compared).
+        assert!(!Session::new("SID=a; SAPISID=k".into(), 0, None).same_login(&s));
+        let loaded: Session = serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();
+        assert!(!loaded.same_login(&s));
+    }
+
+    #[test]
     fn takes_replaced_cookies_but_not_deletions() {
         let s = Session::new("SID=a; __Secure-1PSIDTS=old; SAPISID=k".into(), 0, None);
         let next = s
@@ -376,7 +410,7 @@ mod tests {
             .unwrap();
         assert_eq!(next.cookie, "SID=a; __Secure-1PSIDTS=new; SAPISID=k; SIDCC=c");
         assert!(next.updated(["SID=a; Domain=.youtube.com"]).is_none());
-        assert!(next.same_account(&s));
+        assert!(next.same_login(&s));
     }
 
     #[test]

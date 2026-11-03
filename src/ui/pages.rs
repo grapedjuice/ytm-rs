@@ -803,17 +803,30 @@ fn settings_body(app: &mut App, ui: &mut Ui) {
     settings_sign_off(app, ui);
 }
 
-/// Settings › Account: signing in and out.
+/// Settings › Account: signing in and out, and which channel to use.
 fn settings_account(app: &mut App, ui: &mut Ui) {
     section_label(ui, "Account", None);
     let busy = app.signing_in.load(Ordering::Relaxed);
     let (mut sign_in, mut sign_out) = (false, false);
+    // Asked again now and then while Settings shows: a failed ask, or a channel made since.
+    let now = ui.input(|i| i.time);
+    if app.logged_in && app.channels_asked.is_none_or(|at| now - at > 60.0) {
+        app.channels_asked = Some(now);
+        app.backend.request(crate::backend::Req::Channels);
+    }
     settings_card(ui, |ui| {
         if app.logged_in {
             let name = app.account_name.clone().unwrap_or_else(|| "YouTube Music".to_owned());
             setting_row(ui, &name, Some("Signed in with Google. Your home feed, library and likes come from this account. Saved encrypted in Windows Credential Manager."), |ui| {
                 sign_out = pill(ui, "Sign out", Some(icon::LOG_OUT), false).clicked();
             });
+            // Also with one, when the one in use isn't it (a brand channel since deleted).
+            if app.channels.as_ref().is_some_and(|c| c.list.len() > 1 || !c.list.iter().any(|l| l.page_id == c.current)) {
+                divider(ui);
+                setting_row(ui, "Channel", Some("Your Google account and each YouTube channel it manages have their own library, likes, history and recommendations."), |ui| {
+                    channel_picker(app, ui);
+                });
+            }
         } else {
             setting_row(ui, "Not signed in", Some("Sign in to get your home feed, library and likes."), |ui| {
                 if busy {
@@ -833,6 +846,48 @@ fn settings_account(app: &mut App, ui: &mut Ui) {
     }
     if sign_out {
         app.backend.request(crate::backend::Req::Logout);
+    }
+}
+
+fn channel_picker(app: &mut App, ui: &mut Ui) {
+    let Some(crate::backend::Channels { list, current, epoch }) = &app.channels else { return };
+    // A brand channel often has the account's name: the handle, or "No channel" (as
+    // YouTube's switcher says), tells them apart.
+    let label = |c: &crate::ytm::Channel| match (&c.handle, c.has_channel) {
+        (Some(h), _) => format!("{} ({h})", c.name),
+        (None, false) => format!("{} (No channel)", c.name),
+        (None, true) => c.name.clone(),
+    };
+    // The button is narrower: a handle alone is enough there.
+    let shown = match list.iter().find(|c| c.page_id == *current) {
+        Some(c) => c.handle.clone().unwrap_or_else(|| label(c)),
+        None => "Another channel".to_owned(),
+    };
+    // A transfer would go on as the new channel.
+    if app.transfer.running() {
+        ui.label(RichText::new("Not while a transfer runs").font(theme::regular(13.0)).color(theme::text_dim()));
+        return;
+    }
+    let switching = app.switching_to.is_some();
+    let btn = dropdown_button(ui, if switching { "Switching…" } else { &shown }, 220.0, "Channel");
+    let mut pick = None;
+    egui::Popup::menu(&btn).show(|ui| {
+        ui.set_width(300.0);
+        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+            ui.add_space(4.0);
+            for c in list {
+                if option_row(ui, &label(c), c.page_id == *current).clicked() {
+                    pick = Some(c.clone());
+                    ui.close();
+                }
+            }
+            ui.add_space(4.0);
+        });
+    });
+    if let Some(c) = pick.filter(|c| c.page_id != *current && !switching) {
+        app.switching_to = Some(label(&c));
+        app.backend.request(crate::backend::Req::SwitchChannel { page_id: c.page_id, epoch: *epoch });
     }
 }
 

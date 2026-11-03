@@ -32,6 +32,8 @@ pub struct Api {
     file: PathBuf,
     web: tokio::sync::Mutex<Option<Web>>,
     account: RwLock<Option<Arc<Session>>>,
+    /// See [`Api::epoch`].
+    epoch: std::sync::atomic::AtomicU64,
     /// IANA time zone and its current UTC offset in minutes.
     tz: (String, i32),
     /// Through a proxy, where it connects from was checked this run (a cached visitor
@@ -75,6 +77,7 @@ impl Api {
             file,
             web: tokio::sync::Mutex::new(web),
             account: RwLock::new(Session::load(data_dir).map(Arc::new)),
+            epoch: Default::default(),
             tz: local_tz(),
             checked: Default::default(),
             unavailable: Default::default(),
@@ -90,8 +93,30 @@ impl Api {
         self.account.read().unwrap().clone()
     }
 
-    pub fn set_account(&self, s: Option<Session>) {
-        *self.account.write().unwrap() = s.map(Arc::new);
+    /// Which sign-in and channel requests go as: changes with each sign-in, sign-out
+    /// and channel switch, so an answer asked for before one can be told apart.
+    pub fn epoch(&self) -> u64 {
+        self.epoch.load(Relaxed)
+    }
+
+    /// Sign in: save the session and use it. Under the session's lock, like every
+    /// save, so an older copy can't be saved over it. False when it couldn't be saved.
+    pub fn sign_in(&self, s: Session) -> bool {
+        let mut slot = self.account.write().unwrap();
+        let saved = self.file.parent().is_some_and(|dir| s.save(dir));
+        *slot = Some(Arc::new(s));
+        self.epoch.fetch_add(1, Relaxed);
+        saved
+    }
+
+    /// Sign out: forget the session, saved copy included, under its lock.
+    pub fn sign_out(&self) {
+        let mut slot = self.account.write().unwrap();
+        if let Some(dir) = self.file.parent() {
+            Session::remove(dir);
+        }
+        *slot = None;
+        self.epoch.fetch_add(1, Relaxed);
     }
 
     /// Whether a signed-in request came back signed out since the last call: Google
@@ -134,15 +159,13 @@ impl Api {
         match self.session_from_cookie(&account.cookie).await {
             Ok(fresh) => {
                 let mut slot = self.account.write().unwrap();
-                if let Some(cur) = slot.as_ref().filter(|s| s.same_account(&account)) {
+                if let Some(cur) = slot.as_ref().filter(|s| s.same_login(&account)) {
                     let mut next = (**cur).clone();
                     next.visitor_data = fresh.visitor_data;
-                    let next = Arc::new(next);
-                    *slot = Some(next.clone());
-                    drop(slot);
                     if let Some(dir) = self.file.parent() {
                         next.save(dir);
                     }
+                    *slot = Some(Arc::new(next));
                 }
             }
             Err(e) => log::info!("couldn't read the account's visitor ID: {e:#}"),
@@ -186,13 +209,12 @@ impl Api {
     pub fn keep<'a>(&self, used: &Session, set_cookies: impl IntoIterator<Item = &'a str>) {
         let mut slot = self.account.write().unwrap();
         // Onto the current session: another request may have updated it meanwhile.
-        let Some(new) = slot.as_ref().filter(|s| s.same_account(used)).and_then(|s| s.updated(set_cookies)) else { return };
-        let new = Arc::new(new);
-        *slot = Some(new.clone());
-        drop(slot);
+        let Some(new) = slot.as_ref().filter(|s| s.same_login(used)).and_then(|s| s.updated(set_cookies)) else { return };
+        // Saved before the lock goes, so saves land in the order the session changed.
         if let Some(dir) = self.file.parent() {
             new.save(dir);
         }
+        *slot = Some(Arc::new(new));
     }
 
     /// The cached client version and visitor ID, read from music.youtube.com when
@@ -285,10 +307,34 @@ impl Api {
     /// Like `call`, but a signed-in account is required.
     pub async fn call_signed_in(&self, endpoint: &str, body: Value) -> anyhow::Result<Value> {
         let account = self.account().ok_or_else(|| anyhow::anyhow!("sign in first"))?;
-        match self.call_once(endpoint, &body, Some(&account), false).await {
-            Err(e) if is_refused(&e) => self.retry_signed_in(endpoint, &body, Some(&account), e).await,
+        self.call_as(endpoint, body, &account).await
+    }
+
+    /// Like `call_signed_in`, as the Google account's own channel whichever channel the
+    /// app acts as.
+    pub async fn call_as_google_account(&self, endpoint: &str, body: Value) -> anyhow::Result<Value> {
+        let account = self.account().ok_or_else(|| anyhow::anyhow!("sign in first"))?;
+        self.call_as(endpoint, body, &account.on_channel(None)).await
+    }
+
+    async fn call_as(&self, endpoint: &str, body: Value, account: &Session) -> anyhow::Result<Value> {
+        match self.call_once(endpoint, &body, Some(account), false).await {
+            Err(e) if is_refused(&e) => self.retry_signed_in(endpoint, &body, Some(account), e).await,
             r => r,
         }
+    }
+
+    /// Act as another of the signed-in account's channels from now on (`None`: its own),
+    /// and save that. Only if requests still go as at `epoch`, when the channel was picked:
+    /// another sign-in since has other channels. The new epoch.
+    pub fn switch_channel(&self, page_id: Option<String>, epoch: u64) -> anyhow::Result<u64> {
+        let mut slot = self.account.write().unwrap();
+        anyhow::ensure!(self.epoch() == epoch, "The account changed meanwhile; pick the channel again");
+        let next = slot.as_ref().ok_or_else(|| anyhow::anyhow!("sign in first"))?.on_channel(page_id);
+        // Not switched unless it's kept: the next launch would be on the old channel.
+        anyhow::ensure!(self.file.parent().is_some_and(|dir| next.save(dir)), "Couldn't save the channel choice");
+        *slot = Some(Arc::new(next));
+        Ok(self.epoch.fetch_add(1, Relaxed) + 1)
     }
 
     /// YouTube refuses the odd anonymous request (403) too, at random: the same one goes
@@ -335,9 +381,14 @@ impl Api {
             self.wait_if_paused().await;
             self.take_in_replaced();
         }
+        // The current cookies (another request may have taken new ones since), acting as
+        // the channel this request was made for.
+        let current = account.and_then(|a| {
+            let c = self.account().filter(|c| c.same_login(a))?;
+            Some(if c.channel() == a.channel() { c } else { Arc::new(c.on_channel(a.channel().map(str::to_owned))) })
+        });
+        let account = current.as_deref().or(account);
         // Signed in, the account's own visitor ID, as the site sends.
-        let current = account.and_then(|_| self.account());
-        let account = current.as_deref().filter(|c| account.is_some_and(|a| a.same_account(c))).or(account);
         if let Some(v) = account.and_then(|a| a.visitor_data.clone()) {
             web.visitor_data = v;
         }

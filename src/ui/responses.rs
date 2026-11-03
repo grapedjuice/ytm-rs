@@ -316,6 +316,22 @@ impl App {
                 self.account_name = name.or(self.account_name.take());
                 self.account_avatar = photo.or(self.account_avatar.take());
             }
+            Resp::Channels(c) => self.channels = Some(c),
+            Resp::SwitchedChannel { page_id, epoch, error } => {
+                let name = self.switching_to.take().unwrap_or_else(|| "another channel".to_owned());
+                match error {
+                    Some(e) => self.toast(e),
+                    None => {
+                        // Everything reloads as after signing in, but it's the same sign-in
+                        // with the same channels: only which one is used changed.
+                        let channels = self.channels.take().map(|c| crate::backend::Channels { current: page_id, epoch, ..c });
+                        let asked = self.channels_asked;
+                        self.on_resp(Resp::LoggedIn(true), now);
+                        (self.channels, self.channels_asked) = (channels, asked);
+                        self.toast(format!("Switched to {name}"));
+                    }
+                }
+            }
             Resp::LoggedIn(v) => self.on_logged_in(v, now),
             Resp::Error(e) => self.on_error(e),
         }
@@ -436,6 +452,8 @@ impl App {
     /// library and likes load.
     fn on_logged_in(&mut self, v: bool, now: f64) {
         self.logged_in = v;
+        self.channels = None;
+        self.channels_asked = None;
         // Recent searches belong to the account.
         self.suggestions = Default::default();
         self.suggest_sel = None;
@@ -449,8 +467,12 @@ impl App {
         self.library = None;
         self.history = None;
         self.uploads = None;
-        // Your own playlists show differently (and private ones not at all) to another account.
+        // Your own playlists show differently (and private ones not at all) to another
+        // account, and its likes aren't this one's.
         self.lists.clear();
+        self.lists.edits = Default::default();
+        self.liked.clear();
+        self.unliking.clear();
         self.queue.fill = None;
         self.play_pending = None;
         if self.page_list().is_some() {
@@ -463,8 +485,6 @@ impl App {
             self.request_library();
             self.request_liked(false);
             self.backend.request(Req::Account);
-        } else {
-            self.liked.clear();
         }
         self.toast(if v { "Signed in" } else { "Signed out" });
     }

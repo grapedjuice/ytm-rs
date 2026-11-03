@@ -137,6 +137,192 @@ pub async fn album(api: &Api, id: &str) -> anyhow::Result<Collection> {
     Ok(a)
 }
 
+// ------------------------------------------------------------- song versions
+
+/// The song version of a music video from YouTube's own pair: for Premium accounts, the
+/// queue wraps a music video together with its song (`counterpart`). Other accounts get
+/// no pairs, so this is `None` for them.
+pub async fn paired_song(api: &Api, video_id: &str) -> anyhow::Result<Option<Track>> {
+    let body = json!({"videoId": video_id, "isAudioOnly": true, "enablePersistentPlaylistPanel": true});
+    let v = api.call_signed_in("next", body).await?;
+    Ok(parse_paired_song(&v, video_id))
+}
+
+fn parse_paired_song(v: &Value, video_id: &str) -> Option<Track> {
+    let panel = &v["contents"]["singleColumnMusicWatchNextResultsRenderer"]["tabbedRenderer"]["watchNextTabbedResultsRenderer"]["tabs"][0]
+        ["tabRenderer"]["content"]["musicQueueRenderer"]["content"]["playlistPanelRenderer"];
+    arr(&panel["contents"])
+        .iter()
+        .map(|i| &i["playlistPanelVideoWrapperRenderer"])
+        .filter(|w| w["primaryRenderer"]["playlistPanelVideoRenderer"]["videoId"] == video_id)
+        .flat_map(|w| arr(&w["counterpart"]))
+        .map(|c| &c["counterpartRenderer"]["playlistPanelVideoRenderer"])
+        .find(|r| video_type(&[&r["navigationEndpoint"]]) == Some("MUSIC_VIDEO_TYPE_ATV"))
+        .and_then(panel_item)
+}
+
+/// The song version of a music video, by a signed-out search (a signed-in one would
+/// land in the account's search history). Only a sure match counts: [`same_song`].
+pub async fn searched_song(api: &Api, video: &Track) -> anyhow::Result<Option<Track>> {
+    let title = without_artist(&song_title(&video.title), video);
+    let query = match video.artists.first() {
+        Some(a) => format!("{title} {}", a.name),
+        None => return Ok(None),
+    };
+    let hits = search_songs(api, &query, false).await?;
+    Ok(hits.into_iter().take(5).find(|h| same_song(video, h)))
+}
+
+/// Whether `hit` (a song from a search) is the song of the music video `video`: the same
+/// title once the video's own markings are off, the same kind of recording (no live,
+/// remix, cover, clean… on one side only), everyone on the video credited on the song,
+/// and a length that fits. A video can run longer (an intro, a skit), and often shorter:
+/// many are cut down from the song.
+fn same_song(video: &Track, hit: &Track) -> bool {
+    let title = without_artist(&song_title(&video.title), video);
+    let base = base_title(&title);
+    let fits = match (video.duration, hit.duration) {
+        (Some(v), Some(s)) => s + 30.max(v / 5) >= v && s <= v * 2,
+        _ => false,
+    };
+    !hit.music_video
+        && !base.is_empty()
+        && base == base_title(&hit.title)
+        // The whole title: "Song | Acoustic Version" says what the cut-off part is.
+        && variants(&video.title) == variants(&hit.title)
+        && qualifiers_agree(&title, &hit.title)
+        && !video.artists.is_empty()
+        && video.artists.iter().all(|a| hit.artists.iter().any(|b| same_artist(a, b)))
+        && fits
+}
+
+/// Bracketed parts on one title only must be ones that don't change the recording: a
+/// featured artist, where it's from, a remaster. "(Clean)" against "(Explicit)", "(A Deal
+/// With God)" or "(7" Mix)" on one side only: not sure enough.
+fn qualifiers_agree(a: &str, b: &str) -> bool {
+    let harmless = |q: &String| {
+        let w: Vec<&str> = q.split(' ').collect();
+        matches!(w.first(), Some(&("feat" | "ft" | "featuring" | "with" | "from")))
+            || w.iter().any(|w| w.starts_with("remaster"))
+            || w.iter().all(|w| w.bytes().all(|c| c.is_ascii_digit()))
+    };
+    let (qa, qb) = (qualifiers(a), qualifiers(b));
+    qa.iter().filter(|q| !qb.contains(q)).chain(qb.iter().filter(|q| !qa.contains(q))).all(harmless)
+}
+
+/// The words of each bracketed part of a title.
+fn qualifiers(title: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let (mut depth, mut part) = (0u32, String::new());
+    for c in title.chars() {
+        match c {
+            '(' | '[' => {
+                if depth == 0 {
+                    part.clear();
+                }
+                depth += 1;
+            }
+            ')' | ']' if depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    out.push(words(&part));
+                }
+            }
+            _ if depth > 0 => part.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// A title without the "Artist - " some music videos lead with.
+fn without_artist(title: &str, video: &Track) -> String {
+    let Some((lead, rest)) = title.split_once(" - ") else { return title.to_owned() };
+    let lead = words(lead);
+    if !rest.trim().is_empty() && video.artists.iter().any(|a| words(&a.name) == lead) { rest.trim().to_owned() } else { title.to_owned() }
+}
+
+/// The same artist: the same artist page, or the same name, also as one of the names
+/// in an unlinked credit ("Asha Bhosle | Bhupinder"). Not a name inside a longer one
+/// ("Queen Tribute Band").
+fn same_artist(a: &Link, b: &Link) -> bool {
+    if a.id.is_some() && a.id == b.id {
+        return true;
+    }
+    let name = words(&a.name);
+    let lower = b.name.to_lowercase();
+    !name.is_empty() && [" | ", " & ", ", ", " x ", " feat. ", " ft. ", " and ", " with "].iter().fold(vec![lower.as_str()], |parts, sep| parts.iter().flat_map(|p| p.split(sep)).collect()).into_iter().any(|p| words(p) == name)
+}
+
+/// A music video's title without what marks it as a video: "(Official Video)", "[4K]",
+/// "| Lyric Video", "Official Music Video" at the end.
+fn song_title(title: &str) -> String {
+    const VIDEO_WORDS: &[&str] = &[
+        "official", "video", "music", "lyric", "lyrics", "lyrical", "audio", "visualizer", "visualiser", "hd", "4k", "hq", "mv", "clip", "videoclip",
+        "officiel", "full", "song", "with",
+    ];
+    const TRAILING: &[&str] = &["official music video", "official lyric video", "official video", "official audio", "official visualizer", "music video", "lyric video", "lyrical video", "video song", "full video"];
+    let mut t = title.split(" | ").next().unwrap_or(title).to_owned();
+    // Bracketed parts only about the video ("(Remix Official Video)" says more: it stays).
+    let mut out = String::new();
+    let mut rest = t.as_str();
+    while let Some(open) = rest.find(['(', '[']) {
+        let close = if rest[open..].starts_with('(') { ')' } else { ']' };
+        let Some(len) = rest[open..].find(close) else { break };
+        let inner = &rest[open + 1..open + len];
+        out.push_str(&rest[..open]);
+        if !words(inner).split(' ').all(|w| VIDEO_WORDS.contains(&w)) {
+            out.push_str(&rest[open..=open + len]);
+        }
+        rest = &rest[open + len + 1..];
+    }
+    out.push_str(rest);
+    t = out.trim().to_owned();
+    loop {
+        let ends_with = |p: &&str| t.len() >= p.len() && t.is_char_boundary(t.len() - p.len()) && t[t.len() - p.len()..].eq_ignore_ascii_case(p);
+        let Some(cut) = TRAILING.iter().find(|p| ends_with(p)).map(|p| t.len() - p.len()) else { break };
+        let shorter = t[..cut].trim_end_matches(|c: char| c.is_whitespace() || "-–|:\"'".contains(c)).to_owned();
+        if shorter.is_empty() {
+            break;
+        }
+        t = shorter;
+    }
+    t
+}
+
+/// The title's words without anything in brackets ("(feat. X)", "(2009 Remaster)").
+fn base_title(title: &str) -> String {
+    let mut out = String::new();
+    let mut depth = 0u32;
+    for c in title.chars() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    words(&out)
+}
+
+/// Words that make a recording something other than the song itself.
+fn variants(title: &str) -> Vec<String> {
+    const VARIANTS: &[&str] = &[
+        "live", "acoustic", "remix", "remixed", "cover", "instrumental", "karaoke", "sped", "slowed", "reverb", "nightcore", "8d", "demo",
+        "unplugged", "orchestral", "extended", "version", "mashup", "rehearsal", "edit", "mix", "rework", "bootleg",
+    ];
+    let mut found: Vec<String> = words(title).split(' ').filter(|w| VARIANTS.contains(w)).map(str::to_owned).collect();
+    found.sort();
+    found.dedup();
+    found
+}
+
+/// Lowercase words, punctuation dropped ("Don't" = "dont").
+fn words(s: &str) -> String {
+    let kept: String = s.to_lowercase().chars().filter(|c| c.is_alphanumeric() || c.is_whitespace()).collect();
+    kept.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Some albums list music videos where the album has the songs too (all of Tame
 /// Impala's Currents does): swap in the album's song at the same position. The Android
 /// VR client lists an album's playlist as the album's songs, in album order, without a
@@ -196,6 +382,7 @@ fn swap_songs(a: &mut Collection, videos: &[usize], songs: &[AlbumSong]) -> usiz
         let (Some(t), Some(s)) = (a.tracks.get_mut(i), songs.get(i)) else { continue };
         if t.id != s.id && same_title(&t.title, &s.title) {
             (t.id, t.duration) = (s.id.clone(), s.duration.or(t.duration));
+            t.music_video = false;
             swapped += 1;
         }
     }
@@ -205,11 +392,7 @@ fn swap_songs(a: &mut Collection, videos: &[usize], songs: &[AlbumSong]) -> usiz
 /// Titles equal but for case, punctuation ("Don't" = "Dont"), spacing and the guests: the
 /// song list leaves out "(feat. …)" ("Levitating" for "Levitating (feat. DaBaby)").
 fn same_title(a: &str, b: &str) -> bool {
-    let words = |s: &str| {
-        let kept: String = without_guests(s).to_lowercase().chars().filter(|c| c.is_alphanumeric() || c.is_whitespace()).collect();
-        kept.split_whitespace().collect::<Vec<_>>().join(" ")
-    };
-    let (a, b) = (words(a), words(b));
+    let (a, b) = (words(without_guests(a)), words(without_guests(b)));
     !a.is_empty() && a == b
 }
 
@@ -1002,6 +1185,7 @@ fn two_row(r: &Value) -> Option<Card> {
             thumbs: thumbs.clone(),
             track_nr: None,
             plays: None,
+            music_video: music_video(&[nav]),
         })
     } else if let Some(playlist) = nav["watchPlaylistEndpoint"]["playlistId"].as_str() {
         Target::Playlist(playlist.to_owned())
@@ -1048,17 +1232,28 @@ fn list_card(r: &Value) -> Option<Card> {
 /// Music videos and other uploaded videos (not songs). Feeds, charts and radios drop them;
 /// your own playlists, likes and history keep what you put there.
 fn is_video(item: &Value) -> bool {
-    fn video_type(v: &Value) -> Option<&str> {
-        match v {
-            Value::Object(m) => m.get("musicVideoType").and_then(Value::as_str).or_else(|| m.values().find_map(video_type)),
-            Value::Array(a) => a.iter().find_map(video_type),
-            _ => None,
-        }
-    }
     // Only where the item itself plays: a playlist card can hold its first video's type too.
     let (two, row) = (&item["musicTwoRowItemRenderer"], &item["musicResponsiveListItemRenderer"]);
     let own = [&two["navigationEndpoint"], &row["overlay"], &row["flexColumns"][0], &item["navigationEndpoint"]];
-    matches!(own.into_iter().find_map(video_type), Some("MUSIC_VIDEO_TYPE_OMV" | "MUSIC_VIDEO_TYPE_UGC" | "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC"))
+    matches!(video_type(&own), Some("MUSIC_VIDEO_TYPE_OMV" | "MUSIC_VIDEO_TYPE_UGC" | "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC"))
+}
+
+/// The first `musicVideoType` under these parts of an item.
+fn video_type<'a>(parts: &[&'a Value]) -> Option<&'a str> {
+    fn find(v: &Value) -> Option<&str> {
+        match v {
+            Value::Object(m) => m.get("musicVideoType").and_then(Value::as_str).or_else(|| m.values().find_map(find)),
+            Value::Array(a) => a.iter().find_map(find),
+            _ => None,
+        }
+    }
+    parts.iter().find_map(|p| find(p))
+}
+
+/// An official music video (the label's upload of a song with its video), not the song
+/// itself, a user upload or a cover.
+fn music_video(parts: &[&Value]) -> bool {
+    video_type(parts) == Some("MUSIC_VIDEO_TYPE_OMV")
 }
 
 fn list_item(r: &Value) -> Option<Track> {
@@ -1112,7 +1307,8 @@ fn list_item(r: &Value) -> Option<Track> {
         duration = Some(d);
     }
     let track_nr = text(&r["index"]).and_then(|n| n.parse().ok());
-    Some(Track { id, title, artists, album, duration, thumbs: thumbs(&r["thumbnail"]["musicThumbnailRenderer"]), track_nr, plays })
+    let music_video = music_video(&[&r["overlay"], &r["flexColumns"][0]]);
+    Some(Track { id, title, artists, album, duration, thumbs: thumbs(&r["thumbnail"]["musicThumbnailRenderer"]), track_nr, plays, music_video })
 }
 
 /// A song in a radio / up-next panel.
@@ -1138,6 +1334,7 @@ fn panel_item(r: &Value) -> Option<Track> {
         thumbs: thumbs(r),
         track_nr: None,
         plays: None,
+        music_video: music_video(&[&r["navigationEndpoint"]]),
     })
 }
 
@@ -1338,18 +1535,18 @@ mod tests {
         assert_eq!(t.album.as_ref().and_then(|l| l.id.as_deref()), Some("MPREb_x"));
     }
 
-    /// An album page (trimmed) with these rows; `kind` is each row's musicVideoType.
+    /// An album row as the web album page lists it (trimmed); `kind` is its musicVideoType.
+    fn album_row(id: &str, title: &str, kind: &str) -> Value {
+        let watch = json!({"watchEndpoint": {"videoId": id, "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": kind}}}});
+        json!({"musicResponsiveListItemRenderer": {
+            "flexColumns": [{"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": title, "navigationEndpoint": watch}]}}}],
+            "playlistItemData": {"videoId": id},
+        }})
+    }
+
+    /// An album page (trimmed) with these rows (id, title, musicVideoType).
     fn album_page(rows: &[(&str, &str, &str)]) -> Value {
-        let rows: Vec<Value> = rows
-            .iter()
-            .map(|(id, title, kind)| {
-                let watch = json!({"watchEndpoint": {"videoId": id, "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": kind}}}});
-                json!({"musicResponsiveListItemRenderer": {
-                    "flexColumns": [{"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": title, "navigationEndpoint": watch}]}}}],
-                    "playlistItemData": {"videoId": id},
-                }})
-            })
-            .collect();
+        let rows: Vec<Value> = rows.iter().map(|(id, title, kind)| album_row(id, title, kind)).collect();
         json!({"contents": {"twoColumnBrowseResultsRenderer": {
             "tabs": [{"tabRenderer": {"content": {"sectionListRenderer": {"contents": [{"musicResponsiveHeaderRenderer": {
                 "title": {"runs": [{"text": "Whenever You Need Somebody"}]},
@@ -1532,6 +1729,142 @@ mod tests {
         assert_eq!(c.turn_off.unwrap()["actions"][0]["closedToContributions"], true);
         assert_eq!(c.revoke.unwrap()["actions"][0]["action"], "ACTION_REVOKE_COLLABORATION_TOKENS");
         assert!(c.turn_on.is_some() && c.allow.is_some());
+    }
+    fn song(title: &str, artists: &[&str], secs: u32) -> Track {
+        Track {
+            id: title.into(),
+            title: title.into(),
+            artists: artists.iter().map(|a| Link { name: a.to_string(), id: None }).collect(),
+            album: None,
+            duration: Some(secs),
+            thumbs: vec![],
+            track_nr: None,
+            plays: None,
+            music_video: false,
+        }
+    }
+
+    fn video(title: &str, artists: &[&str], secs: u32) -> Track {
+        Track { music_video: true, ..song(title, artists, secs) }
+    }
+
+    #[test]
+    fn a_music_video_title_loses_its_video_markings() {
+        assert_eq!(song_title("Ghostbusters (Official HD Video)"), "Ghostbusters");
+        assert_eq!(song_title("Take On Me (Official Video) [4K]"), "Take On Me");
+        assert_eq!(song_title("Bad Guy | Official Lyric Video"), "Bad Guy");
+        assert_eq!(song_title("\"Jaan-E-Zigar Jaaneman\" Lyrical Video"), "\"Jaan-E-Zigar Jaaneman");
+        assert_eq!(song_title("Hothon Se Chhu Lo Tum (From \"Prem Geet\")"), "Hothon Se Chhu Lo Tum (From \"Prem Geet\")");
+        assert_eq!(song_title("Together Forever (2022 Remaster)"), "Together Forever (2022 Remaster)");
+        // Nothing left once the markings are off: keep the title.
+        assert_eq!(song_title("Official Video"), "Official Video");
+        assert_eq!(song_title("Ça Plane Pour Moi (Clip Officiel)"), "Ça Plane Pour Moi");
+    }
+
+    #[test]
+    fn the_song_of_a_music_video_is_found_by_a_sure_match_only() {
+        // Pairs YouTube Music itself makes for Premium (November 2026).
+        assert!(same_song(&video("Never Gonna Give You Up", &["Rick Astley"], 214), &song("Never Gonna Give You Up", &["Rick Astley"], 214)));
+        assert!(same_song(&video("Kisi Nazar Ko Tera Intezar", &["Asha Bhosle"], 452), &song("Kisi Nazar Ko Tera Intezar", &["Asha Bhosle", "Bhupinder Singh"], 404)));
+        assert!(same_song(&video("Saagar Jaisi Aankhonwali (From \"Saagar\")", &["Kishore Kumar"], 270), &song("Saagar Jaisi Aankhonwali (From \"Saagar\")", &["Kishore Kumar", "R. D. Burman"], 304)));
+        assert!(same_song(&video("Ghostbusters (Official HD Video)", &["Ray Parker Jr."], 246), &song("Ghostbusters", &["Ray Parker Jr."], 240)));
+        // A remaster of the same recording is still the song.
+        assert!(same_song(&video("Together Forever", &["Rick Astley"], 204), &song("Together Forever (2022 Remaster)", &["Rick Astley"], 206)));
+        // YouTube pairs "Mitwa" with "Tere Mere Honthon Pe - Mitwa"; a search can't be that sure.
+        assert!(!same_song(&video("Mitwa", &["Lata Mangeshkar"], 289), &song("Tere Mere Honthon Pe - Mitwa", &["Lata Mangeshkar"], 334)));
+
+        let take_on_me = video("Take On Me (Official Video)", &["a-ha"], 244);
+        for (hit, why) in [
+            (song("Take On Me (Live)", &["a-ha"], 240), "a live recording"),
+            (song("Take On Me - Live from MTV Unplugged", &["a-ha"], 240), "an unplugged one"),
+            (song("Take On Me (Remix)", &["a-ha"], 244), "a remix"),
+            (song("Take On Me", &["Weezer"], 244), "a cover"),
+            (song("Take On Me (Acoustic Version)", &["a-ha"], 244), "an acoustic version"),
+            (song("Take On Me", &["a-ha"], 500), "a much longer recording"),
+            (song("Take On Me", &["a-ha"], 190), "a much shorter one"),
+            (Track { duration: None, ..song("Take On Me", &["a-ha"], 0) }, "an unknown length"),
+            (video("Take On Me", &["a-ha"], 244), "another music video"),
+            (song("Take", &["a-ha"], 244), "a shorter title"),
+        ] {
+            assert!(!same_song(&take_on_me, &hit), "{why} isn't the song");
+        }
+        assert!(!same_song(&video("Love Story", &["Taylor Swift"], 236), &song("Love Story (Taylor's Version)", &["Taylor Swift"], 235)), "a re-recording isn't the song");
+        // An edit named past a "|" is another cut of it.
+        assert!(!same_song(&video("Take On Me | Radio Edit", &["a-ha"], 225), &song("Take On Me", &["a-ha"], 226)), "a radio edit isn't the song");
+        assert!(!same_song(&video("Take On Me", &[], 244), &song("Take On Me", &["a-ha"], 244)), "no artist to compare");
+        // Cut down for the video: the song runs longer.
+        assert!(same_song(&video("Funky Town", &["Lipps Inc."], 237), &song("Funky Town", &["Lipps Inc."], 471)));
+        // A much longer song by other singers is another recording.
+        assert!(!same_song(&video("Ae Mere Humsafar", &["Alka Yagnik", "Udit Narayan"], 314), &song("Ae Mere Humsafar", &["Vinod Rathod", "Alka Yagnik"], 454)));
+        // "Artist - Title" videos.
+        assert!(same_song(&video("Michael Sembello - Maniac (From \"Flashdance\") (Official Audio)", &["Michael Sembello"], 245), &song("Maniac", &["Michael Sembello"], 245)));
+        assert!(!same_song(&video("Daft Punk - Maniac", &["Michael Sembello"], 245), &song("Maniac", &["Michael Sembello"], 245)), "a lead that isn't the artist stays");
+        // Clean and explicit, or a remix in the video's own markings, are other recordings.
+        assert!(!same_song(&video("Song | Acoustic Version", &["A"], 200), &song("Song", &["A"], 200)));
+        assert!(!same_song(&video("Song (Official Acoustic Video)", &["A"], 200), &song("Song", &["A"], 200)));
+        assert!(!same_song(&video("Song (Foo Remix)", &["A"], 200), &song("Song (Bar Remix)", &["A"], 200)));
+        assert!(!same_song(&video("Bad Guy (Remix Official Video)", &["Billie Eilish"], 207), &song("Bad Guy", &["Billie Eilish"], 195)));
+        assert!(!same_song(&video("WAP (Clean)", &["Cardi B"], 187), &song("WAP (Explicit)", &["Cardi B"], 187)));
+        assert!(!same_song(&video("Running Up That Hill", &["Kate Bush"], 296), &song("Running Up That Hill (A Deal With God)", &["Kate Bush"], 299)));
+        // A tribute band, or the same song with other singers.
+        assert!(!same_song(&video("Bohemian Rhapsody", &["Queen"], 355), &song("Bohemian Rhapsody", &["Queen Tribute Band"], 355)));
+        assert!(!same_song(&video("Duet", &["Singer A", "Singer B"], 200), &song("Duet", &["Singer A", "Singer C"], 200)));
+        // The same artist page counts whatever the name says.
+        let linked = |name: &str| Link { name: name.into(), id: Some("UCx".into()) };
+        assert!(same_song(&Track { artists: vec![linked("Ray Parker Jr.")], ..video("Ghostbusters", &[], 246) }, &Track { artists: vec![linked("Ray Parker, Jr.")], ..song("Ghostbusters", &[], 240) }));
+        // An unlinked credit comes as one name.
+        assert!(same_song(&video("Kisi Nazar Ko Tera Intezar", &["Asha Bhosle"], 452), &song("Kisi Nazar Ko Tera Intezar", &["Asha Bhosle | Bhupinder"], 405)));
+        assert!(!same_song(&video("Take On Me", &["a"], 244), &song("Take On Me", &["a-ha"], 244)), "only whole names count");
+    }
+
+    #[test]
+    fn premium_queues_pair_a_music_video_with_its_song() {
+        // Trimmed from a Premium account's `next` answer (November 2026).
+        let item = |id: &str, title: &str, kind: &str| {
+            json!({"playlistPanelVideoRenderer": {"videoId": id, "title": {"runs": [{"text": title}]}, "lengthText": {"runs": [{"text": "3:34"}]},
+                "longBylineText": {"runs": [{"text": "Rick Astley"}]},
+                "navigationEndpoint": {"watchEndpoint": {"videoId": id, "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": kind}}}}}})
+        };
+        let wrap = |primary: Value, counterpart: Value| {
+            json!({"playlistPanelVideoWrapperRenderer": {"primaryRenderer": primary, "counterpart": [{"counterpartRenderer": counterpart,
+                "segmentMap": {"segment": [{"primaryVideoStartTimeMilliseconds": "0", "counterpartVideoStartTimeMilliseconds": "927", "durationMilliseconds": "212500"}]}}]}})
+        };
+        let v = json!({"contents": {"singleColumnMusicWatchNextResultsRenderer": {"tabbedRenderer": {"watchNextTabbedResultsRenderer": {"tabs": [{"tabRenderer": {"content": {"musicQueueRenderer": {"content": {"playlistPanelRenderer": {"contents": [
+            wrap(item("raBobo3GZYA", "Whenever You Need Somebody", "MUSIC_VIDEO_TYPE_ATV"), item("BeyEGebJ1l4", "Whenever You Need Somebody", "MUSIC_VIDEO_TYPE_OMV")),
+            wrap(item("dQw4w9WgXcQ", "Never Gonna Give You Up", "MUSIC_VIDEO_TYPE_OMV"), item("lYBUbBu4W08", "Never Gonna Give You Up", "MUSIC_VIDEO_TYPE_ATV")),
+        ]}}}}}}]}}}}});
+        let found = parse_paired_song(&v, "dQw4w9WgXcQ").unwrap();
+        assert_eq!((found.id.as_str(), found.duration, found.music_video), ("lYBUbBu4W08", Some(214), false));
+        // A song's counterpart is its video: no song version of a song.
+        assert_eq!(parse_paired_song(&v, "raBobo3GZYA"), None);
+        // Not in the queue (or a free account's queue, which has no pairs).
+        assert_eq!(parse_paired_song(&v, "BeyEGebJ1l4"), None);
+    }
+
+    #[test]
+    fn list_rows_say_whether_they_are_music_videos() {
+        let row = |kind: &str| list_item(&album_row("x", "Song", kind)["musicResponsiveListItemRenderer"]).unwrap().music_video;
+        assert!(row("MUSIC_VIDEO_TYPE_OMV"));
+        assert!(!row("MUSIC_VIDEO_TYPE_ATV"));
+        // User uploads and covers have no song version to look for.
+        assert!(!row("MUSIC_VIDEO_TYPE_UGC"));
+    }
+
+    /// A signed-out search for the songs of a few music videos. Run alone:
+    /// `cargo test --bin ytm-rs -- --ignored ytm::tests::searched_song_live --exact --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn searched_song_live() {
+        let api = crate::ytmapi::Api::new(&std::env::temp_dir().join("ytm-rs-album-songs-test"));
+        for v in [
+            video("Never Gonna Give You Up", &["Rick Astley"], 214),
+            video("Take On Me (Official Video)", &["a-ha"], 244),
+            video("Kisi Nazar Ko Tera Intezar", &["Asha Bhosle"], 452),
+            video("Bad Guy", &["Billie Eilish"], 207),
+        ] {
+            let found = searched_song(&api, &v).await.unwrap();
+            println!("{} -> {:?}", v.title, found.as_ref().map(|s| (&s.id, &s.title, s.artist_line(), s.duration)));
+        }
     }
 }
 

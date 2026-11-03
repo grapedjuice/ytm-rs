@@ -9,13 +9,15 @@ use crate::audio::{AudioCmd, AudioEvent};
 use crate::backend::{Req, Resp};
 use crate::model::{ShelfKind, Track};
 
-use super::{App, Dialog, HomeState, LibTab, Page, Repeat, dev_var, shuffle};
+use super::{App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, dev_var, shuffle};
 
 impl App {
     pub(super) fn pump(&mut self, now: f64) {
         let cover = self.media_cover.lock().unwrap().take();
+        // The listed track's art, with what plays's title, artists and length.
         if let Some((id, file)) = cover
-            && let Some(track) = self.current().filter(|t| t.id == id).cloned()
+            && self.current().is_some_and(|t| t.id == id)
+            && let Some(track) = self.playing_track().cloned()
             && let Some(m) = &mut self.media
         {
             m.set_track(&track.title, &track.artist_line(), track.album.as_ref().map(|a| a.name.as_str()), Some(&file), track.duration);
@@ -194,7 +196,7 @@ impl App {
                 });
             }
             Resp::Lyrics { video_id, lyrics } => {
-                if self.current_id() == Some(video_id.as_str()) {
+                if self.playing_id() == Some(video_id.as_str()) {
                     let available = self.lyric_prefs.available(&lyrics);
                     let shown = self.lyric_prefs.choose(&video_id, &lyrics);
                     let missing: Vec<&str> = self.lyric_prefs.order.iter().filter(|(p, on)| *on && !available.contains(p)).map(|(p, _)| p.key()).collect();
@@ -210,13 +212,13 @@ impl App {
                 }
             }
             Resp::Segments { video_id, segments } => {
-                if self.current_id() == Some(video_id.as_str()) {
+                if self.playing_id() == Some(video_id.as_str()) {
                     log::info!("sponsorblock: {} segment(s) for {video_id}", segments.len());
                     self.segments = Some((video_id, segments));
                 }
             }
             Resp::LyricsExtras { video_id, source, target, extras } => {
-                if self.current_id() == Some(video_id.as_str()) {
+                if self.playing_id() == Some(video_id.as_str()) {
                     self.lyrics_extras = Some((video_id, source, target, extras));
                 }
             }
@@ -352,6 +354,32 @@ impl App {
                 {
                     *info = Some(c);
                     *busy = false;
+                }
+            }
+            Resp::PlayingAs { generation, listed, song } => {
+                // For the track it was looked up for: joining a jam swaps the queue without a new play.
+                if generation == self.generation
+                    && self.current_id() == Some(listed.as_str())
+                    && let Some(track) = self.current().cloned()
+                {
+                    let shown = match song {
+                        // The song keeps the listed track's album and art when it has none.
+                        Some(song) => {
+                            let song = Track { album: song.album.or(track.album.clone()), thumbs: if song.thumbs.is_empty() { track.thumbs.clone() } else { song.thumbs }, ..song };
+                            self.playing_as = Some(PlayingAs { generation, listed: track.id.clone(), song: song.clone() });
+                            song
+                        }
+                        None => {
+                            self.playing_as = None;
+                            track
+                        }
+                    };
+                    self.show_in_media(&shown);
+                    self.refresh_lyrics(shown);
+                    // A jam began while it was being looked up: everyone plays the host's upload.
+                    if self.jam.active() {
+                        self.play_listed_upload();
+                    }
                 }
             }
             Resp::PlayError { generation, msg } => {

@@ -1234,6 +1234,7 @@ mod tests {
             thumbs: vec![],
             track_nr: None,
             plays: None,
+            music_video: false,
         }
     }
 

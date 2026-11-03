@@ -19,6 +19,12 @@ struct Entry {
     path: PathBuf,
     duration_ms: u64,
     loudness_db: Option<f32>,
+    /// A song version: the music video it was downloaded for, and the song, so that
+    /// video plays it from this file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stands_for: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    song: Option<Track>,
 }
 
 struct State {
@@ -111,6 +117,12 @@ pub fn path(video_id: &str) -> Option<PathBuf> {
     STATE.read().unwrap().index.get(video_id).map(|e| e.path.clone()).filter(|p| p.is_file())
 }
 
+/// The downloaded song version of the music video `video_id`, if its file is still there.
+pub fn song_for(video_id: &str) -> Option<Track> {
+    let st = STATE.read().unwrap();
+    st.index.values().find(|e| e.stands_for.as_deref() == Some(video_id) && e.path.is_file()).and_then(|e| e.song.clone())
+}
+
 /// A downloaded song's audio, as a complete stream buffer for playback.
 pub fn open(video_id: &str) -> Option<Arc<Shared>> {
     let entry = STATE.read().unwrap().index.get(video_id).cloned()?;
@@ -120,7 +132,8 @@ pub fn open(video_id: &str) -> Option<Arc<Shared>> {
 }
 
 /// Write a downloaded song into the folder and remember it. Returns the file.
-pub fn save(t: &Track, audio: &[u8], duration_ms: u64, loudness_db: Option<f32>, cover: Option<Vec<u8>>) -> anyhow::Result<PathBuf> {
+/// `stands_for`: the music video `t` is the song version of.
+pub fn save(t: &Track, audio: &[u8], duration_ms: u64, loudness_db: Option<f32>, cover: Option<Vec<u8>>, stands_for: Option<String>) -> anyhow::Result<PathBuf> {
     let folder = folder();
     std::fs::create_dir_all(&folder)?;
     let ext = if audio.get(4..8) == Some(b"ftyp") { "m4a" } else { "webm" };
@@ -149,7 +162,8 @@ pub fn save(t: &Track, audio: &[u8], duration_ms: u64, loudness_db: Option<f32>,
     }
     std::fs::rename(&part, &path)?;
     let mut st = STATE.write().unwrap();
-    st.index.insert(t.id.clone(), Entry { path: path.clone(), duration_ms, loudness_db });
+    let song = stands_for.is_some().then(|| t.clone());
+    st.index.insert(t.id.clone(), Entry { path: path.clone(), duration_ms, loudness_db, stands_for, song });
     if let Ok(json) = serde_json::to_vec(&st.index) {
         let _ = std::fs::write(&st.file, json);
     }
@@ -213,6 +227,7 @@ mod tests {
             thumbs: Vec::new(),
             track_nr: None,
             plays: None,
+            music_video: false,
         };
         let t = track("What? / Why: \"Now\"...", vec![Link { name: "AC/DC".into(), id: None }]);
         assert_eq!(file_stem(&t), "AC_DC - What_ _ Why_ _Now_");

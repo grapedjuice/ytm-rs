@@ -172,6 +172,11 @@ const GLOW_INVISIBLE: f32 = 0.5 / 255.0;
 
 impl Cfg {
     /// `width`: the lyrics panel; `viewport`: the window (the theme's media queries).
+    /// The most a line is scaled up: while sung, or under a theme's hover scale.
+    fn max_scale(&self) -> f32 {
+        self.active_scale.max(self.css.as_ref().and_then(|c| c.hover_scale).unwrap_or(1.0)).max(1.0)
+    }
+
     fn new(s: &LyricStyle, accent: Color32, width: f32, viewport: f32, centered: bool, scale: f32) -> Self {
         let css = s.css.clone();
         // Font size and rem: a theme's own `--blyrics-font-size` steps in YouTube Music's
@@ -588,7 +593,10 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
         Align::Right if rtl => Align::Left,
         a => a,
     };
-    let content_w = (width - em * 0.5).max(40.0);
+    // Wrapped to fit at the line's largest scale (sung, or a theme's hover), which grows
+    // it about its aligned edge: wrapped at full width, a sung line ran off the side.
+    let full_w = (width - em * 0.5).max(40.0);
+    let content_w = (full_w / cfg.max_scale()).max(40.0);
     let line_h = em * 1.333;
     let mut y = cfg.padding;
     let mut block = Block {
@@ -678,6 +686,26 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
         y += g.size().y;
     }
     block.height = y + cfg.padding;
+    // Back to the column's edge or centre, which the narrower wrap moved.
+    let inset = match align {
+        Align::Left => 0.0,
+        Align::Right => full_w - content_w,
+        Align::Center => (full_w - content_w) * 0.5,
+    };
+    if inset > 0.0 {
+        let dx = vec2(inset, 0.0);
+        for w in &mut block.words {
+            w.pos += dx;
+        }
+        for d in &mut block.decos {
+            d.rect = d.rect.translate(dx);
+            if let DecoBody::Timed { words, .. } = &mut d.body {
+                for w in words {
+                    w.pos += dx;
+                }
+            }
+        }
+    }
     block
 }
 
@@ -829,7 +857,7 @@ impl View {
         let ctx = ui.ctx().clone();
         self.shown_pass = ctx.cumulative_pass_nr();
         let cfg = Cfg::new(f.style, f.accent, rect.width(), ctx.content_rect().width(), f.centered, f.scale);
-        let layout_key = hash((f.key, rect.width().round() as i32, cfg.size.to_bits(), cfg.padding.to_bits(), cfg.centered, &cfg.font, cfg.weight as u8));
+        let layout_key = hash((f.key, rect.width().round() as i32, cfg.size.to_bits(), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, cfg.weight as u8));
         if self.layout.as_ref().is_none_or(|l| l.key != layout_key) {
             self.relayout(ui, &cfg, &f, layout_key, rect);
         }

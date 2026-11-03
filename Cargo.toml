@@ -13,7 +13,7 @@ bytes = "1.12.1"
 crossbeam-channel = "0.5.17"
 directories = "6.0.0"
 discord-rich-presence = "1.1.0"
-eframe = { version = "0.37", default-features = false, features = ["glow", "wgpu_no_default_features", "default_fonts", "clipboard", "accesskit", "persistence", "wayland", "x11"] }
+eframe = { version = "0.37", default-features = false, features = ["glow", "wgpu_no_default_features", "default_fonts", "links", "clipboard", "accesskit", "persistence", "wayland", "x11"] }
 egui = { version = "0.37.0", features = ["monochrome_emoji_fonts"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 egui_extras = { version = "0.37.0", default-features = false, features = ["image"] }

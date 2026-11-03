@@ -199,12 +199,14 @@ pub struct Resumable {
     pub total: usize,
 }
 
+/// A pasted playlist link and what it turned out to be (`None` while it's looked up).
+pub type Lookup = (String, Option<Result<spotify::Entry, String>>);
+
 pub struct Transfer {
     pub job: Mutex<Option<Job>>,
     pub account: Mutex<Account>,
     pub resumable: Mutex<Option<Resumable>>,
-    /// A pasted playlist link and what it turned out to be.
-    pub lookup: Mutex<Option<(String, Option<Result<spotify::Entry, String>>)>>,
+    pub lookup: Mutex<Option<Lookup>>,
     /// Spotify sign-in window open.
     pub signing_in: AtomicBool,
     /// Bumped on every sign-in or sign-out, so a slow account read can't undo a newer one.
@@ -962,7 +964,7 @@ impl Transfer {
         }
         self.wake();
         let n = self.with_job(|j| j.liked);
-        if count && n % 25 == 0 {
+        if count && n.is_multiple_of(25) {
             log::debug!("transfer: {n} liked");
         }
         Ok(())

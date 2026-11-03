@@ -261,14 +261,13 @@ impl App {
             Resp::QuickPicksMore { seed, tracks } => {
                 if let Some(h) = &mut self.home {
                     h.picks_loading = false;
-                    if let Some(shelf) = h.shelves.iter_mut().find(|s| s.title == "Quick picks") {
-                        if let ShelfKind::Songs { tracks: picks, .. } = &mut shelf.kind {
-                            if picks.iter().any(|t| t.id == seed) {
-                                h.picks_expanded = true;
-                                let mut seen: HashSet<String> = picks.iter().map(|t| t.id.clone()).collect();
-                                picks.extend(tracks.into_iter().filter(|t| seen.insert(t.id.clone())).take(24));
-                            }
-                        }
+                    if let Some(shelf) = h.shelves.iter_mut().find(|s| s.title == "Quick picks")
+                        && let ShelfKind::Songs { tracks: picks, .. } = &mut shelf.kind
+                        && picks.iter().any(|t| t.id == seed)
+                    {
+                        h.picks_expanded = true;
+                        let mut seen: HashSet<String> = picks.iter().map(|t| t.id.clone()).collect();
+                        picks.extend(tracks.into_iter().filter(|t| seen.insert(t.id.clone())).take(24));
                     }
                 }
             }

@@ -246,8 +246,7 @@ impl App {
     /// Ask SponsorBlock about the playing song, when that's switched on.
     pub(super) fn request_segments(&mut self) {
         let Some(t) = self.current().filter(|_| self.sponsorblock && self.segments.is_none()) else { return };
-        let (video_id, duration) = (t.id.clone(), t.duration.map(f64::from));
-        self.backend.request(Req::Segments { video_id, duration });
+        self.backend.request(Req::Segments { video_id: t.id.clone() });
     }
 
     /// Jump over a SponsorBlock segment once playback is inside it; one that runs to the
@@ -261,18 +260,21 @@ impl App {
         if self.current_id() != Some(id.as_str()) || now - self.segment_skipped < 1.5 {
             return;
         }
+        // The stream's own length: the song row's can be another cut's (the song's,
+        // where the video plays), and a segment marked on another cut skips wrong.
+        let Some(duration) = self.audio.status.duration().map(|d| d.as_secs_f64()) else { return };
         let pos = self.audio.status.position().as_secs_f64();
-        let Some(seg) = segs.iter().find(|s| pos >= s.start && pos < s.end - 0.3).copied() else {
+        let mut segs = segs.iter().filter(|s| s.fits(duration));
+        let Some(seg) = segs.clone().find(|s| pos >= s.start && pos < s.end - 0.3).copied() else {
             // Wake up for the next one even when nothing else repaints.
-            if let Some(next) = segs.iter().find(|s| s.start > pos) {
+            if let Some(next) = segs.find(|s| s.start > pos) {
                 ctx.request_repaint_after(Duration::from_secs_f64(next.start - pos + 0.05));
             }
             return;
         };
         self.segment_skipped = now;
-        let duration = self.audio.status.duration_ms.load(Ordering::Relaxed) as f64 / 1000.0;
         log::info!("sponsorblock: skipping {:.1}–{:.1} s", seg.start, seg.end);
-        if duration > 0.0 && seg.end >= duration - 1.0 {
+        if seg.end >= duration - 1.0 {
             if self.queue.repeat == Repeat::One {
                 self.play_current();
             } else {

@@ -357,7 +357,11 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         }
         ui.add_space(12.0);
 
-        let width = (ui.available_width() - 70.0).clamp(240.0, 560.0);
+        // Room for the account button, and the window buttons when they're over this row;
+        // in a narrow window the box gives way rather than run under them.
+        let reserve = 50.0 + super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 20.0);
+        let narrowest = if super::titlebar::custom() { 120.0 } else { 240.0 };
+        let width = (ui.available_width() - reserve).clamp(narrowest, 560.0);
         // Anywhere on the pill focuses the box, not just on the text area inside it.
         let (rect, field) = ui.allocate_exact_size(vec2(width, 42.0), Sense::click());
         let field = field.on_hover_cursor(egui::CursorIcon::Text);
@@ -446,7 +450,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_space(20.0);
+            ui.add_space(super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 20.0));
             let (r, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
             let resp = named(resp, "Account").on_hover_cursor(egui::CursorIcon::PointingHand);
             let initial = app.account_name.as_deref().and_then(|n| n.chars().next()).unwrap_or('?');
@@ -629,16 +633,16 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             over.galley(bg.min + vec2(6.0, 3.0), g, Color32::WHITE);
         }
     }
-    if total > 0.0 {
-        if let Some(p) = resp.interact_pointer_pos() {
-            let t = ((p.x - full.left()) / full.width()).clamp(0.0, 1.0) * total;
-            if resp.dragged() {
-                app.seek_drag = Some(t);
-            }
-            if resp.drag_stopped() || resp.clicked() {
-                app.seek_drag = None;
-                app.actions.push(Action::Seek(t));
-            }
+    if total > 0.0
+        && let Some(p) = resp.interact_pointer_pos()
+    {
+        let t = ((p.x - full.left()) / full.width()).clamp(0.0, 1.0) * total;
+        if resp.dragged() {
+            app.seek_drag = Some(t);
+        }
+        if resp.drag_stopped() || resp.clicked() {
+            app.seek_drag = None;
+            app.actions.push(Action::Seek(t));
         }
     }
 
@@ -881,10 +885,10 @@ fn volume_slider(app: &mut App, ui: &mut Ui, slider: Rect, salt: &str) {
     let fill = Rect::from_min_size(track_r.min, vec2(track_r.width() * vol, 4.0));
     ui.painter().rect_filled(fill, 2.0, theme::lerp_color(theme::text_dim(), Color32::WHITE, vh));
     ui.painter().circle_filled(pos2(fill.right(), track_r.center().y), 2.0 + 4.5 * vh, Color32::WHITE);
-    if let Some(p) = vresp.interact_pointer_pos() {
-        if vresp.dragged() || vresp.clicked() {
-            app.audio.set_volume(((p.x - track_r.left()) / track_r.width()).clamp(0.0, 1.0));
-        }
+    if let Some(p) = vresp.interact_pointer_pos()
+        && (vresp.dragged() || vresp.clicked())
+    {
+        app.audio.set_volume(((p.x - track_r.left()) / track_r.width()).clamp(0.0, 1.0));
     }
     if vresp.hovered() {
         let scroll = ui.input(|i| i.smooth_scroll_delta.y);
@@ -900,6 +904,8 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Up next").font(theme::bold(20.0)));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Left of the window buttons, which sit over the drawer's top right.
+            ui.add_space(super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 0.0));
             if icon_button(ui, icon::X, 16.0, "Close queue", false).clicked() {
                 app.queue_open = false;
             }

@@ -48,8 +48,8 @@ pub enum Req {
     /// Save a song's audio to the downloads folder.
     Download(Track),
     Lyrics(Track),
-    /// SponsorBlock's parts of a video to skip; `duration` in seconds, if known.
-    Segments { video_id: String, duration: Option<f64> },
+    /// SponsorBlock's parts of a video to skip.
+    Segments { video_id: String },
     /// Romanization and translation for the lyric lines of one source.
     LyricsExtras { video_id: String, source: String, lines: Vec<String>, lang: Option<String>, target: String },
     /// Process cover art for the background; `key` is echoed back.
@@ -567,30 +567,8 @@ impl Backend {
                     let tracks = ytm::radio(api, &seed, me, 0).await?;
                     Resp::QuickPicksMore { seed, tracks }
                 }
-                Req::Explore(preferred_artists) => {
-                    let (charts, new) = tokio::join!(ytm::charts(api), ytm::new_albums(api, me));
-                    let charts = charts?;
-                    Resp::Explore(Explore {
-                        new_albums: popular_new_albums(&new.unwrap_or_default(), &charts.artists, &preferred_artists),
-                        charts: charts.playlists,
-                        top: charts.top,
-                    })
-                }
-                Req::Search(query) => {
-                    let (t, al, ar, pl) = tokio::join!(
-                        ytm::search_songs(api, &query, me),
-                        ytm::search_cards(api, &query, ytm::Filter::Albums, me),
-                        ytm::search_cards(api, &query, ytm::Filter::Artists, me),
-                        ytm::search_cards(api, &query, ytm::Filter::Playlists, me),
-                    );
-                    Resp::Search(SearchResults {
-                        tracks: t?,
-                        albums: al.unwrap_or_default(),
-                        artists: ar.unwrap_or_default(),
-                        playlists: pl.unwrap_or_default(),
-                        query,
-                    })
-                }
+                Req::Explore(preferred_artists) => self.explore(&preferred_artists, me).await?,
+                Req::Search(query) => self.search(query, me).await?,
                 Req::Suggest { query, round } => {
                     let terms = ytm::suggestions(api, &query, me).await?.into_iter().take(8).collect();
                     Resp::Suggest { query, round, terms }
@@ -603,27 +581,7 @@ impl Backend {
                 Req::Playlist { id, load, stream: false } => Resp::Collection { load, c: ytm::playlist(api, &id, me, None).await?, more: false },
                 Req::Playlist { id, load, stream: true } => self.stream_playlist(id, load, me).await?,
                 Req::Artist(id) => Resp::Artist(ytm::artist(api, &id).await?),
-                Req::Library => {
-                    // Liked songs are Liked Music, loaded like any playlist. Each half shows
-                    // without the other; it only fails when both do.
-                    let (pls, albums) = tokio::join!(ytm::saved_playlists(api), ytm::saved_albums(api));
-                    let pls = match (pls, &albums) {
-                        (Err(e), Err(_)) => return Err(e),
-                        (pls, _) => pls,
-                    };
-                    if let Err(e) = &pls {
-                        log::warn!("saved playlists didn't load: {e:#}");
-                    }
-                    if let Err(e) = &albums {
-                        log::warn!("saved albums didn't load: {e:#}");
-                    }
-                    Resp::Library(Library {
-                        playlists_failed: pls.is_err(),
-                        albums_failed: albums.is_err(),
-                        playlists: pls.map(|p| p.into_iter().filter(saved_playlist_visible).collect()).unwrap_or_default(),
-                        albums: albums.unwrap_or_default(),
-                    })
-                }
+                Req::Library => self.library().await?,
                 Req::History => Resp::History(ytm::history(api).await?),
                 Req::Uploads => Resp::Uploads(ytm::uploads(api).await?),
                 Req::Account => {
@@ -634,40 +592,13 @@ impl Backend {
                     Some(q) => Resp::ServerQueue(q),
                     None => return Ok(None),
                 },
-                Req::Upload(files) => {
-                    let session = api.account().ok_or_else(|| anyhow::anyhow!("sign in to upload music"))?;
-                    let (mut done, mut failed) = (0, Vec::new());
-                    for f in &files {
-                        let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                        match session.upload(&self.http(), f).await {
-                            Ok(()) => done += 1,
-                            Err(e) => {
-                                log::warn!("upload {name}: {e:#}");
-                                failed.push(name);
-                            }
-                        }
-                    }
-                    if done > 0 {
-                        // YouTube Music needs a little while to process new uploads.
-                        let this = self.clone();
-                        self.rt.spawn(async move {
-                            for wait in [20, 40, 60] {
-                                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
-                                if let Ok(t) = ytm::uploads(&this.api).await {
-                                    let _ = this.tx.send(Resp::Uploads(t));
-                                    this.wake();
-                                }
-                            }
-                        });
-                    }
-                    Resp::Uploaded { done, failed }
-                }
+                Req::Upload(files) => self.upload(&files).await?,
                 Req::Lyrics(track) => {
                     let video_id = track.id.clone();
                     Resp::Lyrics { lyrics: self.lyrics_for(&track).await, video_id }
                 }
-                Req::Segments { video_id, duration } => {
-                    let segments = crate::sponsorblock::segments(&self.http(), &video_id, duration).await?;
+                Req::Segments { video_id } => {
+                    let segments = crate::sponsorblock::segments(&self.http(), &video_id).await?;
                     Resp::Segments { video_id, segments }
                 }
                 Req::LyricsExtras { video_id, source, lines, lang, target } => {
@@ -704,23 +635,7 @@ impl Backend {
                     Err(e) => Resp::PlayError { generation, msg: format!("{e:#}") },
                 },
                 Req::Prefetch(video_id) => {
-                    // Let the playing song finish downloading first: it gets the whole
-                    // bandwidth, and a skip in the meantime makes this prefetch moot.
-                    let generation = self.audio.status.wanted_gen.load(Ordering::Relaxed);
-                    let playing = self.current.lock().unwrap().as_ref().map(|(_, s)| s.clone());
-                    if let Some(s) = playing {
-                        s.finished().await;
-                    }
-                    if self.audio.status.wanted_gen.load(Ordering::Relaxed) != generation
-                        || self.prefetched.lock().unwrap().as_ref().is_some_and(|(id, _)| *id == video_id)
-                    {
-                        return Ok(None);
-                    }
-                    log::debug!("prefetch {video_id}");
-                    let shared = self.open_stream(&video_id, true).await?;
-                    if let Some((_, old)) = self.prefetched.lock().unwrap().replace((video_id, shared)) {
-                        old.cancel();
-                    }
+                    self.prefetch(video_id).await?;
                     return Ok(None);
                 }
                 Req::Like { video_id, like } => {
@@ -783,6 +698,114 @@ impl Backend {
             log::warn!("{what} failed: {e:#}");
             (!quiet).then(|| Resp::Error(format!("{what} failed: {e}")))
         })
+    }
+
+    /// Explore: the charts, and new albums by charting artists or the listener's own.
+    async fn explore(&self, preferred_artists: &[String], me: bool) -> anyhow::Result<Resp> {
+        let api = &*self.api;
+        let (charts, new) = tokio::join!(ytm::charts(api), ytm::new_albums(api, me));
+        let charts = charts?;
+        Ok(Resp::Explore(Explore {
+            new_albums: popular_new_albums(&new.unwrap_or_default(), &charts.artists, preferred_artists),
+            charts: charts.playlists,
+            top: charts.top,
+        }))
+    }
+
+    /// Songs, albums, artists and playlists for a search, asked at once. Only the songs
+    /// must arrive.
+    async fn search(&self, query: String, me: bool) -> anyhow::Result<Resp> {
+        let api = &*self.api;
+        let (t, al, ar, pl) = tokio::join!(
+            ytm::search_songs(api, &query, me),
+            ytm::search_cards(api, &query, ytm::Filter::Albums, me),
+            ytm::search_cards(api, &query, ytm::Filter::Artists, me),
+            ytm::search_cards(api, &query, ytm::Filter::Playlists, me),
+        );
+        Ok(Resp::Search(SearchResults {
+            tracks: t?,
+            albums: al.unwrap_or_default(),
+            artists: ar.unwrap_or_default(),
+            playlists: pl.unwrap_or_default(),
+            query,
+        }))
+    }
+
+    /// Saved playlists and albums.
+    async fn library(&self) -> anyhow::Result<Resp> {
+        let api = &*self.api;
+        // Liked songs are Liked Music, loaded like any playlist. Each half shows
+        // without the other; it only fails when both do.
+        let (pls, albums) = tokio::join!(ytm::saved_playlists(api), ytm::saved_albums(api));
+        let pls = match (pls, &albums) {
+            (Err(e), Err(_)) => return Err(e),
+            (pls, _) => pls,
+        };
+        if let Err(e) = &pls {
+            log::warn!("saved playlists didn't load: {e:#}");
+        }
+        if let Err(e) = &albums {
+            log::warn!("saved albums didn't load: {e:#}");
+        }
+        Ok(Resp::Library(Library {
+            playlists_failed: pls.is_err(),
+            albums_failed: albums.is_err(),
+            playlists: pls.map(|p| p.into_iter().filter(saved_playlist_visible).collect()).unwrap_or_default(),
+            albums: albums.unwrap_or_default(),
+        }))
+    }
+
+    /// Upload songs, then refresh the uploads while YouTube Music processes them.
+    async fn upload(&self, files: &[PathBuf]) -> anyhow::Result<Resp> {
+        let api = &*self.api;
+        let session = api.account().ok_or_else(|| anyhow::anyhow!("sign in to upload music"))?;
+        let (mut done, mut failed) = (0, Vec::new());
+        for f in files {
+            let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            match session.upload(&self.http(), f).await {
+                Ok(()) => done += 1,
+                Err(e) => {
+                    log::warn!("upload {name}: {e:#}");
+                    failed.push(name);
+                }
+            }
+        }
+        if done > 0 {
+            // YouTube Music needs a little while to process new uploads.
+            let this = self.clone();
+            self.rt.spawn(async move {
+                for wait in [20, 40, 60] {
+                    tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                    if let Ok(t) = ytm::uploads(&this.api).await {
+                        let _ = this.tx.send(Resp::Uploads(t));
+                        this.wake();
+                    }
+                }
+            });
+        }
+        Ok(Resp::Uploaded { done, failed })
+    }
+
+    /// Open the next song's stream ahead of time, once the playing one has downloaded.
+    async fn prefetch(&self, video_id: String) -> anyhow::Result<()> {
+        // Let the playing song finish downloading first: it gets the whole
+        // bandwidth, and a skip in the meantime makes this prefetch moot.
+        let generation = self.audio.status.wanted_gen.load(Ordering::Relaxed);
+        let playing = self.current.lock().unwrap().as_ref().map(|(_, s)| s.clone());
+        if let Some(s) = playing {
+            s.finished().await;
+        }
+        if self.audio.status.wanted_gen.load(Ordering::Relaxed) != generation
+            || self.prefetched.lock().unwrap().as_ref().is_some_and(|(id, _)| *id == video_id)
+        {
+            return Ok(());
+        }
+        log::debug!("prefetch {video_id}");
+        let shared = self.open_stream(&video_id, true).await?;
+        if let Some((_, old)) = self.prefetched.lock().unwrap().replace((video_id, shared)) {
+            old.cancel();
+        }
+        Ok(())
     }
 
     async fn lyrics_for(&self, t: &Track) -> LyricsSet {
@@ -1026,8 +1049,9 @@ impl Backend {
         }
         // High quality needs the signed-in player's solver. Until it's prepared (a new
         // install, a new player version: ~5 s or more), play standard quality at once.
+        // Without Premium it's never prepared, and standard quality is all there is.
         let solver_ready = self.jsc.ready();
-        if hq && !solver_ready && self.api.account().is_some() {
+        if hq && !solver_ready && self.api.account().is_some() && !self.known_not_premium() {
             log::info!("{video_id}: solver not ready yet, standard quality for now");
             self.warm_signed_in();
         }
@@ -1100,6 +1124,12 @@ impl Backend {
                 log::warn!("solver warm-up failed: {e:#}");
             }
         });
+    }
+
+    /// The Premium check has answered, and the account doesn't have it. Doesn't ask or
+    /// wait: while a check is running, it's not known yet.
+    fn known_not_premium(&self) -> bool {
+        self.premium.try_lock().is_ok_and(|p| matches!(*p, Ok(false)))
     }
 
     /// Premium accounts can stream signed-in web player URLs without a PO token.

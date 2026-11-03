@@ -69,14 +69,14 @@ pub fn pick(thumbs: &[Thumb], min_px: u32) -> Option<&str> {
 /// Ask Google's image CDN for a specific size (`=w226-h226…` / `=s120` suffixes), so
 /// thumbnails are sharp at the size drawn without downloading huge originals.
 pub fn sized(url: &str, px: u32) -> String {
-    if url.contains("googleusercontent.com") || url.contains("ggpht.com") {
-        if let Some(i) = url.rfind('=') {
-            // A square one that asked to be cropped to fill (`-p`, `-c`; artist photos are
-            // often portrait) keeps that, or it comes back its own shape and is drawn
-            // stretched into the square.
-            let crop = square_crop(&url[i + 1..]);
-            return format!("{}=w{px}-h{px}{}-l90-rj", &url[..i], if crop { "-p" } else { "" });
-        }
+    if (url.contains("googleusercontent.com") || url.contains("ggpht.com"))
+        && let Some(i) = url.rfind('=')
+    {
+        // A square one that asked to be cropped to fill (`-p`, `-c`; artist photos are
+        // often portrait) keeps that, or it comes back its own shape and is drawn
+        // stretched into the square.
+        let crop = square_crop(&url[i + 1..]);
+        return format!("{}=w{px}-h{px}{}-l90-rj", &url[..i], if crop { "-p" } else { "" });
     }
     url.to_owned()
 }

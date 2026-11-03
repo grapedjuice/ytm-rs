@@ -3,6 +3,7 @@
 mod appicon;
 mod fullscreen;
 mod proxy;
+mod renderer;
 mod art;
 mod audio;
 mod backend;
@@ -92,8 +93,13 @@ fn main() -> eframe::Result {
     if background {
         viewport = viewport.with_position([-4000.0, 0.0]).with_inner_size([1920.0, 1057.0]).with_active(false).with_taskbar(false);
     }
+    let renderer = renderer::init(&data_dir());
     let options = eframe::NativeOptions {
         viewport,
+        renderer: match renderer {
+            renderer::Renderer::OpenGl => eframe::Renderer::Glow,
+            renderer::Renderer::Wgpu => eframe::Renderer::Wgpu,
+        },
         persist_window: !background,
         // Settings live with the rest of the data: beside the portable exe, or a
         // YTM_DATA_DIR profile (e.g. a clean signed-out one for screenshots).
@@ -104,10 +110,11 @@ fn main() -> eframe::Result {
         stencil_buffer: 0,
         // Dev hook: YTM_FPS paces frames itself (see `dev_pace`), so vsync is off.
         glow_options: eframe::egui_glow::GlowConfiguration { vsync: std::env::var_os("YTM_FPS").is_none(), ..Default::default() },
+        wgpu_options: renderer::wgpu_options(),
         ..Default::default()
     };
 
-    eframe::run_native(
+    let run = eframe::run_native(
         "ytm-rs",
         options,
         Box::new(|cc| {
@@ -174,11 +181,18 @@ fn main() -> eframe::Result {
                 let (renderer, version) = unsafe { (gl.get_parameter_string(eframe::glow::RENDERER), gl.get_parameter_string(eframe::glow::VERSION)) };
                 log::info!("gl: {renderer} ({version})");
             }
-            // The animated background needs the GL context; without it the UI falls back
+            if let Some(rs) = &cc.wgpu_render_state {
+                let info = rs.adapter.get_info();
+                log::info!("wgpu: {} ({:?}, driver {} {})", info.name, info.backend, info.driver, info.driver_info);
+            }
+            // The animated background needs the GPU context; without it the UI falls back
             // to a flat gradient.
-            let bg = cc.gl.as_ref().filter(|_| std::env::var_os("YTM_NO_SHADER").is_none()).and_then(|gl| {
-                shader::Background::new(gl).map_err(|e| log::warn!("background shader unavailable: {e:#}")).ok()
-            });
+            let shader = std::env::var_os("YTM_NO_SHADER").is_none();
+            let bg = match (&cc.gl, &cc.wgpu_render_state) {
+                (Some(gl), _) if shader => shader::Background::new(gl).map_err(|e| log::warn!("background shader unavailable: {e:#}")).ok(),
+                (_, Some(rs)) if shader => Some(shader::Background::new_wgpu(rs)),
+                _ => None,
+            };
 
             Ok(Box::new(ui::App::new(
                 backend,
@@ -189,7 +203,14 @@ fn main() -> eframe::Result {
                 cc.storage,
             )))
         }),
-    )
+    );
+    // A wgpu window that won't open would fail the same way at every launch: go back
+    // to OpenGL for the next one.
+    if run.is_err() && renderer == renderer::Renderer::Wgpu {
+        log::error!("renderer: {} failed to start; switching back to OpenGL", renderer::api_name());
+        let _ = renderer::save(&data_dir(), renderer::Renderer::OpenGl);
+    }
+    run
 }
 
 #[cfg(windows)]

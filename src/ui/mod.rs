@@ -371,6 +371,8 @@ pub struct App {
     // window
     /// Clicking × hides the window to the tray instead of quitting.
     close_to_tray: bool,
+    /// Settings › Window: draw with wgpu (Vulkan) from the next start (renderer.rs).
+    pub(super) wgpu_renderer: bool,
     /// Settings › App icon (`appicon::ALL` id).
     app_icon: &'static str,
     /// The tray icon, while the window is hidden.
@@ -422,6 +424,7 @@ impl App {
         theme::set_font_choice(&dev_var("YTM_FONT").map(str::to_owned).or_else(|| get("font")).unwrap_or_default());
         let discord_enabled = get("discord_enabled").is_none_or(|v| v == "1");
         let app_icon = crate::appicon::load(backend.data_dir());
+        let wgpu_renderer = crate::renderer::load(backend.data_dir()) == crate::renderer::Renderer::Wgpu;
         // Updates reinstall the shortcuts with the classic icon.
         if app_icon != crate::appicon::CLASSIC {
             crate::appicon::sync_shortcuts(app_icon, backend.data_dir());
@@ -508,6 +511,7 @@ impl App {
             updater: None,
             auto_update: get("auto_update").is_none_or(|v| v == "1"),
             close_to_tray: get("close_to_tray").is_some_and(|v| v == "1"),
+            wgpu_renderer,
             app_icon,
             tray: None,
             exiting: false,

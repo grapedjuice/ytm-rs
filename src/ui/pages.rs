@@ -1078,6 +1078,31 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
         setting_row(ui, "Collapse sidebar", Some("Show only icons in the sidebar, for narrow windows. The menu button at its top does the same."), |ui| {
             toggle(ui, &mut app.sidebar_collapsed, "Collapse sidebar");
         });
+        divider(ui);
+        let api = crate::renderer::api_name();
+        let title = format!("Draw with {api}");
+        let desc = format!(
+            "Use {api} (wgpu) instead of OpenGL. It isn't faster for this app and takes about three times the memory; try it if OpenGL draws wrong on this PC. If {api} won't start, the app goes back to OpenGL."
+        );
+        setting_row(ui, &title, Some(&desc), |ui| {
+            if toggle(ui, &mut app.wgpu_renderer, &title).changed() {
+                use crate::renderer::Renderer;
+                let r = if app.wgpu_renderer { Renderer::Wgpu } else { Renderer::OpenGl };
+                if let Err(e) = crate::renderer::save(app.backend.data_dir(), r) {
+                    log::warn!("renderer: couldn't save the setting: {e}");
+                }
+            }
+        });
+        if app.wgpu_renderer != (crate::renderer::active() == crate::renderer::Renderer::Wgpu) {
+            divider(ui);
+            let mut restart = false;
+            setting_row(ui, "Restart to apply", Some("The app draws with the new renderer from the next start."), |ui| {
+                restart = pill(ui, "Restart now", None, true).clicked();
+            });
+            if restart {
+                app.restart(ui.ctx());
+            }
+        }
     });
 }
 

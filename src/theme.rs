@@ -210,6 +210,10 @@ pub mod icon {
     pub const HEADPHONES: char = '\u{e0f1}';
     pub const DOWNLOAD: char = '\u{e0b2}';
     pub const FOLDER_OPEN: char = '\u{e247}';
+    pub const PIN: char = '\u{e259}';
+    pub const PIN_OFF: char = '\u{e2b6}';
+    pub const PICTURE_IN_PICTURE: char = '\u{e3af}';
+    pub const MAXIMIZE_2: char = '\u{e113}';
 }
 
 /// Inter (SIL OFL 1.1), the default face: regular / semibold / extra bold, subset to

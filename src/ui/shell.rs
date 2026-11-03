@@ -52,6 +52,11 @@ pub fn pages_bg_moves(look: &crate::preset::Preset) -> bool {
 }
 
 /// `only`: paint just this part (the rest is covered by now playing).
+/// The background's flat colour, under its art and gradients.
+pub fn base_color(app: &App) -> Color32 {
+    if app.default_theme { theme::BG } else { app.look().solid() }
+}
+
 pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64, only: Option<Rect>) {
     use crate::preset::BgMode;
     let dt = (now - app.last_frame).clamp(0.0, 0.1);
@@ -70,7 +75,7 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64, only: Opti
         Some(r) => ui.painter().with_clip_rect(r),
         None => ui.painter().clone(),
     };
-    painter.rect_filled(screen, 0.0, if app.default_theme { theme::BG } else { look.solid() });
+    painter.rect_filled(screen, 0.0, base_color(app));
     let art = matches!(mode, BgMode::Kawarp | BgMode::CoverStatic | BgMode::CoverFullbleed);
     if let Some(bg) = app.bg.as_ref().filter(|_| !app.default_theme && art) {
         let blend = theme::ease_in_out(((now - app.art_changed) / 1.4) as f32);
@@ -657,9 +662,9 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         widgets::galley(ui, &txt, theme::regular(13.0), theme::text_dim(), 200.0)
     });
     let time_w = time_g.as_ref().map_or(0.0, |g| g.size().x);
-    // Room between the repeat button's edge (plus a gap) and the lyrics/queue/expand buttons.
-    // The volume with its slider takes 140 px plus the time; the icon alone, 36.
-    let free = |half: f32| row.right() - 120.0 - (row.center().x + half + 12.0);
+    // Room between the repeat button's edge (plus a gap) and the lyrics/queue/expand/mini
+    // player buttons. The volume with its slider takes 140 px plus the time; the icon alone, 36.
+    let free = |half: f32| row.right() - 160.0 - (row.center().x + half + 12.0);
     let tight = free(141.0) < 140.0 + time_w;
     let half = if tight { 125.0 } else { 141.0 };
     let compact_vol = free(half) < 140.0 + time_w;
@@ -799,8 +804,12 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         }
         resp.clicked()
     };
+    // Right to left: now playing keeps the corner (as in YouTube Music), the mini player next to it.
     if right_btn(ui, if app.np_open { icon::CHEVRON_DOWN } else { icon::CHEVRON_UP }, "Now playing", app.np_open) {
         app.actions.push(Action::OpenNowPlaying(!app.np_open));
+    }
+    if right_btn(ui, icon::PICTURE_IN_PICTURE, "Mini player (Ctrl+M)", false) {
+        app.actions.push(Action::Mini(true));
     }
     // In now playing the queue is its Up next panel; elsewhere, the side panel.
     let queue_open = if app.np_open { app.np_tab == NpTab::UpNext } else { app.queue_open };
@@ -859,7 +868,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         }
     }
     if mresp.clicked() {
-        let stash = ui.scope_id().with("unmute");
+        let stash = unmute_id();
         if vol > 0.0 {
             ui.data_mut(|d| d.insert_temp(stash, vol));
             app.audio.set_volume(0.0);
@@ -872,6 +881,11 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let gap = if compact_vol { 4.0 } else { 10.0 };
         ui.painter().galley(pos2(vi.left() - gap - g.size().x, cy - g.size().y / 2.0), g, theme::text_dim());
     }
+}
+
+/// Where Mute keeps the volume to go back to (the player bar's and the mini player's).
+pub fn unmute_id() -> egui::Id {
+    egui::Id::unique("unmute")
 }
 
 /// The volume track: click or drag to set, scroll over it to nudge.
@@ -965,7 +979,8 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
     egui::Area::new(egui::Id::unique("toast"))
         .order(egui::Order::Tooltip)
         .pivot(Align2::CENTER_BOTTOM)
-        .fixed_pos(Pos2::new(screen.center().x, screen.bottom() - 104.0 + 14.0 * (1.0 - t)))
+        // Above the player bar; in the mini player, over the strip's middle.
+        .fixed_pos(Pos2::new(screen.center().x, if screen.height() < 200.0 { screen.center().y + 22.0 } else { screen.bottom() - 104.0 } + 14.0 * (1.0 - t)))
         .show(ctx, |ui| {
             ui.set_opacity(t);
             egui::Frame::new()

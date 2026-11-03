@@ -198,29 +198,42 @@ impl App {
                     self.np_open = open;
                 }
             }
+            Action::Mini(on) => self.mini.request(on),
         }
     }
 
     pub(super) fn shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.egui_wants_keyboard_input();
+        // In a text box, Ctrl+arrows move the cursor by words (and lines) instead; on a
+        // focused button or slider they still skip and change the volume.
+        let editing = ctx.text_edit_focused();
         let i = ctx.input(|i| {
             let k = |key| !typing && i.key_pressed(key);
+            let ctrl = |key| !editing && i.modifiers.ctrl && i.key_pressed(key);
             (
                 k(egui::Key::Space),
                 i.pointer.button_pressed(egui::PointerButton::Extra1)
                     || (i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft)),
                 i.pointer.button_pressed(egui::PointerButton::Extra2)
                     || (i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight)),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowRight),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowLeft),
+                ctrl(egui::Key::ArrowRight),
+                ctrl(egui::Key::ArrowLeft),
                 k(egui::Key::L),
                 k(egui::Key::F),
                 i.key_pressed(egui::Key::Escape),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowUp),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowDown),
+                ctrl(egui::Key::ArrowUp),
+                ctrl(egui::Key::ArrowDown),
+                // Once per press: holding it doesn't flip back and forth.
+                i.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::M, pressed: true, repeat: false, modifiers, .. } if modifiers.ctrl)),
             )
         });
-        let (space, back, fwd, next, prev, lyr, full, esc, vol_up, vol_down) = i;
+        let (space, back, fwd, next, prev, lyr, full, esc, vol_up, vol_down, mini) = i;
+        if mini {
+            self.actions.push(Action::Mini(!self.mini.target()));
+        }
+        // The mini player has no pages or now playing to go to, nor does a window on
+        // its way back until it's there.
+        let (back, fwd, lyr, full, esc) = if self.mini.busy() { (false, false, false, false, false) } else { (back, fwd, lyr, full, esc) };
         if space {
             self.toggle();
         }
@@ -254,6 +267,19 @@ impl App {
             let v = (self.audio.volume() + if vol_up { 0.05 } else { -0.05 }).clamp(0.0, 1.0);
             self.audio.set_volume(v);
         }
+    }
+
+    /// Into the mini player or back. Full screen ends first, a frame ahead.
+    pub(super) fn set_mini(&mut self, ctx: &egui::Context, on: bool, now: f64) {
+        if on == self.mini.active() {
+            return;
+        }
+        if on && self.fullscreen {
+            self.set_fullscreen(ctx, false);
+            self.mini.request(true);
+            return;
+        }
+        self.mini.toggle(ctx, now);
     }
 
     pub(super) fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {

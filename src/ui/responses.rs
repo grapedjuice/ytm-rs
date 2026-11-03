@@ -8,6 +8,7 @@ use souvlaki::MediaControlEvent;
 use crate::audio::{AudioCmd, AudioEvent};
 use crate::backend::{Req, Resp};
 use crate::model::{ShelfKind, Track};
+use crate::ytm::HomePage;
 
 use super::{App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, dev_var, shuffle};
 
@@ -91,29 +92,7 @@ impl App {
 
     fn on_resp(&mut self, r: Resp, now: f64) {
         match r {
-            Resp::Home(page) => {
-                // Until the account menu answers (Req::Account).
-                if self.account_avatar.is_none() {
-                    self.account_avatar = page.shelves.iter().find(|s| s.title == "Listen again").and_then(|s| s.strap_thumb.clone());
-                }
-                let mut chips = page.chips;
-                // The feed marks the active mood itself; keep the bar when it doesn't send chips.
-                if chips.is_empty() {
-                    chips = self.home.as_ref().map(|h| h.chips.clone()).unwrap_or_default();
-                }
-                self.home = Some(HomeState {
-                    chips,
-                    shelves: page.shelves,
-                    continuation: page.continuation,
-                    loading_more: None,
-                    picks_loading: false,
-                    picks_expanded: false,
-                });
-                self.home_loading = false;
-                if self.page == Page::Home {
-                    self.loading = false;
-                }
-            }
+            Resp::Home(page) => self.on_home(page),
             Resp::HomeMore(page) => {
                 if let Some(h) = &mut self.home {
                     h.shelves.extend(page.shelves);
@@ -286,30 +265,7 @@ impl App {
                     self.toast(format!("{} {done} of {total} songs…{note}", if like { "Liking" } else { "Removing likes:" }));
                 }
             }
-            Resp::LikedMany { video_ids, failed, like } => {
-                // Any left (a retry took them) leave the list now.
-                if !like {
-                    let rest: Vec<Track> = video_ids.iter().filter_map(|id| self.unliking.remove(id)).collect();
-                    self.set_liked(&rest, false);
-                    for id in &failed {
-                        self.unliking.remove(id);
-                    }
-                }
-                log::debug!("like={like} answered: {} taken, {} refused {:?}", video_ids.len(), failed.len(), failed.iter().take(5).collect::<Vec<_>>());
-                self.lists.edits.confirm_likes(&video_ids, &failed);
-                // The refused ones come back as they were with a reload.
-                if !failed.is_empty() {
-                    self.request_liked(true);
-                }
-                let count = video_ids.len();
-                let mut msg = format!("{} {count} {}", if like { "Liked" } else { "Removed like from" }, if count == 1 { "song" } else { "songs" });
-                if count == 0 {
-                    msg = format!("YouTube Music refused all {} songs; try again in a while", failed.len());
-                } else if !failed.is_empty() {
-                    msg += &format!("; YouTube Music refused {}", failed.len());
-                }
-                self.toast(msg);
-            }
+            Resp::LikedMany { video_ids, failed, like } => self.on_liked_many(video_ids, failed, like),
             Resp::PlaylistCreated { id, songs } => {
                 self.request_library();
                 self.toast(match songs {
@@ -319,35 +275,7 @@ impl App {
                 });
                 self.go(Page::Playlist(id));
             }
-            Resp::PlaylistChanged { id, message } => {
-                self.request_library();
-                if message == "Playlist deleted" {
-                    // Its load is dropped too, and the queue stops waiting for it.
-                    self.lists.forget(&id);
-                    if self.queue.fill.as_ref().is_some_and(|f| f.id == id) {
-                        self.queue.fill = None;
-                    }
-                    let gone = Page::Playlist(id);
-                    if self.page == gone {
-                        self.go(Page::Library(LibTab::Playlists));
-                    }
-                    // Back and Forward skip it.
-                    self.back.retain(|p| *p != gone);
-                    self.back.dedup();
-                    self.forward.retain(|p| *p != gone);
-                    self.forward.dedup();
-                } else {
-                    if message == "Removed from playlist" {
-                        self.lists.edits.confirm_removal(&id);
-                    }
-                    // Kept for going back (or playing): reload it. What YouTube Music still
-                    // lists after a removal is dropped as it arrives.
-                    if self.lists.known(&id) {
-                        self.load_list(&id, false, true);
-                    }
-                }
-                self.toast(message);
-            }
+            Resp::PlaylistChanged { id, message } => self.on_playlist_changed(id, message),
             Resp::Collaboration(c) => {
                 if let Some(Dialog::Collaborate { id, info, busy, .. }) = &mut self.dialog
                     && *id == c.playlist_id
@@ -382,91 +310,184 @@ impl App {
                     }
                 }
             }
-            Resp::PlayError { generation, msg } => {
-                if generation == self.generation {
-                    self.buffering = false;
-                    let title = self.current().map(|t| t.title.clone()).unwrap_or_default();
-                    let reason = if msg.contains("age-restricted") || msg.contains("confirm your age") {
-                        "it's age-restricted".to_owned()
-                    } else {
-                        msg
-                    };
-                    let has_next = !self.queue.at_end() && self.queue.index.is_some();
-                    // Skipping can't help when the account is the problem: the rest of
-                    // an album like this needs it too. Stop on the song instead.
-                    if let Some(why) = account_block(&reason, self.logged_in) {
-                        self.skip_streak = 0;
-                        self.toast(why.replace("{title}", &title));
-                    } else if has_next && self.skip_streak < MAX_SKIPS {
-                        // Don't stall the queue on one unplayable song.
-                        self.skip_streak += 1;
-                        self.toast(format!("Skipped \"{title}\": {reason}"));
-                        self.next();
-                    } else {
-                        self.skip_streak = 0;
-                        self.toast(format!("Can't play \"{title}\": {reason}"));
-                    }
-                }
-            }
+            Resp::PlayError { generation, msg } => self.on_play_error(generation, msg),
             Resp::ServerQueue(q) => self.adopt_server_queue(q),
             Resp::Account { name, photo } => {
                 self.account_name = name.or(self.account_name.take());
                 self.account_avatar = photo.or(self.account_avatar.take());
             }
-            Resp::LoggedIn(v) => {
-                self.logged_in = v;
-                // Recent searches belong to the account.
-                self.suggestions = Default::default();
-                self.suggest_sel = None;
-                self.forgetting = None;
-                self.suggest_round += 1;
-                self.forgets_pending = 0;
-                self.suggest_due = Some(now);
-                self.account_name = None;
-                self.account_avatar = None;
-                self.sidebar_cache = None;
-                self.library = None;
-                self.history = None;
-                self.uploads = None;
-                // Your own playlists show differently (and private ones not at all) to another account.
-                self.lists.clear();
-                self.queue.fill = None;
-                self.play_pending = None;
-                if self.page_list().is_some() {
-                    self.refresh();
-                }
-                self.home = None;
-                self.home_loading = true;
-                self.backend.request(Req::Home(None));
-                if v {
-                    self.request_library();
-                    self.request_liked(false);
-                    self.backend.request(Req::Account);
-                } else {
-                    self.liked.clear();
-                }
-                self.toast(if v { "Signed in" } else { "Signed out" });
-            }
-            Resp::Error(e) => {
-                if let Some(Dialog::Collaborate { info, busy, .. }) = &mut self.dialog {
-                    *busy = false;
-                    // Nothing to show if it never loaded.
-                    if info.is_none() {
-                        self.dialog = None;
-                    }
-                }
-                // A page still waiting for its first data shows a retry instead of loading forever.
-                self.load_failed |= self.loading || (self.page == Page::Home && self.home_loading);
-                self.loading = false;
-                self.home_loading = false;
-                self.radio_pending = false;
-                if let Some(h) = &mut self.home {
-                    h.loading_more = None;
-                    h.picks_loading = false;
-                }
-                self.toast(e);
+            Resp::LoggedIn(v) => self.on_logged_in(v, now),
+            Resp::Error(e) => self.on_error(e),
+        }
+    }
+
+    /// The home feed, replacing the one shown.
+    fn on_home(&mut self, page: HomePage) {
+        // Until the account menu answers (Req::Account).
+        if self.account_avatar.is_none() {
+            self.account_avatar = page.shelves.iter().find(|s| s.title == "Listen again").and_then(|s| s.strap_thumb.clone());
+        }
+        let mut chips = page.chips;
+        // The feed marks the active mood itself; keep the bar when it doesn't send chips.
+        if chips.is_empty() {
+            chips = self.home.as_ref().map(|h| h.chips.clone()).unwrap_or_default();
+        }
+        self.home = Some(HomeState {
+            chips,
+            shelves: page.shelves,
+            continuation: page.continuation,
+            loading_more: None,
+            picks_loading: false,
+            picks_expanded: false,
+        });
+        self.home_loading = false;
+        if self.page == Page::Home {
+            self.loading = false;
+        }
+    }
+
+    /// Liking or unliking many songs at once has finished: `failed` are the ones YouTube
+    /// Music refused.
+    fn on_liked_many(&mut self, video_ids: Vec<String>, failed: Vec<String>, like: bool) {
+        // Any left (a retry took them) leave the list now.
+        if !like {
+            let rest: Vec<Track> = video_ids.iter().filter_map(|id| self.unliking.remove(id)).collect();
+            self.set_liked(&rest, false);
+            for id in &failed {
+                self.unliking.remove(id);
             }
         }
+        log::debug!("like={like} answered: {} taken, {} refused {:?}", video_ids.len(), failed.len(), failed.iter().take(5).collect::<Vec<_>>());
+        self.lists.edits.confirm_likes(&video_ids, &failed);
+        // The refused ones come back as they were with a reload.
+        if !failed.is_empty() {
+            self.request_liked(true);
+        }
+        let count = video_ids.len();
+        let mut msg = format!("{} {count} {}", if like { "Liked" } else { "Removed like from" }, if count == 1 { "song" } else { "songs" });
+        if count == 0 {
+            msg = format!("YouTube Music refused all {} songs; try again in a while", failed.len());
+        } else if !failed.is_empty() {
+            msg += &format!("; YouTube Music refused {}", failed.len());
+        }
+        self.toast(msg);
+    }
+
+    /// A playlist was edited, added to, removed from, saved or deleted; `message` says which.
+    fn on_playlist_changed(&mut self, id: String, message: &'static str) {
+        self.request_library();
+        if message == "Playlist deleted" {
+            // Its load is dropped too, and the queue stops waiting for it.
+            self.lists.forget(&id);
+            if self.queue.fill.as_ref().is_some_and(|f| f.id == id) {
+                self.queue.fill = None;
+            }
+            let gone = Page::Playlist(id);
+            if self.page == gone {
+                self.go(Page::Library(LibTab::Playlists));
+            }
+            // Back and Forward skip it.
+            self.back.retain(|p| *p != gone);
+            self.back.dedup();
+            self.forward.retain(|p| *p != gone);
+            self.forward.dedup();
+        } else {
+            if message == "Removed from playlist" {
+                self.lists.edits.confirm_removal(&id);
+            }
+            // Kept for going back (or playing): reload it. What YouTube Music still
+            // lists after a removal is dropped as it arrives.
+            if self.lists.known(&id) {
+                self.load_list(&id, false, true);
+            }
+        }
+        self.toast(message);
+    }
+
+    /// A song couldn't play: skip it, or stop when skipping can't help.
+    fn on_play_error(&mut self, generation: u64, msg: String) {
+        if generation == self.generation {
+            self.buffering = false;
+            let title = self.current().map(|t| t.title.clone()).unwrap_or_default();
+            let reason = if msg.contains("age-restricted") || msg.contains("confirm your age") {
+                "it's age-restricted".to_owned()
+            } else {
+                msg
+            };
+            let has_next = !self.queue.at_end() && self.queue.index.is_some();
+            // Skipping can't help when the account is the problem: the rest of
+            // an album like this needs it too. Stop on the song instead.
+            if let Some(why) = account_block(&reason, self.logged_in) {
+                self.skip_streak = 0;
+                self.toast(why.replace("{title}", &title));
+            } else if has_next && self.skip_streak < MAX_SKIPS {
+                // Don't stall the queue on one unplayable song.
+                self.skip_streak += 1;
+                self.toast(format!("Skipped \"{title}\": {reason}"));
+                self.next();
+            } else {
+                self.skip_streak = 0;
+                self.toast(format!("Can't play \"{title}\": {reason}"));
+            }
+        }
+    }
+
+    /// Signed in or out: what belonged to the last account goes, and the new one's home,
+    /// library and likes load.
+    fn on_logged_in(&mut self, v: bool, now: f64) {
+        self.logged_in = v;
+        // Recent searches belong to the account.
+        self.suggestions = Default::default();
+        self.suggest_sel = None;
+        self.forgetting = None;
+        self.suggest_round += 1;
+        self.forgets_pending = 0;
+        self.suggest_due = Some(now);
+        self.account_name = None;
+        self.account_avatar = None;
+        self.sidebar_cache = None;
+        self.library = None;
+        self.history = None;
+        self.uploads = None;
+        // Your own playlists show differently (and private ones not at all) to another account.
+        self.lists.clear();
+        self.queue.fill = None;
+        self.play_pending = None;
+        if self.page_list().is_some() {
+            self.refresh();
+        }
+        self.home = None;
+        self.home_loading = true;
+        self.backend.request(Req::Home(None));
+        if v {
+            self.request_library();
+            self.request_liked(false);
+            self.backend.request(Req::Account);
+        } else {
+            self.liked.clear();
+        }
+        self.toast(if v { "Signed in" } else { "Signed out" });
+    }
+
+    /// A request failed: pages waiting for it stop waiting, and the error shows.
+    fn on_error(&mut self, e: String) {
+        if let Some(Dialog::Collaborate { info, busy, .. }) = &mut self.dialog {
+            *busy = false;
+            // Nothing to show if it never loaded.
+            if info.is_none() {
+                self.dialog = None;
+            }
+        }
+        // A page still waiting for its first data shows a retry instead of loading forever.
+        self.load_failed |= self.loading || (self.page == Page::Home && self.home_loading);
+        self.loading = false;
+        self.home_loading = false;
+        self.radio_pending = false;
+        if let Some(h) = &mut self.home {
+            h.loading_more = None;
+            h.picks_loading = false;
+        }
+        self.toast(e);
     }
 }
 

@@ -203,21 +203,25 @@ impl App {
 
     pub(super) fn shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.egui_wants_keyboard_input();
+        // In a text box, Ctrl+arrows move the cursor by words (and lines) instead; on a
+        // focused button or slider they still skip and change the volume.
+        let editing = ctx.text_edit_focused();
         let i = ctx.input(|i| {
             let k = |key| !typing && i.key_pressed(key);
+            let ctrl = |key| !editing && i.modifiers.ctrl && i.key_pressed(key);
             (
                 k(egui::Key::Space),
                 i.pointer.button_pressed(egui::PointerButton::Extra1)
                     || (i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft)),
                 i.pointer.button_pressed(egui::PointerButton::Extra2)
                     || (i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight)),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowRight),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowLeft),
+                ctrl(egui::Key::ArrowRight),
+                ctrl(egui::Key::ArrowLeft),
                 k(egui::Key::L),
                 k(egui::Key::F),
                 i.key_pressed(egui::Key::Escape),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowUp),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowDown),
+                ctrl(egui::Key::ArrowUp),
+                ctrl(egui::Key::ArrowDown),
             )
         });
         let (space, back, fwd, next, prev, lyr, full, esc, vol_up, vol_down) = i;

@@ -538,7 +538,7 @@
    "font": "Segoe UI Variable, Segoe UI",
    "page_bg": "solid",
    "sidebar": "transparent",
-   "bar_alpha": 0.3,
+   "bar_alpha": 0.0,
    "bar_border": true,
    "nav": "bar",
    "chip": "accent",

@@ -504,6 +504,52 @@
   }
  },
  {
+  "id": "fluent",
+  "name": "Fluent",
+  "creators": [
+   "ytm-rs"
+  ],
+  "blurb": "Windows 11's Fluent look: Segoe UI Variable, the Windows accent colour, flat layered greys and small corners; now playing keeps a slow, calm cover backdrop.",
+  "accent": "system",
+  "background": {
+   "solid": "#202020",
+   "intensity": 0.6,
+   "speed": 0.5,
+   "saturation": 1.2,
+   "np_dim": 0.6,
+   "page_dim": 0.35,
+   "reactive": 0.3
+  },
+  "lyrics": {
+   "font": "Segoe UI Variable, Segoe UI",
+   "weight": "semibold",
+   "inactive_alpha": 0.35,
+   "min_alpha": 0.25
+  },
+  "cover": {
+   "radius": 8,
+   "shadow": 0.4
+  },
+  "chrome": {
+   "glass": 0.7,
+   "radius": 4
+  },
+  "app": {
+   "font": "Segoe UI Variable, Segoe UI",
+   "page_bg": "solid",
+   "sidebar": "transparent",
+   "bar_alpha": 0.3,
+   "bar_border": true,
+   "nav": "bar",
+   "chip": "accent",
+   "card_radius": 8,
+   "thumb_radius": 4,
+   "panel_radius": 8,
+   "hover": 0.8,
+   "text_dim": "#c5c5c5"
+  }
+ },
+ {
   "id": "glassy-blur",
   "name": "Glassy Blur",
   "creators": [

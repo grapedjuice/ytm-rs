@@ -351,7 +351,8 @@ pub struct Preset {
     pub creators: Vec<String>,
     pub blurb: String,
     pub background: Background,
-    /// "cover" (sampled from the art) or a fixed "#rrggbb".
+    /// "cover" (sampled from the art), "system" (the Windows accent colour, else the
+    /// cover's), or a fixed "#rrggbb".
     pub accent: String,
     pub lyrics: LyricStyle,
     pub cover: CoverStyle,
@@ -372,6 +373,9 @@ impl Preset {
 
     /// The accent to use given the one sampled from the current cover.
     pub fn accent(&self, from_cover: Color32) -> Color32 {
+        if self.accent == "system" {
+            return crate::theme::system_accent().unwrap_or(from_cover);
+        }
         hex(&self.accent).unwrap_or(from_cover)
     }
 
@@ -442,13 +446,13 @@ mod tests {
     #[test]
     fn presets_are_complete() {
         let list: Vec<Preset> = serde_json::from_str(include_str!("../assets/themes/presets.json")).expect("presets.json parses");
-        assert_eq!(list.len(), 26);
+        assert_eq!(list.len(), 27);
         let mut ids = std::collections::HashSet::new();
         for p in &list {
             assert!(ids.insert(p.id.clone()), "duplicate id {}", p.id);
             assert!(!p.name.is_empty() && !p.creators.is_empty() && !p.blurb.is_empty(), "{} lacks name/creators/blurb", p.id);
             assert!(cover(&p.id).is_some(), "{} has no cover", p.id);
-            assert!(p.accent == "cover" || p.accent.is_empty() || hex(&p.accent).is_some(), "{} accent {}", p.id, p.accent);
+            assert!(matches!(p.accent.as_str(), "cover" | "system" | "") || hex(&p.accent).is_some(), "{} accent {}", p.id, p.accent);
         }
         assert_eq!(all().len(), list.len() + 1);
         assert_eq!(get("nope").id, DEFAULT_ID);

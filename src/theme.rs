@@ -32,6 +32,51 @@ pub fn text_dim() -> Color32 {
     Color32::from_rgba_premultiplied(r, g, b, a)
 }
 
+/// The Windows accent colour, in the lighter shade Windows itself uses on dark
+/// surfaces (`AccentPalette`'s second entry), or the base accent if there's no palette.
+/// Read again every couple of seconds, so a new colour picked in Windows' settings
+/// shows without a restart. `None` off Windows or when the setting can't be read.
+pub fn system_accent() -> Option<Color32> {
+    use std::time::{Duration, Instant};
+    static ACCENT: std::sync::Mutex<Option<(Instant, Option<Color32>)>> = std::sync::Mutex::new(None);
+    let mut cached = ACCENT.lock().unwrap();
+    match *cached {
+        Some((at, c)) if at.elapsed() < Duration::from_secs(2) => c,
+        _ => {
+            let c = read_system_accent();
+            *cached = Some((Instant::now(), c));
+            c
+        }
+    }
+}
+
+#[cfg(windows)]
+fn read_system_accent() -> Option<Color32> {
+    use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_BINARY, RRF_RT_REG_DWORD, RegGetValueW};
+    use windows::core::w;
+    // SAFETY: out-buffers sized to what we pass; the strings are static.
+    unsafe {
+        // Eight RGBA swatches, lightest first; the second is "light 2".
+        let mut palette = [0u8; 32];
+        let mut size = palette.len() as u32;
+        let key = w!(r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent");
+        if RegGetValueW(HKEY_CURRENT_USER, key, w!("AccentPalette"), RRF_RT_REG_BINARY, None, Some(palette.as_mut_ptr() as *mut _), Some(&mut size)).is_ok() && size >= 8 {
+            return Some(Color32::from_rgb(palette[4], palette[5], palette[6]));
+        }
+        // 0xAABBGGRR.
+        let mut abgr = 0u32;
+        let mut size = 4u32;
+        RegGetValueW(HKEY_CURRENT_USER, w!(r"Software\Microsoft\Windows\DWM"), w!("AccentColor"), RRF_RT_REG_DWORD, None, Some(&mut abgr as *mut u32 as *mut _), Some(&mut size))
+            .is_ok()
+            .then(|| Color32::from_rgb(abgr as u8, (abgr >> 8) as u8, (abgr >> 16) as u8))
+    }
+}
+
+#[cfg(not(windows))]
+fn read_system_accent() -> Option<Color32> {
+    None
+}
+
 /// Corner radius of album/playlist art in cards.
 pub fn card_radius() -> f32 {
     crate::preset::active().app.card_radius.clamp(0.0, 40.0)
@@ -226,7 +271,7 @@ fn lyric_key(name: &str) -> Option<&'static str> {
 /// interface and the lyrics. Empty: the theme's own.
 static FONT_CHOICE: std::sync::RwLock<String> = std::sync::RwLock::new(String::new());
 
-/// An installed font the listener picked, once its faces are loaded. Drawn through the
+/// An installed font the listener (or the theme) picked, once its faces are loaded. Drawn through the
 /// "choice-<weight>" families, which always exist (Inter until something is loaded), so
 /// a frame laid out before egui swaps fonts in never names a missing family.
 static CHOICE: std::sync::RwLock<Option<Chosen>> = std::sync::RwLock::new(None);
@@ -434,9 +479,11 @@ fn choose_faces(family: &SysFamily) -> Option<[Face; 3]> {
     faces.try_into().ok()
 }
 
-/// Load the faces of the installed font the listener picked, if that's what it is.
-fn load_choice() {
-    let name = font_choice();
+/// Load the faces of the installed font in use, if that's what it is: the listener's
+/// pick, else one the theme names for its interface (Fluent's Segoe UI Variable). A
+/// name can list fallbacks, "Segoe UI Variable, Segoe UI", tried in order.
+fn load_choice(ui_font: &str) {
+    let name = effective_font(ui_font);
     if name.is_empty() || lyric_key(&name).is_some() || name.eq_ignore_ascii_case("inter") {
         *CHOICE.write().unwrap() = None;
         return;
@@ -446,7 +493,7 @@ fn load_choice() {
     }
     // Only when an installed font is set: a one-off scan, the first time.
     let all = INSTALLED_FONTS.get_or_init(scan_fonts);
-    let faces = all.iter().find(|f| f.name.eq_ignore_ascii_case(&name)).and_then(choose_faces);
+    let faces = name.split(',').map(str::trim).find_map(|n| all.iter().find(|f| f.name.eq_ignore_ascii_case(n)).and_then(choose_faces));
     if faces.is_none() {
         log::warn!("font {name:?} isn't installed; using Inter");
     }
@@ -536,7 +583,7 @@ fn font_data(face: Face, y_offset_factor: f32) -> FontData {
 /// sit visibly higher than Latin ones in the same line. Each fallback therefore gets a
 /// y offset computed from both fonts' metrics, once per primary font it backs.
 pub fn install_fonts(ctx: &egui::Context, ui_font: &str) {
-    load_choice();
+    load_choice(ui_font);
     let ui_key = font_key(ui_font);
     // Installing rebuilds the font atlas; most themes share a UI font, so skip repeats.
     static INSTALLED: std::sync::Mutex<Option<(&'static str, String)>> = std::sync::Mutex::new(None);

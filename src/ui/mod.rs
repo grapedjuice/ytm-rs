@@ -13,6 +13,7 @@ mod jam;
 mod karaoke;
 mod lists;
 mod lyric_prefs;
+mod mini;
 mod notes;
 mod nowplaying;
 mod pages;
@@ -110,6 +111,8 @@ pub enum Action {
     SaveCollection(String, bool),
     HomeChip(Option<String>),
     OpenNowPlaying(bool),
+    /// Into the mini player (true) or back to the full window.
+    Mini(bool),
     /// Play/pause what's already loaded (a card's button on the playing item).
     TogglePlay,
     /// A song chosen on the search page as the Spotify transfer's match.
@@ -335,6 +338,8 @@ pub struct App {
     np_tab: NpTab,
     queue_open: bool,
     fullscreen: bool,
+    /// The mini player: the window shrunk to a strip.
+    mini: mini::Mini,
     /// Every source's lyrics for the current song (by video ID).
     lyrics: Option<(String, LyricsSet)>,
     /// Romanization/translation for one source's lines: (video ID, source key, language, extras).
@@ -573,6 +578,7 @@ impl App {
             np_tab: if get("np_art").is_some_and(|v| v == "1") { NpTab::Art } else { NpTab::Lyrics },
             queue_open: false,
             fullscreen: false,
+            mini: mini::Mini::load(get),
             lyrics: None,
             lyrics_extras: None,
             extras_asked: None,
@@ -852,6 +858,25 @@ impl eframe::App for App {
             }
         }
         fit_window_to_monitor(ctx);
+        // Dev hook: YTM_MINI=<secs>[,<secs>…] switches between the mini player and the
+        // full window at those times (YTM_MINI=1: the mini player after a second).
+        if let Some(v) = dev_var("YTM_MINI") {
+            let times: Vec<f64> = v.split(',').filter_map(|t| t.parse().ok()).collect();
+            let id = egui::Id::unique("dev-mini");
+            let done: usize = ctx.data(|d| d.get_temp(id)).unwrap_or(0);
+            if let Some(&t) = times.get(done) {
+                if now >= t {
+                    ctx.data_mut(|d| d.insert_temp(id, done + 1));
+                    self.mini.request(done.is_multiple_of(2));
+                } else {
+                    ctx.request_repaint_after(Duration::from_secs_f64((t - now).min(0.2)));
+                }
+            }
+        }
+        if let Some(on) = self.mini.take_request() {
+            self.set_mini(ctx, on, now);
+        }
+        self.mini.tick(ctx, now);
         self.tray_window(ctx);
         self.window_hidden = self.tray.is_some() || ctx.input(|i| i.viewport().minimized == Some(true));
         self.sync_discord();
@@ -882,7 +907,7 @@ impl eframe::App for App {
             if playing || self.buffering {
                 ctx.request_repaint_after(Duration::from_millis(250));
             }
-        } else if self.np_open && playing {
+        } else if self.np_open && playing && !self.mini.busy() {
             ctx.request_repaint_after(Duration::from_millis(33));
         } else if playing && widgets::equalizer_shown(ctx) {
             // The playing row's bars need a steady, full rate to read as smooth.
@@ -917,6 +942,20 @@ impl eframe::App for App {
         let covered = !self.fullscreen && theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), 0.42) >= 1.0;
         let bar_strip = egui::Rect::from_min_max(egui::pos2(screen.left(), screen.bottom() - self.bar_height()), screen.max);
         titlebar::set_fullscreen(&ctx, self.fullscreen);
+        // The mini player, or nothing but the background while the window changes size.
+        let layout = self.mini.layout(&ctx);
+        if layout != mini::Layout::Full {
+            shell::background(self, ui, screen, now, None);
+            if layout == mini::Layout::Mini {
+                mini::strip(self, ui, now);
+                titlebar::resize_sides(&ctx);
+                // "Sign in to like songs" and such: shown here too, not timed out unseen.
+                shell::toast(self, &ctx, now);
+                self.mini.fade_in(&ctx, now, shell::base_color(self));
+            }
+            dev_screenshot(&ctx, now);
+            return;
+        }
         shell::background(self, ui, screen, now, covered.then_some(bar_strip));
         if !self.fullscreen && !covered {
             // The top of the window, down to the search box's row: what's on it comes after.
@@ -998,6 +1037,8 @@ impl eframe::App for App {
 
         titlebar::window_buttons(&ctx);
         titlebar::resize_edges(&ctx);
+        // Back from the mini player.
+        self.mini.fade_in(&ctx, now, shell::base_color(self));
 
         if dev_var("YTM_THEME_TOUR").is_some() {
             self.theme_tour(&ctx, now);
@@ -1076,6 +1117,12 @@ impl eframe::App for App {
             }
         } else {
             self.good_window = storage.get_string("window");
+        }
+        // In the mini player, the full window's place is the one to reopen at.
+        self.mini.save(storage);
+        if let Some(w) = self.mini.full_window() {
+            storage.set_string("window", w.clone());
+            self.good_window = Some(w);
         }
         storage.set_string("close_to_tray", b(self.close_to_tray));
         storage.set_string("sidebar_collapsed", b(self.sidebar_collapsed));

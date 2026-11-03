@@ -27,13 +27,34 @@ pub fn set(on: bool) -> bool {
     }
 }
 
+/// The work area (the monitor less the taskbar) of the monitor the window is on, in
+/// physical pixels. None where the app can't ask (not Windows, no window handle yet).
+pub fn work_area() -> Option<egui::Rect> {
+    #[cfg(windows)]
+    return imp::work_area();
+    #[cfg(not(windows))]
+    None
+}
+
+/// Whether some of `rect` (physical pixels) is on a connected monitor. True where the
+/// app can't ask.
+pub fn on_a_monitor(rect: egui::Rect) -> bool {
+    #[cfg(windows)]
+    return imp::on_a_monitor(rect);
+    #[cfg(not(windows))]
+    {
+        let _ = rect;
+        true
+    }
+}
+
 #[cfg(windows)]
 mod imp {
     use std::sync::{Mutex, OnceLock};
 
-    use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, WPARAM};
+    use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, RECT, WPARAM};
     use windows::Win32::Graphics::Gdi::{
-        CreateSolidBrush, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE,
+        CreateSolidBrush, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromRect, MonitorFromWindow, RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE,
         RedrawWindow,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -66,6 +87,22 @@ mod imp {
             let brush = CreateSolidBrush(COLORREF(0x000F_0B0D));
             SetClassLongPtrW(HWND(hwnd as *mut _), GCLP_HBRBACKGROUND, brush.0 as isize);
         }
+    }
+
+    pub fn work_area() -> Option<egui::Rect> {
+        let &h = WINDOW.get()?;
+        let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+        // SAFETY: the app's own window; `info` is ours and sized.
+        unsafe { GetMonitorInfoW(MonitorFromWindow(HWND(h as *mut _), MONITOR_DEFAULTTONEAREST), &mut info) }.as_bool().then(|| {
+            let r = info.rcWork;
+            egui::Rect::from_min_max(egui::pos2(r.left as f32, r.top as f32), egui::pos2(r.right as f32, r.bottom as f32))
+        })
+    }
+
+    pub fn on_a_monitor(rect: egui::Rect) -> bool {
+        let r = RECT { left: rect.left() as i32, top: rect.top() as i32, right: rect.right() as i32, bottom: rect.bottom() as i32 };
+        // SAFETY: plain query.
+        !unsafe { MonitorFromRect(&r, MONITOR_DEFAULTTONULL) }.is_invalid()
     }
 
     pub fn set(on: bool) -> bool {

@@ -717,6 +717,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             }
         }
         // Like: a heart right after the title/artist, filled red when liked.
+        // What's heard, like Now playing's menu: a song version standing in for the music video.
+        let t = &app.playing_track().cloned().unwrap_or_else(|| t.clone());
         let liked = app.liked.contains(&t.id);
         let text_end = tr.right().max(ax).min(x + w);
         let lpos = pos2(text_end + 24.0, cy);

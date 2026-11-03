@@ -356,6 +356,7 @@ async fn like_one(api: &ytmapi::Api, id: &str, like: bool) -> bool {
 /// getting anywhere count as refused, likes don't (songs that can't be played are liked but not listed).
 /// One run at a time, transfers included (`LIKES`); `progress(None, 0)` while waiting its turn.
 pub async fn like_many(api: &ytmapi::Api, ids: Vec<String>, like: bool, mut progress: impl FnMut(Option<&str>, usize)) -> (Vec<String>, Vec<String>) {
+    let epoch = api.epoch();
     let _turn = match LIKES.try_lock() {
         Ok(turn) => turn,
         Err(_) => {
@@ -363,6 +364,11 @@ pub async fn like_many(api: &ytmapi::Api, ids: Vec<String>, like: bool, mut prog
             LIKES.lock().await
         }
     };
+    // A channel switch went first: these were picked in the other channel's lists.
+    if api.epoch() != epoch {
+        log::info!("likes: {} not sent, the account or channel changed while they waited", ids.len());
+        return (Vec::new(), ids);
+    }
     let total = ids.len();
     let mut failed = Vec::new();
     for (i, id) in ids.iter().enumerate() {
@@ -1185,18 +1191,29 @@ impl Backend {
                 }
             }
         };
-        let lookup = cell.get_or_try_init(|| async {
-            let found = self.look_up_song(video, premium).await?;
-            match &found {
-                Some(s) => log::info!("song version of {listed} \"{}\": {} \"{}\"", video.title, s.id, s.title),
-                None => log::info!("song version of {listed} \"{}\": none found", video.title),
-            }
-            anyhow::Ok(found)
+        // Its own task: when the wait runs out the lookup still finishes, so the next play
+        // of this video finds the song in the cell.
+        let (this, video) = (self.clone(), video.clone());
+        let lookup = tokio::spawn(async move {
+            cell.get_or_try_init(|| async {
+                let found = this.look_up_song(&video, premium).await?;
+                match &found {
+                    Some(s) => log::info!("song version of {} \"{}\": {} \"{}\"", video.id, video.title, s.id, s.title),
+                    None => log::info!("song version of {} \"{}\": none found", video.id, video.title),
+                }
+                anyhow::Ok(found)
+            })
+            .await
+            .cloned()
         });
         match tokio::time::timeout(wait.saturating_sub(start.elapsed()), lookup).await {
-            Ok(Ok(found)) => found.clone(),
-            Ok(Err(e)) => {
+            Ok(Ok(Ok(found))) => found,
+            Ok(Ok(Err(e))) => {
                 log::debug!("song version of {listed}: {e:#}");
+                None
+            }
+            Ok(Err(e)) => {
+                log::debug!("song version of {listed}: lookup stopped: {e}");
                 None
             }
             Err(_) => {

@@ -483,7 +483,7 @@ pub fn output_devices() -> Vec<OutputDevice> {
             Some(OutputDevice { id, name })
         })
         .collect();
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|a| a.name.to_lowercase());
     out
 }
 
@@ -524,7 +524,7 @@ impl rodio::Source for Bridge {
 impl Drop for Bridge {
     fn drop(&mut self) {
         if let Some(mut source) = self.inner.take() {
-            while self.n % self.channels.max(1) as u64 != 0 {
+            while !self.n.is_multiple_of(self.channels.max(1) as u64) {
                 source.next();
                 self.n += 1;
             }
@@ -814,10 +814,9 @@ fn run(
             && !player.is_paused()
             && output.checked.elapsed() >= DEVICE_CHECK
             && !output.lost.load(Ordering::Relaxed)
+            && (output.sink.is_none() || output.default_changed())
         {
-            if output.sink.is_none() || output.default_changed() {
-                output.open(tx.clone(), &status);
-            }
+            output.open(tx.clone(), &status);
         }
         if !fading.is_empty() {
             // The next song is taking too long: don't hold this one up any longer.

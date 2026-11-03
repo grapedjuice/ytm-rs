@@ -130,10 +130,48 @@ pub async fn forget_search(api: &Api, token: &str) -> anyhow::Result<()> {
 
 pub async fn album(api: &Api, id: &str) -> anyhow::Result<Collection> {
     let v = api.call("browse", json!({ "browseId": id }), false).await?;
-    parse_album(&v, id).ok_or_else(|| anyhow::anyhow!("YouTube Music returned an empty album"))
+    let (mut a, videos) = parse_album(&v, id).ok_or_else(|| anyhow::anyhow!("YouTube Music returned an empty album"))?;
+    if !videos.is_empty() {
+        songs_for_videos(api, &mut a, &videos).await;
+    }
+    Ok(a)
 }
 
-fn parse_album(v: &Value, id: &str) -> Option<Collection> {
+/// Some albums list music videos where the album has the songs too (all of Tame
+/// Impala's Currents does): swap in the song, the version the album means, matched by
+/// album, title and length. One search for the album, then one per song it missed.
+async fn songs_for_videos(api: &Api, a: &mut Collection, videos: &[usize]) {
+    let artist = a.artists.first().map_or("", |l| l.name.as_str()).to_owned();
+    let album = a.id.clone();
+    let song = |found: &[Track], t: &Track| found.iter().find(|s| same_song(s, t, &album)).cloned();
+    let mut found = search_songs(api, &format!("{artist} {}", a.title), false).await.unwrap_or_default();
+    let missed: Vec<String> = videos.iter().map(|&i| &a.tracks[i]).filter(|t| song(&found, t).is_none()).map(|t| format!("{artist} {}", t.title)).collect();
+    let more = futures_util::future::join_all(missed.iter().map(|q| search_songs(api, q, false))).await;
+    found.extend(more.into_iter().flatten().flatten());
+    let mut swapped = 0;
+    for &i in videos {
+        let t = &mut a.tracks[i];
+        if let Some(s) = song(&found, t) {
+            (t.id, t.duration, t.thumbs) = (s.id, s.duration.or(t.duration), s.thumbs);
+            swapped += 1;
+        }
+    }
+    log::info!("album {album}: {swapped} of {} music videos swapped for the songs", videos.len());
+}
+
+/// `s`, a song from search, is the album's song that the video `t` stands for.
+fn same_song(s: &Track, t: &Track, album: &str) -> bool {
+    s.id != t.id
+        && s.album.as_ref().and_then(|l| l.id.as_deref()) == Some(album)
+        && s.title.to_lowercase() == t.title.to_lowercase()
+        && match (s.duration, t.duration) {
+            (Some(a), Some(b)) => a.abs_diff(b) <= 3,
+            _ => true,
+        }
+}
+
+/// The album, and which of its rows are music videos rather than songs.
+fn parse_album(v: &Value, id: &str) -> Option<(Collection, Vec<usize>)> {
     let two = &v["contents"]["twoColumnBrowseResultsRenderer"];
     let h = header(two)?;
     let title = text(&h["title"])?;
@@ -146,9 +184,11 @@ fn parse_album(v: &Value, id: &str) -> Option<Collection> {
     let thumbs = thumbs(&h["thumbnail"]["musicThumbnailRenderer"]);
     let link = Link { name: title.clone(), id: Some(id.to_owned()) };
     let rows = arr(&two["secondaryContents"]["sectionListRenderer"]["contents"]).iter().flat_map(|s| arr(&s["musicShelfRenderer"]["contents"]));
+    let rows: Vec<(Track, bool)> = rows.filter_map(|i| Some((list_item(&i["musicResponsiveListItemRenderer"])?, is_video(i)))).collect();
+    let videos = rows.iter().enumerate().filter(|(_, (_, video))| *video).map(|(i, _)| i).collect();
     let tracks = rows
-        .filter_map(|i| list_item(&i["musicResponsiveListItemRenderer"]))
-        .map(|mut t| {
+        .into_iter()
+        .map(|(mut t, _)| {
             // Album rows leave out what the header already says.
             if t.thumbs.is_empty() {
                 t.thumbs = thumbs.clone();
@@ -168,7 +208,7 @@ fn parse_album(v: &Value, id: &str) -> Option<Collection> {
             .find_map(|e| e["playlistId"].as_str())
             .map(str::to_owned)
     });
-    Some(Collection {
+    let a = Collection {
         id: id.to_owned(),
         is_album: true,
         save_id,
@@ -181,7 +221,8 @@ fn parse_album(v: &Value, id: &str) -> Option<Collection> {
         set_ids: Vec::new(),
         count: None,
         owned: false,
-    })
+    };
+    Some((a, videos))
 }
 
 /// A playlist (including mixes and Liked Music), with up to `limit` tracks (`None`: all of them).
@@ -1231,12 +1272,33 @@ mod tests {
             }}]}}}}],
             "secondaryContents": {"sectionListRenderer": {"contents": [{"musicShelfRenderer": {"contents": [serde_json::from_str::<Value>(ALBUM_ROW).unwrap()]}}]}}
         }}});
-        let a = parse_album(&v, "MPREb_x").unwrap();
+        let (a, videos) = parse_album(&v, "MPREb_x").unwrap();
+        assert!(videos.is_empty());
         assert_eq!(a.subtitle, "Album • The Weeknd • 2020");
         assert_eq!(a.save_id.as_deref(), Some("OLAK5uy_x"));
         let t = &a.tracks[0];
         assert_eq!(t.artists[0].name, "The Weeknd");
         assert_eq!(t.album.as_ref().and_then(|l| l.id.as_deref()), Some("MPREb_x"));
+    }
+
+    #[test]
+    fn album_video_matches_its_song() {
+        let track = |id: &str, title: &str, album: &str, duration| Track {
+            id: id.into(),
+            title: title.into(),
+            artists: Vec::new(),
+            album: Some(Link { name: "Currents".into(), id: Some(album.into()) }),
+            duration: Some(duration),
+            thumbs: Vec::new(),
+            track_nr: None,
+            plays: None,
+        };
+        let video = track("sBzrzS1Ag_g", "The Less I Know The Better", "MPREb_c", 217);
+        assert!(same_song(&track("PvM79DJ2PmM", "The Less I Know the Better", "MPREb_c", 217), &video, "MPREb_c"));
+        // Another album's cut, another length, or the video itself: not it.
+        assert!(!same_song(&track("x", "The Less I Know The Better", "MPREb_live", 217), &video, "MPREb_c"));
+        assert!(!same_song(&track("x", "The Less I Know The Better", "MPREb_c", 343), &video, "MPREb_c"));
+        assert!(!same_song(&video, &video, "MPREb_c"));
     }
 
     #[test]

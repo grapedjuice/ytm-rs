@@ -27,6 +27,10 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
         .show(ctx, |ui| {
             // Swallow input so the page underneath doesn't react.
             ui.allocate_rect(rect, Sense::click_and_drag());
+            // It covers the window's top too: that still moves the window.
+            if !app.fullscreen {
+                super::titlebar::drag_area(ui, Rect::from_min_size(rect.min, vec2(rect.width(), super::titlebar::HEIGHT)), "now-playing");
+            }
             let painter = ui.painter_at(rect);
             let themed = !app.default_theme;
             let art = matches!(b.mode, BgMode::Kawarp | BgMode::CoverStatic);
@@ -81,8 +85,9 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     let cs = &look.cover;
     let area = ui.max_rect();
     let no_lyrics = app.no_lyrics();
-    // Header
-    let header = Rect::from_min_size(area.min, vec2(area.width(), 44.0));
+    // Header: on the window buttons' line, when the app draws them.
+    let lift = 20.0 - f32::from(super::titlebar::top_margin(20, 44.0));
+    let header = Rect::from_min_size(area.min - vec2(0.0, if app.fullscreen { 0.0 } else { lift }), vec2(area.width(), 44.0));
     let mut hui = ui.new_child(egui::UiBuilder::new().max_rect(header).layout(egui::Layout::left_to_right(egui::Align::Center)));
     if icon_button(&mut hui, icon::CHEVRON_DOWN, 22.0, "Close now playing", false).clicked() {
         app.np_open = false;
@@ -91,14 +96,42 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         }
     }
     hui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.add_space(super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 0.0));
+        let menu_right = ui.cursor().right();
+        options_menu(app, ui, &track, app.np_tab == NpTab::Lyrics && !no_lyrics);
+        // Just the ⋯ menu until the pointer comes near it; then Lyrics, Up next and full
+        // screen slide out to its left, and stay while one of them has keyboard focus.
+        // Their full width and whether one has focus, from the last frame they showed.
+        let id = egui::Id::unique("np-header-extras-state");
+        let (full_w, focused) = ui.ctx().data(|d| d.get_temp::<(f32, bool)>(id)).unwrap_or((220.0, false));
+        // Around the ⋯ button and where they'll show, a little below the header too.
+        let near = Rect::from_min_max(pos2(ui.cursor().right() - full_w - 48.0, header.top()), pos2(menu_right + 24.0, header.bottom() + 24.0));
+        let hovered = ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| near.contains(p));
+        let t = theme::anim_bool(ui.ctx(), "np-header-extras", hovered || focused, 0.2);
+        if t <= 0.0 {
+            ui.ctx().data_mut(|d| d.insert_temp(id, (full_w, false)));
+            return;
+        }
+        ui.add_space(8.0);
+        let (slot, _) = ui.allocate_exact_size(vec2(full_w * t, header.height()), Sense::hover());
+        let mut eui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(Rect::from_min_max(pos2(slot.right() - full_w, slot.top()), slot.max))
+                .layout(egui::Layout::right_to_left(egui::Align::Center)),
+        );
+        eui.set_clip_rect(slot.intersect(ui.clip_rect()));
+        eui.multiply_opacity(t);
+        let ui = &mut eui;
         let (g, name) = if app.fullscreen { (icon::SHRINK, "Exit full screen") } else { (icon::EXPAND, "Full screen") };
-        if icon_button(ui, g, 18.0, name, false).clicked() {
+        let fs_btn = icon_button(ui, g, 18.0, name, false);
+        if fs_btn.clicked() {
             let fs = !app.fullscreen;
             app.set_fullscreen(ui.ctx(), fs);
         }
         ui.add_space(8.0);
         // Clicking the active chip again turns it off, leaving just the artwork.
-        if widgets::chip(ui, "Up next", app.np_tab == NpTab::UpNext).clicked() {
+        let up = widgets::chip(ui, "Up next", app.np_tab == NpTab::UpNext);
+        if up.clicked() {
             app.np_tab = if app.np_tab == NpTab::UpNext { NpTab::Art } else { NpTab::UpNext };
         }
         // A song without lyrics: the chip is off and does nothing, but the choice stays
@@ -113,8 +146,9 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         if lyr.inner.clicked() {
             app.np_tab = if app.np_tab == NpTab::Lyrics { NpTab::Art } else { NpTab::Lyrics };
         }
-        ui.add_space(8.0);
-        options_menu(app, ui, &track, app.np_tab == NpTab::Lyrics && !no_lyrics);
+        let focused = fs_btn.has_focus() || up.has_focus() || lyr.inner.has_focus();
+        let full_w = ui.min_rect().width();
+        ui.ctx().data_mut(|d| d.insert_temp(id, (full_w, focused)));
     });
 
     let content = Rect::from_min_max(pos2(area.left(), header.bottom() + 12.0), area.max);
@@ -390,7 +424,7 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
         h.finish()
     };
     let scale = app.lyric_prefs.text_scale;
-    let frame = karaoke::Frame { lyrics, key, roman, trans, t, playing, now, rect, style: &style, accent, centered, scale };
+    let frame = karaoke::Frame { lyrics, key, roman, trans, t, playing, now, rect, style, accent, centered, scale };
     // The view lives in `app`; the frame borrows `app` for decorations, so swap it out.
     let mut view = std::mem::take(&mut app.lyric_view);
     let out = if karaoke::dev_off("view") { karaoke::Out { seek: None, animating: true, user_scrolling: false } } else { view.show(ui, frame) };

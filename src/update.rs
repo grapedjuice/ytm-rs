@@ -278,7 +278,7 @@ impl Updater {
             while let Some(chunk) = resp.chunk().await? {
                 std::io::Write::write_all(&mut file, &chunk)?;
                 got += chunk.len() as u64;
-                let percent = if size > 0 { (got * 100 / size).min(100) as u8 } else { 0 };
+                let percent = (got * 100).checked_div(size).map_or(0, |p| p.min(100) as u8);
                 if percent != shown {
                     shown = percent;
                     self.set(State::Downloading { version: version.clone(), percent });

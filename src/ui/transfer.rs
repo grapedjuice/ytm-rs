@@ -146,7 +146,7 @@ fn fmt_n(n: usize) -> String {
     let s = n.to_string();
     let mut out = String::new();
     for (i, ch) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(ch);
@@ -157,7 +157,7 @@ fn fmt_n(n: usize) -> String {
 fn fmt_secs(s: u64) -> String {
     match s {
         0..60 => format!("{s} s"),
-        _ if s % 60 == 0 || s >= 600 => format!("{} min", (s + 30) / 60),
+        _ if s.is_multiple_of(60) || s >= 600 => format!("{} min", (s + 30) / 60),
         _ => format!("{} min {} s", s / 60, s % 60),
     }
 }

@@ -198,7 +198,7 @@ pub fn icon_button(ui: &mut Ui, glyph: char, size: f32, name: &str, active: bool
     if h > 0.0 {
         ui.painter().circle_filled(rect.center(), d / 2.0, theme::glass(0.10 * h));
     }
-    let color = if active { theme::TEXT } else { theme::lerp_color(theme::text_dim(), theme::TEXT, h) };
+    let color = if active { theme::text() } else { theme::lerp_color(theme::text_dim(), theme::text(), h) };
     let press = if resp.is_pointer_button_down_on() { 0.9 } else { 1.0 };
     icon_at(ui, rect.center(), glyph, size * press, color);
     resp
@@ -213,9 +213,9 @@ pub fn pill(ui: &mut Ui, label: &str, glyph: Option<char>, primary: bool) -> Res
     let resp = named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
     let (fill, fg) = if primary {
-        (theme::lerp_color(Color32::from_gray(240), Color32::WHITE, h), Color32::from_gray(12))
+        if theme::light() { (theme::lerp_color(theme::text(), Color32::BLACK, h), Color32::WHITE) } else { (theme::lerp_color(Color32::from_gray(240), Color32::WHITE, h), Color32::from_gray(12)) }
     } else {
-        (theme::glass(0.10 + 0.08 * h), theme::TEXT)
+        (theme::glass(0.10 + 0.08 * h), theme::text())
     };
     let r = rect.shrink(if resp.is_pointer_button_down_on() { 1.0 } else { 0.0 });
     ui.painter().rect_filled(r, 19.0, fill);
@@ -243,7 +243,7 @@ pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
             let a = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
             (a, if a.r() as u32 + a.g() as u32 + a.b() as u32 > 480 { Color32::from_gray(15) } else { Color32::WHITE })
         }
-        _ => (Color32::from_gray(245), Color32::from_gray(15)),
+        _ => (theme::text(), theme::on_text()),
     };
     let off_fill = if style == ChipStyle::Outline { theme::glass(0.04 * h) } else { theme::glass(0.09 + 0.06 * h) };
     let fill = theme::lerp_color(off_fill, on_fill, s);
@@ -251,7 +251,7 @@ pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
     if style == ChipStyle::Outline {
         ui.painter().rect_stroke(rect, radius, egui::Stroke::new(1.0, theme::glass(0.3 * (1.0 - s))), egui::StrokeKind::Inside);
     }
-    let fg = theme::lerp_color(theme::TEXT, on_fg, s);
+    let fg = theme::lerp_color(theme::text(), on_fg, s);
     ui.painter().galley(rect.center() - text.size() / 2.0, text, fg);
     resp
 }
@@ -298,7 +298,7 @@ pub fn paint_cover_px(ui: &Ui, rect: Rect, thumbs: &[Thumb], radius: f32, zoom: 
     let px = fetch_px(px);
     ui.painter().rect_filled(rect, radius, theme::glass(0.07));
     let Some(t) = pick_thumb(thumbs, px.min(544)) else {
-        icon_at(ui, rect.center(), icon::MUSIC, rect.width() * 0.3, theme::TEXT_FAINT);
+        icon_at(ui, rect.center(), icon::MUSIC, rect.width() * 0.3, theme::text_faint());
         return;
     };
     let mut uv = t.square_uv();
@@ -393,7 +393,7 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
         play_pause_glyph(ui, center, 10.0, theme::with_alpha(Color32::WHITE, h), playing);
         play_hit = p.clicked();
     }
-    let tcolor = theme::TEXT;
+    let tcolor = theme::text();
     let title = galley_wrapped(ui, &c.title, theme::semibold(14.5), tcolor, width, 2);
     let title_h = title.size().y;
     ui.painter().galley(pos2(rect.left(), img.bottom() + 10.0), title, tcolor);
@@ -445,7 +445,7 @@ fn more_button(ui: &mut Ui, rect: Rect, id: egui::Id, label: &str) -> Response {
     if response.hovered() || egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response)) {
         ui.painter().rect_filled(rect, 7.0, theme::glass(0.16));
     }
-    let color = if response.hovered() { theme::TEXT } else { theme::text_dim() };
+    let color = if response.hovered() { theme::text() } else { theme::text_dim() };
     icon_at(ui, rect.center(), icon::ELLIPSIS_VERTICAL, 18.0, color);
     response
 }
@@ -456,13 +456,13 @@ fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
     if response.hovered() {
         ui.painter().rect_filled(rect, 7.0, theme::glass(0.12));
     }
-    let color = if response.hovered() { theme::TEXT } else { theme::text_dim() };
+    let color = if response.hovered() { theme::text() } else { theme::text_dim() };
     if let Some(glyph) = glyph {
         icon_at(ui, pos2(rect.left() + 19.0, rect.center().y), glyph, 16.0, color);
     } else {
         ui.painter().text(pos2(rect.left() + 19.0, rect.center().y), Align2::CENTER_CENTER, "↗", theme::semibold(17.0), color);
     }
-    ui.painter().text(pos2(rect.left() + 40.0, rect.center().y), Align2::LEFT_CENTER, label, theme::regular(14.0), theme::TEXT);
+    ui.painter().text(pos2(rect.left() + 40.0, rect.center().y), Align2::LEFT_CENTER, label, theme::regular(14.0), theme::text());
     if response.clicked() { ui.close(); }
     response.clicked()
 }
@@ -706,7 +706,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         if o.current {
             equalizer(ui, slot.shrink(4.0), o.time, o.playing, o.accent);
         } else if h > 0.5 {
-            play_triangle(ui, slot.center(), 6.0, theme::TEXT);
+            play_triangle(ui, slot.center(), 6.0, theme::text());
         } else {
             ui.painter().text(slot.center(), Align2::CENTER_CENTER, n.to_string(), theme::regular(14.0), theme::text_dim());
         }
@@ -744,7 +744,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         _ => (avail, None, None),
     };
     let plays = t.plays.map(|n| format!("{} plays", crate::backend::compact(n)));
-    let title_col = if o.current { o.accent } else { theme::TEXT };
+    let title_col = if o.current { o.accent } else { theme::text() };
     let sub = match (album_row, &plays, plays_x) {
         (true, Some(p), None) => Some(p.clone()),
         (true, _, _) => None,
@@ -796,8 +796,8 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
 fn checkbox(ui: &Ui, c: Pos2, on: bool) {
     let r = Rect::from_center_size(c, Vec2::splat(18.0));
     if on {
-        ui.painter().rect_filled(r, 5.0, theme::TEXT);
-        icon_at(ui, c, icon::CHECK, 13.0, Color32::from_gray(12));
+        ui.painter().rect_filled(r, 5.0, theme::text());
+        icon_at(ui, c, icon::CHECK, 13.0, theme::on_text());
     } else {
         ui.painter().rect_stroke(r, 5.0, egui::Stroke::new(1.5, theme::text_dim()), egui::StrokeKind::Inside);
     }
@@ -819,7 +819,7 @@ pub fn shelf_header(ui: &mut Ui, title: &str, strap: Option<&str>, strap_thumb: 
             if let Some(s) = strap {
                 ui.label(egui::RichText::new(s.to_uppercase()).font(theme::semibold(12.0)).color(theme::text_dim()));
             }
-            ui.label(egui::RichText::new(title).font(theme::bold(24.0)).color(theme::TEXT));
+            ui.label(egui::RichText::new(title).font(theme::bold(24.0)).color(theme::text()));
         });
         if arrows {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

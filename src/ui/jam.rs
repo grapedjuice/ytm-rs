@@ -610,7 +610,7 @@ fn lobby(app: &mut App, ui: &mut Ui) {
             ui.put(
                 inner,
                 egui::TextEdit::singleline(&mut app.jam.name)
-                    .hint_text(RichText::new(hint).color(theme::TEXT_FAINT))
+                    .hint_text(RichText::new(hint).color(theme::text_faint()))
                     .font(theme::regular(14.0))
                     .char_limit(32)
                     .frame(egui::Frame::NONE)
@@ -641,7 +641,7 @@ fn lobby(app: &mut App, ui: &mut Ui) {
             let edit = ui.put(
                 inner,
                 egui::TextEdit::singleline(&mut app.jam.code_input)
-                    .hint_text(RichText::new("ABC234").color(theme::TEXT_FAINT))
+                    .hint_text(RichText::new("ABC234").color(theme::text_faint()))
                     .font(theme::semibold(16.0))
                     .char_limit(8)
                     .frame(egui::Frame::NONE)
@@ -680,7 +680,7 @@ fn room(app: &mut App, ui: &mut Ui) {
         dim(ui, if host { "Share this code or link with friends" } else { "You're in the jam" });
         ui.add_space(6.0);
         let spaced: String = code.chars().map(|c| c.to_string()).collect::<Vec<_>>().join(" ");
-        ui.label(RichText::new(spaced).font(theme::bold(40.0)).color(theme::TEXT));
+        ui.label(RichText::new(spaced).font(theme::bold(40.0)).color(theme::text()));
         if let Some(s) = status {
             ui.horizontal(|ui| {
                 ui.spinner();
@@ -748,7 +748,7 @@ fn room(app: &mut App, ui: &mut Ui) {
             let is_host = m.id == app.jam.host;
             icon_at(ui, pos2(rect.left() + 12.0, rect.center().y), if is_host { icon::CROWN } else { icon::HEADPHONES }, 17.0, if is_host { app.accent } else { theme::text_dim() });
             let you = if m.id == app.jam.you { " (you)" } else { "" };
-            ui.painter().text(pos2(rect.left() + 34.0, rect.center().y), Align2::LEFT_CENTER, format!("{}{you}", m.name), theme::semibold(14.5), theme::TEXT);
+            ui.painter().text(pos2(rect.left() + 34.0, rect.center().y), Align2::LEFT_CENTER, format!("{}{you}", m.name), theme::semibold(14.5), theme::text());
             if is_host {
                 ui.painter().text(pos2(rect.right() - 4.0, rect.center().y), Align2::RIGHT_CENTER, "Host", theme::regular(12.5), theme::text_dim());
             }

@@ -96,7 +96,7 @@ fn radio(ui: &Ui, center: egui::Pos2, on: f32, accent: Color32) {
 }
 
 fn small_caps(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).font(theme::bold(11.5)).color(theme::TEXT_FAINT));
+    ui.label(RichText::new(text).font(theme::bold(11.5)).color(theme::text_faint()));
     ui.add_space(8.0);
 }
 
@@ -106,10 +106,10 @@ fn dim(ui: &mut Ui, text: &str) {
 
 /// A tag like "VIDEO" or "LOCAL FILE".
 fn tag(ui: &Ui, right: egui::Pos2, text: &str, fill: Color32) -> f32 {
-    let g = widgets::galley(ui, text, theme::bold(10.5), theme::TEXT, 200.0);
+    let g = widgets::galley(ui, text, theme::bold(10.5), theme::text(), 200.0);
     let rect = Rect::from_min_size(pos2(right.x - g.size().x - 14.0, right.y - 10.0), vec2(g.size().x + 14.0, 20.0));
     ui.painter().rect_filled(rect, 5.0, fill);
-    ui.painter().galley(rect.center() - g.size() / 2.0, g, theme::TEXT);
+    ui.painter().galley(rect.center() - g.size() / 2.0, g, theme::text());
     rect.left()
 }
 
@@ -120,7 +120,7 @@ fn big_button(ui: &mut Ui, label: &str, accent: Color32, enabled: bool, width: f
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered() && enabled, 0.15);
     let fill = if enabled { theme::lerp_color(accent, Color32::WHITE, 0.12 * h) } else { theme::glass(0.10) };
     ui.painter().rect_filled(rect, 25.0, fill);
-    let fg = if enabled { contrast(accent) } else { theme::TEXT_FAINT };
+    let fg = if enabled { contrast(accent) } else { theme::text_faint() };
     ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, theme::bold(16.0), fg);
     enabled && resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
 }
@@ -135,7 +135,7 @@ fn breadcrumb(app: &mut App, ui: &mut Ui) {
     let g = widgets::galley(ui, "Settings › Transfer from Spotify", theme::regular(13.0), theme::text_dim(), 400.0);
     let (rect, resp) = ui.allocate_exact_size(g.size(), Sense::click());
     let resp = named(resp, "Back to Settings").on_hover_cursor(egui::CursorIcon::PointingHand);
-    let c = if resp.hovered() { theme::TEXT } else { theme::text_dim() };
+    let c = if resp.hovered() { theme::text() } else { theme::text_dim() };
     ui.painter().galley(rect.min, g, c);
     if resp.clicked() {
         app.actions.push(Action::Go(Page::Settings));
@@ -199,7 +199,7 @@ fn setup(app: &mut App, ui: &mut Ui) {
         let (r, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
         badge(ui, r);
         ui.add_space(6.0);
-        ui.label(RichText::new("Transfer from Spotify").font(theme::bold(30.0)).color(theme::TEXT));
+        ui.label(RichText::new("Transfer from Spotify").font(theme::bold(30.0)).color(theme::text()));
     });
     ui.add_space(4.0);
     dim(ui, "Copy your Liked Songs or any playlist into YouTube Music. It runs in the background, so you can keep listening.");
@@ -309,7 +309,7 @@ fn setup(app: &mut App, ui: &mut Ui) {
                 let edit = ui.put(
                     inner,
                     egui::TextEdit::singleline(&mut app.xfer.link)
-                        .hint_text(RichText::new("https://open.spotify.com/playlist/…").color(theme::TEXT_FAINT))
+                        .hint_text(RichText::new("https://open.spotify.com/playlist/…").color(theme::text_faint()))
                         .font(theme::regular(14.0))
                         .frame(egui::Frame::NONE)
                         .align(egui::Align2::LEFT_CENTER)
@@ -437,7 +437,7 @@ fn source_row(app: &mut App, ui: &mut Ui, e: &Entry, selected: bool, accent: Col
     }
     let x = img.right() + 14.0;
     let tw = rect.right() - x - 44.0;
-    text_at(ui, pos2(x, rect.center().y - 19.0), &e.name, theme::semibold(15.0), theme::TEXT, tw);
+    text_at(ui, pos2(x, rect.center().y - 19.0), &e.name, theme::semibold(15.0), theme::text(), tw);
     let meta = match (&e.source, e.count) {
         (Source::Liked, Some(n)) => format!("{} songs", fmt_n(n)),
         (Source::Liked, None) => "Your liked songs".to_owned(),
@@ -521,7 +521,7 @@ fn destination(app: &mut App, ui: &mut Ui, chosen: Option<&Entry>, accent: Color
             ui.painter().rect_filled(rect, 10.0, theme::glass(0.03 * h + 0.05 * on));
             radio(ui, pos2(rect.left() + 18.0, rect.center().y), on, accent);
             let x = rect.left() + 38.0;
-            text_at(ui, pos2(x, rect.top() + 11.0), title, theme::semibold(14.5), theme::TEXT, rect.width() - 46.0);
+            text_at(ui, pos2(x, rect.top() + 11.0), title, theme::semibold(14.5), theme::text(), rect.width() - 46.0);
             let g = widgets::galley_wrapped(ui, desc, theme::regular(12.5), theme::text_dim(), rect.width() - 46.0, 2);
             ui.painter().galley(pos2(x, rect.top() + 31.0), g, theme::text_dim());
             if resp.clicked() {
@@ -543,7 +543,7 @@ fn destination(app: &mut App, ui: &mut Ui, chosen: Option<&Entry>, accent: Color
     ui.put(
         inner,
         egui::TextEdit::singleline(&mut app.xfer.name)
-            .hint_text(RichText::new("Same as on Spotify").color(theme::TEXT_FAINT))
+            .hint_text(RichText::new("Same as on Spotify").color(theme::text_faint()))
             .font(theme::regular(14.0))
             .frame(egui::Frame::NONE)
             .align(egui::Align2::LEFT_CENTER)
@@ -580,7 +580,7 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
         ui.vertical(|ui| {
             ui.set_width((ui.available_width() - if to_check.is_some() { 400.0 } else { 230.0 }).max(200.0));
             ui.add_space(4.0);
-            ui.label(RichText::new(&title).font(theme::bold(28.0)).color(theme::TEXT));
+            ui.label(RichText::new(&title).font(theme::bold(28.0)).color(theme::text()));
             ui.add_space(2.0);
             dim(
                 ui,
@@ -645,7 +645,7 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
     settings_card(ui, |ui| {
         ui.add_space(16.0);
         ui.horizontal(|ui| {
-            ui.label(RichText::new(&big).font(theme::bold(34.0)).color(theme::TEXT));
+            ui.label(RichText::new(&big).font(theme::bold(34.0)).color(theme::text()));
             ui.add_space(4.0);
             ui.label(RichText::new(&of).font(theme::regular(15.0)).color(theme::text_dim()));
             if let Some(e) = &eta {
@@ -682,12 +682,12 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
             for (i, (p, label)) in steps.iter().enumerate() {
                 let k = order(p);
                 if i > 0 {
-                    ui.label(RichText::new("—").font(theme::regular(13.0)).color(theme::TEXT_FAINT));
+                    ui.label(RichText::new("—").font(theme::regular(13.0)).color(theme::text_faint()));
                 }
                 let (text, font, color) = if k < at {
-                    (format!("✓ {label}"), theme::regular(13.0), theme::TEXT)
+                    (format!("✓ {label}"), theme::regular(13.0), theme::text())
                 } else if k == at {
-                    (label.clone(), theme::semibold(13.0), theme::TEXT)
+                    (label.clone(), theme::semibold(13.0), theme::text())
                 } else {
                     (label.clone(), theme::regular(13.0), theme::text_dim())
                 };
@@ -790,7 +790,7 @@ fn stat_row(ui: &mut Ui, stats: &[(String, &str, bool)], accent: Color32) {
             if *ring {
                 ui.painter().rect_stroke(rect, 12.0, egui::Stroke::new(1.5, accent), egui::StrokeKind::Inside);
             }
-            ui.painter().text(pos2(rect.left() + 16.0, rect.top() + 12.0), Align2::LEFT_TOP, value, theme::bold(22.0), theme::TEXT);
+            ui.painter().text(pos2(rect.left() + 16.0, rect.top() + 12.0), Align2::LEFT_TOP, value, theme::bold(22.0), theme::text());
             text_at(ui, pos2(rect.left() + 16.0, rect.top() + 41.0), label, theme::regular(12.5), theme::text_dim(), w - 24.0);
         }
     });
@@ -811,7 +811,7 @@ fn columns(rect: Rect) -> (f32, f32, f32, f32, f32) {
 fn list_header(ui: &mut Ui) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
     let (num, sp, _, yt, status) = columns(rect);
-    let c = theme::TEXT_FAINT;
+    let c = theme::text_faint();
     let f = theme::bold(11.0);
     for (x, t) in [(num, "#"), (sp, "ON SPOTIFY"), (yt, "ON YOUTUBE MUSIC"), (status, "STATUS")] {
         ui.painter().text(pos2(x, rect.center().y), Align2::LEFT_CENTER, t, f.clone(), c);
@@ -826,21 +826,21 @@ fn song_row(ui: &mut Ui, i: usize, sp: &Track, result: &Search, accent: Color32,
     if resp.hovered() {
         ui.painter().rect_filled(rect, 8.0, theme::glass(0.04));
     }
-    ui.painter().text(pos2(num, rect.center().y), Align2::LEFT_CENTER, fmt_n(i + 1), theme::regular(12.5), theme::TEXT_FAINT);
+    ui.painter().text(pos2(num, rect.center().y), Align2::LEFT_CENTER, fmt_n(i + 1), theme::regular(12.5), theme::text_faint());
     let img = Rect::from_min_size(pos2(spx, rect.center().y - 19.0), vec2(38.0, 38.0));
     paint_cover(ui, img, &spotify_thumbs(&sp.art), theme::thumb_radius(), 1.0);
     let tw = half - 50.0;
-    text_at(ui, pos2(img.right() + 10.0, rect.top() + 9.0), &sp.name, theme::semibold(13.5), theme::TEXT, tw);
+    text_at(ui, pos2(img.right() + 10.0, rect.top() + 9.0), &sp.name, theme::semibold(13.5), theme::text(), tw);
     let artist = if sp.local { format!("{} · local file", sp.artist_line()) } else { sp.artist_line() };
     text_at(ui, pos2(img.right() + 10.0, rect.top() + 29.0), &artist, theme::regular(12.0), theme::text_dim(), tw);
-    icon_at(ui, pos2(arrow + 10.0, rect.center().y), icon::CHEVRON_RIGHT, 16.0, theme::TEXT_FAINT);
+    icon_at(ui, pos2(arrow + 10.0, rect.center().y), icon::CHEVRON_RIGHT, 16.0, theme::text_faint());
     let yw = status - ytx - 16.0;
     let (label, dot, fg) = match result {
         Search::Pending => ("Searching…", theme::glass(0.2), theme::text_dim()),
-        Search::Found(_) => ("Matched", theme::TEXT, theme::TEXT),
+        Search::Found(_) => ("Matched", theme::text(), theme::text()),
         Search::Unsure(_) => ("Needs a look", accent, accent),
-        Search::Missing => ("Not found", theme::TEXT_FAINT, theme::text_dim()),
-        Search::Skipped => ("Skipped", theme::TEXT_FAINT, theme::text_dim()),
+        Search::Missing => ("Not found", theme::text_faint(), theme::text_dim()),
+        Search::Skipped => ("Skipped", theme::text_faint(), theme::text_dim()),
     };
     match result.track() {
         Some(t) => {
@@ -854,7 +854,7 @@ fn song_row(ui: &mut Ui, i: usize, sp: &Track, result: &Search, accent: Color32,
                 ui.painter().rect_filled(img, theme::thumb_radius(), theme::shade(0.45));
                 widgets::play_triangle(ui, img.center(), 7.0, Color32::WHITE);
             }
-            text_at(ui, pos2(img.right() + 10.0, rect.top() + 9.0), &t.title, theme::semibold(13.5), theme::TEXT, yw - 48.0);
+            text_at(ui, pos2(img.right() + 10.0, rect.top() + 9.0), &t.title, theme::semibold(13.5), theme::text(), yw - 48.0);
             let meta = match &t.album {
                 Some(a) => format!("{} • {}", t.artist_line(), a.name),
                 None => t.artist_line(),
@@ -863,7 +863,7 @@ fn song_row(ui: &mut Ui, i: usize, sp: &Track, result: &Search, accent: Color32,
         }
         None => {
             let t = if *result == Search::Pending { "" } else { "No result" };
-            ui.painter().text(pos2(ytx, rect.center().y), Align2::LEFT_CENTER, t, theme::regular(13.0), theme::TEXT_FAINT);
+            ui.painter().text(pos2(ytx, rect.center().y), Align2::LEFT_CENTER, t, theme::regular(13.0), theme::text_faint());
         }
     }
     ui.painter().circle_filled(pos2(status + 4.0, rect.center().y), 4.0, dot);
@@ -910,7 +910,7 @@ fn review(app: &mut App, ui: &mut Ui) {
                 1 => "Check 1 song".to_owned(),
                 n => format!("Check {} songs", fmt_n(n)),
             };
-            ui.label(RichText::new(title).font(theme::bold(28.0)).color(theme::TEXT));
+            ui.label(RichText::new(title).font(theme::bold(28.0)).color(theme::text()));
             ui.add_space(2.0);
             dim(ui, "These didn't match cleanly. Pick the right one, skip it, or keep the current pick. Click a cover to play it.");
         });
@@ -986,7 +986,7 @@ fn review(app: &mut App, ui: &mut Ui) {
                             paint_cover(ui, img, &spotify_thumbs(&t.art), 4.0, 1.0);
                             let mw = if mark.is_empty() { 0.0 } else { 54.0 };
                             let tw = rect.right() - img.right() - 16.0 - mw;
-                            text_at(ui, pos2(img.right() + 10.0, rect.top() + 6.0), &t.name, theme::semibold(13.0), theme::TEXT, tw);
+                            text_at(ui, pos2(img.right() + 10.0, rect.top() + 6.0), &t.name, theme::semibold(13.0), theme::text(), tw);
                             text_at(ui, pos2(img.right() + 10.0, rect.top() + 25.0), &t.artist_line(), theme::regular(12.0), theme::text_dim(), tw);
                             if !mark.is_empty() {
                                 ui.painter().text(pos2(rect.right() - 6.0, rect.center().y), Align2::RIGHT_CENTER, mark, theme::regular(12.0), theme::text_dim());
@@ -1018,12 +1018,12 @@ fn review(app: &mut App, ui: &mut Ui) {
                     Some(_) => " · CHECKED",
                     None => "",
                 };
-                ui.painter().text(pos2(x, head.top() + 1.0), Align2::LEFT_TOP, format!("ON SPOTIFY · {} OF {}{state}", fmt_n(at + 1), fmt_n(total)), theme::bold(11.5), theme::TEXT_FAINT);
-                text_at(ui, pos2(x, head.top() + 17.0), &sp.name, theme::bold(21.0), theme::TEXT, tw);
+                ui.painter().text(pos2(x, head.top() + 1.0), Align2::LEFT_TOP, format!("ON SPOTIFY · {} OF {}{state}", fmt_n(at + 1), fmt_n(total)), theme::bold(11.5), theme::text_faint());
+                text_at(ui, pos2(x, head.top() + 17.0), &sp.name, theme::bold(21.0), theme::text(), tw);
                 let r = text_at(ui, pos2(x, head.top() + 45.0), &sp.artist_line(), theme::regular(14.0), theme::text_dim(), tw - 100.0);
                 if sp.local {
                     let gx = if sp.artists.is_empty() { x } else { r.right() + 10.0 };
-                    let g = widgets::galley(ui, "LOCAL FILE", theme::bold(10.5), theme::TEXT, 200.0);
+                    let g = widgets::galley(ui, "LOCAL FILE", theme::bold(10.5), theme::text(), 200.0);
                     tag(ui, pos2(gx + g.size().x + 14.0, head.top() + 54.0), "LOCAL FILE", theme::glass(0.14));
                 }
                 ui.add_space(10.0);
@@ -1031,7 +1031,7 @@ fn review(app: &mut App, ui: &mut Ui) {
                 ui.painter().rect_filled(line, 0.0, theme::glass(0.10));
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("PICK THE RIGHT ONE ON YOUTUBE MUSIC").font(theme::bold(11.5)).color(theme::TEXT_FAINT));
+                    ui.label(RichText::new("PICK THE RIGHT ONE ON YOUTUBE MUSIC").font(theme::bold(11.5)).color(theme::text_faint()));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         search = pill(ui, "Search YouTube Music", Some(icon::SEARCH), false).on_hover_text("Not in the list? Find it yourself").clicked();
                     });
@@ -1167,8 +1167,8 @@ pub fn pick_banner(app: &mut App, ui: &mut Ui) -> bool {
                 let text_w = (ui.available_width() - 200.0).max(120.0);
                 ui.vertical(|ui| {
                     ui.set_width(text_w);
-                    ui.label(RichText::new("CHOOSING A MATCH FOR").font(theme::bold(11.5)).color(theme::TEXT_FAINT));
-                    ui.add(egui::Label::new(RichText::new(format!("{} · {}", sp.name, sp.artist_line())).font(theme::semibold(15.0)).color(theme::TEXT)).truncate());
+                    ui.label(RichText::new("CHOOSING A MATCH FOR").font(theme::bold(11.5)).color(theme::text_faint()));
+                    ui.add(egui::Label::new(RichText::new(format!("{} · {}", sp.name, sp.artist_line())).font(theme::semibold(15.0)).color(theme::text())).truncate());
                     dim(ui, "Click a song to use it. Click a cover to play it.");
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1226,7 +1226,7 @@ fn candidate_row(ui: &mut Ui, t: &YtTrack, video: bool, current: bool, selected:
     }
     let x = img.right() + 12.0;
     let tw = right - x - 8.0;
-    text_at(ui, pos2(x, rect.top() + 7.0), &t.title, theme::semibold(14.5), theme::TEXT, tw);
+    text_at(ui, pos2(x, rect.top() + 7.0), &t.title, theme::semibold(14.5), theme::text(), tw);
     let mut meta = t.artist_line();
     if let Some(a) = &t.album {
         meta = format!("{meta} • {}", a.name);
@@ -1280,7 +1280,7 @@ fn done(app: &mut App, ui: &mut Ui) {
             ui.add_space(22.0);
             ui.label(RichText::new("TRANSFER COMPLETE").font(theme::bold(13.0)).color(accent));
             ui.add_space(2.0);
-            ui.label(RichText::new(&title).font(theme::bold(32.0)).color(theme::TEXT));
+            ui.label(RichText::new(&title).font(theme::bold(32.0)).color(theme::text()));
             ui.add_space(2.0);
             ui.label(RichText::new(&line).font(theme::regular(14.0)).color(theme::text_dim()));
         });
@@ -1317,7 +1317,7 @@ fn done(app: &mut App, ui: &mut Ui) {
         egui::Frame::new().fill(theme::glass(0.04)).corner_radius(theme::panel_radius()).inner_margin(egui::Margin::symmetric(16, 12)).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("NOT ADDED ({})", fmt_n(missed.len()))).font(theme::bold(11.5)).color(theme::TEXT_FAINT));
+                ui.label(RichText::new(format!("NOT ADDED ({})", fmt_n(missed.len()))).font(theme::bold(11.5)).color(theme::text_faint()));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if pill(ui, "Copy list", None, false).clicked() {
                         copy = Some(missed.iter().map(|(t, _)| format!("{} - {}", t.name, t.artist_line())).collect::<Vec<_>>().join("\n"));
@@ -1331,7 +1331,7 @@ fn done(app: &mut App, ui: &mut Ui) {
                 let img = Rect::from_min_size(pos2(rect.left() + 4.0, rect.center().y - 18.0), vec2(36.0, 36.0));
                 paint_cover(ui, img, &spotify_thumbs(&t.art), 4.0, 1.0);
                 let tw = rect.width() - 340.0;
-                text_at(ui, pos2(img.right() + 12.0, rect.top() + 9.0), &t.name, theme::semibold(13.5), theme::TEXT, tw);
+                text_at(ui, pos2(img.right() + 12.0, rect.top() + 9.0), &t.name, theme::semibold(13.5), theme::text(), tw);
                 text_at(ui, pos2(img.right() + 12.0, rect.top() + 29.0), &t.artist_line(), theme::regular(12.0), theme::text_dim(), tw);
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::right_to_left(egui::Align::Center)));
                 if pill(&mut child, "Search", Some(icon::SEARCH), false).clicked() {
@@ -1410,7 +1410,7 @@ pub fn settings_section(app: &mut App, ui: &mut Ui) {
         badge(ui, b);
         let x = b.right() + 16.0;
         let tw = rect.right() - x - 120.0;
-        ui.painter().text(pos2(x, rect.center().y - 10.0), Align2::LEFT_CENTER, "Transfer from Spotify", theme::semibold(14.5), theme::TEXT);
+        ui.painter().text(pos2(x, rect.center().y - 10.0), Align2::LEFT_CENTER, "Transfer from Spotify", theme::semibold(14.5), theme::text());
         let g = widgets::galley_wrapped(ui, "Copy your Liked Songs or any playlist into YouTube Music. It runs in the background, so you can keep listening.", theme::regular(12.5), theme::text_dim(), tw, 2);
         ui.painter().galley(pos2(x, rect.center().y + 2.0), g, theme::text_dim());
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::right_to_left(egui::Align::Center)));
@@ -1472,7 +1472,7 @@ pub fn sidebar_card(app: &mut App, ui: &mut Ui, collapsed: bool, fade: f32, icon
     let b = Rect::from_center_size(pos2(rect.left() + icon_x, rect.top() + 22.0), vec2(20.0, 20.0));
     badge(ui, b);
     if fade > 0.0 {
-        let c = theme::with_alpha(theme::TEXT, fade);
+        let c = theme::with_alpha(theme::text(), fade);
         let st = ui.painter().text(pos2(rect.right() - 12.0, rect.top() + 22.0), Align2::RIGHT_CENTER, &status, theme::regular(12.0), theme::with_alpha(if status == "Review" { accent } else { theme::text_dim() }, fade));
         text_at(ui, pos2(rect.left() + 48.0, rect.top() + 14.0), "Spotify transfer", theme::semibold(13.0), c, st.left() - rect.left() - 56.0);
     }

@@ -89,7 +89,7 @@ fn job(text: &str, size: f32, color: Color32, width: f32) -> LayoutJob {
     job.wrap.max_width = width;
     for (t, bold) in spans(text) {
         let font = if bold { theme::semibold(size) } else { theme::regular(size) };
-        let color = if bold { theme::TEXT } else { color };
+        let color = if bold { theme::text() } else { color };
         job.append(&t, 0.0, TextFormat { font_id: font, color, line_height: Some(size * 1.5), ..Default::default() });
     }
     job
@@ -98,14 +98,14 @@ fn job(text: &str, size: f32, color: Color32, width: f32) -> LayoutJob {
 /// The notes laid out like the release page: section headings, paragraphs, bullets.
 pub fn show(ui: &mut Ui, blocks: &[Block], size: f32) {
     let width = ui.available_width();
-    let body = Color32::from_gray(225);
+    let body = body_color();
     for (i, b) in blocks.iter().enumerate() {
         match b {
             Block::Heading(t) => {
                 if i > 0 {
                     ui.add_space(12.0);
                 }
-                let g = widgets::galley(ui, &plain(t), theme::semibold(size + 1.0), theme::TEXT, width);
+                let g = widgets::galley(ui, &plain(t), theme::semibold(size + 1.0), theme::text(), width);
                 ui.label(g);
                 ui.add_space(4.0);
             }
@@ -146,21 +146,31 @@ pub fn summary(blocks: &[Block]) -> (Vec<String>, usize) {
     (items, more)
 }
 
+/// The notes' paragraphs and bullets.
+fn body_color() -> Color32 {
+    if theme::light() { theme::text() } else { Color32::from_gray(225) }
+}
+
+/// Lines between parts of the card.
+fn rule_color() -> Color32 {
+    if theme::light() { Color32::from_gray(222) } else { Color32::from_gray(44) }
+}
+
 pub(super) fn surface() -> egui::Frame {
     egui::Frame::new()
-        .fill(Color32::from_gray(28))
-        .stroke(Stroke::new(1.0, Color32::from_gray(44)))
+        .fill(if theme::light() { theme::surface_fill() } else { Color32::from_gray(28) })
+        .stroke(Stroke::new(1.0, rule_color()))
         .corner_radius(16)
         .shadow(egui::epaint::Shadow { offset: [0, 24], blur: 70, spread: 0, color: theme::shade(0.55) })
 }
 
 fn hline(ui: &mut Ui) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), egui::Sense::hover());
-    ui.painter().rect_filled(r, 0.0, Color32::from_gray(44));
+    ui.painter().rect_filled(r, 0.0, rule_color());
 }
 
 pub fn github_link(ui: &mut Ui) {
-    ui.hyperlink_to(egui::RichText::new("Full release notes on GitHub").font(theme::regular(13.0)).color(Color32::from_rgb(62, 166, 255)), crate::update::RELEASES);
+    ui.hyperlink_to(egui::RichText::new("Full release notes on GitHub").font(theme::regular(13.0)).color(if theme::light() { Color32::from_rgb(0, 102, 204) } else { Color32::from_rgb(62, 166, 255) }), crate::update::RELEASES);
 }
 
 /// What the notes dialog shows: a downloaded update (with Restart), or a version's notes.
@@ -189,7 +199,7 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
                 ui.label(j);
             });
             ui.add_space(8.0);
-            ui.label(egui::RichText::new(format!("ytm-rs {}", d.version)).font(theme::bold(26.0)).color(theme::TEXT));
+            ui.label(egui::RichText::new(format!("ytm-rs {}", d.version)).font(theme::bold(26.0)).color(theme::text()));
             ui.add_space(6.0);
             let sub = if d.ready {
                 format!("You're on {}. It's downloaded and installs when you close the app.", crate::update::current_version())
@@ -263,7 +273,7 @@ pub fn card(app: &mut App, ctx: &egui::Context) {
                 ui.horizontal_top(|ui| {
                     ui.vertical(|ui| {
                         ui.add_space(4.0);
-                        ui.label(egui::RichText::new(format!("Updated to {version}")).font(theme::semibold(15.0)).color(theme::TEXT));
+                        ui.label(egui::RichText::new(format!("Updated to {version}")).font(theme::semibold(15.0)).color(theme::text()));
                         ui.add_space(3.0);
                         ui.label(egui::RichText::new("Here's what changed.").font(theme::regular(13.0)).color(theme::text_dim()));
                     });
@@ -278,7 +288,7 @@ pub fn card(app: &mut App, ctx: &egui::Context) {
                 }
                 for (i, l) in lines.iter().enumerate() {
                     let faint = more > 0 && i == lines.len() - 1;
-                    let color = if faint { theme::text_dim() } else { Color32::from_gray(225) };
+                    let color = if faint { theme::text_dim() } else { body_color() };
                     let mut j = LayoutJob::single_section(l.clone(), TextFormat { font_id: theme::regular(13.5), color, ..Default::default() });
                     j.wrap.max_width = 300.0;
                     j.wrap.max_rows = 1;

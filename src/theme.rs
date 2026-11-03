@@ -7,20 +7,80 @@ use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId};
 // ------------------------------------------------------------------ colours
 
 /// Base surface under the animated background (seen while it fades in).
-pub const BG: Color32 = Color32::from_rgb(12, 10, 14);
-pub const TEXT: Color32 = Color32::from_rgb(242, 240, 245);
-pub const TEXT_DIM: Color32 = Color32::from_rgb(178, 172, 186);
-pub const TEXT_FAINT: Color32 = Color32::from_rgb(130, 124, 140);
+const BG: Color32 = Color32::from_rgb(12, 10, 14);
+const TEXT: Color32 = Color32::from_rgb(242, 240, 245);
+const TEXT_DIM: Color32 = Color32::from_rgb(178, 172, 186);
+const TEXT_FAINT: Color32 = Color32::from_rgb(130, 124, 140);
+/// Light mode's counterparts.
+const BG_LIGHT: Color32 = Color32::from_rgb(246, 244, 248);
+const TEXT_LIGHT: Color32 = Color32::from_rgb(22, 20, 26);
+const TEXT_DIM_LIGHT: Color32 = Color32::from_rgb(86, 82, 94);
+const TEXT_FAINT_LIGHT: Color32 = Color32::from_rgb(124, 118, 132);
 /// Default accent until a cover provides one (YouTube Music red, slightly warm).
 pub const RED: Color32 = Color32::from_rgb(255, 48, 72);
+
+/// Light or dark, as the app picked it for what's being drawn (see `set_mode`): the
+/// colours below follow it. Now playing always draws dark, over the album art.
+static LIGHT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn light() -> bool {
+    LIGHT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Draw what follows light or dark: the colours here and egui's style (menus, fields,
+/// text) change together. Returns the mode before, to go back to.
+pub fn set_mode(ctx: &egui::Context, light: bool) -> bool {
+    let was = LIGHT.swap(light, std::sync::atomic::Ordering::Relaxed);
+    if was != light {
+        ctx.global_style_mut(|s| s.visuals = visuals());
+    }
+    was
+}
+
+/// Main text.
+pub fn text() -> Color32 {
+    if light() { TEXT_LIGHT } else { TEXT }
+}
+
+/// Text and icons on a fill of the main text colour (a primary button, a selected chip).
+pub fn on_text() -> Color32 {
+    if light() { Color32::WHITE } else { Color32::from_gray(15) }
+}
+
+/// Least important text: counts, hints, placeholders.
+pub fn text_faint() -> Color32 {
+    if light() { TEXT_FAINT_LIGHT } else { TEXT_FAINT }
+}
+
+/// The window's base colour, under the background.
+pub fn bg() -> Color32 {
+    if light() { BG_LIGHT } else { BG }
+}
+
+/// Menus and popups.
+pub fn menu_fill() -> Color32 {
+    if light() { Color32::WHITE } else { Color32::from_rgb(38, 34, 42) }
+}
+
+/// Dialogs and cards that float over the page.
+pub fn surface_fill() -> Color32 {
+    if light() { Color32::from_rgb(252, 251, 253) } else { Color32::from_rgb(28, 24, 32) }
+}
 
 /// Theme preset multiplier for every glass surface (f32 bits; 1.0 by default).
 static GLASS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f80_0000);
 
-/// White at `a` opacity, for glassy surfaces over the background.
+/// White at `a` opacity, for glassy surfaces over the background (black in light mode).
 pub fn glass(a: f32) -> Color32 {
     let k = f32::from_bits(GLASS.load(std::sync::atomic::Ordering::Relaxed));
-    Color32::from_white_alpha(((a * k).min(1.0) * 255.0) as u8)
+    let a = ((a * k).min(1.0) * 255.0) as u8;
+    if light() { Color32::from_black_alpha(a) } else { Color32::from_white_alpha(a) }
+}
+
+/// A panel over the background (sidebar, player bar, queue): darker than the page at
+/// `a`, or in light mode lighter.
+pub fn panel(a: f32) -> Color32 {
+    if light() { Color32::from_white_alpha((a.clamp(0.0, 1.0) * 255.0) as u8) } else { shade(a) }
 }
 
 /// The active theme's secondary text colour, set with its chrome (read very often).
@@ -28,8 +88,88 @@ static DIM: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32
 
 /// Secondary text colour (themes may tint it).
 pub fn text_dim() -> Color32 {
+    if light() {
+        return TEXT_DIM_LIGHT;
+    }
     let [r, g, b, a] = DIM.load(std::sync::atomic::Ordering::Relaxed).to_le_bytes();
     Color32::from_rgba_premultiplied(r, g, b, a)
+}
+
+/// Light, dark, or whichever the system uses (Settings › Appearance › Mode).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Appearance {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl Appearance {
+    pub const ALL: [Self; 3] = [Self::System, Self::Light, Self::Dark];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::System => "System",
+            Self::Light => "Light",
+            Self::Dark => "Dark",
+        }
+    }
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+
+    pub fn from_key(s: &str) -> Self {
+        Self::ALL.into_iter().find(|a| a.key() == s).unwrap_or_default()
+    }
+
+    /// Whether this means light, given the system's mode as eframe reports it.
+    pub fn is_light(self, ctx: &egui::Context) -> bool {
+        match self {
+            Self::Light => true,
+            Self::Dark => false,
+            Self::System => system_light().unwrap_or_else(|| ctx.system_theme() == Some(egui::Theme::Light)),
+        }
+    }
+}
+
+/// Windows' "app mode" (Settings › Personalization › Colors), read again every couple
+/// of seconds so switching it there shows without a restart. `None` off Windows.
+fn system_light() -> Option<bool> {
+    use std::time::{Duration, Instant};
+    static MODE: std::sync::Mutex<Option<(Instant, Option<bool>)>> = std::sync::Mutex::new(None);
+    let mut cached = MODE.lock().unwrap();
+    match *cached {
+        Some((at, m)) if at.elapsed() < Duration::from_secs(2) => m,
+        _ => {
+            let m = read_system_light();
+            *cached = Some((Instant::now(), m));
+            m
+        }
+    }
+}
+
+#[cfg(windows)]
+fn read_system_light() -> Option<bool> {
+    use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
+    use windows::core::w;
+    let mut v = 0u32;
+    let mut size = 4u32;
+    // SAFETY: a DWORD out-buffer of the size passed; the strings are static.
+    unsafe {
+        RegGetValueW(HKEY_CURRENT_USER, w!(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"), w!("AppsUseLightTheme"), RRF_RT_REG_DWORD, None, Some(&mut v as *mut u32 as *mut _), Some(&mut size))
+            .is_ok()
+            .then_some(v != 0)
+    }
+}
+
+#[cfg(not(windows))]
+fn read_system_light() -> Option<bool> {
+    None
 }
 
 /// The Windows accent colour, in the lighter shade Windows itself uses on dark
@@ -719,15 +859,6 @@ pub fn apply_chrome(ctx: &egui::Context, p: &crate::preset::Preset) {
     DIM.store(u32::from_le_bytes(dim.to_array()), std::sync::atomic::Ordering::Relaxed);
     install_style(ctx);
     install_fonts(ctx, &p.app.font);
-    let r = p.chrome.radius.clamp(2.0, 28.0) as u8;
-    let pr = egui::CornerRadius::same(p.app.panel_radius.clamp(0.0, 32.0) as u8);
-    ctx.global_style_mut(|s| {
-        s.visuals.window_corner_radius = pr;
-        s.visuals.menu_corner_radius = pr;
-        for w in [&mut s.visuals.widgets.inactive, &mut s.visuals.widgets.hovered, &mut s.visuals.widgets.active, &mut s.visuals.widgets.open] {
-            w.corner_radius = egui::CornerRadius::same(r);
-        }
-    });
 }
 
 pub fn install_style(ctx: &egui::Context) {
@@ -740,33 +871,42 @@ pub fn install_style(ctx: &egui::Context) {
         s.text_styles.insert(egui::TextStyle::Button, semibold(14.0));
         s.text_styles.insert(egui::TextStyle::Heading, bold(22.0));
         s.text_styles.insert(egui::TextStyle::Small, regular(12.0));
-        let v = &mut s.visuals;
-        v.panel_fill = BG;
-        v.window_fill = Color32::from_rgb(28, 24, 32);
-        v.extreme_bg_color = glass(0.08);
-        v.override_text_color = Some(TEXT);
-        v.selection.bg_fill = with_alpha(RED, 0.5);
-        v.hyperlink_color = TEXT;
-        v.interact_cursor = Some(egui::CursorIcon::PointingHand);
-        v.window_corner_radius = egui::CornerRadius::same(14);
-        v.menu_corner_radius = egui::CornerRadius::same(12);
-        v.window_stroke = egui::Stroke::new(1.0, glass(0.08));
-        v.popup_shadow = egui::epaint::Shadow { offset: [0, 8], blur: 28, spread: 0, color: shade(0.5) };
-        for (w, fill) in [
-            (&mut v.widgets.inactive, glass(0.08)),
-            (&mut v.widgets.hovered, glass(0.14)),
-            (&mut v.widgets.active, glass(0.2)),
-            (&mut v.widgets.open, glass(0.14)),
-        ] {
-            w.bg_fill = fill;
-            w.weak_bg_fill = fill;
-            w.bg_stroke = egui::Stroke::NONE;
-            w.corner_radius = egui::CornerRadius::same(18);
-            w.fg_stroke.color = TEXT;
-        }
-        v.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, glass(0.08));
+        s.visuals = visuals();
         s.interaction.selectable_labels = false;
         s.animation_time = 0.18 * SPEED;
     });
+}
+
+/// egui's colours and shapes for the current mode and the active preset's chrome.
+fn visuals() -> egui::Visuals {
+    let p = crate::preset::active();
+    let mut v = if light() { egui::Visuals::light() } else { egui::Visuals::dark() };
+    v.panel_fill = bg();
+    v.window_fill = surface_fill();
+    v.extreme_bg_color = glass(0.08);
+    v.override_text_color = Some(text());
+    v.selection.bg_fill = with_alpha(RED, if light() { 0.3 } else { 0.5 });
+    v.hyperlink_color = text();
+    v.interact_cursor = Some(egui::CursorIcon::PointingHand);
+    let pr = egui::CornerRadius::same(p.app.panel_radius.clamp(0.0, 32.0) as u8);
+    v.window_corner_radius = pr;
+    v.menu_corner_radius = pr;
+    v.window_stroke = egui::Stroke::new(1.0, glass(0.08));
+    v.popup_shadow = egui::epaint::Shadow { offset: [0, 8], blur: 28, spread: 0, color: shade(if light() { 0.16 } else { 0.5 }) };
+    let r = egui::CornerRadius::same(p.chrome.radius.clamp(2.0, 28.0) as u8);
+    for (w, fill) in [
+        (&mut v.widgets.inactive, glass(0.08)),
+        (&mut v.widgets.hovered, glass(0.14)),
+        (&mut v.widgets.active, glass(0.2)),
+        (&mut v.widgets.open, glass(0.14)),
+    ] {
+        w.bg_fill = fill;
+        w.weak_bg_fill = fill;
+        w.bg_stroke = egui::Stroke::NONE;
+        w.corner_radius = r;
+        w.fg_stroke.color = text();
+    }
+    v.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, glass(0.08));
+    v
 }
 

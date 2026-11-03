@@ -380,7 +380,7 @@ impl Preset {
     }
 
     pub fn solid(&self) -> Color32 {
-        hex(&self.background.solid).unwrap_or(crate::theme::BG)
+        hex(&self.background.solid).unwrap_or(crate::theme::bg())
     }
 }
 

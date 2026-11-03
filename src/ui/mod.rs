@@ -308,6 +308,8 @@ pub struct App {
     theme_id: String,
     /// Preset whose chrome (glass, corner radius) is installed in the egui style.
     chrome_applied: Option<String>,
+    /// Light or dark pages (the ytm-rs theme's; see `light_pages`).
+    appearance: theme::Appearance,
     anim_bg: bool,
     reactive_bg: bool,
     /// Skip the parts of music videos SponsorBlock marks as not music.
@@ -565,6 +567,8 @@ impl App {
             // Dev hook: YTM_THEME=<preset id> tries a theme without saving it.
             theme_id: std::env::var("YTM_THEME").ok().or_else(|| get("theme")).unwrap_or_else(|| crate::preset::DEFAULT_ID.to_owned()),
             chrome_applied: None,
+            // Dev hook: YTM_APPEARANCE=light|dark|system tries a mode without saving it.
+            appearance: theme::Appearance::from_key(&dev_var("YTM_APPEARANCE").map(str::to_owned).or_else(|| get("appearance")).unwrap_or_default()),
             anim_bg: get("anim_bg").is_none_or(|v| v == "1"),
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
             sponsorblock: get("sponsorblock").is_some_and(|v| v == "1"),
@@ -786,7 +790,21 @@ impl App {
     }
 
     fn accent_color(&self) -> Color32 {
-        if self.default_theme { theme::RED } else { self.look().accent(self.accent) }
+        let c = if self.default_theme { theme::RED } else { self.look().accent(self.accent) };
+        if theme::light() {
+            // A pale cover colour would barely show on light pages: deepen it.
+            let luma = 0.299 * c.r() as f32 + 0.587 * c.g() as f32 + 0.114 * c.b() as f32;
+            if luma > 150.0 {
+                return theme::lerp_color(c, Color32::BLACK, ((luma - 150.0) / 105.0 * 0.45).min(0.45));
+            }
+        }
+        c
+    }
+
+    /// Whether pages draw light: only the ytm-rs theme has a light mode, and it follows
+    /// Settings › Appearance › Mode.
+    fn light_pages(&self, ctx: &egui::Context) -> bool {
+        !self.default_theme && self.look().id == crate::preset::DEFAULT_ID && self.appearance.is_light(ctx)
     }
 
     /// The active theme preset; the classic red theme uses the built-in look's layout.
@@ -936,8 +954,10 @@ impl eframe::App for App {
 
         self.sync_look();
         let look = self.look();
-        let accent = self.accent_color();
-        ctx.data_mut(|d| d.insert_temp(egui::Id::unique("accent"), accent));
+        // Now playing is dark; once it's most of the way up, so is the player bar under it.
+        let np = theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), 0.42);
+        let light = self.light_pages(&ctx) && np < 0.5 && !self.fullscreen;
+        theme::set_mode(&ctx, light);
         if self.chrome_applied.as_deref() != Some(look.id.as_str()) {
             if self.chrome_applied.is_none() {
                 ctx.add_texture_loader(Arc::new(crate::images::Textures::default()));
@@ -945,10 +965,12 @@ impl eframe::App for App {
             theme::apply_chrome(&ctx, look);
             self.chrome_applied = Some(look.id.clone());
         }
+        let accent = self.accent_color();
+        ctx.data_mut(|d| d.insert_temp(egui::Id::unique("accent"), accent));
         let app_style = &look.app;
         // Once now playing has slid all the way up it hides everything but the player
         // bar, so the pages and the full-screen background under it aren't drawn.
-        let covered = !self.fullscreen && theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), 0.42) >= 1.0;
+        let covered = !self.fullscreen && np >= 1.0;
         let bar_strip = egui::Rect::from_min_max(egui::pos2(screen.left(), screen.bottom() - self.bar_height()), screen.max);
         titlebar::set_fullscreen(&ctx, self.fullscreen);
         // The mini player, or nothing but the background while the window changes size.
@@ -976,7 +998,7 @@ impl eframe::App for App {
             let frame = if floating {
                 egui::Frame::new().inner_margin(egui::Margin { left: 14, right: 14, top: 0, bottom: 14 })
             } else {
-                let mut f = egui::Frame::new().fill(theme::shade(bar_alpha));
+                let mut f = egui::Frame::new().fill(theme::panel(bar_alpha));
                 if app_style.bar_border {
                     f = f.stroke(egui::Stroke::new(1.0, theme::glass(0.1)));
                 }
@@ -991,7 +1013,7 @@ impl eframe::App for App {
                         let r = ui.max_rect();
                         let radius = look.chrome.radius.clamp(10.0, 26.0);
                         widgets::soft_shadow(ui, r, radius, 24.0, 0.45);
-                        ui.painter().rect_filled(r, radius, theme::shade((bar_alpha + 0.07).min(1.0)));
+                        ui.painter().rect_filled(r, radius, theme::panel((bar_alpha + 0.07).min(1.0)));
                         let edge = if app_style.bar_border { 0.14 } else { 0.08 };
                         ui.painter().rect_stroke(r, radius, egui::Stroke::new(1.0, theme::glass(edge)), egui::StrokeKind::Inside);
                         ui.set_clip_rect(r);
@@ -1005,11 +1027,11 @@ impl eframe::App for App {
             // The logo's row is 32 points tall.
             let side_margin = egui::Margin { left: 14, right: 14, top: titlebar::top_margin(16, 32.0), bottom: 16 };
             let side_frame = match app_style.sidebar {
-                SidebarStyle::Glass => egui::Frame::new().fill(theme::shade(side_alpha)).inner_margin(side_margin),
+                SidebarStyle::Glass => egui::Frame::new().fill(theme::panel(side_alpha)).inner_margin(side_margin),
                 SidebarStyle::Transparent => egui::Frame::new().inner_margin(side_margin),
                 SidebarStyle::Solid => egui::Frame::new().fill(look.solid()).inner_margin(side_margin),
                 SidebarStyle::Floating => egui::Frame::new()
-                    .fill(theme::shade(side_alpha.max(0.3)))
+                    .fill(theme::panel(side_alpha.max(0.3)))
                     .stroke(egui::Stroke::new(1.0, theme::glass(0.08)))
                     .corner_radius(egui::CornerRadius::same(theme::panel_radius().max(12)))
                     .outer_margin(egui::Margin { left: 10, right: 4, top: 10, bottom: 10 })
@@ -1024,7 +1046,7 @@ impl eframe::App for App {
             if q > 0.01 {
                 egui::Panel::right("queue").resizable(false)
                     .exact_size(340.0 * q)
-                    .frame(egui::Frame::new().fill(theme::shade(0.42)).inner_margin(egui::Margin::symmetric(14, 16)))
+                    .frame(egui::Frame::new().fill(theme::panel(0.42)).inner_margin(egui::Margin::symmetric(14, 16)))
                     .show_separator_line(false)
                     .show(ui, |ui| shell::queue_drawer(self, ui));
             }
@@ -1036,7 +1058,11 @@ impl eframe::App for App {
                     pages::page(self, ui, now);
                 });
         }
-        nowplaying::overlay(self, &ctx, now);
+        if np > 0.001 {
+            let pages = theme::set_mode(&ctx, false);
+            nowplaying::overlay(self, &ctx, now);
+            theme::set_mode(&ctx, pages);
+        }
         self.draw_dialog(&ctx);
         notes::card(self, &ctx);
         notes::dialog(self, &ctx);
@@ -1141,6 +1167,9 @@ impl eframe::App for App {
         }
         storage.set_string("discord_enabled", b(self.discord_enabled));
         storage.set_string("default_theme", b(self.default_theme));
+        if dev_var("YTM_APPEARANCE").is_none() {
+            storage.set_string("appearance", self.appearance.key().to_owned());
+        }
         if std::env::var_os("YTM_THEME").is_none() {
             storage.set_string("theme", self.theme_id.clone());
         }

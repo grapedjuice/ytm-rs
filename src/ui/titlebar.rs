@@ -118,7 +118,7 @@ pub fn window_buttons(ctx: &egui::Context) {
             let resp = super::widgets::named(resp, name);
             paint_button(ui, r, kind, &resp);
             if resp.has_focus() {
-                ui.painter().rect_stroke(r.shrink(3.0), 3.0, Stroke::new(1.5, theme::TEXT), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(r.shrink(3.0), 3.0, Stroke::new(1.5, theme::text()), egui::StrokeKind::Inside);
             }
             if resp.clicked() {
                 ctx.send_viewport_cmd(match kind {
@@ -155,7 +155,7 @@ fn paint_button(ui: &Ui, r: Rect, kind: Kind, resp: &egui::Response) {
         if h > 0.0 {
             p.rect_filled(r, 0.0, theme::glass(if down { 0.16 } else { 0.10 } * h));
         }
-        theme::lerp_color(theme::text_dim(), theme::TEXT, h)
+        theme::lerp_color(theme::text_dim(), theme::text(), h)
     };
     // Thin glyphs, ten points across, on whole pixels so they stay sharp.
     let px = 1.0 / ui.ctx().pixels_per_point();

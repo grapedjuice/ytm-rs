@@ -249,7 +249,7 @@ fn selection_bar(app: &mut App, ctx: &egui::Context, page: &Page, area: Rect) {
         .fixed_pos(pos2(area.center().x, area.bottom() - 18.0))
         .show(ctx, |ui| {
             egui::Frame::new()
-                .fill(Color32::from_rgb(38, 34, 42))
+                .fill(theme::menu_fill())
                 .corner_radius(14)
                 .inner_margin(egui::Margin { left: 20, right: 10, top: 8, bottom: 8 })
                 .shadow(egui::epaint::Shadow { offset: [0, 8], blur: 24, spread: 0, color: theme::shade(0.45) })
@@ -257,7 +257,7 @@ fn selection_bar(app: &mut App, ctx: &egui::Context, page: &Page, area: Rect) {
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         let count = if picked.is_empty() { "Select songs".to_owned() } else { format!("{} selected", picked.len()) };
-                        ui.label(RichText::new(count).font(theme::semibold(14.0)).color(theme::TEXT));
+                        ui.label(RichText::new(count).font(theme::semibold(14.0)).color(theme::text()));
                         ui.add_space(10.0);
                         if !picked.is_empty() {
                             if button(ui, "Add to playlist", icon::LIST_PLUS, true).clicked() {
@@ -376,7 +376,7 @@ fn explore(app: &mut App, ui: &mut Ui, now: f64) {
 
 pub(super) fn page_title(ui: &mut Ui, title: &str) {
     ui.add_space(14.0);
-    ui.label(RichText::new(title).font(theme::bold(34.0)).color(theme::TEXT));
+    ui.label(RichText::new(title).font(theme::bold(34.0)).color(theme::text()));
 }
 
 // ------------------------------------------------------------------ search
@@ -451,7 +451,7 @@ fn top_result(ui: &mut Ui, c: &Card, pick: bool, acts: &mut Vec<Action>) {
         let img = Rect::from_min_size(rect.min + vec2(20.0, 20.0), Vec2::splat(110.0));
         paint_cover(ui, img, &c.thumbs, if c.round { 55.0 } else { theme::card_radius() }, 1.0);
         let x = rect.left() + 20.0;
-        widgets::text_at(ui, pos2(x, img.bottom() + 16.0), &c.title, theme::bold(26.0), theme::TEXT, rect.width() - 40.0);
+        widgets::text_at(ui, pos2(x, img.bottom() + 16.0), &c.title, theme::bold(26.0), theme::text(), rect.width() - 40.0);
         widgets::linked_text(ui, pos2(x, img.bottom() + 52.0), &c.subtitle, &c.links, theme::regular(14.0), theme::text_dim(), rect.width() - 40.0, acts);
         // Floating play button
         let pc = rect.right_bottom() + vec2(-44.0, -44.0 + 6.0 * (1.0 - h));
@@ -501,14 +501,14 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             ui.set_max_width(ui.available_width().min(760.0));
             ui.add_space(24.0);
             ui.label(RichText::new(if is_album { "ALBUM" } else { "PLAYLIST" }).font(theme::semibold(12.0)).color(theme::text_dim()));
-            ui.label(RichText::new(&c.title).font(theme::bold(40.0)).color(theme::TEXT));
+            ui.label(RichText::new(&c.title).font(theme::bold(40.0)).color(theme::text()));
             ui.add_space(2.0);
             let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
             widgets::linked_text(ui, r.min, &c.byline(), &c.artists, theme::regular(15.0), theme::text_dim(), r.width(), acts);
             let total: u32 = tracks.iter().filter_map(|t| t.duration).sum();
             if total > 0 {
                 ui.label(
-                    RichText::new(format!("{} songs • {} min", tracks.len(), total / 60)).font(theme::regular(13.5)).color(theme::TEXT_FAINT),
+                    RichText::new(format!("{} songs • {} min", tracks.len(), total / 60)).font(theme::regular(13.5)).color(theme::text_faint()),
                 );
             }
             if let Some(d) = c.description.as_deref().filter(|d| !d.trim().is_empty()) {
@@ -619,7 +619,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     if !top.is_empty() {
         ui.add_space(26.0);
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Top songs").font(theme::bold(24.0)).color(theme::TEXT));
+            ui.label(RichText::new("Top songs").font(theme::bold(24.0)).color(theme::text()));
             if let Some(pl) = &a.top_playlist {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if pill(ui, "Show all", None, false).clicked() {
@@ -1065,7 +1065,7 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
                 crate::lyrics::SyncKind::Line => "line",
                 crate::lyrics::SyncKind::Unsynced => "plain",
             };
-            row.label(egui::RichText::new(p.name()).font(theme::semibold(13.5)).color(if on { theme::TEXT } else { theme::text_dim() }));
+            row.label(egui::RichText::new(p.name()).font(theme::semibold(13.5)).color(if on { theme::text() } else { theme::text_dim() }));
             row.label(egui::RichText::new(kind).font(theme::regular(12.0)).color(theme::text_dim()));
             row.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.add_enabled(i + 1 < n, egui::Button::new("↓").min_size(vec2(28.0, 24.0))).on_hover_text("Lower").clicked() {
@@ -1089,6 +1089,37 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
     let was_theme = app.theme_id.clone();
     section_label(ui, "Appearance", None);
     settings_card(ui, |ui| {
+        // Only the ytm-rs theme has a light mode; the others are made dark.
+        let has_modes = !app.default_theme && app.theme_id == crate::preset::DEFAULT_ID;
+        let desc = if !has_modes {
+            "Light mode is part of the ytm-rs theme. Pick it under Theme to use it."
+        } else if cfg!(windows) {
+            "Light or dark pages. System follows Windows' app mode. Now playing stays dark, over the album art."
+        } else {
+            "Light or dark pages. System follows your system's setting. Now playing stays dark, over the album art."
+        };
+        let mut pick = None;
+        ui.add_enabled_ui(has_modes, |ui| {
+            setting_row(ui, "Mode", Some(desc), |ui| {
+                let btn = dropdown_button(ui, app.appearance.label(), 160.0, "Mode");
+                egui::Popup::menu(&btn).show(|ui| {
+                    ui.set_width(160.0);
+                    ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                    ui.add_space(4.0);
+                    for a in theme::Appearance::ALL {
+                        if option_row(ui, a.label(), a == app.appearance).clicked() {
+                            pick = Some(a);
+                            ui.close();
+                        }
+                    }
+                    ui.add_space(4.0);
+                });
+            });
+        });
+        if let Some(a) = pick {
+            app.appearance = a;
+        }
+        divider(ui);
         setting_row(ui, "Classic theme", Some("Plain dark with red accents. Turns off album-art colours and the theme below."), |ui| {
             toggle(ui, &mut app.default_theme, "Classic theme");
         });
@@ -1270,8 +1301,8 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
             ui.add_space(12.0);
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
             let resp = widgets::named(resp, "What's new").on_hover_cursor(egui::CursorIcon::PointingHand);
-            widgets::icon_at(ui, pos2(rect.left() + 8.0, rect.center().y), if open { icon::CHEVRON_DOWN } else { icon::CHEVRON_RIGHT }, 16.0, theme::TEXT);
-            ui.painter().text(pos2(rect.left() + 24.0, rect.center().y), Align2::LEFT_CENTER, format!("What's new in {notes_v}"), theme::semibold(14.0), theme::TEXT);
+            widgets::icon_at(ui, pos2(rect.left() + 8.0, rect.center().y), if open { icon::CHEVRON_DOWN } else { icon::CHEVRON_RIGHT }, 16.0, theme::text());
+            ui.painter().text(pos2(rect.left() + 24.0, rect.center().y), Align2::LEFT_CENTER, format!("What's new in {notes_v}"), theme::semibold(14.0), theme::text());
             if resp.clicked() {
                 open = !open;
                 ui.data_mut(|d| d.insert_temp(id, open));
@@ -1317,7 +1348,7 @@ fn settings_shortcuts(ui: &mut Ui) {
                 divider(ui);
             }
             let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
-            ui.painter().text(pos2(rect.left(), rect.center().y), Align2::LEFT_CENTER, *what, theme::regular(14.0), theme::TEXT);
+            ui.painter().text(pos2(rect.left(), rect.center().y), Align2::LEFT_CENTER, *what, theme::regular(14.0), theme::text());
             let mut x = rect.right();
             for (j, k) in combo.iter().enumerate().rev() {
                 x = keycap(ui, pos2(x, rect.center().y), k) - 6.0;
@@ -1358,7 +1389,7 @@ fn settings_sign_off(app: &mut App, ui: &mut Ui) {
     ui.add_space(40.0);
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 96.0), Sense::hover());
     icon_at(ui, crate::appicon::get(app.app_icon), Rect::from_center_size(pos2(rect.center().x, rect.top() + 22.0), vec2(44.0, 44.0)));
-    ui.painter().text(pos2(rect.center().x, rect.top() + 58.0), Align2::CENTER_CENTER, "ytm-rs", theme::bold(17.0), theme::TEXT);
+    ui.painter().text(pos2(rect.center().x, rect.top() + 58.0), Align2::CENTER_CENTER, "ytm-rs", theme::bold(17.0), theme::text());
     ui.painter().text(pos2(rect.center().x, rect.top() + 82.0), Align2::CENTER_CENTER, text, theme::regular(13.0), theme::text_dim());
 }
 
@@ -1510,8 +1541,8 @@ fn app_icon_tile(ui: &mut Ui, v: &crate::appicon::Variant, w: f32, selected: boo
     icon_at(ui, v, Rect::from_center_size(pos2(rect.center().x, rect.top() + 46.0), Vec2::splat(56.0)));
     // Narrow tiles get a smaller label so "YouTube Music" still fits.
     let font = theme::semibold(if w >= 108.0 { 13.0 } else { 12.0 });
-    let label = widgets::galley(ui, v.name, font.clone(), theme::TEXT, w - 8.0);
-    widgets::text_at(ui, pos2(rect.center().x - label.size().x / 2.0, rect.top() + 84.0), v.name, font, theme::TEXT, w - 8.0);
+    let label = widgets::galley(ui, v.name, font.clone(), theme::text(), w - 8.0);
+    widgets::text_at(ui, pos2(rect.center().x - label.size().x / 2.0, rect.top() + 84.0), v.name, font, theme::text(), w - 8.0);
     resp
 }
 
@@ -1573,7 +1604,7 @@ fn font_picker(ui: &mut Ui) -> Option<String> {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
-                ui.label(RichText::new("Installed on this PC").font(theme::semibold(12.0)).color(theme::TEXT_FAINT));
+                ui.label(RichText::new("Installed on this PC").font(theme::semibold(12.0)).color(theme::text_faint()));
             });
             ui.add_space(4.0);
             let ctx = ui.ctx().clone();
@@ -1644,9 +1675,9 @@ fn dropdown_button(ui: &mut Ui, value: &str, width: f32, name: &str) -> egui::Re
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered() || open, 0.12);
     ui.painter().rect_filled(rect, 10.0, theme::glass(0.08 + 0.05 * h));
-    widgets::text_at(ui, pos2(rect.left() + 14.0, rect.center().y - 9.0), value, theme::regular(14.0), theme::TEXT, rect.width() - 44.0);
+    widgets::text_at(ui, pos2(rect.left() + 14.0, rect.center().y - 9.0), value, theme::regular(14.0), theme::text(), rect.width() - 44.0);
     let glyph = if open { theme::icon::CHEVRON_UP } else { theme::icon::CHEVRON_DOWN };
-    widgets::icon_at(ui, pos2(rect.right() - 18.0, rect.center().y), glyph, 15.0, theme::lerp_color(theme::text_dim(), theme::TEXT, h));
+    widgets::icon_at(ui, pos2(rect.right() - 18.0, rect.center().y), glyph, 15.0, theme::lerp_color(theme::text_dim(), theme::text(), h));
     resp
 }
 
@@ -1659,9 +1690,9 @@ fn option_row(ui: &mut Ui, label: &str, selected: bool) -> egui::Response {
         ui.painter().rect_filled(rect, 8.0, theme::glass(0.05 * selected as u8 as f32 + 0.08 * h));
     }
     let font = if selected { theme::semibold(14.0) } else { theme::regular(14.0) };
-    widgets::text_at(ui, pos2(rect.left() + 12.0, rect.center().y - 9.0), label, font, theme::TEXT, rect.width() - 44.0);
+    widgets::text_at(ui, pos2(rect.left() + 12.0, rect.center().y - 9.0), label, font, theme::text(), rect.width() - 44.0);
     if selected {
-        widgets::icon_at(ui, pos2(rect.right() - 16.0, rect.center().y), theme::icon::CHECK, 15.0, theme::TEXT);
+        widgets::icon_at(ui, pos2(rect.right() - 16.0, rect.center().y), theme::icon::CHECK, 15.0, theme::text());
     }
     resp
 }
@@ -1683,7 +1714,7 @@ fn thousands(n: u64) -> String {
 pub(super) fn section_label(ui: &mut Ui, title: &str, value: Option<&str>) {
     ui.add_space(30.0);
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
-    ui.painter().text(pos2(rect.left() + 2.0, rect.center().y), Align2::LEFT_CENTER, title, theme::bold(17.0), theme::TEXT);
+    ui.painter().text(pos2(rect.left() + 2.0, rect.center().y), Align2::LEFT_CENTER, title, theme::bold(17.0), theme::text());
     if let Some(v) = value {
         ui.painter().text(pos2(rect.right() - 2.0, rect.center().y), Align2::RIGHT_CENTER, v, theme::semibold(13.0), theme::text_dim());
     }
@@ -1706,14 +1737,14 @@ pub(super) fn settings_card(ui: &mut Ui, body: impl FnOnce(&mut Ui)) {
 pub(super) fn setting_row(ui: &mut Ui, title: &str, desc: Option<&str>, control: impl FnOnce(&mut Ui)) {
     let w = ui.available_width();
     let text_w = (w - 230.0).max(200.0);
-    let title_g = widgets::galley(ui, title, theme::semibold(14.5), theme::TEXT, text_w);
+    let title_g = widgets::galley(ui, title, theme::semibold(14.5), theme::text(), text_w);
     let desc_g = desc.map(|d| widgets::galley_wrapped(ui, d, theme::regular(12.5), theme::text_dim(), text_w, 3));
     let text_h = title_g.size().y + desc_g.as_ref().map_or(0.0, |g| g.size().y + 3.0);
     let h = (text_h + 26.0).max(58.0);
     let (rect, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
     let fade = if ui.is_enabled() { 1.0 } else { 0.45 };
     let top = rect.center().y - text_h / 2.0;
-    ui.painter().galley(pos2(rect.left(), top), title_g.clone(), theme::with_alpha(theme::TEXT, fade));
+    ui.painter().galley(pos2(rect.left(), top), title_g.clone(), theme::with_alpha(theme::text(), fade));
     if let Some(g) = desc_g {
         ui.painter().galley(pos2(rect.left(), top + title_g.size().y + 3.0), g, theme::with_alpha(theme::text_dim(), fade));
     }
@@ -1758,7 +1789,7 @@ fn seconds_slider(ui: &mut Ui, v: &mut u32, range: std::ops::RangeInclusive<u32>
         let g = widgets::galley(ui, &text, font, color, w);
         ui.painter().galley(pos2(rect.right() - g.size().x, rect.center().y - g.size().y / 2.0), g, color);
     };
-    label(ui, format!("{v} s"), 34.0, theme::semibold(13.0), theme::TEXT);
+    label(ui, format!("{v} s"), 34.0, theme::semibold(13.0), theme::text());
     ui.add_space(6.0);
     label(ui, format!("{hi} s"), 26.0, theme::regular(12.0), theme::text_dim());
     let (rect, mut resp) = ui.allocate_exact_size(vec2(170.0, 26.0), Sense::click_and_drag());
@@ -1790,13 +1821,13 @@ fn seconds_slider(ui: &mut Ui, v: &mut u32, range: std::ops::RangeInclusive<u32>
 
 /// Draw a key cap whose right edge is at `right`; returns its left edge.
 fn keycap(ui: &Ui, right: egui::Pos2, key: &str) -> f32 {
-    let g = widgets::galley(ui, key, theme::semibold(12.5), theme::TEXT, 200.0);
+    let g = widgets::galley(ui, key, theme::semibold(12.5), theme::text(), 200.0);
     let size = vec2((g.size().x + 18.0).max(30.0), 26.0);
     let rect = Rect::from_min_size(pos2(right.x - size.x, right.y - size.y / 2.0), size);
     ui.painter().rect_filled(rect, 7.0, theme::glass(0.08));
     ui.painter().rect_stroke(rect, 7.0, egui::Stroke::new(1.0, theme::glass(0.12)), egui::StrokeKind::Inside);
     ui.painter().rect_filled(Rect::from_min_max(pos2(rect.left() + 2.0, rect.bottom() - 2.0), pos2(rect.right() - 2.0, rect.bottom())), 2.0, theme::shade(0.25));
-    ui.painter().galley(rect.center() - g.size() / 2.0, g, theme::TEXT);
+    ui.painter().galley(rect.center() - g.size() / 2.0, g, theme::text());
     rect.left()
 }
 
@@ -1866,9 +1897,9 @@ fn theme_card(ui: &mut Ui, p: &crate::preset::Preset, w: f32, selected: bool, ac
         widgets::icon_at(ui, badge, icon::CHECK, 14.0 * s, Color32::from_gray(15));
     }
     let name_y = img.bottom() + 10.0;
-    widgets::text_at(ui, pos2(rect.left() + 2.0, name_y), &p.name, theme::semibold(14.5), theme::TEXT, w - 4.0);
+    widgets::text_at(ui, pos2(rect.left() + 2.0, name_y), &p.name, theme::semibold(14.5), theme::text(), w - 4.0);
     let by = if p.creators.is_empty() { "Built in".to_owned() } else { format!("by {}", p.creators.join(", ")) };
-    widgets::text_at(ui, pos2(rect.left() + 2.0, name_y + 20.0), &by, theme::regular(12.0), theme::TEXT_FAINT, w - 4.0);
+    widgets::text_at(ui, pos2(rect.left() + 2.0, name_y + 20.0), &by, theme::regular(12.0), theme::text_faint(), w - 4.0);
     if !p.blurb.is_empty() {
         resp.on_hover_text(&p.blurb)
     } else {

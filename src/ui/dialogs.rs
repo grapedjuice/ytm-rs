@@ -37,7 +37,7 @@ impl App {
             ui.set_width(440.0_f32.min(ctx.content_rect().width() - 48.0));
             egui::Frame::new().inner_margin(egui::Margin { left: 26, right: 26, top: 24, bottom: 22 }).show(ui, |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-                ui.label(egui::RichText::new(heading).font(theme::bold(22.0)).color(theme::TEXT));
+                ui.label(egui::RichText::new(heading).font(theme::bold(22.0)).color(theme::text()));
                 ui.add_space(18.0);
                 match &mut dialog {
                     Dialog::PickPlaylist(tracks) => {
@@ -66,7 +66,7 @@ impl App {
                         let name = text_field(ui, "Name", title, false, "My playlist");
                         if ui.memory(|m| m.focused().is_none()) { name.request_focus(); }
                         ui.add_space(8.0);
-                        ui.label(egui::RichText::new("Private · only you can see it").font(theme::regular(12.5)).color(theme::TEXT_FAINT));
+                        ui.label(egui::RichText::new("Private · only you can see it").font(theme::regular(12.5)).color(theme::text_faint()));
                         ui.add_space(24.0);
                         let enter = name.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                         let (ok, cancel) = dialog_buttons(ui, "Create", !title.trim().is_empty(), accent);
@@ -111,7 +111,7 @@ impl App {
         };
         let mut change = None;
         if *confirm_off {
-            ui.label(egui::RichText::new("Turn off collaboration?").font(theme::semibold(15.0)).color(theme::TEXT));
+            ui.label(egui::RichText::new("Turn off collaboration?").font(theme::semibold(15.0)).color(theme::text()));
             ui.add_space(6.0);
             ui.label(egui::RichText::new("Collaborators will be removed from the playlist. Songs they added stay.").font(theme::regular(13.0)).color(theme::text_dim()));
             ui.add_space(24.0);
@@ -148,9 +148,9 @@ impl App {
                         self.toast("Invite link copied. Whoever opens it can add songs.");
                     }
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new("Send the link to the people you want to add. They join from YouTube Music.").font(theme::regular(12.5)).color(theme::TEXT_FAINT));
+                    ui.label(egui::RichText::new("Send the link to the people you want to add. They join from YouTube Music.").font(theme::regular(12.5)).color(theme::text_faint()));
                 } else {
-                    ui.label(egui::RichText::new("New collaborators can't join. Turn on Allow new collaborators for an invite link.").font(theme::regular(12.5)).color(theme::TEXT_FAINT));
+                    ui.label(egui::RichText::new("New collaborators can't join. Turn on Allow new collaborators for an invite link.").font(theme::regular(12.5)).color(theme::text_faint()));
                 }
                 ui.add_space(16.0);
                 field_label(ui, "Collaborators");
@@ -158,7 +158,7 @@ impl App {
                     ui.label(egui::RichText::new("No one has joined yet.").font(theme::regular(13.5)).color(theme::text_dim()));
                 }
                 for name in &c.collaborators {
-                    ui.label(egui::RichText::new(name).font(theme::regular(14.0)).color(theme::TEXT));
+                    ui.label(egui::RichText::new(name).font(theme::regular(14.0)).color(theme::text()));
                     ui.add_space(4.0);
                 }
             }
@@ -192,7 +192,7 @@ pub(super) fn text_field(ui: &mut Ui, label: &str, text: &mut String, multiline:
     let edit = if multiline { egui::TextEdit::multiline(text).desired_rows(4) } else { egui::TextEdit::singleline(text).align(egui::Align2::LEFT_CENTER) };
     let resp = ui.put(
         inner,
-        edit.hint_text(egui::RichText::new(hint).color(theme::TEXT_FAINT)).font(theme::regular(14.0)).frame(egui::Frame::NONE).desired_width(inner.width()),
+        edit.hint_text(egui::RichText::new(hint).color(theme::text_faint())).font(theme::regular(14.0)).frame(egui::Frame::NONE).desired_width(inner.width()),
     );
     let focus = theme::anim_bool(ui.ctx(), resp.id.with("focus"), resp.has_focus(), 0.15);
     ui.painter().set(bg, egui::Shape::Vec(vec![
@@ -215,9 +215,9 @@ fn privacy_picker(ui: &mut Ui, privacy: &mut Option<String>) {
         let on = privacy.as_deref() == Some(value);
         let s = theme::anim_bool(ui.ctx(), resp.id.with("s"), on, 0.15);
         let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.12);
-        let fill = theme::lerp_color(theme::glass(0.06 * h), Color32::from_gray(245), s);
+        let fill = theme::lerp_color(theme::glass(0.06 * h), theme::text(), s);
         if fill.a() > 0 { ui.painter().rect_filled(r, 8.0, fill); }
-        let color = theme::lerp_color(theme::with_alpha(theme::TEXT, 0.7 + 0.3 * h), Color32::from_gray(15), s);
+        let color = theme::lerp_color(theme::with_alpha(theme::text(), 0.7 + 0.3 * h), theme::on_text(), s);
         ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, label, theme::semibold(13.0), color);
         if resp.clicked() {
             *privacy = if on { None } else { Some(value.to_owned()) };
@@ -225,7 +225,7 @@ fn privacy_picker(ui: &mut Ui, privacy: &mut Option<String>) {
     }
     if privacy.is_none() {
         ui.add_space(8.0);
-        ui.label(egui::RichText::new("Unchanged. Pick one to change who can see it.").font(theme::regular(12.5)).color(theme::TEXT_FAINT));
+        ui.label(egui::RichText::new("Unchanged. Pick one to change who can see it.").font(theme::regular(12.5)).color(theme::text_faint()));
     }
 }
 
@@ -267,12 +267,12 @@ fn dialog_row(ui: &mut Ui, thumbs: Option<&[crate::model::Thumb]>, glyph: Option
         (Some(t), _) => widgets::paint_cover(ui, art, t, 6.0, 1.0),
         (None, Some(g)) => {
             ui.painter().rect_filled(art, 6.0, theme::glass(0.1));
-            widgets::icon_at(ui, art.center(), g, 18.0, theme::TEXT);
+            widgets::icon_at(ui, art.center(), g, 18.0, theme::text());
         }
         _ => {}
     }
     let x = art.right() + 14.0;
-    widgets::text_at(ui, pos2(x, rect.center().y - 9.0), label, theme::semibold(14.0), theme::TEXT, rect.right() - x - 10.0);
+    widgets::text_at(ui, pos2(x, rect.center().y - 9.0), label, theme::semibold(14.0), theme::text(), rect.right() - x - 10.0);
     resp.clicked()
 }
 
@@ -283,7 +283,7 @@ fn confirm_delete(ctx: &egui::Context, title: &str, _accent: Color32) -> Option<
         ui.set_width(400.0_f32.min(ctx.content_rect().width() - 48.0));
         egui::Frame::new().inner_margin(egui::Margin { left: 26, right: 26, top: 24, bottom: 22 }).show(ui, |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-            ui.label(egui::RichText::new("Delete playlist?").font(theme::bold(22.0)).color(theme::TEXT));
+            ui.label(egui::RichText::new("Delete playlist?").font(theme::bold(22.0)).color(theme::text()));
             ui.add_space(10.0);
             let body = format!("\u{201c}{title}\u{201d} will be removed from your YouTube Music library. This can't be undone.");
             ui.add(egui::Label::new(egui::RichText::new(body).font(theme::regular(14.0)).color(theme::text_dim())).wrap());

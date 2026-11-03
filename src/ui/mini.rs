@@ -474,7 +474,7 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
     if titlebar::drag_strip(ui, r, "mini").double_clicked() {
         app.actions.push(Action::Mini(false));
     }
-    ui.painter().rect_filled(r, 0.0, theme::shade(0.18));
+    ui.painter().rect_filled(r, 0.0, theme::panel(0.18));
 
     let track = app.current().cloned();
     let pad = 12.0;
@@ -483,7 +483,7 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
         Some(t) => paint_cover(ui, art, &t.thumbs, theme::thumb_radius() + 1.0, 1.0),
         None => {
             ui.painter().rect_filled(art, theme::thumb_radius() + 1.0, theme::glass(0.08));
-            icon_at(ui, art.center(), icon::MUSIC, 28.0, theme::TEXT_FAINT);
+            icon_at(ui, art.center(), icon::MUSIC, 28.0, theme::text_faint());
         }
     }
 
@@ -495,7 +495,7 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
         Some(t) => (t.title.clone(), t.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", ")),
         None => ("Nothing playing".to_owned(), String::new()),
     };
-    let tr = text_at(ui, pos2(x0, art.top() + 1.0), &title, theme::semibold(14.5), theme::TEXT, text_w);
+    let tr = text_at(ui, pos2(x0, art.top() + 1.0), &title, theme::semibold(14.5), theme::text(), text_w);
     if let Some(t) = &track {
         named(ui.interact(tr, ui.scope_id().with("mini-title"), Sense::hover()), &t.title).on_hover_text(&t.title);
     }
@@ -512,7 +512,7 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
     let count = if titlebar::custom() { 3.0 } else { 2.0 };
     let backdrop = Rect::from_min_max(pos2(r.right() - 6.0 - 30.0 * count - 2.0, r.top() + 2.0), pos2(r.right() - 2.0, r.top() + 38.0));
     // Opaque, so the title under it fades out instead of showing through.
-    let pill = theme::lerp_color(super::shell::base_color(app), Color32::BLACK, 0.55);
+    let pill = theme::lerp_color(super::shell::base_color(app), if theme::light() { Color32::WHITE } else { Color32::BLACK }, 0.55);
     ui.painter().rect_filled(backdrop, 9.0, pill.gamma_multiply(reveal));
     let mut bx = r.right() - 6.0;
     let mut top_btn = |ui: &mut Ui, glyph: char, key: &str, name: &str, close: bool, on: bool| -> bool {
@@ -526,11 +526,11 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
             let fill = if close { Color32::from_rgb(0xC4, 0x2B, 0x1C).gamma_multiply(h) } else { theme::glass(if down { 0.16 } else { 0.10 } * h) };
             ui.painter().rect_filled(b, 6.0, fill.gamma_multiply(reveal));
         }
-        let idle = if on { theme::TEXT } else { theme::text_dim() };
-        let fg = theme::lerp_color(idle, if close { Color32::WHITE } else { theme::TEXT }, h);
+        let idle = if on { theme::text() } else { theme::text_dim() };
+        let fg = theme::lerp_color(idle, if close { Color32::WHITE } else { theme::text() }, h);
         icon_at(ui, b.center(), glyph, if down { 13.0 } else { 14.0 }, fg.gamma_multiply(reveal));
         if resp.has_focus() {
-            ui.painter().rect_stroke(b.shrink(1.0), 6.0, egui::Stroke::new(1.5, theme::TEXT), egui::StrokeKind::Inside);
+            ui.painter().rect_stroke(b.shrink(1.0), 6.0, egui::Stroke::new(1.5, theme::text()), egui::StrokeKind::Inside);
         }
         // Not while still hidden: a quick click there was meant for the strip.
         resp.clicked() && (reveal > 0.5 || resp.has_focus())
@@ -571,17 +571,18 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
     let ph = theme::anim_bool(&ctx, presp.id.with("h"), presp.hovered(), 0.15);
     let scale = if presp.is_pointer_button_down_on() { 0.92 } else { 1.0 + 0.05 * ph };
     let c = pr.center();
-    ui.painter().circle_filled(c, 18.0 * scale, Color32::WHITE);
+    ui.painter().circle_filled(c, 18.0 * scale, if theme::light() { theme::text() } else { Color32::WHITE });
+    let glyph = theme::on_text();
     let morph = theme::anim_bool(&ctx, "mini-play-morph", playing || app.buffering, 0.18);
     if app.buffering {
         let a = now as f32 * 6.0;
         let pts = (0..20).map(|i| c + vec2((a + i as f32 * 0.22).cos(), (a + i as f32 * 0.22).sin()) * 7.0).collect();
-        ui.painter().add(egui::Shape::Path(egui::epaint::PathShape::line(pts, egui::epaint::PathStroke::new(2.0, Color32::from_gray(20)))));
+        ui.painter().add(egui::Shape::Path(egui::epaint::PathShape::line(pts, egui::epaint::PathStroke::new(2.0, glyph))));
         ctx.request_repaint_after(Duration::from_millis(33));
     } else if morph > 0.5 {
-        widgets::pause_bars(ui, c, 6.5 * (2.0 * morph - 1.0).max(0.4), Color32::from_gray(15));
+        widgets::pause_bars(ui, c, 6.5 * (2.0 * morph - 1.0).max(0.4), glyph);
     } else {
-        widgets::play_triangle(ui, c + vec2(1.2, 0.0), 7.0 * (1.0 - 2.0 * morph).max(0.4), Color32::from_gray(15));
+        widgets::play_triangle(ui, c + vec2(1.2, 0.0), 7.0 * (1.0 - 2.0 * morph).max(0.4), glyph);
     }
     if presp.clicked() && enabled {
         app.toggle();
@@ -597,7 +598,7 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
         let pop = theme::anim_bool(&ctx, ("liked", &t.id), liked, 0.3);
         ui.painter().circle_filled(lpos, 16.0, theme::glass(0.1 * lh));
         let size = 17.0 * (1.0 + 0.25 * (pop * std::f32::consts::PI).sin());
-        let outline = theme::lerp_color(theme::lerp_color(theme::text_dim(), theme::TEXT, lh), theme::RED, pop);
+        let outline = theme::lerp_color(theme::lerp_color(theme::text_dim(), theme::text(), lh), theme::RED, pop);
         widgets::heart(ui, lpos, size, pop, outline, theme::RED);
         if lresp.clicked() {
             app.actions.push(Action::Like(t.clone(), !liked));
@@ -613,7 +614,7 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
     let vh = theme::anim_bool(&ctx, vresp.id.with("h"), vresp.hovered(), 0.15);
     ui.painter().circle_filled(vpos, 16.0, theme::glass(0.1 * vh));
     let vglyph = if vol == 0.0 { icon::VOLUME_X } else if vol < 0.5 { icon::VOLUME_1 } else { icon::VOLUME_2 };
-    icon_at(ui, vpos, vglyph, 17.0, theme::lerp_color(theme::text_dim(), theme::TEXT, vh));
+    icon_at(ui, vpos, vglyph, 17.0, theme::lerp_color(theme::text_dim(), theme::text(), vh));
     if vresp.hovered() {
         let scroll = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll != 0.0 {

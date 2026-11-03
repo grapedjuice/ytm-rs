@@ -98,7 +98,10 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     hui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         ui.add_space(super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 0.0));
         let menu_right = ui.cursor().right();
-        options_menu(app, ui, &track, app.np_tab == NpTab::Lyrics && !no_lyrics);
+        // Its actions (like, download, share…) are for what's heard: a song version
+        // standing in for the music video.
+        let heard = app.playing_track().cloned().unwrap_or_else(|| track.clone());
+        options_menu(app, ui, &heard, app.np_tab == NpTab::Lyrics && !no_lyrics);
         // Just the ⋯ menu until the pointer comes near it; then Lyrics, Up next and full
         // screen slide out to its left, and stay while one of them has keyboard focus.
         // Their full width and whether one has focus, from the last frame they showed.

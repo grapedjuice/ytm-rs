@@ -131,7 +131,9 @@ impl App {
             }
             Action::Download(track) => {
                 self.toast(format!("Downloading \u{201c}{}\u{201d}", track.title));
-                self.backend.request(Req::Download(track));
+                // The song version playing for a music video: that video plays the file too.
+                let for_video = if self.playing_as().is_some_and(|s| s.id == track.id) { self.current_id().map(str::to_owned) } else { None };
+                self.backend.request(Req::Download { track, for_video });
             }
             Action::AddToPlaylist(tracks) => {
                 if self.logged_in { self.dialog = Some(Dialog::PickPlaylist(tracks)); }
@@ -283,7 +285,7 @@ mod share_tests {
 
     #[test]
     fn shares_youtube_music_urls() {
-        let song = Track { id: "abc123".into(), title: String::new(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None };
+        let song = Track { id: "abc123".into(), title: String::new(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false };
         assert_eq!(share_url(&Target::Song(song)), "https://music.youtube.com/watch?v=abc123");
         assert_eq!(share_url(&Target::Playlist("PL123".into())), "https://music.youtube.com/playlist?list=PL123");
         assert_eq!(share_url(&Target::Album("MPRE123".into())), "https://music.youtube.com/browse/MPRE123");

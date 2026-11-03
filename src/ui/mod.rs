@@ -279,6 +279,10 @@ pub struct App {
     normalize: bool,
     log_volume: bool,
     high_quality: bool,
+    /// Play an official music video as its song version when one is found.
+    play_songs: bool,
+    /// The song version playing in place of the current music video.
+    playing_as: Option<PlayingAs>,
     /// The output device picked in settings (cpal's id and its name, for when it's not
     /// connected), and the devices last listed there.
     output_device: Option<(String, String)>,
@@ -503,6 +507,8 @@ impl App {
             normalize: get("normalize").is_none_or(|v| v == "1"),
             log_volume: get("log_volume").is_none_or(|v| v == "1"),
             high_quality: get("high_quality").is_none_or(|v| v == "1"),
+            play_songs: get("play_songs").is_none_or(|v| v == "1"),
+            playing_as: None,
             output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
             output_devices: Vec::new(),
             updater: None,
@@ -597,7 +603,7 @@ impl App {
         let smoke = std::env::var("YTM_SMOKE").ok().filter(|q| !q.is_empty());
         if let Some(ids) = smoke.as_deref().and_then(|q| q.strip_prefix("id:")) {
             // "id:a,b,c" queues several.
-            let track = |id: &str| Track { id: id.to_owned(), title: id.to_owned(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None };
+            let track = |id: &str| Track { id: id.to_owned(), title: id.to_owned(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false };
             app.play_list(ids.split(',').map(track).collect(), 0);
         } else if let Some(q) = smoke {
             app.go(Page::Search(q.clone()));
@@ -1055,6 +1061,7 @@ impl eframe::App for App {
         storage.set_string("normalize", b(self.normalize));
         storage.set_string("log_volume", b(self.log_volume));
         storage.set_string("high_quality", b(self.high_quality));
+        storage.set_string("play_songs", b(self.play_songs));
         let folder = crate::downloads::folder();
         storage.set_string("download_dir", if folder == crate::downloads::default_folder() { String::new() } else { folder.display().to_string() });
         let (device, device_name) = self.output_device.clone().unzip();
@@ -1159,6 +1166,16 @@ struct Session {
     duration_ms: u64,
     #[serde(default)]
     listened_at: u64,
+    /// The song version that was playing for the current music video: the position is its.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    playing_as: Option<Track>,
+}
+
+/// The song version playing in place of the music video `listed`, in play `generation`.
+struct PlayingAs {
+    generation: u64,
+    listed: String,
+    song: Track,
 }
 
 
@@ -1269,4 +1286,23 @@ fn updatable() -> bool {
 
 pub fn fmt_time(secs: u32) -> String {
     format!("{}:{:02}", secs / 60, secs % 60)
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::*;
+
+    #[test]
+    fn sessions_saved_before_song_versions_still_load() {
+        let old = r#"{"queue":[{"id":"a","title":"A","artists":[],"album":null,"duration":null,"thumbs":[],"track_nr":null,"plays":null}],"index":0,"position_ms":5000,"duration_ms":0}"#;
+        let s: Session = serde_json::from_str(old).unwrap();
+        assert!(!s.queue[0].music_video && s.playing_as.is_none());
+        // A song (or a session without a song version) saves as before, so an older
+        // version, or a jam guest on one, reads it too.
+        let saved = serde_json::to_string(&s).unwrap();
+        assert!(!saved.contains("music_video") && !saved.contains("playing_as"), "{saved}");
+        let video = Track { music_video: true, ..s.queue[0].clone() };
+        let back: Track = serde_json::from_str(&serde_json::to_string(&video).unwrap()).unwrap();
+        assert!(back.music_video);
+    }
 }

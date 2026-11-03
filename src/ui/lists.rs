@@ -366,7 +366,7 @@ mod tests {
     use super::{Arrival, Collection, Done, LIKED_MUSIC, Lists, RecentEdits, Start, Track};
 
     fn track(id: &str) -> Track {
-        Track { id: id.into(), title: id.into(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None }
+        Track { id: id.into(), title: id.into(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false }
     }
 
     fn collection(id: &str, songs: &[&str]) -> Collection {

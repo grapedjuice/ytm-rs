@@ -113,6 +113,9 @@ fn start_with(app: &mut App, code: String) {
     leave(app);
     fresh(app, true);
     app.jam.conn = Some(Jam::start(&app.backend, code, true, my_name(app)));
+    // Guests get the host's exact upload: a song version standing in for a music video
+    // goes back to the video, from the same point.
+    app.play_listed_upload();
 }
 
 pub fn join(app: &mut App, code: &str) {
@@ -126,6 +129,7 @@ pub fn join(app: &mut App, code: &str) {
     leave(app);
     fresh(app, false);
     app.jam.conn = Some(Jam::start(&app.backend, code, false, my_name(app)));
+    app.play_listed_upload();
 }
 
 /// Leave the room (the host ends it for everyone). Playback carries on locally.
@@ -177,7 +181,7 @@ pub fn dev_script(app: &mut App, ctx: &egui::Context, now: f64) {
             "queue=on" => set_control(app, app.jam.control, true),
             "queue=off" => set_control(app, app.jam.control, false),
             a if a.starts_with("add=") => {
-                let track = crate::model::Track { id: a[4..].to_owned(), title: "Test song".into(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None };
+                let track = crate::model::Track { id: a[4..].to_owned(), title: "Test song".into(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false };
                 app.apply(Action::Enqueue(track));
             }
             a if a.starts_with("seek=") => {

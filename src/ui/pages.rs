@@ -52,11 +52,11 @@ pub fn page(app: &mut App, ui: &mut Ui, now: f64) {
             if h.loading_more.is_some_and(|t| now - t > 20.0) {
                 h.loading_more = None;
             }
-            if remaining < 700.0 && h.loading_more.is_none() {
-                if let Some(token) = h.continuation.clone() {
-                    h.loading_more = Some(now);
-                    app.backend.request(crate::backend::Req::HomeMore(token));
-                }
+            if remaining < 700.0 && h.loading_more.is_none()
+                && let Some(token) = h.continuation.clone()
+            {
+                h.loading_more = Some(now);
+                app.backend.request(crate::backend::Req::HomeMore(token));
             }
         }
     }
@@ -180,6 +180,7 @@ struct ListCtx<'a> {
 
 /// A long song list; only the rows on screen are built. Clicking one plays `tracks` from it,
 /// or picks it while selecting: Ctrl-click picks one song, Shift-click a run of them.
+#[allow(clippy::too_many_arguments)]
 fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], show_album: bool, number: impl Fn(usize, &Track) -> Option<usize>, cx: ListCtx, acts: &mut Vec<Action>) {
     let ListCtx { sel, page, own } = cx;
     let selecting = sel.on(page);
@@ -291,19 +292,19 @@ fn selection_bar(app: &mut App, ctx: &egui::Context, page: &Page, area: Rect) {
 // ------------------------------------------------------------------ home
 
 fn home(app: &mut App, ui: &mut Ui, now: f64) {
-    if let Some(h) = &app.home {
-        if !h.chips.is_empty() {
-            ui.add_space(6.0);
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
-                for c in &h.chips {
-                    if chip(ui, &c.title, c.selected).clicked() {
-                        let params = if c.selected { None } else { c.params.clone() };
-                        app.actions.push(Action::HomeChip(params));
-                    }
+    if let Some(h) = &app.home
+        && !h.chips.is_empty()
+    {
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
+            for c in &h.chips {
+                if chip(ui, &c.title, c.selected).clicked() {
+                    let params = if c.selected { None } else { c.params.clone() };
+                    app.actions.push(Action::HomeChip(params));
                 }
-            });
-        }
+            }
+        });
     }
     // A refresh keeps showing the current feed; the skeleton is only for an empty one.
     if app.home.as_ref().is_none_or(|h| app.home_loading && h.shelves.is_empty()) {
@@ -524,11 +525,10 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                     super::shuffle(&mut t);
                     acts.push(Action::Play(t, 0));
                 }
-                if let Some(first) = tracks.first() {
-                    if pill(ui, "Radio", Some(icon::RADIO), false).clicked() {
+                if let Some(first) = tracks.first()
+                    && pill(ui, "Radio", Some(icon::RADIO), false).clicked() {
                         acts.push(Action::Radio(first.clone()));
                     }
-                }
                 if pill(ui, "Share", None, false).clicked() {
                     acts.push(Action::Share(target.clone()));
                 }
@@ -545,11 +545,10 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                     });
                     // Saving only applies to someone else's playlist or an album.
                     let save_id = if is_album { c.save_id.clone() } else { (!c.owned).then(|| id.to_owned()) };
-                    if let Some(save_id) = save_id {
-                        if pill(ui, if saved { "Remove from library" } else { "Save to library" }, None, false).clicked() {
+                    if let Some(save_id) = save_id
+                        && pill(ui, if saved { "Remove from library" } else { "Save to library" }, None, false).clicked() {
                             acts.push(Action::SaveCollection(save_id, !saved));
                         }
-                    }
                     // Only your own playlists can be edited or deleted (mixes and others' playlists can't).
                     if !is_album && c.owned {
                         if pill(ui, "Edit", None, false).clicked() { acts.push(Action::EditPlaylist); }
@@ -610,11 +609,10 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             super::shuffle(&mut t);
             acts.push(Action::Play(t, 0));
         }
-        if let Some(first) = top.first() {
-            if pill(ui, "Radio", Some(icon::RADIO), false).clicked() {
+        if let Some(first) = top.first()
+            && pill(ui, "Radio", Some(icon::RADIO), false).clicked() {
                 acts.push(Action::Radio(first.clone()));
             }
-        }
     });
     if !top.is_empty() {
         ui.add_space(26.0);
@@ -1612,7 +1610,7 @@ fn thousands(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);

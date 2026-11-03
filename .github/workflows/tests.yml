@@ -1,7 +1,7 @@
 name: Tests
 
-# Runs the tests on every pull request and on main, on Windows and Linux. (macOS runs
-# them in the release job, before a release is published.)
+# Runs the tests and clippy on every pull request and on main, on Windows and Linux.
+# (macOS runs the tests in the release job, before a release is published.)
 on:
   pull_request:
   push:
@@ -28,6 +28,8 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
 
@@ -39,3 +41,8 @@ jobs:
 
       - name: Test
         run: cargo test --locked
+
+      # Also when a test failed, so one run shows both.
+      - name: Clippy
+        if: ${{ !cancelled() }}
+        run: cargo clippy --locked --all-targets -- -D warnings

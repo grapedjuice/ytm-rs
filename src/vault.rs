@@ -224,7 +224,7 @@ mod stress {
                     for round in 0..15 {
                         let key = format!("ytm-rs stress {pid} {t}");
                         super::store::set(&key, &vec![7u8; 6000]).unwrap();
-                        super::store::set(&key, &vec![7u8; 100]).unwrap();
+                        super::store::set(&key, &[7u8; 100]).unwrap();
                         assert_eq!(super::store::get(&key).unwrap().unwrap().len(), 100, "round {round}");
                         super::store::delete(&key).unwrap();
                         for part in 0..3 {

@@ -166,21 +166,6 @@ fn domain_matches(host: &str, domain: &str) -> bool {
     !domain.is_empty() && (host == domain || host.ends_with(&format!(".{domain}")))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::domain_matches;
-
-    #[test]
-    fn parent_domain_cookies_go_to_subdomains() {
-        assert!(domain_matches("music.youtube.com", ".youtube.com"));
-        assert!(domain_matches("music.youtube.com", "youtube.com"));
-        assert!(domain_matches("music.youtube.com", "music.youtube.com"));
-        assert!(!domain_matches("music.youtube.com", "accounts.google.com"));
-        assert!(!domain_matches("music.youtube.com", "tube.com"));
-        assert!(!domain_matches("evilyoutube.com", ".youtube.com"));
-    }
-}
-
 /// Delete the webview profile so the next sign-in starts fresh (on sign-out, and after
 /// signing in). The browser processes can hold its files for a moment after the
 /// window closes, so it tries again for a few seconds; blocks meanwhile.
@@ -277,4 +262,19 @@ fn run(site: Site, profile_dir: PathBuf) -> anyhow::Result<Outcome> {
     });
     drop(webview);
     Ok(outcome)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::domain_matches;
+
+    #[test]
+    fn parent_domain_cookies_go_to_subdomains() {
+        assert!(domain_matches("music.youtube.com", ".youtube.com"));
+        assert!(domain_matches("music.youtube.com", "youtube.com"));
+        assert!(domain_matches("music.youtube.com", "music.youtube.com"));
+        assert!(!domain_matches("music.youtube.com", "accounts.google.com"));
+        assert!(!domain_matches("music.youtube.com", "tube.com"));
+        assert!(!domain_matches("evilyoutube.com", ".youtube.com"));
+    }
 }

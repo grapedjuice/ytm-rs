@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn brackets_mirror_in_rtl() {
         assert_eq!(visual("(שלום)"), "(שלום)");
-        assert_eq!(rtl_base("שלום world"), true);
-        assert_eq!(rtl_base("hello שלום"), false);
+        assert!(rtl_base("שלום world"));
+        assert!(!rtl_base("hello שלום"));
     }
 }

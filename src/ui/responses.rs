@@ -400,8 +400,12 @@ impl App {
                 self.library = None;
                 self.history = None;
                 self.uploads = None;
-                // Your own playlists show differently (and private ones not at all) to another account.
+                // Your own playlists show differently (and private ones not at all) to another
+                // account, and its likes aren't this one's.
                 self.lists.clear();
+                self.lists.edits = Default::default();
+                self.liked.clear();
+                self.unliking.clear();
                 self.queue.fill = None;
                 self.play_pending = None;
                 if self.page_list().is_some() {
@@ -414,8 +418,6 @@ impl App {
                     self.request_library();
                     self.request_liked(false);
                     self.backend.request(Req::Account);
-                } else {
-                    self.liked.clear();
                 }
                 self.toast(if v { "Signed in" } else { "Signed out" });
             }

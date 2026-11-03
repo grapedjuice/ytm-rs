@@ -32,6 +32,8 @@ pub struct Api {
     file: PathBuf,
     web: tokio::sync::Mutex<Option<Web>>,
     account: RwLock<Option<Arc<Session>>>,
+    /// See [`Api::epoch`].
+    epoch: std::sync::atomic::AtomicU64,
     /// IANA time zone and its current UTC offset in minutes.
     tz: (String, i32),
     /// Through a proxy, where it connects from was checked this run (a cached visitor
@@ -75,6 +77,7 @@ impl Api {
             file,
             web: tokio::sync::Mutex::new(web),
             account: RwLock::new(Session::load(data_dir).map(Arc::new)),
+            epoch: Default::default(),
             tz: local_tz(),
             checked: Default::default(),
             unavailable: Default::default(),
@@ -90,8 +93,30 @@ impl Api {
         self.account.read().unwrap().clone()
     }
 
-    pub fn set_account(&self, s: Option<Session>) {
-        *self.account.write().unwrap() = s.map(Arc::new);
+    /// Which sign-in requests go as: changes with each sign-in and sign-out, so an
+    /// answer asked for before one can be told apart.
+    pub fn epoch(&self) -> u64 {
+        self.epoch.load(Relaxed)
+    }
+
+    /// Sign in: save the session and use it. Under the session's lock, like every
+    /// save, so an older copy can't be saved over it. False when it couldn't be saved.
+    pub fn sign_in(&self, s: Session) -> bool {
+        let mut slot = self.account.write().unwrap();
+        let saved = self.file.parent().is_some_and(|dir| s.save(dir));
+        *slot = Some(Arc::new(s));
+        self.epoch.fetch_add(1, Relaxed);
+        saved
+    }
+
+    /// Sign out: forget the session, saved copy included, under its lock.
+    pub fn sign_out(&self) {
+        let mut slot = self.account.write().unwrap();
+        if let Some(dir) = self.file.parent() {
+            Session::remove(dir);
+        }
+        *slot = None;
+        self.epoch.fetch_add(1, Relaxed);
     }
 
     /// Whether a signed-in request came back signed out since the last call: Google
@@ -134,15 +159,13 @@ impl Api {
         match self.session_from_cookie(&account.cookie).await {
             Ok(fresh) => {
                 let mut slot = self.account.write().unwrap();
-                if let Some(cur) = slot.as_ref().filter(|s| s.same_account(&account)) {
+                if let Some(cur) = slot.as_ref().filter(|s| s.same_login(&account)) {
                     let mut next = (**cur).clone();
                     next.visitor_data = fresh.visitor_data;
-                    let next = Arc::new(next);
-                    *slot = Some(next.clone());
-                    drop(slot);
                     if let Some(dir) = self.file.parent() {
                         next.save(dir);
                     }
+                    *slot = Some(Arc::new(next));
                 }
             }
             Err(e) => log::info!("couldn't read the account's visitor ID: {e:#}"),
@@ -186,13 +209,12 @@ impl Api {
     pub fn keep<'a>(&self, used: &Session, set_cookies: impl IntoIterator<Item = &'a str>) {
         let mut slot = self.account.write().unwrap();
         // Onto the current session: another request may have updated it meanwhile.
-        let Some(new) = slot.as_ref().filter(|s| s.same_account(used)).and_then(|s| s.updated(set_cookies)) else { return };
-        let new = Arc::new(new);
-        *slot = Some(new.clone());
-        drop(slot);
+        let Some(new) = slot.as_ref().filter(|s| s.same_login(used)).and_then(|s| s.updated(set_cookies)) else { return };
+        // Saved before the lock goes, so saves land in the order the session changed.
         if let Some(dir) = self.file.parent() {
             new.save(dir);
         }
+        *slot = Some(Arc::new(new));
     }
 
     /// The cached client version and visitor ID, read from music.youtube.com when
@@ -337,7 +359,7 @@ impl Api {
         }
         // Signed in, the account's own visitor ID, as the site sends.
         let current = account.and_then(|_| self.account());
-        let account = current.as_deref().filter(|c| account.is_some_and(|a| a.same_account(c))).or(account);
+        let account = current.as_deref().filter(|c| account.is_some_and(|a| a.same_login(c))).or(account);
         if let Some(v) = account.and_then(|a| a.visitor_data.clone()) {
             web.visitor_data = v;
         }

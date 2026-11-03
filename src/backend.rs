@@ -257,6 +257,26 @@ pub enum Resp {
 }
 
 impl Resp {
+    /// An answer that belongs to the signed-in account it was asked as. A new kind of
+    /// answer that does goes here too.
+    fn is_account_scoped(&self) -> bool {
+        matches!(
+            self,
+            Resp::Home(_)
+                | Resp::HomeMore(_)
+                | Resp::QuickPicksMore { .. }
+                | Resp::Suggest { .. }
+                | Resp::Library(_)
+                | Resp::History(_)
+                | Resp::Uploads(_)
+                | Resp::Account { .. }
+                | Resp::ServerQueue(_)
+                | Resp::Liked { .. }
+                | Resp::LikeProgress { .. }
+                | Resp::LikedMany { .. }
+        )
+    }
+
     /// An album or playlist load that ends without more songs: also sent when it fails,
     /// so the page stops waiting for it.
     fn ended(id: String, load: u64) -> Self {
@@ -482,8 +502,7 @@ impl Backend {
     }
 
     async fn forget_session(&self) {
-        webmusic::Session::remove(&self.data_dir);
-        self.api.set_account(None);
+        self.api.sign_out();
         *self.premium.lock().await = Err(None);
         let profile = self.login_profile();
         let _ = tokio::task::spawn_blocking(move || crate::login::forget(&profile)).await;
@@ -518,6 +537,7 @@ impl Backend {
         };
         let this = self.clone();
         let t0 = std::time::Instant::now();
+        let epoch = self.api.epoch();
         let task = self.rt.spawn(async move {
             let r = this.handle(req).await;
             log::debug!("{what}: done in {:?}", t0.elapsed());
@@ -544,6 +564,14 @@ impl Backend {
             {
                 let _ = this.tx.send(Resp::ended(id, load));
             }
+            // Asked as another sign-in than the one now used: it isn't this one's.
+            let resp = resp.filter(|r| {
+                let stale = this.api.epoch() != epoch && r.is_account_scoped();
+                if stale {
+                    log::debug!("{what}: answer for the previous account dropped");
+                }
+                !stale
+            });
             if let Some(resp) = resp {
                 let _ = this.tx.send(resp);
                 this.wake();
@@ -857,8 +885,7 @@ impl Backend {
             let names: Vec<&str> = cookie.split(';').filter_map(|kv| kv.trim().split('=').next()).take(40).collect();
             log::warn!("cookie sign-in rejected: {e:#}; cookie names: {names:?}");
         })?;
-        session.save(&self.data_dir);
-        self.api.set_account(Some(session));
+        self.api.sign_in(session);
         // The sign-in window's copy of the session would go stale as the app takes new
         // cookies, and opening it again would show Google the old ones, which it treats
         // as stolen and signs the session out. Keep only the app's copy.
@@ -951,6 +978,8 @@ impl Backend {
     /// (10, 20 and 30 s in, then every 40 s), with a last report once it ends or is left.
     /// Each covers the stretch played since the one before; time paused doesn't count.
     async fn report_watchtime(&self, id: &str, generation: u64, w: ytm::Watchtime) {
+        // Reported as the sign-in that started it, or not at all.
+        let epoch = self.api.epoch();
         let status = &self.audio.status;
         let started = std::time::Instant::now();
         let mut flush = w.flush_at.iter().copied();
@@ -972,6 +1001,10 @@ impl Backend {
             let elapsed = started.elapsed().as_secs();
             if !gone && elapsed < due {
                 continue;
+            }
+            if self.api.epoch() != epoch {
+                log::debug!("stopped reporting listening time of {id}: the account changed");
+                return;
             }
             if at > from || gone {
                 if let Err(e) = ytm::report_watchtime(&self.api, &w, from, at, started.elapsed().as_secs_f64(), gone).await {

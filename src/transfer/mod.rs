@@ -212,6 +212,8 @@ pub struct Transfer {
     /// Bumped on every sign-in or sign-out, so a slow account read can't undo a newer one.
     account_gen: std::sync::atomic::AtomicU64,
     cancel: AtomicBool,
+    /// The YouTube Music sign-in the running job goes to (`Api::epoch`).
+    pinned: Mutex<Option<(Arc<Api>, u64)>>,
     review_done: tokio::sync::Notify,
     data_dir: PathBuf,
     wake: Arc<dyn Fn() + Send + Sync>,
@@ -248,6 +250,7 @@ impl Transfer {
             signing_in: AtomicBool::new(false),
             account_gen: Default::default(),
             cancel: AtomicBool::new(false),
+            pinned: Mutex::new(None),
             review_done: tokio::sync::Notify::new(),
             data_dir: data_dir.to_owned(),
             wake,
@@ -520,6 +523,7 @@ impl Transfer {
             reviewed: false,
         });
         let (this, api) = (self.clone(), rt.api());
+        *self.pinned.lock().unwrap() = Some((api.clone(), api.epoch()));
         rt.spawn(async move {
             let res = this.run(&api).await;
             let mut guard = this.job.lock().unwrap();
@@ -605,6 +609,10 @@ impl Transfer {
         loop {
             if self.cancel.load(Ordering::Relaxed) {
                 bail!("cancelled");
+            }
+            // The rest would go to another account than the part done.
+            if self.pinned.lock().unwrap().as_ref().is_some_and(|(api, epoch)| api.epoch() != *epoch) {
+                bail!("Stopped: the YouTube Music account changed");
             }
             if !self.with_job(|j| j.paused) {
                 return Ok(());

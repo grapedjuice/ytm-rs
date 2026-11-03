@@ -30,6 +30,43 @@ pub fn loudness(resp: &Value, format: &Value) -> Option<f32> {
     })
 }
 
+/// The Android VR client's queue for an album's playlist (`OLAK5uy_…`). Unlike the web
+/// clients, which list a track's music video when it has one, it lists the album's songs.
+/// Needs no sign-in or PO token. Mirrors Morphe's "Play albums songs" patch
+/// (github.com/MorpheApp/morphe-patches, `PlaylistRequest.java`); update together.
+pub async fn album_queue(http: &reqwest::Client, playlist_id: &str) -> anyhow::Result<Value> {
+    const VERSION: &str = "1.73.21";
+    let body = json!({
+        "context": {"client": {
+            "clientName": "ANDROID_VR",
+            "clientVersion": VERSION,
+            "deviceMake": "Pico",
+            "deviceModel": "A8110",
+            "osName": "Android",
+            "osVersion": "10",
+            "androidSdkVersion": 29,
+            // English, so the playlist's title says "Album - …".
+            "hl": "en",
+            "gl": "US",
+        }},
+        "playlistId": playlist_id,
+        "contentCheckOk": true,
+        "racyCheckOk": true,
+    });
+    Ok(http
+        .post("https://youtubei.googleapis.com/youtubei/v1/next?prettyPrint=false")
+        .header("User-Agent", format!("com.google.android.apps.youtube.vr.pico/{VERSION} (Linux; U; Android 10; A8110 Build/QKQ1) gzip"))
+        .header("X-YouTube-Client-Name", "28")
+        .header("X-YouTube-Client-Version", VERSION)
+        .timeout(std::time::Duration::from_secs(8))
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?)
+}
+
 /// `opus`: Opus (itag 251, about 130-160 kbps) when the song has it, else AAC.
 pub async fn audio_stream(http: &reqwest::Client, video_id: &str, visitor_data: &str, opus: bool) -> anyhow::Result<Stream> {
     let body = json!({

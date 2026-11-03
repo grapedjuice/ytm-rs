@@ -22,7 +22,7 @@ mod queue;
 mod responses;
 mod shell;
 mod titlebar;
-pub use titlebar::custom as custom_titlebar;
+pub use titlebar::{custom as custom_titlebar, set_hwnd as set_titlebar_hwnd};
 mod transfer;
 mod widgets;
 

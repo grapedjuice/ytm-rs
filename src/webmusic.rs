@@ -73,6 +73,16 @@ impl Session {
         Self { cookie, session_index, page_id, visitor_data: None, replaced: Default::default(), login: new_login() }
     }
 
+    /// The brand channel this session acts as; `None` for the Google account's own.
+    pub fn channel(&self) -> Option<&str> {
+        self.page_id.as_deref()
+    }
+
+    /// The same sign-in acting as another of its channels (`None`: the account's own).
+    pub fn on_channel(&self, page_id: Option<String>) -> Self {
+        Self { page_id, ..self.clone() }
+    }
+
     /// `None` when signed out. A session saved by an older version is carried over.
     pub fn load(data_dir: &Path) -> Option<Self> {
         if let Some(s) = crate::vault::get(VAULT, data_dir).and_then(|b| serde_json::from_slice(&b).ok()) {
@@ -370,10 +380,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn copies_of_one_sign_in_are_it_and_another_never_is() {
+    fn channels_of_one_sign_in_share_its_cookies() {
         let s = Session::new("SID=a; SAPISID=k".into(), 0, None);
+        let brand = s.on_channel(Some("42".into()));
+        assert!(brand.same_login(&s));
+        assert_eq!((brand.channel(), brand.on_channel(None).channel()), (Some("42"), None));
         // Still the same once Google replaces cookies, SAPISID included.
-        assert!(s.updated(["SAPISID=new; Domain=.youtube.com"]).unwrap().same_login(&s));
+        assert!(brand.updated(["SAPISID=new; Domain=.youtube.com"]).unwrap().same_login(&s));
         // Another sign-in isn't, even with the same cookies (or none of the ones compared).
         assert!(!Session::new("SID=a; SAPISID=k".into(), 0, None).same_login(&s));
         let loaded: Session = serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();

@@ -603,6 +603,78 @@ pub async fn account(api: &Api) -> anyhow::Result<(Option<String>, Option<String
     Ok((name, photo))
 }
 
+/// One of the signed-in Google account's channels: its own, or a brand channel it manages.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Channel {
+    pub name: String,
+    pub handle: Option<String>,
+    /// The Google account itself may have no YouTube channel ("No channel" in the
+    /// switcher); it still has a library of its own.
+    pub has_channel: bool,
+    /// `None` for the Google account's own channel.
+    pub page_id: Option<String>,
+}
+
+/// The channels the app can act as, the Google account's own first, from its account
+/// switcher. Asked as the account's own channel, so a brand channel that no longer
+/// works can't hide the list.
+pub async fn channels(api: &Api) -> anyhow::Result<Vec<Channel>> {
+    let v = api.call_as_google_account("account/accounts_list", json!({})).await?;
+    let list = parse_channels(&v);
+    log::info!("account switcher: {} channel(s)", list.len());
+    anyhow::ensure!(!list.is_empty(), "the account switcher listed no channels");
+    Ok(list)
+}
+
+fn parse_channels(v: &Value) -> Vec<Channel> {
+    fn items<'a>(v: &'a Value, out: &mut Vec<&'a Value>) {
+        match v {
+            Value::Object(m) => m.iter().for_each(|(k, x)| if k == "accountItem" { out.push(x) } else { items(x, out) }),
+            Value::Array(a) => a.iter().for_each(|x| items(x, out)),
+            _ => {}
+        }
+    }
+    let plain = |v: &Value| v["simpleText"].as_str().map(str::to_owned).or_else(|| text(v)).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
+    let mut found = Vec::new();
+    items(v, &mut found);
+    // (selected, the sign-in the item belongs to, the channel)
+    let listed: Vec<(bool, Option<String>, Channel)> = found
+        .into_iter()
+        .filter_map(|i| {
+            let tokens = arr(&i["serviceEndpoint"]["selectActiveIdentityEndpoint"]["supportedTokens"]);
+            // "<page>||<manager>" for a brand channel, "<account>||" for an account's own.
+            let datasync = tokens.iter().find_map(|t| t["datasyncIdToken"]["datasyncIdToken"].as_str()).and_then(|d| d.split_once("||"));
+            let page_id = tokens.iter().find_map(|t| t["pageIdToken"]["pageId"].as_str()).map(str::to_owned);
+            let login = datasync.map(|(a, b)| if b.is_empty() { a } else { b }).filter(|l| !l.is_empty()).map(str::to_owned);
+            let handle = plain(&i["channelHandle"]).or_else(|| plain(&i["accountByline"]).filter(|b| b.starts_with('@')));
+            let has_channel = i["hasChannel"].as_bool().or_else(|| tokens.iter().find_map(|t| t["accountStateToken"]["hasChannel"].as_bool())).unwrap_or(true);
+            let channel = Channel { name: plain(&i["accountName"])?, handle, has_channel, page_id };
+            Some((i["isSelected"].as_bool().unwrap_or(false), login, channel))
+        })
+        .collect();
+    // Asked as the account's own channel, that's the selected item without a page. Other
+    // items without one are other Google accounts signed in in the same browser, which
+    // a page id can't act as; brand channels go with the account that manages them.
+    // Nothing is guessed: without the selected one there's no list, and a brand channel
+    // whose account isn't known is listed only when no other account is.
+    let Some(own) = listed.iter().position(|(sel, _, c)| *sel && c.page_id.is_none()) else {
+        return Vec::new();
+    };
+    let login = listed[own].1.clone();
+    let alone = listed.iter().filter(|(_, _, c)| c.page_id.is_none()).count() == 1;
+    let mut out = vec![listed[own].2.clone()];
+    for (_, l, c) in listed {
+        let theirs = match (&login, &l) {
+            (Some(own), Some(l)) => own == l,
+            _ => alone,
+        };
+        if c.page_id.is_some() && theirs && !out.iter().any(|o| o.page_id == c.page_id) {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// The first value under `key`, anywhere in `v`.
 fn find_key<'a>(v: &'a Value, key: &str) -> Option<&'a Value> {
     match v {
@@ -1159,6 +1231,95 @@ fn browse_id(run: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An `accountItem` as the account switcher lists it.
+    fn account_item(name: &str, handle: Option<&str>, selected: bool, page: Option<&str>, datasync: &str) -> Value {
+        let mut tokens = vec![json!({"accountStateToken": {"hasChannel": true}}), json!({"datasyncIdToken": {"datasyncIdToken": datasync}})];
+        if let Some(p) = page {
+            tokens.push(json!({"pageIdToken": {"pageId": p}}));
+        }
+        let mut item = json!({
+            "accountName": {"runs": [{"text": name}]},
+            "isSelected": selected,
+            "serviceEndpoint": {"selectActiveIdentityEndpoint": {"supportedTokens": tokens}},
+        });
+        if let Some(h) = handle {
+            item["channelHandle"] = json!({"simpleText": h});
+        }
+        json!({"accountItem": item})
+    }
+
+    fn switcher(sections: Vec<Vec<Value>>) -> Value {
+        let sections: Vec<Value> = sections
+            .into_iter()
+            .map(|items| json!({"accountSectionListRenderer": {"contents": [{"accountItemSectionRenderer": {"contents": items}}]}}))
+            .collect();
+        json!({"actions": [{"getMultiPageMenuAction": {"menu": {"multiPageMenuRenderer": {"sections": sections}}}}]})
+    }
+
+    #[test]
+    fn channels_are_the_accounts_own_then_its_brand_channels() {
+        let v = switcher(vec![
+            vec![
+                account_item("Ada", Some("@ada"), true, None, "111||"),
+                account_item("Ada Records", Some("@adarecords"), false, Some("900"), "900||111"),
+                account_item("Ada Live", None, false, Some("901"), "901||111"),
+            ],
+            // Another Google account signed in in the same browser, and its brand channel.
+            vec![account_item("Bob", Some("@bob"), false, None, "222||"), account_item("Bob's Band", None, false, Some("902"), "902||222")],
+        ]);
+        let list = parse_channels(&v);
+        let ids: Vec<_> = list.iter().map(|c| (c.name.as_str(), c.page_id.as_deref())).collect();
+        assert_eq!(ids, [("Ada", None), ("Ada Records", Some("900")), ("Ada Live", Some("901"))]);
+        assert_eq!(list[0].handle.as_deref(), Some("@ada"));
+        assert!(list.iter().all(|c| c.has_channel));
+    }
+
+    /// The signed-in account's channels, as Settings lists them.
+    /// `YTM_DATA_DIR=<profile> cargo test --release -- --ignored channels_live --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn channels_live() {
+        let api = Api::new(&std::path::PathBuf::from(std::env::var("YTM_DATA_DIR").unwrap()));
+        let current = api.account().expect("no session in the vault").channel().map(str::to_owned);
+        for c in channels(&api).await.unwrap() {
+            let mark = if c.page_id == current { "*" } else { " " };
+            println!("{mark} {} {:?} channel {} page {:?}", c.name, c.handle, c.has_channel, c.page_id);
+        }
+    }
+
+    #[test]
+    fn a_google_account_without_a_channel_is_listed_as_such() {
+        let mut own = account_item("Ada", None, true, None, "111||");
+        own["accountItem"]["hasChannel"] = json!(false);
+        own["accountItem"]["accountByline"] = json!({"runs": [{"text": "No channel"}]});
+        let v = switcher(vec![vec![own, account_item("Ada", Some("@ada5564"), false, Some("900"), "900||111")]]);
+        let list = parse_channels(&v);
+        assert_eq!(list.iter().map(|c| (c.has_channel, c.handle.as_deref())).collect::<Vec<_>>(), [(false, None), (true, Some("@ada5564"))]);
+    }
+
+    #[test]
+    fn a_switcher_without_the_accounts_own_channel_lists_nothing() {
+        assert!(parse_channels(&json!({"actions": []})).is_empty());
+        let only_brand = switcher(vec![vec![account_item("Ada Records", None, true, Some("900"), "900||111")]]);
+        assert!(parse_channels(&only_brand).is_empty());
+        // None selected: which account is this one's isn't guessed.
+        let unselected = switcher(vec![vec![account_item("Ada", None, false, None, "111||"), account_item("Ada Records", None, false, Some("900"), "900||111")]]);
+        assert!(parse_channels(&unselected).is_empty());
+    }
+
+    #[test]
+    fn brand_channels_of_an_unknown_account_are_left_out_beside_other_accounts() {
+        let pages = |v: &Value| parse_channels(v).into_iter().map(|c| c.page_id).collect::<Vec<_>>();
+        // No datasync id on a brand channel: whose it is is unknown.
+        let mut brand = account_item("Bob's Band", None, false, Some("902"), "");
+        brand["accountItem"]["serviceEndpoint"]["selectActiveIdentityEndpoint"]["supportedTokens"] = json!([{"pageIdToken": {"pageId": "902"}}]);
+        let two_accounts = switcher(vec![vec![account_item("Ada", None, true, None, "111||"), account_item("Bob", None, false, None, "222||"), brand.clone()]]);
+        assert_eq!(pages(&two_accounts), [None]);
+        // With only this account in the switcher, it can only be this one's.
+        let one_account = switcher(vec![vec![account_item("Ada", None, true, None, "111||"), brand]]);
+        assert_eq!(pages(&one_account), [None, Some("902".to_owned())]);
+    }
 
     #[test]
     fn past_searches_come_with_their_remove_token() {

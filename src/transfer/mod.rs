@@ -212,7 +212,7 @@ pub struct Transfer {
     /// Bumped on every sign-in or sign-out, so a slow account read can't undo a newer one.
     account_gen: std::sync::atomic::AtomicU64,
     cancel: AtomicBool,
-    /// The YouTube Music sign-in the running job goes to (`Api::epoch`).
+    /// The YouTube Music sign-in and channel the running job goes to (`Api::epoch`).
     pinned: Mutex<Option<(Arc<Api>, u64)>>,
     review_done: tokio::sync::Notify,
     data_dir: PathBuf,
@@ -610,9 +610,9 @@ impl Transfer {
             if self.cancel.load(Ordering::Relaxed) {
                 bail!("cancelled");
             }
-            // The rest would go to another account than the part done.
+            // The rest would go to another account or channel than the part done.
             if self.pinned.lock().unwrap().as_ref().is_some_and(|(api, epoch)| api.epoch() != *epoch) {
-                bail!("Stopped: the YouTube Music account changed");
+                bail!("Stopped: the YouTube Music account or channel changed");
             }
             if !self.with_job(|j| j.paused) {
                 return Ok(());

@@ -385,8 +385,26 @@ impl App {
                 self.account_name = name.or(self.account_name.take());
                 self.account_avatar = photo.or(self.account_avatar.take());
             }
+            Resp::Channels(c) => self.channels = Some(c),
+            Resp::SwitchedChannel { page_id, epoch, error } => {
+                let name = self.switching_to.take().unwrap_or_else(|| "another channel".to_owned());
+                match error {
+                    Some(e) => self.toast(e),
+                    None => {
+                        // Everything reloads as after signing in, but it's the same sign-in
+                        // with the same channels: only which one is used changed.
+                        let channels = self.channels.take().map(|c| crate::backend::Channels { current: page_id, epoch, ..c });
+                        let asked = self.channels_asked;
+                        self.on_resp(Resp::LoggedIn(true), now);
+                        (self.channels, self.channels_asked) = (channels, asked);
+                        self.toast(format!("Switched to {name}"));
+                    }
+                }
+            }
             Resp::LoggedIn(v) => {
                 self.logged_in = v;
+                self.channels = None;
+                self.channels_asked = None;
                 // Recent searches belong to the account.
                 self.suggestions = Default::default();
                 self.suggest_sel = None;

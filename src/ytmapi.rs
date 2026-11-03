@@ -93,8 +93,8 @@ impl Api {
         self.account.read().unwrap().clone()
     }
 
-    /// Which sign-in requests go as: changes with each sign-in and sign-out, so an
-    /// answer asked for before one can be told apart.
+    /// Which sign-in and channel requests go as: changes with each sign-in, sign-out
+    /// and channel switch, so an answer asked for before one can be told apart.
     pub fn epoch(&self) -> u64 {
         self.epoch.load(Relaxed)
     }
@@ -307,10 +307,34 @@ impl Api {
     /// Like `call`, but a signed-in account is required.
     pub async fn call_signed_in(&self, endpoint: &str, body: Value) -> anyhow::Result<Value> {
         let account = self.account().ok_or_else(|| anyhow::anyhow!("sign in first"))?;
-        match self.call_once(endpoint, &body, Some(&account), false).await {
-            Err(e) if is_refused(&e) => self.retry_signed_in(endpoint, &body, Some(&account), e).await,
+        self.call_as(endpoint, body, &account).await
+    }
+
+    /// Like `call_signed_in`, as the Google account's own channel whichever channel the
+    /// app acts as.
+    pub async fn call_as_google_account(&self, endpoint: &str, body: Value) -> anyhow::Result<Value> {
+        let account = self.account().ok_or_else(|| anyhow::anyhow!("sign in first"))?;
+        self.call_as(endpoint, body, &account.on_channel(None)).await
+    }
+
+    async fn call_as(&self, endpoint: &str, body: Value, account: &Session) -> anyhow::Result<Value> {
+        match self.call_once(endpoint, &body, Some(account), false).await {
+            Err(e) if is_refused(&e) => self.retry_signed_in(endpoint, &body, Some(account), e).await,
             r => r,
         }
+    }
+
+    /// Act as another of the signed-in account's channels from now on (`None`: its own),
+    /// and save that. Only if requests still go as at `epoch`, when the channel was picked:
+    /// another sign-in since has other channels. The new epoch.
+    pub fn switch_channel(&self, page_id: Option<String>, epoch: u64) -> anyhow::Result<u64> {
+        let mut slot = self.account.write().unwrap();
+        anyhow::ensure!(self.epoch() == epoch, "The account changed meanwhile; pick the channel again");
+        let next = slot.as_ref().ok_or_else(|| anyhow::anyhow!("sign in first"))?.on_channel(page_id);
+        // Not switched unless it's kept: the next launch would be on the old channel.
+        anyhow::ensure!(self.file.parent().is_some_and(|dir| next.save(dir)), "Couldn't save the channel choice");
+        *slot = Some(Arc::new(next));
+        Ok(self.epoch.fetch_add(1, Relaxed) + 1)
     }
 
     /// YouTube refuses the odd anonymous request (403) too, at random: the same one goes
@@ -357,9 +381,14 @@ impl Api {
             self.wait_if_paused().await;
             self.take_in_replaced();
         }
+        // The current cookies (another request may have taken new ones since), acting as
+        // the channel this request was made for.
+        let current = account.and_then(|a| {
+            let c = self.account().filter(|c| c.same_login(a))?;
+            Some(if c.channel() == a.channel() { c } else { Arc::new(c.on_channel(a.channel().map(str::to_owned))) })
+        });
+        let account = current.as_deref().or(account);
         // Signed in, the account's own visitor ID, as the site sends.
-        let current = account.and_then(|_| self.account());
-        let account = current.as_deref().filter(|c| account.is_some_and(|a| a.same_login(c))).or(account);
         if let Some(v) = account.and_then(|a| a.visitor_data.clone()) {
             web.visitor_data = v;
         }

@@ -262,6 +262,12 @@ pub struct App {
     selection: Selection,
     account_name: Option<String>,
     account_avatar: Option<String>,
+    /// The signed-in account's channels and which one is used, once Settings asked.
+    channels: Option<crate::backend::Channels>,
+    /// When they were last asked for (`ui.input` time).
+    channels_asked: Option<f64>,
+    /// The channel being switched to, named for the toast once it's done.
+    switching_to: Option<String>,
     /// Last launch's playlists, shown in the sidebar until the library arrives.
     sidebar_cache: Option<Vec<Card>>,
 
@@ -489,6 +495,9 @@ impl App {
             selection: Selection::default(),
             account_name: None,
             account_avatar: None,
+            channels: None,
+            channels_asked: None,
+            switching_to: None,
             sidebar_cache: None,
             queue: Queue::new(match get("repeat").as_deref() {
                 Some("all") => Repeat::All,

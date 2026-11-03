@@ -48,8 +48,8 @@ pub enum Req {
     /// Save a song's audio to the downloads folder.
     Download(Track),
     Lyrics(Track),
-    /// SponsorBlock's parts of a video to skip; `duration` in seconds, if known.
-    Segments { video_id: String, duration: Option<f64> },
+    /// SponsorBlock's parts of a video to skip.
+    Segments { video_id: String },
     /// Romanization and translation for the lyric lines of one source.
     LyricsExtras { video_id: String, source: String, lines: Vec<String>, lang: Option<String>, target: String },
     /// Process cover art for the background; `key` is echoed back.
@@ -666,8 +666,8 @@ impl Backend {
                     let video_id = track.id.clone();
                     Resp::Lyrics { lyrics: self.lyrics_for(&track).await, video_id }
                 }
-                Req::Segments { video_id, duration } => {
-                    let segments = crate::sponsorblock::segments(&self.http(), &video_id, duration).await?;
+                Req::Segments { video_id } => {
+                    let segments = crate::sponsorblock::segments(&self.http(), &video_id).await?;
                     Resp::Segments { video_id, segments }
                 }
                 Req::LyricsExtras { video_id, source, lines, lang, target } => {

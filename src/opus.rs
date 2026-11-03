@@ -133,8 +133,11 @@ impl Iterator for OpusSource {
 }
 
 impl rodio::Source for OpusSource {
+    /// A span per decoded packet, as rodio's own decoders do. Without an end (`None`),
+    /// the resampler after a player's queue keeps 48 kHz for the songs queued after
+    /// this one, and a 44.1 kHz song then plays 9 % fast.
     fn current_span_len(&self) -> Option<usize> {
-        None
+        Some((self.buf.len() - self.pos).max(self.channels as usize))
     }
     fn channels(&self) -> rodio::ChannelCount {
         NonZero::new(self.channels).unwrap_or(NonZero::<u16>::MIN)
@@ -171,6 +174,60 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use rodio::Source;
+
+    /// The first `left` samples of a source, keeping its spans as they are.
+    struct Head<S> {
+        inner: S,
+        left: usize,
+    }
+
+    impl<S: Source> Iterator for Head<S> {
+        type Item = f32;
+        fn next(&mut self) -> Option<f32> {
+            self.left = self.left.checked_sub(1)?;
+            self.inner.next()
+        }
+    }
+
+    impl<S: Source> Source for Head<S> {
+        fn current_span_len(&self) -> Option<usize> {
+            self.inner.current_span_len().map(|n| n.min(self.left))
+        }
+        fn channels(&self) -> rodio::ChannelCount {
+            self.inner.channels()
+        }
+        fn sample_rate(&self) -> rodio::SampleRate {
+            self.inner.sample_rate()
+        }
+        fn total_duration(&self) -> Option<Duration> {
+            None
+        }
+    }
+
+    /// A 44.1 kHz song queued after an Opus one (48 kHz) plays at its own speed: the
+    /// resampler has to see where the Opus song ends to pick up the new rate.
+    /// `cargo test -- --ignored opus_then_aac_rate --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn opus_then_aac_rate() {
+        let api = crate::ytmapi::Api::new(&std::env::temp_dir().join("ytm-rs-opus-test"));
+        let vd = api.visitor_data(false).await.unwrap();
+        let http = reqwest::Client::new();
+        let s = crate::innertube::audio_stream(&http, "zuO2fClon98", &vd, true).await.unwrap();
+        let shared = crate::stream::Shared::new(s.size, s.duration_ms, s.loudness_db, s.opus, false);
+        crate::stream::download(http.clone(), s.url, crate::innertube::UA.to_owned(), shared.clone(), None).await;
+        let opus = crate::stream::decoder(shared, true).unwrap();
+        assert_eq!(opus.sample_rate().get(), 48_000);
+        let (tx, rx) = rodio::queue::queue(false);
+        tx.append(Head { inner: opus, left: 48_000 * 2 });
+        // One second of 44.1 kHz stereo, all ones so it can be told apart from the song.
+        let one_sec = rodio::buffer::SamplesBuffer::new(std::num::NonZero::new(2).unwrap(), std::num::NonZero::new(44_100).unwrap(), vec![1.0f32; 44_100 * 2]);
+        tx.append(one_sec);
+        let out: Vec<f32> = rodio::source::UniformSourceIterator::new(rx, std::num::NonZero::new(2).unwrap(), std::num::NonZero::new(48_000).unwrap()).collect();
+        let second = out.iter().skip(48_000 * 2).filter(|&&x| (x - 1.0).abs() < 1e-3).count() / 2;
+        println!("44.1 kHz second came out as {second} frames at 48 kHz");
+        assert!((second as i64 - 48_000).abs() < 200, "played at the wrong rate: {second} frames, not 48000");
+    }
 
     /// Signed out: plays a song's Opus stream end to end and seeks in it, against its AAC stream.
     /// `cargo test --release -- --ignored opus_stream_live --nocapture`

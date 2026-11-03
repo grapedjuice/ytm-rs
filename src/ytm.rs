@@ -132,42 +132,99 @@ pub async fn album(api: &Api, id: &str) -> anyhow::Result<Collection> {
     let v = api.call("browse", json!({ "browseId": id }), false).await?;
     let (mut a, videos) = parse_album(&v, id).ok_or_else(|| anyhow::anyhow!("YouTube Music returned an empty album"))?;
     if !videos.is_empty() {
-        songs_for_videos(api, &mut a, &videos).await;
+        songs_for_videos(&mut a, &videos).await;
     }
     Ok(a)
 }
 
 /// Some albums list music videos where the album has the songs too (all of Tame
-/// Impala's Currents does): swap in the song, the version the album means, matched by
-/// album, title and length. One search for the album, then one per song it missed.
-async fn songs_for_videos(api: &Api, a: &mut Collection, videos: &[usize]) {
-    let artist = a.artists.first().map_or("", |l| l.name.as_str()).to_owned();
-    let album = a.id.clone();
-    let song = |found: &[Track], t: &Track| found.iter().find(|s| same_song(s, t, &album)).cloned();
-    let mut found = search_songs(api, &format!("{artist} {}", a.title), false).await.unwrap_or_default();
-    let missed: Vec<String> = videos.iter().map(|&i| &a.tracks[i]).filter(|t| song(&found, t).is_none()).map(|t| format!("{artist} {}", t.title)).collect();
-    let more = futures_util::future::join_all(missed.iter().map(|q| search_songs(api, q, false))).await;
-    found.extend(more.into_iter().flatten().flatten());
+/// Impala's Currents does): swap in the album's song at the same position. The Android
+/// VR client lists an album's playlist as the album's songs, in album order, without a
+/// sign-in; one request for the whole album.
+async fn songs_for_videos(a: &mut Collection, videos: &[usize]) {
+    let Some(list) = a.save_id.clone().filter(|l| l.starts_with("OLAK")) else { return };
+    let songs = match crate::innertube::album_queue(&crate::proxy::http(), &list).await {
+        Ok(q) => album_songs(&q),
+        Err(e) => {
+            log::debug!("album {}: Android VR song list failed: {e:#}", a.id);
+            None
+        }
+    };
+    // All or nothing on the count: a row the page leaves out would shift every pair after it.
+    let Some(songs) = songs.filter(|s| s.len() == a.tracks.len()) else {
+        log::info!("album {}: no song list that lines up with its {} rows; playing as listed", a.id, a.tracks.len());
+        return;
+    };
+    let swapped = swap_songs(a, videos, &songs);
+    log::info!("album {}: {swapped} of {} music videos swapped for the songs", a.id, videos.len());
+}
+
+/// A song of an album, as the Android VR client lists it.
+#[derive(Debug, PartialEq)]
+struct AlbumSong {
+    id: String,
+    title: String,
+    duration: Option<u32>,
+}
+
+/// The songs of an album in album order, from [`crate::innertube::album_queue`]. `None`
+/// unless every entry reads: they're matched to the page's rows by position.
+fn album_songs(v: &Value) -> Option<Vec<AlbumSong>> {
+    let list = &v["contents"]["singleColumnWatchNextResults"]["playlist"]["playlist"];
+    // The same id also opens the album artist's Top Songs ("Song - …").
+    if !list["title"].as_str()?.starts_with("Album") {
+        return None;
+    }
+    arr(&list["contents"])
+        .iter()
+        .map(|e| {
+            let r = &e["playlistPanelVideoRenderer"];
+            Some(AlbumSong {
+                id: r["videoId"].as_str()?.to_owned(),
+                title: text(&r["title"])?,
+                duration: text(&r["lengthText"]).and_then(|l| parse_duration(&l)),
+            })
+        })
+        .collect()
+}
+
+/// Swaps each music video row (`videos`) for the song at its position in `songs` (one
+/// per row), when the titles agree. Returns how many changed.
+fn swap_songs(a: &mut Collection, videos: &[usize], songs: &[AlbumSong]) -> usize {
     let mut swapped = 0;
     for &i in videos {
-        let t = &mut a.tracks[i];
-        if let Some(s) = song(&found, t) {
-            (t.id, t.duration, t.thumbs) = (s.id, s.duration.or(t.duration), s.thumbs);
+        let (Some(t), Some(s)) = (a.tracks.get_mut(i), songs.get(i)) else { continue };
+        if t.id != s.id && same_title(&t.title, &s.title) {
+            (t.id, t.duration) = (s.id.clone(), s.duration.or(t.duration));
             swapped += 1;
         }
     }
-    log::info!("album {album}: {swapped} of {} music videos swapped for the songs", videos.len());
+    swapped
 }
 
-/// `s`, a song from search, is the album's song that the video `t` stands for.
-fn same_song(s: &Track, t: &Track, album: &str) -> bool {
-    s.id != t.id
-        && s.album.as_ref().and_then(|l| l.id.as_deref()) == Some(album)
-        && s.title.to_lowercase() == t.title.to_lowercase()
-        && match (s.duration, t.duration) {
-            (Some(a), Some(b)) => a.abs_diff(b) <= 3,
-            _ => true,
+/// Titles equal but for case, punctuation ("Don't" = "Dont"), spacing and the guests: the
+/// song list leaves out "(feat. …)" ("Levitating" for "Levitating (feat. DaBaby)").
+fn same_title(a: &str, b: &str) -> bool {
+    let words = |s: &str| {
+        let kept: String = without_guests(s).to_lowercase().chars().filter(|c| c.is_alphanumeric() || c.is_whitespace()).collect();
+        kept.split_whitespace().collect::<Vec<_>>().join(" ")
+    };
+    let (a, b) = (words(a), words(b));
+    !a.is_empty() && a == b
+}
+
+/// The title without a closing "(feat. …)", "(ft. …)" or "[featuring …]".
+fn without_guests(s: &str) -> &str {
+    let s = s.trim_end();
+    if let Some(open) = s.rfind(['(', '['])
+        && s.ends_with([')', ']'])
+    {
+        let inner = s[open + 1..].to_lowercase();
+        if ["feat", "ft."].iter().any(|p| inner.starts_with(p)) {
+            return s[..open].trim_end();
         }
+    }
+    s
 }
 
 /// The album, and which of its rows are music videos rather than songs.
@@ -1281,24 +1338,109 @@ mod tests {
         assert_eq!(t.album.as_ref().and_then(|l| l.id.as_deref()), Some("MPREb_x"));
     }
 
+    /// An album page (trimmed) with these rows; `kind` is each row's musicVideoType.
+    fn album_page(rows: &[(&str, &str, &str)]) -> Value {
+        let rows: Vec<Value> = rows
+            .iter()
+            .map(|(id, title, kind)| {
+                let watch = json!({"watchEndpoint": {"videoId": id, "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": kind}}}});
+                json!({"musicResponsiveListItemRenderer": {
+                    "flexColumns": [{"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": title, "navigationEndpoint": watch}]}}}],
+                    "playlistItemData": {"videoId": id},
+                }})
+            })
+            .collect();
+        json!({"contents": {"twoColumnBrowseResultsRenderer": {
+            "tabs": [{"tabRenderer": {"content": {"sectionListRenderer": {"contents": [{"musicResponsiveHeaderRenderer": {
+                "title": {"runs": [{"text": "Whenever You Need Somebody"}]},
+                "buttons": [{"musicPlayButtonRenderer": {"playNavigationEndpoint": {"watchPlaylistEndpoint": {"playlistId": "OLAK5uy_x"}}}}]
+            }}]}}}}],
+            "secondaryContents": {"sectionListRenderer": {"contents": [{"musicShelfRenderer": {"contents": rows}}]}}
+        }}})
+    }
+
+    /// The Android VR client's album queue (trimmed from a real answer, November 2026).
+    fn vr_album(title: &str, songs: &[(&str, &str, &str)]) -> Value {
+        let contents: Vec<Value> = songs
+            .iter()
+            .map(|(id, t, len)| json!({"playlistPanelVideoRenderer": {"videoId": id, "title": {"runs": [{"text": t}]}, "lengthText": {"runs": [{"text": len}]}}}))
+            .collect();
+        json!({"contents": {"singleColumnWatchNextResults": {"playlist": {"playlist": {"title": title, "contents": contents}}}}})
+    }
+
+    const RICK_ROWS: [(&str, &str, &str); 3] = [
+        ("dQw4w9WgXcQ", "Never Gonna Give You Up", "MUSIC_VIDEO_TYPE_OMV"),
+        ("BeyEGebJ1l4", "Whenever You Need Somebody", "MUSIC_VIDEO_TYPE_OMV"),
+        ("d0t04zd918U", "The Love Has Gone", "MUSIC_VIDEO_TYPE_ATV"),
+    ];
+    const RICK_SONGS: [(&str, &str, &str); 3] = [("lYBUbBu4W08", "Never Gonna Give You Up", "3:34"), ("raBobo3GZYA", "Whenever You Need Somebody", "3:54"), ("d0t04zd918U", "The Love Has Gone", "4:21")];
+
+    /// The album's track ids after swapping in `vr`'s songs, the way `album` does.
+    fn swapped(rows: &[(&str, &str, &str)], vr: &Value) -> Vec<String> {
+        let (mut a, videos) = parse_album(&album_page(rows), "MPREb_x").unwrap();
+        if let Some(songs) = album_songs(vr).filter(|s| s.len() == a.tracks.len()) {
+            swap_songs(&mut a, &videos, &songs);
+        }
+        a.tracks.into_iter().map(|t| t.id).collect()
+    }
+
     #[test]
-    fn album_video_matches_its_song() {
-        let track = |id: &str, title: &str, album: &str, duration| Track {
-            id: id.into(),
-            title: title.into(),
-            artists: Vec::new(),
-            album: Some(Link { name: "Currents".into(), id: Some(album.into()) }),
-            duration: Some(duration),
-            thumbs: Vec::new(),
-            track_nr: None,
-            plays: None,
-        };
-        let video = track("sBzrzS1Ag_g", "The Less I Know The Better", "MPREb_c", 217);
-        assert!(same_song(&track("PvM79DJ2PmM", "The Less I Know the Better", "MPREb_c", 217), &video, "MPREb_c"));
-        // Another album's cut, another length, or the video itself: not it.
-        assert!(!same_song(&track("x", "The Less I Know The Better", "MPREb_live", 217), &video, "MPREb_c"));
-        assert!(!same_song(&track("x", "The Less I Know The Better", "MPREb_c", 343), &video, "MPREb_c"));
-        assert!(!same_song(&video, &video, "MPREb_c"));
+    fn album_music_videos_become_the_albums_songs() {
+        let (mut a, videos) = parse_album(&album_page(&RICK_ROWS), "MPREb_x").unwrap();
+        assert_eq!(videos, [0, 1]);
+        let songs = album_songs(&vr_album("Album - Whenever You Need Somebody", &RICK_SONGS)).unwrap();
+        assert_eq!(swap_songs(&mut a, &videos, &songs), 2);
+        assert_eq!(a.tracks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["lYBUbBu4W08", "raBobo3GZYA", "d0t04zd918U"]);
+        // The song's own length; the album's title.
+        assert_eq!((a.tracks[1].title.as_str(), a.tracks[1].duration), ("Whenever You Need Somebody", Some(234)));
+    }
+
+    #[test]
+    fn album_songs_change_nothing_unless_they_line_up() {
+        let vr = vr_album("Album - Whenever You Need Somebody", &RICK_SONGS);
+        let listed = ["dQw4w9WgXcQ", "BeyEGebJ1l4", "d0t04zd918U"];
+        // A row the page leaves out (or one more song) would shift every pair after it.
+        assert_eq!(swapped(&RICK_ROWS[..2], &vr), listed[..2]);
+        // A title that doesn't match keeps its music video; the others still change.
+        let mut renamed = RICK_ROWS;
+        renamed[1].1 = "Whenever You Need Somebody (Radio Edit)";
+        assert_eq!(swapped(&renamed, &vr), ["lYBUbBu4W08", "BeyEGebJ1l4", "d0t04zd918U"]);
+        // A song row stays as listed even when the song list says otherwise.
+        let mut other = RICK_SONGS;
+        other[2].0 = "elsewhere";
+        assert_eq!(swapped(&RICK_ROWS, &vr_album("Album - Whenever You Need Somebody", &other))[2], "d0t04zd918U");
+        // The same id opens the artist's Top Songs, which is no album.
+        let top = vr_album("Song - Rick Astley", &RICK_SONGS);
+        assert_eq!(album_songs(&top), None);
+        assert_eq!(swapped(&RICK_ROWS, &top), listed);
+        // An entry that doesn't read makes the positions unreliable.
+        let mut broken = vr.clone();
+        broken["contents"]["singleColumnWatchNextResults"]["playlist"]["playlist"]["contents"][1] = json!({"automixPreviewVideoRenderer": {}});
+        assert_eq!(album_songs(&broken), None);
+    }
+
+    #[test]
+    fn titles_match_but_for_case_and_punctuation() {
+        assert!(same_title("The Less I Know The Better", "The Less I Know the Better"));
+        assert!(same_title("Don't Say Goodbye", "dont say goodbye"));
+        assert!(same_title("Für Elise", "für  elise"));
+        assert!(same_title("Levitating (feat. DaBaby)", "Levitating"));
+        assert!(same_title("Stan [Featuring Dido]", "stan"));
+        assert!(same_title("LOYALTY. (ft. Rihanna)", "LOYALTY."));
+        assert!(!same_title("Levitating (Remix)", "Levitating"));
+        assert!(!same_title("Mitwa", "Tere Mere Honthon Pe - Mitwa"));
+        assert!(!same_title("", ""));
+    }
+
+    /// Asks the Android VR client for a real album (no sign-in). Run alone:
+    /// `cargo test --bin ytm-rs -- --ignored ytm::tests::album_songs_live --exact`
+    #[tokio::test]
+    #[ignore]
+    async fn album_songs_live() {
+        let api = crate::ytmapi::Api::new(&std::env::temp_dir().join("ytm-rs-album-songs-test"));
+        let a = album(&api, "MPREb_dcYZhAh5urI").await.unwrap();
+        println!("{:?}", a.tracks.iter().map(|t| (&t.id, &t.title, t.duration)).collect::<Vec<_>>());
+        assert_eq!(a.tracks[0].id, "lYBUbBu4W08", "Never Gonna Give You Up should be the song, not the music video");
     }
 
     #[test]

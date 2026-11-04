@@ -86,6 +86,7 @@ impl Rows {
         RowOpts {
             number,
             show_album,
+            plays_col: t.plays.is_some(),
             current: self.current.as_deref() == Some(t.id.as_str()),
             playing: self.playing,
             accent: self.accent,
@@ -187,11 +188,13 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
     let ListCtx { sel, page, own } = cx;
     let selecting = sel.on(page);
     let mods = ui.input(|i| i.modifiers);
+    let plays_col = tracks.iter().any(|t| t.plays.is_some());
     widgets::visible_rows(ui, tracks.len(), |ui, i| {
         let t = &tracks[i];
         let o = RowOpts {
             selected: selecting.then(|| sel.rows.contains(&i)),
             remove: own.then_some(i),
+            plays_col,
             ..rows.opts(liked, t, number(i, t), show_album)
         };
         if track_row(ui, t, &o, acts).clicked() {
@@ -415,8 +418,9 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
         ui.vertical(|ui| {
             ui.label(RichText::new("Songs").font(theme::bold(24.0)));
             ui.add_space(8.0);
+            let plays_col = r.tracks.iter().take(4).any(|t| t.plays.is_some());
             for (i, t) in r.tracks.iter().take(4).enumerate() {
-                let o = RowOpts { pick, ..rows.opts(liked, t, None, false) };
+                let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, false) };
                 if track_row(ui, t, &o, acts).clicked() {
                     acts.push(if pick { Action::TransferPick(t.clone()) } else { Action::Play(r.tracks.clone(), i) });
                 }
@@ -429,8 +433,9 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
         ui.add_space(26.0);
         ui.label(RichText::new("More songs").font(theme::bold(24.0)));
         ui.add_space(10.0);
+        let plays_col = r.tracks.iter().skip(4).any(|t| t.plays.is_some());
         for (i, t) in r.tracks.iter().enumerate().skip(4) {
-            let o = RowOpts { pick, ..rows.opts(liked, t, None, true) };
+            let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, true) };
             if track_row(ui, t, &o, acts).clicked() {
                 acts.push(if pick { Action::TransferPick(t.clone()) } else { Action::Play(r.tracks.clone(), i) });
             }
@@ -629,8 +634,9 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             }
         });
         ui.add_space(12.0);
+        let plays_col = top.iter().take(5).any(|t| t.plays.is_some());
         for (i, t) in top.iter().enumerate().take(5) {
-            let o = rows.opts(&app.liked, t, None, true);
+            let o = RowOpts { plays_col, ..rows.opts(&app.liked, t, None, true) };
             if track_row(ui, t, &o, acts).clicked() {
                 acts.push(Action::Play(top.clone(), i));
             }

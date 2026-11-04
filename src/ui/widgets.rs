@@ -636,6 +636,9 @@ pub fn equalizer_shown(ctx: &egui::Context) -> bool {
 pub struct RowOpts {
     pub number: Option<usize>,
     pub show_album: bool,
+    /// Leave room for a plays column, whether or not this song has a count: set for a
+    /// whole list, so its album and plays columns line up from row to row.
+    pub plays_col: bool,
     pub current: bool,
     pub playing: bool,
     pub accent: Color32,
@@ -737,10 +740,10 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     // Album rows (numbered) are just song name and plays; other rows are
     // title + artists, then album, then plays when there's room.
     let album_row = o.number.is_some();
-    let (title_w, plays_x, album_x) = match (wide, o.show_album, t.plays) {
-        (true, true, Some(_)) => (avail * 0.45, Some(x + avail * 0.82), Some(x + avail * 0.5)),
-        (true, true, None) => (avail * 0.55, None, Some(x + avail * 0.6)),
-        (true, false, Some(_)) => (avail * 0.78, Some(x + avail * 0.82), None),
+    let (title_w, plays_x, album_x) = match (wide, o.show_album, o.plays_col) {
+        (true, true, true) => (avail * 0.45, Some(x + avail * 0.82), Some(x + avail * 0.5)),
+        (true, true, false) => (avail * 0.55, None, Some(x + avail * 0.6)),
+        (true, false, true) => (avail * 0.78, Some(x + avail * 0.82), None),
         _ => (avail, None, None),
     };
     let plays = t.plays.map(|n| format!("{} plays", crate::backend::compact(n)));

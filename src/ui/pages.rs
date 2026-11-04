@@ -224,6 +224,7 @@ fn selectable<'a>(app: &'a App, page: &Page) -> Option<(&'a [Track], bool)> {
         Page::Library(LibTab::Songs) => app.opened(super::LIKED_MUSIC).map(|o| (o.c.tracks.as_slice(), false)),
         Page::Library(LibTab::History) => app.history.as_deref().map(|h| (h, false)),
         Page::Library(LibTab::Uploads) => app.uploads.as_deref().map(|u| (u, false)),
+        Page::Library(LibTab::Downloads) => app.downloads.as_deref().map(|d| (d, false)),
         _ => None,
     }
 }
@@ -656,19 +657,18 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
 
 fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
     page_title(ui, "Library");
-    if !app.logged_in {
-        ui.add_space(10.0);
-        ui.label(RichText::new("Sign in to see your playlists, liked songs and history.").color(theme::text_dim()));
-        ui.add_space(12.0);
-        if pill(ui, "Sign in with Google", Some(icon::CIRCLE_USER), true).clicked() {
-            app.start_sign_in(ui.ctx());
-        }
-        return;
-    }
     ui.add_space(12.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
-        for (t, label) in [(LibTab::Playlists, "Playlists"), (LibTab::Songs, "Liked songs"), (LibTab::Albums, "Albums"), (LibTab::History, "History"), (LibTab::Uploads, "Uploads")] {
+        let tabs = [
+            (LibTab::Playlists, "Playlists"),
+            (LibTab::Songs, "Liked songs"),
+            (LibTab::Albums, "Albums"),
+            (LibTab::History, "History"),
+            (LibTab::Uploads, "Uploads"),
+            (LibTab::Downloads, "Downloads"),
+        ];
+        for (t, label) in tabs {
             if chip(ui, label, tab == t).clicked() {
                 // Tabs swap in place (no history entry); the current one refreshes.
                 if tab == t {
@@ -681,6 +681,16 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
         }
     });
     ui.add_space(12.0);
+    // Downloads are on this computer; the rest is the account's.
+    if !app.logged_in && tab != LibTab::Downloads {
+        ui.add_space(10.0);
+        ui.label(RichText::new("Sign in to see your playlists, liked songs and history.").color(theme::text_dim()));
+        ui.add_space(12.0);
+        if pill(ui, "Sign in with Google", Some(icon::CIRCLE_USER), true).clicked() {
+            app.start_sign_in(ui.ctx());
+        }
+        return;
+    }
     let grid = |ui: &mut Ui, cards: &[Card], acts: &mut Vec<Action>| {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(20.0, 22.0);
@@ -725,6 +735,40 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
             }
             list(ui, &rows, &app.liked, up, true, plain, ListCtx { sel: &mut app.selection, page: &app.page, own: false }, &mut app.actions);
         }
+        LibTab::Downloads => {
+            let Some(songs) = &app.downloads else { return };
+            ui.horizontal(|ui| {
+                if !songs.is_empty() {
+                    if pill(ui, "Play", Some(icon::PLAY), true).clicked() {
+                        app.actions.push(Action::Play(songs.clone(), 0));
+                    }
+                    if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() {
+                        let mut t = songs.clone();
+                        super::shuffle(&mut t);
+                        app.actions.push(Action::Play(t, 0));
+                    }
+                }
+                if pill(ui, "Open folder", Some(icon::FOLDER_OPEN), false).clicked() {
+                    crate::downloads::open_folder();
+                }
+                if !songs.is_empty() {
+                    select_pill(ui, &mut app.selection, &app.page);
+                }
+            });
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new("Songs saved on this computer. They play from their files, so they work offline and without signing in.")
+                    .font(theme::regular(13.0))
+                    .color(theme::text_dim()),
+            );
+            ui.add_space(12.0);
+            if songs.is_empty() {
+                ui.add_space(20.0);
+                ui.label(RichText::new("No downloads yet. Download a song from its ⋯ menu.").color(theme::text_dim()));
+                return;
+            }
+            list(ui, &rows, &app.liked, songs, true, plain, ListCtx { sel: &mut app.selection, page: &app.page, own: false }, &mut app.actions);
+        }
         // Liked Music, kept like any playlist.
         LibTab::Songs => {
             if app.opened(super::LIKED_MUSIC).is_none() {
@@ -768,7 +812,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                     grid(ui, &lib.playlists, &mut app.actions)
                 }
                 LibTab::Albums => grid(ui, &lib.albums, &mut app.actions),
-                LibTab::Songs | LibTab::History | LibTab::Uploads => unreachable!(),
+                LibTab::Songs | LibTab::History | LibTab::Uploads | LibTab::Downloads => unreachable!(),
             }
         }
     }

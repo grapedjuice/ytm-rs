@@ -165,6 +165,9 @@ impl App {
             Resp::Downloaded { title, path } => {
                 log::info!("downloaded to {}", path.display());
                 self.toast(format!("Downloaded \u{201c}{title}\u{201d}"));
+                if self.page == Page::Library(LibTab::Downloads) {
+                    self.downloads = Some(crate::downloads::all());
+                }
             }
             Resp::Uploaded { done, failed } => {
                 let songs = |n: usize| if n == 1 { "1 song".to_owned() } else { format!("{n} songs") };

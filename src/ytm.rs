@@ -78,6 +78,14 @@ pub async fn search_songs(api: &Api, query: &str, auth: bool) -> anyhow::Result<
     Ok(search_as(api, query, Filter::Songs, auth).await?.iter().filter_map(|i| list_item(&i["musicResponsiveListItemRenderer"])).collect())
 }
 
+/// A song's plays as YouTube Music counts them, which some lists (album pages) leave
+/// out: from a song search for it, signed out so it stays out of the account's search
+/// history. `None` when the song isn't among the results.
+pub async fn song_plays(api: &Api, t: &Track) -> anyhow::Result<Option<u64>> {
+    let query = format!("{} {}", t.artist_line(), t.title);
+    Ok(search_songs(api, query.trim(), false).await?.into_iter().find(|s| s.id == t.id).and_then(|s| s.plays))
+}
+
 /// Song or video rows, searched as the signed-in account: signed-out searches miss
 /// some major-label releases entirely (the Spotify transfer needs those).
 pub async fn search_tracks_signed_in(api: &Api, query: &str, filter: Filter) -> anyhow::Result<Vec<Track>> {
@@ -1797,6 +1805,21 @@ mod tests {
         assert!(!same_title("Levitating (Remix)", "Levitating"));
         assert!(!same_title("Mitwa", "Tere Mere Honthon Pe - Mitwa"));
         assert!(!same_title("", ""));
+    }
+
+    /// Looks up the plays of a real song an album page lists without them. Run alone:
+    /// `cargo test --bin ytm-rs -- --ignored ytm::tests::song_plays_live --exact --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn song_plays_live() {
+        let api = crate::ytmapi::Api::new(&std::env::temp_dir().join("ytm-rs-song-plays-test"));
+        let artist = |name: &str| vec![Link { name: name.into(), id: None }];
+        let song = |id: &str, title: &str, by: &str| Track { id: id.into(), title: title.into(), artists: artist(by), album: None, duration: None, thumbs: Vec::new(), track_nr: None, plays: None, music_video: false };
+        for t in [song("L3XPdkm2F9Q", "独り言 - Hitori Goto", "Asagaya Romantics")] {
+            let plays = song_plays(&api, &t).await.unwrap();
+            println!("{} {}: {plays:?}", t.id, t.title);
+            assert!(plays.is_some_and(|n| n > 0), "{} should have plays", t.title);
+        }
     }
 
     /// Asks the Android VR client for a real album (no sign-in). Run alone:

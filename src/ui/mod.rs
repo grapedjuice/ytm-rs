@@ -71,6 +71,8 @@ pub enum LibTab {
     Albums,
     History,
     Uploads,
+    /// Songs saved on this computer: played from their files, so offline and signed out too.
+    Downloads,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -257,6 +259,8 @@ pub struct App {
     library_requested: std::time::Instant,
     history: Option<Vec<Track>>,
     uploads: Option<Vec<Track>>,
+    /// Library › Downloads, read from the download index when the tab opens.
+    downloads: Option<Vec<Track>>,
     /// Files chosen in the upload dialog, handed over from its thread.
     picked_uploads: Arc<std::sync::Mutex<Option<Vec<std::path::PathBuf>>>>,
     liked: HashSet<String>,
@@ -500,6 +504,7 @@ impl App {
             library_requested: std::time::Instant::now(),
             history: None,
             uploads: None,
+            downloads: None,
             picked_uploads: Default::default(),
             liked: HashSet::new(),
             unliking: HashMap::new(),
@@ -637,6 +642,7 @@ impl App {
             Ok("uploads") => app.go(Page::Library(LibTab::Uploads)),
             Ok("liked") => app.go(Page::Library(LibTab::Songs)),
             Ok("history") => app.go(Page::Library(LibTab::History)),
+            Ok("downloads") => app.go(Page::Library(LibTab::Downloads)),
             Ok("settings") => app.go(Page::Settings),
             Ok("transfer") => app.go(Page::Transfer),
             Ok("jam") => app.go(Page::Jam),
@@ -755,6 +761,11 @@ impl App {
                 }
                 None
             }
+            // On this computer: no request, and the files are read again on each visit.
+            Page::Library(LibTab::Downloads) => {
+                self.downloads = Some(crate::downloads::all());
+                None
+            }
             Page::Library(_) if self.logged_in => Some(Req::Library),
             _ => None,
         };
@@ -767,6 +778,7 @@ impl App {
             Page::Library(LibTab::History) => self.history.is_some(),
             Page::Library(LibTab::Uploads) => self.uploads.is_some(),
             Page::Library(LibTab::Songs) => self.opened(LIKED_MUSIC).is_some(),
+            Page::Library(LibTab::Downloads) => true,
             Page::Library(_) => self.library.is_some(),
             _ => false,
         };

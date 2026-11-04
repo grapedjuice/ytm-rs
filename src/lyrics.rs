@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 const API: &str = "https://lyrics.api.dacubeking.com/";
@@ -21,7 +22,7 @@ const UNISON_API: &str = "https://unison.betterlyrics.org/lyrics";
 
 /// One source of lyrics, in the extension's default priority order (its
 /// `PROVIDER_CONFIGS`, without the two YouTube sources).
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub enum Provider {
     BLyricsRich,
     UnisonRich,
@@ -118,7 +119,7 @@ impl Provider {
 }
 
 /// How a set of lines is timed, decided from the lines themselves (`deriveSyncType`).
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 pub enum Sync {
     None,
     Line,
@@ -126,7 +127,7 @@ pub enum Sync {
 }
 
 /// A timed piece of a line: a syllable, a word or several words.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Part {
     pub start: i32,
     pub dur: i32,
@@ -135,7 +136,7 @@ pub struct Part {
     pub bg: bool,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Line {
     pub start: i32,
     pub dur: i32,
@@ -159,7 +160,7 @@ impl Line {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Lyrics {
     pub lines: Vec<Line>,
     pub sync: Sync,
@@ -191,7 +192,7 @@ fn derive_sync(lines: &[Line]) -> Sync {
 }
 
 /// Every source that had lyrics for a song, in default priority order.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct LyricsSet {
     pub sources: Vec<Lyrics>,
 }

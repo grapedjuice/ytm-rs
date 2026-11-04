@@ -731,6 +731,12 @@ impl Backend {
                 }
                 Req::Download { track: t, for_video } => {
                     let path = self.download(&t, for_video).await?;
+                    // Its lyrics too, for offline; the download is done without waiting for them.
+                    let (this, song) = (self.clone(), t.clone());
+                    tokio::spawn(async move {
+                        let found = this.lyrics_for(&song).await.sources.len();
+                        log::info!("download {}: lyrics from {found} source(s) kept", song.id);
+                    });
                     Resp::Downloaded { title: t.title, path }
                 }
                 Req::Play { video_id, generation, at, report, song_of, song } => match self.start_playback(&video_id, song_of.as_ref(), song, generation, at, report).await {
@@ -917,14 +923,46 @@ impl Backend {
         Ok(())
     }
 
+    /// A song's lyrics. A downloaded song's are kept: shown at once from what was saved
+    /// (offline too), and saved again from a fresh look in the background.
     async fn lyrics_for(&self, t: &Track) -> LyricsSet {
+        if crate::downloads::path(&t.id).is_none() {
+            return self.fetch_lyrics(t).await;
+        }
+        let saved = tokio::task::spawn_blocking({
+            let id = t.id.clone();
+            move || crate::downloads::saved_lyrics(&id)
+        })
+        .await
+        .ok()
+        .flatten();
+        let (this, t) = (self.clone(), t.clone());
+        let fresh = tokio::spawn(async move {
+            // A download saved without its plays gets them now, while online.
+            if crate::downloads::lacks_plays(&t.id)
+                && let Ok(Some(plays)) = ytm::song_plays(&this.api, &t).await
+            {
+                crate::downloads::set_plays(&t.id, plays);
+            }
+            let set = this.fetch_lyrics(&t).await;
+            let keep = set.clone();
+            let _ = tokio::task::spawn_blocking(move || crate::downloads::save_lyrics(&t.id, &keep)).await;
+            set
+        });
+        match saved {
+            Some(saved) => saved,
+            None => fresh.await.unwrap_or_default(),
+        }
+    }
+
+    async fn fetch_lyrics(&self, t: &Track) -> LyricsSet {
         let artist = t.artist_line();
         let query = lyrics::Query {
             video_id: &t.id,
             song: &t.title,
             artist: &artist,
             album: t.album.as_ref().map(|a| a.name.as_str()),
-            duration: match t.duration {
+            duration: match t.duration.or_else(|| crate::downloads::duration(&t.id)) {
                 Some(d) => Some(d),
                 None => self.stream_duration(&t.id).await,
             },
@@ -1273,7 +1311,14 @@ impl Backend {
             Some(url) => async { self.http().get(url).send().await?.error_for_status()?.bytes().await }.await.ok().map(|b| b.to_vec()),
             None => None,
         };
-        let (t, duration_ms, loudness) = (t.clone(), shared.duration_ms, shared.loudness_db);
+        let (mut t, duration_ms, loudness) = (t.clone(), shared.duration_ms, shared.loudness_db);
+        // Not every list gives a song's plays (album pages often don't): keep them with the download.
+        if t.plays.is_none() {
+            match ytm::song_plays(&self.api, &t).await {
+                Ok(plays) => t.plays = plays,
+                Err(e) => log::debug!("download {}: no play count: {e:#}", t.id),
+            }
+        }
         tokio::task::spawn_blocking(move || crate::downloads::save(&t, &audio, duration_ms, loudness, cover, for_video)).await?
     }
 

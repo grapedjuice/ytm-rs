@@ -3,7 +3,8 @@
 //! downloads folder. A downloaded song plays from its file, so it works offline.
 //!
 //! `downloads.json` in the data dir maps video ids to their files; a file that was
-//! moved or deleted just stops counting as downloaded.
+//! moved or deleted just stops counting as downloaded. A downloaded song's lyrics are
+//! kept in the data dir's `lyrics` folder, so they show offline too.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -11,6 +12,7 @@ use std::sync::{Arc, LazyLock, RwLock};
 
 use serde::{Deserialize, Serialize};
 
+use crate::lyrics::LyricsSet;
 use crate::model::Track;
 use crate::stream::Shared;
 
@@ -25,6 +27,10 @@ struct Entry {
     stands_for: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     song: Option<Track>,
+    /// The song as listed when it was downloaded, for Library › Downloads. Files from
+    /// before it was kept are read from their tags instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    track: Option<Track>,
 }
 
 struct State {
@@ -123,6 +129,115 @@ pub fn song_for(video_id: &str) -> Option<Track> {
     st.index.values().find(|e| e.stands_for.as_deref() == Some(video_id) && e.path.is_file()).and_then(|e| e.song.clone())
 }
 
+/// Every downloaded song whose file is still there, newest first: Library › Downloads.
+/// A song version is listed as the song (its file plays for the music video too).
+pub fn all() -> Vec<Track> {
+    let entries: Vec<(String, Entry)> = STATE.read().unwrap().index.iter().map(|(id, e)| (id.clone(), e.clone())).collect();
+    let mut found: Vec<(std::time::SystemTime, Track)> = entries
+        .into_iter()
+        .filter_map(|(id, e)| {
+            let modified = std::fs::metadata(&e.path).ok().filter(|m| m.is_file())?.modified().unwrap_or(std::time::UNIX_EPOCH);
+            let mut t = e.track.or(e.song).unwrap_or_else(|| from_tags(&id, &e.path));
+            t.id = id;
+            t.music_video = false;
+            if e.duration_ms > 0 {
+                t.duration = Some((e.duration_ms / 1000) as u32);
+            }
+            Some((modified, t))
+        })
+        .collect();
+    found.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
+    found.into_iter().map(|(_, t)| t).collect()
+}
+
+/// A song downloaded before the index kept its details: title, artists and album from
+/// the file's tags, else the file's name.
+fn from_tags(id: &str, path: &Path) -> Track {
+    let tag = mp4ameta::Tag::read_from_path(path).ok();
+    let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| id.to_owned());
+    let link = |name: &str| crate::model::Link { name: name.to_owned(), id: None };
+    Track {
+        id: id.to_owned(),
+        title: tag.as_ref().and_then(|t| t.title()).map(str::to_owned).unwrap_or(name),
+        artists: tag.as_ref().map(|t| t.artists().map(link).collect()).unwrap_or_default(),
+        album: tag.as_ref().and_then(|t| t.album()).map(link),
+        duration: None,
+        thumbs: Vec::new(),
+        track_nr: tag.as_ref().and_then(|t| t.track_number()),
+        plays: None,
+        music_video: false,
+    }
+}
+
+/// A downloaded song that was saved without its plays (the list it came from had none).
+pub fn lacks_plays(video_id: &str) -> bool {
+    STATE.read().unwrap().index.get(video_id).and_then(|e| e.track.as_ref()).is_some_and(|t| t.plays.is_none())
+}
+
+/// Keep a downloaded song's plays, looked up after it was saved.
+pub fn set_plays(video_id: &str, plays: u64) {
+    let mut st = STATE.write().unwrap();
+    let Some(t) = st.index.get_mut(video_id).and_then(|e| e.track.as_mut()) else { return };
+    t.plays = Some(plays);
+    if let Ok(json) = serde_json::to_vec(&st.index) {
+        let _ = std::fs::write(&st.file, json);
+    }
+}
+
+/// A downloaded song's length in seconds, as its file has it.
+pub fn duration(video_id: &str) -> Option<u32> {
+    let ms = STATE.read().unwrap().index.get(video_id).map(|e| e.duration_ms)?;
+    (ms > 0).then_some((ms / 1000) as u32)
+}
+
+/// Where a song's lyrics are kept: `<data dir>/lyrics/<video id>.json`.
+fn lyrics_file(video_id: &str) -> Option<PathBuf> {
+    let id: String = video_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+    let dir = STATE.read().unwrap().file.parent()?.join("lyrics");
+    (!id.is_empty()).then(|| dir.join(format!("{id}.json")))
+}
+
+/// The lyrics saved for a downloaded song, every source that had them.
+pub fn saved_lyrics(video_id: &str) -> Option<LyricsSet> {
+    path(video_id)?;
+    let set: LyricsSet = serde_json::from_slice(&std::fs::read(lyrics_file(video_id)?).ok()?).ok()?;
+    (!set.sources.is_empty()).then_some(set)
+}
+
+/// Keep a downloaded song's lyrics for offline, and put their words in the file's
+/// lyrics tag (for other players) when they changed. Nothing for a song that isn't
+/// downloaded, or lyrics that are empty.
+pub fn save_lyrics(video_id: &str, set: &LyricsSet) {
+    let (Some(audio), Some(file)) = (path(video_id), lyrics_file(video_id)) else { return };
+    if set.sources.is_empty() {
+        return;
+    }
+    let words = plain_lyrics(set);
+    let before = saved_lyrics(video_id).map(|s| plain_lyrics(&s));
+    let saved = file.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&file, serde_json::to_vec(set).unwrap_or_default()));
+    if let Err(e) = saved {
+        log::warn!("couldn't save the lyrics of {video_id}: {e}");
+        return;
+    }
+    if before.as_deref() != Some(words.as_str())
+        && !words.is_empty()
+        && audio.extension().is_some_and(|e| e == "m4a")
+        && let Err(e) = mp4ameta::Tag::read_from_path(&audio).and_then(|mut tag| {
+            tag.set_lyrics(&words);
+            tag.write_to_path(&audio)
+        })
+    {
+        log::warn!("couldn't tag the lyrics of {}: {e}", audio.display());
+    }
+}
+
+/// The words of the first source's lyrics, a line each.
+fn plain_lyrics(set: &LyricsSet) -> String {
+    let Some(l) = set.sources.first() else { return String::new() };
+    l.lines.iter().filter(|l| !l.instrumental).map(|l| l.text.trim()).collect::<Vec<_>>().join("
+").trim().to_owned()
+}
+
 /// A downloaded song's audio, as a complete stream buffer for playback.
 pub fn open(video_id: &str) -> Option<Arc<Shared>> {
     let entry = STATE.read().unwrap().index.get(video_id).cloned()?;
@@ -163,7 +278,8 @@ pub fn save(t: &Track, audio: &[u8], duration_ms: u64, loudness_db: Option<f32>,
     std::fs::rename(&part, &path)?;
     let mut st = STATE.write().unwrap();
     let song = stands_for.is_some().then(|| t.clone());
-    st.index.insert(t.id.clone(), Entry { path: path.clone(), duration_ms, loudness_db, stands_for, song });
+    let track = Some(t.clone());
+    st.index.insert(t.id.clone(), Entry { path: path.clone(), duration_ms, loudness_db, stands_for, song, track });
     if let Ok(json) = serde_json::to_vec(&st.index) {
         let _ = std::fs::write(&st.file, json);
     }

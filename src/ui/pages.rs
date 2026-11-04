@@ -1390,8 +1390,10 @@ fn settings_shortcuts(ui: &mut Ui) {
             ("Search", &["Ctrl", "F"]),
             ("Lyrics and now playing", &["L"]),
             ("Full-screen lyrics (in now playing)", &["F"]),
+            ("Mini player on / off", &["Ctrl", "M"]),
             ("Back / forward", &["Alt", "← / →"]),
-            ("Close now playing", &["Esc"]),
+            ("Back / forward with the mouse", &["Side buttons"]),
+            ("Leave full screen, now playing or selecting", &["Esc"]),
         ];
         for (i, (what, combo)) in keys.iter().enumerate() {
             if i > 0 {

@@ -3,7 +3,7 @@
 use egui::{Align2, Color32, Pos2, Rect, Sense, Ui, Vec2, pos2, vec2};
 
 use super::widgets::{self, icon_at, icon_button, named, paint_cover, text_at};
-use super::{Action, App, LibTab, NpTab, Page, Repeat, fmt_time};
+use super::{Action, App, LibTab, NpTab, Page, Repeat, fmt_time, row_drag};
 use crate::model::Target;
 use crate::shader::Params;
 use crate::theme::{self, icon};
@@ -947,19 +947,26 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
         let start = app.queue.index.unwrap_or(0);
         ui.checkbox(&mut app.autoplay, egui::RichText::new("Autoplay similar songs").color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
         ui.add_space(6.0);
-        let (queue, liked, acts, has_current, by) = (&app.queue.tracks, &app.liked, &mut app.actions, app.queue.index.is_some(), &app.jam.by);
+        let accent = app.accent_color();
+        let (queue, liked, acts, has_current, by, drag) = (&app.queue.tracks, &app.liked, &mut app.actions, app.queue.index.is_some(), &app.jam.by, &mut app.row_drag);
+        // Songs to come can be dragged into another order; in a jam, by the host.
+        let (list, movable) = (egui::Id::unique(("queue", salt)), !app.jam.guest());
+        let top = ui.cursor().top();
         widgets::visible_rows(ui, queue.len() - start, |ui, k| {
             let i = start + k;
             let t = &queue[i];
             // The first row is the current song.
             let current = k == 0 && has_current;
+            if movable && !current {
+                row_drag::grip(ui, drag, list, i, t);
+            }
             let o = widgets::RowOpts { current, added_by: by.get(&t.id).cloned(), ..rows.opts(liked, t, None, false) };
             let resp = widgets::track_row(ui, t, &o, acts);
             if resp.clicked() {
                 // The playing row pauses/resumes instead of doing nothing.
                 acts.push(if current { Action::TogglePlay } else { Action::QueueJump(i) });
             }
-            if !current && ui.rect_contains_pointer(Rect::from_min_max(resp.rect.min, pos2(resp.rect.right() + 42.0, resp.rect.bottom()))) {
+            if !current && drag.is_none() && ui.rect_contains_pointer(Rect::from_min_max(resp.rect.min, pos2(resp.rect.right() + 42.0, resp.rect.bottom()))) {
                 // Remove button over the duration column.
                 let x = Rect::from_center_size(resp.rect.right_center() - vec2(26.0, 0.0), Vec2::splat(28.0));
                 let xr = named(ui.interact(x, resp.id.with("rm"), Sense::click()), "Remove from queue").on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -970,6 +977,10 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
                 }
             }
         });
+        let lowest = if has_current { start + 1 } else { start };
+        if let Some(d) = row_drag::feedback(ui, drag, list, row_drag::Rows { top, first: start, lowest, end: queue.len(), accent }) {
+            acts.push(Action::QueueMove { from: d.from, gap: d.gap, id: d.id });
+        }
     });
 }
 

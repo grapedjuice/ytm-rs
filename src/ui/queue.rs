@@ -169,6 +169,19 @@ impl Queue {
         }
     }
 
+    /// Move song `from` to the gap `gap` between songs (0 is above the first), both counted
+    /// before the move. Only what's still to come moves: false when either is the song
+    /// playing or earlier, or it wouldn't change anything.
+    pub fn move_track(&mut self, from: usize, gap: usize) -> bool {
+        let first = self.index.map_or(0, |i| i + 1);
+        if from < first || gap < first || from >= self.tracks.len() || gap > self.tracks.len() || gap == from || gap == from + 1 {
+            return false;
+        }
+        let t = self.tracks.remove(from);
+        self.tracks.insert(if gap > from { gap - 1 } else { gap }, t);
+        true
+    }
+
     /// Radio songs for `seed` join the end, without the seed or songs already queued.
     /// Returns whether the song playing was the last one.
     pub fn add_radio(&mut self, seed: &str, tracks: Vec<Track>) -> bool {
@@ -230,6 +243,46 @@ mod tests {
 
     fn filling(id: &str, load: u64, shuffled: bool) -> Option<QueueFill> {
         Some(QueueFill { id: id.into(), load, shuffled, ran_out: false })
+    }
+
+    #[test]
+    fn songs_to_come_move_between_others() {
+        let mut q = queue(&["a", "b", "c", "d", "e"], 1, Repeat::Off);
+        // Down: the gap above "e", counted before the move.
+        assert!(q.move_track(2, 4));
+        assert_eq!(ids(&q), ["a", "b", "d", "c", "e"]);
+        // Up: right after the song playing.
+        assert!(q.move_track(4, 2));
+        assert_eq!(ids(&q), ["a", "b", "e", "d", "c"]);
+        // To the very end.
+        assert!(q.move_track(2, 5));
+        assert_eq!(ids(&q), ["a", "b", "d", "c", "e"]);
+        assert_eq!(q.index, Some(1));
+    }
+
+    #[test]
+    fn the_song_playing_and_earlier_ones_stay_put() {
+        let mut q = queue(&["a", "b", "c", "d"], 1, Repeat::Off);
+        let before = ids(&q).join("");
+        // The song playing, one before it, and gaps at or above it.
+        assert!(!q.move_track(1, 3));
+        assert!(!q.move_track(0, 3));
+        assert!(!q.move_track(3, 1));
+        assert!(!q.move_track(3, 0));
+        // Where it already is, and out of range.
+        assert!(!q.move_track(2, 2));
+        assert!(!q.move_track(2, 3));
+        assert!(!q.move_track(4, 2));
+        assert!(!q.move_track(2, 5));
+        assert_eq!(ids(&q).join(""), before);
+    }
+
+    #[test]
+    fn with_nothing_playing_every_song_moves() {
+        let mut q = queue(&["a", "b", "c"], 0, Repeat::Off);
+        q.index = None;
+        assert!(q.move_track(2, 0));
+        assert_eq!(ids(&q), ["c", "a", "b"]);
     }
 
     #[test]

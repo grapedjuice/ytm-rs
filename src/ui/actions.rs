@@ -87,6 +87,11 @@ impl App {
                 self.play_current();
             }
             Action::QueueRemove(i) => self.queue.remove(i),
+            Action::QueueMove { from, gap, id } => {
+                if self.queue.tracks.get(from).is_some_and(|t| t.id == id) && self.queue.move_track(from, gap) {
+                    self.prefetch_next();
+                }
+            }
             Action::Seek(secs) => {
                 self.seek_to(Duration::from_secs_f32(secs.max(0.0)));
                 self.lyric_view.resume();
@@ -257,7 +262,9 @@ impl App {
             self.set_fullscreen(ctx, !self.fullscreen);
         }
         if esc {
-            if self.fullscreen {
+            if self.row_drag.take().is_some() {
+                // Just the drag.
+            } else if self.fullscreen {
                 self.set_fullscreen(ctx, false);
             } else {
                 self.np_open = false;

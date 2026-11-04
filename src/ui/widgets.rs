@@ -656,11 +656,16 @@ pub struct RowOpts {
 
 const ROW_H: f32 = 56.0;
 
+/// A song row's height with the space to the next.
+pub fn row_height(ui: &Ui) -> f32 {
+    ROW_H + ui.spacing().item_spacing.y
+}
+
 /// A long list of song rows: only the ones on screen are built; the rest is empty space
 /// of the same height. `row(ui, i)` draws row `i`, under an id of its own so its hover
 /// and menu state don't jump to another song as the list scrolls.
 pub fn visible_rows(ui: &mut Ui, n: usize, mut row: impl FnMut(&mut Ui, usize)) {
-    let h = ROW_H + ui.spacing().item_spacing.y;
+    let h = row_height(ui);
     let top = ui.cursor().top();
     let clip = ui.clip_rect();
     let first = (((clip.top() - top) / h).floor().max(0.0) as usize).min(n);
@@ -682,7 +687,9 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     let hit_left = if o.pick && o.number.is_none() { rect.left() + 54.0 } else { rect.left() };
     let hit_rect = Rect::from_min_max(pos2(hit_left, rect.top()), pos2(rect.right() - 42.0, rect.bottom()));
     let resp = named(ui.interact(hit_rect, base.id.with("play"), Sense::click()), &t.title).on_hover_cursor(egui::CursorIcon::PointingHand);
-    let h = theme::anim_bool(ui.ctx(), base.id.with("h"), base.contains_pointer(), 0.15);
+    // Not while something's being dragged over it: only the drop place should show.
+    let hovered = base.contains_pointer() && ui.ctx().dragged_id().is_none();
+    let h = theme::anim_bool(ui.ctx(), base.id.with("h"), hovered, 0.15);
     if h > 0.0 || o.current {
         let a = if o.current { 0.07 + 0.05 * h } else { 0.07 * h };
         ui.painter().rect_filled(rect, 8.0, theme::glass(a));

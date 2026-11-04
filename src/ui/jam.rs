@@ -568,6 +568,7 @@ pub fn guest_action(app: &mut App, a: Action) -> Option<Action> {
         Action::PlayCollection(..) => app.toast("In a jam, add songs one at a time"),
         Action::QueueJump(i) => request(app, Cmd::Jump { index: i }),
         Action::QueueRemove(_) => app.toast("Only the host can remove songs"),
+        Action::QueueMove { .. } => app.toast("Only the host can reorder the jam"),
         Action::Seek(secs) => request(app, Cmd::Seek { pos: (secs.max(0.0) * 1000.0) as u64 }),
         Action::TogglePlay => request(app, Cmd::Toggle),
         a => return Some(a),

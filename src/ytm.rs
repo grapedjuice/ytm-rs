@@ -157,16 +157,25 @@ pub async fn paired_song(api: &Api, video_id: &str) -> anyhow::Result<Option<Tra
 }
 
 fn parse_paired_song(v: &Value, video_id: &str) -> Option<Track> {
+    counterparts(v, video_id).find(|r| video_type(&[&r["navigationEndpoint"]]) == Some("MUSIC_VIDEO_TYPE_ATV")).and_then(panel_item)
+}
+
+/// The song of a music video, or the music video of a song.
+fn parse_other_half(v: &Value, video_id: &str) -> Option<String> {
+    counterparts(v, video_id).find_map(|r| r["videoId"].as_str()).map(str::to_owned)
+}
+
+/// What a `next` answer pairs with `video_id`: its other version, on Premium accounts.
+fn counterparts<'a>(v: &'a Value, video_id: &str) -> impl Iterator<Item = &'a Value> {
     let panel = &v["contents"]["singleColumnMusicWatchNextResultsRenderer"]["tabbedRenderer"]["watchNextTabbedResultsRenderer"]["tabs"][0]
         ["tabRenderer"]["content"]["musicQueueRenderer"]["content"]["playlistPanelRenderer"];
+    let id = video_id.to_owned();
     arr(&panel["contents"])
         .iter()
         .map(|i| &i["playlistPanelVideoWrapperRenderer"])
-        .filter(|w| w["primaryRenderer"]["playlistPanelVideoRenderer"]["videoId"] == video_id)
+        .filter(move |w| w["primaryRenderer"]["playlistPanelVideoRenderer"]["videoId"] == id.as_str())
         .flat_map(|w| arr(&w["counterpart"]))
         .map(|c| &c["counterpartRenderer"]["playlistPanelVideoRenderer"])
-        .find(|r| video_type(&[&r["navigationEndpoint"]]) == Some("MUSIC_VIDEO_TYPE_ATV"))
-        .and_then(panel_item)
 }
 
 /// The song version of a music video, by a signed-out search (a signed-in one would
@@ -987,6 +996,26 @@ pub async fn set_like(api: &Api, video_id: &str, like: bool) -> anyhow::Result<(
     let endpoint = if like { "like/like" } else { "like/removelike" };
     write(api, endpoint, json!({ "target": { "videoId": video_id } })).await?;
     Ok(())
+}
+
+/// After taking a song's like away, its other half's. A music video and its song are
+/// liked separately, but with Premium, Liked Music lists a liked music video as its song,
+/// so the song shown may not be the one holding the like. `epoch`: the account and channel
+/// when the like was taken away; after a change the other half isn't theirs to touch.
+/// Returns the other half when its like was taken away too.
+pub async fn remove_other_half_like(api: &Api, video_id: &str, epoch: u64) -> anyhow::Result<Option<String>> {
+    if api.epoch() != epoch {
+        return Ok(None);
+    }
+    let body = json!({"videoId": video_id, "isAudioOnly": true, "enablePersistentPlaylistPanel": true});
+    let v = api.call_signed_in("next", body).await?;
+    let Some(other) = parse_other_half(&v, video_id) else { return Ok(None) };
+    tokio::time::sleep(crate::backend::LIKE_GAP).await;
+    if api.epoch() != epoch {
+        return Ok(None);
+    }
+    set_like(api, &other, false).await?;
+    Ok(Some(other))
 }
 
 pub async fn dislike(api: &Api, video_id: &str) -> anyhow::Result<()> {
@@ -2026,6 +2055,11 @@ mod tests {
             wrap(item("raBobo3GZYA", "Whenever You Need Somebody", "MUSIC_VIDEO_TYPE_ATV"), item("BeyEGebJ1l4", "Whenever You Need Somebody", "MUSIC_VIDEO_TYPE_OMV")),
             wrap(item("dQw4w9WgXcQ", "Never Gonna Give You Up", "MUSIC_VIDEO_TYPE_OMV"), item("lYBUbBu4W08", "Never Gonna Give You Up", "MUSIC_VIDEO_TYPE_ATV")),
         ]}}}}}}]}}}}});
+        // Both ways round, for taking a like away.
+        assert_eq!(parse_other_half(&v, "dQw4w9WgXcQ").as_deref(), Some("lYBUbBu4W08"));
+        assert_eq!(parse_other_half(&v, "raBobo3GZYA").as_deref(), Some("BeyEGebJ1l4"));
+        assert_eq!(parse_other_half(&v, "not-in-the-queue"), None);
+        assert_eq!(parse_other_half(&json!({}), "dQw4w9WgXcQ"), None);
         let found = parse_paired_song(&v, "dQw4w9WgXcQ").unwrap();
         assert_eq!((found.id.as_str(), found.duration, found.music_video), ("lYBUbBu4W08", Some(214), false));
         // A song's counterpart is its video: no song version of a song.

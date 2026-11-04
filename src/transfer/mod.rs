@@ -1440,13 +1440,13 @@ mod live {
 
         let before = listed(&api).await.len();
         let t = Instant::now();
-        let (done, failed) = crate::backend::like_many(&api, ids.clone(), true, |_, _| {}).await;
+        let (done, failed, _) = crate::backend::like_many(&api, ids.clone(), true, |_, _| {}).await;
         let now = listed(&api).await;
         let have = ids.iter().filter(|id| now.contains(*id)).count();
         println!("like: {} taken, {} refused in {:.1}s ({:.2} s/song); Liked Music {} -> {}, {have} of {} listed", done.len(), failed.len(), t.elapsed().as_secs_f32(), t.elapsed().as_secs_f32() / ids.len().max(1) as f32, before, now.len(), ids.len());
 
         let t = Instant::now();
-        let (done, failed) = crate::backend::like_many(&api, ids.clone(), false, |_, _| {}).await;
+        let (done, failed, _) = crate::backend::like_many(&api, ids.clone(), false, |_, _| {}).await;
         let now = listed(&api).await;
         let left = ids.iter().filter(|id| now.contains(*id)).count();
         println!("unlike: {} taken, {} refused in {:.1}s ({:.2} s/song); Liked Music now {}, {left} of {} still listed", done.len(), failed.len(), t.elapsed().as_secs_f32(), t.elapsed().as_secs_f32() / ids.len().max(1) as f32, now.len(), ids.len());
@@ -1461,7 +1461,7 @@ mod live {
         let api = crate::ytmapi::Api::new(&dir);
         let ids: Vec<String> = crate::ytm::playlist(&api, "LM", true, None).await.unwrap().tracks.into_iter().map(|t| t.id).collect();
         let t = std::time::Instant::now();
-        let (done, failed) = crate::backend::like_many(&api, ids.clone(), false, |_, _| {}).await;
+        let (done, failed, _) = crate::backend::like_many(&api, ids.clone(), false, |_, _| {}).await;
         let left = crate::ytm::playlist(&api, "LM", true, None).await.map(|p| p.tracks.len()).unwrap_or(usize::MAX);
         println!("unlike all: {} listed, {} taken, {} refused in {:.1}s; Liked Music now lists {left}", ids.len(), done.len(), failed.len(), t.elapsed().as_secs_f32());
     }

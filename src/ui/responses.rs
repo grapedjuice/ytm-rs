@@ -236,11 +236,12 @@ impl App {
                     self.play_list(tracks, 0);
                 }
             }
-            Resp::Liked { video_id, like } => {
+            Resp::Liked { video_id, like, other } => {
                 self.lists.edits.confirm_likes(std::slice::from_ref(&video_id), &[]);
                 if like {
                     self.liked.insert(video_id);
                 }
+                self.other_half_unliked(other);
             }
             Resp::QuickPicksMore { seed, tracks } => {
                 if let Some(h) = &mut self.home {
@@ -268,7 +269,10 @@ impl App {
                     self.toast(format!("{} {done} of {total} songs…{note}", if like { "Liking" } else { "Removing likes:" }));
                 }
             }
-            Resp::LikedMany { video_ids, failed, like } => self.on_liked_many(video_ids, failed, like),
+            Resp::LikedMany { video_ids, failed, like, others } => {
+                self.on_liked_many(video_ids, failed, like);
+                self.other_half_unliked(others);
+            }
             Resp::PlaylistCreated { id, songs } => {
                 self.request_library();
                 self.toast(match songs {
@@ -362,6 +366,18 @@ impl App {
         self.home_loading = false;
         if self.page == Page::Home {
             self.loading = false;
+        }
+    }
+
+    /// Songs whose likes went along with their other versions': not liked here either.
+    fn other_half_unliked(&mut self, ids: impl IntoIterator<Item = String>) {
+        for id in ids {
+            self.liked.remove(&id);
+            let listed = self.opened(super::LIKED_MUSIC).and_then(|o| o.c.tracks.iter().find(|t| t.id == id).cloned());
+            if let Some(t) = listed {
+                self.set_liked(&[t], false);
+                self.lists.edits.confirm_likes(std::slice::from_ref(&id), &[]);
+            }
         }
     }
 

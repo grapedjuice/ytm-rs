@@ -79,6 +79,12 @@ impl App {
         self.playing_as().or(self.current())
     }
 
+    /// The heart for what's playing. YouTube Music keeps a music video's like and its
+    /// song's apart, so a liked music video keeps its heart while its song version plays.
+    pub(super) fn heard_liked(&self) -> bool {
+        [self.playing_as(), self.current()].into_iter().flatten().any(|t| self.liked.contains(&t.id))
+    }
+
     pub(super) fn playing_id(&self) -> Option<&str> {
         self.playing_track().map(|t| t.id.as_str())
     }

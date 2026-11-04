@@ -438,7 +438,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
                 edit.request_focus();
             }
         }
-        if field.clicked() || ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
+        if field.clicked() || ui.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::F)) {
             edit.request_focus();
         }
         if edit.changed() {

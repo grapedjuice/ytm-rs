@@ -554,7 +554,7 @@ pub fn request(app: &mut App, cmd: Cmd) {
 /// instead. Returns the action if it should run locally.
 pub fn guest_action(app: &mut App, a: Action) -> Option<Action> {
     match a {
-        Action::Play(tracks, i) => {
+        Action::Play(tracks, i) | Action::PlayFound(tracks, i) => {
             if let Some(t) = tracks.into_iter().nth(i) {
                 if app.current_id() == Some(t.id.as_str()) {
                     request(app, Cmd::Toggle);

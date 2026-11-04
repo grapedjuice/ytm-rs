@@ -22,18 +22,15 @@ impl App {
         };
         match a {
             // Clicking the song that's already playing pauses/resumes it, not restart it.
-            Action::Play(tracks, i) if tracks.get(i).is_some_and(|t| self.current_id() == Some(t.id.as_str())) && self.resume_at.is_none() => {
+            Action::Play(tracks, i) | Action::PlayFound(tracks, i) if tracks.get(i).is_some_and(|t| self.current_id() == Some(t.id.as_str())) && self.resume_at.is_none() => {
                 self.toggle()
             }
+            Action::PlayFound(tracks, i) => {
+                self.queue_source = self.page_source();
+                self.play_list(tracks, i);
+            }
             Action::Play(tracks, i) => {
-                // Play buttons and rows live on the page they play from.
-                self.queue_source = match &self.page {
-                    Page::Album(id) => Some(Target::Album(id.clone())),
-                    Page::Playlist(id) => Some(Target::Playlist(id.clone())),
-                    Page::Library(LibTab::Songs) => Some(Target::Playlist(LIKED_MUSIC.into())),
-                    Page::Artist(id) => Some(Target::Artist(id.clone())),
-                    _ => None,
-                };
+                self.queue_source = self.page_source();
                 // All of a playlist that's still coming in, in order or shuffled: the rest follows.
                 let fill = self.page_list().filter(|id| self.receiving(id)).and_then(|id| {
                     let o = self.opened(id).filter(|o| o.c.tracks.len() == tracks.len())?;
@@ -204,6 +201,17 @@ impl App {
                 }
             }
             Action::Mini(on) => self.mini.request(on),
+        }
+    }
+
+    /// What a play from this page plays from: play buttons and rows live on the page they play from.
+    fn page_source(&self) -> Option<Target> {
+        match &self.page {
+            Page::Album(id) => Some(Target::Album(id.clone())),
+            Page::Playlist(id) => Some(Target::Playlist(id.clone())),
+            Page::Library(LibTab::Songs) => Some(Target::Playlist(LIKED_MUSIC.into())),
+            Page::Artist(id) => Some(Target::Artist(id.clone())),
+            _ => None,
         }
     }
 

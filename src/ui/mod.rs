@@ -8,6 +8,7 @@ mod actions;
 mod collections;
 mod dev;
 mod dialogs;
+mod find;
 mod integrations;
 mod jam;
 mod karaoke;
@@ -87,6 +88,9 @@ pub enum NpTab {
 /// User intents collected while drawing; applied after the frame's UI pass.
 pub enum Action {
     Play(Vec<Track>, usize),
+    /// The songs a list was narrowed to: they stay the whole queue, however much more of
+    /// the list comes in.
+    PlayFound(Vec<Track>, usize),
     PlayCollection(Target, bool),
     /// Click on a card: songs start a radio, everything else opens its page.
     Open(Target),
@@ -271,6 +275,7 @@ pub struct App {
     /// Songs whose unlike is queued and hasn't gone through yet.
     unliking: HashMap<String, Track>,
     selection: Selection,
+    find: find::ListFind,
     account_name: Option<String>,
     account_avatar: Option<String>,
     /// The signed-in account's channels and which one is used, once Settings asked.
@@ -515,6 +520,7 @@ impl App {
             liked: HashSet::new(),
             unliking: HashMap::new(),
             selection: Selection::default(),
+            find: Default::default(),
             account_name: None,
             account_avatar: None,
             channels: None,

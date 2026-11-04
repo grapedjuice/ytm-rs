@@ -26,7 +26,7 @@ impl App {
         }
     }
 
-    fn start_load(&self, s: Start) {
+    pub(super) fn start_load(&self, s: Start) {
         self.backend.request(match s.album {
             true => Req::Album { id: s.id, load: s.load },
             false => Req::Playlist { id: s.id, load: s.load, stream: s.stream },

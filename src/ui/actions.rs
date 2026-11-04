@@ -159,6 +159,21 @@ impl App {
                 self.selection.clear();
                 self.backend.request(Req::RemoveFromPlaylist { playlist_id: playlist, items });
             }
+            Action::PlaylistMove { from, gap, id } => {
+                // A load that started during the drag would answer with the old order.
+                if self.page_list().is_some_and(|p| self.lists.loading(p)) {
+                    return self.toast("This playlist is still loading. Try again in a moment.");
+                }
+                let Some(c) = self.current_collection().filter(|c| c.owned && !c.is_album && c.tracks.get(from).is_some_and(|t| t.id == id)) else { return };
+                let playlist_id = c.id.clone();
+                match c.move_row(from, gap) {
+                    Some((set_id, before)) => {
+                        let move_id = self.lists.move_sent(&playlist_id);
+                        self.backend.request(Req::MoveInPlaylist { playlist_id, move_id, set_id, before });
+                    }
+                    None => self.toast("YouTube Music didn't say where these songs are in the playlist. Reload it and try again."),
+                }
+            }
             Action::NewPlaylist(tracks) => {
                 if self.logged_in { self.dialog = Some(Dialog::NewPlaylist { title: String::new(), tracks }); }
                 else { self.toast("Sign in to create playlists"); }

@@ -82,6 +82,8 @@ pub enum Req {
     AddToPlaylist { playlist_id: String, video_ids: Vec<String> },
     /// `(videoId, setVideoId)` entries to take out of the playlist.
     RemoveFromPlaylist { playlist_id: String, items: Vec<(String, String)> },
+    /// Move an entry to just before another, or to the end.
+    MoveInPlaylist { playlist_id: String, move_id: u64, set_id: String, before: Option<String> },
     DeletePlaylist(String),
     /// A playlist's collaboration settings and invite link.
     Collaboration(String),
@@ -126,6 +128,7 @@ impl Req {
             Req::EditPlaylist { .. } => "Edit playlist",
             Req::AddToPlaylist { .. } => "Add to playlist",
             Req::RemoveFromPlaylist { .. } => "Remove from playlist",
+            Req::MoveInPlaylist { .. } => "Move in playlist",
             Req::DeletePlaylist(_) => "Delete playlist",
             Req::Collaboration(_) => "Loading collaboration",
             Req::SetCollaboration { .. } => "Collaboration",
@@ -187,6 +190,24 @@ impl Collection {
         }
     }
 
+    /// Move row `from` to the gap `gap` between rows (0 is above the first), both counted
+    /// before the move. Returns the entry moved and the one now after it (`None` at the
+    /// end), which is how YouTube Music takes a move; `None`, with nothing moved, when
+    /// they're out of range or it didn't say which entries they are.
+    pub fn move_row(&mut self, from: usize, gap: usize) -> Option<(String, Option<String>)> {
+        let n = self.tracks.len();
+        if from >= n || gap > n || self.set_ids.len() != n {
+            return None;
+        }
+        let entry = self.set_ids[from].clone()?;
+        let next = if gap < n { Some(self.set_ids[gap].clone()?) } else { None };
+        let to = if gap > from { gap - 1 } else { gap };
+        let (t, set) = (self.tracks.remove(from), self.set_ids.remove(from));
+        self.tracks.insert(to, t);
+        self.set_ids.insert(to, set);
+        Some((entry, next))
+    }
+
     /// Take rows out (sorted indices), and out of the count.
     pub fn remove_rows(&mut self, rows: &[usize]) {
         for &i in rows.iter().rev() {
@@ -242,7 +263,7 @@ pub enum Resp {
     /// An album or playlist; `more`: the rest of its songs follow in `CollectionMore`.
     Collection { load: u64, c: Collection, more: bool },
     /// The next page of a playlist sent as `Collection` with the same `load`.
-    CollectionMore { id: String, load: u64, tracks: Vec<Track>, set_ids: Vec<Option<String>>, more: bool },
+    CollectionMore { id: String, load: u64, tracks: Vec<Track>, set_ids: Vec<Option<String>>, more: bool, failed: bool },
     Artist(ArtistPage),
     Library(Library),
     History(Vec<Track>),
@@ -271,6 +292,8 @@ pub enum Resp {
     LikedMany { video_ids: Vec<String>, failed: Vec<String>, like: bool },
     PlaylistCreated { id: String, songs: usize },
     PlaylistChanged { id: String, message: &'static str },
+    /// YouTube Music answered a song dragged to a new place.
+    PlaylistMoved { id: String, move_id: u64, ok: bool },
     Collaboration(ytm::Collaboration),
     /// Playback for `generation` failed before reaching the audio engine.
     PlayError { generation: u64, msg: String },
@@ -307,7 +330,7 @@ impl Resp {
     /// An album or playlist load that ends without more songs: also sent when it fails,
     /// so the page stops waiting for it.
     fn ended(id: String, load: u64) -> Self {
-        Resp::CollectionMore { id, load, tracks: Vec::new(), set_ids: Vec::new(), more: false }
+        Resp::CollectionMore { id, load, tracks: Vec::new(), set_ids: Vec::new(), more: false, failed: true }
     }
 }
 
@@ -321,6 +344,7 @@ pub const LIKE_GAP: std::time::Duration = std::time::Duration::from_millis(400);
 /// side, one undoes the other (a transfer skips songs as liked that an unlike run then
 /// takes out).
 pub static LIKES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static PLAYLIST_MOVES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// How long one like or unlike may take. Taken ones answer in about a quarter second;
 /// ones YouTube Music refuses while it limits the account are held 8–9 s before the 403
@@ -775,6 +799,20 @@ impl Backend {
                 Req::RemoveFromPlaylist { playlist_id, items } => {
                     ytm::remove_videos(api, &playlist_id, &items).await?;
                     Resp::PlaylistChanged { id: playlist_id, message: "Removed from playlist" }
+                }
+                Req::MoveInPlaylist { playlist_id, move_id, set_id, before } => {
+                    let epoch = api.epoch();
+                    // One at a time, in the order they were made: each is relative to the others.
+                    let _turn = PLAYLIST_MOVES.lock().await;
+                    // Waiting, it may have outlived its account or channel: it isn't for this one.
+                    let result = match api.epoch() == epoch {
+                        true => ytm::move_video(api, &playlist_id, &set_id, before.as_deref()).await,
+                        false => Err(anyhow::anyhow!("the account or channel changed")),
+                    };
+                    if let Err(e) = &result {
+                        log::warn!("moving in playlist {playlist_id}: {e:#}");
+                    }
+                    Resp::PlaylistMoved { id: playlist_id, move_id, ok: result.is_ok() }
                 }
                 Req::DeletePlaylist(id) => {
                     ytm::delete_playlist(api, &id).await?;
@@ -1506,7 +1544,7 @@ impl Backend {
             set_ids.truncate(limit - have);
             have += tracks.len();
             token = next.filter(|_| !tracks.is_empty());
-            resp = Resp::CollectionMore { id: id.clone(), load, more: token.is_some() && have < limit, tracks, set_ids };
+            resp = Resp::CollectionMore { id: id.clone(), load, more: token.is_some() && have < limit, tracks, set_ids, failed: false };
         }
         Ok(resp)
     }

@@ -112,6 +112,8 @@ pub enum Action {
     AddToPlaylist(Vec<Track>),
     /// Rows (indices into the open playlist) to take out of it.
     RemoveFromPlaylist(Vec<usize>),
+    /// A song of your own playlist dragged to the gap between rows, if `id` is still at `from`.
+    PlaylistMove { from: usize, gap: usize, id: String },
     Download(Track),
     NewPlaylist(Vec<Track>),
     EditPlaylist,

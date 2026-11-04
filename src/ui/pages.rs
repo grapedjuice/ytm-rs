@@ -7,6 +7,7 @@ use egui::{Align2, Color32, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
 
 use super::widgets::{self, RowOpts, card, chip, h_scroll, named, paint_cover, pill, shelf_header, track_row};
 use super::find::ListFind;
+use super::row_drag::{self, RowDrag};
 use super::{Action, App, LibTab, Page, Selection};
 use crate::backend::compact;
 use crate::model::{Card, ShelfKind, Target, Track};
@@ -179,6 +180,9 @@ fn song_grid(ui: &mut Ui, rows_ctx: &Rows, liked: &HashSet<String>, acts: &mut V
 struct ListCtx<'a> {
     sel: &'a mut Selection,
     find: &'a mut ListFind,
+    drag: &'a mut Option<RowDrag>,
+    /// Rows can be dragged into another order.
+    movable: bool,
     page: &'a Page,
     own: bool,
 }
@@ -187,7 +191,7 @@ struct ListCtx<'a> {
 /// or picks it while selecting: Ctrl-click picks one song, Shift-click a run of them.
 #[allow(clippy::too_many_arguments)]
 fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], show_album: bool, number: impl Fn(usize, &Track) -> Option<usize>, cx: ListCtx, acts: &mut Vec<Action>) {
-    let ListCtx { sel, find, page, own } = cx;
+    let ListCtx { sel, find, drag, movable, page, own } = cx;
     // What's looked for changing leaves no picks behind that can't be seen.
     if find.show(ui, page, tracks.len()) && sel.page.as_ref() == Some(page) {
         sel.rows.clear();
@@ -201,9 +205,15 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
     let selecting = sel.on(page);
     let mods = ui.input(|i| i.modifiers);
     let plays_col = tracks.iter().any(|t| t.plays.is_some());
+    // Only the whole list has an order to change.
+    let movable = movable && !selecting && shown.is_none();
+    let (drag_list, top) = (egui::Id::unique(("list", page)), ui.cursor().top());
     widgets::visible_rows(ui, shown.as_ref().map_or(tracks.len(), Vec::len), |ui, k| {
         let i = shown.as_ref().map_or(k, |s| s[k]);
         let t = &tracks[i];
+        if movable {
+            row_drag::grip(ui, drag, drag_list, i, t);
+        }
         let o = RowOpts {
             selected: selecting.then(|| sel.rows.contains(&i)),
             remove: own.then_some(i),
@@ -225,6 +235,9 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
             }
         }
     });
+    if movable && let Some(d) = row_drag::feedback(ui, drag, drag_list, row_drag::Rows { top, first: 0, lowest: 0, end: tracks.len(), accent: rows.accent }) {
+        acts.push(Action::PlaylistMove { from: d.from, gap: d.gap, id: d.id });
+    }
 }
 
 /// A list page's "Select" button: turns select mode on and off.
@@ -592,7 +605,9 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     ui.add_space(26.0);
     let number = |i: usize, t: &Track| is_album.then(|| t.track_nr.map_or(i + 1, |n| n as usize));
     let own = app.logged_in && c.owned && !is_album;
-    list(ui, &rows, &app.liked, tracks, !is_album, number, ListCtx { sel: &mut app.selection, find: &mut app.find, page: &app.page, own }, acts);
+    // Only with all of it here and no load that would bring the old order back.
+    let movable = own && o.complete && !app.lists.loading(id) && !matches!(id, "LM" | "SE");
+    list(ui, &rows, &app.liked, tracks, !is_album, number, ListCtx { sel: &mut app.selection, find: &mut app.find, drag: &mut app.row_drag, movable, page: &app.page, own }, acts);
     if more {
         widgets::skeleton_rows(ui, now, 3);
     }
@@ -730,7 +745,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 return;
             }
             let Some(h) = &app.history else { return };
-            list(ui, &rows, &app.liked, h, true, plain, ListCtx { sel: &mut app.selection, find: &mut app.find, page: &app.page, own: false }, &mut app.actions);
+            list(ui, &rows, &app.liked, h, true, plain, ListCtx { sel: &mut app.selection, find: &mut app.find, drag: &mut app.row_drag, movable: false, page: &app.page, own: false }, &mut app.actions);
         }
         LibTab::Uploads => {
             ui.horizontal(|ui| {
@@ -755,7 +770,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 ui.add_space(20.0);
                 ui.label(RichText::new("No uploads yet").color(theme::text_dim()));
             }
-            list(ui, &rows, &app.liked, up, true, plain, ListCtx { sel: &mut app.selection, find: &mut app.find, page: &app.page, own: false }, &mut app.actions);
+            list(ui, &rows, &app.liked, up, true, plain, ListCtx { sel: &mut app.selection, find: &mut app.find, drag: &mut app.row_drag, movable: false, page: &app.page, own: false }, &mut app.actions);
         }
         LibTab::Downloads => {
             let Some(songs) = &app.downloads else { return };
@@ -789,7 +804,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 ui.label(RichText::new("No downloads yet. Download a song from its ⋯ menu.").color(theme::text_dim()));
                 return;
             }
-            list(ui, &rows, &app.liked, songs, true, plain, ListCtx { sel: &mut app.selection, find: &mut app.find, page: &app.page, own: false }, &mut app.actions);
+            list(ui, &rows, &app.liked, songs, true, plain, ListCtx { sel: &mut app.selection, find: &mut app.find, drag: &mut app.row_drag, movable: false, page: &app.page, own: false }, &mut app.actions);
         }
         // Liked Music, kept like any playlist.
         LibTab::Songs => {
@@ -814,7 +829,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 });
                 ui.add_space(10.0);
             }
-            list(ui, &rows, &app.liked, liked, true, plain, ListCtx { sel: &mut app.selection, find: &mut app.find, page: &app.page, own: false }, &mut app.actions);
+            list(ui, &rows, &app.liked, liked, true, plain, ListCtx { sel: &mut app.selection, find: &mut app.find, drag: &mut app.row_drag, movable: false, page: &app.page, own: false }, &mut app.actions);
             if more {
                 widgets::skeleton_rows(ui, now, 3);
             }

@@ -228,6 +228,17 @@ pub fn pill(ui: &mut Ui, label: &str, glyph: Option<char>, primary: bool) -> Res
     resp
 }
 
+/// A round button the height of a [`pill`], for a menu of what doesn't need a button of its own.
+pub fn more_pill(ui: &mut Ui, name: &str) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(38.0), Sense::click());
+    let resp = named(resp, name).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered() || open, 0.15);
+    ui.painter().circle_filled(rect.center(), 19.0, theme::glass(0.10 + 0.08 * h));
+    icon_at(ui, rect.center(), icon::ELLIPSIS_VERTICAL, 18.0, theme::text());
+    resp
+}
+
 /// Selectable chip (home moods, library tabs).
 pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
     let text = ui.painter().layout_no_wrap(label.to_owned(), theme::semibold(13.5), Color32::PLACEHOLDER);
@@ -450,7 +461,7 @@ fn more_button(ui: &mut Ui, rect: Rect, id: egui::Id, label: &str) -> Response {
     response
 }
 
-fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
+pub fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width() - 8.0, 32.0), Sense::click());
     let response = named(response, label).on_hover_cursor(egui::CursorIcon::PointingHand);
     if response.hovered() {

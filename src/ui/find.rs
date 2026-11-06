@@ -10,8 +10,8 @@ use crate::theme::{self, icon};
 
 /// Lists shorter than this are easy enough to look through: no box.
 const MIN_SONGS: usize = 12;
-const BOX_W: f32 = 280.0;
-const BOX_H: f32 = 34.0;
+pub const BOX_W: f32 = 260.0;
+const BOX_H: f32 = 38.0;
 
 /// What's being looked for, in one list at a time: another list starts empty.
 #[derive(Default)]
@@ -31,8 +31,10 @@ impl ListFind {
         Some(tracks.iter().enumerate().filter(|(_, t)| matches(t, &words)).map(|(i, _)| i).collect())
     }
 
-    /// The box, for a list of `total` songs: true when what's looked for changed.
-    pub fn show(&mut self, ui: &mut Ui, page: &Page, total: usize) -> bool {
+    /// The box, for a list of `tracks`, with how many match inside it: true when what's
+    /// looked for changed.
+    pub fn show(&mut self, ui: &mut Ui, page: &Page, tracks: &[Track]) -> bool {
+        let total = tracks.len();
         if self.page.as_ref() != Some(page) {
             self.page = Some(page.clone());
             self.query.clear();
@@ -46,7 +48,14 @@ impl ListFind {
         ui.painter().rect_filled(rect, BOX_H / 2.0, theme::glass(0.09));
         icon_at(ui, pos2(rect.left() + 18.0, rect.center().y), icon::SEARCH, 15.0, theme::text_dim());
         let clearable = !self.query.is_empty();
-        let inner = Rect::from_min_max(pos2(rect.left() + 34.0, rect.top() + 3.0), pos2(rect.right() - if clearable { 36.0 } else { 12.0 }, rect.bottom() - 3.0));
+        let end = rect.right() - if clearable { 36.0 } else { 12.0 };
+        let count = self.rows(page, tracks).map(|s| ui.painter().layout_no_wrap(format!("{} of {total}", s.len()), theme::regular(12.5), theme::text_faint()));
+        let count_w = count.as_ref().map_or(0.0, |g| g.size().x + 8.0);
+        let inner = Rect::from_min_max(pos2(rect.left() + 34.0, rect.top() + 3.0), pos2((end - count_w).max(rect.left() + 60.0), rect.bottom() - 3.0));
+        if let Some(g) = count {
+            let at = pos2(end - g.size().x, rect.center().y - g.size().y / 2.0);
+            ui.painter().galley(at, g, theme::text_faint());
+        }
         let edit = ui.put(
             inner,
             egui::TextEdit::singleline(&mut self.query)
@@ -74,7 +83,6 @@ impl ListFind {
         if field.clicked() || ui.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::F)) {
             edit.request_focus();
         }
-        ui.add_space(8.0);
         changed
     }
 }

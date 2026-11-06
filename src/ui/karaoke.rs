@@ -971,6 +971,9 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
             w.letters = false;
         }
     }
+    for w in &mut block.words {
+        w.long = w.dur > cfg.wave.long_secs as f64;
+    }
     if cfg.wave.min_secs > 0.0 || cfg.wave.max_letters > 0 {
         for w in &mut block.words {
             w.letters &= w.dur >= cfg.wave.min_secs as f64 && (cfg.wave.max_letters == 0 || w.text.chars().count() <= cfg.wave.max_letters);
@@ -1107,6 +1110,8 @@ pub struct Frame<'a> {
     /// The listener's lyrics text size, a multiple of the theme's.
     pub scale: f32,
     pub fullscreen: bool,
+    /// The break's chip frosts what's behind it.
+    pub glass_chip: Option<[f32; 3]>,
 }
 
 pub struct Out {
@@ -1499,7 +1504,7 @@ impl View {
                 paint_marker(&painter, &cfg, pos2(block_rect.left() - left * px, block_rect.center().y), vec2(w, h) * px, cfg.marker_hover * opacity);
             }
             // The whole line's own glow, under its words; a soft copy of the line, made once.
-            let line_glow = if on { cfg.active_glow } else if hovered { cfg.hover_glow } else { None };
+            let line_glow = if hovered && cfg.hover_glow.is_some() { cfg.hover_glow } else if on { cfg.active_glow } else { None };
             if let Some([radius, a]) = line_glow.filter(|_| !b.instrumental && blur <= 0.05) {
                 let k = theme::anim_bool(&ctx, ("lyr-line-glow", f.key, i), true, 0.3);
                 let words: Vec<(&Word, f32)> = b.words.iter().map(|w| (w, 1.0)).collect();
@@ -1524,6 +1529,10 @@ impl View {
                 let at = pos2(ix, cfg.padding + cfg.line_h() * 0.5);
                 if let Some(a) = cfg.inst_chip {
                     let c = xf.point(at);
+                    if let Some(g) = f.glass_chip {
+                        let side = em * 1.9 * scale;
+                        crate::shader::frost(&painter, Rect::from_center_size(c, Vec2::splat(side)), crate::shader::Frost { look: g, radius: side / 2.0, opacity, fade: 0.0 });
+                    }
                     painter.circle_filled(c, em * 0.95 * scale, theme::glass(a * opacity));
                     painter.circle_stroke(c, em * 0.95 * scale, egui::Stroke::new(1.0, theme::glass(a * opacity)));
                 }

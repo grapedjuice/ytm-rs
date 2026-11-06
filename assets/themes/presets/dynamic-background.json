@@ -16,7 +16,10 @@
     "audio_speed": 0,
     "crossfade_secs": 1.5,
     "beat_threshold": 0.75,
-    "auto_dim": 0.3
+    "auto_dim": 0.3,
+    "blur_passes": 10,
+    "dither": 0.008,
+    "video_backdrop": true
   },
   "lyrics": {
     "font": "Inter",
@@ -30,10 +33,12 @@
     "glow_alpha": 1,
     "long_glow_alpha": 1,
     "scroll_ease": [0.42, 0, 0.58, 1],
-    "pre_sharp_secs": 0.5
+    "pre_sharp_secs": 0.5,
+    "scroll_transition": { "frac": 0, "secs": 0.35, "delay": 0 },
+    "resume_look": [12, 0.1, 0]
   },
-  "cover": { "radius": 20, "shadow": 0.2, "shadow_blur": 8, "shadow_offset": 4, "max_px": 400, "fullscreen": {}, "open_scale": 0.2 },
-  "now_playing": { "title_align": "left", "title_px": 25, "artist_px": 20 },
+  "cover": { "radius": 20, "shadow": 0.2, "shadow_blur": 8, "shadow_offset": 4, "max_px": 400, "fullscreen": {}, "open_scale": 0.2, "open_secs": 0.75 },
+  "now_playing": { "title_align": "left", "title_px": 25, "artist_px": 20, "title_max_px": 500, "fullscreen_panel_frac": 0.4, "header_autohide": true },
   "chrome": {},
   "app": {
     "font": "Inter",
@@ -49,14 +54,17 @@
     "search_radius": 12,
     "search_alpha": 0.1,
     "hide_scrollbars": true,
-    "controls": { "hover_scale": 1.2 },
-    "nav_item": { "hover": 0.1, "selected": 0.1 },
+    "controls": { "hover_scale": 1.2, "play_hover_scale": 1.2 },
+    "nav_item": { "hover": 0.1, "selected": 0.1, "width": 256 },
     "chip_look": { "fill": 0.1, "hover": 0.1, "selected_fill": "white", "selected_alpha": 0.2, "selected_text": "accent" },
-    "row_look": { "height": 54, "thumb_px": 38, "hover": 0.1 },
-    "menu_look": { "hover": 0.1 },
-    "search_look": { "accent_icon": true },
-    "page_wash": [0.5, 300],
-    "page_wash_color": "#000000",
-    "frost": true
+    "row_look": { "height": 54, "thumb_px": 38, "hover": 0.1, "hover_menu": true },
+    "menu_look": { "hover": 0.1, "alpha": 0, "shadow": [4, 8, 0.2] },
+    "toast_look": { "alpha": 0, "radius": 12 },
+    "card_look": { "image_zoom": 0.01, "play_px": 40, "play_alpha": 0.6, "play_hover_scale": 1.2 },
+    "search_look": { "accent_icon": true, "drop_radius": 12 },
+    "header_image_alpha": 0.8,
+    "header_gradient": [0.5, 0],
+    "np_open_secs": 0.65,
+    "glass": { "top_bar": [8, 1, 1], "menu": [8, 1, 1], "search_drop": [8, 1, 1], "toast": [8, 1, 1], "dialog": [8, 1, 1] }
   }
 }

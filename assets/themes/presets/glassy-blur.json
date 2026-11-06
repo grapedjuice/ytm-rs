@@ -20,7 +20,9 @@
     "beat_threshold": 0.01,
     "layer": {
       "opacity": 0.8
-    }
+    },
+    "blur_passes": 7,
+    "dither": 0.004
   },
   "lyrics": {
     "font": "SF Pro Display",
@@ -125,7 +127,14 @@
     "scroll_offset": 0.6,
     "early_scroll": 0.67,
     "word_rise_px": 3.0,
-    "word_rise_secs": 0.4
+    "word_rise_secs": 0.2,
+    "word_rise_ratio": 1.0,
+    "line_stagger": 0,
+    "line_fade_secs": 0.5,
+    "deco_enter": [-0.3, 0, 0.5, 0],
+    "scroll_scale": 0.95,
+    "scroll_transition": { "frac": 0, "secs": 0.3, "delay": 0 },
+    "resume_look": [12, 0.1, 0]
   },
   "cover": {
     "radius": 16,
@@ -139,7 +148,15 @@
     "tab_content": "icons",
     "tab_px": 50,
     "tab_idle_alpha": 0.35,
-    "video_lyrics": true
+    "tab_pill": 0.15,
+    "video_lyrics": true,
+    "panel_frac": [0.5, 0.45],
+    "video_panel_frac": [0.63, 0.64],
+    "video_radius": 12,
+    "title_max_px": 500,
+    "switch": { "back": 0.1, "radius": 16 },
+    "no_lyrics_text": "No lyrics found",
+    "no_lyrics": { "rem": 2.0, "icon": true, "center_after": 1.4, "stays": true }
   },
   "chrome": {
     "bar_color": "#141414",
@@ -148,6 +165,7 @@
     "progress_color": "white",
     "progress_radius": 60,
     "progress_thumb": false,
+    "progress_track": 0.15,
     "play_button": "bare",
     "bar_layout": "song_middle"
   },
@@ -170,7 +188,7 @@
     "menu_look": {
       "row_px": 34,
       "hover": 0.12,
-      "alpha": 0.85,
+      "alpha": 0.25,
       "icon_right": true,
       "shadow": [
         15,
@@ -180,12 +198,32 @@
       "row_radius": 0
     },
     "search_look": {
-      "drop_radius": 12
+      "drop_radius": 12,
+      "attached": true,
+      "drop_ring": 0.08,
+      "item_radius": 8
     },
+    "glass": {
+      "top_bar": [25, 1, 1],
+      "menu": [8, 2, 1.1],
+      "search_drop": [25, 1, 1],
+      "dialog": [25, 1, 1],
+      "toast": [10, 1, 1],
+      "resume": [10, 1, 1]
+    },
+    "top_bar": { "band": [0, 90] },
+    "toast_look": { "alpha": 0, "radius": 12 },
+    "controls": { "press_scale": 0.92, "press_chips": 0.95, "press_rows": 0.98 },
+    "nav_item": { "radius": 12, "hover": 0.1, "selected": 0.15 },
+    "chip_look": { "fill": 0.1, "hover": 0.1 },
+    "card_look": { "play_px": 40, "play_alpha": 0.6 },
+    "row_look": { "hover": 0.1, "current": 0.08, "image_zoom": 0.15, "image_dim": 0.35 },
+    "header_image_alpha": 0.8,
+    "page_saturation": 1.5,
+    "page_scale": 1.2,
     "search_radius": 12,
     "search_alpha": 0.1,
     "search_border": 0.1,
-    "hide_scrollbars": true,
-    "frost": true
+    "hide_scrollbars": true
   }
 }

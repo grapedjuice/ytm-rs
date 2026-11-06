@@ -15,10 +15,15 @@
     "reactive": 2,
     "audio_speed": 4,
     "scale": 1.25,
+    "crossfade_secs": 1.0,
+    "beat_threshold": 0.75,
+    "blur_passes": 8,
+    "dither": 0.008,
     "layer": {
       "opacity": 0.5,
       "pulse_secs": 8,
-      "pulse": 0.05
+      "pulse": 0.05,
+      "rotate_secs": 30
     }
   },
   "lyrics": {
@@ -47,7 +52,9 @@
       20,
       20
     ],
+    "padding_top": 10,
     "anchor": 0.5,
+    "hide_instrumental_only": true,
     "past": [
       [
         0,
@@ -152,11 +159,19 @@
     "panel_frac": [
       0.5,
       0.45
-    ]
+    ],
+    "video_panel_frac": [0.5, 0.45],
+    "fullscreen_progress_px": 24,
+    "switch": {
+      "back": 0.1,
+      "selected": 0.1
+    }
   },
   "chrome": {
     "bar_color": "#141414",
-    "byline_marquee": true
+    "byline_marquee": true,
+    "marquee_fade": 18,
+    "transport_shift": 43
   },
   "app": {
     "font": "DM Sans",
@@ -164,16 +179,25 @@
     "bar_alpha": 0.2,
     "card_radius": 20,
     "thumb_radius": 10,
-    "chip_radius": 6,
+    "chip_radius": 3.75,
+    "chip_look": {
+      "segmented": [10, 3.75, 3]
+    },
     "nav_item": {
       "rail": true,
       "radius": 15,
       "hover": 0.085,
-      "selected": 0.085
+      "selected": 0.085,
+      "hide_divider": true
     },
     "card_look": {
       "image_outline": 0.1
     },
-    "frost": true
+    "top_bar": {
+      "band": [0.05, 64]
+    },
+    "glass": {
+      "top_bar": [25, 1, 1]
+    }
   }
 }

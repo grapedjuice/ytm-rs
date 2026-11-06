@@ -249,6 +249,8 @@ pub struct LetterWave {
     pub secs: f32,
     /// How much held words' letters swell.
     pub emphasis: f32,
+    /// A word held this long swells by `emphasis`.
+    pub long_secs: f32,
     /// Only words held at least this long, and of at most this many letters (0: any), wave.
     pub min_secs: f32,
     pub max_letters: usize,
@@ -260,7 +262,7 @@ pub struct LetterWave {
 
 impl Default for LetterWave {
     fn default() -> Self {
-        Self { on: true, crest: 0.05, settle: 0.02, secs: 0.9, emphasis: 1.11, min_secs: 0.0, max_letters: 0, rest_scale: 1.0, glow_rem: 0.0 }
+        Self { on: true, crest: 0.05, settle: 0.02, secs: 0.9, emphasis: 1.11, long_secs: 1.5, min_secs: 0.0, max_letters: 0, rest_scale: 1.0, glow_rem: 0.0 }
     }
 }
 

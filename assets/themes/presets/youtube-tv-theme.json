@@ -36,20 +36,25 @@
       2,
       0.05
     ],
+    "word_shadow_unsung": true,
     "instrumental_rem": 4
   },
   "cover": {
     "side": "right",
-    "radius": 20
+    "radius": 20,
+    "fullscreen": { "width_frac": 1 }
   },
   "now_playing": {
     "title_align": "center",
     "title_px": 24,
     "artist_px": 24,
     "video_lyrics": true,
-    "video_max_frac": 0.6
+    "video_max_frac": 0.6,
+    "title_shadow": [0, 0.2],
+    "fullscreen_padding": [192, 0]
   },
   "app": {
-    "bar_alpha": 0
+    "bar_alpha": 0,
+    "glass": { "top_bar": [10, 1, 1] }
   }
 }

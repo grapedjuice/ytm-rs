@@ -9,20 +9,24 @@
   "lyrics": {
     "font": "Google Sans Flex",
     "weight": "semibold",
-    "romanization_weight": "regular",
-    "translation_weight": "regular"
+    "romanization_weight": "medium",
+    "translation_weight": "medium",
+    "credits_weight": "medium"
   },
   "cover": {
     "radius": 12,
     "max_frac": 0.6
   },
   "now_playing": {
-    "title_weight": "regular"
+    "title_weight": "medium",
+    "artist_weight": "medium"
   },
   "chrome": {
     "bar_color": "#000000",
     "bar_np_alpha": 0,
-    "bar_border_alpha": 0.2
+    "bar_border_alpha": 0.2,
+    "bar_np_border": false,
+    "time_weight": "medium"
   },
   "app": {
     "font": "Google Sans Flex",
@@ -32,6 +36,9 @@
     "menu_border": 0.2,
     "menu_color": "#000000",
     "heading_weight": "semibold",
+    "header_title_weight": "semibold",
+    "input": { "fill": 0.06, "radius": 6 },
+    "chip_look": { "weight": "medium" },
     "row_look": {
       "radius": 8,
       "current": 0.12
@@ -52,7 +59,8 @@
         22
       ],
       "knob": 16,
-      "outline": true
+      "outline": true,
+      "on_outline": true
     }
   }
 }

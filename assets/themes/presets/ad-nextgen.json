@@ -66,7 +66,9 @@
     "translation_alpha": 0.09,
     "scroll_secs": 0.4,
     "word_rise_px": 3.0,
-    "word_rise_secs": 0.4,
+    "word_rise_secs": 0.2,
+    "word_rise_ratio": 1.0,
+    "line_ease": [0.0, 0.0, 0.58, 1.0],
     "line_fade_secs": 0.4,
     "past_opacity_transition": {
       "secs": 0.6
@@ -81,6 +83,7 @@
   },
   "cover": {
     "radius": 20,
+    "top_only": true,
     "shadow": 0.2,
     "shadow_blur": 48,
     "shadow_offset": 24,
@@ -101,11 +104,16 @@
     "tab_content": "both",
     "tab_px": 44,
     "tab_idle_alpha": 0.4,
+    "tab_label_px": 14,
+    "tab_edge": 0.06,
+    "tab_width_frac": 1.0,
     "artist_alpha": 0.45,
     "title_card": {
       "fill": 0.04,
       "stroke": 0.08,
-      "radius": 20
+      "radius": 20,
+      "shadow": [16, 32, 0.15],
+      "attached": true
     }
   },
   "chrome": {
@@ -122,6 +130,11 @@
     "progress_px": 2,
     "progress_color": "white",
     "play_button": "bare",
+    "play_scale": 1.1,
+    "bar_layout": "song_middle",
+    "bar_pad": [24, 0],
+    "progress_inset": 60,
+    "like_on_hover": true,
     "bar_max_px": 1200.0,
     "thumb_px": 40,
     "thumb_radius": 10,
@@ -153,7 +166,17 @@
     "search_radius": 100,
     "search_border": 0.08,
     "hide_scrollbars": true,
-    "frost": true,
+    "tabular_digits": true,
+    "queue_upper": true,
+    "heading_tracking_em": -0.015,
+    "header_title_weight": "bold",
+    "glass": {
+      "top_bar": [12, 1.8, 1],
+      "bar": [30, 1.6, 1],
+      "menu": [80, 2.5, 1],
+      "search_drop": [60, 2.2, 1.1],
+      "title_card": [6, 1, 1]
+    },
     "all_bold": true,
     "heading_px": 26,
     "heading_weight": "bold",
@@ -164,6 +187,7 @@
       "button_fill": 0.06,
       "button_hover": 0.06,
       "ghost_outline": 0.12,
+      "hover_border": 0.2,
       "accent_primary": true
     },
     "nav_item": {
@@ -171,7 +195,8 @@
       "rail_px": 125,
       "rail_labels": true,
       "hover": 0.1,
-      "radius": 6
+      "radius": 6,
+      "hide_divider": true
     },
     "chip_look": {
       "height": 34,
@@ -179,7 +204,9 @@
       "hover": 0.05,
       "selected_fill": "white",
       "selected_text": "#000000",
-      "weight": "semibold"
+      "weight": "medium",
+      "selected_weight": "semibold",
+      "border": 0.08
     },
     "card_look": {
       "hover_scale": 1.03,
@@ -200,12 +227,15 @@
       "current": 0.08,
       "current_color": "accent",
       "separator": 0.04,
-      "hover_menu": true
+      "hover_menu": true,
+      "pad": 8,
+      "byline_alpha": 0.55,
+      "thumb_radius": 10
     },
     "menu_look": {
       "row_px": 36,
       "hover": 0.1,
-      "alpha": 0.85,
+      "alpha": 0.3,
       "icon_right": true,
       "shadow": [
         12,
@@ -215,16 +245,20 @@
       "row_radius": 0
     },
     "search_look": {
+      "height": 40,
       "max_px": 800,
       "color": "#141414",
-      "drop_radius": 12
+      "drop_radius": 12,
+      "drop_ring": 0.1
     },
     "top_bar": {
       "capsule_px": 1400.0,
       "capsule": [
-        0.55,
+        0.7,
         26
-      ]
+      ],
+      "logo_text": "YouTube Music",
+      "logo_color": "accent"
     },
     "header_title_px": 32.0
   }

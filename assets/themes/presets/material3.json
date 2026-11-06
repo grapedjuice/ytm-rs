@@ -33,10 +33,12 @@
     "translation_alpha": 0.8,
     "instrumental": "ring",
     "balance": true,
-    "instrumental_rem": 5.6
+    "instrumental_rem": 5.6,
+    "ring_wave": true
   },
   "now_playing": {
-    "tabs": "strip"
+    "tabs": "strip",
+    "tab_selected_color": "#ffb4a9"
   },
   "chrome": {
     "play_button": "bare"
@@ -49,8 +51,13 @@
     "search_radius": 28,
     "menu_color": "#271d1c",
     "page_rise_px": 8,
+    "morph_loader": true,
+    "text_dim": "#d8c2bf",
+    "glass": { "top_bar": [24, 1.4, 1] },
+    "menu_look": { "pop": [0.98, 0.24], "item_slide": 6 },
+    "row_look": { "radius": 20 },
     "page_wash": [
-      0.18,
+      0.24,
       900
     ],
     "page_wash_color": "#8b4b2e",
@@ -58,19 +65,23 @@
     "search_look": {
       "height": 48,
       "color": "#322826",
-      "drop_radius": 28
+      "drop_radius": 28,
+      "open_color": "#3d3231",
+      "attached": true
     },
     "nav_item": {
       "radius": 24,
       "height": 48,
       "hover": 0.08,
-      "selected": 0.12
+      "selected": 0.12,
+      "press": 0.12
     },
     "chip_look": {
       "fill": 0.1,
       "hover": 0.05,
       "selected_fill": "#4b5429",
-      "selected_alpha": 1.0
+      "selected_alpha": 1.0,
+      "selected_text": "#e1e4b9"
     }
   }
 }

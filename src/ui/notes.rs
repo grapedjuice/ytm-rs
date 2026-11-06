@@ -157,10 +157,14 @@ fn rule_color() -> Color32 {
 }
 
 pub(super) fn surface() -> egui::Frame {
+    let look = &crate::preset::active().app;
+    // A theme's own dialog fill; see-through only when what's behind is really frosted.
+    let alpha = if look.glass.dialog.is_some() && crate::shader::glass_ready() { look.menu_look.alpha } else { look.menu_look.alpha.max(0.85) };
+    let dark = crate::preset::hex(&look.menu_color).map_or(Color32::from_gray(28), |c| theme::with_alpha(c, alpha));
     egui::Frame::new()
-        .fill(if theme::light() { theme::surface_fill() } else { Color32::from_gray(28) })
-        .stroke(Stroke::new(1.0, rule_color()))
-        .corner_radius(16)
+        .fill(if theme::light() { theme::surface_fill() } else { dark })
+        .stroke(if look.dialog_bottom_line { Stroke::NONE } else { Stroke::new(1.0, rule_color()) })
+        .corner_radius(look.menu_radius.unwrap_or(16.0).clamp(0.0, 32.0) as u8)
         .shadow(egui::epaint::Shadow { offset: [0, 24], blur: 70, spread: 0, color: theme::shade(0.55) })
 }
 
@@ -185,6 +189,7 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
     let body = app.updater.as_ref().and_then(|u| u.notes(&d.version));
     let (mut close, mut restart) = (false, false);
     let accent = app.accent_color();
+    widgets::modal_extras(ctx, egui::Id::unique("release-notes"));
     let modal = egui::Modal::new(egui::Id::unique("release-notes")).frame(surface()).backdrop_color(theme::shade(0.55)).show(ctx, |ui| {
         let w = 540.0_f32.min(ctx.content_rect().width() - 48.0);
         ui.set_width(w);

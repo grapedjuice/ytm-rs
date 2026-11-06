@@ -17,7 +17,10 @@
     "reactive": 0.0,
     "audio_speed": 3.3,
     "crossfade_secs": 1.0,
-    "beat_threshold": 0.75
+    "beat_threshold": 0.75,
+    "blur_passes": 8,
+    "dither": 0.008,
+    "video_backdrop": true
   },
   "lyrics": {
     "agent_align": "only_v1_left",
@@ -28,7 +31,7 @@
         3.8
       ]
     ],
-    "fullscreen_scale": 1.11,
+    "font_vw_full": [2.4, 2.2, 7.2],
     "line_height": 1.2,
     "line_padding_rem": 1.5,
     "padding_inline": [
@@ -80,17 +83,25 @@
       "secs": 0.6
     },
     "hover_reveal": true,
+    "hover_dim_alpha": 0.75,
     "hover_box": [
       0.1,
       16
     ],
+    "hover_box_pop": [0.94, 0.4],
     "active_alpha": 0.85,
     "sweep_lead": 0.0,
     "sweep_ratio": 1.0,
+    "sweep_soft": 0.2,
+    "sweep_end": [1.0, 1.2],
     "word_rest_scale": 0.95,
+    "word_rest_em": 0.01,
     "word_gap_em": 0.06,
     "glow_ratio": 1.5,
     "glow_min_secs": 0.9,
+    "glow_ease": [0.55, 0.05, 0.7, 0.4],
+    "glow_fade_secs": 0.8,
+    "exit_fade": [0.8, 0],
     "scale_ease": [
       0.34,
       1.3,
@@ -103,29 +114,41 @@
       0.25,
       1.0
     ],
-    "background_alpha": 0.65,
+    "background_alpha": 0.6,
+    "background_sung_alpha": 0.5,
+    "background_gap_em": 0.05,
     "background_weight": "semibold",
     "credits_alpha": [
       0.55,
       1.0
     ],
+    "credits_weight": "semibold",
     "rest_scale": 0.98,
     "active_scale": 1.0,
     "scale_secs": 0.45,
     "letter_wave": {
       "crest": 0.07,
-      "emphasis": 1.12
+      "emphasis": 1.12,
+      "secs": 1.05,
+      "min_secs": 0.7,
+      "max_letters": 8,
+      "rest_scale": 0.95,
+      "glow_rem": 1.6
     },
     "wobble": false,
     "word_bounce": {
       "lift": 0.034,
       "scale": 1.0505,
-      "secs": 0.8,
+      "secs": 1.0,
+      "dur_ratio": 1.5,
       "spring": true
     },
     "glow_alpha": 0.35,
-    "long_glow_alpha": 0.35,
+    "long_glow_alpha": 1.0,
     "glow_rem": 0.6,
+    "decor_tracking_em": -0.01,
+    "decor_fullscreen_scale": 1.11,
+    "decor_gap_em": 0.4,
     "romanization_rem": 1.9,
     "romanization_alpha": 0.5,
     "romanization_pill": false,
@@ -154,7 +177,8 @@
       0.8,
       0.25,
       1.0
-    ]
+    ],
+    "resume_look": [22, 0.08, 0.12]
   },
   "cover": {
     "radius_pct": 0.02,
@@ -162,7 +186,8 @@
     "shadow": 0.271,
     "shadow_blur": 20,
     "shadow_offset": 9,
-    "opacity": 0.95
+    "opacity": 0.95,
+    "hover_dim": 0.4
   },
   "now_playing": {
     "title_px": 33,
@@ -171,21 +196,34 @@
     "artist_alpha": 0.7,
     "title_weight": "bold",
     "artist_weight": "regular",
+    "tabs": "strip",
     "tab_content": "icons",
     "tab_back": [
-      0.1,
+      0.05,
       22
     ],
+    "tab_pill": 0.16,
+    "tab_glow": 0.35,
+    "tab_selected_color": "white",
     "tab_idle_alpha": 0.55,
     "tab_px": 44,
-    "cover_controls": true
+    "cover_controls": true,
+    "cover_progress": true,
+    "cover_buttons": [46, 0, 1.1],
+    "cover_play_px": 90,
+    "cover_play_bare": true,
+    "title_max_px": 525,
+    "title_edge_fade": 14,
+    "panel_frac": [0.42, 0.47]
   },
   "chrome": {
     "progress_color": "white",
     "progress_alpha": 0.85,
     "progress_track": 0.2,
     "bar_title_weight": "bold",
-    "bar_byline_alpha": 0.7
+    "bar_byline_alpha": 0.7,
+    "bar_border_alpha": 0.08,
+    "like_hover_scale": 1.28
   },
   "app": {
     "font": "SF Pro Display",
@@ -196,10 +234,14 @@
     "bar_border": true,
     "card_radius": 10,
     "thumb_radius": 10,
-    "frost": true,
     "controls": {
-      "hover_scale": 1.08
+      "hover_scale": 1.08,
+      "spring": true
     },
+    "nav_item": {
+      "width": 240
+    },
+    "heading_tracking_em": -0.02,
     "heading_px": 26,
     "heading_weight": "bold",
     "strap_alpha": 0.6,
@@ -213,13 +255,28 @@
       "subtitle_alpha": 0.75,
       "title_weight": "semibold",
       "play_px": 48,
-      "play_alpha": 0.5
+      "play_alpha": 0,
+      "image_dim": 0.5,
+      "image_zoom": 0,
+      "shadow_rest": true
     },
     "top_bar": {
       "band": [
         0.35,
         64
       ]
+    },
+    "menu_look": {
+      "pop": [0.94, 0.28],
+      "item_slide": 4
+    },
+    "search_look": {
+      "drop_grow": true
+    },
+    "glass": {
+      "top_bar": [30, 1.6, 1],
+      "tabs": [16, 1.7, 1],
+      "resume": [16, 1.7, 1]
     }
   }
 }

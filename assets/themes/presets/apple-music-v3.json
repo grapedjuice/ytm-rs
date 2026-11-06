@@ -27,7 +27,9 @@
     ],
     "scrim_across": true,
     "crossfade_secs": 1.0,
-    "beat_threshold": 0.01
+    "beat_threshold": 0.01,
+    "blur_passes": 7,
+    "dither": 0.004
   },
   "lyrics": {
     "font": "SF Pro Display",
@@ -90,7 +92,9 @@
     "translation_alpha": 0.11,
     "scroll_secs": 0.4,
     "word_rise_px": 3.0,
-    "word_rise_secs": 0.4,
+    "word_rise_secs": 0.2,
+    "word_rise_ratio": 1.0,
+    "scroll_ease": [0.42, 0.0, 0.58, 1.0],
     "line_fade_secs": 0.4,
     "past_opacity_transition": {
       "secs": 0.9
@@ -105,6 +109,8 @@
   },
   "cover": {
     "radius": 20,
+    "top_only": true,
+    "shadow2": [12, 13, 0.09],
     "shadow": 0.1,
     "shadow_blur": 55,
     "shadow_offset": 54,
@@ -120,11 +126,15 @@
     "tab_content": "icons",
     "tab_px": 50,
     "tab_idle_alpha": 0.35,
+    "tab_pill": 0.15,
     "artist_alpha": 0.5,
     "title_card": {
       "fill": 0.05,
       "stroke": 0.15,
-      "radius": 20
+      "radius": 20,
+      "dashed": true,
+      "shadow": [20, 20, 0.1],
+      "attached": true
     }
   },
   "chrome": {
@@ -141,6 +151,11 @@
     "progress_px": 3,
     "progress_color": "white",
     "play_button": "bare",
+    "play_scale": 1.1,
+    "bar_layout": "song_middle",
+    "bar_pad": [24, 0],
+    "progress_inset": 60,
+    "progress_track": 0.15,
     "bar_max_px": 1200.0,
     "thumb_px": 40,
     "thumb_radius": 10,
@@ -158,6 +173,9 @@
     "font": "SF Pro Display",
     "page_bg": "static",
     "page_dim": 0.55,
+    "page_saturation": 0.5,
+    "page_contrast": 1.3,
+    "page_scale": 1.6,
     "sidebar": "glass",
     "sidebar_alpha": 0.15,
     "sidebar_border": 0.06,
@@ -170,12 +188,19 @@
     "search_radius": 100,
     "search_alpha": 0.1,
     "search_border": 0.08,
-    "frost": true,
+    "glass": {
+      "top_bar": [10, 2, 1],
+      "bar": [25, 1.5, 1],
+      "menu": [80, 3, 1.1],
+      "search_drop": [55, 2.2, 1.15],
+      "title_card": [4, 1, 1]
+    },
     "all_bold": true,
     "menu_color": "#0a0a0a",
     "nav_item": {
       "radius": 6,
-      "hover": 0.08
+      "hover": 0.08,
+      "hide_divider": true
     },
     "card_look": {
       "image_outline": 0.15
@@ -183,7 +208,8 @@
     "menu_look": {
       "row_px": 34,
       "hover": 0.12,
-      "alpha": 0.85,
+      "alpha": 0.25,
+      "row_radius": 0,
       "icon_right": true,
       "shadow": [
         15,
@@ -193,12 +219,14 @@
     },
     "search_look": {
       "max_px": 1000,
-      "drop_radius": 8
+      "drop_radius": 8,
+      "drop_ring": 0.12,
+      "item_radius": 4
     },
     "top_bar": {
       "capsule_px": 1400.0,
       "capsule": [
-        0.6,
+        0.75,
         27
       ]
     }

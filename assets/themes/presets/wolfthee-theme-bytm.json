@@ -16,7 +16,9 @@
     "audio_speed": 4.0,
     "crossfade_secs": 1.0,
     "beat_threshold": 0.75,
-    "auto_dim": 0.3
+    "auto_dim": 0.3,
+    "blur_passes": 6,
+    "video_backdrop": true
   },
   "lyrics": {
     "weight": "semibold",
@@ -33,7 +35,8 @@
     "letter_wave": { "secs": 1.5, "emphasis": 1.05 },
     "word_bounce": { "lift": 0.05, "scale": 1.0, "secs": 1.75, "settle": 0.085 },
     "word_shadow": [3, 0.15],
-    "background_weight": "regular",
+    "word_shadow_unsung": true,
+    "background_weight": "medium",
     "edge_fade": [0.07, 0.07],
     "glow_alpha": 0.1,
     "long_glow_alpha": 1.0,
@@ -46,7 +49,7 @@
     "shadow_blur": 16,
     "shadow_offset": 5
   },
-  "now_playing": { "tabs": "strip", "tab_content": "icons", "cover_controls": true },
+  "now_playing": { "tabs": "strip", "tab_content": "icons", "tab_width_frac": 0.5, "cover_controls": true, "cover_buttons": [42, 0.5, 1.2], "cover_play_bare": true, "fullscreen_panel_frac": 0.55 },
   "chrome": {
     "radius": 6,
     "player_bar": "floating",
@@ -61,7 +64,12 @@
     "bar_margin": [16, 8],
     "progress_px": 5,
     "progress_color": "white",
-    "progress_radius": 100
+    "progress_radius": 100,
+    "progress_at": "above_transport",
+    "progress_thumb_px": 5,
+    "time_at": "under_transport",
+    "play_scale": 0.87,
+    "bar_border_alpha": 0.1
   },
   "app": {
     "page_bg": "solid",
@@ -77,15 +85,17 @@
     "menu_radius": 6,
     "menu_border": 0.1,
     "menu_color": "#101010",
-    "menu_look": { "hover": 0.1, "shadow": [3, 15, 0.5], "row_radius": 6 },
-    "search_look": { "drop_radius": 6 },
-    "nav_item": { "radius": 6, "hover": 0.1, "slide": 4 },
-    "row_look": { "height": 64, "radius": 6, "hover": 0.1, "current": 0.1, "current_bar": 4 },
+    "menu_look": { "hover": 0.1, "shadow": [3, 15, 0.5], "row_radius": 6, "pop": [0.85, 0.3], "min_px": 305 },
+    "search_look": { "drop_radius": 6, "attached": true, "drop_grow": true },
+    "nav_item": { "radius": 6, "hover": 0.1, "slide": 4, "press": 0.3, "cover_tint": [0.7, 800] },
+    "row_look": { "height": 64, "radius": 6, "hover": 0.1, "current": 0.1, "current_bar": 4, "hover_scale": 1.02 },
     "card_look": { "image_zoom": 0.04, "image_dim": 0.5 },
-    "controls": { "button_fill": 0.05, "button_hover": 0.05 },
+    "controls": { "button_fill": 0.05, "button_hover": 0.05, "press_fill": 0.3, "shadow": [3, 7, 0.1], "play_hover_scale": 1.1, "spring": true },
     "text_dim": "#bcbcbc",
     "search_radius": 6,
     "search_alpha": 0.1,
-    "frost": true
+    "header_gradient": [0, 1],
+    "np_open_secs": 0.5,
+    "glass": { "bar": [16, 1, 1] }
   }
 }

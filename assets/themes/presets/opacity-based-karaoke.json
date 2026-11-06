@@ -37,6 +37,10 @@
     "romanization_rem": 1.5,
     "romanization_alpha": 0.65,
     "romanization_pill": false,
+    "romanization_weight": "regular",
+    "translation_weight": "medium",
+    "decor_tracking_em": 0.03,
+    "decor_fullscreen_scale": 1.4,
     "translation_rem": 2,
     "translation_alpha": 0.82,
     "fill": "word",
@@ -48,8 +52,10 @@
     "word_bounce": {
       "lift": 0.15,
       "scale": 1.035,
-      "secs": 0.7,
-      "settle": 0
+      "secs": 0.3,
+      "settle": 0,
+      "dur_ratio": 1,
+      "side_em": 0.15
     },
     "past": [
       [
@@ -77,6 +83,9 @@
     ],
     "scroll_offset": 0.4,
     "reveal_dim_alpha": 0.7,
+    "instrumental": "glyph",
+    "instrumental_rem": 3.6,
+    "instrumental_glow": 0.6,
     "instrumental_breathe": [
       1.0,
       1.05,
@@ -96,7 +105,10 @@
     "hover_box": [
       0.1,
       8
-    ]
+    ],
+    "hover_box_line": 0.1,
+    "hover_opacity": 1,
+    "hover_dim_alpha": 0.95
   },
   "cover": {
     "radius_pct": 0.08,
@@ -112,12 +124,16 @@
     "progress_alpha": 0.6,
     "progress_track": 0.1,
     "time_alpha": 0.87,
+    "time_weight": "light",
     "icon_alpha": 0.7,
     "bar_cover_alpha": 0.22
   },
   "app": {
     "font": "Google Sans Flex",
     "page_bg": "solid",
+    "squircle": true,
+    "scrollbar_home_hidden": true,
+    "queue_card": true,
     "bar_alpha": 0,
     "chip": "ghost",
     "search_radius": 20,
@@ -135,14 +151,18 @@
     },
     "row_look": {
       "radius": 13.92,
-      "hover": 0.1
+      "hover": 0.1,
+      "hover_border": 0.15
     },
     "menu_look": {
       "hover": 0.1,
       "row_radius": 13.92
     },
     "search_look": {
-      "drop_radius": 20
+      "drop_radius": 20,
+      "open_color": "#212121",
+      "attached": true,
+      "item_radius": 20
     },
     "toast_look": {
       "color": "#212121",

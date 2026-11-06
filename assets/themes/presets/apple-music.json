@@ -21,10 +21,13 @@
       "opacity": 0.3
     },
     "crossfade_secs": 1.0,
-    "beat_threshold": 0.01
+    "beat_threshold": 0.01,
+    "blur_passes": 7,
+    "dither": 0.004
   },
   "lyrics": {
     "font": "SF Pro Display",
+    "agent_align": "only_v1_left",
     "font_rem": [
       [
         0,
@@ -105,7 +108,10 @@
     "scroll_secs": 0.4,
     "scroll_offset": 0.6,
     "word_rise_px": 3.0,
-    "word_rise_secs": 0.4,
+    "word_rise_secs": 0.2,
+    "word_rise_ratio": 1.0,
+    "background_gap_em": 0.0,
+    "resume_look": [6, 0.15, 0],
     "line_fade_secs": 1.2,
     "scroll_ease": [
       0.42,
@@ -126,7 +132,7 @@
   },
   "cover": {
     "radius": 12,
-    "max_px": 600
+    "size_steps": [[0, 200], [769, 300], [1025, 350], [1171, 400], [1280, 450], [1401, 500], [1591, 550], [1701, 600]]
   },
   "now_playing": {
     "tabs": "pill",
@@ -142,9 +148,11 @@
     "switch": {
       "back": 0.15,
       "selected": 0.15,
-      "radius": 8
+      "radius": 8,
+      "at_corner": true
     },
-    "video_max_frac": 0.7
+    "video_max_frac": 0.7,
+    "fullscreen_panel_frac": 0.55
   },
   "chrome": {
     "radius": 6,
@@ -152,7 +160,14 @@
     "bar_color": "#000000",
     "progress_color": "white",
     "progress_px": 3,
-    "progress_radius": 100
+    "progress_radius": 100,
+    "bar_layout": "song_middle",
+    "time_at": "under_transport",
+    "track_block": [0.1, 4],
+    "side_alpha": 0.75,
+    "transport_scale": 0.8,
+    "play_scale": 0.8,
+    "thumb_px": 47
   },
   "app": {
     "font": "SF Pro Display",
@@ -165,10 +180,15 @@
     "search_radius": 6,
     "search_alpha": 0.08,
     "all_bold": true,
+    "glass": {
+      "tabs": [4, 1, 1],
+      "switch": [4, 1, 1]
+    },
     "scrollbar": [
       8,
-      0.12
+      0.2
     ],
+    "scrollbar_color": "#45494e",
     "controls": {
       "button_fill": 0.1,
       "button_hover": 0.1
@@ -176,20 +196,35 @@
     "nav_item": {
       "radius": 6,
       "hover": 0.0,
-      "title_rows": 24
+      "title_rows": 24,
+      "hide_divider": true,
+      "playlists_label": "Playlists",
+      "playlists_plus": true
     },
     "card_look": {
       "play_px": 40,
       "play_alpha": 0.25,
-      "play_hover_accent": true
+      "play_hover_accent": true,
+      "menu_hover_accent": true,
+      "image_dim": 0.5
+    },
+    "chip_look": {
+      "segmented": [6, 3, 4]
+    },
+    "row_look": {
+      "menu_dots_across": true
     },
     "menu_look": {
       "row_px": 32,
-      "icon_right": true
+      "icon_right": true,
+      "separator": 0.1,
+      "row_radius": 0
     },
     "search_look": {
       "height": 36,
-      "drop_radius": 6
+      "drop_radius": 6,
+      "attached": true,
+      "item_radius": 6
     }
   }
 }

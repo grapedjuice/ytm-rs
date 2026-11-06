@@ -6,7 +6,7 @@
   ],
   "blurb": "True-black frosted glass with Apple-style blurred lyrics, springy word bounces and a dark warped glow.",
   "source": "Better Lyrics: ankit008-mishra/Darky 1.1.5",
-  "accent": "#ffffff",
+  "accent": "#fa586a",
   "background": {
     "mode": "kawarp",
     "solid": "#000000",
@@ -21,7 +21,9 @@
       "opacity": 0.3
     },
     "crossfade_secs": 1.0,
-    "beat_threshold": 0.01
+    "beat_threshold": 0.01,
+    "blur_passes": 7,
+    "dither": 0.004
   },
   "lyrics": {
     "font": "SF Pro Display",
@@ -86,7 +88,8 @@
       "scale": 1.02,
       "secs": 0.4,
       "settle": 0.0,
-      "spring": true
+      "spring": true,
+      "from_alpha": 0.5
     },
     "glow_alpha": 0.0,
     "long_glow_alpha": 1.0,
@@ -106,7 +109,8 @@
     ],
     "scroll_offset": 0.6,
     "word_rise_px": 3.0,
-    "word_rise_secs": 0.4,
+    "word_rise_secs": 0.2,
+    "word_rise_ratio": 1.0,
     "line_enter": [
       1.0,
       0.4
@@ -124,6 +128,14 @@
     "past_blur_transition": {
       "secs": 0.25
     },
+    "active_blur_transition": {
+      "secs": 0.4
+    },
+    "resume_look": [
+      6,
+      0.15,
+      0
+    ],
     "both_rem": [
       2.0,
       1.6
@@ -135,7 +147,8 @@
     "shadow": 0.4,
     "shadow_blur": 50,
     "shadow_offset": 20,
-    "open_scale": 0.2
+    "open_scale": 0.2,
+    "open_secs": 0.75
   },
   "now_playing": {
     "tabs": "pill",
@@ -146,6 +159,11 @@
     "tab_back": [
       0.15,
       8
+    ],
+    "tab_pill": 0.15,
+    "video_panel_frac": [
+      0.63,
+      0.64
     ],
     "video_lyrics": true,
     "video_max_frac": 0.6,
@@ -162,7 +180,17 @@
     "progress_color": "white",
     "progress_radius": 60,
     "progress_thumb": false,
-    "play_button": "bare"
+    "play_button": "bare",
+    "track_block": [
+      0.1,
+      4
+    ],
+    "thumb_px": 47,
+    "time_at": "under_transport",
+    "transport_gap": 0.8,
+    "transport_scale": 1.12,
+    "play_scale": 0.8,
+    "side_alpha": 0.75
   },
   "app": {
     "font": "SF Pro Display",
@@ -182,26 +210,56 @@
     "search_alpha": 0.0,
     "search_border": 0.1,
     "hide_scrollbars": true,
-    "frost": true,
+    "np_open_secs": 0.8,
     "all_bold": true,
     "menu_color": "#1e1e1e",
     "controls": {
       "press_scale": 0.92,
-      "hover_scale": 1.05
+      "hover_scale": 1.05,
+      "accent_primary": true,
+      "play_hover_scale": 1.15,
+      "press_chips": 0.95,
+      "press_rows": 0.98
     },
     "nav_item": {
       "radius": 12,
       "hover": 0.1,
       "selected": 0.15,
       "slide": 8,
-      "title_rows": 24
+      "title_rows": 24,
+      "hide_divider": true,
+      "playlists_label": "Playlists",
+      "playlists_plus": true
     },
     "card_look": {
-      "image_zoom": 0.05
+      "image_zoom": 0.06,
+      "image_dim": 0.0,
+      "hover_scale": 1.02,
+      "lift_px": 4,
+      "shadow": [
+        16,
+        32,
+        0.5
+      ],
+      "play_px": 40,
+      "play_alpha": 0.25,
+      "play_hover_accent": true,
+      "play_hover_scale": 1.1,
+      "menu_hover_accent": true
+    },
+    "row_look": {
+      "hover": 0.1,
+      "current": 0.08,
+      "thumb_radius": 10,
+      "image_zoom": 0.15,
+      "image_dim": 0.6
     },
     "menu_look": {
       "row_px": 32,
-      "alpha": 0.85,
+      "hover": 0.15,
+      "alpha": 0.1,
+      "row_radius": 8,
+      "separator": 0.1,
       "icon_right": true,
       "shadow": [
         10,
@@ -210,7 +268,58 @@
       ]
     },
     "search_look": {
-      "drop_radius": 20
+      "height": 36,
+      "drop_radius": 20,
+      "attached": true,
+      "drop_ring": 0.1,
+      "item_radius": 8
+    },
+    "top_bar": {
+      "band": [
+        0,
+        90
+      ]
+    },
+    "toast_look": {
+      "color": "#1e1e1e",
+      "alpha": 0.35,
+      "border": [
+        0.1,
+        1
+      ],
+      "radius": 12
+    },
+    "glass": {
+      "top_bar": [
+        25,
+        1,
+        1
+      ],
+      "menu": [
+        25,
+        1,
+        1
+      ],
+      "search_drop": [
+        25,
+        1,
+        1
+      ],
+      "toast": [
+        25,
+        1,
+        1
+      ],
+      "dialog": [
+        25,
+        1,
+        1
+      ],
+      "tabs": [
+        4,
+        1,
+        1
+      ]
     }
   }
 }

@@ -55,6 +55,8 @@
       3,
       0.15
     ],
+    "word_shadow_blur": 1.5,
+    "word_shadow_unsung": true,
     "instrumental_rem": 4
   },
   "cover": {
@@ -67,13 +69,18 @@
   "now_playing": {
     "info_card": true,
     "info_card_look": [
-      0.6,
+      0.5,
       5
     ],
-    "title_weight": "semibold",
-    "artist_weight": "semibold"
+    "title_weight": "medium",
+    "artist_weight": "medium",
+    "title_shadow": [0, 0.5],
+    "fullscreen_panel_frac": 0.55
   },
   "app": {
-    "page_bg": "solid"
+    "page_bg": "solid",
+    "glass": {
+      "title_card": [10, 1, 1]
+    }
   }
 }

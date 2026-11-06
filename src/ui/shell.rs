@@ -580,7 +580,8 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         if edge > 0.0 {
             ui.painter().rect_stroke(rect, corners, egui::Stroke::new(1.0, theme::glass(edge)), egui::StrokeKind::Inside);
         }
-        if let Some(c) = crate::preset::hex(&sl.focus_color).filter(|_| focus > 0.0) {
+        let focus_color = if sl.focus_color == "accent" { Some(app.accent_color()) } else { crate::preset::hex(&sl.focus_color) };
+        if let Some(c) = focus_color.filter(|_| focus > 0.0) {
             if sl.underline {
                 ui.painter().hline(rect.shrink2(vec2(box_r, 0.0)).x_range(), rect.bottom() - 1.0, egui::Stroke::new(2.0, theme::with_alpha(c, focus)));
             } else {
@@ -1433,6 +1434,8 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
             }
             egui::Frame::new()
                 .fill(match crate::preset::hex(&tl.color).filter(|_| !theme::light()) {
+                    // A pale see-through toast under light text only works frosted.
+                    Some(c) if glass.is_none() && tl.alpha < 0.6 && tl.text_color.is_empty() && c.r() as u32 + c.g() as u32 + c.b() as u32 > 380 => theme::menu_fill(),
                     Some(c) => theme::with_alpha(c, if glass.is_some() { tl.alpha } else { tl.alpha.max(0.85) }),
                     None => theme::menu_fill(),
                 })

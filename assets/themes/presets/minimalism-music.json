@@ -80,7 +80,9 @@
       1.14,
       3
     ],
-    "line_fade_secs": 2.25
+    "line_fade_secs": 2.25,
+    "padding_top": 10,
+    "dot_em": [0.36, 0.32]
   },
   "cover": {
     "radius": 10,
@@ -90,9 +92,11 @@
       0.1
     ],
     "fullscreen": {
-      "size_vh": 0.6
+      "size_vh": 0.6,
+      "enter": [0.9, 1.1]
     },
-    "open_scale": 0.9
+    "open_scale": 0.9,
+    "open_secs": 0.9
   },
   "now_playing": {
     "switch": {
@@ -103,7 +107,11 @@
       0.4,
       0.4
     ],
-    "no_lyrics_text": "You'll have to guess the lyrics for this one."
+    "no_lyrics_text": "You'll have to guess the lyrics for this one.",
+    "no_lyrics": {
+      "rem": 5,
+      "center_after": 1.4
+    }
   },
   "chrome": {
     "hide_volume": true,

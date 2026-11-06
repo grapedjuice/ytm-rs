@@ -19,10 +19,13 @@
     "layer": {
       "opacity": 0.5,
       "pulse_secs": 8,
-      "pulse": 0.05
+      "pulse": 0.05,
+      "rotate_secs": 30
     },
     "beat_threshold": 0.75,
-    "crossfade_secs": 1.0
+    "crossfade_secs": 1.0,
+    "blur_passes": 8,
+    "dither": 0.008
   },
   "lyrics": {
     "font": "Switzer",
@@ -84,9 +87,12 @@
     },
     "glow_alpha": 0.0001,
     "long_glow_alpha": 1.0,
-    "background_em": 0.9
+    "background_em": 0.9,
+    "hide_instrumental_only": true,
+    "padding_top": 10
   },
   "cover": {
+    "max_px": 600,
     "radius": 20,
     "outline": [
       1,
@@ -101,9 +107,12 @@
     "switch": {
       "back": 0.1,
       "selected": 0.1
-    }
+    },
+    "video_lyrics": true,
+    "video_panel_frac": [0.5, 0.45]
   },
   "chrome": {
-    "byline_marquee": true
+    "byline_marquee": true,
+    "marquee_fade": 15
   }
 }

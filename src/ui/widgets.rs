@@ -695,6 +695,21 @@ fn popup_extras(ctx: &egui::Context, id: egui::Id) {
     }
 }
 
+/// Frost behind an open dialog, and the line along its bottom if the theme has only that.
+pub fn modal_extras(ctx: &egui::Context, id: egui::Id) {
+    let look = &crate::preset::active().app;
+    let Some(rect) = ctx.memory(|m| m.area_rect(id)) else { return };
+    if let Some(glass) = look.glass.dialog {
+        let layer = egui::LayerId::new(egui::Order::Middle, egui::Id::unique("dialog-frost"));
+        ctx.move_to_top(layer);
+        crate::shader::frost(&ctx.layer_painter(layer), rect, crate::shader::Frost { look: glass, radius: look.menu_radius.unwrap_or(16.0), opacity: 1.0, fade: 0.0 });
+    }
+    if look.dialog_bottom_line {
+        let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("dialog-line")));
+        p.hline(rect.x_range(), rect.bottom(), egui::Stroke::new(1.0, theme::glass(look.menu_border.max(0.2))));
+    }
+}
+
 /// A button's menu, in the theme's look.
 pub fn menu_popup<'a>(resp: &Response) -> egui::Popup<'a> {
     popup_extras(&resp.ctx, egui::Popup::default_response_id(resp));

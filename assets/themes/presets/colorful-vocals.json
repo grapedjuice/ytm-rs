@@ -16,7 +16,9 @@
     "audio_speed": 7.4,
     "scale": 1.25,
     "beat_threshold": 0.125,
-    "crossfade_secs": 1.0
+    "crossfade_secs": 1.0,
+    "blur_passes": 8,
+    "dither": 0.008
   },
   "lyrics": {
     "agent_align": "same",
@@ -35,6 +37,18 @@
     ],
     "glow_color": "#f0f0f0",
     "glow_alpha": 0.8,
-    "long_glow_alpha": 0.8
+    "long_glow_alpha": 0.8,
+    "agent_glow": [
+      "#f0f0f0",
+      "#99ccff",
+      "#ff99cc",
+      "#cc99ff",
+      "#ffcc99",
+      "#99ffcc",
+      "#ccffcc",
+      "#ccff99",
+      "#ffccff",
+      "#ffffcc"
+    ]
   }
 }

@@ -36,7 +36,10 @@
   },
   "cover": {
     "radius": 7.5,
-    "max_frac": 0.85
+    "max_frac": 0.85,
+    "fullscreen": {
+      "width_frac": 1.0
+    }
   },
   "now_playing": {
     "title_lyric_font": true,

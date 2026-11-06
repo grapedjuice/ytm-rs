@@ -43,7 +43,8 @@
       "delay": 0.4
     },
     "hover_reveal": true,
-    "hover_scale": 1.01
+    "hover_scale": 1.01,
+    "padding_top": 10
   },
   "cover": {
     "radius": 24,
@@ -73,6 +74,7 @@
       8
     ],
     "tab_px": 40,
+    "tab_pill": 0.15,
     "switch": {
       "back": 0.1,
       "radius": 16

@@ -65,7 +65,8 @@ pub fn menu_fill() -> Color32 {
     let look = &crate::preset::active().app;
     // See-through only when what's behind is really frosted: menus have to stay readable.
     let alpha = if look.glass.menu.is_some() && crate::shader::glass_ready() { look.menu_look.alpha } else { look.menu_look.alpha.max(0.85) };
-    with_alpha(crate::preset::hex(&look.menu_color).unwrap_or(Color32::from_rgb(38, 34, 42)), alpha)
+    let color = crate::preset::hex(&look.menu_color).filter(|c| alpha >= look.menu_look.alpha.max(0.6) || c.r() as u32 + c.g() as u32 + c.b() as u32 <= 380).unwrap_or(Color32::from_rgb(38, 34, 42));
+    with_alpha(color, alpha)
 }
 
 /// What popups and menus are drawn on.
@@ -291,7 +292,15 @@ pub fn anim(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, tar
 }
 
 pub fn anim_bool(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, on: bool, secs: f32) -> f32 {
-    ease_out(ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED))
+    let t = ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED);
+    if crate::preset::active().app.controls.spring { ease_back(t) } else { ease_out(t) }
+}
+
+/// Past the end and back: `ease-out-back`.
+fn ease_back(t: f32) -> f32 {
+    const C: f32 = 1.70158;
+    let u = t.clamp(0.0, 1.0) - 1.0;
+    1.0 + (C + 1.0) * u * u * u + C * u * u
 }
 
 // ------------------------------------------------------------------ type
@@ -992,7 +1001,7 @@ fn visuals() -> egui::Visuals {
         v.text_edit_bg_color = Some(glass(i.fill));
         v.widgets.inactive.corner_radius = egui::CornerRadius::same(i.radius.clamp(0.0, 28.0) as u8);
         if i.focus_px > 0.0 {
-            v.selection.stroke = egui::Stroke::new(i.focus_px, crate::preset::paint("accent", RED));
+            v.selection.stroke = egui::Stroke::new(i.focus_px, p.accent(RED));
         }
     }
     if p.app.dialog_bottom_line {

@@ -51,7 +51,12 @@
       -0.05
     ],
     "shadow": 0.4,
-    "shadow_blur": 35
+    "shadow_blur": 35,
+    "fullscreen": {
+      "plain_shape": true,
+      "width_frac": 0.82,
+      "padding": [108, 54]
+    }
   },
   "now_playing": {
     "show_title": false,
@@ -62,8 +67,11 @@
   },
   "app": {
     "toast_look": {
-      "color": "#3c3c3c",
-      "alpha": 0.9
+      "color": "#ffffff",
+      "alpha": 0.1
+    },
+    "glass": {
+      "toast": [30, 1.8, 1]
     }
   }
 }

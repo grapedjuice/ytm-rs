@@ -266,7 +266,21 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     }
     let ppp = ui.ctx().pixels_per_point();
     let window_w = ui.ctx().content_rect().width();
-    let p = if panel_tab == NpTab::Lyrics && no_lyrics { 0.0 } else { shown };
+    let wait = look.now_playing.no_lyrics.center_after;
+    let p = if panel_tab == NpTab::Lyrics && no_lyrics {
+        if wait > 0.0 {
+            // A while in its usual place, then over to the middle.
+            let since = ui.ctx().memory_mut(|m| *m.data.get_temp_mut_or_insert_with(egui::Id::unique(("no-lyrics-wait", &track.id)), || now));
+            if now - since < wait as f64 {
+                ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(wait as f64 - (now - since) + 0.01));
+            }
+            1.0 - ui.ctx().animate_bool_with_time(egui::Id::unique(("no-lyrics-move", &track.id)), now - since >= wait as f64, 0.6)
+        } else {
+            0.0
+        }
+    } else {
+        shown
+    };
     // Whichever is leaving slides and fades out over the first 45%, then the other
     // comes in over the last 70%, both easing out, in either direction.
     let (panel_vis, art_vis) = if app.np_tab != NpTab::Art {
@@ -1033,7 +1047,8 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
     };
     let scale = app.lyric_prefs.text_scale;
     let fullscreen = app.fullscreen;
-    let frame = karaoke::Frame { lyrics, key, roman, trans, t, playing, now, rect, style, accent, centered, scale, fullscreen };
+    let glass_chip = app.look().app.glass.instrumental;
+    let frame = karaoke::Frame { lyrics, key, roman, trans, t, playing, now, rect, style, accent, centered, scale, fullscreen, glass_chip };
     // The view lives in `app`; the frame borrows `app` for decorations, so swap it out.
     let mut view = std::mem::take(&mut app.lyric_view);
     let out = if karaoke::dev_off("view") { karaoke::Out { seek: None, animating: true, user_scrolling: false } } else { view.show(ui, frame) };

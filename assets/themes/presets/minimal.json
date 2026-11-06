@@ -39,6 +39,9 @@
     "romanization_pill": false,
     "translation_rem": 2,
     "translation_alpha": 0.82,
+    "translation_weight": "medium",
+    "romanization_weight": "regular",
+    "decor_tracking_em": 0.03,
     "fill": "line",
     "dim_alpha": 1,
     "past": [
@@ -67,6 +70,9 @@
       1
     ],
     "scroll_offset": 0.133,
+    "instrumental": "glyph",
+    "instrumental_rem": 3.6,
+    "instrumental_glow": 0.6,
     "instrumental_breathe": [
       1.0,
       1.05,
@@ -88,6 +94,7 @@
     "progress_alpha": 0.6,
     "progress_track": 0.1,
     "time_alpha": 0.87,
+    "time_weight": "light",
     "icon_alpha": 0.7,
     "bar_cover_alpha": 0.22
   },
@@ -111,14 +118,18 @@
     },
     "row_look": {
       "radius": 13.92,
-      "hover": 0.1
+      "hover": 0.1,
+      "hover_border": 0.1
     },
     "menu_look": {
       "hover": 0.1,
       "row_radius": 13.92
     },
     "search_look": {
-      "drop_radius": 20
+      "drop_radius": 20,
+      "open_color": "#212121",
+      "attached": true,
+      "item_radius": 20
     },
     "toast_look": {
       "color": "#212121",
@@ -134,10 +145,15 @@
       5,
       0.3
     ],
-    "immersive_header": 0.6
+    "immersive_header": 0.6,
+    "squircle": true,
+    "scrollbar_home_hidden": true,
+    "queue_card": true
   },
   "now_playing": {
+    "tabs": "strip",
     "tab_idle_alpha": 0.7,
+    "tab_pill": 0.1,
     "switch": {
       "back": 0.1,
       "selected": 0.15,

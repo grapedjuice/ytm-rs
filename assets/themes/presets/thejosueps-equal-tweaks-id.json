@@ -10,13 +10,16 @@
     "mode": "cover_static"
   },
   "lyrics": {
-    "fullscreen_scale": 1.333
+    "fullscreen_scale": 1.333,
+    "fullscreen_inline": [0, 5],
+    "resume_look": [50, 0, 0.2]
   },
   "cover": {
     "radius": 25,
     "shadow": 0.15,
     "shadow_blur": 5,
     "shadow_offset": 3,
+    "padding": [20, 10],
     "outline": [
       1,
       0.5
@@ -28,8 +31,12 @@
   },
   "now_playing": {
     "video_radius": 13,
+    "fullscreen_padding": [125, 20],
     "switch": {
-      "stroke": 0.2
+      "back": 0.35,
+      "back_black": true,
+      "stroke": 0.2,
+      "shadow": [4, 10, 0.15]
     }
   },
   "app": {
@@ -44,27 +51,60 @@
     "menu_border": 0.2,
     "search_radius": 13,
     "hide_scrollbars": true,
-    "frost": true,
+    "glass": {
+      "top_bar": [23, 1, 1],
+      "menu": [30, 1, 1],
+      "search_drop": [10, 1, 1],
+      "toast": [15, 1, 1],
+      "dialog": [30, 1, 1],
+      "card_play": [15, 1, 1],
+      "switch": [5, 1, 1],
+      "resume": [20, 1, 1]
+    },
+    "top_bar": {
+      "band": [0.5, 76]
+    },
+    "dialog_bottom_line": true,
+    "controls": {
+      "press_cards": 0.95,
+      "press_chips": 0.95,
+      "press_rows": 0.93
+    },
     "nav_item": {
-      "hover": 0.07
+      "hover": 0.07,
+      "width": 256,
+      "scroll_fill": true
     },
     "search_look": {
-      "drop_radius": 13
+      "drop_radius": 13,
+      "drop_ring": 0.2,
+      "item_radius": 10
     },
     "menu_color": "#000000",
     "menu_look": {
-      "alpha": 0.85
+      "alpha": 0.5,
+      "hover": 0.1
+    },
+    "toast_look": {
+      "color": "#ffffff",
+      "alpha": 0.75,
+      "border": [1, 1],
+      "text_color": "#656565"
     },
     "chip_look": {
       "fill": 0.05,
       "hover": 0.18
     },
     "card_look": {
-      "play_alpha": 0.75
+      "play_alpha": 0.75,
+      "play_ring": 0.2,
+      "play_hover_scale": 1.15
     },
     "row_look": {
       "hover": 0.03,
-      "radius": 10
+      "radius": 10,
+      "pad": 5,
+      "byline_alpha": 0.75
     },
     "strap_alpha": 0.75
   }

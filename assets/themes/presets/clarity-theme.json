@@ -22,18 +22,22 @@
     "fullscreen_padding_rem": 3,
     "instrumental_rem": 4,
     "romanization_font": "Albert Sans",
-    "romanization_weight": "regular",
+    "romanization_weight": "medium",
     "romanization_pill": false,
     "translation_font": "Lexend",
     "translation_weight": "semibold"
   },
-  "cover": { "radius": 20 },
+  "cover": { "radius": 20, "disc_slide_secs": 0.7 },
   "now_playing": {
     "tabs": "strip",
     "tab_content": "icons",
     "tab_px": 36,
     "tab_back": [0.08, 10],
-    "tab_idle_alpha": 0.7
+    "tab_idle_alpha": 0.7,
+    "tab_pill": 0.18,
+    "title_align": "left",
+    "video_lyrics": true,
+    "video_panel_frac": [0.5, 0.6]
   },
   "chrome": {
     "player_bar": "floating",
@@ -53,7 +57,17 @@
     "bar_byline_alpha": 0.7,
     "bar_shadow": [12, 40, 0.45],
     "bar_border_alpha": 0.08,
-    "volume_on_hover": true
+    "volume_on_hover": true,
+    "bar_pad": [22, 8],
+    "transport_gap": 0.85,
+    "time_at": "under_transport",
+    "time_weight": "medium",
+    "time_alpha": 0.45,
+    "thumb_px": 56,
+    "thumb_radius": 4,
+    "progress_track": 0.14,
+    "progress_alpha": 0.96,
+    "progress_thumb_px": 5
   },
   "app": {
     "sidebar": "glass",
@@ -65,10 +79,13 @@
     "menu_border": 0.08,
     "menu_color": "#0e0e12",
     "text_dim": "#b3b3b3",
+    "search_alpha": 0.55,
     "search_border": 0.08,
-    "search_look": { "max_px": 700 },
+    "search_look": { "max_px": 700, "color": "#0e0e12" },
     "nav_item": { "hover": 0.12, "selected": 0.10 },
-    "menu_look": { "hover": 0.12, "row_radius": 8, "shadow": [12, 40, 0.45] },
-    "frost": true
+    "menu_look": { "hover": 0.12, "alpha": 0.86, "row_radius": 8, "shadow": [12, 40, 0.45] },
+    "toast_look": { "secs": 1.5 },
+    "tabular_digits": true,
+    "glass": { "top_bar": [10, 1, 1], "bar": [28, 1.5, 1], "menu": [28, 1.5, 1], "search_drop": [24, 1.5, 1], "dialog": [28, 1.5, 1] }
   }
 }

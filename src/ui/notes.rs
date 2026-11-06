@@ -216,7 +216,7 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
                     Some(md) => show(ui, &parse(md), 14.0),
                     None => {
                         ui.horizontal(|ui| {
-                            ui.spinner();
+                            widgets::loader(ui);
                             ui.add_space(8.0);
                             ui.label(egui::RichText::new("Loading release notes…").color(theme::text_dim()));
                         });

@@ -63,7 +63,14 @@ pub fn menu_fill() -> Color32 {
         return Color32::WHITE;
     }
     let look = &crate::preset::active().app;
-    with_alpha(crate::preset::hex(&look.menu_color).unwrap_or(Color32::from_rgb(38, 34, 42)), look.menu_look.alpha)
+    // See-through only when what's behind is really frosted: menus have to stay readable.
+    let alpha = if look.glass.menu.is_some() && crate::shader::glass_ready() { look.menu_look.alpha } else { look.menu_look.alpha.max(0.85) };
+    with_alpha(crate::preset::hex(&look.menu_color).unwrap_or(Color32::from_rgb(38, 34, 42)), alpha)
+}
+
+/// What popups and menus are drawn on.
+pub fn menu_frame(style: &egui::Style) -> egui::Frame {
+    egui::Frame::popup(style).fill(menu_fill())
 }
 
 /// Dialogs and cards that float over the page.
@@ -299,6 +306,8 @@ pub fn regular(size: f32) -> FontId {
 // clone is a reference count instead of a new string.
 static SEMIBOLD: std::sync::LazyLock<FontFamily> = std::sync::LazyLock::new(|| FontFamily::Name("semibold".into()));
 static BOLD: std::sync::LazyLock<FontFamily> = std::sync::LazyLock::new(|| FontFamily::Name("bold".into()));
+static MEDIUM: std::sync::LazyLock<FontFamily> = std::sync::LazyLock::new(|| FontFamily::Name("medium".into()));
+static LIGHT_FACE: std::sync::LazyLock<FontFamily> = std::sync::LazyLock::new(|| FontFamily::Name("light".into()));
 static ICONS: std::sync::LazyLock<FontFamily> = std::sync::LazyLock::new(|| FontFamily::Name("icons".into()));
 
 pub fn semibold(size: f32) -> FontId {
@@ -314,6 +323,9 @@ pub fn weighted(w: crate::preset::Weight, size: f32) -> FontId {
         crate::preset::Weight::Regular => regular(size),
         crate::preset::Weight::Semibold => semibold(size),
         crate::preset::Weight::Bold => bold(size),
+        crate::preset::Weight::Medium if !crate::preset::active().app.all_bold => FontId::new(size, MEDIUM.clone()),
+        crate::preset::Weight::Light if !crate::preset::active().app.all_bold => FontId::new(size, LIGHT_FACE.clone()),
+        _ => bold(size),
     }
 }
 pub fn bold(size: f32) -> FontId {
@@ -382,10 +394,12 @@ pub mod icon {
 /// Inter (SIL OFL 1.1), the default face: regular / semibold / extra bold, subset to
 /// Latin (with Vietnamese), Greek and Cyrillic, so those scripts never fall back to
 /// another font letter by letter.
-const INTER: [&[u8]; 3] = [
+const INTER: [&[u8]; 5] = [
     include_bytes!("../assets/fonts/Inter-Regular.ttf"),
     include_bytes!("../assets/fonts/Inter-SemiBold.ttf"),
     include_bytes!("../assets/fonts/Inter-ExtraBold.ttf"),
+    include_bytes!("../assets/fonts/Inter-Medium.ttf"),
+    include_bytes!("../assets/fonts/Inter-Light.ttf"),
 ];
 const LUCIDE: &[u8] = include_bytes!("../assets/fonts/lucide.ttf");
 
@@ -394,26 +408,34 @@ const LUCIDE: &[u8] = include_bytes!("../assets/fonts/lucide.ttf");
 /// Vietnamese, Greek or Cyrillic); `lyric_font_for` sets such lines in Inter instead.
 /// Instrument Sans is only ever used at semibold (one preset), so its bold slot reuses
 /// that instead of shipping a weight nothing draws.
-const LYRIC_FONTS: &[(&str, [&[u8]; 3])] = &[
+const LYRIC_FONTS: &[(&str, [&[u8]; 5])] = &[
     ("dmsans", [
         include_bytes!("../assets/fonts/DMSans-Regular.ttf"),
         include_bytes!("../assets/fonts/DMSans-SemiBold.ttf"),
         include_bytes!("../assets/fonts/DMSans-Bold.ttf"),
+        include_bytes!("../assets/fonts/DMSans-Medium.ttf"),
+        include_bytes!("../assets/fonts/DMSans-Regular.ttf"),
     ]),
     ("googlesansflex", [
         include_bytes!("../assets/fonts/GoogleSansFlex-Regular.ttf"),
         include_bytes!("../assets/fonts/GoogleSansFlex-SemiBold.ttf"),
         include_bytes!("../assets/fonts/GoogleSansFlex-Bold.ttf"),
+        include_bytes!("../assets/fonts/GoogleSansFlex-Medium.ttf"),
+        include_bytes!("../assets/fonts/GoogleSansFlex-Regular.ttf"),
     ]),
     ("figtree", [
         include_bytes!("../assets/fonts/Figtree-Regular.ttf"),
         include_bytes!("../assets/fonts/Figtree-SemiBold.ttf"),
         include_bytes!("../assets/fonts/Figtree-ExtraBold.ttf"),
+        include_bytes!("../assets/fonts/Figtree-Medium.ttf"),
+        include_bytes!("../assets/fonts/Figtree-Regular.ttf"),
     ]),
     ("instrumentsans", [
         include_bytes!("../assets/fonts/InstrumentSans-Regular.ttf"),
         include_bytes!("../assets/fonts/InstrumentSans-SemiBold.ttf"),
         include_bytes!("../assets/fonts/InstrumentSans-SemiBold.ttf"),
+        include_bytes!("../assets/fonts/InstrumentSans-Medium.ttf"),
+        include_bytes!("../assets/fonts/InstrumentSans-Regular.ttf"),
     ]),
 ];
 
@@ -445,7 +467,7 @@ static CHOICE: std::sync::RwLock<Option<Chosen>> = std::sync::RwLock::new(None);
 
 struct Chosen {
     name: String,
-    faces: [Face; 3],
+    faces: [Face; 5],
 }
 
 /// One face of a primary font: the bytes, the face in the file, and the weight to set
@@ -455,11 +477,13 @@ struct Face {
     bytes: &'static [u8],
     index: u32,
     wght: Option<f32>,
+    /// The optical size to set on a font that has that axis (Segoe UI Variable).
+    opsz: Option<f32>,
 }
 
 impl Face {
     const fn of(bytes: &'static [u8]) -> Self {
-        Self { bytes, index: 0, wght: None }
+        Self { bytes, index: 0, wght: None, opsz: None }
     }
 }
 
@@ -493,6 +517,8 @@ fn family(key: &str, weight: crate::preset::Weight, size: f32) -> FontId {
         Weight::Regular => 0,
         Weight::Semibold => 1,
         Weight::Bold => 2,
+        Weight::Medium => 3,
+        Weight::Light => 4,
     };
     FontId::new(size, FontFamily::Name(format!("{key}-{w}").into()))
 }
@@ -542,6 +568,8 @@ struct SysFace {
     weight: f32,
     /// The weight axis range, for a variable font.
     wght: Option<(f32, f32)>,
+    /// And the optical size axis, if it has one.
+    opsz: Option<(f32, f32)>,
 }
 
 static INSTALLED_FONTS: std::sync::OnceLock<Vec<SysFamily>> = std::sync::OnceLock::new();
@@ -623,7 +651,8 @@ fn scan_fonts() -> Vec<SysFamily> {
             // "@" names are vertical CJK variants.
             let Some(name) = name.filter(|n| !n.is_empty() && !n.starts_with('@') && lyric_key(n).is_none() && !n.eq_ignore_ascii_case("inter")) else { continue };
             let wght = font.axes().iter().find(|a| a.tag() == skrifa::Tag::new(b"wght")).map(|a| (a.min_value(), a.max_value()));
-            let face = SysFace { path: path.clone(), index: index as u32, weight: attrs.weight.value(), wght };
+            let opsz = font.axes().iter().find(|a| a.tag() == skrifa::Tag::new(b"opsz")).map(|a| (a.min_value(), a.max_value()));
+            let face = SysFace { path: path.clone(), index: index as u32, weight: attrs.weight.value(), wght, opsz };
             families.entry(name.to_lowercase()).or_insert_with(|| SysFamily { name, faces: Vec::new() }).faces.push(face);
         }
     }
@@ -632,16 +661,17 @@ fn scan_fonts() -> Vec<SysFamily> {
 
 /// The closest face to each of the three weights the app draws: regular, semibold, and
 /// bold, leaning to 700 over 900 where a family has both.
-fn choose_faces(family: &SysFamily) -> Option<[Face; 3]> {
+fn choose_faces(family: &SysFamily) -> Option<[Face; 5]> {
     let mut faces = Vec::new();
-    for target in [400.0, 600.0, 750.0] {
+    for target in [400.0, 600.0, 750.0, 500.0, 250.0] {
         let best = family.faces.iter().min_by_key(|f| match f.wght {
             Some((lo, hi)) if (lo..=hi).contains(&target) => 0,
             Some((lo, hi)) => (target - target.clamp(lo, hi)).abs() as i32,
             None => (f.weight - target).abs() as i32,
         })?;
         let bytes = map(&best.path)?;
-        faces.push(Face { bytes, index: best.index, wght: best.wght.map(|(lo, hi)| target.clamp(lo, hi)) });
+        // Interface text is about this big, where the axis is at its most legible.
+        faces.push(Face { bytes, index: best.index, wght: best.wght.map(|(lo, hi)| target.clamp(lo, hi)), opsz: best.opsz.map(|(lo, hi)| 14.0f32.clamp(lo, hi)) });
     }
     faces.try_into().ok()
 }
@@ -736,6 +766,9 @@ fn font_data(face: Face, y_offset_factor: f32) -> FontData {
     if let Some(w) = face.wght {
         tweak.coords.push(b"wght", w);
     }
+    if let Some(o) = face.opsz {
+        tweak.coords.push(b"opsz", o);
+    }
     FontData { index: face.index, ..FontData::from_static(face.bytes) }.tweak(tweak)
 }
 
@@ -771,6 +804,8 @@ pub fn install_fonts(ctx: &egui::Context, ui_font: &str) {
     // Mapped once for the life of the process, however often fonts are installed:
     // the fallback list at each weight.
     type Fallbacks = [Vec<(String, Face)>; 3];
+    // Medium and Light use the fallbacks' regular faces.
+    let fallback_w = |w: usize| if w > 2 { 0 } else { w };
     static SYSTEM: std::sync::OnceLock<Fallbacks> = std::sync::OnceLock::new();
     let system = SYSTEM.get_or_init(|| {
         std::array::from_fn(|w| {
@@ -778,7 +813,7 @@ pub fn install_fonts(ctx: &egui::Context, ui_font: &str) {
                 .iter()
                 .filter_map(|&(path, index)| {
                     let heavy = (w > 0).then(|| HEAVIER.iter().find(|(base, _)| *base == path)).flatten().map(|(_, v)| v[w - 1]);
-                    let mapped = |(p, i): (&str, u32)| map(p).map(|bytes| (format!("sys:{p}#{i}"), Face { bytes, index: i, wght: None }));
+                    let mapped = |(p, i): (&str, u32)| map(p).map(|bytes| (format!("sys:{p}#{i}"), Face { bytes, index: i, wght: None, opsz: None }));
                     heavy.and_then(mapped).or_else(|| mapped((path, index)))
                 })
                 .collect()
@@ -786,7 +821,7 @@ pub fn install_fonts(ctx: &egui::Context, ui_font: &str) {
     });
     // Primary fonts: Inter, each lyric font, and the installed font picked in Settings.
     let choice = CHOICE.read().unwrap().as_ref().map(|c| c.faces);
-    let mut groups: Vec<(&str, [Face; 3])> = vec![("inter", INTER.map(Face::of))];
+    let mut groups: Vec<(&str, [Face; 5])> = vec![("inter", INTER.map(Face::of))];
     groups.extend(LYRIC_FONTS.iter().map(|(k, w)| (*k, w.map(Face::of))));
     groups.extend(choice.map(|faces| ("choice", faces)));
     for (key, faces) in &groups {
@@ -796,7 +831,7 @@ pub fn install_fonts(ctx: &egui::Context, ui_font: &str) {
             defs.font_data.insert(name.clone(), Arc::new(font_data(*face, 0.0)));
             let mut chain = vec![name.clone()];
             let inter = (*key != "inter").then(|| ("inter".to_owned(), Face::of(INTER[w])));
-            for (fallback, f) in inter.iter().chain(&system[w]) {
+            for (fallback, f) in inter.iter().chain(&system[fallback_w(w)]) {
                 let Some((asc_f, h_f)) = em_metrics(f.bytes, f.index) else { continue };
                 let shift = asc_p - (asc_f + 0.5 * (h_p - h_f));
                 let id = format!("{fallback}-{w}@{key}");
@@ -817,7 +852,9 @@ pub fn install_fonts(ctx: &egui::Context, ui_font: &str) {
                 let family = match w {
                     0 => FontFamily::Proportional,
                     1 => FontFamily::Name("semibold".into()),
-                    _ => FontFamily::Name("bold".into()),
+                    2 => FontFamily::Name("bold".into()),
+                    3 => FontFamily::Name("medium".into()),
+                    _ => FontFamily::Name("light".into()),
                 };
                 defs.families.insert(family, chain);
             }
@@ -826,7 +863,7 @@ pub fn install_fonts(ctx: &egui::Context, ui_font: &str) {
     // With no installed font picked, the "choice" families are Inter's, so they always
     // exist without a second copy of Inter and its fallbacks.
     if choice.is_none() {
-        for w in 0..3 {
+        for w in 0..5 {
             let inter = defs.families[&FontFamily::Name(format!("inter-{w}").into())].clone();
             defs.families.insert(FontFamily::Name(format!("choice-{w}").into()), inter);
         }
@@ -900,6 +937,7 @@ pub fn install_style(ctx: &egui::Context) {
             bar.bar_width = w;
             (bar.dormant_handle_opacity, bar.active_handle_opacity, bar.interact_handle_opacity) = (a * 0.6, a, (a * 2.0).min(1.0));
         }
+
         s.text_styles.insert(egui::TextStyle::Body, regular(14.0));
         s.text_styles.insert(egui::TextStyle::Button, semibold(14.0));
         s.text_styles.insert(egui::TextStyle::Heading, bold(22.0));
@@ -943,6 +981,23 @@ fn visuals() -> egui::Visuals {
         w.fg_stroke.color = text();
     }
     v.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, glass(0.08));
+    if let Some(c) = crate::preset::hex(&p.app.scrollbar_color).filter(|_| !light()) {
+        // Scrollbar handles take these.
+        v.widgets.inactive.fg_stroke.color = c;
+        v.widgets.hovered.fg_stroke.color = c;
+        v.widgets.active.fg_stroke.color = c;
+    }
+    if let Some(i) = p.app.input {
+        v.extreme_bg_color = glass(i.fill);
+        v.text_edit_bg_color = Some(glass(i.fill));
+        v.widgets.inactive.corner_radius = egui::CornerRadius::same(i.radius.clamp(0.0, 28.0) as u8);
+        if i.focus_px > 0.0 {
+            v.selection.stroke = egui::Stroke::new(i.focus_px, crate::preset::paint("accent", RED));
+        }
+    }
+    if p.app.dialog_bottom_line {
+        v.window_stroke = egui::Stroke::NONE;
+    }
     v
 }
 

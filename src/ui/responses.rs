@@ -222,13 +222,15 @@ impl App {
                     self.lyrics_extras = Some((video_id, source, target, extras));
                 }
             }
-            Resp::Art { key, art } => {
+            Resp::Art { key, mut art } => {
                 if self.current_id() == Some(key.as_str()) {
+                    crate::art::soften(&mut art, self.look().background.blur_passes.saturating_sub(6));
                     self.accent = art.accent;
                     self.art_brightness = art.brightness;
                     if let Some(bg) = &self.bg {
-                        bg.set_art(art);
+                        bg.set_art(art.clone());
                     }
+                    self.track_art = Some(art);
                     self.art_key = Some(key);
                     self.art_changed = now;
                 }

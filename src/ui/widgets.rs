@@ -45,6 +45,40 @@ fn rtl_fit(ui: &Ui, text: &str, font: &egui::FontId, width: f32) -> String {
     cut(lo)
 }
 
+/// A line of text at `pos` whose end, when it's cut short at `width`, fades over `fade` points.
+pub fn faded_text_at(ui: &Ui, pos: Pos2, text: &str, font: egui::FontId, color: Color32, width: f32, fade: f32) -> Rect {
+    let g = ui.painter().layout_no_wrap(text.to_owned(), font, color);
+    let rect = Rect::from_min_size(pos, vec2(g.size().x.min(width), g.size().y));
+    if g.size().x <= width || fade <= 0.0 {
+        ui.painter().with_clip_rect(rect.expand2(vec2(0.0, 2.0))).galley(pos, g, color);
+        return rect;
+    }
+    // The glyphs' own mesh, each vertex's alpha by how near the edge it is.
+    let mut mesh = egui::Mesh::with_texture(egui::TextureId::default());
+    let [w, h] = ui.ctx().fonts(|f| f.font_image_size());
+    for row in &g.rows {
+        for gl in &row.row.glyphs {
+            let uv = gl.uv_rect;
+            if uv.is_nothing() {
+                continue;
+            }
+            let r = Rect::from_min_size(pos + row.pos.to_vec2() + gl.pos.to_vec2() + uv.offset, uv.size);
+            let a = |x: f32| ((pos.x + width - x) / fade).clamp(0.0, 1.0);
+            let base = mesh.vertices.len() as u32;
+            let u = |x: u16| x as f32 / w as f32;
+            let v = |y: u16| y as f32 / h as f32;
+            let c = |x: f32| theme::with_alpha(color, a(x));
+            mesh.vertices.push(egui::epaint::Vertex { pos: r.left_top(), uv: pos2(u(uv.min[0]), v(uv.min[1])), color: c(r.left()) });
+            mesh.vertices.push(egui::epaint::Vertex { pos: r.right_top(), uv: pos2(u(uv.max[0]), v(uv.min[1])), color: c(r.right()) });
+            mesh.vertices.push(egui::epaint::Vertex { pos: r.right_bottom(), uv: pos2(u(uv.max[0]), v(uv.max[1])), color: c(r.right()) });
+            mesh.vertices.push(egui::epaint::Vertex { pos: r.left_bottom(), uv: pos2(u(uv.min[0]), v(uv.max[1])), color: c(r.left()) });
+            mesh.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        }
+    }
+    ui.painter().with_clip_rect(rect.expand2(vec2(0.0, 2.0))).add(egui::Shape::mesh(mesh));
+    rect
+}
+
 /// Wrapped text, at most `rows` lines.
 pub fn galley_wrapped(
     ui: &Ui,
@@ -189,6 +223,74 @@ pub fn heart(ui: &Ui, center: Pos2, size: f32, fill: f32, outline: Color32, fill
     }
 }
 
+/// What shows something's on its way: a spinner, or in some themes a shape morphing.
+pub fn loader(ui: &mut Ui) {
+    if !crate::preset::active().app.morph_loader {
+        ui.spinner();
+        return;
+    }
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(ui.spacing().interact_size.y), Sense::hover());
+    let t = ui.input(|i| i.time) as f32;
+    let c = rect.center();
+    let r = rect.width() * 0.46;
+    // Lobes coming and going as it turns: 3, 5, 8, ...
+    const SHAPES: [f32; 4] = [3.0, 5.0, 8.0, 12.0];
+    let phase = t * 0.8;
+    let (a, b) = (SHAPES[phase as usize % 4], SHAPES[(phase as usize + 1) % 4]);
+    let k = theme::ease_in_out(phase.fract());
+    let color = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
+    let pts: Vec<Pos2> = (0..64).map(|i| {
+        let ang = i as f32 / 64.0 * std::f32::consts::TAU;
+        let wave = |n: f32| (ang * n + t).cos() * 0.14;
+        let rr = r * (0.82 + wave(a) * (1.0 - k) + wave(b) * k);
+        c + vec2((ang + t * 0.5).cos(), (ang + t * 0.5).sin()) * rr
+    }).collect();
+    ui.painter().add(egui::Shape::convex_polygon(pts, color, egui::Stroke::NONE));
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
+}
+
+/// The theme's ring on what has keyboard focus.
+pub fn focus_ring(ui: &Ui, resp: &Response, rect: Rect, radius: f32) {
+    let Some(f) = crate::preset::active().app.controls.focus.as_ref() else { return };
+    if !resp.has_focus() {
+        return;
+    }
+    let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
+    let c = crate::preset::paint(&f.color, accent);
+    let outer = rect.expand(f.px + f.inner_px);
+    ui.painter().rect_stroke(outer, radius + f.px + f.inner_px, egui::Stroke::new(f.px, c), egui::StrokeKind::Inside);
+    if f.inner_px > 0.0 {
+        ui.painter().rect_stroke(rect.expand(f.inner_px), radius + f.inner_px, egui::Stroke::new(f.inner_px, Color32::BLACK), egui::StrokeKind::Inside);
+    }
+}
+
+/// A rounded rect in the theme's corners: a squircle where it has them.
+pub fn fill_rounded(ui: &Ui, rect: Rect, radius: f32, fill: Color32) {
+    if crate::preset::active().app.squircle && radius >= 4.0 {
+        ui.painter().add(egui::Shape::convex_polygon(squircle(rect, radius), fill, egui::Stroke::NONE));
+    } else {
+        ui.painter().rect_filled(rect, radius, fill);
+    }
+}
+
+/// The outline of `rect` with `corner-shape: superellipse(2)` corners of `r`.
+pub fn squircle(rect: Rect, r: f32) -> Vec<Pos2> {
+    const STEPS: usize = 10;
+    let r = r.min(rect.width() / 2.0).min(rect.height() / 2.0);
+    let mut pts = Vec::with_capacity((STEPS + 1) * 4);
+    let corners = [(rect.right() - r, rect.top() + r, 1.0, -1.0, false), (rect.right() - r, rect.bottom() - r, 1.0, 1.0, true), (rect.left() + r, rect.bottom() - r, -1.0, 1.0, false), (rect.left() + r, rect.top() + r, -1.0, -1.0, true)];
+    for (cx, cy, sx, sy, flip) in corners {
+        for i in 0..=STEPS {
+            let a = i as f32 / STEPS as f32 * std::f32::consts::FRAC_PI_2;
+            let a = if flip { std::f32::consts::FRAC_PI_2 - a } else { a };
+            // |x|^4 + |y|^4 = 1: going around, x from 0 to 1 at the top right.
+            let (x, y) = (a.sin().sqrt(), a.cos().sqrt());
+            pts.push(pos2(cx + sx * x * r, cy + sy * y * r));
+        }
+    }
+    pts
+}
+
 /// Circular icon button with an animated hover halo.
 pub fn icon_button(ui: &mut Ui, glyph: char, size: f32, name: &str, active: bool) -> Response {
     let d = size + 16.0;
@@ -198,10 +300,14 @@ pub fn icon_button(ui: &mut Ui, glyph: char, size: f32, name: &str, active: bool
     let c = &crate::preset::active().app.controls;
     if h > 0.0 {
         ui.painter().circle_filled(rect.center(), d / 2.0, theme::glass(0.10 * h));
-        if c.ghost_outline > 0.0 {
-            ui.painter().circle_stroke(rect.center(), d / 2.0, egui::Stroke::new(1.0, theme::glass(c.ghost_outline * h)));
+        if c.ghost_outline.max(c.hover_border) > 0.0 {
+            ui.painter().circle_stroke(rect.center(), d / 2.0, egui::Stroke::new(1.0, theme::glass(c.ghost_outline.max(c.hover_border) * h)));
         }
     }
+    if c.press_fill > 0.0 && resp.is_pointer_button_down_on() {
+        ui.painter().circle_filled(rect.center(), d / 2.0, theme::glass(c.press_fill));
+    }
+    focus_ring(ui, &resp, rect, d / 2.0);
     let lit = crate::preset::hex(&c.hover_color).unwrap_or_else(theme::text);
     let color = if active { theme::text() } else { theme::lerp_color(theme::with_alpha(theme::text_dim(), c.idle_alpha.clamp(0.5, 1.0)), lit, h) };
     let press = if resp.is_pointer_button_down_on() { c.press_scale } else { 1.0 + (c.hover_scale - 1.0) * h };
@@ -227,10 +333,18 @@ pub fn pill(ui: &mut Ui, label: &str, glyph: Option<char>, primary: bool) -> Res
         (theme::glass(c.button_fill + c.button_hover * h), theme::text())
     };
     let r = rect.shrink(if resp.is_pointer_button_down_on() { (1.0 - c.press_scale) * 10.0 } else { 0.0 });
-    ui.painter().rect_filled(r, 19.0, fill);
-    if c.ghost_outline > 0.0 && !primary {
-        ui.painter().rect_stroke(r, 19.0, egui::Stroke::new(1.0, theme::glass(c.ghost_outline)), egui::StrokeKind::Inside);
+    if let Some([y, blur, a]) = c.shadow {
+        soft_shadow(ui, r.translate(vec2(0.0, y)), 19.0, blur, a);
     }
+    ui.painter().rect_filled(r, 19.0, fill);
+    if c.press_fill > 0.0 && !primary && resp.is_pointer_button_down_on() {
+        ui.painter().rect_filled(r, 19.0, theme::glass(c.press_fill));
+    }
+    let edge = c.ghost_outline + c.hover_border * h;
+    if edge > 0.0 && !primary {
+        ui.painter().rect_stroke(r, 19.0, egui::Stroke::new(1.0, theme::glass(edge)), egui::StrokeKind::Inside);
+    }
+    focus_ring(ui, &resp, r, 19.0);
     let mut x = r.left() + 18.0;
     if let Some(g) = glyph {
         icon_at(ui, pos2(x + 8.0, r.center().y), g, 17.0, fg);
@@ -254,7 +368,8 @@ pub fn more_pill(ui: &mut Ui, name: &str) -> Response {
 /// Selectable chip (home moods, library tabs).
 pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
     let chips = &crate::preset::active().app.chip_look;
-    let text = ui.painter().layout_no_wrap(label.to_owned(), theme::weighted(chips.weight, 13.5), Color32::PLACEHOLDER);
+    let weight = if selected { chips.selected_weight.unwrap_or(chips.weight) } else { chips.weight };
+    let text = ui.painter().layout_no_wrap(label.to_owned(), theme::weighted(weight, 13.5), Color32::PLACEHOLDER);
     let (rect, resp) = ui.allocate_exact_size(vec2(text.size().x + 28.0, chips.height), Sense::click());
     let resp = named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
@@ -279,7 +394,15 @@ pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
     };
     let off_fill = theme::glass(chips.fill.unwrap_or(rest) + chips.hover.unwrap_or(more) * h);
     let fill = theme::lerp_color(off_fill, on_fill, s);
+    let press = crate::preset::active().app.controls.press_chips;
+    let rect = if press < 1.0 && resp.is_pointer_button_down_on() { Rect::from_center_size(rect.center(), rect.size() * press) } else { rect };
+    // In a segmented row the inner corners are small, the row's ends round by the gap's side.
+    let radius = chips.segmented.map_or(radius, |[_, inner, _]| inner);
     ui.painter().rect_filled(rect, radius, fill);
+    if chips.border > 0.0 {
+        ui.painter().rect_stroke(rect, radius, egui::Stroke::new(1.0, theme::glass(chips.border)), egui::StrokeKind::Inside);
+    }
+    focus_ring(ui, &resp, rect, radius);
     match style {
         ChipStyle::Outline => {
             ui.painter().rect_stroke(rect, radius, egui::Stroke::new(1.0, theme::glass(0.3 * (1.0 - s))), egui::StrokeKind::Inside);
@@ -350,6 +473,17 @@ pub fn paint_cover_px(ui: &Ui, rect: Rect, thumbs: &[Thumb], radius: f32, zoom: 
     paint_remote(ui, &url, rect, radius, uv, Color32::WHITE);
 }
 
+/// [`paint_cover_px`] with its own corners.
+pub fn paint_cover_corners(ui: &Ui, rect: Rect, thumbs: &[Thumb], corners: CornerRadius, px: u32) {
+    let px = fetch_px(px);
+    ui.painter().rect_filled(rect, corners, theme::glass(0.07));
+    let Some(t) = pick_thumb(thumbs, px.min(544)) else { return };
+    let url = steady_url(ui.ctx(), &t.url, px);
+    if let Ok(egui::load::TexturePoll::Ready { texture }) = egui::Image::new(url).load_for_size(ui.ctx(), rect.size()) {
+        egui::Image::from_texture(texture).uv(t.square_uv()).corner_radius(corners).paint_at(ui, rect);
+    }
+}
+
 /// Paint the cover cropped to fill `rect` (any aspect), tinted, for full-bleed backdrops.
 pub fn paint_cover_fill(ui: &Ui, rect: Rect, thumbs: &[Thumb], tint: Color32) {
     let ppp = ui.ctx().pixels_per_point();
@@ -411,10 +545,11 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
     let look = &crate::preset::active().app;
     let cl = &look.card_look;
     // The whole picture lifting on hover, inside the space it's been given.
-    let img = Rect::from_center_size(rect.min + Vec2::splat(width / 2.0), Vec2::splat(width * (1.0 + (cl.hover_scale - 1.0) * h)));
+    let press = if resp.is_pointer_button_down_on() { look.controls.press_cards } else { 1.0 };
+    let img = Rect::from_center_size(rect.min + Vec2::splat(width / 2.0) - vec2(0.0, cl.lift_px * h), Vec2::splat(width * (1.0 + (cl.hover_scale - 1.0) * h) * press));
     let radius = if c.round { width / 2.0 } else { theme::card_radius().min(width / 2.0) };
-    if let Some([y, blur, a]) = cl.shadow.filter(|_| h > 0.0) {
-        soft_shadow(ui, img.translate(vec2(0.0, y)), radius, blur, a * h);
+    if let Some([y, blur, a]) = cl.shadow.filter(|_| cl.shadow_rest || h > 0.0) {
+        soft_shadow(ui, img.translate(vec2(0.0, y)), radius, blur, if cl.shadow_rest { a } else { a * h });
     }
     if look.card_fill > 0.0 {
         ui.painter().rect_filled(rect, radius, theme::glass(look.card_fill));
@@ -444,7 +579,14 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
         let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
         let back = theme::shade(cl.play_alpha * h);
         let back = if cl.play_hover_accent { theme::lerp_color(back, accent, ph) } else { back };
-        ui.painter().circle_filled(center, prect.width() / 2.0 + 2.0 * ph, back);
+        if let Some(g) = look.glass.card_play {
+            crate::shader::frost(ui.painter(), Rect::from_center_size(center, prect.size() + Vec2::splat(4.0 * ph)), crate::shader::Frost { look: g, radius: 999.0, opacity: h, fade: 0.0 });
+        }
+        let play_r = (prect.width() / 2.0 + 2.0 * ph) * (1.0 + (cl.play_hover_scale - 1.0) * ph);
+        ui.painter().circle_filled(center, play_r, back);
+        if cl.play_ring > 0.0 {
+            ui.painter().circle_stroke(center, play_r - 0.5, egui::Stroke::new(1.0, theme::with_alpha(Color32::WHITE, cl.play_ring * h)));
+        }
         play_pause_glyph(ui, center, 10.0, theme::with_alpha(Color32::WHITE, h), playing);
         play_hit = p.clicked();
     }
@@ -457,7 +599,7 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
     // On the subtitle line, whose width leaves room for it, so a two-line title never sits under it.
     let more_rect = Rect::from_center_size(pos2(rect.right() - 16.0, sub_y + 8.0), Vec2::splat(30.0));
     let more = more_button(ui, more_rect, resp.id.with("more"), "Options");
-    egui::Popup::menu(&more).show(|ui| card_menu_contents(ui, c, liked, acts));
+    menu_popup(&more).show(|ui| card_menu_contents(ui, c, liked, acts));
 
     if play_hit {
         match &c.target {
@@ -474,7 +616,7 @@ fn card_menu_contents(ui: &mut Ui, c: &Card, liked: bool, acts: &mut Vec<Action>
     match &c.target {
         Target::Song(t) => song_menu(ui, t, liked, None, acts),
         t => {
-            ui.set_width(226.0);
+            ui.set_width(crate::preset::active().app.menu_look.min_px);
             ui.add_space(3.0);
             if menu_action(ui, Some(icon::PLAY), "Play") {
                 acts.push(Action::PlayCollection(t.clone(), false));
@@ -500,9 +642,69 @@ fn more_button(ui: &mut Ui, rect: Rect, id: egui::Id, label: &str) -> Response {
     if response.hovered() || egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response)) {
         ui.painter().rect_filled(rect, 7.0, theme::glass(0.16));
     }
-    let color = if response.hovered() { theme::text() } else { theme::text_dim() };
-    icon_at(ui, rect.center(), icon::ELLIPSIS_VERTICAL, 18.0, color);
+    let lit = if crate::preset::active().app.card_look.menu_hover_accent { ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED) } else { theme::text() };
+    let color = if response.hovered() { lit } else { theme::text_dim() };
+    if crate::preset::active().app.row_look.menu_dots_across {
+        for dx in [-5.5, 0.0, 5.5] {
+            ui.painter().circle_filled(rect.center() + vec2(dx, 0.0), 1.7, color);
+        }
+    } else {
+        icon_at(ui, rect.center(), icon::ELLIPSIS_VERTICAL, 18.0, color);
+    }
     response
+}
+
+/// Frosts behind an open popup and lets it pop in, as the theme has it.
+fn popup_extras(ctx: &egui::Context, id: egui::Id) {
+    let open = egui::Popup::is_id_open(ctx, id);
+    let opened = id.with("opened");
+    if !open {
+        ctx.data_mut(|d| d.remove::<f64>(opened));
+        return;
+    }
+    let look = &crate::preset::active().app;
+    let now = ctx.input(|i| i.time);
+    let since = ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(opened, || now));
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("menu-opened"), since));
+    if look.menu_look.item_slide > 0.0 && now - since < 0.2 {
+        ctx.request_repaint();
+    }
+    let scale = match look.menu_look.pop {
+        Some([from, secs]) => {
+            let t = ((now - since) as f32 / secs.max(0.01)).clamp(0.0, 1.0);
+            if t < 1.0 {
+                ctx.request_repaint();
+            }
+            egui::lerp(from..=1.0, theme::ease_out(t))
+        }
+        None => 1.0,
+    };
+    let Some(rect) = ctx.memory(|m| m.area_rect(id)) else { return };
+    if scale < 1.0 {
+        let c = rect.center().to_vec2();
+        ctx.set_transform_layer(egui::LayerId::new(egui::Order::Foreground, id), egui::emath::TSTransform::from_translation(c) * egui::emath::TSTransform::from_scaling(scale) * egui::emath::TSTransform::from_translation(-c));
+    }
+    if let Some(glass) = look.glass.menu {
+        // On a layer of its own just under the popups.
+        let layer = egui::LayerId::new(egui::Order::Middle, egui::Id::unique("menu-frost"));
+        ctx.move_to_top(layer);
+        let painter = ctx.layer_painter(layer);
+        let r = Rect::from_center_size(rect.center(), rect.size() * scale);
+        let radius = ctx.global_style().visuals.menu_corner_radius.nw as f32;
+        crate::shader::frost(&painter, r, crate::shader::Frost { look: glass, radius, opacity: 1.0, fade: 0.0 });
+    }
+}
+
+/// A button's menu, in the theme's look.
+pub fn menu_popup<'a>(resp: &Response) -> egui::Popup<'a> {
+    popup_extras(&resp.ctx, egui::Popup::default_response_id(resp));
+    egui::Popup::menu(resp).frame(theme::menu_frame(&resp.ctx.global_style()))
+}
+
+/// A right-click menu, in the theme's look.
+pub fn context_popup<'a>(resp: &Response) -> egui::Popup<'a> {
+    popup_extras(&resp.ctx, egui::Popup::default_response_id(resp));
+    egui::Popup::context_menu(resp).frame(theme::menu_frame(&resp.ctx.global_style()))
 }
 
 pub fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
@@ -512,21 +714,32 @@ pub fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
     if response.hovered() {
         ui.painter().rect_filled(rect, m.row_radius, theme::glass(m.hover));
     }
-    let color = if response.hovered() { theme::text() } else { theme::text_dim() };
-    let (icon_x, text_x) = if m.icon_right { (rect.right() - 19.0, rect.left() + 12.0) } else { (rect.left() + 19.0, rect.left() + 40.0) };
+    if m.separator > 0.0 {
+        ui.painter().hline(rect.x_range(), rect.bottom() + ui.spacing().item_spacing.y / 2.0, egui::Stroke::new(1.0, theme::glass(m.separator)));
+    }
+    let lit = if m.hover_accent { ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED) } else { theme::text() };
+    let color = if response.hovered() { lit } else { theme::text_dim() };
+    // Rows slide in as the menu opens.
+    let slide = if m.item_slide > 0.0 {
+        let since = ui.ctx().input(|i| i.time) - ui.ctx().data(|d| d.get_temp::<f64>(egui::Id::unique("menu-opened"))).unwrap_or(0.0);
+        m.item_slide * (1.0 - theme::ease_out(since as f32 / 0.2))
+    } else {
+        0.0
+    };
+    let (icon_x, text_x) = if m.icon_right { (rect.right() - 19.0 + slide, rect.left() + 12.0 + slide) } else { (rect.left() + 19.0 + slide, rect.left() + 40.0 + slide) };
     if let Some(glyph) = glyph {
         icon_at(ui, pos2(icon_x, rect.center().y), glyph, 16.0, color);
     } else {
         ui.painter().text(pos2(icon_x, rect.center().y), Align2::CENTER_CENTER, "↗", theme::semibold(17.0), color);
     }
-    ui.painter().text(pos2(text_x, rect.center().y), Align2::LEFT_CENTER, label, theme::regular(14.0), theme::text());
+    ui.painter().text(pos2(text_x, rect.center().y), Align2::LEFT_CENTER, label, theme::regular(14.0), if response.hovered() { lit } else { theme::text() });
     if response.clicked() { ui.close(); }
     response.clicked()
 }
 
 /// `remove`: the song's row in the open playlist, when it's yours and the song can come out.
 pub fn song_menu(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, acts: &mut Vec<Action>) {
-    ui.set_width(226.0);
+    ui.set_width(crate::preset::active().app.menu_look.min_px);
     ui.add_space(3.0);
     song_actions(ui, t, liked, remove, acts);
     ui.add_space(3.0);
@@ -747,14 +960,17 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     // Not while something's being dragged over it: only the drop place should show.
     let hovered = base.contains_pointer() && ui.ctx().dragged_id().is_none();
     let h = theme::anim_bool(ui.ctx(), base.id.with("h"), hovered, 0.15);
+    // Grows or shrinks on the row's own place, the list around it staying put.
+    let press = if resp.is_pointer_button_down_on() { crate::preset::active().app.controls.press_rows } else { 1.0 };
+    let rect = if rl.hover_scale != 1.0 || press != 1.0 { Rect::from_center_size(rect.center(), rect.size() * (1.0 + (rl.hover_scale - 1.0) * h) * press) } else { rect };
     if h > 0.0 || o.current {
         let a = if o.current { rl.current + 0.05 * h } else { rl.hover * h };
         let fill = match crate::preset::hex(&rl.current_color).filter(|_| o.current) {
             Some(c) => theme::with_alpha(c, a),
             None => theme::glass(a),
         };
-        ui.painter().rect_filled(rect, rl.radius, fill);
-        let outline = crate::preset::active().app.controls.ghost_outline;
+        fill_rounded(ui, rect, rl.radius, fill);
+        let outline = crate::preset::active().app.controls.ghost_outline.max(rl.hover_border);
         if outline > 0.0 && h > 0.0 {
             ui.painter().rect_stroke(rect, rl.radius, egui::Stroke::new(1.0, theme::glass(outline * h)), egui::StrokeKind::Inside);
         }
@@ -776,7 +992,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
             ui.painter().rect_stroke(rect, 8.0, egui::Stroke::new(1.5, theme::with_alpha(o.accent, p)), egui::StrokeKind::Inside);
         }
     }
-    let mut x = rect.left() + 10.0;
+    let mut x = rect.left() + rl.pad;
     let cy = rect.center().y;
     if let Some(on) = o.selected {
         checkbox(ui, pos2(x + 9.0, cy), on);
@@ -794,8 +1010,8 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         x += 36.0;
     } else {
         let img = Rect::from_min_size(pos2(x, cy - rl.thumb_px / 2.0), Vec2::splat(rl.thumb_px));
-        let tr = theme::thumb_radius();
-        paint_cover(ui, img, &t.thumbs, tr, 1.0);
+        let tr = rl.thumb_radius.unwrap_or_else(theme::thumb_radius);
+        paint_cover(ui, img, &t.thumbs, tr, 1.0 + rl.image_zoom * h);
         if o.pick {
             let play = named(ui.interact(img, base.id.with("cover"), Sense::click()), "Play").on_hover_text("Play").on_hover_cursor(egui::CursorIcon::PointingHand);
             if play.clicked() {
@@ -806,13 +1022,14 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
             ui.painter().rect_filled(img, tr, theme::shade(0.45));
             equalizer(ui, img.shrink(10.0), o.time, o.playing, Color32::WHITE);
         } else if h > 0.0 {
-            ui.painter().rect_filled(img, tr, theme::shade(0.5 * h));
+            ui.painter().rect_filled(img, tr, theme::shade(rl.image_dim * h));
             play_triangle(ui, img.center(), 7.0, theme::with_alpha(Color32::WHITE, h));
         }
         x += rl.thumb_px + 14.0;
     }
-    let right = rect.right() - 51.0;
+    let right = rect.right() - 41.0 - rl.pad;
     let dur_w = 52.0;
+    let dim = theme::with_alpha(theme::text_dim(), rl.byline_alpha);
     let avail = right - dur_w - x;
     let wide = avail > 520.0;
     // Album rows (numbered) are just song name and plays; other rows are
@@ -840,10 +1057,10 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     let title_y = if sub.is_some() { cy - 18.0 } else { cy - 9.0 };
     text_at(ui, pos2(x, title_y), &t.title, theme::semibold(14.5), title_col, title_w);
     if let Some(sub) = &sub {
-        linked_text(ui, pos2(x, cy + 2.0), sub, &t.artists, theme::regular(13.0), theme::text_dim(), title_w, acts);
+        linked_text(ui, pos2(x, cy + 2.0), sub, &t.artists, theme::regular(13.0), dim, title_w, acts);
     }
     if let (Some(px), Some(p)) = (plays_x, &plays) {
-        ui.painter().text(pos2(px, cy), Align2::LEFT_CENTER, p, theme::regular(13.5), theme::text_dim());
+        ui.painter().text(pos2(px, cy), Align2::LEFT_CENTER, p, theme::regular(13.5), dim);
     }
     if let (Some(ax), Some(album)) = (album_x, &t.album) {
         let w = plays_x.unwrap_or(right - dur_w) - ax - 10.0;
@@ -863,7 +1080,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         }
     }
     if let Some(d) = t.duration {
-        ui.painter().text(pos2(right, cy), Align2::RIGHT_CENTER, super::fmt_time(d), theme::regular(13.0), theme::text_dim());
+        digits_at(ui, pos2(right, cy), &super::fmt_time(d), theme::regular(13.0), dim);
     }
     let more_rect = Rect::from_center_size(pos2(rect.right() - 20.0, cy), Vec2::splat(30.0));
     // Hidden at rest in some themes, not gone: it's there on hover, and right click opens the same menu.
@@ -871,15 +1088,32 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     let open_id = more_id.with("open");
     if !rl.hover_menu || hovered || ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false)) {
         let more = more_button(ui, more_rect, more_id, "Song options");
-        egui::Popup::menu(&more).show(|ui| song_menu(ui, t, o.liked, o.remove, acts));
+        menu_popup(&more).show(|ui| song_menu(ui, t, o.liked, o.remove, acts));
         if rl.hover_menu {
             let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&more));
             ui.data_mut(|d| d.insert_temp(open_id, open));
         }
     }
     // Right-click anywhere on the row opens the same menu.
-    egui::Popup::context_menu(&resp).show(|ui| song_menu(ui, t, o.liked, o.remove, acts));
+    context_popup(&resp).show(|ui| song_menu(ui, t, o.liked, o.remove, acts));
     resp
+}
+
+/// A time ending at `right`, in even-width digits when the theme has them.
+pub fn digits_at(ui: &Ui, right: Pos2, s: &str, font: egui::FontId, color: Color32) -> Rect {
+    if !crate::preset::active().app.tabular_digits {
+        return ui.painter().text(right, Align2::RIGHT_CENTER, s, font, color);
+    }
+    let cell = ui.painter().layout_no_wrap("0".to_owned(), font.clone(), color).size();
+    let colon = ui.painter().layout_no_wrap(":".to_owned(), font.clone(), color).size().x;
+    let w: f32 = s.chars().map(|c| if c.is_ascii_digit() { cell.x } else { colon }).sum();
+    let mut x = right.x - w;
+    for c in s.chars() {
+        let adv = if c.is_ascii_digit() { cell.x } else { colon };
+        ui.painter().text(pos2(x + adv / 2.0, right.y), Align2::CENTER_CENTER, c, font.clone(), color);
+        x += adv;
+    }
+    Rect::from_min_max(pos2(right.x - w, right.y - cell.y / 2.0), pos2(right.x, right.y + cell.y / 2.0))
 }
 
 /// An 18 px tick box centred on `c`, white like a primary pill when ticked.
@@ -910,7 +1144,7 @@ pub fn shelf_header(ui: &mut Ui, title: &str, strap: Option<&str>, strap_thumb: 
             if let Some(s) = strap {
                 ui.label(egui::RichText::new(s.to_uppercase()).font(theme::semibold(12.0)).color(theme::with_alpha(theme::text_dim(), look.strap_alpha)));
             }
-            ui.label(egui::RichText::new(title).font(theme::weighted(look.heading_weight, look.heading_px)).color(theme::text()));
+            ui.label(egui::RichText::new(title).font(theme::weighted(look.heading_weight, look.heading_px)).extra_letter_spacing(look.heading_tracking_em * look.heading_px).color(theme::text()));
         });
         if arrows {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1022,7 +1256,12 @@ pub fn paint_remote(ui: &Ui, url: &str, rect: Rect, radius: f32, uv: Rect, tint:
             if a < 1.0 {
                 ctx.request_repaint();
             }
-            egui::Image::from_texture(texture).uv(uv).corner_radius(CornerRadius::same(radius as u8)).tint(tint.gamma_multiply(theme::ease_out(a))).paint_at(ui, rect);
+            let tint = tint.gamma_multiply(theme::ease_out(a));
+            if crate::preset::active().app.squircle && radius >= 6.0 {
+                paint_squircle_image(ui, texture.id, rect, radius, uv, tint);
+            } else {
+                egui::Image::from_texture(texture).uv(uv).corner_radius(CornerRadius::same(radius as u8)).tint(tint).paint_at(ui, rect);
+            }
         }
         Ok(egui::load::TexturePoll::Pending { .. }) => {
             ctx.data_mut(|d| d.insert_temp::<Option<f64>>(id, None));
@@ -1032,6 +1271,31 @@ pub fn paint_remote(ui: &Ui, url: &str, rect: Rect, radius: f32, uv: Rect, tint:
         // A failed image keeps its plain placeholder.
         Err(_) => {}
     }
+}
+
+/// A picture in a squircle: a fan with a soft edge.
+fn paint_squircle_image(ui: &Ui, tex: egui::TextureId, rect: Rect, radius: f32, uv: Rect, tint: Color32) {
+    let pts = squircle(rect, radius);
+    let uv_at = |p: Pos2| pos2(egui::remap(p.x, rect.x_range(), uv.x_range()), egui::remap(p.y, rect.y_range(), uv.y_range()));
+    let mut mesh = egui::Mesh::with_texture(tex);
+    let c = rect.center();
+    mesh.vertices.push(egui::epaint::Vertex { pos: c, uv: uv_at(c), color: tint });
+    let n = pts.len() as u32;
+    let feather = 0.7 / ui.ctx().pixels_per_point();
+    for p in &pts {
+        mesh.vertices.push(egui::epaint::Vertex { pos: *p, uv: uv_at(*p), color: tint });
+    }
+    for p in &pts {
+        let out = *p + (*p - c).normalized() * feather;
+        mesh.vertices.push(egui::epaint::Vertex { pos: out, uv: uv_at(*p), color: Color32::TRANSPARENT });
+    }
+    for i in 0..n {
+        let j = (i + 1) % n;
+        mesh.add_triangle(0, 1 + i, 1 + j);
+        mesh.add_triangle(1 + i, 1 + n + i, 1 + j);
+        mesh.add_triangle(1 + j, 1 + n + i, 1 + n + j);
+    }
+    ui.painter().add(egui::Shape::mesh(mesh));
 }
 
 /// Song rows still on their way, at the end of a list that's coming in.

@@ -245,6 +245,13 @@ pub struct App {
     back: Vec<Page>,
     forward: Vec<Page>,
     page_changed: f64,
+    /// Room the page leaves at its top and bottom for glass it scrolls under.
+    page_insets: [f32; 2],
+    /// When a video's picture last went to the background, and the cover to go back to.
+    video_art_at: f64,
+    track_art: Option<crate::art::Art>,
+    /// How far the page is scrolled.
+    page_scrolled: f32,
     loading: bool,
     /// The current page's request failed with nothing cached: show a retry, not a skeleton.
     load_failed: bool,
@@ -341,6 +348,8 @@ pub struct App {
     /// The listener's accent colour, instead of the theme's.
     custom_accent: Option<Color32>,
     anim_bg: bool,
+    /// Panels frost what's behind them, in themes that have them do so.
+    glass_on: bool,
     reactive_bg: bool,
     /// Skip the parts of music videos SponsorBlock marks as not music.
     sponsorblock: bool,
@@ -514,6 +523,10 @@ impl App {
             back: Vec::new(),
             forward: Vec::new(),
             page_changed: 0.0,
+            page_insets: [0.0, 0.0],
+            page_scrolled: 0.0,
+            video_art_at: 0.0,
+            track_art: None,
             loading: false,
             load_failed: false,
             search_text: String::new(),
@@ -612,6 +625,7 @@ impl App {
             appearance: theme::Appearance::from_key(&dev_var("YTM_APPEARANCE").map(str::to_owned).or_else(|| get("appearance")).unwrap_or_default()),
             custom_accent: get("custom_accent").and_then(|v| crate::preset::hex(&v)),
             anim_bg: get("anim_bg").is_none_or(|v| v == "1"),
+            glass_on: get("glass_on").is_none_or(|v| v == "1"),
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
             sponsorblock: get("sponsorblock").is_some_and(|v| v == "1"),
             crossfade: get("crossfade").is_some_and(|v| v == "1"),
@@ -871,6 +885,15 @@ impl App {
     }
 
     /// Height of the bottom player area (a floating bar leaves a margin around it).
+    /// Back to the cover after a video had the background.
+    fn restore_art(&self) {
+        if self.look().background.video_backdrop
+            && let (Some(bg), Some(art)) = (&self.bg, &self.track_art)
+        {
+            bg.set_live(art.clone());
+        }
+    }
+
     fn bar_height(&self) -> f32 {
         let c = &self.look().chrome;
         if c.player_bar == crate::preset::PlayerBar::Floating { c.bar_height + c.bar_margin[1] } else { c.bar_height }
@@ -1006,13 +1029,14 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.shortcuts(&ctx);
+        crate::shader::set_glass_on(self.glass_on);
         let now = ctx.input(|i| i.time);
         let screen = ctx.content_rect();
 
         self.sync_look();
         let look = self.look();
         // Now playing is dark; once it's most of the way up, so is the player bar under it.
-        let np = theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), 0.42);
+        let np = theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), look.app.np_open_secs);
         let light = self.light_pages(&ctx) && np < 0.5 && !self.fullscreen;
         theme::set_mode(&ctx, light);
         crate::backdrop::follow(crate::backdrop::shows(), light);
@@ -1050,6 +1074,7 @@ impl eframe::App for App {
             // The top of the window, down to the search box's row: what's on it comes after.
             titlebar::drag_area(ui, egui::Rect::from_min_size(screen.min, egui::vec2(screen.width(), titlebar::HEIGHT)), "main");
         }
+        let mut floating_slot = None;
         if !self.fullscreen {
             let floating = look.chrome.player_bar == crate::preset::PlayerBar::Floating;
             let bar_alpha = app_style.bar_alpha.clamp(0.0, 1.0);
@@ -1062,7 +1087,7 @@ impl eframe::App for App {
                     None => shell::bar_fill(look, bar_alpha),
                 };
                 let mut f = egui::Frame::new().fill(fill);
-                if app_style.bar_border || look.chrome.bar_border_alpha.is_some() {
+                if (app_style.bar_border || look.chrome.bar_border_alpha.is_some()) && (look.chrome.bar_np_border || !self.np_open) {
                     f = f.stroke(egui::Stroke::new(1.0, theme::glass(look.chrome.bar_border_alpha.unwrap_or(0.1))));
                 }
                 f
@@ -1073,28 +1098,8 @@ impl eframe::App for App {
                 .show_separator_line(false)
                 .show(ui, |ui| {
                     if floating {
-                        // A bar that stops at its widest stays centred.
-                        let r = ui.max_rect();
-                        let r = match look.chrome.bar_max_px {
-                            Some(w) if r.width() > w => egui::Rect::from_center_size(r.center(), egui::vec2(w, r.height())),
-                            _ => r,
-                        };
-                        let radius = look.chrome.bar_radius.min(r.height() / 2.0);
-                        let [sy, sb, sa] = look.chrome.bar_shadow.unwrap_or([0.0, 24.0, 0.45]);
-                        widgets::soft_shadow(ui, r.translate(egui::vec2(0.0, sy)), radius, sb, sa);
-                        // Frosted: the art's colour through it, what a blur of the page would show.
-                        let fill = shell::bar_fill(look, (bar_alpha + 0.07).min(1.0));
-                        let fill = if app_style.frost && self.current().is_some() { theme::lerp_color(fill, self.accent, 0.1) } else { fill };
-                        let fill = match look.chrome.bar_np_alpha.filter(|_| self.np_open) {
-                            Some(a) => theme::shade(a),
-                            None => fill,
-                        };
-                        ui.painter().rect_filled(r, radius, fill);
-                        let edge = look.chrome.bar_border_alpha.unwrap_or(if app_style.bar_border { 0.14 } else { 0.08 });
-                        ui.painter().rect_stroke(r, radius, egui::Stroke::new(1.0, theme::glass(edge)), egui::StrokeKind::Inside);
-                        let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(r));
-                        bar.set_clip_rect(r);
-                        shell::player_bar(self, &mut bar, now);
+                        // Drawn over the page once that's down, for it to frost.
+                        floating_slot = Some(ui.max_rect());
                         return;
                     }
                     shell::player_bar(self, ui, now)
@@ -1103,6 +1108,8 @@ impl eframe::App for App {
         if !self.fullscreen && !covered {
             use crate::preset::SidebarStyle;
             let side_alpha = app_style.sidebar_alpha.clamp(0.0, 1.0);
+            // Clear over the top of a page, filling in as it scrolls.
+            let side_alpha = if app_style.nav_item.scroll_fill { side_alpha * (self.page_scrolled / 40.0).clamp(0.0, 1.0) } else { side_alpha };
             // The logo's row is 32 points tall.
             let side_margin = egui::Margin { left: 14, right: 14, top: titlebar::top_margin(16, 32.0), bottom: 16 };
             let border = egui::Stroke::new(if app_style.sidebar_border > 0.0 { 1.0 } else { 0.0 }, theme::glass(app_style.sidebar_border));
@@ -1118,10 +1125,20 @@ impl eframe::App for App {
                     .inner_margin(egui::Margin::symmetric(12, 14)),
             };
             egui::Panel::left("nav").resizable(false)
-                .exact_size(shell::SIDEBAR_W - (shell::SIDEBAR_W - shell::rail_w(self)) * shell::sidebar_collapse(self, &ctx))
+                .exact_size(shell::sidebar_w(self) - (shell::sidebar_w(self) - shell::rail_w(self)) * shell::sidebar_collapse(self, &ctx))
                 .frame(side_frame)
                 .show_separator_line(false)
-                .show(ui, |ui| shell::sidebar(self, ui));
+                .show(ui, |ui| {
+                    if let (Some([a, px]), Some(bg)) = (app_style.nav_item.cover_tint.filter(|_| !light), self.bg.as_ref()) {
+                        // The cover's blur showing through the top of the sidebar, fading out.
+                        let r = ui.max_rect().expand2(egui::vec2(14.0, 0.0));
+                        let band = egui::Rect::from_min_size(egui::pos2(r.left(), screen.top()), egui::vec2(r.width(), px));
+                        let b = &look.background;
+                        bg.paint(&ui.painter().with_clip_rect(band), screen, crate::shader::Params { time: 0.0, blend: 1.0, intensity: 0.0, saturation: b.saturation, dim: a, scale: b.scale, contrast: 1.0, dither: b.dither, rotate: 0.0 });
+                        shell::vgradient(ui.painter(), band, Color32::TRANSPARENT, shell::base_color(self));
+                    }
+                    shell::sidebar(self, ui)
+                });
             let q = theme::anim_bool(&ctx, "queue-drawer", self.queue_open && !self.np_open, 0.25);
             if q > 0.01 {
                 egui::Panel::right("queue").resizable(false)
@@ -1134,10 +1151,39 @@ impl eframe::App for App {
             egui::CentralPanel::default()
                 .frame(egui::Frame::new().fill(sheet.0).corner_radius(egui::CornerRadius { nw: sheet.1, ne: 0, sw: 0, se: 0 }).inner_margin(egui::Margin { left: 28, right: 0, top: titlebar::top_margin(14, 42.0), bottom: 0 }))
                 .show(ui, |ui| {
-                    shell::top_bar(self, ui);
-                    ui.add_space(6.0);
-                    pages::page(self, ui, now);
+                    let glass = crate::shader::glass_ready() && !light;
+                    let under_top = glass && app_style.glass.top_bar.is_some();
+                    let under_bar = glass && app_style.glass.bar.is_some() && floating_slot.is_some();
+                    if !under_top && !under_bar {
+                        self.page_insets = [0.0, 0.0];
+                        shell::top_bar(self, ui);
+                        ui.add_space(6.0);
+                        pages::page(self, ui, now);
+                        return;
+                    }
+                    // The page first, running under the glass, then what's over it.
+                    let panel = ui.max_rect();
+                    let row_h = app_style.search_look.height.max(42.0) + 6.0;
+                    let top = if under_top { screen.top() } else { panel.top() + row_h };
+                    let bottom = if under_bar { screen.bottom() } else { panel.bottom() };
+                    let page_rect = egui::Rect::from_min_max(egui::pos2(panel.left(), top), egui::pos2(panel.right(), bottom));
+                    self.page_insets = [if under_top { panel.top() + row_h - screen.top() } else { 0.0 }, if under_bar { self.bar_height() } else { 0.0 }];
+                    let mut page_ui = ui.new_child(egui::UiBuilder::new().max_rect(page_rect));
+                    page_ui.set_clip_rect(page_rect);
+                    pages::page(self, &mut page_ui, now);
+                    if under_top {
+                        // Dragging the window still works over what's scrolled up there.
+                        titlebar::drag_area(ui, egui::Rect::from_min_size(screen.min, egui::vec2(screen.width(), titlebar::HEIGHT)), "main-over");
+                    }
+                    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(panel));
+                    row.set_clip_rect(egui::Rect::from_min_max(screen.min, panel.max));
+                    shell::top_bar(self, &mut row);
                 });
+        }
+        if let Some(r) = floating_slot {
+            let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(r));
+            bar.set_clip_rect(screen);
+            shell::floating_bar(self, &mut bar, r, now);
         }
         if np > 0.001 {
             let pages = theme::set_mode(&ctx, false);
@@ -1263,6 +1309,7 @@ impl eframe::App for App {
             storage.set_string("font", theme::font_choice());
         }
         storage.set_string("anim_bg", b(self.anim_bg));
+        storage.set_string("glass_on", b(self.glass_on));
         storage.set_string("reactive_bg", b(self.reactive_bg));
         storage.set_string("sponsorblock", b(self.sponsorblock));
         storage.set_string("crossfade", b(self.crossfade));
@@ -1285,6 +1332,7 @@ impl eframe::App for App {
     fn on_exit(&mut self, gl: Option<&eframe::glow::Context>) {
         if let (Some(bg), Some(gl)) = (&self.bg, gl) {
             bg.destroy(gl);
+            crate::shader::destroy_glass(gl);
         }
         // A downloaded update installs as the app closes (and relaunches it when the
         // user asked to restart).

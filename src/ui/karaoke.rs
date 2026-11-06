@@ -111,6 +111,7 @@ const LETTER_WAVE_CREST: f32 = 0.4;
 /// `blyrics-long-word-threshold` (ms → s): held words swell their letters.
 const LONG_WORD: f64 = 1.5;
 /// `blyrics-line-synced-animation-delay`.
+#[cfg(test)]
 const LINE_SYNC_DELAY: f64 = 0.05;
 /// Word groups longer than twice `blyrics-long-word-wrap-threshold` may break.
 const LONG_GROUP_CHARS: usize = 20;
@@ -221,6 +222,41 @@ struct Cfg {
     credits_alpha: [f32; 2],
     edge_fade: [f32; 2],
     balance: bool,
+    deco_tracking: f32,
+    exit_fade: (f64, f64),
+    agent_glow: Vec<Color32>,
+    aura_colors: Vec<Color32>,
+    marker_colors: Vec<Color32>,
+    active_glow: Option<[f32; 2]>,
+    active_glow_colors: Vec<Color32>,
+    hover_glow: Option<[f32; 2]>,
+    rest_saturate: f32,
+    scroll_sides: [f32; 2],
+    line_stagger: f64,
+    deco_enter: [f32; 4],
+    sweep_soft: Option<f32>,
+    sweep_end: (f32, f32),
+    hover_dim: Option<f32>,
+    hover_box_line: f32,
+    hover_box_pop: Option<[f32; 2]>,
+    marker_hover: f32,
+    glow_ease: Bezier,
+    glow_fade: f64,
+    bg_gap: f32,
+    bg_sung: Option<f32>,
+    shadow_blur: f32,
+    shadow_unsung: bool,
+    deco_gap: Option<f32>,
+    padding_top: f32,
+    credits_center: bool,
+    credits_weight: Weight,
+    credits_margin: f32,
+    inst_glow: f32,
+    dot_em: Option<[f32; 2]>,
+    ring_wave: bool,
+    scroll_t: Option<Timing>,
+    rise_ratio: f64,
+    rest_em: f32,
 }
 
 /// `GLOW_INVISIBLE_ALPHA`: a glow colour this faint renders nothing and is skipped.
@@ -238,15 +274,17 @@ impl Cfg {
     }
 
     /// `width`: the lyrics panel; `viewport`: the window (the theme's media queries).
-    fn new(s: &LyricStyle, accent: Color32, width: f32, viewport: f32, centered: bool, scale: f32, fullscreen: bool) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    fn new(s: &LyricStyle, accent: Color32, width: f32, viewport: f32, viewport_h: f32, centered: bool, scale: f32, fullscreen: bool) -> Self {
         let mut rem = s.rem;
         let steps = s.font_rem.iter().filter(|st| viewport >= st[0]).map(|st| st[1]).next_back();
         let vw_step = s.font_vw_steps.iter().find(|st| viewport < st[0]).map(|st| [st[1], st[2], st[3]]).or(s.font_vw);
-        let step = match vw_step {
+        let full_vw = s.font_vw_full.filter(|_| fullscreen);
+        let step = match full_vw.or(vw_step) {
             Some([lo, vw, hi]) => (viewport * vw / 100.0 / rem).clamp(lo, hi),
             None => steps.or(s.font_rem.first().map(|st| st[1])).unwrap_or(3.0),
         };
-        let mut size = step * rem * if fullscreen { s.fullscreen_scale } else { 1.0 };
+        let mut size = step * rem * if fullscreen && full_vw.is_none() { s.fullscreen_scale } else { 1.0 };
         // Kept to about a dozen CJK characters per row on narrow windows.
         let cap = (width / 12.0).max(22.0);
         if size > cap {
@@ -275,7 +313,10 @@ impl Cfg {
             scale_secs: s.scale_secs.max(0.001) as f64,
             hover_scale: s.hover_scale,
             hover_reveal: s.hover_reveal,
-            padding: rem * if fullscreen { s.fullscreen_padding_rem.unwrap_or(s.line_padding_rem) } else { s.line_padding_rem },
+            padding: match s.line_padding_vh {
+                Some([lo, vh, hi]) => (viewport_h * vh / 100.0).clamp(lo, hi),
+                None => rem * if fullscreen { s.fullscreen_padding_rem.unwrap_or(s.line_padding_rem) } else { s.line_padding_rem },
+            },
             line_height: s.line_height,
             spacing: s.letter_spacing_em * size,
             target_ratio: s.anchor.clamp(0.1, 0.7),
@@ -307,10 +348,10 @@ impl Cfg {
             band_width: s.sweep_band_width,
             stroke: (s.stroke_em > 0.0).then(|| (s.stroke_em * size, crate::preset::paint(&s.stroke_color, accent))),
             bg_em: s.background_em,
-            roman_rem: s.romanization_rem,
+            roman_rem: s.romanization_rem * if fullscreen { s.decor_fullscreen_scale } else { 1.0 },
             roman_alpha: s.romanization_alpha,
             roman_pill: s.romanization_pill,
-            trans_rem: s.translation_rem,
+            trans_rem: s.translation_rem * if fullscreen { s.decor_fullscreen_scale } else { 1.0 },
             trans_alpha: s.translation_alpha,
             instrumental: s.instrumental,
             aura: s.aura,
@@ -320,7 +361,14 @@ impl Cfg {
             scroll_ease: Bezier(s.scroll_ease[0], s.scroll_ease[1], s.scroll_ease[2], s.scroll_ease[3]),
             scroll_offset: s.scroll_offset as f64,
             early_scroll: s.early_scroll as f64,
-            pad: (s.padding_inline[0] * rem / 10.0, s.padding_inline[1] * rem / 10.0),
+            pad: match (s.fullscreen_inline.filter(|_| fullscreen), s.padding_vw) {
+                (Some([a, b]), _) => (a, b),
+                (None, Some([lo, vw, hi])) => {
+                    let p = (viewport * vw / 100.0).clamp(lo, hi);
+                    (p, p)
+                }
+                _ => (s.padding_inline[0] * rem / 10.0, s.padding_inline[1] * rem / 10.0),
+            },
             glow_alpha: s.glow_alpha,
             long_glow_alpha: s.long_glow_alpha,
             line_ease: s.line_ease.map(|e| Bezier(e[0], e[1], e[2], e[3])),
@@ -357,6 +405,41 @@ impl Cfg {
             credits_alpha: s.credits_alpha,
             edge_fade: s.edge_fade,
             balance: s.balance,
+            deco_tracking: s.decor_tracking_em,
+            exit_fade: s.exit_fade.map_or((FADE_OUT, 0.0), |[secs, delay]| (secs.max(0.01) as f64, delay as f64)),
+            agent_glow: s.agent_glow.iter().map(|c| crate::preset::paint(c, accent)).collect(),
+            aura_colors: s.aura_colors.iter().map(|c| crate::preset::paint(c, accent)).collect(),
+            marker_colors: s.marker_colors.iter().map(|c| crate::preset::paint(c, accent)).collect(),
+            active_glow: s.active_glow,
+            active_glow_colors: s.active_glow_colors.iter().map(|c| crate::preset::paint(c, accent)).collect(),
+            hover_glow: s.hover_glow,
+            rest_saturate: s.rest_saturate,
+            scroll_sides: s.scroll_sides,
+            line_stagger: s.line_stagger as f64,
+            deco_enter: s.deco_enter.unwrap_or([-0.4, 0.0, DECO_ENTRY as f32, 0.0]),
+            sweep_soft: s.sweep_soft,
+            sweep_end: s.sweep_end.map_or((SWIPE_START.1, SWIPE_END.1), |e| (e[0], e[1])),
+            hover_dim: s.hover_dim_alpha,
+            hover_box_line: s.hover_box_line,
+            hover_box_pop: s.hover_box_pop,
+            marker_hover: s.marker_hover,
+            glow_ease: s.glow_ease.map_or(EASE, |e| Bezier(e[0], e[1], e[2], e[3])),
+            glow_fade: s.glow_fade_secs as f64,
+            bg_gap: s.background_gap_em,
+            bg_sung: s.background_sung_alpha,
+            shadow_blur: s.word_shadow_blur,
+            shadow_unsung: s.word_shadow_unsung,
+            deco_gap: s.decor_gap_em,
+            padding_top: s.padding_top,
+            credits_center: s.credits_center,
+            credits_weight: s.credits_weight,
+            credits_margin: s.credits_margin_rem * rem,
+            inst_glow: s.instrumental_glow,
+            dot_em: s.dot_em,
+            ring_wave: s.ring_wave,
+            scroll_t: s.scroll_transition,
+            rise_ratio: s.word_rise_ratio as f64,
+            rest_em: s.word_rest_em,
         }
     }
     fn rem(&self) -> f32 {
@@ -527,7 +610,13 @@ fn split_part(p: &Part) -> Vec<Tok> {
 
 /// `buildLineSyncedParts`: a line without timed parts becomes zero-duration words, each
 /// 50 ms after the one before.
+#[cfg(test)]
 fn line_synced_parts(l: &Line) -> Vec<Part> {
+    line_synced_parts_with(l, LINE_SYNC_DELAY)
+}
+
+/// Words of a line with no word timing, `delay` seconds apart.
+fn line_synced_parts_with(l: &Line, delay: f64) -> Vec<Part> {
     let mut out = Vec::new();
     let mut word = 0;
     let mut chunks: Vec<(String, bool)> = Vec::new();
@@ -539,7 +628,7 @@ fn line_synced_parts(l: &Line) -> Vec<Part> {
         }
     }
     for (text, ws) in chunks {
-        let start = l.start + (word as f64 * LINE_SYNC_DELAY * 1000.0) as i32;
+        let start = l.start + (word as f64 * delay * 1000.0) as i32;
         out.push(Part { start, dur: 0, text, bg: false });
         if !ws {
             word += 1;
@@ -746,6 +835,19 @@ fn balanced(fonts: &mut FontsView<'_>, toks: Vec<Tok>, font: &FontId, max_w: f32
     f
 }
 
+/// Romanization, translation or credits in the theme's letter spacing (em).
+fn deco_galley(fonts: &mut FontsView<'_>, text: String, font: FontId, wrap: f32, tracking: f32) -> Arc<Galley> {
+    if tracking == 0.0 {
+        return fonts.layout(text, font, Color32::WHITE, wrap);
+    }
+    let spacing = tracking * font.size;
+    let mut job = egui::text::LayoutJob::simple(text, font, Color32::WHITE, wrap);
+    if let Some(s) = job.sections.first_mut() {
+        s.format.extra_letter_spacing = spacing;
+    }
+    fonts.layout_job(job)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, width: f32, roman: Option<Roman>, trans: Option<&str>, agent: Option<&str>) -> Block {
     let em = cfg.size;
@@ -793,7 +895,7 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
         block.height = cfg.padding * 2.0 + line_h;
         return block;
     }
-    let parts = if l.parts.is_empty() { line_synced_parts(l) } else { l.parts.clone() };
+    let parts = if l.parts.is_empty() { line_synced_parts_with(l, cfg.line_stagger) } else { l.parts.clone() };
     let toks: Vec<Tok> = parts.iter().flat_map(split_part).collect();
     let (main, bg): (Vec<Tok>, Vec<Tok>) = toks.into_iter().partition(|t| !t.bg);
     let joined = |toks: &[Tok]| toks.iter().map(|t| t.text.as_str()).collect::<String>();
@@ -805,7 +907,7 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
     block.groups = f.groups;
     y += f.height;
     if bg.iter().any(|t| !t.space) {
-        y += em * 0.1;
+        y += em * cfg.bg_gap;
         let base = block.words.len();
         let g0 = block.groups.len();
         let font = cfg.bg_font(&joined(&bg));
@@ -816,7 +918,7 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
         block.groups.extend(f.groups.into_iter().map(|g| Group { first: g.first + base, words: g.words.start + base..g.words.end + base, ..g }));
         y += f.height;
     }
-    let gap = em / 6.0; // margin-top: 8px at 48 px
+    let gap = cfg.deco_gap.map_or(em / 6.0, |g| g * em); // margin-top: 8px at 48 px
     let both = roman.is_some() && trans.is_some();
     if let Some(r) = roman {
         y += gap;
@@ -832,7 +934,7 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
             }
             Roman::Text(t) => {
                 let font = cfg.roman_font(t, both);
-                let g = fonts.layout(t.to_owned(), font.clone(), Color32::WHITE, inner_w);
+                let g = deco_galley(fonts, t.to_owned(), font.clone(), inner_w, cfg.deco_tracking);
                 (DecoBody::Text(t.to_owned(), font), g.size(), hash(("r", t)))
             }
         };
@@ -854,7 +956,7 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
     if let Some(t) = trans {
         y += gap;
         let font = cfg.trans_font(t, both);
-        let g = fonts.layout(t.to_owned(), font.clone(), Color32::WHITE, content_w);
+        let g = deco_galley(fonts, t.to_owned(), font.clone(), content_w, cfg.deco_tracking);
         let x = match align {
             Align::Left => 0.0,
             Align::Right => content_w - g.size().x,
@@ -867,6 +969,11 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
     if !cfg.wave.on {
         for w in &mut block.words {
             w.letters = false;
+        }
+    }
+    if cfg.wave.min_secs > 0.0 || cfg.wave.max_letters > 0 {
+        for w in &mut block.words {
+            w.letters &= w.dur >= cfg.wave.min_secs as f64 && (cfg.wave.max_letters == 0 || w.text.chars().count() <= cfg.wave.max_letters);
         }
     }
     // Back to the column's edge or centre, which the narrower wrap moved.
@@ -1042,7 +1149,7 @@ impl View {
         let rect = f.rect;
         let ctx = ui.ctx().clone();
         self.shown_pass = ctx.cumulative_pass_nr();
-        let cfg = Cfg::new(f.style, f.accent, rect.width(), ctx.content_rect().width(), f.centered, f.scale, f.fullscreen);
+        let cfg = Cfg::new(f.style, f.accent, rect.width(), ctx.content_rect().width(), ctx.content_rect().height(), f.centered, f.scale, f.fullscreen);
         let layout_key = hash((f.key, rect.width().round() as i32, cfg.size.to_bits(), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, cfg.weight as u8, cfg.spacing.to_bits(), cfg.line_height.to_bits(), (cfg.align as u8, cfg.agent_align as u8, cfg.wave.on)));
         if self.layout.as_ref().is_none_or(|l| l.key != layout_key) {
             self.relayout(ui, &cfg, &f, layout_key, rect);
@@ -1078,7 +1185,7 @@ impl View {
             } else if !selected && jumped {
                 st.exit = None;
             }
-            if st.exit.is_some_and(|e| f.now - e > FADE_OUT.max(cfg.scale_secs).max(cfg.line_exit.map_or(0.0, |x| x[1] as f64))) {
+            if st.exit.is_some_and(|e| f.now - e > (cfg.exit_fade.0 + cfg.exit_fade.1).max(cfg.scale_secs).max(cfg.line_exit.map_or(0.0, |x| x[1] as f64))) {
                 st.exit = None;
             }
             animating |= st.exit.is_some();
@@ -1205,11 +1312,14 @@ impl View {
         let mut glow_work: Vec<GlowJob> = Vec::new();
         let pointer = ui.input(|i| i.pointer.hover_pos()).filter(|p| rect.contains(*p));
 
+        for o in &f.style.column_overlays {
+            super::shell::overlay_light(&painter, rect, o, f.accent);
+        }
         for (i, b) in layout.blocks.iter().enumerate() {
             let mut dy = 0.0;
             for a in &self.scrolls {
                 let rel = i as isize - a.active as isize;
-                let d = scroll_duration(rel, a.delta) + cfg.scroll_secs - 0.75;
+                let d = (scroll_duration(rel, a.delta) + cfg.scroll_secs - 0.75) * cfg.scroll_sides[usize::from(rel > 0)] as f64;
                 let p = ((f.now - a.start) / d.max(0.01)).clamp(0.0, 1.0) as f32;
                 dy += a.delta * (1.0 - cfg.scroll_ease.at(p));
             }
@@ -1233,9 +1343,10 @@ impl View {
                 }
                 let a = theme::anim(&ctx, ("lyr-credits", f.key), a, 0.35);
                 let o = transform_origin(block_rect, b.align, content.x);
-                let g = ctx.fonts_mut(|fv| fv.layout(text.clone(), font.clone(), Color32::WHITE, line_w - cfg.size * 0.5));
+                let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), line_w - cfg.size * 0.5, cfg.deco_tracking));
                 let xf = Xf { origin: o, scale: cfg.scale, content };
-                paint_galley(&painter, &g, pos2(0.0, cfg.padding), &xf, theme::with_alpha(Color32::WHITE, a), atlas);
+                let at_x = if cfg.credits_center { ((line_w - cfg.size * 0.5) - g.size().x).max(0.0) * 0.5 } else { 0.0 };
+                paint_galley(&painter, &g, pos2(at_x, cfg.padding + cfg.credits_margin), &xf, theme::with_alpha(Color32::WHITE, a), atlas);
                 continue;
             }
             let li = b.line.unwrap();
@@ -1287,7 +1398,10 @@ impl View {
                 } else {
                     (None, None)
                 };
-                (timing(o.unwrap_or(cfg.opacity_t)), timing(b.unwrap_or(cfg.blur_t)))
+                match cfg.scroll_t.filter(|_| user) {
+                    Some(x) => (timing(x), timing(x)),
+                    None => (timing(o.unwrap_or(cfg.opacity_t)), timing(b.unwrap_or(cfg.blur_t))),
+                }
             };
             let s = &mut self.states[i];
             s.opacity.set(target.0, f.now, op_t.0, op_t.1, cfg.line_ease);
@@ -1300,6 +1414,7 @@ impl View {
                 * if cfg.edge_fade[0] > 0.0 { ((edge_y - rect.top()) / (rect.height() * cfg.edge_fade[0])).clamp(0.0, 1.0) } else { 1.0 }
                 * if cfg.edge_fade[1] > 0.0 { ((rect.bottom() - edge_y) / (rect.height() * cfg.edge_fade[1])).clamp(0.0, 1.0) } else { 1.0 };
             let dim = match (cfg.reveal_dim, cfg.past_dim) {
+                _ if hovered && !on && cfg.hover_dim.is_some() => cfg.hover_dim.unwrap_or(cfg.dim_alpha),
                 (Some(d), _) if user || hovered => d,
                 (_, Some(d)) if is_past && !on => d,
                 _ => cfg.dim_alpha,
@@ -1308,6 +1423,7 @@ impl View {
                 Some(c) if is_past && !on => c,
                 _ => b.colors.1,
             };
+            let dim_tint = if cfg.rest_saturate < 1.0 && !on { desaturate(dim_tint, cfg.rest_saturate) } else { dim_tint };
 
             // Line scale: 0.95 at rest, 1 while sung (enter at its start, exit when it ends);
             // a theme's hover scale on lines not being sung.
@@ -1345,17 +1461,56 @@ impl View {
             if let Some([a, r]) = cfg.hover_box {
                 let k = theme::anim_bool(&ctx, ("lyr-hover-box", f.key, i), hovered && !on, 0.2);
                 if k > 0.0 {
-                    painter.rect_filled(block_rect.shrink2(vec2(0.0, cfg.padding * 0.4)), r * cfg.rem() / 10.0, theme::glass(a * k));
+                    let radius = r * cfg.rem() / 10.0;
+                    let mut boxed = block_rect.shrink2(vec2(0.0, cfg.padding * 0.4));
+                    if let Some([from, secs]) = cfg.hover_box_pop {
+                        let pop = theme::anim_bool(&ctx, ("lyr-hover-pop", f.key, i), hovered && !on, secs);
+                        boxed = Rect::from_center_size(boxed.center(), boxed.size() * lerp(from, 1.0, Bezier(0.34, 1.56, 0.64, 1.0).at(pop)));
+                    }
+                    painter.rect_filled(boxed, radius, theme::glass(a * k));
+                    if cfg.hover_box_line > 0.0 {
+                        painter.rect_stroke(boxed, radius, egui::Stroke::new(1.0, theme::glass(cfg.hover_box_line * k)), egui::StrokeKind::Inside);
+                    }
                 }
             }
             if on && !b.instrumental {
                 let px = cfg.rem() / 10.0;
                 if let Some([a, bleed]) = cfg.aura {
-                    painter.add(aura_mesh(block_rect.expand2(vec2(bleed * px, bleed * 0.4 * px)), theme::with_alpha(cfg.active, a * opacity)));
+                    let whole = block_rect.expand2(vec2(bleed * px, bleed * 0.4 * px));
+                    if cfg.aura_colors.is_empty() {
+                        painter.add(aura_mesh(whole, theme::with_alpha(cfg.active, a * opacity)));
+                    } else {
+                        // Soft pools of each colour, overlapping along the line.
+                        let n = cfg.aura_colors.len() as f32;
+                        for (k, c) in cfg.aura_colors.iter().enumerate() {
+                            let w = whole.width() * 1.5 / n;
+                            let x = whole.left() + whole.width() * k as f32 / n - whole.width() * 0.1;
+                            painter.add(aura_mesh(Rect::from_min_size(pos2(x, whole.top()), vec2(w, whole.height())), theme::with_alpha(*c, a * opacity)));
+                        }
+                    }
                 }
                 if let Some([w, h, a, left]) = cfg.marker {
-                    let bar = Rect::from_center_size(pos2(block_rect.left() - left * px, block_rect.center().y), vec2(w, h) * px);
-                    painter.rect_filled(bar, w * px / 2.0, theme::with_alpha(cfg.active, a * opacity));
+                    paint_marker(&painter, &cfg, pos2(block_rect.left() - left * px, block_rect.center().y), vec2(w, h) * px, a * opacity);
+                }
+            } else if hovered && cfg.marker_hover > 0.0 && !b.instrumental
+                && let Some([w, h, _, left]) = cfg.marker
+            {
+                let px = cfg.rem() / 10.0;
+                paint_marker(&painter, &cfg, pos2(block_rect.left() - left * px, block_rect.center().y), vec2(w, h) * px, cfg.marker_hover * opacity);
+            }
+            // The whole line's own glow, under its words; a soft copy of the line, made once.
+            let line_glow = if on { cfg.active_glow } else if hovered { cfg.hover_glow } else { None };
+            if let Some([radius, a]) = line_glow.filter(|_| !b.instrumental && blur <= 0.05) {
+                let k = theme::anim_bool(&ctx, ("lyr-line-glow", f.key, i), true, 0.3);
+                let words: Vec<(&Word, f32)> = b.words.iter().map(|w| (w, 1.0)).collect();
+                let colors: &[Color32] = if on && !cfg.active_glow_colors.is_empty() { &cfg.active_glow_colors } else { std::slice::from_ref(&cfg.glow) };
+                for (ci, c) in colors.iter().enumerate() {
+                    let r = ((radius * cfg.rem() / 10.0 * (1.0 + ci as f32) * 4.0).round() / 4.0).max(1.0);
+                    if let Some((tex, rr, uv)) = self.glow.blurred_line(&ctx, (f.key ^ 0x6c69_6e65, i * 8 + ci), r, &words, &[], &[], scale, atlas, ppp) {
+                        let to = xf.rect(rr);
+                        let snapped = (to.min.to_vec2() * ppp).round() / ppp;
+                        painter.image(tex, to.translate(snapped - to.min.to_vec2()), uv, theme::with_alpha(*c, a * k * opacity / colors.len() as f32 * 2.0));
+                    }
                 }
             }
 
@@ -1399,7 +1554,7 @@ impl View {
                     .iter()
                     .filter_map(|d| match &d.body {
                         DecoBody::Text(text, font) => {
-                            let g = ctx.fonts_mut(|fv| fv.layout(text.clone(), font.clone(), Color32::WHITE, d.rect.width() + 1.0));
+                            let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), d.rect.width() + 1.0, cfg.deco_tracking));
                             let pad = if d.roman { vec2(cfg.rem() * 0.75 + 1.0, cfg.rem() * 0.25 + 1.0) } else { Vec2::ZERO };
                             Some((g, d.rect.min + pad, if d.roman { cfg.roman_alpha } else { cfg.trans_alpha }))
                         }
@@ -1417,12 +1572,16 @@ impl View {
                 }
                 animating |= st.exit.is_some();
             } else {
-                let lit = LitState::new(&cfg, st, t, f.now, sung_now || st.selected);
+                let mut lit = LitState::new(&cfg, st, t, f.now, sung_now || st.selected);
+                if let Some(c) = f.lyrics.lines[li].agent.as_deref().and_then(|a| a.strip_prefix('v')?.parse::<usize>().ok()).and_then(|n| cfg.agent_glow.get(n.checked_sub(1)?)) {
+                    lit.glow = *c;
+                }
                 let tints = (b.colors.0, dim_tint);
                 paint_words(&painter, &ctx, &cfg, &b.words, &b.groups, &xf, &lit, dim, opacity, tints, atlas, &mut glow_work, (f.key, i, 0));
                 for (k, d) in b.decos.iter().enumerate() {
                     let born = *self.deco_born.entry(d.id).or_insert(f.now);
-                    let enter = ((f.now - born) / DECO_ENTRY).clamp(0.0, 1.0) as f32;
+                    let [enter_y, enter_x, enter_secs, enter_delay] = cfg.deco_enter;
+                    let enter = ((f.now - born - enter_delay as f64) / enter_secs.max(0.01) as f64).clamp(0.0, 1.0) as f32;
                     let e = DECO_EASE.at(enter);
                     if enter < 1.0 {
                         animating = true;
@@ -1432,7 +1591,7 @@ impl View {
                         DecoBody::Text(_, f) => f.size,
                         DecoBody::Timed { words, .. } => words.first().map_or(cfg.rem() * 1.6, |w| w.font.size),
                     };
-                    let dxf = Xf { content: xf.content + vec2(0.0, -0.4 * font_size * (1.0 - e)), ..xf };
+                    let dxf = Xf { content: xf.content + vec2(enter_x, enter_y) * font_size * (1.0 - e), ..xf };
                     let a = e * opacity * (dim / 0.05).min(1.0);
                     if d.pill {
                         let r = dxf.rect(d.rect);
@@ -1445,7 +1604,7 @@ impl View {
                         }
                         DecoBody::Text(text, font) => {
                             let wrap = d.rect.width() + 1.0;
-                            let g = ctx.fonts_mut(|fv| fv.layout(text.clone(), font.clone(), Color32::WHITE, wrap));
+                            let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), wrap, cfg.deco_tracking));
                             let pad = if d.roman { vec2(cfg.rem() * 0.75 + 1.0, cfg.rem() * 0.25 + 1.0) } else { Vec2::ZERO };
                             // `--blyrics-translated-color`. Drawn through the line's transform
                             // at the one laid-out size.
@@ -1501,14 +1660,14 @@ impl View {
         if !lyrics.songwriters.is_empty() {
             let names = &lyrics.songwriters;
             let text = if names.len() > 1 { format!("Written by {} & {}", names[..names.len() - 1].join(", "), names[names.len() - 1]) } else { format!("Written by {}", names[0]) };
-            let font = theme::regular((cfg.size * 0.4).max(12.0));
-            let h = ui.ctx().fonts_mut(|fv| fv.layout(text.clone(), font.clone(), Color32::WHITE, width - cfg.size * 0.5).size().y);
+            let font = theme::weighted(cfg.credits_weight, (cfg.size * 0.4).max(12.0));
+            let h = ui.ctx().fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), width - cfg.size * 0.5, cfg.deco_tracking).size().y) + cfg.credits_margin;
             blocks.push(Block {
                 line: None,
                 start: 0.0,
                 dur: 0.0,
                 instrumental: false,
-                align: if cfg.centered { Align::Center } else { Align::Left },
+                align: if cfg.centered || cfg.credits_center { Align::Center } else { Align::Left },
                 colors: (cfg.active, Color32::WHITE),
                 top: 0.0,
                 height: h + cfg.padding * 2.0,
@@ -1526,7 +1685,7 @@ impl View {
         let view_h = rect.height();
         // `computeScrollPadding`
         let first_h = blocks.first().map_or(0.0, |b| b.height);
-        let pad_top = (view_h * cfg.target_ratio - first_h / 2.0).max(0.0);
+        let pad_top = (view_h * cfg.target_ratio - first_h / 2.0).max(cfg.padding_top);
         let last_centre = blocks.iter().rev().find(|b| b.line.is_some()).map(|b| b.top + b.height / 2.0);
         let last_h = blocks.iter().rev().find(|b| b.line.is_some()).map_or(0.0, |b| b.height);
         let content = y;
@@ -1739,11 +1898,13 @@ struct LitState {
     exit: Option<(f32, f64)>,
     t: f64,
     fill: Fill,
+    /// This line's glow colour.
+    glow: Color32,
 }
 
 impl LitState {
     fn new(cfg: &Cfg, st: LineState, t: f64, now: f64, live: bool) -> Self {
-        Self { live: live && st.exit.is_none(), exit: st.exit.map(|e| ((now - e) as f32, st.exit_t)), t, fill: cfg.fill }
+        Self { live: live && st.exit.is_none(), exit: st.exit.map(|e| ((now - e) as f32, st.exit_t)), t, fill: cfg.fill, glow: cfg.glow }
     }
 
     fn animating(&self, b: &Block, t: f64) -> bool {
@@ -1777,7 +1938,14 @@ fn word_look(w: &Word, lit: &LitState, cfg: &Cfg) -> WordLook {
             return none;
         }
         let end = cfg.sung_fade.map_or(0.0, |f| f[0]);
-        return full(lerp(1.0, end, EASE.at(since / FADE_OUT as f32)).min(1.0));
+        let p = ((since as f64 - cfg.exit_fade.1).max(0.0) / cfg.exit_fade.0) as f32;
+        let mut look = full(lerp(1.0, end, EASE.at(p)).min(1.0));
+        // The glow running out instead of stopping with the line.
+        if cfg.glow_fade > 0.0 && glow_alpha >= GLOW_INVISIBLE {
+            let gone = (exit_t - w.start) + since as f64;
+            look.glow = glow_radius(gone, (w.dur.max(0.0) * cfg.glow_ratio).max(cfg.glow_min).min(cfg.glow_fade + (exit_t - w.start)), cfg.glow_rem * cfg.rem(), cfg.glow_ease);
+        }
+        return look;
     }
     if !lit.live {
         return none;
@@ -1787,11 +1955,25 @@ fn word_look(w: &Word, lit: &LitState, cfg: &Cfg) -> WordLook {
         return none;
     }
     // `resolveLineGlowSuppression`: a glow colour too faint to see isn't animated at all.
-    let glow_rem = if glow_alpha < GLOW_INVISIBLE { 0.0 } else { cfg.glow_rem * cfg.rem() };
+    let glow_rem = if glow_alpha < GLOW_INVISIBLE { 0.0 } else if w.letters && cfg.wave.glow_rem > 0.0 { cfg.wave.glow_rem * cfg.rem() } else { cfg.glow_rem * cfg.rem() };
     // Sung words settling to their resting alpha.
     let rest = |look: WordLook| match cfg.sung_fade {
         Some([alpha, secs]) if e > w.dur.max(0.0) => WordLook { opacity: lerp(look.opacity, alpha, EASE.at(((e - w.dur.max(0.0)) / secs.max(0.01) as f64) as f32)), ..look },
         _ => look,
+    };
+    // Background vocals dimming once they've been sung.
+    let rest = |look: WordLook| match cfg.bg_sung.filter(|_| w.bg && e > w.dur.max(0.0)) {
+        Some(alpha) => WordLook { opacity: lerp(look.opacity, alpha, EASE.at(((e - w.dur.max(0.0)) / 0.3) as f32)), ..rest(look) },
+        None => rest(look),
+    };
+    // Coming up from faint as the word's bump starts.
+    let rest = |look: WordLook| match cfg.bounce.filter(|b| b.from_alpha > 0.0) {
+        Some(b) => {
+            let k = EASE.at((e / bounce_secs(&b, w) as f64) as f32);
+            let r = rest(look);
+            WordLook { opacity: r.opacity * lerp(b.from_alpha, 1.0, k), ..r }
+        }
+        None => rest(look),
     };
     rest(match lit.fill {
         Fill::Line | Fill::Word => {
@@ -1799,11 +1981,11 @@ fn word_look(w: &Word, lit: &LitState, cfg: &Cfg) -> WordLook {
             // Line: the line-synced fade.
             let d = if lit.fill == Fill::Word { 0.18 } else { cfg.line_fade };
             let p = EASE.at((e / d) as f32);
-            WordLook { glow: glow_radius(e, cfg.glow_min, glow_rem), ..full(p) }
+            WordLook { glow: glow_radius(e, cfg.glow_min, glow_rem, cfg.glow_ease), ..full(p) }
         }
         Fill::Sweep if w.line_synced => {
             let p = EASE.at((e / cfg.line_fade) as f32);
-            WordLook { glow: glow_radius(e, cfg.glow_min, glow_rem), ..full(p) }
+            WordLook { glow: glow_radius(e, cfg.glow_min, glow_rem, cfg.glow_ease), ..full(p) }
         }
         Fill::Sweep => {
             let d = w.dur.max(0.0);
@@ -1811,9 +1993,12 @@ fn word_look(w: &Word, lit: &LitState, cfg: &Cfg) -> WordLook {
             let p = if sd <= 0.0 { 1.0 } else { ((e + d * cfg.sweep_lead) / sd).clamp(0.0, 1.0) as f32 };
             WordLook {
                 opacity: 1.0,
-                start: lerp(SWIPE_START.0, SWIPE_START.1, p),
-                end: lerp(SWIPE_END.0, SWIPE_END.1, p),
-                glow: glow_radius(e, (d * cfg.glow_ratio).max(cfg.glow_min), glow_rem),
+                start: lerp(SWIPE_START.0, cfg.sweep_end.0, p),
+                end: match cfg.sweep_soft {
+                    Some(soft) => lerp(SWIPE_START.0, cfg.sweep_end.0, p) + soft,
+                    None => lerp(SWIPE_END.0, cfg.sweep_end.1, p),
+                },
+                glow: glow_radius(e, (d * cfg.glow_ratio).max(cfg.glow_min), glow_rem, cfg.glow_ease),
                 glow_alpha,
             }
         }
@@ -1821,11 +2006,38 @@ fn word_look(w: &Word, lit: &LitState, cfg: &Cfg) -> WordLook {
 }
 
 /// `drop-shadow` radius: 0.8rem → 0 with `ease`, then gone.
-fn glow_radius(e: f64, dur: f64, from: f32) -> f32 {
+fn glow_radius(e: f64, dur: f64, from: f32, ease: Bezier) -> f32 {
     if e < 0.0 || e >= dur {
         return 0.0;
     }
-    from * (1.0 - EASE.at((e / dur) as f32))
+    from * (1.0 - ease.at((e / dur) as f32))
+}
+
+/// A word's bump lasts this long.
+fn bounce_secs(b: &WordBounce, w: &Word) -> f32 {
+    b.secs + w.dur.max(0.0) as f32 * b.dur_ratio
+}
+
+/// Colour in `c` against grey.
+fn desaturate(c: Color32, k: f32) -> Color32 {
+    let gray = (0.299 * c.r() as f32 + 0.587 * c.g() as f32 + 0.114 * c.b() as f32) as u8;
+    theme::lerp_color(Color32::from_rgba_premultiplied(gray, gray, gray, c.a()), c, k)
+}
+
+/// The bar beside the sung line, in the theme's colours.
+fn paint_marker(painter: &egui::Painter, cfg: &Cfg, center: Pos2, size: Vec2, alpha: f32) {
+    let bar = Rect::from_center_size(center, size);
+    if cfg.marker_colors.len() < 2 {
+        let c = cfg.marker_colors.first().copied().unwrap_or(cfg.active);
+        painter.rect_filled(bar, size.x / 2.0, theme::with_alpha(c, alpha));
+        return;
+    }
+    let n = cfg.marker_colors.len() - 1;
+    for i in 0..n {
+        let top = bar.top() + bar.height() * i as f32 / n as f32;
+        let bottom = bar.top() + bar.height() * (i + 1) as f32 / n as f32;
+        super::shell::vgradient(painter, Rect::from_x_y_ranges(bar.x_range(), top..=bottom), theme::with_alpha(cfg.marker_colors[i], alpha), theme::with_alpha(cfg.marker_colors[i + 1], alpha));
+    }
 }
 
 /// `planLetterWave` on the default swipe ramp: (delay, duration) per letter, seconds.
@@ -1854,13 +2066,13 @@ fn letter_waves(n: usize, d: f64, float: f64) -> Vec<(f64, f64)> {
 fn letter_float(e: f64, wave: (f64, f64), long: bool, cfg: &Cfg) -> (f32, f32) {
     let p = (e - wave.0) / wave.1;
     if p < 0.0 {
-        return (0.0, 1.0);
+        return (0.0, cfg.wave.rest_scale);
     }
     let p = p.min(1.0) as f32;
     let peak = if long { cfg.wave.emphasis } else { 1.0 };
     if p < LETTER_WAVE_CREST {
         let k = EASE_IN_OUT.at(p / LETTER_WAVE_CREST);
-        (cfg.wave.crest * k, lerp(1.0, peak, k))
+        (cfg.wave.crest * k, lerp(cfg.wave.rest_scale, peak, k))
     } else {
         let k = EASE_OUT.at((p - LETTER_WAVE_CREST) / (1.0 - LETTER_WAVE_CREST));
         (lerp(cfg.wave.crest, cfg.wave.settle, k), lerp(peak, 1.0, k))
@@ -1886,11 +2098,11 @@ fn wobble(e: f64, secs: f64) -> (f32, f32) {
 }
 
 /// A word's bump this frame: (lift in em, scale).
-fn word_bounce(e: f64, b: &WordBounce) -> (f32, f32) {
+fn word_bounce(e: f64, b: &WordBounce, secs: f32) -> (f32, f32) {
     if e < 0.0 {
         return (0.0, 1.0);
     }
-    let p = (e / b.secs.max(0.01) as f64).min(1.0) as f32;
+    let p = (e / secs.max(0.01) as f64).min(1.0) as f32;
     if p >= 1.0 {
         return (b.settle, 1.0);
     }
@@ -1919,10 +2131,11 @@ fn word_glyphs(ctx: &egui::Context, w: &Word, lit: &LitState, cfg: &Cfg, wob: Op
     let e = lit.t - w.start;
     let em = w.font.size;
     // Resting low until sung, then gliding up.
-    let rise = if cfg.rise_px > 0.0 && !w.line_synced { cfg.rise_px * (1.0 - EASE.at((e.max(0.0) / cfg.rise_secs) as f32)) } else { 0.0 };
+    let rise_secs = cfg.rise_secs + w.dur.max(0.0) * cfg.rise_ratio;
+    let rise = if (cfg.rise_px > 0.0 || cfg.rest_em != 0.0) && !w.line_synced { (cfg.rise_px + cfg.rest_em * em) * (1.0 - EASE.at((e.max(0.0) / rise_secs) as f32)) } else { 0.0 };
     // Resting a little small until sung.
     let rest = if cfg.word_rest_scale < 1.0 && !w.line_synced { lerp(cfg.word_rest_scale, 1.0, EASE.at((e.max(0.0) / cfg.rise_secs) as f32)) } else { 1.0 };
-    let bounce = cfg.bounce.filter(|_| lit.live && lit.exit.is_none() && !w.line_synced).map(|b| word_bounce(e, &b));
+    let bounce = cfg.bounce.filter(|_| lit.live && lit.exit.is_none() && !w.line_synced).map(|b| (word_bounce(e, &b, bounce_secs(&b, w)), b.side_em * ((e as f32 / bounce_secs(&b, w).max(0.01)).clamp(0.0, 1.0) * std::f32::consts::PI).sin()));
     let mut out = Vec::with_capacity(n);
     let mut k = 0;
     for row in &g.rows {
@@ -1938,10 +2151,10 @@ fn word_glyphs(ctx: &egui::Context, w: &Word, lit: &LitState, cfg: &Cfg, wob: Op
                 let c = pos2(w.pos.x + w.w * 0.5, w.pos.y + w.h * 0.5);
                 r = Rect::from_min_max(c + (r.min - c) * rest, c + (r.max - c) * rest);
             }
-            if let Some(b) = bounce {
+            if let Some((b, side)) = bounce {
                 // The word moves as one, about its centre.
                 let c = pos2(w.pos.x + w.w * 0.5, w.pos.y + w.h * 0.5);
-                r = Rect::from_min_max(c + (r.min - c) * b.1, c + (r.max - c) * b.1).translate(vec2(0.0, -b.0 * em));
+                r = Rect::from_min_max(c + (r.min - c) * b.1, c + (r.max - c) * b.1).translate(vec2(side * em, -b.0 * em));
             }
             if let Some(waves) = &waves {
                 let (lift, s) = letter_float(e, waves[idx], w.long, cfg);
@@ -2052,9 +2265,11 @@ fn paint_words(
         let quads = word_glyphs(ctx, w, lit, cfg, wob, atlas);
         let dim_c = if w.bg { dim * cfg.bg_alpha } else { dim } * opacity;
         // A soft shadow: two faint copies, so it's no more than a little extra geometry.
-        if let Some([down, a]) = cfg.word_shadow {
+        // On words not yet lit, in a theme that keeps it off lit ones.
+        let shadowed = !cfg.shadow_unsung || lit.t < w.start || !lit.live;
+        if let Some([down, a]) = cfg.word_shadow.filter(|_| shadowed) {
             let k = cfg.rem() / 10.0;
-            for (d, part) in [(down * 0.6, 0.6), (down * 1.2, 0.4)] {
+            for (d, part) in [(down * (1.0 - 0.4 * cfg.shadow_blur), 0.6), (down * (1.0 + 0.2 * cfg.shadow_blur), 0.4)] {
                 for q in &quads {
                     push_quad(&mut base, xf.rect(q.rect.translate(vec2(0.0, d * k))), q.uv, theme::shade(a * part * opacity), &|_| 1.0, &no_cut);
                 }
@@ -2115,7 +2330,7 @@ fn paint_words(
                 rtl: w.rtl,
                 radius: look.glow * xf.scale,
                 pills: Vec::new(),
-                color: theme::with_alpha(cfg.glow, look.glow_alpha * look.opacity * opacity),
+                color: theme::with_alpha(lit.glow, look.glow_alpha * look.opacity * opacity),
                 look,
                 layer: painter.add(Shape::Noop),
             });
@@ -2137,8 +2352,8 @@ fn paint_break(painter: &egui::Painter, cfg: &Cfg, b: &Block, xf: &Xf, t: f64, n
         lit = 1.0 - EASE.at(((now - x) / FADE_OUT) as f32);
     }
     let em = cfg.inst_em();
-    let r = em * 0.14;
-    let total = r * 7.0;
+    let (r, spacing) = cfg.dot_em.map_or((em * 0.14, 2.5), |[size, gap]| (em * size * 0.5, (size + gap) / (size * 0.5).max(0.01)));
+    let total = r * (2.0 + 2.0 * spacing);
     let x0 = match b.align {
         Align::Left => r,
         Align::Right => content_w - total,
@@ -2147,9 +2362,17 @@ fn paint_break(painter: &egui::Painter, cfg: &Cfg, b: &Block, xf: &Xf, t: f64, n
     let cy = cfg.padding + cfg.line_h() * 0.5;
     match cfg.instrumental {
         Instrumental::Hidden | Instrumental::Note => {}
+        Instrumental::Glyph => {
+            let c = xf.point(pos2(x0 + em * 0.3, cy));
+            if cfg.inst_glow > 0.0 {
+                let s = egui::epaint::Shadow { offset: [0, 0], blur: (em * 0.8).min(255.0) as u8, spread: 0, color: theme::with_alpha(cfg.active, cfg.inst_glow * (dim + lit).min(1.0)) };
+                painter.add(s.as_shape(Rect::from_center_size(c, Vec2::splat(em * 0.5)), egui::CornerRadius::same((em * 0.25) as u8)));
+            }
+            painter.text(c, egui::Align2::CENTER_CENTER, crate::theme::icon::MUSIC, crate::theme::icon_font(em * 0.8 * xf.scale), theme::with_alpha(cfg.active, dim.max(0.2) + (1.0 - dim.max(0.2)) * lit));
+        }
         Instrumental::Dots => {
             for i in 0..3 {
-                let c = xf.point(pos2(x0 + r * (1.0 + 2.5 * i as f32), cy));
+                let c = xf.point(pos2(x0 + r * (1.0 + spacing * i as f32), cy));
                 let fill = ((p * 3.0 - i as f32).clamp(0.0, 1.0) * lit).max(0.0);
                 painter.circle_filled(c, r * xf.scale, theme::with_alpha(cfg.active, dim.max(0.2) + (1.0 - dim.max(0.2)) * fill));
             }
@@ -2157,11 +2380,21 @@ fn paint_break(painter: &egui::Painter, cfg: &Cfg, b: &Block, xf: &Xf, t: f64, n
         Instrumental::Ring => {
             let c = xf.point(pos2(x0 + em * 0.4, cy));
             let radius = em * 0.36 * xf.scale;
-            painter.circle_stroke(c, radius, egui::Stroke::new(em * 0.08, theme::with_alpha(cfg.active, dim)));
+            // The ring's edge at an angle: a theme's ring ripples as it goes.
+            let wavy = |a: f32| radius * if cfg.ring_wave { 1.0 + 0.07 * (a * 8.0 + now as f32 * 3.0).sin() } else { 1.0 };
+            if cfg.ring_wave {
+                let round: Vec<Pos2> = (0..=96).map(|i| {
+                    let a = i as f32 / 96.0 * std::f32::consts::TAU;
+                    c + vec2(a.cos(), a.sin()) * wavy(a)
+                }).collect();
+                painter.add(Shape::line(round, egui::Stroke::new(em * 0.08, theme::with_alpha(cfg.active, dim))));
+            } else {
+                painter.circle_stroke(c, radius, egui::Stroke::new(em * 0.08, theme::with_alpha(cfg.active, dim)));
+            }
             let n = 48;
             let arc: Vec<Pos2> = (0..=n).map(|i| {
                 let a = -std::f32::consts::FRAC_PI_2 + i as f32 / n as f32 * p * std::f32::consts::TAU;
-                c + vec2(a.cos(), a.sin()) * radius
+                c + vec2(a.cos(), a.sin()) * wavy(a)
             }).collect();
             painter.add(Shape::line(arc, egui::Stroke::new(em * 0.08, theme::with_alpha(cfg.active, lit))));
         }

@@ -44,6 +44,39 @@ pub fn process(bytes: &[u8]) -> anyhow::Result<Art> {
     Ok(Art { rgba, accent, brightness })
 }
 
+/// `passes` more of the art's blur (a theme's `blurPasses` over the usual).
+pub fn soften(art: &mut Art, passes: u32) {
+    if passes == 0 {
+        return;
+    }
+    let n = SIZE as usize;
+    let mut px: Vec<[f32; 3]> = art.rgba.chunks_exact(4).map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]).collect();
+    for _ in 0..passes.min(6) {
+        px = box_blur(&px, n, 3);
+    }
+    art.rgba = px.iter().flat_map(|p| [p[0] as u8, p[1] as u8, p[2] as u8, 255]).collect();
+}
+
+/// A video frame as background art: sampled small and blurred, cheap enough a few times a second.
+pub fn from_frame(frame: &egui::ColorImage) -> Option<Art> {
+    let ([w, h], n) = (frame.size, SIZE as usize);
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let mut px = Vec::with_capacity(n * n);
+    for y in 0..n {
+        for x in 0..n {
+            let c = frame.pixels[(y * h / n) * w + x * w / n];
+            px.push([c.r() as f32, c.g() as f32, c.b() as f32]);
+        }
+    }
+    for _ in 0..2 {
+        px = box_blur(&px, n, 4);
+    }
+    let rgba = px.iter().flat_map(|p| [p[0] as u8, p[1] as u8, p[2] as u8, 255]).collect();
+    Some(Art { rgba, accent: Color32::WHITE, brightness: 0.5 })
+}
+
 fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
     let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)

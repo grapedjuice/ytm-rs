@@ -684,7 +684,7 @@ fn room(app: &mut App, ui: &mut Ui) {
         ui.label(RichText::new(spaced).font(theme::bold(40.0)).color(theme::text()));
         if let Some(s) = status {
             ui.horizontal(|ui| {
-                ui.spinner();
+                super::widgets::loader(ui);
                 dim(ui, s);
             });
         }

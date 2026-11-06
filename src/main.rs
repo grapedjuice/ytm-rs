@@ -197,6 +197,9 @@ fn main() -> eframe::Result {
             // The animated background needs the GPU context; without it the UI falls back
             // to a flat gradient.
             let shader = std::env::var_os("YTM_NO_SHADER").is_none();
+            if let Some(gl) = &cc.gl {
+                shader::install_glass(gl);
+            }
             let bg = match (&cc.gl, &cc.wgpu_render_state) {
                 (Some(gl), _) if shader => shader::Background::new(gl).map_err(|e| log::warn!("background shader unavailable: {e:#}")).ok(),
                 (_, Some(rs)) if shader => Some(shader::Background::new_wgpu(rs)),

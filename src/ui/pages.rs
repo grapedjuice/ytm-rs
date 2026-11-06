@@ -27,6 +27,11 @@ pub fn page(app: &mut App, ui: &mut Ui, now: f64) {
     }
     ui.set_opacity(0.15 + 0.85 * t);
     let page = app.page.clone();
+    let insets = app.page_insets;
+    if page == Page::Home && app.look().app.scrollbar_home_hidden {
+        let bar = &mut ui.spacing_mut().scroll;
+        (bar.dormant_handle_opacity, bar.active_handle_opacity, bar.interact_handle_opacity) = (0.0, 0.0, 0.0);
+    }
     // Each page (each album, each search) keeps its own scroll position.
     let mut area = egui::ScrollArea::vertical().id_salt(("page", &page)).auto_shrink(false);
     // At the window's right edge: clear of where it resizes the window.
@@ -37,7 +42,7 @@ pub fn page(app: &mut App, ui: &mut Ui, now: f64) {
     }
     let out = area.show(ui, |ui| {
         ui.set_max_width((ui.available_width() - 20.0).max(0.0));
-        ui.add_space(18.0 * (1.0 - t));
+        ui.add_space(18.0 * (1.0 - t) + insets[0]);
         match &page {
             Page::Home => home(app, ui, now),
             Page::Explore => explore(app, ui, now),
@@ -49,8 +54,9 @@ pub fn page(app: &mut App, ui: &mut Ui, now: f64) {
             Page::Transfer => super::transfer::page(app, ui, now),
             Page::Jam => super::jam::page(app, ui),
         }
-        ui.add_space(40.0);
+        ui.add_space(40.0 + insets[1]);
     });
+    app.page_scrolled = out.state.clamped_offset().y;
     selection_bar(app, ui.ctx(), &page, out.inner_rect);
     // Infinite scroll on home: fetch the next shelves when nearing the bottom.
     if page == Page::Home {
@@ -558,8 +564,11 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     if let Some(a) = look.app.immersive_header {
         let top = ui.cursor().min;
         let band = Rect::from_min_max(pos2(ui.max_rect().left(), top.y), pos2(ui.max_rect().right(), top.y + 340.0));
-        widgets::paint_cover_fill(ui, band, &c.thumbs, theme::with_alpha(Color32::WHITE, a));
-        super::shell::vgradient(ui.painter(), band, Color32::TRANSPARENT, look.solid());
+        widgets::paint_cover_fill(ui, band, &c.thumbs, theme::with_alpha(Color32::WHITE, look.app.header_image_alpha.unwrap_or(a)));
+        match look.app.header_gradient {
+            Some([from, to]) => super::shell::vgradient(ui.painter(), band, theme::shade(from), theme::shade(to)),
+            None => super::shell::vgradient(ui.painter(), band, Color32::TRANSPARENT, look.solid()),
+        }
     }
     ui.add_space(18.0);
     ui.horizontal_top(|ui| {
@@ -573,7 +582,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             ui.vertical(|ui| {
                 ui.set_max_width(full.min(760.0));
                 ui.label(RichText::new(if is_album { "ALBUM" } else { "PLAYLIST" }).font(theme::semibold(12.0)).color(theme::text_dim()));
-                ui.label(RichText::new(&c.title).font(theme::bold(look.app.header_title_px)).color(theme::text()));
+                ui.label(RichText::new(&c.title).font(theme::weighted(look.app.header_title_weight, look.app.header_title_px)).color(theme::text()));
                 ui.add_space(2.0);
                 let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
                 widgets::linked_text(ui, r.min, &c.byline(), &c.artists, theme::regular(15.0), theme::text_dim(), r.width(), acts);
@@ -632,7 +641,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                     // Only your own playlists can be edited or deleted (mixes and others' playlists can't).
                     let own = app.logged_in && !auto && !is_album && c.owned;
                     let more = widgets::more_pill(ui, "More options");
-                    egui::Popup::menu(&more).show(|ui| {
+                    widgets::menu_popup(&more).show(|ui| {
                         ui.set_width(190.0);
                         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                         ui.add_space(4.0);
@@ -694,7 +703,8 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     } else {
         ui.painter().rect_filled(hero, 14.0, theme::with_alpha(accent, 0.25));
     }
-    super::shell::vgradient(ui.painter(), Rect::from_min_max(pos2(hero.left(), hero.center().y - 40.0), hero.max), Color32::TRANSPARENT, theme::shade(0.85));
+    let [from, to] = crate::preset::active().app.header_gradient.unwrap_or([0.0, 0.85]);
+    super::shell::vgradient(ui.painter(), Rect::from_min_max(pos2(hero.left(), hero.center().y - 40.0), hero.max), theme::shade(from), theme::shade(to));
     let base = hero.left_bottom() + vec2(28.0, -30.0);
     ui.painter().text(base - vec2(0.0, 44.0), Align2::LEFT_BOTTOM, &a.name, theme::bold(58.0), Color32::WHITE);
     if let Some(s) = a.subscribers {
@@ -979,7 +989,7 @@ fn settings_account(app: &mut App, ui: &mut Ui) {
         } else {
             setting_row(ui, "Not signed in", Some("Sign in to get your home feed, library and likes."), |ui| {
                 if busy {
-                    ui.spinner();
+                    widgets::loader(ui);
                 } else {
                     sign_in = pill(ui, "Sign in with Google", Some(icon::CIRCLE_USER), true).clicked();
                 }
@@ -1020,7 +1030,7 @@ fn channel_picker(app: &mut App, ui: &mut Ui) {
     let switching = app.switching_to.is_some();
     let btn = dropdown_button(ui, if switching { "Switching…" } else { &shown }, 220.0, "Channel");
     let mut pick = None;
-    egui::Popup::menu(&btn).show(|ui| {
+    widgets::menu_popup(&btn).show(|ui| {
         ui.set_width(300.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
@@ -1154,7 +1164,7 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
             let current = super::lyric_prefs::LANGUAGES.iter().find(|(c, _)| *c == app.lyric_prefs.target).map_or(app.lyric_prefs.target.as_str(), |(_, n)| n);
             let btn = dropdown_button(ui, current, 200.0, "Translate into");
             let just_opened = btn.clicked();
-            egui::Popup::menu(&btn).show(|ui| {
+            widgets::menu_popup(&btn).show(|ui| {
                 ui.set_width(200.0);
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
@@ -1260,7 +1270,7 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         let mut pick = None;
         setting_row(ui, "Mode", Some(desc), |ui| {
             let btn = dropdown_button(ui, app.appearance.label(), 160.0, "Mode");
-            egui::Popup::menu(&btn).show(|ui| {
+            widgets::menu_popup(&btn).show(|ui| {
                 ui.set_width(160.0);
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 ui.add_space(4.0);
@@ -1294,6 +1304,10 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         divider(ui);
         setting_row(ui, "Animated background", Some("The album art slowly drifts behind everything, in themes whose background moves."), |ui| {
             toggle(ui, &mut app.anim_bg, "Animated background");
+        });
+        divider(ui);
+        setting_row(ui, "Frosted glass", Some("Menus and floating bars blur what's behind them, in themes that use it. Off, they're a little more solid."), |ui| {
+            toggle(ui, &mut app.glass_on, "Frosted glass");
         });
         divider(ui);
         setting_row(ui, "Pulse with the music", Some("The background swells with the beat, in themes whose background moves."), |ui| {
@@ -1371,7 +1385,7 @@ fn settings_backdrop(app: &mut App, ui: &mut Ui) {
     ui.add_enabled_ui(opengl, |ui| {
         setting_row(ui, "Window material", Some(desc), |ui| {
             let btn = dropdown_button(ui, saved.label(), 160.0, "Window material");
-            egui::Popup::menu(&btn).show(|ui| {
+            widgets::menu_popup(&btn).show(|ui| {
                 ui.set_width(160.0);
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 ui.add_space(4.0);
@@ -1442,7 +1456,7 @@ fn settings_connections(app: &mut App, ui: &mut Ui) {
             if app.lastfm_user.is_some() {
                 disconnect = pill(ui, "Disconnect", None, false).clicked();
             } else if busy {
-                ui.spinner();
+                widgets::loader(ui);
             } else {
                 connect = pill(ui, "Connect", None, false).clicked();
             }
@@ -1490,7 +1504,7 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
             match &state {
                 Some(State::Ready { .. }) => restart = pill(ui, "Restart to update", Some(icon::SPARKLES), true).clicked(),
                 Some(State::Checking | State::Downloading { .. }) => {
-                    ui.spinner();
+                    widgets::loader(ui);
                 }
                 _ => check = pill(ui, "Check now", None, false).clicked(),
             }
@@ -1610,7 +1624,7 @@ fn network(app: &mut App, ui: &mut Ui) {
     let mut pick = None;
     setting_row(ui, "Proxy", Some("Send everything ytm-rs fetches through a proxy: songs, lyrics, sign-in and Listen together."), |ui| {
         let btn = dropdown_button(ui, app.proxy_mode.label(), 220.0, "Proxy");
-        egui::Popup::menu(&btn).show(|ui| {
+        widgets::menu_popup(&btn).show(|ui| {
             ui.set_width(220.0);
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             ui.add_space(4.0);
@@ -1683,7 +1697,7 @@ fn network(app: &mut App, ui: &mut Ui) {
     };
     setting_row(ui, "Test connection", Some(&desc), |ui| {
         if matches!(result, Some(None)) {
-            ui.spinner();
+            widgets::loader(ui);
         } else if pill(ui, "Test", None, false).clicked() {
             let s = match &app.proxy_mode {
                 Setting::Custom(_) => Setting::Custom(app.proxy_url.trim().to_owned()),
@@ -1790,7 +1804,7 @@ fn font_picker(ui: &mut Ui) -> Option<String> {
     let btn = dropdown_button(ui, if current.is_empty() { "Theme's font" } else { &current }, 220.0, "Font");
     let just_opened = btn.clicked();
     let mut picked = None;
-    egui::Popup::menu(&btn).show(|ui| {
+    widgets::menu_popup(&btn).show(|ui| {
         ui.set_width(220.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
@@ -1853,7 +1867,7 @@ fn output_device_picker(app: &mut App, ui: &mut Ui) {
         app.output_devices = crate::audio::output_devices();
     }
     let mut pick: Option<Option<(String, String)>> = None;
-    egui::Popup::menu(&btn).show(|ui| {
+    widgets::menu_popup(&btn).show(|ui| {
         ui.set_width(340.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
@@ -1988,6 +2002,10 @@ pub(super) fn toggle(ui: &mut Ui, on: &mut bool, name: &str) -> egui::Response {
     ui.painter().rect_filled(rect, th / 2.0, theme::with_alpha(theme::lerp_color(off, accent, t), fade));
     if tl.outline && t < 1.0 {
         ui.painter().rect_stroke(rect, th / 2.0, egui::Stroke::new(1.5, theme::with_alpha(theme::text_dim(), (1.0 - t) * fade)), egui::StrokeKind::Inside);
+    }
+    if tl.on_outline && t > 0.0 {
+        ui.painter().rect_filled(rect, th / 2.0, theme::with_alpha(theme::shade(1.0), t * fade));
+        ui.painter().rect_stroke(rect, th / 2.0, egui::Stroke::new(2.0, theme::with_alpha(Color32::WHITE, t * fade)), egui::StrokeKind::Inside);
     }
     let knob_r = tl.knob.unwrap_or(20.0) / 2.0;
     let knob = pos2(egui::lerp(rect.left() + th / 2.0..=rect.right() - th / 2.0, t), rect.center().y);

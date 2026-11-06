@@ -292,7 +292,7 @@ fn setup(app: &mut App, ui: &mut Ui) {
                     }
                     Account::Unknown | Account::Loading => {
                         ui.horizontal(|ui| {
-                            ui.spinner();
+                            widgets::loader(ui);
                             dim(ui, "Reading your Spotify library…");
                         });
                     }
@@ -322,7 +322,7 @@ fn setup(app: &mut App, ui: &mut Ui) {
                     Some((_, None)) => {
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
-                            ui.spinner();
+                            widgets::loader(ui);
                             dim(ui, "Looking it up…");
                         });
                     }
@@ -474,7 +474,7 @@ fn spotify_account_row(app: &mut App, ui: &mut Ui, account: &Account, compact: b
     let signed_in = matches!(account, Account::SignedIn { .. } | Account::Unknown | Account::Loading);
     setting_row(ui, &title, Some(&desc), |ui| {
         if busy {
-            ui.spinner();
+            widgets::loader(ui);
         } else if signed_in {
             sign_out = pill(ui, if compact { "Change" } else { "Sign out" }, None, false).clicked();
         } else {
@@ -1053,7 +1053,7 @@ fn review(app: &mut App, ui: &mut Ui) {
                         if d.loading {
                             ui.add_space(8.0);
                             ui.horizontal(|ui| {
-                                ui.spinner();
+                                widgets::loader(ui);
                                 dim(ui, "Finding other versions…");
                             });
                         } else if d.candidates.is_empty() && current_label.is_none() {

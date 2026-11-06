@@ -97,6 +97,8 @@ pub enum Action {
     QueueRemove(usize),
     Seek(f32),
     Like(Track, bool),
+    /// The heart of what's playing, in the player bar, the mini player and Now playing's menu.
+    LikeHeard(bool),
     /// Like (or unlike) a selection of songs.
     LikeMany(Vec<Track>, bool),
     Dislike(Track),

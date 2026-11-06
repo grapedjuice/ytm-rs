@@ -74,6 +74,8 @@ pub enum Req {
     /// Resolve and download a track ahead of time so skipping to it is instant.
     Prefetch { video_id: String, song_of: Option<Track> },
     Like { video_id: String, like: bool },
+    /// Take away the likes of a music video and the song version standing in for it.
+    UnlikeBoth { song: String, video: String },
     /// Several likes (or unlikes) one after another, for a selection.
     LikeMany { video_ids: Vec<String>, like: bool },
     Dislike(String),
@@ -120,7 +122,7 @@ impl Req {
             Req::PlayCollection { .. } => "Playback",
             Req::Play { .. } => "Playback",
             Req::Prefetch { .. } => "Prefetch",
-            Req::Like { .. } | Req::LikeMany { .. } => "Like",
+            Req::Like { .. } | Req::LikeMany { .. } | Req::UnlikeBoth { .. } => "Like",
             Req::Dislike(_) => "Dislike",
             Req::CreatePlaylist { .. } => "Create playlist",
             Req::EditPlaylist { .. } => "Edit playlist",
@@ -264,11 +266,12 @@ pub enum Resp {
     Radio { seed: String, tracks: Vec<Track> },
     /// What was asked to play (a `Req::PlayCollection`), and its songs.
     PlayQueue { target: Target, tracks: Vec<Track> },
-    Liked { video_id: String, like: bool },
+    /// `other`: its other version, whose like went with this one.
+    Liked { video_id: String, like: bool, other: Option<String> },
     /// A run of likes or unlikes: `taken` just went through, `done` of `total` tried.
     LikeProgress { taken: Vec<String>, done: usize, total: usize, like: bool },
     /// The songs YouTube Music took, and the ones it refused.
-    LikedMany { video_ids: Vec<String>, failed: Vec<String>, like: bool },
+    LikedMany { video_ids: Vec<String>, failed: Vec<String>, like: bool, others: Vec<String> },
     PlaylistCreated { id: String, songs: usize },
     PlaylistChanged { id: String, message: &'static str },
     Collaboration(ytm::Collaboration),
@@ -332,10 +335,25 @@ pub const LIKE_WAIT: std::time::Duration = std::time::Duration::from_millis(1500
 /// Like or unlike one song; whether YouTube Music took it. Refusals are retried by the
 /// API (after its shared pause while the account is limited); one that hangs or fails is
 /// sent again, up to three times in all.
-async fn like_one(api: &ytmapi::Api, id: &str, like: bool) -> bool {
+async fn like_one(api: &ytmapi::Api, id: &str, like: bool, others: &mut Vec<String>) -> bool {
+    let epoch = api.epoch();
     for tries in 0..3 {
         match tokio::time::timeout(LIKE_WAIT, ytm::set_like(api, id, like)).await {
-            Ok(Ok(())) => return true,
+            Ok(Ok(())) => {
+                // Outside that wait: it takes longer, and checking Liked Music afterwards
+                // catches a like that's still there.
+                if !like {
+                    match ytm::remove_other_half_like(api, id, epoch).await {
+                        Ok(other) => others.extend(other),
+                        // Maybe that's the one holding the like: not done, then.
+                        Err(e) => {
+                            log::warn!("removing the like of {id}'s other version: {e:#}");
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            }
             Ok(Err(e)) => log::debug!("like={like} {id}: {e:#}"),
             // Not refused yet: again right away.
             Err(_) => {
@@ -355,7 +373,8 @@ async fn like_one(api: &ytmapi::Api, id: &str, like: bool) -> bool {
 /// Returns the ones taken and the ones refused; unlikes still listed once checking stops
 /// getting anywhere count as refused, likes don't (songs that can't be played are liked but not listed).
 /// One run at a time, transfers included (`LIKES`); `progress(None, 0)` while waiting its turn.
-pub async fn like_many(api: &ytmapi::Api, ids: Vec<String>, like: bool, mut progress: impl FnMut(Option<&str>, usize)) -> (Vec<String>, Vec<String>) {
+/// Third: the other versions whose likes went with the unlikes (`ytm::remove_other_half_like`).
+pub async fn like_many(api: &ytmapi::Api, ids: Vec<String>, like: bool, mut progress: impl FnMut(Option<&str>, usize)) -> (Vec<String>, Vec<String>, Vec<String>) {
     let epoch = api.epoch();
     let _turn = match LIKES.try_lock() {
         Ok(turn) => turn,
@@ -367,12 +386,13 @@ pub async fn like_many(api: &ytmapi::Api, ids: Vec<String>, like: bool, mut prog
     // A channel switch went first: these were picked in the other channel's lists.
     if api.epoch() != epoch {
         log::info!("likes: {} not sent, the account or channel changed while they waited", ids.len());
-        return (Vec::new(), ids);
+        return (Vec::new(), ids, Vec::new());
     }
     let total = ids.len();
     let mut failed = Vec::new();
+    let mut others = Vec::new();
     for (i, id) in ids.iter().enumerate() {
-        let taken = like_one(api, id, like).await;
+        let taken = like_one(api, id, like, &mut others).await;
         if !taken {
             failed.push(id.clone());
         }
@@ -408,12 +428,12 @@ pub async fn like_many(api: &ytmapi::Api, ids: Vec<String>, like: bool, mut prog
         }
         // The second go is paced either way.
         for id in &left {
-            like_one(api, id, like).await;
+            like_one(api, id, like, &mut others).await;
             tokio::time::sleep(LIKE_GAP).await;
         }
     }
     let done: Vec<String> = ids.into_iter().filter(|id| !failed.contains(id)).collect();
-    (done, failed)
+    (done, failed, others)
 }
 
 /// A video id and its stream buffer.
@@ -748,13 +768,36 @@ impl Backend {
                     return Ok(None);
                 }
                 Req::Like { video_id, like } => {
+                    let epoch = api.epoch();
                     ytm::set_like(api, &video_id, like).await?;
-                    Resp::Liked { video_id, like }
+                    let other = if like { None } else { ytm::remove_other_half_like(api, &video_id, epoch).await? };
+                    Resp::Liked { video_id, like, other }
+                }
+                Req::UnlikeBoth { song, video } => {
+                    let epoch = api.epoch();
+                    let song_went = ytm::set_like(api, &song, false).await;
+                    tokio::time::sleep(LIKE_GAP).await;
+                    if api.epoch() != epoch {
+                        return Ok(None);
+                    }
+                    let video_went = ytm::set_like(api, &video, false).await;
+                    if song_went.is_ok() && video_went.is_ok() {
+                        let _ = self.tx.send(Resp::Liked { video_id: song, like: false, other: None });
+                        Resp::Liked { video_id: video, like: false, other: None }
+                    } else {
+                        // Told apart, so what's still liked comes back with a reload.
+                        log::warn!("unliking {song} and {video}: {song_went:?}, {video_went:?}");
+                        let (video_ids, failed) = [(song, song_went), (video, video_went)].into_iter().fold((vec![], vec![]), |(mut went, mut stayed), (id, r)| {
+                            if r.is_ok() { went.push(id) } else { stayed.push(id) }
+                            (went, stayed)
+                        });
+                        Resp::LikedMany { video_ids, failed, like: false, others: Vec::new() }
+                    }
                 }
                 Req::LikeMany { video_ids, like } => self.like_many(video_ids, like).await?,
                 Req::Dislike(video_id) => {
                     ytm::dislike(api, &video_id).await?;
-                    Resp::Liked { video_id, like: false }
+                    Resp::Liked { video_id, like: false, other: None }
                 }
                 Req::CreatePlaylist { title, video_ids } => {
                     let id = match video_ids.as_slice() {
@@ -1482,13 +1525,13 @@ impl Backend {
     /// counted so (songs that can't be played are liked but not listed).
     async fn like_many(&self, ids: Vec<String>, like: bool) -> anyhow::Result<Resp> {
         let total = ids.len();
-        let (done, failed) = like_many(&self.api, ids, like, |taken, n| {
+        let (done, failed, others) = like_many(&self.api, ids, like, |taken, n| {
             let _ = self.tx.send(Resp::LikeProgress { taken: taken.into_iter().map(str::to_owned).collect(), done: n, total, like });
             self.wake();
         })
         .await;
         // Even when all were refused: the app stops waiting on them and shows them as they are.
-        Ok(Resp::LikedMany { video_ids: done, failed, like })
+        Ok(Resp::LikedMany { video_ids: done, failed, like, others })
     }
 
     /// Send a playlist's first page right away, then each next page as it arrives

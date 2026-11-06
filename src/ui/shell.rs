@@ -719,7 +719,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         // Like: a heart right after the title/artist, filled red when liked.
         // What's heard, like Now playing's menu: a song version standing in for the music video.
         let t = &app.playing_track().cloned().unwrap_or_else(|| t.clone());
-        let liked = app.liked.contains(&t.id);
+        let liked = app.heard_liked();
         let text_end = tr.right().max(ax).min(x + w);
         let lpos = pos2(text_end + 24.0, cy);
         let lr = Rect::from_center_size(lpos, Vec2::splat(36.0));
@@ -733,7 +733,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let outline = theme::lerp_color(idle, theme::RED, pop);
         widgets::heart(ui, lpos, size, pop, outline, theme::RED);
         if lresp.clicked() {
-            app.actions.push(Action::Like(t.clone(), !liked));
+            app.actions.push(Action::LikeHeard(!liked));
         }
     }
 

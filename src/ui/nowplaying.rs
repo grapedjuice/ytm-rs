@@ -540,8 +540,14 @@ fn options_menu(app: &mut App, ui: &mut Ui, track: &crate::model::Track, lyrics:
             lyric_options(app, ui);
             menu_divider(ui);
         }
-        let liked = app.liked.contains(&track.id);
+        let liked = app.heard_liked();
+        let asked = app.actions.len();
         widgets::song_actions(ui, track, liked, None, &mut app.actions);
+        for a in &mut app.actions[asked..] {
+            if let Action::Like(_, like) = a {
+                *a = Action::LikeHeard(*like);
+            }
+        }
         ui.add_space(4.0);
     });
 }

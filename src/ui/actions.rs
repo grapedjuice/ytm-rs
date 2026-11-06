@@ -100,6 +100,18 @@ impl App {
                 self.set_liked(std::slice::from_ref(&t), like);
                 self.backend.request(Req::Like { video_id: t.id, like });
             }
+            // The heart of what's playing stands for both a music video and the song version
+            // standing in for it: taking it away takes both likes, whichever are there.
+            Action::LikeHeard(like) => {
+                let Some(heard) = self.playing_track().cloned() else { return };
+                match self.playing_as().and(self.current()).cloned().filter(|_| !like) {
+                    Some(video) if self.logged_in => {
+                        self.set_liked(&[heard.clone(), video.clone()], false);
+                        self.backend.request(Req::UnlikeBoth { song: heard.id, video: video.id });
+                    }
+                    _ => self.apply(Action::Like(heard, like)),
+                }
+            }
             Action::LikeMany(tracks, like) => {
                 if !self.logged_in {
                     self.toast("Sign in to like songs");

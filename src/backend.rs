@@ -155,6 +155,8 @@ pub struct Explore {
 pub struct SearchResults {
     pub query: String,
     pub tracks: Vec<Track>,
+    /// Videos, including uploads that have no song version (remixes, live sets).
+    pub videos: Vec<Track>,
     pub albums: Vec<Card>,
     pub artists: Vec<Card>,
     pub playlists: Vec<Card>,
@@ -902,18 +904,20 @@ impl Backend {
         }))
     }
 
-    /// Songs, albums, artists and playlists for a search, asked at once. Only the songs
-    /// must arrive.
+    /// Songs, videos, albums, artists and playlists for a search, asked at once. Only the
+    /// songs must arrive.
     async fn search(&self, query: String, me: bool) -> anyhow::Result<Resp> {
         let api = &*self.api;
-        let (t, al, ar, pl) = tokio::join!(
+        let (t, v, al, ar, pl) = tokio::join!(
             ytm::search_songs(api, &query, me),
+            ytm::search_videos(api, &query, me),
             ytm::search_cards(api, &query, ytm::Filter::Albums, me),
             ytm::search_cards(api, &query, ytm::Filter::Artists, me),
             ytm::search_cards(api, &query, ytm::Filter::Playlists, me),
         );
         Ok(Resp::Search(SearchResults {
             tracks: t?,
+            videos: v.unwrap_or_default(),
             albums: al.unwrap_or_default(),
             artists: ar.unwrap_or_default(),
             playlists: pl.unwrap_or_default(),

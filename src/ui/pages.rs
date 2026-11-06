@@ -430,7 +430,7 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     let Some(r) = &app.search else { return };
     let acts = &mut app.actions;
     let liked = &app.liked;
-    if r.tracks.is_empty() && r.artists.is_empty() && r.albums.is_empty() && r.playlists.is_empty() {
+    if r.tracks.is_empty() && r.videos.is_empty() && r.artists.is_empty() && r.albums.is_empty() && r.playlists.is_empty() {
         page_title(ui, "No results");
         return;
     }
@@ -465,6 +465,18 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     });
     card_row(ui, "s-artists", "Artists", &r.artists, acts);
     card_row(ui, "s-albums", "Albums", &r.albums, acts);
+    if !r.videos.is_empty() {
+        ui.add_space(26.0);
+        ui.label(RichText::new("Videos").font(theme::bold(24.0)));
+        ui.add_space(10.0);
+        let plays_col = r.videos.iter().take(6).any(|t| t.plays.is_some());
+        for (i, t) in r.videos.iter().take(6).enumerate() {
+            let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, false) };
+            if track_row(ui, t, &o, acts).clicked() {
+                acts.push(if pick { Action::TransferPick(t.clone()) } else { Action::Play(r.videos.clone(), i) });
+            }
+        }
+    }
     if r.tracks.len() > 4 {
         ui.add_space(26.0);
         ui.label(RichText::new("More songs").font(theme::bold(24.0)));

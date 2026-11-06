@@ -78,6 +78,11 @@ pub async fn search_songs(api: &Api, query: &str, auth: bool) -> anyhow::Result<
     Ok(search_as(api, query, Filter::Songs, auth).await?.iter().filter_map(|i| list_item(&i["musicResponsiveListItemRenderer"])).collect())
 }
 
+/// Videos for a search: music videos and plain uploads, which song results leave out.
+pub async fn search_videos(api: &Api, query: &str, auth: bool) -> anyhow::Result<Vec<Track>> {
+    Ok(search_as(api, query, Filter::Videos, auth).await?.iter().filter_map(|i| list_item(&i["musicResponsiveListItemRenderer"])).collect())
+}
+
 /// A song's plays as YouTube Music counts them, which some lists (album pages) leave
 /// out: from a song search for it, signed out so it stays out of the account's search
 /// history. `None` when the song isn't among the results.

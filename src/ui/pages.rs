@@ -6,6 +6,8 @@ use std::sync::atomic::Ordering;
 use egui::{Align2, Color32, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
 
 use super::widgets::{self, RowOpts, card, chip, h_scroll, named, paint_cover, pill, shelf_header, track_row};
+use super::find::ListFind;
+use super::row_drag::{self, RowDrag};
 use super::{Action, App, LibTab, Page, Selection};
 use crate::backend::compact;
 use crate::model::{Card, ShelfKind, Target, Track};
@@ -177,6 +179,10 @@ fn song_grid(ui: &mut Ui, rows_ctx: &Rows, liked: &HashSet<String>, acts: &mut V
 /// playlist (so songs can be taken out of it).
 struct ListCtx<'a> {
     sel: &'a mut Selection,
+    find: &'a mut ListFind,
+    drag: &'a mut Option<RowDrag>,
+    /// Rows can be dragged into another order.
+    movable: bool,
     page: &'a Page,
     own: bool,
 }
@@ -185,12 +191,29 @@ struct ListCtx<'a> {
 /// or picks it while selecting: Ctrl-click picks one song, Shift-click a run of them.
 #[allow(clippy::too_many_arguments)]
 fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], show_album: bool, number: impl Fn(usize, &Track) -> Option<usize>, cx: ListCtx, acts: &mut Vec<Action>) {
-    let ListCtx { sel, page, own } = cx;
+    let ListCtx { sel, find, drag, movable, page, own } = cx;
+    // What's looked for changing leaves no picks behind that can't be seen.
+    if find.show(ui, page, tracks.len()) && sel.page.as_ref() == Some(page) {
+        sel.rows.clear();
+        sel.anchor = None;
+    }
+    let shown = find.rows(page, tracks);
+    if let Some(s) = &shown {
+        ui.label(RichText::new(format!("{} of {}", s.len(), tracks.len())).font(theme::regular(12.5)).color(theme::text_faint()));
+        ui.add_space(4.0);
+    }
     let selecting = sel.on(page);
     let mods = ui.input(|i| i.modifiers);
     let plays_col = tracks.iter().any(|t| t.plays.is_some());
-    widgets::visible_rows(ui, tracks.len(), |ui, i| {
+    // Only the whole list has an order to change.
+    let movable = movable && !selecting && shown.is_none();
+    let (drag_list, top) = (egui::Id::unique(("list", page)), ui.cursor().top());
+    widgets::visible_rows(ui, shown.as_ref().map_or(tracks.len(), Vec::len), |ui, k| {
+        let i = shown.as_ref().map_or(k, |s| s[k]);
         let t = &tracks[i];
+        if movable {
+            row_drag::grip(ui, drag, drag_list, i, t);
+        }
         let o = RowOpts {
             selected: selecting.then(|| sel.rows.contains(&i)),
             remove: own.then_some(i),
@@ -200,11 +223,21 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
         if track_row(ui, t, &o, acts).clicked() {
             if selecting || mods.command || mods.shift {
                 sel.pick(page, i, mods.shift);
+                // A run of picks is of the rows on show.
+                if let Some(s) = &shown {
+                    sel.rows.retain(|r| s.binary_search(r).is_ok());
+                }
+            } else if let Some(s) = &shown {
+                // What's on show plays.
+                acts.push(Action::PlayFound(s.iter().map(|&r| tracks[r].clone()).collect(), k));
             } else {
                 acts.push(Action::Play(tracks.to_vec(), i));
             }
         }
     });
+    if movable && let Some(d) = row_drag::feedback(ui, drag, drag_list, row_drag::Rows { top, first: 0, lowest: 0, end: tracks.len(), accent: rows.accent }) {
+        acts.push(Action::PlaylistMove { from: d.from, gap: d.gap, id: d.id });
+    }
 }
 
 /// A list page's "Select" button: turns select mode on and off.
@@ -235,7 +268,9 @@ fn selection_bar(app: &mut App, ctx: &egui::Context, page: &Page, area: Rect) {
         return;
     }
     let Some((tracks, own)) = selectable(app, page) else { return };
-    let n = tracks.len();
+    // With a list narrowed by find, "all" is what's on show.
+    let shown = app.find.rows(page, tracks);
+    let n = shown.as_ref().map_or(tracks.len(), Vec::len);
     let picked: Vec<Track> = app.selection.rows.iter().filter_map(|&i| tracks.get(i).cloned()).collect();
     let all = !picked.is_empty() && picked.len() == n;
     let all_liked = !picked.is_empty() && picked.iter().all(|t| app.liked.contains(&t.id));
@@ -286,7 +321,7 @@ fn selection_bar(app: &mut App, ctx: &egui::Context, page: &Page, area: Rect) {
         let page = page.clone();
         app.selection.start(&page);
         if !all {
-            app.selection.rows = (0..n).collect();
+            app.selection.rows = shown.map_or_else(|| (0..n).collect(), |s| s.into_iter().collect());
         }
     }
     if done || !acts.is_empty() {
@@ -570,7 +605,9 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     ui.add_space(26.0);
     let number = |i: usize, t: &Track| is_album.then(|| t.track_nr.map_or(i + 1, |n| n as usize));
     let own = app.logged_in && c.owned && !is_album;
-    list(ui, &rows, &app.liked, tracks, !is_album, number, ListCtx { sel: &mut app.selection, page: &app.page, own }, acts);
+    // Only with all of it here and no load that would bring the old order back.
+    let movable = own && o.complete && !app.lists.loading(id) && !matches!(id, "LM" | "SE");
+    list(ui, &rows, &app.liked, tracks, !is_album, number, ListCtx { sel: &mut app.selection, find: &mut app.find, drag: &mut app.row_drag, movable, page: &app.page, own }, acts);
     if more {
         widgets::skeleton_rows(ui, now, 3);
     }
@@ -708,7 +745,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 return;
             }
             let Some(h) = &app.history else { return };
-            list(ui, &rows, &app.liked, h, true, plain, ListCtx { sel: &mut app.selection, page: &app.page, own: false }, &mut app.actions);
+            list(ui, &rows, &app.liked, h, true, plain, ListCtx { sel: &mut app.selection, find: &mut app.find, drag: &mut app.row_drag, movable: false, page: &app.page, own: false }, &mut app.actions);
         }
         LibTab::Uploads => {
             ui.horizontal(|ui| {
@@ -733,7 +770,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 ui.add_space(20.0);
                 ui.label(RichText::new("No uploads yet").color(theme::text_dim()));
             }
-            list(ui, &rows, &app.liked, up, true, plain, ListCtx { sel: &mut app.selection, page: &app.page, own: false }, &mut app.actions);
+            list(ui, &rows, &app.liked, up, true, plain, ListCtx { sel: &mut app.selection, find: &mut app.find, drag: &mut app.row_drag, movable: false, page: &app.page, own: false }, &mut app.actions);
         }
         LibTab::Downloads => {
             let Some(songs) = &app.downloads else { return };
@@ -767,7 +804,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 ui.label(RichText::new("No downloads yet. Download a song from its ⋯ menu.").color(theme::text_dim()));
                 return;
             }
-            list(ui, &rows, &app.liked, songs, true, plain, ListCtx { sel: &mut app.selection, page: &app.page, own: false }, &mut app.actions);
+            list(ui, &rows, &app.liked, songs, true, plain, ListCtx { sel: &mut app.selection, find: &mut app.find, drag: &mut app.row_drag, movable: false, page: &app.page, own: false }, &mut app.actions);
         }
         // Liked Music, kept like any playlist.
         LibTab::Songs => {
@@ -792,7 +829,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 });
                 ui.add_space(10.0);
             }
-            list(ui, &rows, &app.liked, liked, true, plain, ListCtx { sel: &mut app.selection, page: &app.page, own: false }, &mut app.actions);
+            list(ui, &rows, &app.liked, liked, true, plain, ListCtx { sel: &mut app.selection, find: &mut app.find, drag: &mut app.row_drag, movable: false, page: &app.page, own: false }, &mut app.actions);
             if more {
                 widgets::skeleton_rows(ui, now, 3);
             }
@@ -1388,6 +1425,7 @@ fn settings_shortcuts(ui: &mut Ui) {
             ("Next / previous song", &["Ctrl", "→ / ←"]),
             ("Volume up / down", &["Ctrl", "↑ / ↓"]),
             ("Search", &["Ctrl", "F"]),
+            ("Find in a song list", &["Ctrl", "Shift", "F"]),
             ("Lyrics and now playing", &["L"]),
             ("Full-screen lyrics (in now playing)", &["F"]),
             ("Mini player on / off", &["Ctrl", "M"]),

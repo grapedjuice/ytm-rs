@@ -129,7 +129,14 @@ impl App {
                 }
             }
             Resp::Collection { load, c, more } => self.collection_in(load, c, more),
-            Resp::CollectionMore { id, load, tracks, set_ids, more } => self.collection_more(id, load, tracks, set_ids, more),
+            Resp::CollectionMore { id, load, tracks, set_ids, more, failed } => {
+                let failed = failed.then(|| id.clone());
+                self.collection_more(id, load, tracks, set_ids, more);
+                // Afterwards: its ending counted it as all there.
+                if let Some(id) = failed {
+                    self.lists.load_failed(&id, load);
+                }
+            }
             Resp::Artist(a) => {
                 // A slow answer for an artist left meanwhile doesn't replace the one on screen.
                 if matches!(&self.page, Page::Artist(id) if *id != a.id) {
@@ -283,6 +290,15 @@ impl App {
                 self.go(Page::Playlist(id));
             }
             Resp::PlaylistChanged { id, message } => self.on_playlist_changed(id, message),
+            Resp::PlaylistMoved { id, move_id, ok } => {
+                // Not for moves of an account or channel left since.
+                if !ok && self.lists.awaiting_move(&id, move_id) {
+                    self.toast("YouTube Music didn't take that move");
+                }
+                if let Some(s) = self.lists.move_answered(&id, move_id, ok) {
+                    self.start_load(s);
+                }
+            }
             Resp::Collaboration(c) => {
                 if let Some(Dialog::Collaborate { id, info, busy, .. }) = &mut self.dialog
                     && *id == c.playlist_id

@@ -26,7 +26,23 @@ pub struct Opened {
     pub load: u64,
     /// When that load came in.
     at: Instant,
+    /// All of it came. A load that failed partway keeps what came, which isn't the whole
+    /// playlist: "the end" of it isn't the playlist's.
+    pub complete: bool,
 }
+
+/// Songs of a playlist dragged to new places, not answered yet. A load now could answer
+/// with the order from before them, so loads wait until all are answered.
+struct Moves {
+    pending: HashSet<u64>,
+    /// A load was asked for meanwhile, or a move failed.
+    reload: bool,
+    last_sent: Instant,
+}
+
+/// Past this, an unanswered move no longer holds back loads of its playlist (which
+/// load again when its answer does come).
+const MOVE_UNANSWERED: Duration = Duration::from_secs(60);
 
 /// An album or playlist load under way (one each at a time). A playlist not kept yet
 /// comes in page by page; a kept one is swapped for the new copy once all of it is in.
@@ -83,6 +99,9 @@ pub struct Lists {
     loads: u64,
     /// The loads under way: only their answers are taken.
     running: HashMap<String, ListLoad>,
+    moves: HashMap<String, Moves>,
+    /// Numbers the moves. Never reset, so an answer to an old one can't pass for a new one's.
+    move_ids: u64,
     /// Likes and playlist removals made here lately. YouTube Music goes on listing the
     /// old state for a while after it takes an edit, so lists that arrive are corrected with these.
     pub edits: RecentEdits,
@@ -118,6 +137,13 @@ impl Lists {
     /// Load an album or playlist, unless a load of it is under way. `changed`: if one is,
     /// it's loaded once more afterwards.
     pub fn load(&mut self, id: &str, album: bool, changed: bool) -> Option<Start> {
+        if let Some(m) = self.moves.get_mut(id) {
+            m.reload = true;
+            if m.last_sent.elapsed() < MOVE_UNANSWERED {
+                log::debug!("list {id}: load waits for {} moves", m.pending.len());
+                return None;
+            }
+        }
         if let Some(l) = self.running.get_mut(id) {
             l.stale |= changed;
             log::debug!("list {id}: load {} under way, stale={}", l.load, l.stale);
@@ -130,9 +156,41 @@ impl Lists {
         Some(Start { id: id.to_owned(), load, album, stream: !album && self.get(id).is_none() })
     }
 
+    /// A song of the playlist was dragged to a new place and YouTube Music is being told.
+    /// Returns the number its answer goes by.
+    pub fn move_sent(&mut self, id: &str) -> u64 {
+        self.move_ids += 1;
+        let m = self.moves.entry(id.to_owned()).or_insert(Moves { pending: HashSet::new(), reload: false, last_sent: Instant::now() });
+        m.pending.insert(self.move_ids);
+        m.last_sent = Instant::now();
+        self.move_ids
+    }
+
+    /// This move's answer is still awaited.
+    pub fn awaiting_move(&self, id: &str, move_id: u64) -> bool {
+        self.moves.get(id).is_some_and(|m| m.pending.contains(&move_id))
+    }
+
+    /// YouTube Music answered a move. Once all are answered, the load to do if one was
+    /// asked for meanwhile or a move failed, for its order back.
+    pub fn move_answered(&mut self, id: &str, move_id: u64, ok: bool) -> Option<Start> {
+        let m = self.moves.get_mut(id)?;
+        if !m.pending.remove(&move_id) {
+            return None;
+        }
+        m.reload |= !ok;
+        if !m.pending.is_empty() {
+            return None;
+        }
+        let reload = m.reload;
+        self.moves.remove(id);
+        if reload { self.load(id, false, true) } else { None }
+    }
+
     /// Opening an album or playlist page: loaded unless a copy from the last few minutes is kept.
     pub fn visit(&mut self, id: &str, album: bool, now: Instant) -> Option<Start> {
-        match self.get(id).map(|o| now.saturating_duration_since(o.at)) {
+        // One that didn't all come in is tried again right away.
+        match self.get(id).filter(|o| o.complete).map(|o| now.saturating_duration_since(o.at)) {
             Some(age) if age <= REFRESH_EVERY => {
                 log::debug!("list {id}: kept copy is {age:?} old, not reloading");
                 None
@@ -153,9 +211,10 @@ impl Lists {
         let id = c.id.clone();
         log::debug!("list {id}: load {load} in, {sent} songs sent, {} after local edits, more={more}", c.tracks.len());
         let at = Instant::now();
+        let complete = !more;
         match self.opened.iter_mut().find(|o| o.c.id == id) {
-            Some(o) => *o = Opened { c, load, at },
-            None => self.opened.insert(0, Opened { c, load, at }),
+            Some(o) => *o = Opened { c, load, at, complete },
+            None => self.opened.insert(0, Opened { c, load, at, complete }),
         }
         self.trim(keep);
         if more {
@@ -182,6 +241,7 @@ impl Lists {
                 }
                 o.c.tracks.extend(tracks.iter().cloned());
                 o.c.set_ids.extend(set_ids);
+                o.complete = !more;
                 log::debug!("list {id}: load {load} page, {sent} sent, {} added, {} total, more={more}", tracks.len(), o.c.tracks.len());
                 true
             }
@@ -192,6 +252,13 @@ impl Lists {
         };
         let done = if more { None } else { self.done(id, keep) };
         Some(Page { tracks, kept, done })
+    }
+
+    /// A load failed partway: its copy isn't all of the playlist, even though it ended.
+    pub fn load_failed(&mut self, id: &str, load: u64) {
+        if let Some(o) = self.opened.iter_mut().find(|o| o.c.id == id && o.load == load) {
+            o.complete = false;
+        }
     }
 
     /// A load ended: load it again if it changed meanwhile.
@@ -247,12 +314,14 @@ impl Lists {
     pub fn forget(&mut self, id: &str) {
         self.opened.retain(|o| o.c.id != id);
         self.running.remove(id);
+        self.moves.remove(id);
     }
 
     /// Another account: everything goes but the edits.
     pub fn clear(&mut self) {
         self.opened.clear();
         self.running.clear();
+        self.moves.clear();
     }
 }
 
@@ -384,6 +453,154 @@ mod tests {
             count: Some(songs.len() as u64),
             owned: true,
         }
+    }
+
+    fn start(lists: &mut Lists, id: &str) -> u64 {
+        lists.load(id, false, false).unwrap().load
+    }
+
+    #[test]
+    fn loads_wait_for_moves_and_happen_once_they_are_answered() {
+        let mut lists = Lists::default();
+        let load = start(&mut lists, "PL1");
+        lists.arrived(load, collection("PL1", &["a", "b"]), false, &[]).unwrap();
+        let (first, second) = (lists.move_sent("PL1"), lists.move_sent("PL1"));
+        // Asked for meanwhile: held back, also past the first answer.
+        assert_eq!(lists.load("PL1", false, true), None);
+        assert_eq!(lists.move_answered("PL1", first, true), None);
+        assert!(lists.moves.contains_key("PL1"));
+        assert!(lists.move_answered("PL1", second, true).is_some());
+        assert!(!lists.moves.contains_key("PL1"));
+    }
+
+    #[test]
+    fn moves_that_all_went_through_need_no_load() {
+        let mut lists = Lists::default();
+        let m = lists.move_sent("PL1");
+        assert_eq!(lists.move_answered("PL1", m, true), None);
+        assert!(!lists.moves.contains_key("PL1"));
+        assert!(!lists.loading("PL1"));
+    }
+
+    #[test]
+    fn a_failed_move_reloads_only_after_the_rest_are_answered() {
+        let mut lists = Lists::default();
+        let (first, second) = (lists.move_sent("PL1"), lists.move_sent("PL1"));
+        assert_eq!(lists.move_answered("PL1", first, false), None);
+        assert!(!lists.loading("PL1"));
+        assert!(lists.move_answered("PL1", second, true).is_some());
+        assert!(lists.loading("PL1"));
+    }
+
+    #[test]
+    fn answers_for_moves_of_another_account_do_nothing() {
+        let mut lists = Lists::default();
+        let old = lists.move_sent("PL1");
+        lists.clear();
+        assert!(!lists.awaiting_move("PL1", old));
+        assert_eq!(lists.move_answered("PL1", old, false), None);
+        assert!(!lists.loading("PL1"));
+        // Nor does it count for a new move of the same playlist.
+        let new = lists.move_sent("PL1");
+        assert_eq!(lists.move_answered("PL1", old, false), None);
+        assert!(lists.awaiting_move("PL1", new));
+        assert_eq!(lists.move_answered("PL1", new, true), None);
+        assert!(!lists.loading("PL1"));
+    }
+
+    #[test]
+    fn a_move_answered_very_late_stops_holding_back_loads_but_still_counts() {
+        let mut lists = Lists::default();
+        let old = lists.move_sent("PL1");
+        lists.moves.get_mut("PL1").unwrap().last_sent -= super::MOVE_UNANSWERED;
+        let load = lists.load("PL1", false, false).unwrap().load;
+        // Its answer still counts when it comes: that load may have the old order.
+        lists.arrived(load, collection("PL1", &["a", "b"]), false, &[]).unwrap();
+        assert!(lists.move_answered("PL1", old, true).is_some());
+        assert!(!lists.moves.contains_key("PL1"));
+    }
+
+    #[test]
+    fn a_load_that_failed_partway_isnt_the_whole_playlist() {
+        let mut lists = Lists::default();
+        let load = start(&mut lists, "PL1");
+        lists.arrived(load, collection("PL1", &["a", "b"]), true, &[]).unwrap();
+        assert!(!lists.get("PL1").unwrap().complete);
+        // How a failed load ends.
+        lists.page("PL1", load, vec![], vec![], false, &[]).unwrap();
+        lists.load_failed("PL1", load);
+        assert!(!lists.get("PL1").unwrap().complete);
+        // Opening it again tries again, however recent, and that brings all of it.
+        let load = lists.visit("PL1", false, Instant::now()).unwrap().load;
+        lists.arrived(load, collection("PL1", &["a", "b", "c"]), false, &[]).unwrap();
+        assert!(lists.get("PL1").unwrap().complete);
+    }
+
+    #[test]
+    fn an_empty_last_page_from_a_load_that_worked_is_the_end_of_the_playlist() {
+        let mut lists = Lists::default();
+        let load = start(&mut lists, "PL1");
+        lists.arrived(load, collection("PL1", &["a"]), true, &[]).unwrap();
+        lists.page("PL1", load, vec![], vec![], false, &[]).unwrap();
+        assert!(lists.get("PL1").unwrap().complete);
+    }
+
+    #[test]
+    fn a_failed_reload_leaves_the_kept_copy_as_it_was() {
+        let mut lists = Lists::default();
+        let load = start(&mut lists, "PL1");
+        lists.arrived(load, collection("PL1", &["a"]), false, &[]).unwrap();
+        let again = start(&mut lists, "PL1");
+        lists.page("PL1", again, vec![], vec![], false, &[]).unwrap();
+        lists.load_failed("PL1", again);
+        assert!(lists.get("PL1").unwrap().complete);
+    }
+
+    #[test]
+    fn a_load_whose_last_page_came_is_the_whole_playlist() {
+        let mut lists = Lists::default();
+        let load = start(&mut lists, "PL1");
+        lists.arrived(load, collection("PL1", &["a"]), true, &[]).unwrap();
+        lists.page("PL1", load, vec![track("b")], vec![Some("set-b".into())], false, &[]).unwrap();
+        assert!(lists.get("PL1").unwrap().complete);
+    }
+
+    fn order(c: &Collection) -> Vec<&str> {
+        c.tracks.iter().map(|t| t.id.as_str()).collect()
+    }
+
+    #[test]
+    fn a_moved_row_takes_its_entry_along_and_names_the_one_after_it() {
+        let mut c = collection("PL1", &["a", "b", "c", "d"]);
+        // Down, to the gap above "d" (counted before the move).
+        assert_eq!(c.move_row(0, 3), Some(("set-a".to_owned(), Some("set-d".to_owned()))));
+        assert_eq!(order(&c), ["b", "c", "a", "d"]);
+        assert_eq!(c.set_ids[2].as_deref(), Some("set-a"));
+        // Up.
+        assert_eq!(c.move_row(3, 0), Some(("set-d".to_owned(), Some("set-b".to_owned()))));
+        assert_eq!(order(&c), ["d", "b", "c", "a"]);
+        assert_eq!(c.set_ids[0].as_deref(), Some("set-d"));
+    }
+
+    #[test]
+    fn a_row_moved_to_the_end_has_no_entry_after_it() {
+        let mut c = collection("PL1", &["a", "b", "c"]);
+        assert_eq!(c.move_row(0, 3), Some(("set-a".to_owned(), None)));
+        assert_eq!(order(&c), ["b", "c", "a"]);
+        assert_eq!(c.count, Some(3));
+    }
+
+    #[test]
+    fn nothing_moves_without_knowing_the_entries() {
+        let mut c = collection("PL1", &["a", "b", "c"]);
+        c.set_ids[2] = None;
+        // The row moved, then the row it would go before.
+        assert_eq!(c.move_row(2, 0), None);
+        assert_eq!(c.move_row(0, 2), None);
+        // Out of range.
+        assert_eq!(c.move_row(3, 0), None);
+        assert_eq!(c.move_row(0, 4), None);
+        assert_eq!(order(&c), ["a", "b", "c"]);
     }
 
     fn songs(lists: &Lists, id: &str) -> Vec<String> {

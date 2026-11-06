@@ -8,6 +8,7 @@ mod actions;
 mod collections;
 mod dev;
 mod dialogs;
+mod find;
 mod integrations;
 mod jam;
 mod karaoke;
@@ -20,6 +21,7 @@ mod pages;
 mod playback;
 mod queue;
 mod responses;
+mod row_drag;
 mod shell;
 mod titlebar;
 pub use titlebar::{custom as custom_titlebar, set_hwnd as set_titlebar_hwnd};
@@ -86,6 +88,9 @@ pub enum NpTab {
 /// User intents collected while drawing; applied after the frame's UI pass.
 pub enum Action {
     Play(Vec<Track>, usize),
+    /// The songs a list was narrowed to: they stay the whole queue, however much more of
+    /// the list comes in.
+    PlayFound(Vec<Track>, usize),
     PlayCollection(Target, bool),
     /// Click on a card: songs start a radio, everything else opens its page.
     Open(Target),
@@ -95,6 +100,9 @@ pub enum Action {
     Go(Page),
     QueueJump(usize),
     QueueRemove(usize),
+    /// A song to come dragged to the gap between songs (see `Queue::move_track`), if the
+    /// song `id` is still at `from`.
+    QueueMove { from: usize, gap: usize, id: String },
     Seek(f32),
     Like(Track, bool),
     /// The heart of what's playing, in the player bar, the mini player and Now playing's menu.
@@ -106,6 +114,8 @@ pub enum Action {
     AddToPlaylist(Vec<Track>),
     /// Rows (indices into the open playlist) to take out of it.
     RemoveFromPlaylist(Vec<usize>),
+    /// A song of your own playlist dragged to the gap between rows, if `id` is still at `from`.
+    PlaylistMove { from: usize, gap: usize, id: String },
     Download(Track),
     NewPlaylist(Vec<Track>),
     EditPlaylist,
@@ -269,6 +279,7 @@ pub struct App {
     /// Songs whose unlike is queued and hasn't gone through yet.
     unliking: HashMap<String, Track>,
     selection: Selection,
+    find: find::ListFind,
     account_name: Option<String>,
     account_avatar: Option<String>,
     /// The signed-in account's channels and which one is used, once Settings asked.
@@ -351,6 +362,8 @@ pub struct App {
     np_open: bool,
     np_tab: NpTab,
     queue_open: bool,
+    /// A song row being dragged.
+    row_drag: Option<row_drag::RowDrag>,
     fullscreen: bool,
     /// The mini player: the window shrunk to a strip.
     mini: mini::Mini,
@@ -511,6 +524,7 @@ impl App {
             liked: HashSet::new(),
             unliking: HashMap::new(),
             selection: Selection::default(),
+            find: Default::default(),
             account_name: None,
             account_avatar: None,
             channels: None,
@@ -597,6 +611,7 @@ impl App {
             np_open: false,
             np_tab: if get("np_art").is_some_and(|v| v == "1") { NpTab::Art } else { NpTab::Lyrics },
             queue_open: false,
+            row_drag: None,
             fullscreen: false,
             mini: mini::Mini::load(get),
             lyrics: None,

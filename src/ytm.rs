@@ -1132,6 +1132,22 @@ pub async fn remove_videos(api: &Api, playlist_id: &str, items: &[(String, Strin
     Ok(())
 }
 
+/// Move a playlist's entry `set_id` to just before the entry `before`, or to the end.
+pub async fn move_video(api: &Api, playlist_id: &str, set_id: &str, before: Option<&str>) -> anyhow::Result<()> {
+    let answer = write(api, "browse/edit_playlist", json!({"playlistId": playlist_id, "actions": [move_action(set_id, before)]})).await?;
+    // No reload follows, so nothing else would notice a move that didn't happen.
+    anyhow::ensure!(answer["status"].as_str().is_some_and(|s| s.contains("SUCCEEDED")), "YouTube Music didn't confirm the move");
+    Ok(())
+}
+
+fn move_action(set_id: &str, before: Option<&str>) -> Value {
+    let mut action = json!({"action": "ACTION_MOVE_VIDEO_BEFORE", "setVideoId": set_id});
+    if let Some(next) = before {
+        action["movedSetVideoIdSuccessor"] = next.into();
+    }
+    action
+}
+
 pub async fn delete_playlist(api: &Api, id: &str) -> anyhow::Result<()> {
     let response = write(api, "playlist/delete", json!({"playlistId": id})).await?;
     let deleted_id = arr(&response["command"]["commandExecutorCommand"]["commands"])
@@ -2076,6 +2092,12 @@ mod tests {
         // A music video's radio: music videos only, kept rather than nothing.
         assert_eq!(ids(&[(t("v1"), true), (t("v2"), true)]), ["v1", "v2"]);
         assert!(ids(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_move_names_the_entry_after_it_except_at_the_end() {
+        assert_eq!(move_action("a", Some("b")), json!({"action": "ACTION_MOVE_VIDEO_BEFORE", "setVideoId": "a", "movedSetVideoIdSuccessor": "b"}));
+        assert_eq!(move_action("a", None), json!({"action": "ACTION_MOVE_VIDEO_BEFORE", "setVideoId": "a"}));
     }
 
     #[test]

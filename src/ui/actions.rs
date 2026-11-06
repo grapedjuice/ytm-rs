@@ -22,18 +22,15 @@ impl App {
         };
         match a {
             // Clicking the song that's already playing pauses/resumes it, not restart it.
-            Action::Play(tracks, i) if tracks.get(i).is_some_and(|t| self.current_id() == Some(t.id.as_str())) && self.resume_at.is_none() => {
+            Action::Play(tracks, i) | Action::PlayFound(tracks, i) if tracks.get(i).is_some_and(|t| self.current_id() == Some(t.id.as_str())) && self.resume_at.is_none() => {
                 self.toggle()
             }
+            Action::PlayFound(tracks, i) => {
+                self.queue_source = self.page_source();
+                self.play_list(tracks, i);
+            }
             Action::Play(tracks, i) => {
-                // Play buttons and rows live on the page they play from.
-                self.queue_source = match &self.page {
-                    Page::Album(id) => Some(Target::Album(id.clone())),
-                    Page::Playlist(id) => Some(Target::Playlist(id.clone())),
-                    Page::Library(LibTab::Songs) => Some(Target::Playlist(LIKED_MUSIC.into())),
-                    Page::Artist(id) => Some(Target::Artist(id.clone())),
-                    _ => None,
-                };
+                self.queue_source = self.page_source();
                 // All of a playlist that's still coming in, in order or shuffled: the rest follows.
                 let fill = self.page_list().filter(|id| self.receiving(id)).and_then(|id| {
                     let o = self.opened(id).filter(|o| o.c.tracks.len() == tracks.len())?;
@@ -87,6 +84,11 @@ impl App {
                 self.play_current();
             }
             Action::QueueRemove(i) => self.queue.remove(i),
+            Action::QueueMove { from, gap, id } => {
+                if self.queue.tracks.get(from).is_some_and(|t| t.id == id) && self.queue.move_track(from, gap) {
+                    self.prefetch_next();
+                }
+            }
             Action::Seek(secs) => {
                 self.seek_to(Duration::from_secs_f32(secs.max(0.0)));
                 self.lyric_view.resume();
@@ -169,6 +171,21 @@ impl App {
                 self.selection.clear();
                 self.backend.request(Req::RemoveFromPlaylist { playlist_id: playlist, items });
             }
+            Action::PlaylistMove { from, gap, id } => {
+                // A load that started during the drag would answer with the old order.
+                if self.page_list().is_some_and(|p| self.lists.loading(p)) {
+                    return self.toast("This playlist is still loading. Try again in a moment.");
+                }
+                let Some(c) = self.current_collection().filter(|c| c.owned && !c.is_album && c.tracks.get(from).is_some_and(|t| t.id == id)) else { return };
+                let playlist_id = c.id.clone();
+                match c.move_row(from, gap) {
+                    Some((set_id, before)) => {
+                        let move_id = self.lists.move_sent(&playlist_id);
+                        self.backend.request(Req::MoveInPlaylist { playlist_id, move_id, set_id, before });
+                    }
+                    None => self.toast("YouTube Music didn't say where these songs are in the playlist. Reload it and try again."),
+                }
+            }
             Action::NewPlaylist(tracks) => {
                 if self.logged_in { self.dialog = Some(Dialog::NewPlaylist { title: String::new(), tracks }); }
                 else { self.toast("Sign in to create playlists"); }
@@ -211,6 +228,17 @@ impl App {
                 }
             }
             Action::Mini(on) => self.mini.request(on),
+        }
+    }
+
+    /// What a play from this page plays from: play buttons and rows live on the page they play from.
+    fn page_source(&self) -> Option<Target> {
+        match &self.page {
+            Page::Album(id) => Some(Target::Album(id.clone())),
+            Page::Playlist(id) => Some(Target::Playlist(id.clone())),
+            Page::Library(LibTab::Songs) => Some(Target::Playlist(LIKED_MUSIC.into())),
+            Page::Artist(id) => Some(Target::Artist(id.clone())),
+            _ => None,
         }
     }
 
@@ -269,7 +297,9 @@ impl App {
             self.set_fullscreen(ctx, !self.fullscreen);
         }
         if esc {
-            if self.fullscreen {
+            if self.row_drag.take().is_some() {
+                // Just the drag.
+            } else if self.fullscreen {
                 self.set_fullscreen(ctx, false);
             } else {
                 self.np_open = false;

@@ -513,6 +513,7 @@
   "accent": "system",
   "background": {
    "solid": "#202020",
+   "solid_light": "#f3f3f3",
    "intensity": 0.6,
    "speed": 0.5,
    "saturation": 1.2,

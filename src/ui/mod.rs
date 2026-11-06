@@ -327,6 +327,8 @@ pub struct App {
     chrome_applied: Option<String>,
     /// Light or dark pages (the ytm-rs theme's; see `light_pages`).
     appearance: theme::Appearance,
+    /// The listener's accent colour, instead of the theme's.
+    custom_accent: Option<Color32>,
     anim_bg: bool,
     reactive_bg: bool,
     /// Skip the parts of music videos SponsorBlock marks as not music.
@@ -590,6 +592,7 @@ impl App {
             chrome_applied: None,
             // Dev hook: YTM_APPEARANCE=light|dark|system tries a mode without saving it.
             appearance: theme::Appearance::from_key(&dev_var("YTM_APPEARANCE").map(str::to_owned).or_else(|| get("appearance")).unwrap_or_default()),
+            custom_accent: get("custom_accent").and_then(|v| crate::preset::hex(&v)),
             anim_bg: get("anim_bg").is_none_or(|v| v == "1"),
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
             sponsorblock: get("sponsorblock").is_some_and(|v| v == "1"),
@@ -819,7 +822,11 @@ impl App {
     }
 
     fn accent_color(&self) -> Color32 {
-        let c = if self.default_theme { theme::RED } else { self.look().accent(self.accent) };
+        let c = match self.custom_accent {
+            _ if self.default_theme => theme::RED,
+            Some(custom) => custom,
+            None => self.look().accent(self.accent),
+        };
         if theme::light() {
             // A pale cover colour would barely show on light pages: deepen it.
             let luma = 0.299 * c.r() as f32 + 0.587 * c.g() as f32 + 0.114 * c.b() as f32;
@@ -830,10 +837,10 @@ impl App {
         c
     }
 
-    /// Whether pages draw light: only the ytm-rs theme has a light mode, and it follows
+    /// Whether pages draw light: only the ytm-rs and Fluent themes have a light mode, and it follows
     /// Settings › Appearance › Mode.
     fn light_pages(&self, ctx: &egui::Context) -> bool {
-        !self.default_theme && self.look().id == crate::preset::DEFAULT_ID && self.appearance.is_light(ctx)
+        !self.default_theme && self.look().has_light() && self.appearance.is_light(ctx)
     }
 
     /// The active theme preset; the classic red theme uses the built-in look's layout.
@@ -864,6 +871,11 @@ impl App {
 
 
 impl eframe::App for App {
+    /// With a window material, nothing under the pages but what they paint.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        if crate::backdrop::active() == crate::backdrop::Backdrop::None { Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32() } else { [0.0; 4] }
+    }
+
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         dev_pace();
         self.lyric_view.release_hidden(ctx.cumulative_pass_nr());
@@ -987,6 +999,7 @@ impl eframe::App for App {
         let np = theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), 0.42);
         let light = self.light_pages(&ctx) && np < 0.5 && !self.fullscreen;
         theme::set_mode(&ctx, light);
+        crate::backdrop::follow(!self.default_theme && crate::backdrop::shows(look), light);
         if self.chrome_applied.as_deref() != Some(look.id.as_str()) {
             if self.chrome_applied.is_none() {
                 ctx.add_texture_loader(Arc::new(crate::images::Textures::default()));
@@ -1198,6 +1211,7 @@ impl eframe::App for App {
         storage.set_string("default_theme", b(self.default_theme));
         if dev_var("YTM_APPEARANCE").is_none() {
             storage.set_string("appearance", self.appearance.key().to_owned());
+            storage.set_string("custom_accent", self.custom_accent.map_or_else(String::new, |c| format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b())));
         }
         if std::env::var_os("YTM_THEME").is_none() {
             storage.set_string("theme", self.theme_id.clone());

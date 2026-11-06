@@ -172,26 +172,30 @@ fn read_system_light() -> Option<bool> {
     None
 }
 
-/// The Windows accent colour, in the lighter shade Windows itself uses on dark
-/// surfaces (`AccentPalette`'s second entry), or the base accent if there's no palette.
-/// Read again every couple of seconds, so a new colour picked in Windows' settings
-/// shows without a restart. `None` off Windows or when the setting can't be read.
+/// The Windows accent colour, in the shade Windows itself uses on the surface being drawn:
+/// `AccentPalette`'s second entry on dark, its fifth on light, or the base accent if
+/// there's no palette. Read again every couple of seconds, so a new colour picked in
+/// Windows' settings shows without a restart. `None` off Windows or when the setting
+/// can't be read.
 pub fn system_accent() -> Option<Color32> {
     use std::time::{Duration, Instant};
-    static ACCENT: std::sync::Mutex<Option<(Instant, Option<Color32>)>> = std::sync::Mutex::new(None);
+    type Shades = Option<[Color32; 2]>;
+    static ACCENT: std::sync::Mutex<Option<(Instant, Shades)>> = std::sync::Mutex::new(None);
     let mut cached = ACCENT.lock().unwrap();
-    match *cached {
+    let shades = match *cached {
         Some((at, c)) if at.elapsed() < Duration::from_secs(2) => c,
         _ => {
             let c = read_system_accent();
             *cached = Some((Instant::now(), c));
             c
         }
-    }
+    };
+    shades.map(|[dark, light_shade]| if light() { light_shade } else { dark })
 }
 
+/// The accent's shades for dark and light surfaces.
 #[cfg(windows)]
-fn read_system_accent() -> Option<Color32> {
+fn read_system_accent() -> Option<[Color32; 2]> {
     use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_BINARY, RRF_RT_REG_DWORD, RegGetValueW};
     use windows::core::w;
     // SAFETY: out-buffers sized to what we pass; the strings are static.
@@ -200,20 +204,20 @@ fn read_system_accent() -> Option<Color32> {
         let mut palette = [0u8; 32];
         let mut size = palette.len() as u32;
         let key = w!(r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent");
-        if RegGetValueW(HKEY_CURRENT_USER, key, w!("AccentPalette"), RRF_RT_REG_BINARY, None, Some(palette.as_mut_ptr() as *mut _), Some(&mut size)).is_ok() && size >= 8 {
-            return Some(Color32::from_rgb(palette[4], palette[5], palette[6]));
+        if RegGetValueW(HKEY_CURRENT_USER, key, w!("AccentPalette"), RRF_RT_REG_BINARY, None, Some(palette.as_mut_ptr() as *mut _), Some(&mut size)).is_ok() && size >= 20 {
+            return Some([Color32::from_rgb(palette[4], palette[5], palette[6]), Color32::from_rgb(palette[16], palette[17], palette[18])]);
         }
         // 0xAABBGGRR.
         let mut abgr = 0u32;
         let mut size = 4u32;
         RegGetValueW(HKEY_CURRENT_USER, w!(r"Software\Microsoft\Windows\DWM"), w!("AccentColor"), RRF_RT_REG_DWORD, None, Some(&mut abgr as *mut u32 as *mut _), Some(&mut size))
             .is_ok()
-            .then(|| Color32::from_rgb(abgr as u8, (abgr >> 8) as u8, (abgr >> 16) as u8))
+            .then(|| [Color32::from_rgb(abgr as u8, (abgr >> 8) as u8, (abgr >> 16) as u8); 2])
     }
 }
 
 #[cfg(not(windows))]
-fn read_system_accent() -> Option<Color32> {
+fn read_system_accent() -> Option<[Color32; 2]> {
     None
 }
 

@@ -6,6 +6,7 @@ mod proxy;
 mod renderer;
 mod art;
 mod audio;
+mod backdrop;
 mod backend;
 mod bidi;
 mod deeplink;
@@ -96,6 +97,9 @@ fn main() -> eframe::Result {
         viewport = viewport.with_position([-4000.0, 0.0]).with_inner_size([1920.0, 1057.0]).with_active(false).with_taskbar(false);
     }
     let renderer = renderer::init(&data_dir());
+    if backdrop::init(&data_dir(), renderer) {
+        viewport = viewport.with_transparent(true);
+    }
     let options = eframe::NativeOptions {
         viewport,
         renderer: match renderer {
@@ -171,6 +175,7 @@ fn main() -> eframe::Result {
                 appicon::set_hwnd(h);
                 fullscreen::set_hwnd(h);
                 ui::set_titlebar_hwnd(h);
+                backdrop::prepare(h);
                 // eframe sets only the small icon; the taskbar button wants the big one.
                 appicon::set_window_icon(appicon::get(appicon::load(backend.data_dir())));
             }

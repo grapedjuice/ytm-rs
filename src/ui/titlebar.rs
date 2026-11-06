@@ -256,7 +256,7 @@ mod frame {
     use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
     use windows::Win32::UI::Controls::MARGINS;
     use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
-    use windows::Win32::UI::WindowsAndMessaging::{NCCALCSIZE_PARAMS, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, WM_NCCALCSIZE};
+    use windows::Win32::UI::WindowsAndMessaging::{IsZoomed, NCCALCSIZE_PARAMS, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, WM_NCCALCSIZE};
 
     pub fn init(hwnd: *mut std::ffi::c_void) {
         let hwnd = HWND(hwnd);
@@ -288,6 +288,12 @@ mod frame {
             let r = params.rgrc[0];
             if (r.left, r.right, r.top, r.bottom) == (proposed.left, proposed.right, proposed.top + 1, proposed.bottom + 1) {
                 params.rgrc[0] = proposed;
+            }
+            // Maximized, a GPU window can fill its whole monitor, and Windows then presents
+            // it straight to the screen: no blending, so a window material turns black. A
+            // pixel short of that keeps it composited (Chromium does the same).
+            if crate::backdrop::active() != crate::backdrop::Backdrop::None && IsZoomed(hwnd).as_bool() {
+                params.rgrc[0].bottom -= 1;
             }
             result
         }

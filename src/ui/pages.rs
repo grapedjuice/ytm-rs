@@ -1188,10 +1188,10 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
     let was_theme = app.theme_id.clone();
     section_label(ui, "Appearance", None);
     settings_card(ui, |ui| {
-        // Only the ytm-rs theme has a light mode; the others are made dark.
-        let has_modes = !app.default_theme && app.theme_id == crate::preset::DEFAULT_ID;
+        // Only the ytm-rs and Fluent themes have a light mode; the others are made dark.
+        let has_modes = !app.default_theme && app.look().has_light();
         let desc = if !has_modes {
-            "Light mode is part of the ytm-rs theme. Pick it under Theme to use it."
+            "Light mode is part of the ytm-rs and Fluent themes. Pick one under Theme to use it."
         } else if cfg!(windows) {
             "Light or dark pages. System follows Windows' app mode. Now playing stays dark, over the album art."
         } else {
@@ -1223,6 +1223,23 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
             toggle(ui, &mut app.default_theme, "Classic theme");
         });
         let enabled = !app.default_theme;
+        divider(ui);
+        ui.add_enabled_ui(enabled, |ui| {
+            setting_row(ui, "Accent colour", Some("Your own colour, instead of the one the theme picks."), |ui| {
+                let mut custom = app.custom_accent.is_some();
+                if toggle(ui, &mut custom, "Custom accent colour").changed() {
+                    app.custom_accent = custom.then(|| app.accent_color());
+                }
+                if let Some(c) = &mut app.custom_accent {
+                    ui.add_space(8.0);
+                    ui.color_edit_button_srgba(c);
+                }
+            });
+        });
+        if crate::backdrop::supported() {
+            divider(ui);
+            settings_backdrop(app, ui);
+        }
         divider(ui);
         ui.add_enabled_ui(enabled, |ui| {
             setting_row(ui, "Animated background", Some("The album art slowly drifts behind everything."), |ui| {
@@ -1293,6 +1310,47 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
             }
         }
     });
+}
+
+/// Settings › Appearance › Window material: Windows 11's Mica, Mica Alt or Acrylic.
+fn settings_backdrop(app: &mut App, ui: &mut Ui) {
+    use crate::backdrop::{self, Backdrop};
+    let saved = backdrop::load(app.backend.data_dir());
+    let opengl = crate::renderer::active() == crate::renderer::Renderer::OpenGl;
+    let desc = if opengl { "Windows 11's material behind the Fluent theme." } else { "Windows 11's material behind the Fluent theme. Needs OpenGL, not Vulkan." };
+    let mut pick = None;
+    ui.add_enabled_ui(opengl, |ui| {
+        setting_row(ui, "Window material", Some(desc), |ui| {
+            let btn = dropdown_button(ui, saved.label(), 160.0, "Window material");
+            egui::Popup::menu(&btn).show(|ui| {
+                ui.set_width(160.0);
+                ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                ui.add_space(4.0);
+                for b in Backdrop::ALL {
+                    if option_row(ui, b.label(), b == saved).clicked() {
+                        pick = Some(b);
+                        ui.close();
+                    }
+                }
+                ui.add_space(4.0);
+            });
+        });
+    });
+    if let Some(b) = pick
+        && let Err(e) = backdrop::save(app.backend.data_dir(), b)
+    {
+        log::warn!("backdrop: couldn't save the setting: {e}");
+    }
+    if opengl && backdrop::load(app.backend.data_dir()) != backdrop::active() {
+        divider(ui);
+        let mut restart = false;
+        setting_row(ui, "Restart to apply", Some("The window gets its new material from the next start."), |ui| {
+            restart = pill(ui, "Restart now", None, true).clicked();
+        });
+        if restart {
+            app.restart(ui.ctx());
+        }
+    }
 }
 
 /// Settings › App icon.

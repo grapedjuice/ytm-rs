@@ -77,6 +77,11 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64, only: Opti
         Some(r) => ui.painter().with_clip_rect(r),
         None => ui.painter().clone(),
     };
+    // Windows' material shows through instead of the theme's colour, lightly tinted.
+    if !app.default_theme && crate::backdrop::shows(look) {
+        painter.rect_filled(screen, 0.0, if light { Color32::from_white_alpha(40) } else { Color32::from_black_alpha(40) });
+        return;
+    }
     painter.rect_filled(screen, 0.0, base_color(app));
     let art = matches!(mode, BgMode::Kawarp | BgMode::CoverStatic | BgMode::CoverFullbleed);
     if let Some(bg) = app.bg.as_ref().filter(|_| !app.default_theme && art) {
@@ -105,7 +110,10 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64, only: Opti
         vgradient(&painter, screen, theme::with_alpha(app.accent_color(), 0.18 * if app.default_theme { 1.0 } else { dim / 0.5 }), if app.default_theme { theme::bg() } else { look.solid() });
     }
     if light {
-        painter.rect_filled(screen, 0.0, Color32::from_white_alpha(212));
+        // A solid theme's light colour needs no wash.
+        if mode != BgMode::Solid {
+            painter.rect_filled(screen, 0.0, Color32::from_white_alpha(212));
+        }
     } else if app.default_theme || mode != BgMode::Solid {
         // Keep text readable: darken toward the bottom and under the sidebar.
         vgradient(&painter, screen, theme::shade(0.12), theme::shade(0.55));

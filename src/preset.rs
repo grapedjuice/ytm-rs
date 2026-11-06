@@ -33,6 +33,8 @@ pub enum BgMode {
 pub struct Background {
     pub mode: BgMode,
     pub solid: String,
+    /// `solid` in light mode, for a solid theme that has one.
+    pub solid_light: String,
     /// The shader values are for now playing; pages use a calmer version.
     pub intensity: f32,
     pub saturation: f32,
@@ -49,6 +51,7 @@ impl Default for Background {
         Self {
             mode: BgMode::Kawarp,
             solid: "#0c0a0e".into(),
+            solid_light: String::new(),
             intensity: 1.0,
             saturation: 1.5,
             speed: 1.0,
@@ -380,7 +383,13 @@ impl Preset {
     }
 
     pub fn solid(&self) -> Color32 {
-        hex(&self.background.solid).unwrap_or(crate::theme::bg())
+        let light = if crate::theme::light() { hex(&self.background.solid_light) } else { None };
+        light.or_else(|| hex(&self.background.solid)).unwrap_or(crate::theme::bg())
+    }
+
+    /// Whether this theme has a light mode (Settings › Appearance › Mode).
+    pub fn has_light(&self) -> bool {
+        self.id == DEFAULT_ID || !self.background.solid_light.is_empty()
     }
 }
 

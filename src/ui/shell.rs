@@ -11,6 +11,8 @@ use crate::theme::{self, icon};
 // ------------------------------------------------------------------ background
 
 /// Vertical gradient (top colour → bottom colour) over `rect`.
+use egui::lerp;
+
 pub fn vgradient(painter: &egui::Painter, rect: Rect, top: Color32, bottom: Color32) {
     gradient(painter, rect, [top, top, bottom, bottom]);
 }
@@ -95,12 +97,12 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64, only: Opti
     painter.rect_filled(screen, 0.0, base_color(app));
     let art = matches!(mode, BgMode::Kawarp | BgMode::CoverStatic | BgMode::CoverFullbleed);
     if let Some(bg) = app.bg.as_ref().filter(|_| art) {
-        let blend = theme::ease_in_out(((now - app.art_changed) / 1.4) as f32);
+        let blend = theme::ease_in_out(((now - app.art_changed - b.crossfade_delay as f64) / b.crossfade_secs.max(0.05) as f64) as f32);
         if blend < 1.0 {
             // The crossfade to new art finishes even while paused.
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
         }
-        let level = if app.reactive_bg && app.playing() { app.audio.status.level() * b.reactive } else { 0.0 };
+        let level = if app.reactive_bg && app.playing() { (app.audio.status.level() - b.beat_threshold).max(0.0) * b.reactive } else { 0.0 };
         let still = mode == BgMode::CoverStatic;
         bg.paint(
             &painter,
@@ -128,6 +130,40 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64, only: Opti
         // Keep text readable: darken toward the bottom and under the sidebar.
         vgradient(&painter, screen, theme::shade(0.12), theme::shade(0.55));
     }
+    // A theme's own gradients over the pages.
+    // A wash meant for dark pages would only dirty light ones.
+    if let Some([a, px]) = look.app.page_wash.filter(|_| !light) {
+        let c = crate::preset::paint(&look.app.page_wash_color, app.accent_color());
+        vgradient(&painter, Rect::from_min_size(screen.min, vec2(screen.width(), px)), theme::with_alpha(c, a), Color32::TRANSPARENT);
+    }
+    if let Some([a, px]) = look.app.page_foot.filter(|_| !light) {
+        vgradient(&painter, Rect::from_min_max(pos2(screen.left(), screen.bottom() - px), screen.max), Color32::TRANSPARENT, theme::shade(a));
+    }
+}
+
+/// A theme's soft light: an ellipse of colour fading out. Six triangles' worth of rings,
+/// so it costs next to nothing to draw.
+pub fn overlay_light(painter: &egui::Painter, area: Rect, o: &crate::preset::Overlay, accent: Color32) {
+    const STEPS: usize = 40;
+    const RINGS: [(f32, f32); 4] = [(0.0, 1.0), (0.4, 0.55), (0.72, 0.18), (1.0, 0.0)];
+    let color = theme::with_alpha(crate::preset::paint(&o.color, accent), o.alpha);
+    let c = area.min + vec2(area.width() * o.x, area.height() * o.y);
+    let (rx, ry) = (area.width() * o.rx, area.height() * o.ry);
+    let mut m = egui::Mesh::default();
+    for &(t, a) in &RINGS {
+        for i in 0..STEPS {
+            let (sin, cos) = (i as f32 / STEPS as f32 * std::f32::consts::TAU).sin_cos();
+            m.colored_vertex(c + vec2(cos * rx, sin * ry) * t, color.gamma_multiply(a));
+        }
+    }
+    let at = |ring: usize, i: usize| (ring * STEPS + i % STEPS) as u32;
+    for ring in 0..RINGS.len() - 1 {
+        for i in 0..STEPS {
+            m.add_triangle(at(ring, i), at(ring, i + 1), at(ring + 1, i));
+            m.add_triangle(at(ring, i + 1), at(ring + 1, i + 1), at(ring + 1, i));
+        }
+    }
+    painter.add(m);
 }
 
 // ------------------------------------------------------------------ sidebar
@@ -135,7 +171,7 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64, only: Opti
 /// The ☰ button at the top of the sidebar: collapses it to an icon rail and back.
 fn menu_button(app: &mut App, ui: &mut Ui) {
     let (r, resp) = ui.allocate_exact_size(vec2(40.0, 32.0), Sense::click());
-    let label = if app.sidebar_collapsed { "Expand sidebar" } else { "Collapse sidebar" };
+    let label = if is_rail(app) { "Expand sidebar" } else { "Collapse sidebar" };
     let resp = named(resp, label).on_hover_text(label).on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
     ui.painter().circle_filled(r.center(), 18.0, theme::glass(0.08 * h));
@@ -155,11 +191,15 @@ struct NavLook {
     style: crate::preset::NavStyle,
     radius: f32,
     accent: Color32,
+    hover: f32,
+    selected: f32,
+    outline: f32,
 }
 
 impl NavLook {
     fn of(app: &App) -> Self {
-        Self { style: app.look().app.nav, radius: (app.look().chrome.radius * 0.6).clamp(4.0, 16.0), accent: app.accent_color() }
+        let i = &app.look().app.nav_item;
+        Self { style: app.look().app.nav, radius: i.radius.unwrap_or((app.look().chrome.radius * 0.6).clamp(4.0, 16.0)), accent: app.accent_color(), hover: i.hover, selected: i.selected, outline: app.look().app.controls.ghost_outline }
     }
 }
 
@@ -169,27 +209,30 @@ fn nav_bg(ui: &Ui, look: NavLook, rect: Rect, h: f32, s: f32) -> Color32 {
     use crate::preset::NavStyle;
     let (nav_r, accent) = (look.radius, look.accent);
     let icon_fg = theme::lerp_color(theme::text_dim(), theme::text(), (h + s).min(1.0));
+    if look.outline > 0.0 && h + s > 0.0 {
+        ui.painter().rect_stroke(rect, nav_r, egui::Stroke::new(1.0, theme::glass(look.outline * (h + s).min(1.0))), egui::StrokeKind::Inside);
+    }
     match look.style {
         NavStyle::Text => {
-            ui.painter().rect_filled(rect, nav_r, theme::glass(0.05 * h));
+            ui.painter().rect_filled(rect, nav_r, theme::glass(look.hover * h));
             theme::lerp_color(icon_fg, accent, s)
         }
         NavStyle::Inverse => {
-            ui.painter().rect_filled(rect, nav_r, theme::glass(0.05 * h));
+            ui.painter().rect_filled(rect, nav_r, theme::glass(look.hover * h));
             ui.painter().rect_filled(rect, nav_r, theme::with_alpha(theme::text(), s));
             theme::lerp_color(icon_fg, theme::on_text(), s)
         }
         NavStyle::Pill => {
-            ui.painter().rect_filled(rect, nav_r, theme::glass(0.05 * h + 0.10 * s));
+            ui.painter().rect_filled(rect, nav_r, theme::glass(look.hover * h + look.selected * s));
             icon_fg
         }
         NavStyle::Accent => {
-            ui.painter().rect_filled(rect, nav_r, theme::glass(0.05 * h));
+            ui.painter().rect_filled(rect, nav_r, theme::glass(look.hover * h));
             ui.painter().rect_filled(rect, nav_r, theme::with_alpha(accent, 0.22 * s));
             theme::lerp_color(icon_fg, accent, s)
         }
         NavStyle::Bar => {
-            ui.painter().rect_filled(rect, nav_r, theme::glass(0.05 * h));
+            ui.painter().rect_filled(rect, nav_r, theme::glass(look.hover * h));
             let bar = Rect::from_center_size(pos2(rect.left() + 2.0, rect.center().y), vec2(3.0, 20.0 * s));
             ui.painter().rect_filled(bar, 2.0, accent);
             icon_fg
@@ -199,11 +242,21 @@ fn nav_bg(ui: &Ui, look: NavLook, rect: Rect, h: f32, s: f32) -> Color32 {
 
 /// Sidebar width expanded and collapsed to an icon rail (points).
 pub const SIDEBAR_W: f32 = 236.0;
-pub const RAIL_W: f32 = 76.0;
+
+/// The rail's width in this theme.
+pub fn rail_w(app: &App) -> f32 {
+    app.look().app.nav_item.rail_px.max(60.0)
+}
+
+/// Whether the sidebar shows as a rail: the listener's choice, turned around in a theme
+/// that starts as one, so the same button opens and closes it either way.
+pub fn is_rail(app: &App) -> bool {
+    app.sidebar_collapsed != app.look().app.nav_item.rail
+}
 
 /// How collapsed the sidebar is, 0 (full) to 1 (icon rail), eased over the toggle.
 pub fn sidebar_collapse(app: &App, ctx: &egui::Context) -> f32 {
-    let t = ctx.animate_bool_with_time(egui::Id::unique("sidebar-collapse"), app.sidebar_collapsed, 0.28 * theme::SPEED);
+    let t = ctx.animate_bool_with_time(egui::Id::unique("sidebar-collapse"), is_rail(app), 0.28 * theme::SPEED);
     // Ease in-out: starts and lands gently in both directions.
     t * t * (3.0 - 2.0 * t)
 }
@@ -213,11 +266,14 @@ pub fn sidebar_collapse(app: &App, ctx: &egui::Context) -> f32 {
 pub fn sidebar(app: &mut App, ui: &mut Ui) {
     const ICON_X: f32 = 24.0;
     let t = sidebar_collapse(app, ui.ctx());
-    let collapsed = app.sidebar_collapsed;
+    let collapsed = is_rail(app);
+    let rail_w = rail_w(app);
+    let item = app.look().app.nav_item.clone();
+    let idle = app.look().app.controls.idle_alpha.clamp(0.5, 1.0);
     // Labels fade out over the first two thirds of collapsing (and back in late).
     let a = ((1.0 - t) * 1.5 - 0.5).clamp(0.0, 1.0);
     // Content width when expanded: text keeps its truncation while the panel narrows.
-    let full_w = ui.available_width() + (SIDEBAR_W - RAIL_W) * t;
+    let full_w = ui.available_width() + (SIDEBAR_W - rail_w) * t;
 
     // Menu button, logo
     ui.horizontal(|ui| {
@@ -243,15 +299,25 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     let mut go_to: Option<Page> = None;
     let look = NavLook::of(app);
     let nav = |ui: &mut Ui, glyph: char, label: &str, page: Page, selected: bool, go_to: &mut Option<Page>| {
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
+        let height = if item.rail_labels { lerp(item.height..=item.height.max(62.0), t) } else { item.height };
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
         let mut resp = named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
-        if collapsed {
+        if collapsed && !item.rail_labels {
             resp = resp.on_hover_text(label);
         }
         let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
         let s = theme::anim_bool(ui.ctx(), resp.id.with("s"), selected, 0.2);
         let icon_fg = nav_bg(ui, look, rect, h, s);
-        icon_at(ui, pos2(rect.left() + ICON_X, rect.center().y), glyph, 19.0, icon_fg);
+        let icon_fg = theme::with_alpha(icon_fg, lerp(idle..=1.0, (h + s).min(1.0)));
+        let slid = item.slide * h;
+        // On the rail with labels: the icon over a small one-line label.
+        let under = item.rail_labels && t > 0.5;
+        let icon_y = if under { rect.center().y - 9.0 } else { rect.center().y };
+        icon_at(ui, pos2(if under { rect.center().x } else { rect.left() + ICON_X + slid }, icon_y), glyph, 19.0, icon_fg);
+        if under {
+            let short = label.split_whitespace().next().unwrap_or(label);
+            ui.painter().text(pos2(rect.center().x, rect.center().y + 14.0), Align2::CENTER_CENTER, short, theme::regular(10.5), icon_fg);
+        }
         if a > 0.0 {
             let fg = theme::lerp_color(theme::text_dim(), theme::text(), (h + s).min(1.0));
             let fg = match look.style {
@@ -260,7 +326,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 _ => fg,
             };
             let font = if selected { theme::semibold(15.0) } else { theme::regular(15.0) };
-            ui.painter().text(pos2(rect.left() + 48.0, rect.center().y), Align2::LEFT_CENTER, label, font, theme::with_alpha(fg, a));
+            ui.painter().text(pos2(rect.left() + 48.0 + slid, rect.center().y), Align2::LEFT_CENTER, label, font, theme::with_alpha(fg, a * lerp(idle..=1.0, (h + s).min(1.0))));
         }
         if resp.clicked() {
             *go_to = Some(page);
@@ -326,7 +392,8 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 return;
             };
             for c in playlists {
-                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
+                let title_row = item.title_rows.filter(|_| t < 0.5);
+                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), title_row.unwrap_or(48.0)), Sense::click());
                 if !ui.is_rect_visible(rect) {
                     continue;
                 }
@@ -337,6 +404,13 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
                 let selected = matches!(&c.target, Target::Playlist(id) if app.page == Page::Playlist(id.clone()));
                 ui.painter().rect_filled(rect, 8.0, theme::glass(0.05 * h + if selected { 0.08 } else { 0.0 }));
+                if title_row.is_some() {
+                    text_at(ui, pos2(rect.left() + 12.0, rect.center().y - 8.0), &c.title, theme::regular(13.0), theme::with_alpha(theme::text(), a), full_w - 24.0);
+                    if resp.clicked() {
+                        app.actions.push(Action::Open(c.target.clone()));
+                    }
+                    continue;
+                }
                 let img = Rect::from_center_size(pos2(rect.left() + ICON_X, rect.center().y), Vec2::splat(36.0));
                 paint_cover(ui, img, &c.thumbs, theme::thumb_radius(), 1.0);
                 if a > 0.0 {
@@ -388,6 +462,23 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
 // ------------------------------------------------------------------ top bar
 
 pub fn top_bar(app: &mut App, ui: &mut Ui) {
+    let tb = app.look().app.top_bar;
+    let search_h = app.look().app.search_look.height;
+    // What the theme puts behind the row, under its widgets.
+    if let Some([a, px]) = tb.band.filter(|_| !theme::light()) {
+        let r = ui.max_rect();
+        let band = Rect::from_min_size(r.min - vec2(28.0, 40.0), vec2(r.width() + 28.0, px + 40.0));
+        vgradient(ui.painter(), band, theme::shade(a), Color32::TRANSPARENT);
+    }
+    if let Some(max) = tb.capsule_px {
+        let r = ui.max_rect();
+        let w = r.width().min(max);
+        let pill = Rect::from_min_size(r.min - vec2(10.0, 6.0), vec2(w + 4.0, search_h + 12.0));
+        // Dark glass on dark pages, light on light ones, so the box in it stays readable.
+        let fill = if theme::light() { theme::with_alpha(Color32::WHITE, tb.capsule[0]) } else { theme::shade(tb.capsule[0]) };
+        ui.painter().rect_filled(pill, tb.capsule[1].min(127.0), fill);
+        ui.painter().rect_stroke(pill, tb.capsule[1].min(127.0), egui::Stroke::new(1.0, theme::glass(0.08)), egui::StrokeKind::Inside);
+    }
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         if icon_button(ui, icon::CHEVRON_LEFT, 20.0, "Back", false).clicked() {
@@ -402,19 +493,34 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         // in a narrow window the box gives way rather than run under them.
         let reserve = 50.0 + super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 20.0);
         let narrowest = if super::titlebar::custom() { 120.0 } else { 240.0 };
-        let width = (ui.available_width() - reserve).clamp(narrowest, 560.0);
+        let sl = app.look().app.search_look.clone();
+        let width = (ui.available_width() - reserve).clamp(narrowest, sl.max_px.max(narrowest));
         // Anywhere on the pill focuses the box, not just on the text area inside it.
-        let (rect, field) = ui.allocate_exact_size(vec2(width, 42.0), Sense::click());
+        let (rect, field) = ui.allocate_exact_size(vec2(width, sl.height.max(30.0)), Sense::click());
         let field = field.on_hover_cursor(egui::CursorIcon::Text);
         let focus = theme::anim_bool(ui.ctx(), "search-focus", app.search_focused, 0.2);
         let box_look = &app.look().app;
         let box_r = box_look.search_radius.min(21.0);
-        ui.painter().rect_filled(rect, box_r, theme::glass(box_look.search_alpha + 0.05 * focus));
+        let rest = egui::lerp(box_look.controls.idle_alpha.clamp(0.5, 1.0)..=1.0, focus);
+        let fill = match crate::preset::hex(&sl.color).filter(|_| !theme::light()) {
+            Some(c) => theme::with_alpha(c, box_look.search_alpha * rest + 0.05 * focus),
+            // A theme's own box colour is for dark pages: on light ones, the usual faint fill.
+            None if !sl.color.is_empty() => theme::glass(0.09 * rest + 0.05 * focus),
+            None => theme::glass(box_look.search_alpha * rest + 0.05 * focus),
+        };
+        ui.painter().rect_filled(rect, box_r, fill);
         let edge = box_look.search_border.max(0.25 * focus);
         if edge > 0.0 {
             ui.painter().rect_stroke(rect, box_r, egui::Stroke::new(1.0, theme::glass(edge)), egui::StrokeKind::Inside);
         }
-        icon_at(ui, pos2(rect.left() + 22.0, rect.center().y), icon::SEARCH, 17.0, theme::text_dim());
+        if let Some(c) = crate::preset::hex(&sl.focus_color).filter(|_| focus > 0.0) {
+            ui.painter().rect_stroke(rect, box_r, egui::Stroke::new(1.0, theme::with_alpha(c, focus)), egui::StrokeKind::Inside);
+            if sl.focus_ring > 0.0 {
+                ui.painter().rect_stroke(rect.expand(sl.focus_ring), box_r + sl.focus_ring, egui::Stroke::new(sl.focus_ring, theme::with_alpha(c, 0.3 * focus)), egui::StrokeKind::Inside);
+            }
+        }
+        let search_icon = if sl.accent_icon { app.accent_color() } else { theme::text_dim() };
+        icon_at(ui, pos2(rect.left() + 22.0, rect.center().y), icon::SEARCH, 17.0, search_icon);
         let clearable = !app.search_text.is_empty();
         let inner = Rect::from_min_max(pos2(rect.left() + 42.0, rect.top() + 4.0), pos2(rect.right() - if clearable { 46.0 } else { 16.0 }, rect.bottom() - 4.0));
         // Up and Down walk the suggestions (past either end back to what was typed). Taken
@@ -536,7 +642,7 @@ pub fn suggestions(app: &mut App, ctx: &egui::Context) {
             ui.set_opacity(t);
             egui::Frame::new()
                 .fill(theme::menu_fill())
-                .corner_radius(14)
+                .corner_radius(app.look().app.search_look.drop_radius.unwrap_or(14.0).clamp(0.0, 40.0) as u8)
                 .inner_margin(6)
                 .shadow(egui::epaint::Shadow { offset: [0, 10], blur: 30, spread: 0, color: theme::shade(0.5) })
                 .show(ui, |ui| {
@@ -646,6 +752,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let at_bottom = look.chrome.progress_at == crate::preset::ProgressAt::Bottom;
     let progress_color = crate::preset::paint(&look.chrome.progress_color, app.accent_color());
     let progress_color = if look.chrome.progress_color == "white" { theme::text() } else { progress_color };
+    let progress_color = theme::with_alpha(progress_color, look.chrome.progress_alpha);
+    let chrome = look.chrome.clone();
     let status = app.audio.status.clone();
     let track = app.current().cloned();
     let playing = app.playing();
@@ -665,10 +773,25 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let h = theme::anim_bool(ui.ctx(), "progress-h", resp.hovered() || resp.dragged(), 0.15);
     let thick = progress_px + if progress_thumb { 2.0 * h } else { 0.0 };
     let line = Rect::from_min_size(pos2(track_rect.left(), edge_y), vec2(track_rect.width(), thick));
-    ui.painter().rect_filled(line, progress_r, theme::glass(0.12));
+    ui.painter().rect_filled(line, progress_r, theme::glass(chrome.progress_track));
     let frac = if total > 0.0 { pos / total } else { 0.0 };
     let filled = Rect::from_min_size(line.min, vec2(line.width() * frac, thick));
-    ui.painter().rect_filled(filled, progress_r, progress_color);
+    if chrome.progress_gradient.len() >= 2 {
+        // Stops along the whole bar, cut off at the position: four vertices a stop.
+        let stops = chrome.progress_gradient.len();
+        let at = |i: usize| crate::preset::paint(&chrome.progress_gradient[i], app.accent_color());
+        for i in 0..stops - 1 {
+            let (a, b) = (i as f32 / (stops - 1) as f32, (i + 1) as f32 / (stops - 1) as f32);
+            if a >= frac {
+                break;
+            }
+            let end = b.min(frac);
+            let seg = Rect::from_min_max(pos2(line.left() + line.width() * a, line.top()), pos2(line.left() + line.width() * end, line.bottom()));
+            hgradient(ui.painter(), seg, at(i), theme::lerp_color(at(i), at(i + 1), (end - a) / (b - a)));
+        }
+    } else {
+        ui.painter().rect_filled(filled, progress_r, progress_color);
+    }
     if h > 0.0 && total > 0.0 {
         // The knob and the time tip stick out above the bar, over now playing (a higher
         // layer than the bar), so they go on a layer above both and outside the bar's clip.
@@ -700,13 +823,17 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
 
     let row = Rect::from_min_max(pos2(full.left() + 16.0, full.top() + 6.0), pos2(full.right() - 16.0, full.bottom()));
     let cy = row.center().y;
+    // Stock YouTube Music's order: the transport on the left, the song in the middle.
+    let song_middle = chrome.bar_layout == crate::preset::BarLayout::SongMiddle;
+    let bar_scale = chrome.icon_scale.clamp(0.75, 1.5);
+    let bar_rest = chrome.icon_alpha.clamp(0.5, 1.0);
 
     // Narrow windows give way in steps so nothing overlaps: the transport tightens, the
     // volume slider folds into its icon (hover to show it), then the time goes (the
     // progress line still shows it on hover). The title shortens to keep clear on the left.
     let time_g = (total > 0.0).then(|| {
         let txt = format!("{} / {}", fmt_time(pos as u32), fmt_time(total as u32));
-        widgets::galley(ui, &txt, theme::regular(13.0), theme::text_dim(), 200.0)
+        widgets::galley(ui, &txt, theme::weighted(chrome.time_weight, 13.0), theme::with_alpha(theme::text_dim(), chrome.time_alpha), 200.0)
     });
     let time_w = time_g.as_ref().map_or(0.0, |g| g.size().x);
     // Room between the repeat button's edge (plus a gap) and the lyrics/queue/expand/mini
@@ -715,11 +842,20 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let tight = free(141.0) < 140.0 + time_w;
     let half = if tight { 125.0 } else { 141.0 };
     let compact_vol = free(half) < 140.0 + time_w;
+    let compact_vol = compact_vol || chrome.volume_on_hover;
     let show_time = free(half) >= if compact_vol { 36.0 } else { 140.0 } + time_w;
+    // Where the song starts: at the left, or just right of the left-hand transport, the
+    // middle of what's left then being about the bar's.
+    let art_x = if song_middle { row.left() + 300.0 } else { row.left() + 30.0 };
 
     // Left: now playing
     if let Some(t) = &track {
-        let art = Rect::from_center_size(pos2(row.left() + 30.0, cy), Vec2::splat((full.height() - 26.0).clamp(36.0, 56.0)));
+        let art = Rect::from_center_size(pos2(art_x, cy), Vec2::splat(chrome.thumb_px.unwrap_or(full.height() - 26.0).clamp(28.0, 64.0)));
+        let thumb_r = chrome.thumb_radius.unwrap_or(theme::thumb_radius() + 1.0);
+        // The cover showing through the bar while now playing is closed.
+        if chrome.bar_cover_alpha > 0.0 && !app.np_open {
+            widgets::paint_cover_fill(ui, full, &t.thumbs, theme::with_alpha(Color32::WHITE, chrome.bar_cover_alpha));
+        }
         if let Some(secs) = look.chrome.disc_secs {
             // A record peeking out from behind the thumbnail, spinning while it plays.
             let turn = if playing { (now / secs.max(1.0) as f64 % 1.0) as f32 * std::f32::consts::TAU } else { 0.0 };
@@ -732,9 +868,18 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let ar = ui.interact(art, ui.scope_id().with("np-art"), Sense::click());
         let ar = named(ar, "Open now playing").on_hover_cursor(egui::CursorIcon::PointingHand);
         let ah = theme::anim_bool(ui.ctx(), ar.id.with("h"), ar.hovered(), 0.15);
-        paint_cover(ui, art, &t.thumbs, theme::thumb_radius() + 1.0, 1.0);
+        if let Some(secs) = chrome.thumb_disc_secs {
+            // The thumbnail as a little record. Frames for it come from the player's own
+            // pace; paused, it holds still.
+            let turn = if playing { (now / secs.max(1.0) as f64 % 1.0) as f32 * std::f32::consts::TAU } else { 0.0 };
+            widgets::paint_disc(ui, art.center(), art.width() / 2.0, &t.thumbs, turn, Color32::WHITE, (art.width() * ui.ctx().pixels_per_point()) as u32);
+            ui.painter().circle_filled(art.center(), 2.0, theme::shade(0.8));
+            ui.painter().circle_stroke(art.center(), art.width() / 2.0, egui::Stroke::new(1.0, theme::glass(0.2)));
+        } else {
+            paint_cover(ui, art, &t.thumbs, thumb_r, 1.0);
+        }
         if ah > 0.0 {
-            ui.painter().rect_filled(art, theme::thumb_radius() + 1.0, theme::shade(0.45 * ah));
+            ui.painter().rect_filled(art, thumb_r, theme::shade(0.45 * ah));
             icon_at(ui, art.center(), icon::CHEVRON_UP, 22.0, theme::with_alpha(Color32::WHITE, ah));
         }
         if ar.clicked() {
@@ -742,30 +887,56 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         }
         let x = art.right() + 14.0;
         // Title, artists and the heart (about 48 px) end before the shuffle button.
-        let room = row.center().x - half - 18.0 - 14.0 - 48.0 - x;
+        let room = if song_middle { row.right() - 330.0 - x } else { row.center().x - half - 18.0 - 14.0 - 48.0 - x };
         let w = (row.width() * 0.3 - 110.0).max(80.0).min(room).max(40.0);
-        let tr = text_at(ui, pos2(x, cy - 19.0), &t.title, theme::semibold(15.0), theme::text(), w);
+        let tr = text_at(ui, pos2(x, cy - 19.0), &t.title, theme::weighted(chrome.bar_title_weight, chrome.bar_title_px), theme::text(), w);
         let tresp = ui.interact(tr, ui.scope_id().with("np-title"), Sense::click());
         if named(tresp, &t.title).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
             app.actions.push(Action::OpenNowPlaying(true));
         }
         let mut ax = x;
-        for (i, a) in t.artists.iter().enumerate() {
-            let s = if i + 1 < t.artists.len() { format!("{}, ", a.name) } else { a.name.clone() };
-            let r = text_at(ui, pos2(ax, cy + 2.0), &s, theme::regular(13.5), theme::text_dim(), (x + w - ax).max(10.0));
-            if let Some(id) = &a.id {
-                let resp = ui.interact(r, ui.scope_id().with(("artist", i)), Sense::click());
-                let resp = named(resp, &a.name).on_hover_cursor(egui::CursorIcon::PointingHand);
-                if resp.hovered() {
-                    ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, theme::text_dim()));
-                }
-                if resp.clicked() {
-                    app.actions.push(Action::Open(Target::Artist(id.clone())));
-                }
+        // A byline too long for its room scrolls while hovered, and still opens the artist.
+        let byline_font = theme::regular(chrome.bar_byline_px);
+        let byline_color = theme::with_alpha(theme::text_dim(), chrome.bar_byline_alpha);
+        let byline_area = Rect::from_min_size(pos2(x, cy + 2.0), vec2(w, chrome.bar_byline_px + 4.0));
+        let long = if chrome.byline_marquee && ui.rect_contains_pointer(byline_area) {
+            Some(ui.painter().layout_no_wrap(t.artist_line(), byline_font.clone(), byline_color)).filter(|g| g.size().x > w)
+        } else {
+            None
+        };
+        if let Some(g) = long {
+            const GAP: f32 = 40.0;
+            let cycle = g.size().x + GAP;
+            let shift = (now as f32 * 30.0) % cycle;
+            let clip = ui.painter().with_clip_rect(byline_area);
+            clip.galley(byline_area.min - vec2(shift, 0.0), g.clone(), byline_color);
+            clip.galley(byline_area.min + vec2(cycle - shift, 0.0), g, byline_color);
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
+            let resp = named(ui.interact(byline_area, ui.scope_id().with("byline"), Sense::click()), &t.artist_line()).on_hover_cursor(egui::CursorIcon::PointingHand);
+            if resp.clicked()
+                && let Some(id) = t.artists.first().and_then(|a| a.id.clone())
+            {
+                app.actions.push(Action::Open(Target::Artist(id)));
             }
-            ax = r.right();
-            if ax > x + w {
-                break;
+            ax = x + w;
+        } else {
+            for (i, a) in t.artists.iter().enumerate() {
+                let s = if i + 1 < t.artists.len() { format!("{}, ", a.name) } else { a.name.clone() };
+                let r = text_at(ui, pos2(ax, cy + 2.0), &s, theme::regular(chrome.bar_byline_px), theme::with_alpha(theme::text_dim(), chrome.bar_byline_alpha), (x + w - ax).max(10.0));
+                if let Some(id) = &a.id {
+                    let resp = ui.interact(r, ui.scope_id().with(("artist", i)), Sense::click());
+                    let resp = named(resp, &a.name).on_hover_cursor(egui::CursorIcon::PointingHand);
+                    if resp.hovered() {
+                        ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, theme::text_dim()));
+                    }
+                    if resp.clicked() {
+                        app.actions.push(Action::Open(Target::Artist(id.clone())));
+                    }
+                }
+                ax = r.right();
+                if ax > x + w {
+                    break;
+                }
             }
         }
         // Like: a heart right after the title/artist, filled red when liked.
@@ -791,8 +962,9 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
 
     // Centre: transport
     let accent = app.accent_color();
-    let center = pos2(row.center().x, cy);
+    let center = if song_middle { pos2(row.left() + 130.0, cy) } else { pos2(row.center().x, cy) };
     let ctl = |ui: &mut Ui, dx: f32, glyph: char, name: &str, active: bool, size: f32| -> bool {
+        let size = size * bar_scale;
         let r = Rect::from_center_size(center + vec2(dx, 0.0), Vec2::splat(size + 16.0));
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
         let resp = icon_button(&mut child, glyph, size, name, active);
@@ -877,7 +1049,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let r = Rect::from_center_size(pos2(rx - 18.0, cy), Vec2::splat(36.0));
         rx -= 40.0;
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
-        let resp = icon_button(&mut child, glyph, 18.0, name, active);
+        child.multiply_opacity(bar_rest);
+        let resp = icon_button(&mut child, glyph, 18.0 * bar_scale, name, active);
         if active {
             ui.painter().circle_filled(r.center_bottom() + vec2(0.0, 2.0), 2.0, accent);
         }
@@ -1069,7 +1242,9 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
         return;
     }
     let age = (now - shown) as f32;
-    let t = theme::ease_out(age / 0.25) * (1.0 - ((age - 4.1) / 0.4).clamp(0.0, 1.0));
+    let tl = app.look().app.toast_look.clone();
+    let hold = tl.secs.max(1.5);
+    let t = theme::ease_out(age / 0.25) * (1.0 - ((age - hold) / 0.4).clamp(0.0, 1.0));
     let screen = ctx.content_rect();
     egui::Area::new(egui::Id::unique("toast"))
         .order(egui::Order::Tooltip)
@@ -1079,8 +1254,12 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
         .show(ctx, |ui| {
             ui.set_opacity(t);
             egui::Frame::new()
-                .fill(theme::menu_fill())
-                .corner_radius(12)
+                .fill(match crate::preset::hex(&tl.color).filter(|_| !theme::light()) {
+                    Some(c) => theme::with_alpha(c, tl.alpha),
+                    None => theme::menu_fill(),
+                })
+                .stroke(egui::Stroke::new(tl.border[1], theme::glass(tl.border[0])))
+                .corner_radius(tl.radius.clamp(0.0, 40.0) as u8)
                 .inner_margin(egui::Margin::symmetric(18, 12))
                 .shadow(egui::epaint::Shadow { offset: [0, 8], blur: 24, spread: 0, color: theme::shade(0.45) })
                 .show(ui, |ui| {
@@ -1089,8 +1268,8 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
                 });
         });
     // Frames only while it fades in or out; in between it just waits.
-    if (0.25..4.1).contains(&age) {
-        ctx.request_repaint_after(std::time::Duration::from_secs_f32(4.1 - age));
+    if (0.25..hold).contains(&age) {
+        ctx.request_repaint_after(std::time::Duration::from_secs_f32(hold - age));
     } else {
         ctx.request_repaint();
     }

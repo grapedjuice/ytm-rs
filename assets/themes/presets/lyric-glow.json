@@ -15,12 +15,20 @@
     "reactive": 1.25,
     "audio_speed": 2.0,
     "scrim": 0.28,
-    "layer": { "opacity": 0.12 }
+    "layer": { "opacity": 0.12 },
+    "scrim_gradient": [0.06, 0.58],
+    "overlays": [
+      { "color": "#67d9ff", "alpha": 0.075, "x": 0.18, "y": 0.36, "rx": 0.44, "ry": 0.34 },
+      { "color": "#9b86ff", "alpha": 0.065, "x": 0.82, "y": 0.46, "rx": 0.49, "ry": 0.32 }
+    ],
+    "crossfade_secs": 1.4,
+    "beat_threshold": 0.82
   },
   "lyrics": {
     "weight": "semibold",
     "font": "SF Pro Display",
     "font_vw": [2.0, 3.02, 4.35],
+    "font_vw_steps": [[900, 1.75, 5.2, 2.9], [1280, 1.95, 3.35, 3.65], [1450, 1.9, 2.98, 3.95]],
     "line_height": 1.085,
     "letter_spacing_em": -0.037,
     "line_padding_rem": 1.8,
@@ -32,6 +40,16 @@
     "blur_transition": { "secs": 0.38 },
     "scroll_opacity": 0.61,
     "hover_reveal": true,
+    "hover_opacity": 1.0,
+    "hover_box": [0.05, 22],
+    "edge_fade": [0.17, 0.18],
+    "scale_ease": [0.16, 1.0, 0.3, 1.0],
+    "scale_exit_ease": [0.22, 0.78, 0.22, 1.0],
+    "line_fade_secs": 0.26,
+    "sweep_lead": 0.065,
+    "sweep_ratio": 1.3,
+    "glow_ratio": 0.84,
+    "glow_min_secs": 0.52,
     "rest_scale": 0.972,
     "active_scale": 1.012,
     "scale_secs": 0.41,
@@ -42,8 +60,13 @@
     "romanization_rem": 1.26,
     "romanization_alpha": 0.4,
     "romanization_pill": false,
+    "romanization_weight": "regular",
     "translation_rem": 1.26,
     "translation_alpha": 0.4,
+    "translation_weight": "regular",
+    "both_rem": [1.26, 1.08],
+    "background_alpha": 0.67,
+    "instrumental_chip": 0.055,
     "aura": [0.09, 40],
     "marker_px": [2, 14, 0.45, 18],
     "scroll_secs": 0.69,
@@ -56,14 +79,26 @@
     "shadow": 0.42,
     "shadow_blur": 80,
     "shadow_offset": 28,
-    "outline": [1, 0.06]
+    "outline": [1, 0.06],
+    "max_frac": 0.93
+  },
+  "now_playing": {
+    "panel_frac": [0.45, 0.41],
+    "tab_idle_alpha": 0.54,
+    "tab_px": 42,
+    "no_lyrics_text": "Lyrics unavailable"
   },
   "chrome": {
     "bar_color": "#0c0c0e",
     "progress_px": 3,
     "progress_color": "#67d9ff",
     "progress_radius": 1.5,
-    "progress_thumb": false
+    "progress_thumb": false,
+    "progress_track": 0.14,
+    "progress_gradient": ["#67d9ff", "#9b86ff", "#ff78ac"],
+    "thumb_disc_secs": 14,
+    "thumb_px": 32,
+    "bar_border_alpha": 0.12
   },
   "app": {
     "font": "SF Pro Display",
@@ -83,6 +118,14 @@
     "search_alpha": 0.075,
     "search_border": 0.065,
     "hide_scrollbars": true,
-    "frost": true
+    "frost": true,
+    "controls": { "press_scale": 0.92 },
+    "nav_item": { "radius": 11, "height": 44, "hover": 0.075, "selected": 0.13 },
+    "chip_look": { "height": 36, "fill": 0.075, "hover": 0.055, "selected_fill": "white", "selected_alpha": 0.94, "selected_text": "#111111" },
+    "card_look": { "image_zoom": 0.035, "image_dim": 0.12 },
+    "row_look": { "thumb_px": 42, "radius": 10, "hover": 0.075, "current": 0.105 },
+    "search_look": { "drop_radius": 16, "focus_color": "#3f7f96", "focus_ring": 3 },
+    "top_bar": { "band": [0.78, 82] },
+    "toast_look": { "color": "#18181b", "alpha": 0.92, "border": [0.1, 1], "radius": 14 }
   }
 }

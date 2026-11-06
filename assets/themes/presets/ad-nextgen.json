@@ -48,7 +48,7 @@
       ]
     ],
     "opacity_transition": {
-      "secs": 0.6
+      "secs": 0.4
     },
     "blur_transition": {
       "secs": 0.4
@@ -66,7 +66,18 @@
     "translation_alpha": 0.09,
     "scroll_secs": 0.4,
     "word_rise_px": 3.0,
-    "word_rise_secs": 0.4
+    "word_rise_secs": 0.4,
+    "line_fade_secs": 0.4,
+    "past_opacity_transition": {
+      "secs": 0.6
+    },
+    "past_blur_transition": {
+      "secs": 0.2
+    },
+    "both_rem": [
+      1.8,
+      1.5
+    ]
   },
   "cover": {
     "radius": 20,
@@ -76,12 +87,26 @@
     "outline": [
       1,
       0.08
+    ],
+    "shadow2": [
+      4,
+      8,
+      0.1
     ]
   },
   "now_playing": {
     "tabs": "strip",
     "title_align": "left",
-    "title_px": 25
+    "title_px": 25,
+    "tab_content": "both",
+    "tab_px": 44,
+    "tab_idle_alpha": 0.4,
+    "artist_alpha": 0.45,
+    "title_card": {
+      "fill": 0.04,
+      "stroke": 0.08,
+      "radius": 20
+    }
   },
   "chrome": {
     "radius": 16,
@@ -96,7 +121,20 @@
     "progress_at": "bottom",
     "progress_px": 2,
     "progress_color": "white",
-    "play_button": "bare"
+    "play_button": "bare",
+    "bar_max_px": 1200.0,
+    "thumb_px": 40,
+    "thumb_radius": 10,
+    "bar_title_px": 14,
+    "bar_byline_alpha": 0.55,
+    "bar_shadow": [
+      8,
+      32,
+      0.4
+    ],
+    "bar_border_alpha": 0.08,
+    "icon_scale": 0.75,
+    "icon_alpha": 0.5
   },
   "app": {
     "font": "SF Pro Display",
@@ -115,6 +153,79 @@
     "search_radius": 100,
     "search_border": 0.08,
     "hide_scrollbars": true,
-    "frost": true
+    "frost": true,
+    "all_bold": true,
+    "heading_px": 26,
+    "heading_weight": "bold",
+    "menu_color": "#121212",
+    "search_alpha": 0.5,
+    "controls": {
+      "press_scale": 0.95,
+      "button_fill": 0.06,
+      "button_hover": 0.06,
+      "ghost_outline": 0.12,
+      "accent_primary": true
+    },
+    "nav_item": {
+      "rail": true,
+      "rail_px": 125,
+      "rail_labels": true,
+      "hover": 0.1,
+      "radius": 6
+    },
+    "chip_look": {
+      "height": 34,
+      "fill": 0.1,
+      "hover": 0.05,
+      "selected_fill": "white",
+      "selected_text": "#000000",
+      "weight": "semibold"
+    },
+    "card_look": {
+      "hover_scale": 1.03,
+      "shadow": [
+        8,
+        24,
+        0.45
+      ],
+      "title_px": 14,
+      "title_weight": "semibold",
+      "subtitle_alpha": 0.55,
+      "image_outline": 0.12
+    },
+    "row_look": {
+      "height": 52,
+      "radius": 6,
+      "hover": 0.06,
+      "current": 0.08,
+      "current_color": "accent",
+      "separator": 0.04,
+      "hover_menu": true
+    },
+    "menu_look": {
+      "row_px": 36,
+      "hover": 0.1,
+      "alpha": 0.85,
+      "icon_right": true,
+      "shadow": [
+        12,
+        40,
+        0.5
+      ],
+      "row_radius": 0
+    },
+    "search_look": {
+      "max_px": 800,
+      "color": "#141414",
+      "drop_radius": 12
+    },
+    "top_bar": {
+      "capsule_px": 1400.0,
+      "capsule": [
+        0.55,
+        26
+      ]
+    },
+    "header_title_px": 32.0
   }
 }

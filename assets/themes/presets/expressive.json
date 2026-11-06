@@ -8,13 +8,21 @@
   "source": "Better Lyrics: decipher3114/better-lyrics-expressive 1.3.4",
   "lyrics": {
     "font": "Google Sans Flex",
-    "weight": "semibold"
+    "weight": "semibold",
+    "romanization_weight": "regular",
+    "translation_weight": "regular"
   },
   "cover": {
-    "radius": 12
+    "radius": 12,
+    "max_frac": 0.6
+  },
+  "now_playing": {
+    "title_weight": "regular"
   },
   "chrome": {
-    "bar_color": "#000000"
+    "bar_color": "#000000",
+    "bar_np_alpha": 0,
+    "bar_border_alpha": 0.2
   },
   "app": {
     "font": "Google Sans Flex",
@@ -22,6 +30,29 @@
     "panel_radius": 12,
     "menu_radius": 10,
     "menu_border": 0.2,
-    "menu_color": "#000000"
+    "menu_color": "#000000",
+    "heading_weight": "semibold",
+    "row_look": {
+      "radius": 8,
+      "current": 0.12
+    },
+    "menu_look": {
+      "row_px": 32,
+      "hover": 0.1,
+      "row_radius": 6,
+      "shadow": [
+        8,
+        28,
+        0.7
+      ]
+    },
+    "toggle_look": {
+      "size": [
+        40,
+        22
+      ],
+      "knob": 16,
+      "outline": true
+    }
   }
 }

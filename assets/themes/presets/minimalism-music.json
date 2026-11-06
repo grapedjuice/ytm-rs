@@ -1,7 +1,9 @@
 {
   "id": "minimalism-music",
   "name": "Minimalism Music",
-  "creators": ["notacoderlols"],
+  "creators": [
+    "notacoderlols"
+  ],
   "blurb": "An Apple Music-inspired look: very large SF Pro lyrics, sung lines that vanish, a flat 75% for the lines ahead and a still, dimmed blurred cover behind.",
   "source": "Better Lyrics: notacoderlols/Minimalisic-Music 1.0.0",
   "background": {
@@ -11,37 +13,108 @@
   "lyrics": {
     "weight": "semibold",
     "font": "SF Pro Display",
-    "font_rem": [[0, 3.0], [1400, 4.0], [1600, 5.0], [1800, 6.0]],
+    "font_rem": [
+      [
+        0,
+        3.0
+      ],
+      [
+        1400,
+        4.0
+      ],
+      [
+        1600,
+        5.0
+      ],
+      [
+        1800,
+        6.0
+      ]
+    ],
     "line_padding_rem": 0.5,
-    "padding_inline": [20, 10],
-    "past": [[0.0, 0.0]],
-    "upcoming": [[0.75, 0.0]],
-    "opacity_transition": { "frac": 0.5, "secs": 0.0, "delay": 0.166 },
-    "blur_transition": { "frac": 0.3333, "secs": 0.0, "delay": 0.4 },
+    "padding_inline": [
+      20,
+      10
+    ],
+    "past": [
+      [
+        0.0,
+        0.0
+      ]
+    ],
+    "upcoming": [
+      [
+        0.75,
+        0.0
+      ]
+    ],
+    "opacity_transition": {
+      "frac": 0.5,
+      "secs": 0.0,
+      "delay": 0.166
+    },
+    "blur_transition": {
+      "frac": 0.3333,
+      "secs": 0.0,
+      "delay": 0.4
+    },
     "hover_reveal": true,
     "hover_scale": 1.01,
-    "letter_wave": { "on": false },
+    "letter_wave": {
+      "on": false
+    },
     "wobble": false,
     "glow_alpha": 0.0,
     "long_glow_alpha": 1.0,
     "background_em": 1.0,
+    "background_alpha": 0.75,
+    "background_weight": "bold",
     "romanization_rem": 1.6,
     "romanization_pill": false,
+    "romanization_weight": "bold",
     "translation_rem": 1.6,
-    "instrumental": "dots"
+    "translation_weight": "bold",
+    "instrumental": "dots",
+    "instrumental_breathe": [
+      1,
+      1.14,
+      3
+    ],
+    "line_fade_secs": 2.25
   },
   "cover": {
     "radius": 10,
     "size_vh": 0.5,
-    "outline": [1, 0.1]
+    "outline": [
+      1,
+      0.1
+    ],
+    "fullscreen": {
+      "size_vh": 0.6
+    },
+    "open_scale": 0.9
+  },
+  "now_playing": {
+    "switch": {
+      "back": 0,
+      "selected": 0.1
+    },
+    "panel_frac": [
+      0.4,
+      0.4
+    ],
+    "no_lyrics_text": "You'll have to guess the lyrics for this one."
   },
   "chrome": {
     "hide_volume": true,
     "progress_color": "white",
-    "progress_radius": 100
+    "progress_radius": 100,
+    "bar_layout": "song_left",
+    "byline_marquee": true
   },
   "app": {
     "font": "SF Pro Display",
+    "all_bold": true,
     "hide_scrollbars": true
   }
 }

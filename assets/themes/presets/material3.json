@@ -31,7 +31,12 @@
       "delay": 0.35
     },
     "translation_alpha": 0.8,
-    "instrumental": "ring"
+    "instrumental": "ring",
+    "balance": true,
+    "instrumental_rem": 5.6
+  },
+  "now_playing": {
+    "tabs": "strip"
   },
   "chrome": {
     "play_button": "bare"
@@ -41,6 +46,31 @@
     "bar_alpha": 0.0,
     "card_radius": 20,
     "hover": 0.0,
-    "search_radius": 28
+    "search_radius": 28,
+    "menu_color": "#271d1c",
+    "page_rise_px": 8,
+    "page_wash": [
+      0.18,
+      900
+    ],
+    "page_wash_color": "#8b4b2e",
+    "search_alpha": 1.0,
+    "search_look": {
+      "height": 48,
+      "color": "#322826",
+      "drop_radius": 28
+    },
+    "nav_item": {
+      "radius": 24,
+      "height": 48,
+      "hover": 0.08,
+      "selected": 0.12
+    },
+    "chip_look": {
+      "fill": 0.1,
+      "hover": 0.05,
+      "selected_fill": "#4b5429",
+      "selected_alpha": 1.0
+    }
   }
 }

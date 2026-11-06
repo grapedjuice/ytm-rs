@@ -50,11 +50,32 @@
     "max_px": 520,
     "shadow": 0.2,
     "shadow_blur": 16,
-    "shadow_offset": 4
+    "shadow_offset": 4,
+    "fullscreen": {}
   },
   "app": {
     "font": "Google Sans",
     "card_radius": 24,
-    "chip_radius": 5
+    "chip_radius": 5,
+    "scrollbar": [
+      6,
+      0.2
+    ],
+    "chip_look": {
+      "height": 26,
+      "fill": 0.15
+    }
+  },
+  "now_playing": {
+    "tabs": "strip",
+    "tab_back": [
+      0.15,
+      8
+    ],
+    "tab_px": 40,
+    "switch": {
+      "back": 0.1,
+      "radius": 16
+    }
   }
 }

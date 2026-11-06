@@ -17,13 +17,27 @@
     "opacity_transition": {
       "frac": 0,
       "secs": 0.5,
-      "delay": 0.35
+      "delay": 0
     },
     "blur_transition": {
       "frac": 0,
       "secs": 0.5,
+      "delay": 0
+    },
+    "past_opacity_transition": {
+      "frac": 0,
+      "secs": 0.5,
       "delay": 0.35
-    }
+    },
+    "past_blur_transition": {
+      "frac": 0,
+      "secs": 0.5,
+      "delay": 0.35
+    },
+    "credits_alpha": [
+      -1,
+      -1
+    ]
   },
   "cover": {
     "shape": "record",
@@ -45,5 +59,11 @@
   },
   "chrome": {
     "progress_color": "#c4c4c4"
+  },
+  "app": {
+    "toast_look": {
+      "color": "#3c3c3c",
+      "alpha": 0.9
+    }
   }
 }

@@ -187,6 +187,40 @@ struct Cfg {
     /// `--blyrics-glow-color` alpha on the container and on held words.
     glow_alpha: f32,
     long_glow_alpha: f32,
+    line_ease: Option<Bezier>,
+    past_op_t: Option<Timing>,
+    past_blur_t: Option<Timing>,
+    active_op_t: Option<Timing>,
+    active_blur_t: Option<Timing>,
+    pre_sharp: f64,
+    active_op: f32,
+    active_op_lines: f32,
+    scroll_scale: Option<f32>,
+    hover_op: Option<f32>,
+    hover_box: Option<[f32; 2]>,
+    scale_ease: Bezier,
+    scale_exit_ease: Bezier,
+    line_enter: Option<[f32; 2]>,
+    word_rest_scale: f32,
+    word_gap: f32,
+    word_shadow: Option<[f32; 2]>,
+    sweep_lead: f64,
+    sweep_ratio: f64,
+    glow_ratio: f64,
+    glow_min: f64,
+    bg_alpha: f32,
+    bg_weight: Weight,
+    roman_weight: Weight,
+    roman_family: Option<String>,
+    trans_weight: Weight,
+    trans_family: Option<String>,
+    both_rem: Option<[f32; 2]>,
+    inst_rem: Option<f32>,
+    breathe: Option<[f32; 3]>,
+    inst_chip: Option<f32>,
+    credits_alpha: [f32; 2],
+    edge_fade: [f32; 2],
+    balance: bool,
 }
 
 /// `GLOW_INVISIBLE_ALPHA`: a glow colour this faint renders nothing and is skipped.
@@ -207,7 +241,8 @@ impl Cfg {
     fn new(s: &LyricStyle, accent: Color32, width: f32, viewport: f32, centered: bool, scale: f32, fullscreen: bool) -> Self {
         let mut rem = s.rem;
         let steps = s.font_rem.iter().filter(|st| viewport >= st[0]).map(|st| st[1]).next_back();
-        let step = match s.font_vw {
+        let vw_step = s.font_vw_steps.iter().find(|st| viewport < st[0]).map(|st| [st[1], st[2], st[3]]).or(s.font_vw);
+        let step = match vw_step {
             Some([lo, vw, hi]) => (viewport * vw / 100.0 / rem).clamp(lo, hi),
             None => steps.or(s.font_rem.first().map(|st| st[1])).unwrap_or(3.0),
         };
@@ -231,7 +266,7 @@ impl Cfg {
             weight: s.weight,
             size,
             rem,
-            active: crate::preset::paint(&s.sung_color, accent),
+            active: theme::with_alpha(crate::preset::paint(&s.sung_color, accent), s.active_alpha),
             dim_alpha: s.dim_alpha,
             glow: crate::preset::paint(&s.glow_color, accent),
             glow_rem: s.glow_rem,
@@ -240,7 +275,7 @@ impl Cfg {
             scale_secs: s.scale_secs.max(0.001) as f64,
             hover_scale: s.hover_scale,
             hover_reveal: s.hover_reveal,
-            padding: rem * s.line_padding_rem,
+            padding: rem * if fullscreen { s.fullscreen_padding_rem.unwrap_or(s.line_padding_rem) } else { s.line_padding_rem },
             line_height: s.line_height,
             spacing: s.letter_spacing_em * size,
             target_ratio: s.anchor.clamp(0.1, 0.7),
@@ -288,10 +323,48 @@ impl Cfg {
             pad: (s.padding_inline[0] * rem / 10.0, s.padding_inline[1] * rem / 10.0),
             glow_alpha: s.glow_alpha,
             long_glow_alpha: s.long_glow_alpha,
+            line_ease: s.line_ease.map(|e| Bezier(e[0], e[1], e[2], e[3])),
+            past_op_t: s.past_opacity_transition,
+            past_blur_t: s.past_blur_transition,
+            active_op_t: s.active_opacity_transition,
+            active_blur_t: s.active_blur_transition,
+            pre_sharp: s.pre_sharp_secs as f64,
+            active_op: s.active_opacity,
+            active_op_lines: s.active_opacity_line_synced.unwrap_or(s.active_opacity),
+            scroll_scale: s.scroll_scale,
+            hover_op: s.hover_opacity,
+            hover_box: s.hover_box,
+            scale_ease: s.scale_ease.map_or(EASE, |e| Bezier(e[0], e[1], e[2], e[3])),
+            scale_exit_ease: s.scale_exit_ease.or(s.scale_ease).map_or(EASE, |e| Bezier(e[0], e[1], e[2], e[3])),
+            line_enter: s.line_enter,
+            word_rest_scale: s.word_rest_scale,
+            word_gap: s.word_gap_em * size,
+            word_shadow: s.word_shadow,
+            sweep_lead: s.sweep_lead as f64,
+            sweep_ratio: s.sweep_ratio.max(0.01) as f64,
+            glow_ratio: s.glow_ratio as f64,
+            glow_min: s.glow_min_secs as f64,
+            bg_alpha: s.background_alpha,
+            bg_weight: s.background_weight,
+            roman_weight: s.romanization_weight,
+            roman_family: (!s.romanization_font.is_empty()).then(|| theme::effective_font(&s.romanization_font)),
+            trans_weight: s.translation_weight,
+            trans_family: (!s.translation_font.is_empty()).then(|| theme::effective_font(&s.translation_font)),
+            both_rem: s.both_rem,
+            inst_rem: s.instrumental_rem,
+            breathe: s.instrumental_breathe,
+            inst_chip: s.instrumental_chip,
+            credits_alpha: s.credits_alpha,
+            edge_fade: s.edge_fade,
+            balance: s.balance,
         }
     }
     fn rem(&self) -> f32 {
         self.rem
+    }
+    /// The break's icon, across.
+    fn inst_em(&self) -> f32 {
+        self.inst_rem.map_or(self.size, |r| r * self.rem)
     }
     fn line_h(&self) -> f32 {
         self.size * self.line_height
@@ -309,13 +382,16 @@ impl Cfg {
         theme::lyric_font_for(&self.font, self.weight, self.size, text)
     }
     fn bg_font(&self, text: &str) -> FontId {
-        theme::lyric_font_for(&self.font, Weight::Semibold, self.size * self.bg_em, text)
+        theme::lyric_font_for(&self.font, self.bg_weight, self.size * self.bg_em, text)
     }
-    fn roman_font(&self, text: &str) -> FontId {
-        theme::lyric_font_for(&self.font, Weight::Semibold, self.rem() * self.roman_rem, text)
+    /// `both`: the line has a romanization and a translation.
+    fn roman_font(&self, text: &str, both: bool) -> FontId {
+        let rem = self.both_rem.filter(|_| both).map_or(self.roman_rem, |b| b[0]);
+        theme::lyric_font_for(self.roman_family.as_ref().unwrap_or(&self.font), self.roman_weight, self.rem() * rem, text)
     }
-    fn trans_font(&self, text: &str) -> FontId {
-        theme::lyric_font_for(&self.font, Weight::Semibold, self.rem() * self.trans_rem, text)
+    fn trans_font(&self, text: &str, both: bool) -> FontId {
+        let rem = self.both_rem.filter(|_| both).map_or(self.trans_rem, |b| b[1]);
+        theme::lyric_font_for(self.trans_family.as_ref().unwrap_or(&self.font), self.trans_weight, self.rem() * rem, text)
     }
 }
 
@@ -408,6 +484,7 @@ struct Layout {
 }
 
 /// A whitespace run or a piece of a part (`splitPartIntoTokens`).
+#[derive(Clone)]
 struct Tok {
     text: String,
     start: f64,
@@ -491,7 +568,7 @@ fn text_size(fonts: &mut FontsView<'_>, s: &str, font: &FontId) -> Vec2 {
 
 /// `rtl`: the line reads right to left, so each row is laid out from the right.
 #[allow(clippy::too_many_arguments)]
-fn flow(fonts: &mut FontsView<'_>, toks: Vec<Tok>, font: &FontId, max_w: f32, line_h: f32, align: Align, rtl: bool, spacing: f32) -> Flow {
+fn flow(fonts: &mut FontsView<'_>, toks: Vec<Tok>, font: &FontId, max_w: f32, line_h: f32, align: Align, rtl: bool, spacing: f32, gap: f32) -> Flow {
     // `groupTokensByWord`
     enum Item {
         Space,
@@ -522,7 +599,7 @@ fn flow(fonts: &mut FontsView<'_>, toks: Vec<Tok>, font: &FontId, max_w: f32, li
             _ => items.push(Item::Group(vec![t])),
         }
     }
-    let space_w = text_size(fonts, " ", font).x.max(font.size * 0.25);
+    let space_w = text_size(fonts, " ", font).x.max(font.size * 0.25) + gap;
     let mut words: Vec<Word> = Vec::new();
     let mut groups: Vec<Group> = Vec::new();
     let mut rows: Vec<(usize, f32)> = vec![(0, 0.0)]; // (first word index, width)
@@ -636,6 +713,39 @@ fn hash<T: std::hash::Hash>(v: T) -> u64 {
     h.finish()
 }
 
+/// `text-wrap: balance`: as narrow as the line goes in the same number of rows. Only when
+/// a line is laid out, so it costs nothing per frame.
+#[allow(clippy::too_many_arguments)]
+fn balanced(fonts: &mut FontsView<'_>, toks: Vec<Tok>, font: &FontId, max_w: f32, line_h: f32, align: Align, rtl: bool, cfg: &Cfg) -> Flow {
+    let full = flow(fonts, toks.clone(), font, max_w, line_h, align, rtl, cfg.spacing, cfg.word_gap);
+    let rows = (full.height / line_h.max(1.0)).round() as i32;
+    if rows < 2 {
+        return full;
+    }
+    let (mut lo, mut hi, mut best) = (max_w / rows as f32, max_w, None);
+    for _ in 0..6 {
+        let mid = (lo + hi) * 0.5;
+        let f = flow(fonts, toks.clone(), font, mid, line_h, align, rtl, cfg.spacing, cfg.word_gap);
+        if (f.height / line_h.max(1.0)).round() as i32 == rows {
+            hi = mid;
+            best = Some((f, mid));
+        } else {
+            lo = mid;
+        }
+    }
+    let Some((mut f, w)) = best else { return full };
+    // Laid out in the narrower measure: back to the column's edge or centre.
+    let dx = match align {
+        Align::Left => 0.0,
+        Align::Right => max_w - w,
+        Align::Center => (max_w - w) * 0.5,
+    };
+    for word in &mut f.words {
+        word.pos.x += dx;
+    }
+    f
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, width: f32, roman: Option<Roman>, trans: Option<&str>, agent: Option<&str>) -> Block {
     let em = cfg.size;
@@ -688,7 +798,7 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
     let (main, bg): (Vec<Tok>, Vec<Tok>) = toks.into_iter().partition(|t| !t.bg);
     let joined = |toks: &[Tok]| toks.iter().map(|t| t.text.as_str()).collect::<String>();
     let font = cfg.main_font(&joined(&main));
-    let f = flow(fonts, main, &font, content_w, line_h, align, rtl, cfg.spacing);
+    let f = if cfg.balance { balanced(fonts, main, &font, content_w, line_h, align, rtl, cfg) } else { flow(fonts, main, &font, content_w, line_h, align, rtl, cfg.spacing, cfg.word_gap) };
     for w in f.words {
         block.words.push(Word { pos: w.pos + vec2(0.0, y), ..w });
     }
@@ -699,7 +809,7 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
         let base = block.words.len();
         let g0 = block.groups.len();
         let font = cfg.bg_font(&joined(&bg));
-        let f = flow(fonts, bg, &font, content_w, line_h, align, rtl, cfg.spacing * cfg.bg_em);
+        let f = flow(fonts, bg, &font, content_w, line_h, align, rtl, cfg.spacing * cfg.bg_em, cfg.word_gap * cfg.bg_em);
         for w in f.words {
             block.words.push(Word { pos: w.pos + vec2(0.0, y), group: w.group + g0, ..w });
         }
@@ -707,6 +817,7 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
         y += f.height;
     }
     let gap = em / 6.0; // margin-top: 8px at 48 px
+    let both = roman.is_some() && trans.is_some();
     if let Some(r) = roman {
         y += gap;
         let pad = vec2(cfg.rem() * 0.75, cfg.rem() * 0.25);
@@ -714,13 +825,13 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
         let (body, inner, id) = match r {
             Roman::Timed(parts, text) => {
                 let toks: Vec<Tok> = parts.iter().flat_map(split_part).collect();
-                let font = cfg.roman_font(text);
+                let font = cfg.roman_font(text, both);
                 let lh = fonts.row_height(&font);
-                let f = flow(fonts, toks, &font, inner_w, lh, Align::Left, false, 0.0);
+                let f = flow(fonts, toks, &font, inner_w, lh, Align::Left, false, 0.0, 0.0);
                 (DecoBody::Timed { words: f.words, groups: f.groups }, vec2(f.width, f.height), hash(("rt", text)))
             }
             Roman::Text(t) => {
-                let font = cfg.roman_font(t);
+                let font = cfg.roman_font(t, both);
                 let g = fonts.layout(t.to_owned(), font.clone(), Color32::WHITE, inner_w);
                 (DecoBody::Text(t.to_owned(), font), g.size(), hash(("r", t)))
             }
@@ -742,7 +853,7 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
     }
     if let Some(t) = trans {
         y += gap;
-        let font = cfg.trans_font(t);
+        let font = cfg.trans_font(t, both);
         let g = fonts.layout(t.to_owned(), font.clone(), Color32::WHITE, content_w);
         let x = match align {
             Align::Left => 0.0,
@@ -807,6 +918,8 @@ struct Trans {
     dur: f64,
     delay: f64,
     init: bool,
+    /// The theme's curve; `None`: CSS `ease`.
+    ease: Option<Bezier>,
 }
 
 impl Trans {
@@ -815,15 +928,15 @@ impl Trans {
             return self.to;
         }
         let p = ((now - self.start - self.delay) / self.dur.max(1e-3)).clamp(0.0, 1.0) as f32;
-        lerp(self.from, self.to, EASE.at(p))
+        lerp(self.from, self.to, self.ease.unwrap_or(EASE).at(p))
     }
 
-    fn set(&mut self, to: f32, now: f64, dur: f64, delay: f64) {
+    fn set(&mut self, to: f32, now: f64, dur: f64, delay: f64, ease: Option<Bezier>) {
         if !self.init {
-            *self = Trans { from: to, to, start: now, dur, delay, init: true };
+            *self = Trans { from: to, to, start: now, dur, delay, init: true, ease };
         } else if (to - self.to).abs() > 1e-4 {
             let from = self.value(now);
-            *self = Trans { from, to, start: now, dur, delay, init: true };
+            *self = Trans { from, to, start: now, dur, delay, init: true, ease };
         }
     }
 
@@ -1114,7 +1227,10 @@ impl View {
             let content = pos2(x0 + cfg.size * 0.25, top);
 
             if let Some((text, font)) = &b.credits {
-                let a = if credits_focused { 0.85 } else { 0.2 };
+                let a = cfg.credits_alpha[usize::from(credits_focused)];
+                if a < 0.0 {
+                    continue;
+                }
                 let a = theme::anim(&ctx, ("lyr-credits", f.key), a, 0.35);
                 let o = transform_origin(block_rect, b.align, content.x);
                 let g = ctx.fonts_mut(|fv| fv.layout(text.clone(), font.clone(), Color32::WHITE, line_w - cfg.size * 0.5));
@@ -1134,7 +1250,11 @@ impl View {
                 Some(a) => i < a,
                 None => lines_n > 0 && t >= layout.blocks[0].start,
             };
-            let target = if (hovered && cfg.hover_reveal) || on {
+            let line_timed = !richsync;
+            let pre = cfg.pre_sharp > 0.0 && !on && t < b.start && t >= b.start - cfg.pre_sharp;
+            let target = if on {
+                (if line_timed { cfg.active_op_lines } else { cfg.active_op }, 0.0)
+            } else if (hovered && cfg.hover_reveal) || pre {
                 (1.0, 0.0)
             } else if user {
                 (cfg.scroll_opacity, 0.0)
@@ -1148,19 +1268,37 @@ impl View {
                     _ => (1.0, 0.0),
                 }
             };
+            // A hovered line's opacity alone: its blur stays.
+            let target = match cfg.hover_op {
+                Some(o) if hovered && !on => (o, target.1),
+                _ => target,
+            };
             let line_s = b.dur as f32;
             let (op_t, blur_t) = if hovered && cfg.hover_reveal {
                 // `:hover { transition: all 0.3s ease }`
                 ((0.3, 0.0), (0.3, 0.0))
             } else {
                 let timing = |x: Timing| ((line_s * x.frac + x.secs) as f64, x.delay as f64);
-                (timing(cfg.opacity_t), timing(cfg.blur_t))
+                // A theme may time lines turning active and turning past on their own.
+                let (o, b) = if on {
+                    (cfg.active_op_t, cfg.active_blur_t)
+                } else if is_past {
+                    (cfg.past_op_t, cfg.past_blur_t)
+                } else {
+                    (None, None)
+                };
+                (timing(o.unwrap_or(cfg.opacity_t)), timing(b.unwrap_or(cfg.blur_t)))
             };
             let s = &mut self.states[i];
-            s.opacity.set(target.0, f.now, op_t.0, op_t.1);
-            s.blur.set(target.1, f.now, blur_t.0, blur_t.1);
+            s.opacity.set(target.0, f.now, op_t.0, op_t.1, cfg.line_ease);
+            s.blur.set(target.1, f.now, blur_t.0, blur_t.1, cfg.line_ease);
             animating |= s.opacity.moving(f.now) || s.blur.moving(f.now);
             let (opacity, blur) = (s.opacity.value(f.now), s.blur.value(f.now));
+            // Fading out toward the view's edges.
+            let edge_y = top + b.height * 0.5;
+            let opacity = opacity
+                * if cfg.edge_fade[0] > 0.0 { ((edge_y - rect.top()) / (rect.height() * cfg.edge_fade[0])).clamp(0.0, 1.0) } else { 1.0 }
+                * if cfg.edge_fade[1] > 0.0 { ((rect.bottom() - edge_y) / (rect.height() * cfg.edge_fade[1])).clamp(0.0, 1.0) } else { 1.0 };
             let dim = match (cfg.reveal_dim, cfg.past_dim) {
                 (Some(d), _) if user || hovered => d,
                 (_, Some(d)) if is_past && !on => d,
@@ -1175,12 +1313,14 @@ impl View {
             // a theme's hover scale on lines not being sung.
             let mut scale = cfg.scale;
             if st.selected && t >= b.start {
-                scale = lerp(cfg.scale, cfg.active_scale, EASE.at(((t - b.start) / cfg.scale_secs) as f32));
+                scale = lerp(cfg.scale, cfg.active_scale, cfg.scale_ease.at(((t - b.start) / cfg.scale_secs) as f32));
             } else if let Some(e) = st.exit {
-                scale = lerp(cfg.active_scale, cfg.scale, EASE.at(((f.now - e) / cfg.scale_secs) as f32));
+                scale = lerp(cfg.active_scale, cfg.scale, cfg.scale_exit_ease.at(((f.now - e) / cfg.scale_secs) as f32));
             } else if let Some(h) = cfg.hover_scale {
                 let k = theme::anim_bool(&ctx, ("lyr-hover", f.key, i), hovered, 0.3);
                 scale = lerp(cfg.scale, h, EASE.at(k));
+            } else if let Some(ss) = cfg.scroll_scale.filter(|_| user) {
+                scale = ss;
             }
             if st.selected && t >= b.start && t < b.start + cfg.scale_secs {
                 animating = true;
@@ -1191,7 +1331,23 @@ impl View {
                 (Some([rem, secs]), Some(e)) => content + vec2(rem * cfg.rem() * EASE.at(((f.now - e) / secs.max(0.01) as f64) as f32), 0.0),
                 _ => content,
             };
+            // A line becoming active sliding in, other singers' from the other side.
+            let content = match cfg.line_enter {
+                Some([rem, secs]) if st.selected && t >= b.start && t < b.start + secs as f64 => {
+                    animating = true;
+                    let k = 1.0 - EASE.at(((t - b.start) / secs.max(0.01) as f64) as f32);
+                    let side = if b.align == Align::Right { 1.0 } else { -1.0 };
+                    content + vec2(side * rem * cfg.rem() * k, 0.0)
+                }
+                _ => content,
+            };
             let xf = Xf { origin, scale, content };
+            if let Some([a, r]) = cfg.hover_box {
+                let k = theme::anim_bool(&ctx, ("lyr-hover-box", f.key, i), hovered && !on, 0.2);
+                if k > 0.0 {
+                    painter.rect_filled(block_rect.shrink2(vec2(0.0, cfg.padding * 0.4)), r * cfg.rem() / 10.0, theme::glass(a * k));
+                }
+            }
             if on && !b.instrumental {
                 let px = cfg.rem() / 10.0;
                 if let Some([a, bleed]) = cfg.aura {
@@ -1204,7 +1360,29 @@ impl View {
             }
 
             if b.instrumental {
-                animating |= paint_instrumental(&painter, &mut self.glow, &ctx, &cfg, b, &xf, t, f.now, st, dim * opacity, line_w - cfg.size * 0.5);
+                let em = cfg.inst_em();
+                let ix = match b.align {
+                    Align::Left => em * 0.5,
+                    Align::Right => line_w - cfg.size * 0.5 - em * 0.5,
+                    Align::Center => (line_w - cfg.size * 0.5) * 0.5,
+                };
+                let at = pos2(ix, cfg.padding + cfg.line_h() * 0.5);
+                if let Some(a) = cfg.inst_chip {
+                    let c = xf.point(at);
+                    painter.circle_filled(c, em * 0.95 * scale, theme::glass(a * opacity));
+                    painter.circle_stroke(c, em * 0.95 * scale, egui::Stroke::new(1.0, theme::glass(a * opacity)));
+                }
+                // Breathing, about its own middle.
+                let bxf = match cfg.breathe.filter(|_| on) {
+                    Some([lo, hi, secs]) => {
+                        animating = true;
+                        let k = lerp(lo, hi, 0.5 - 0.5 * (f.now as f32 * std::f32::consts::TAU / secs.max(0.1)).cos());
+                        let c = xf.point(at);
+                        Xf { origin: pos2(c.x + (xf.origin.x - c.x) * k, c.y + (xf.origin.y - c.y) * k), scale: scale * k, content }
+                    }
+                    None => xf,
+                };
+                animating |= paint_instrumental(&painter, &mut self.glow, &ctx, &cfg, b, &bxf, t, f.now, st, dim * opacity, line_w - cfg.size * 0.5);
             } else if blur > 0.05 {
                 // `filter: blur()` on the whole line: its text, romanization and translation.
                 let r = (blur * 4.0).round() / 4.0;
@@ -1228,7 +1406,7 @@ impl View {
                         DecoBody::Timed { .. } => None,
                     })
                     .collect();
-                let words: Vec<(&Word, f32)> = b.words.iter().map(|w| (w, if w.bg { dim * 0.78 } else { dim })).chain(deco_words).collect();
+                let words: Vec<(&Word, f32)> = b.words.iter().map(|w| (w, if w.bg { dim * cfg.bg_alpha } else { dim })).chain(deco_words).collect();
                 // The romanization pill is part of the line, so it's blurred with it.
                 let pills: Vec<(Rect, f32)> = b.decos.iter().filter(|d| d.pill).map(|d| (d.rect, cfg.rem())).collect();
                 if let Some((tex, rr, uv)) = self.glow.blurred_line(&ctx, (f.key, i), r, &words, &texts, &pills, scale, atlas, ppp) {
@@ -1621,21 +1799,21 @@ fn word_look(w: &Word, lit: &LitState, cfg: &Cfg) -> WordLook {
             // Line: the line-synced fade.
             let d = if lit.fill == Fill::Word { 0.18 } else { cfg.line_fade };
             let p = EASE.at((e / d) as f32);
-            WordLook { glow: glow_radius(e, GLOW_MIN, glow_rem), ..full(p) }
+            WordLook { glow: glow_radius(e, cfg.glow_min, glow_rem), ..full(p) }
         }
         Fill::Sweep if w.line_synced => {
             let p = EASE.at((e / cfg.line_fade) as f32);
-            WordLook { glow: glow_radius(e, GLOW_MIN, glow_rem), ..full(p) }
+            WordLook { glow: glow_radius(e, cfg.glow_min, glow_rem), ..full(p) }
         }
         Fill::Sweep => {
             let d = w.dur.max(0.0);
-            let sd = d * SWIPE_DURATION;
-            let p = if sd <= 0.0 { 1.0 } else { ((e + d * SWIPE_LEAD) / sd).clamp(0.0, 1.0) as f32 };
+            let sd = d * cfg.sweep_ratio;
+            let p = if sd <= 0.0 { 1.0 } else { ((e + d * cfg.sweep_lead) / sd).clamp(0.0, 1.0) as f32 };
             WordLook {
                 opacity: 1.0,
                 start: lerp(SWIPE_START.0, SWIPE_START.1, p),
                 end: lerp(SWIPE_END.0, SWIPE_END.1, p),
-                glow: glow_radius(e, (d * GLOW_RATIO).max(GLOW_MIN), glow_rem),
+                glow: glow_radius(e, (d * cfg.glow_ratio).max(cfg.glow_min), glow_rem),
                 glow_alpha,
             }
         }
@@ -1742,6 +1920,8 @@ fn word_glyphs(ctx: &egui::Context, w: &Word, lit: &LitState, cfg: &Cfg, wob: Op
     let em = w.font.size;
     // Resting low until sung, then gliding up.
     let rise = if cfg.rise_px > 0.0 && !w.line_synced { cfg.rise_px * (1.0 - EASE.at((e.max(0.0) / cfg.rise_secs) as f32)) } else { 0.0 };
+    // Resting a little small until sung.
+    let rest = if cfg.word_rest_scale < 1.0 && !w.line_synced { lerp(cfg.word_rest_scale, 1.0, EASE.at((e.max(0.0) / cfg.rise_secs) as f32)) } else { 1.0 };
     let bounce = cfg.bounce.filter(|_| lit.live && lit.exit.is_none() && !w.line_synced).map(|b| word_bounce(e, &b));
     let mut out = Vec::with_capacity(n);
     let mut k = 0;
@@ -1754,6 +1934,10 @@ fn word_glyphs(ctx: &egui::Context, w: &Word, lit: &LitState, cfg: &Cfg, wob: Op
                 continue;
             }
             let mut r = Rect::from_min_size(w.pos + row.pos.to_vec2() + gl.pos.to_vec2() + uv.offset + vec2(w.spacing * idx as f32, rise), uv.size);
+            if rest < 1.0 {
+                let c = pos2(w.pos.x + w.w * 0.5, w.pos.y + w.h * 0.5);
+                r = Rect::from_min_max(c + (r.min - c) * rest, c + (r.max - c) * rest);
+            }
             if let Some(b) = bounce {
                 // The word moves as one, about its centre.
                 let c = pos2(w.pos.x + w.w * 0.5, w.pos.y + w.h * 0.5);
@@ -1866,7 +2050,16 @@ fn paint_words(
             None
         };
         let quads = word_glyphs(ctx, w, lit, cfg, wob, atlas);
-        let dim_c = if w.bg { dim * 0.78 } else { dim } * opacity;
+        let dim_c = if w.bg { dim * cfg.bg_alpha } else { dim } * opacity;
+        // A soft shadow: two faint copies, so it's no more than a little extra geometry.
+        if let Some([down, a]) = cfg.word_shadow {
+            let k = cfg.rem() / 10.0;
+            for (d, part) in [(down * 0.6, 0.6), (down * 1.2, 0.4)] {
+                for q in &quads {
+                    push_quad(&mut base, xf.rect(q.rect.translate(vec2(0.0, d * k))), q.uv, theme::shade(a * part * opacity), &|_| 1.0, &no_cut);
+                }
+            }
+        }
         for q in &quads {
             push_quad(&mut base, xf.rect(q.rect), q.uv, theme::with_alpha(tints.1, dim_c), &|_| 1.0, &no_cut);
         }
@@ -1943,7 +2136,7 @@ fn paint_break(painter: &egui::Painter, cfg: &Cfg, b: &Block, xf: &Xf, t: f64, n
     if let Some(x) = st.exit {
         lit = 1.0 - EASE.at(((now - x) / FADE_OUT) as f32);
     }
-    let em = cfg.size;
+    let em = cfg.inst_em();
     let r = em * 0.14;
     let total = r * 7.0;
     let x0 = match b.align {
@@ -2579,7 +2772,7 @@ fn wave_y(x: f32, m: f32, flatten: f32) -> f32 {
 
 #[allow(clippy::too_many_arguments)]
 fn paint_instrumental(painter: &egui::Painter, glow: &mut Glow, ctx: &egui::Context, cfg: &Cfg, b: &Block, xf: &Xf, t: f64, now: f64, st: LineState, dim: f32, content_w: f32) -> bool {
-    let em = cfg.size;
+    let em = cfg.inst_em();
     if cfg.instrumental != Instrumental::Note {
         return paint_break(painter, cfg, b, xf, t, now, st, dim, content_w);
     }
@@ -2779,15 +2972,15 @@ mod tests {
         let line = |text: &str| line_synced_parts(&Line { start: 0, dur: 1000, text: text.into(), ..Default::default() }).iter().flat_map(split_part).collect::<Vec<_>>();
         let x = |f: &Flow, word: &str| f.words.iter().find(|w| w.text == word).unwrap().pos.x;
         // Hebrew reads from the right; the English inside it keeps its order.
-        let f = flow(&mut fv, line("שלום עולם hello world"), &font, 1000.0, 27.0, Align::Right, true, 0.0);
+        let f = flow(&mut fv, line("שלום עולם hello world"), &font, 1000.0, 27.0, Align::Right, true, 0.0, 0.0);
         assert!(x(&f, "שלום") > x(&f, "עולם"));
         assert!(x(&f, "עולם") > x(&f, "world"));
         assert!(x(&f, "world") > x(&f, "hello"));
         // An English line with a Hebrew phrase: only the phrase turns around.
-        let f = flow(&mut fv, line("my song שלום עולם remix"), &font, 1000.0, 27.0, Align::Left, false, 0.0);
+        let f = flow(&mut fv, line("my song שלום עולם remix"), &font, 1000.0, 27.0, Align::Left, false, 0.0, 0.0);
         assert!(x(&f, "song") < x(&f, "עולם") && x(&f, "עולם") < x(&f, "שלום") && x(&f, "שלום") < x(&f, "remix"));
         // A long line wraps instead of running past the edge.
-        let f = flow(&mut fv, line(&"word ".repeat(40)), &font, 300.0, 27.0, Align::Left, false, 0.0);
+        let f = flow(&mut fv, line(&"word ".repeat(40)), &font, 300.0, 27.0, Align::Left, false, 0.0, 0.0);
         assert!(f.height > 27.0 && f.words.iter().all(|w| w.pos.x + w.w <= 300.0 + 0.5));
     }
 
@@ -2910,7 +3103,7 @@ mod tests {
         let lh = 30.0 * 1.333;
         let toks = line_synced_parts(&Line { start: 0, dur: 1000, text: lyric.into(), ..Default::default() }).iter().flat_map(split_part).collect();
         let (words, galleys) = ctx.fonts_mut(|f| {
-            let fl = flow(f, toks, &font, width, lh, Align::Left, false, 0.0);
+            let fl = flow(f, toks, &font, width, lh, Align::Left, false, 0.0, 0.0);
             let gs: Vec<Arc<Galley>> = fl.words.iter().map(|w| f.layout_no_wrap(w.text.clone(), font.clone(), Color32::WHITE)).collect();
             (fl.words, gs)
         });
@@ -2987,7 +3180,7 @@ mod tests {
                 at.x += w + space;
             }
             let toks = line_synced_parts(&Line { start: 0, dur: 1000, text: lyric.into(), ..Default::default() }).iter().flat_map(split_part).collect();
-            let fl = flow(f, toks, &lyric_font, width, 30.0 * 1.333, Align::Right, true, 0.0);
+            let fl = flow(f, toks, &lyric_font, width, 30.0 * 1.333, Align::Right, true, 0.0, 0.0);
             for w in fl.words {
                 draw.push((pos2(30.0 + col, y) + w.pos.to_vec2(), f.layout_no_wrap(w.text.clone(), lyric_font.clone(), Color32::WHITE)));
             }

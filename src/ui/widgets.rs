@@ -195,11 +195,16 @@ pub fn icon_button(ui: &mut Ui, glyph: char, size: f32, name: &str, active: bool
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(d), Sense::click());
     let resp = named(resp, name).on_hover_text(name).on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
+    let c = &crate::preset::active().app.controls;
     if h > 0.0 {
         ui.painter().circle_filled(rect.center(), d / 2.0, theme::glass(0.10 * h));
+        if c.ghost_outline > 0.0 {
+            ui.painter().circle_stroke(rect.center(), d / 2.0, egui::Stroke::new(1.0, theme::glass(c.ghost_outline * h)));
+        }
     }
-    let color = if active { theme::text() } else { theme::lerp_color(theme::text_dim(), theme::text(), h) };
-    let press = if resp.is_pointer_button_down_on() { 0.9 } else { 1.0 };
+    let lit = crate::preset::hex(&c.hover_color).unwrap_or_else(theme::text);
+    let color = if active { theme::text() } else { theme::lerp_color(theme::with_alpha(theme::text_dim(), c.idle_alpha.clamp(0.5, 1.0)), lit, h) };
+    let press = if resp.is_pointer_button_down_on() { c.press_scale } else { 1.0 + (c.hover_scale - 1.0) * h };
     icon_at(ui, rect.center(), glyph, size * press, color);
     resp
 }
@@ -212,13 +217,20 @@ pub fn pill(ui: &mut Ui, label: &str, glyph: Option<char>, primary: bool) -> Res
     let (rect, resp) = ui.allocate_exact_size(vec2(text.size().x + icon_w + 36.0, 38.0), Sense::click());
     let resp = named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
-    let (fill, fg) = if primary {
+    let c = &crate::preset::active().app.controls;
+    let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
+    let (fill, fg) = if primary && c.accent_primary {
+        (theme::lerp_color(accent, Color32::WHITE, 0.12 * h), if accent.r() as u32 + accent.g() as u32 + accent.b() as u32 > 480 { Color32::from_gray(15) } else { Color32::WHITE })
+    } else if primary {
         if theme::light() { (theme::lerp_color(theme::text(), Color32::BLACK, h), Color32::WHITE) } else { (theme::lerp_color(Color32::from_gray(240), Color32::WHITE, h), Color32::from_gray(12)) }
     } else {
-        (theme::glass(0.10 + 0.08 * h), theme::text())
+        (theme::glass(c.button_fill + c.button_hover * h), theme::text())
     };
-    let r = rect.shrink(if resp.is_pointer_button_down_on() { 1.0 } else { 0.0 });
+    let r = rect.shrink(if resp.is_pointer_button_down_on() { (1.0 - c.press_scale) * 10.0 } else { 0.0 });
     ui.painter().rect_filled(r, 19.0, fill);
+    if c.ghost_outline > 0.0 && !primary {
+        ui.painter().rect_stroke(r, 19.0, egui::Stroke::new(1.0, theme::glass(c.ghost_outline)), egui::StrokeKind::Inside);
+    }
     let mut x = r.left() + 18.0;
     if let Some(g) = glyph {
         icon_at(ui, pos2(x + 8.0, r.center().y), g, 17.0, fg);
@@ -241,8 +253,9 @@ pub fn more_pill(ui: &mut Ui, name: &str) -> Response {
 
 /// Selectable chip (home moods, library tabs).
 pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
-    let text = ui.painter().layout_no_wrap(label.to_owned(), theme::semibold(13.5), Color32::PLACEHOLDER);
-    let (rect, resp) = ui.allocate_exact_size(vec2(text.size().x + 28.0, 34.0), Sense::click());
+    let chips = &crate::preset::active().app.chip_look;
+    let text = ui.painter().layout_no_wrap(label.to_owned(), theme::weighted(chips.weight, 13.5), Color32::PLACEHOLDER);
+    let (rect, resp) = ui.allocate_exact_size(vec2(text.size().x + 28.0, chips.height), Sense::click());
     let resp = named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
     let s = theme::anim_bool(ui.ctx(), resp.id.with("s"), selected, 0.2);
@@ -257,11 +270,14 @@ pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
         ChipStyle::Ghost => (theme::glass(0.2), theme::text()),
         _ => (theme::text(), theme::on_text()),
     };
-    let off_fill = match style {
-        ChipStyle::Outline => theme::glass(0.04 * h),
-        ChipStyle::Ghost => theme::glass(0.1 + 0.05 * h),
-        _ => theme::glass(0.09 + 0.06 * h),
+    let on_fill = if chips.selected_fill.is_empty() { on_fill } else { theme::with_alpha(crate::preset::paint(&chips.selected_fill, accent), chips.selected_alpha) };
+    let on_fg = if chips.selected_text.is_empty() { on_fg } else { crate::preset::paint(&chips.selected_text, accent) };
+    let (rest, more) = match style {
+        ChipStyle::Outline => (0.0, 0.04),
+        ChipStyle::Ghost => (0.1, 0.05),
+        _ => (0.09, 0.06),
     };
+    let off_fill = theme::glass(chips.fill.unwrap_or(rest) + chips.hover.unwrap_or(more) * h);
     let fill = theme::lerp_color(off_fill, on_fill, s);
     ui.painter().rect_filled(rect, radius, fill);
     match style {
@@ -392,18 +408,26 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
     // contains_pointer, not hovered: the play button on top takes the hover, and the
     // card must stay "hovered" while the pointer is on it or the button would vanish.
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.contains_pointer(), 0.22);
-    let img = Rect::from_min_size(rect.min, Vec2::splat(width));
-    let radius = if c.round { width / 2.0 } else { theme::card_radius().min(width / 2.0) };
     let look = &crate::preset::active().app;
+    let cl = &look.card_look;
+    // The whole picture lifting on hover, inside the space it's been given.
+    let img = Rect::from_center_size(rect.min + Vec2::splat(width / 2.0), Vec2::splat(width * (1.0 + (cl.hover_scale - 1.0) * h)));
+    let radius = if c.round { width / 2.0 } else { theme::card_radius().min(width / 2.0) };
+    if let Some([y, blur, a]) = cl.shadow.filter(|_| h > 0.0) {
+        soft_shadow(ui, img.translate(vec2(0.0, y)), radius, blur, a * h);
+    }
     if look.card_fill > 0.0 {
         ui.painter().rect_filled(rect, radius, theme::glass(look.card_fill));
     }
     if look.card_stroke > 0.0 {
         ui.painter().rect_stroke(rect, radius, egui::Stroke::new(1.0, theme::glass(look.card_stroke)), egui::StrokeKind::Inside);
     }
-    paint_cover(ui, img, &c.thumbs, radius, 1.0 + 0.06 * h * theme::hover_k());
+    paint_cover(ui, img, &c.thumbs, radius, 1.0 + cl.image_zoom * h * theme::hover_k());
     if h > 0.0 && !c.round {
-        ui.painter().rect_filled(img, radius, theme::shade(0.28 * h));
+        ui.painter().rect_filled(img, radius, theme::shade(cl.image_dim * h));
+    }
+    if cl.image_outline > 0.0 {
+        ui.painter().rect_stroke(img, radius, egui::Stroke::new(1.0, theme::glass(cl.image_outline)), egui::StrokeKind::Inside);
     }
     // Play button rises into the corner on hover; on the playing item it stays up
     // and shows pause.
@@ -412,21 +436,24 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
     let mut play_hit = false;
     if h > 0.01 {
         let center = img.right_bottom() + vec2(-30.0, -30.0 + 8.0 * (1.0 - h));
-        let prect = Rect::from_center_size(center, Vec2::splat(44.0));
+        let prect = Rect::from_center_size(center, Vec2::splat(cl.play_px.max(32.0)));
         let p = ui.interact(prect, resp.id.with("play"), Sense::click());
         let playing = active == Some(true);
         let p = named(p, &format!("{} {}", if playing { "Pause" } else { "Play" }, c.title)).on_hover_cursor(egui::CursorIcon::PointingHand);
         let ph = theme::anim_bool(ui.ctx(), p.id.with("h"), p.hovered(), 0.12);
-        ui.painter().circle_filled(center, 22.0 + 2.0 * ph, theme::shade(0.62 * h));
+        let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
+        let back = theme::shade(cl.play_alpha * h);
+        let back = if cl.play_hover_accent { theme::lerp_color(back, accent, ph) } else { back };
+        ui.painter().circle_filled(center, prect.width() / 2.0 + 2.0 * ph, back);
         play_pause_glyph(ui, center, 10.0, theme::with_alpha(Color32::WHITE, h), playing);
         play_hit = p.clicked();
     }
     let tcolor = theme::text();
-    let title = galley_wrapped(ui, &c.title, theme::semibold(14.5), tcolor, width, 2);
+    let title = galley_wrapped(ui, &c.title, theme::weighted(cl.title_weight, cl.title_px), tcolor, width, 2);
     let title_h = title.size().y;
     ui.painter().galley(pos2(rect.left(), img.bottom() + 10.0), title, tcolor);
     let sub_y = img.bottom() + 14.0 + title_h;
-    linked_text(ui, pos2(rect.left(), sub_y), &c.subtitle, &c.links, theme::regular(13.0), theme::text_dim(), width - 36.0, acts);
+    linked_text(ui, pos2(rect.left(), sub_y), &c.subtitle, &c.links, theme::regular(13.0), theme::with_alpha(theme::text_dim(), cl.subtitle_alpha), width - 36.0, acts);
     // On the subtitle line, whose width leaves room for it, so a two-line title never sits under it.
     let more_rect = Rect::from_center_size(pos2(rect.right() - 16.0, sub_y + 8.0), Vec2::splat(30.0));
     let more = more_button(ui, more_rect, resp.id.with("more"), "Options");
@@ -479,18 +506,20 @@ fn more_button(ui: &mut Ui, rect: Rect, id: egui::Id, label: &str) -> Response {
 }
 
 pub fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
-    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width() - 8.0, 32.0), Sense::click());
+    let m = crate::preset::active().app.menu_look;
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width() - 8.0, m.row_px.max(26.0)), Sense::click());
     let response = named(response, label).on_hover_cursor(egui::CursorIcon::PointingHand);
     if response.hovered() {
-        ui.painter().rect_filled(rect, 7.0, theme::glass(0.12));
+        ui.painter().rect_filled(rect, m.row_radius, theme::glass(m.hover));
     }
     let color = if response.hovered() { theme::text() } else { theme::text_dim() };
+    let (icon_x, text_x) = if m.icon_right { (rect.right() - 19.0, rect.left() + 12.0) } else { (rect.left() + 19.0, rect.left() + 40.0) };
     if let Some(glyph) = glyph {
-        icon_at(ui, pos2(rect.left() + 19.0, rect.center().y), glyph, 16.0, color);
+        icon_at(ui, pos2(icon_x, rect.center().y), glyph, 16.0, color);
     } else {
-        ui.painter().text(pos2(rect.left() + 19.0, rect.center().y), Align2::CENTER_CENTER, "↗", theme::semibold(17.0), color);
+        ui.painter().text(pos2(icon_x, rect.center().y), Align2::CENTER_CENTER, "↗", theme::semibold(17.0), color);
     }
-    ui.painter().text(pos2(rect.left() + 40.0, rect.center().y), Align2::LEFT_CENTER, label, theme::regular(14.0), theme::text());
+    ui.painter().text(pos2(text_x, rect.center().y), Align2::LEFT_CENTER, label, theme::regular(14.0), theme::text());
     if response.clicked() { ui.close(); }
     response.clicked()
 }
@@ -682,11 +711,10 @@ pub struct RowOpts {
     pub remove: Option<usize>,
 }
 
-const ROW_H: f32 = 56.0;
 
 /// A song row's height with the space to the next.
 pub fn row_height(ui: &Ui) -> f32 {
-    ROW_H + ui.spacing().item_spacing.y
+    crate::preset::active().app.row_look.height + ui.spacing().item_spacing.y
 }
 
 /// A long list of song rows: only the ones on screen are built; the rest is empty space
@@ -707,7 +735,8 @@ pub fn visible_rows(ui: &mut Ui, n: usize, mut row: impl FnMut(&mut Ui, usize)) 
 
 /// Song row: cover (or index), title, artists, album, duration. Click plays.
 pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) -> Response {
-    let (rect, base) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
+    let rl = &crate::preset::active().app.row_look;
+    let (rect, base) = ui.allocate_exact_size(vec2(ui.available_width(), rl.height), Sense::hover());
     if !ui.is_rect_visible(rect) {
         return base;
     }
@@ -719,8 +748,22 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     let hovered = base.contains_pointer() && ui.ctx().dragged_id().is_none();
     let h = theme::anim_bool(ui.ctx(), base.id.with("h"), hovered, 0.15);
     if h > 0.0 || o.current {
-        let a = if o.current { 0.07 + 0.05 * h } else { 0.07 * h };
-        ui.painter().rect_filled(rect, 8.0, theme::glass(a));
+        let a = if o.current { rl.current + 0.05 * h } else { rl.hover * h };
+        let fill = match crate::preset::hex(&rl.current_color).filter(|_| o.current) {
+            Some(c) => theme::with_alpha(c, a),
+            None => theme::glass(a),
+        };
+        ui.painter().rect_filled(rect, rl.radius, fill);
+        let outline = crate::preset::active().app.controls.ghost_outline;
+        if outline > 0.0 && h > 0.0 {
+            ui.painter().rect_stroke(rect, rl.radius, egui::Stroke::new(1.0, theme::glass(outline * h)), egui::StrokeKind::Inside);
+        }
+        if o.current && rl.current_bar > 0.0 {
+            ui.painter().rect_filled(Rect::from_min_size(rect.min, vec2(rl.current_bar, rect.height())), rl.current_bar / 2.0, o.accent);
+        }
+    }
+    if rl.separator > 0.0 {
+        ui.painter().hline(rect.x_range(), rect.bottom(), egui::Stroke::new(1.0, theme::glass(rl.separator)));
     }
     // While selecting, the cover only shows the song (clicks pick) and picked rows are tinted.
     let h = if o.selected.is_some() { 0.0 } else { h };
@@ -750,7 +793,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         }
         x += 36.0;
     } else {
-        let img = Rect::from_min_size(pos2(x, cy - 20.0), Vec2::splat(40.0));
+        let img = Rect::from_min_size(pos2(x, cy - rl.thumb_px / 2.0), Vec2::splat(rl.thumb_px));
         let tr = theme::thumb_radius();
         paint_cover(ui, img, &t.thumbs, tr, 1.0);
         if o.pick {
@@ -766,7 +809,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
             ui.painter().rect_filled(img, tr, theme::shade(0.5 * h));
             play_triangle(ui, img.center(), 7.0, theme::with_alpha(Color32::WHITE, h));
         }
-        x += 54.0;
+        x += rl.thumb_px + 14.0;
     }
     let right = rect.right() - 51.0;
     let dur_w = 52.0;
@@ -823,8 +866,17 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         ui.painter().text(pos2(right, cy), Align2::RIGHT_CENTER, super::fmt_time(d), theme::regular(13.0), theme::text_dim());
     }
     let more_rect = Rect::from_center_size(pos2(rect.right() - 20.0, cy), Vec2::splat(30.0));
-    let more = more_button(ui, more_rect, base.id.with("more"), "Song options");
-    egui::Popup::menu(&more).show(|ui| song_menu(ui, t, o.liked, o.remove, acts));
+    // Hidden at rest in some themes, not gone: it's there on hover, and right click opens the same menu.
+    let more_id = base.id.with("more");
+    let open_id = more_id.with("open");
+    if !rl.hover_menu || hovered || ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false)) {
+        let more = more_button(ui, more_rect, more_id, "Song options");
+        egui::Popup::menu(&more).show(|ui| song_menu(ui, t, o.liked, o.remove, acts));
+        if rl.hover_menu {
+            let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&more));
+            ui.data_mut(|d| d.insert_temp(open_id, open));
+        }
+    }
     // Right-click anywhere on the row opens the same menu.
     egui::Popup::context_menu(&resp).show(|ui| song_menu(ui, t, o.liked, o.remove, acts));
     resp
@@ -845,6 +897,7 @@ fn checkbox(ui: &Ui, c: Pos2, on: bool) {
 /// Returns (scroll left, scroll right) clicks.
 pub fn shelf_header(ui: &mut Ui, title: &str, strap: Option<&str>, strap_thumb: Option<&str>, arrows: bool) -> (bool, bool) {
     let mut res = (false, false);
+    let look = &crate::preset::active().app;
     ui.add_space(26.0);
     ui.horizontal(|ui| {
         if let Some(url) = strap_thumb {
@@ -855,9 +908,9 @@ pub fn shelf_header(ui: &mut Ui, title: &str, strap: Option<&str>, strap_thumb: 
         }
         ui.vertical(|ui| {
             if let Some(s) = strap {
-                ui.label(egui::RichText::new(s.to_uppercase()).font(theme::semibold(12.0)).color(theme::text_dim()));
+                ui.label(egui::RichText::new(s.to_uppercase()).font(theme::semibold(12.0)).color(theme::with_alpha(theme::text_dim(), look.strap_alpha)));
             }
-            ui.label(egui::RichText::new(title).font(theme::bold(24.0)).color(theme::text()));
+            ui.label(egui::RichText::new(title).font(theme::weighted(look.heading_weight, look.heading_px)).color(theme::text()));
         });
         if arrows {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -984,7 +1037,7 @@ pub fn paint_remote(ui: &Ui, url: &str, rect: Rect, radius: f32, uv: Rect, tint:
 /// Song rows still on their way, at the end of a list that's coming in.
 pub fn skeleton_rows(ui: &mut Ui, time: f64, rows: usize) {
     for _ in 0..rows {
-        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), crate::preset::active().app.row_look.height), Sense::hover());
         if !ui.is_rect_visible(r) {
             continue;
         }

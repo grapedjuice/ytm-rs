@@ -1,7 +1,9 @@
 {
   "id": "spicy-for-ytm",
   "name": "Spicy for YouTube Music",
-  "creators": ["olafix52"],
+  "creators": [
+    "olafix52"
+  ],
   "blurb": "The Spicy Lyrics look: bold lyrics that blur with distance, a springy word bounce, three-dot breaks, and a vivid, fast cover warp behind every page.",
   "source": "Better Lyrics: olafix52/spicy-for-youtube-music 1.5.0",
   "accent": "#ffffff",
@@ -13,56 +15,177 @@
     "saturation": 3.75,
     "speed": 2.5,
     "reactive": 0.0,
-    "audio_speed": 3.3
+    "audio_speed": 3.3,
+    "crossfade_secs": 1.0,
+    "beat_threshold": 0.75
   },
   "lyrics": {
     "agent_align": "only_v1_left",
     "font": "SF Pro Display",
-    "font_rem": [[0, 3.8]],
+    "font_rem": [
+      [
+        0,
+        3.8
+      ]
+    ],
     "fullscreen_scale": 1.11,
     "line_height": 1.2,
     "line_padding_rem": 1.5,
-    "padding_inline": [28.5, 28.5],
+    "padding_inline": [
+      28.5,
+      28.5
+    ],
     "anchor": 0.5,
     "dim_alpha": 0.5,
-    "past": [[0.96, 1.1], [0.96, 2.2], [0.96, 3.3], [0.96, 4.4]],
-    "upcoming": [[0.76, 1.1], [0.76, 2.2], [0.76, 3.3], [0.76, 4.4]],
-    "opacity_transition": { "secs": 0.6 },
-    "blur_transition": { "secs": 0.6 },
+    "past": [
+      [
+        0.96,
+        1.1
+      ],
+      [
+        0.96,
+        2.2
+      ],
+      [
+        0.96,
+        3.3
+      ],
+      [
+        0.96,
+        4.4
+      ]
+    ],
+    "upcoming": [
+      [
+        0.76,
+        1.1
+      ],
+      [
+        0.76,
+        2.2
+      ],
+      [
+        0.76,
+        3.3
+      ],
+      [
+        0.76,
+        4.4
+      ]
+    ],
+    "opacity_transition": {
+      "secs": 0.6
+    },
+    "blur_transition": {
+      "secs": 0.6
+    },
     "hover_reveal": true,
+    "hover_box": [
+      0.1,
+      16
+    ],
+    "active_alpha": 0.85,
+    "sweep_lead": 0.0,
+    "sweep_ratio": 1.0,
+    "word_rest_scale": 0.95,
+    "word_gap_em": 0.06,
+    "glow_ratio": 1.5,
+    "glow_min_secs": 0.9,
+    "scale_ease": [
+      0.34,
+      1.3,
+      0.64,
+      1.0
+    ],
+    "scale_exit_ease": [
+      0.25,
+      0.8,
+      0.25,
+      1.0
+    ],
+    "background_alpha": 0.65,
+    "background_weight": "semibold",
+    "credits_alpha": [
+      0.55,
+      1.0
+    ],
     "rest_scale": 0.98,
     "active_scale": 1.0,
     "scale_secs": 0.45,
-    "letter_wave": { "crest": 0.07, "emphasis": 1.12 },
+    "letter_wave": {
+      "crest": 0.07,
+      "emphasis": 1.12
+    },
     "wobble": false,
-    "word_bounce": { "lift": 0.034, "scale": 1.0505, "secs": 0.8, "spring": true },
+    "word_bounce": {
+      "lift": 0.034,
+      "scale": 1.0505,
+      "secs": 0.8,
+      "spring": true
+    },
     "glow_alpha": 0.35,
     "long_glow_alpha": 0.35,
     "glow_rem": 0.6,
     "romanization_rem": 1.9,
     "romanization_alpha": 0.5,
     "romanization_pill": false,
+    "romanization_weight": "semibold",
     "translation_rem": 1.9,
     "translation_alpha": 0.5,
+    "translation_weight": "semibold",
     "instrumental": "dots",
+    "instrumental_rem": 5.3,
+    "instrumental_breathe": [
+      0.92,
+      1.08,
+      2.4
+    ],
     "scroll_secs": 0.7,
-    "scroll_ease": [0.16, 1.0, 0.3, 1.0],
+    "scroll_ease": [
+      0.16,
+      1.0,
+      0.3,
+      1.0
+    ],
     "scroll_offset": 0.0,
-    "early_scroll": 0.0
+    "early_scroll": 0.0,
+    "line_ease": [
+      0.25,
+      0.8,
+      0.25,
+      1.0
+    ]
   },
   "cover": {
     "radius_pct": 0.02,
     "size_vh": 0.572,
     "shadow": 0.271,
     "shadow_blur": 20,
-    "shadow_offset": 9
+    "shadow_offset": 9,
+    "opacity": 0.95
   },
   "now_playing": {
     "title_px": 33,
-    "artist_px": 23
+    "artist_px": 23,
+    "title_alpha": 0.95,
+    "artist_alpha": 0.7,
+    "title_weight": "bold",
+    "artist_weight": "regular",
+    "tab_content": "icons",
+    "tab_back": [
+      0.1,
+      22
+    ],
+    "tab_idle_alpha": 0.55,
+    "tab_px": 44,
+    "cover_controls": true
   },
   "chrome": {
-    "progress_color": "white"
+    "progress_color": "white",
+    "progress_alpha": 0.85,
+    "progress_track": 0.2,
+    "bar_title_weight": "bold",
+    "bar_byline_alpha": 0.7
   },
   "app": {
     "font": "SF Pro Display",
@@ -73,6 +196,30 @@
     "bar_border": true,
     "card_radius": 10,
     "thumb_radius": 10,
-    "frost": true
+    "frost": true,
+    "controls": {
+      "hover_scale": 1.08
+    },
+    "heading_px": 26,
+    "heading_weight": "bold",
+    "strap_alpha": 0.6,
+    "card_look": {
+      "hover_scale": 1.03,
+      "shadow": [
+        6,
+        16,
+        0.3
+      ],
+      "subtitle_alpha": 0.75,
+      "title_weight": "semibold",
+      "play_px": 48,
+      "play_alpha": 0.5
+    },
+    "top_bar": {
+      "band": [
+        0.35,
+        64
+      ]
+    }
   }
 }

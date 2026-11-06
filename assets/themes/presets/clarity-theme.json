@@ -17,9 +17,24 @@
     "past": [[0, 0]],
     "opacity_transition": { "frac": 0, "secs": 1.6, "delay": 0 },
     "wobble_secs": 2.5,
-    "line_exit": [-200, 1.6]
+    "line_exit": [-200, 1.6],
+    "line_enter": [-14, 0.8],
+    "fullscreen_padding_rem": 3,
+    "instrumental_rem": 4,
+    "romanization_font": "Albert Sans",
+    "romanization_weight": "regular",
+    "romanization_pill": false,
+    "translation_font": "Lexend",
+    "translation_weight": "semibold"
   },
   "cover": { "radius": 20 },
+  "now_playing": {
+    "tabs": "strip",
+    "tab_content": "icons",
+    "tab_px": 36,
+    "tab_back": [0.08, 10],
+    "tab_idle_alpha": 0.7
+  },
   "chrome": {
     "player_bar": "floating",
     "bar_height": 92,
@@ -31,7 +46,14 @@
     "progress_color": "white",
     "progress_thumb": true,
     "play_button": "bare",
-    "disc_secs": 10
+    "disc_secs": 10,
+    "bar_title_px": 14,
+    "bar_title_weight": "semibold",
+    "bar_byline_px": 12,
+    "bar_byline_alpha": 0.7,
+    "bar_shadow": [12, 40, 0.45],
+    "bar_border_alpha": 0.08,
+    "volume_on_hover": true
   },
   "app": {
     "sidebar": "glass",
@@ -44,6 +66,9 @@
     "menu_color": "#0e0e12",
     "text_dim": "#b3b3b3",
     "search_border": 0.08,
+    "search_look": { "max_px": 700 },
+    "nav_item": { "hover": 0.12, "selected": 0.10 },
+    "menu_look": { "hover": 0.12, "row_radius": 8, "shadow": [12, 40, 0.45] },
     "frost": true
   }
 }

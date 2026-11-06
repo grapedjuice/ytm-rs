@@ -14,7 +14,9 @@
     "saturation": 1.5,
     "reactive": 5.4,
     "audio_speed": 7.4,
-    "scale": 1.25
+    "scale": 1.25,
+    "beat_threshold": 0.125,
+    "crossfade_secs": 1.0
   },
   "lyrics": {
     "agent_align": "same",

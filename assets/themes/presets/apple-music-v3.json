@@ -20,7 +20,14 @@
     "scrim": 0.3,
     "layer": {
       "opacity": 0.55
-    }
+    },
+    "scrim_gradient": [
+      0.15,
+      0.45
+    ],
+    "scrim_across": true,
+    "crossfade_secs": 1.0,
+    "beat_threshold": 0.01
   },
   "lyrics": {
     "font": "SF Pro Display",
@@ -65,7 +72,7 @@
       ]
     ],
     "opacity_transition": {
-      "secs": 0.9
+      "secs": 0.5
     },
     "blur_transition": {
       "secs": 0.5
@@ -83,7 +90,18 @@
     "translation_alpha": 0.11,
     "scroll_secs": 0.4,
     "word_rise_px": 3.0,
-    "word_rise_secs": 0.4
+    "word_rise_secs": 0.4,
+    "line_fade_secs": 0.4,
+    "past_opacity_transition": {
+      "secs": 0.9
+    },
+    "past_blur_transition": {
+      "secs": 0.25
+    },
+    "both_rem": [
+      2.0,
+      1.6
+    ]
   },
   "cover": {
     "radius": 20,
@@ -98,7 +116,16 @@
   "now_playing": {
     "tabs": "strip",
     "title_align": "left",
-    "title_px": 25
+    "title_px": 25,
+    "tab_content": "icons",
+    "tab_px": 50,
+    "tab_idle_alpha": 0.35,
+    "artist_alpha": 0.5,
+    "title_card": {
+      "fill": 0.05,
+      "stroke": 0.15,
+      "radius": 20
+    }
   },
   "chrome": {
     "radius": 16,
@@ -114,7 +141,18 @@
     "progress_px": 3,
     "progress_color": "white",
     "play_button": "bare",
-    "bar_max_px": 1200.0
+    "bar_max_px": 1200.0,
+    "thumb_px": 40,
+    "thumb_radius": 10,
+    "bar_title_px": 15,
+    "bar_title_weight": "bold",
+    "bar_byline_alpha": 0.45,
+    "bar_shadow": [
+      10,
+      40,
+      0.5
+    ],
+    "bar_border_alpha": 0.08
   },
   "app": {
     "font": "SF Pro Display",
@@ -132,6 +170,37 @@
     "search_radius": 100,
     "search_alpha": 0.1,
     "search_border": 0.08,
-    "frost": true
+    "frost": true,
+    "all_bold": true,
+    "menu_color": "#0a0a0a",
+    "nav_item": {
+      "radius": 6,
+      "hover": 0.08
+    },
+    "card_look": {
+      "image_outline": 0.15
+    },
+    "menu_look": {
+      "row_px": 34,
+      "hover": 0.12,
+      "alpha": 0.85,
+      "icon_right": true,
+      "shadow": [
+        15,
+        50,
+        0.75
+      ]
+    },
+    "search_look": {
+      "max_px": 1000,
+      "drop_radius": 8
+    },
+    "top_bar": {
+      "capsule_px": 1400.0,
+      "capsule": [
+        0.6,
+        27
+      ]
+    }
   }
 }

@@ -8,7 +8,9 @@
   "source": "Better Lyrics: ramansg/Burn-BlyricsTheme 0.3.5",
   "background": {
     "mode": "cover_fullbleed",
-    "np_dim": 0.22
+    "np_dim": 0.22,
+    "crossfade_secs": 2.5,
+    "crossfade_delay": 2.5
   },
   "accent": "#ffffff",
   "lyrics": {
@@ -87,7 +89,14 @@
       0.44,
       1
     ],
-    "scroll_offset": 0.3
+    "scroll_offset": 0.3,
+    "instrumental_breathe": [
+      1.0,
+      1.05,
+      1.5
+    ],
+    "hover_opacity": 0.8,
+    "line_fade_secs": 0.4
   },
   "cover": {
     "radius_pct": 0.08,
@@ -99,7 +108,12 @@
   "chrome": {
     "play_button": "ghost",
     "progress_color": "white",
-    "progress_thumb": false
+    "progress_thumb": false,
+    "progress_alpha": 0.6,
+    "progress_track": 0.1,
+    "time_alpha": 0.87,
+    "icon_alpha": 0.7,
+    "bar_cover_alpha": 0.22
   },
   "app": {
     "font": "Google Sans Flex",
@@ -110,6 +124,48 @@
     "search_alpha": 0.1,
     "search_border": 0.1,
     "menu_radius": 13.92,
-    "text_dim": "#a3a3a3"
+    "text_dim": "#a3a3a3",
+    "controls": {
+      "idle_alpha": 0.7,
+      "ghost_outline": 0.12
+    },
+    "nav_item": {
+      "hover": 0.1,
+      "selected": 0.1
+    },
+    "row_look": {
+      "radius": 13.92,
+      "hover": 0.1
+    },
+    "menu_look": {
+      "hover": 0.1,
+      "row_radius": 13.92
+    },
+    "search_look": {
+      "drop_radius": 20
+    },
+    "toast_look": {
+      "color": "#212121",
+      "alpha": 1,
+      "border": [
+        0.1,
+        1.5
+      ],
+      "radius": 20.88,
+      "secs": 2.5
+    },
+    "scrollbar": [
+      5,
+      0.3
+    ],
+    "immersive_header": 0.6
+  },
+  "now_playing": {
+    "tab_idle_alpha": 0.7,
+    "switch": {
+      "back": 0.1,
+      "selected": 0.15,
+      "stroke": 0.1
+    }
   }
 }

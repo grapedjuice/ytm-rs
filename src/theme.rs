@@ -62,7 +62,8 @@ pub fn menu_fill() -> Color32 {
     if light() {
         return Color32::WHITE;
     }
-    crate::preset::hex(&crate::preset::active().app.menu_color).unwrap_or(Color32::from_rgb(38, 34, 42))
+    let look = &crate::preset::active().app;
+    with_alpha(crate::preset::hex(&look.menu_color).unwrap_or(Color32::from_rgb(38, 34, 42)), look.menu_look.alpha)
 }
 
 /// Dialogs and cards that float over the page.
@@ -289,6 +290,9 @@ pub fn anim_bool(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug
 // ------------------------------------------------------------------ type
 
 pub fn regular(size: f32) -> FontId {
+    if crate::preset::active().app.all_bold {
+        return bold(size);
+    }
     FontId::proportional(size)
 }
 // Named families, made once: these are called hundreds of times a frame, and a
@@ -298,7 +302,19 @@ static BOLD: std::sync::LazyLock<FontFamily> = std::sync::LazyLock::new(|| FontF
 static ICONS: std::sync::LazyLock<FontFamily> = std::sync::LazyLock::new(|| FontFamily::Name("icons".into()));
 
 pub fn semibold(size: f32) -> FontId {
+    if crate::preset::active().app.all_bold {
+        return bold(size);
+    }
     FontId::new(size, SEMIBOLD.clone())
+}
+
+/// Interface text in a theme's weight.
+pub fn weighted(w: crate::preset::Weight, size: f32) -> FontId {
+    match w {
+        crate::preset::Weight::Regular => regular(size),
+        crate::preset::Weight::Semibold => semibold(size),
+        crate::preset::Weight::Bold => bold(size),
+    }
 }
 pub fn bold(size: f32) -> FontId {
     FontId::new(size, BOLD.clone())
@@ -879,6 +895,11 @@ pub fn install_style(ctx: &egui::Context) {
             (bar.dormant_handle_opacity, bar.active_handle_opacity, bar.interact_handle_opacity) = (0.0, 0.0, 0.0);
             (bar.dormant_background_opacity, bar.active_background_opacity, bar.interact_background_opacity) = (0.0, 0.0, 0.0);
         }
+        if let Some([w, a]) = crate::preset::active().app.scrollbar {
+            let bar = &mut s.spacing.scroll;
+            bar.bar_width = w;
+            (bar.dormant_handle_opacity, bar.active_handle_opacity, bar.interact_handle_opacity) = (a * 0.6, a, (a * 2.0).min(1.0));
+        }
         s.text_styles.insert(egui::TextStyle::Body, regular(14.0));
         s.text_styles.insert(egui::TextStyle::Button, semibold(14.0));
         s.text_styles.insert(egui::TextStyle::Heading, bold(22.0));
@@ -905,6 +926,9 @@ fn visuals() -> egui::Visuals {
     v.menu_corner_radius = p.app.menu_radius.map_or(pr, |r| egui::CornerRadius::same(r.clamp(0.0, 32.0) as u8));
     v.window_stroke = egui::Stroke::new(1.0, if p.app.menu_border > 0.0 { with_alpha(if light() { Color32::BLACK } else { Color32::WHITE }, p.app.menu_border) } else { glass(0.08) });
     v.popup_shadow = egui::epaint::Shadow { offset: [0, 8], blur: 28, spread: 0, color: shade(if light() { 0.16 } else { 0.5 }) };
+    if let Some([y, blur, a]) = p.app.menu_look.shadow {
+        v.popup_shadow = egui::epaint::Shadow { offset: [0, y as i8], blur: blur.min(255.0) as u8, spread: 0, color: shade(a) };
+    }
     let r = egui::CornerRadius::same(p.chrome.radius.clamp(2.0, 28.0) as u8);
     for (w, fill) in [
         (&mut v.widgets.inactive, glass(0.08)),

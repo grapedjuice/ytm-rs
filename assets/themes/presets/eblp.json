@@ -20,7 +20,9 @@
       "opacity": 0.5,
       "pulse_secs": 8,
       "pulse": 0.05
-    }
+    },
+    "beat_threshold": 0.75,
+    "crossfade_secs": 1.0
   },
   "lyrics": {
     "font": "Switzer",
@@ -90,5 +92,18 @@
       1,
       0.1
     ]
+  },
+  "now_playing": {
+    "panel_frac": [
+      0.5,
+      0.45
+    ],
+    "switch": {
+      "back": 0.1,
+      "selected": 0.1
+    }
+  },
+  "chrome": {
+    "byline_marquee": true
   }
 }

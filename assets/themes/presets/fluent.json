@@ -29,12 +29,15 @@
   },
   "now_playing": {
     "title_px": 28,
-    "artist_px": 14
+    "artist_px": 14,
+    "title_weight": "semibold"
   },
   "chrome": {
     "glass": 0.7,
     "radius": 4,
-    "progress_radius": 4
+    "progress_radius": 4,
+    "progress_px": 4,
+    "progress_color": "accent"
   },
   "app": {
     "font": "Segoe UI Variable, Segoe UI",
@@ -53,6 +56,48 @@
     "hover": 0.8,
     "text_dim": "#c5c5c5",
     "accent_controls": true,
+    "search_alpha": 0.06,
+    "search_border": 0.07,
+    "card_fill": 0.05,
+    "card_stroke": 0.07,
+    "menu_border": 0.08,
+    "menu_color": "#2c2c2c",
+    "heading_px": 20,
+    "heading_weight": "semibold",
+    "nav_item": {
+      "radius": 4,
+      "height": 40,
+      "hover": 0.06,
+      "selected": 0.06
+    },
+    "row_look": {
+      "radius": 4,
+      "hover": 0.06,
+      "current": 0.06,
+      "current_bar": 3
+    },
+    "menu_look": {
+      "alpha": 0.96,
+      "row_radius": 4,
+      "shadow": [
+        14,
+        48,
+        0.37
+      ]
+    },
+    "search_look": {
+      "height": 32,
+      "focus_color": "accent",
+      "focus_ring": 1
+    },
+    "toggle_look": {
+      "size": [
+        40,
+        20
+      ],
+      "knob": 12,
+      "outline": true
+    },
     "sheet": [
       0.05,
       8

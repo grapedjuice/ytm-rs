@@ -14,6 +14,8 @@ pub struct Art {
     pub rgba: Vec<u8>,
     /// Most vivid colour, lifted for use on dark backgrounds (progress bar, highlights).
     pub accent: Color32,
+    /// How bright the cover is overall, 0..1.
+    pub brightness: f32,
 }
 
 pub fn process(bytes: &[u8]) -> anyhow::Result<Art> {
@@ -21,6 +23,7 @@ pub fn process(bytes: &[u8]) -> anyhow::Result<Art> {
     let small = image::imageops::resize(&img, SIZE, SIZE, image::imageops::FilterType::Triangle);
 
     let accent = palette(&small);
+    let brightness = small.pixels().map(|p| (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) / 255.0).sum::<f32>() / (SIZE * SIZE) as f32;
     let mut px: Vec<[f32; 3]> = small.pixels().map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]).collect();
 
     // Kawarp's tint pass: pull near-black regions toward the accent so dark covers
@@ -38,7 +41,7 @@ pub fn process(bytes: &[u8]) -> anyhow::Result<Art> {
         px = box_blur(&px, SIZE as usize, 6);
     }
     let rgba = px.iter().flat_map(|p| [p[0] as u8, p[1] as u8, p[2] as u8, 255]).collect();
-    Ok(Art { rgba, accent })
+    Ok(Art { rgba, accent, brightness })
 }
 
 fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
@@ -116,5 +119,5 @@ pub fn idle() -> Art {
             rgba.extend_from_slice(&[r as u8, g as u8, b as u8, 255]);
         }
     }
-    Art { rgba, accent: Color32::from_rgb(0xff, 0x4e, 0x6a) }
+    Art { rgba, accent: Color32::from_rgb(0xff, 0x4e, 0x6a), brightness: 0.3 }
 }

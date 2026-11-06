@@ -13,7 +13,10 @@
     "speed": 6.66,
     "saturation": 1.5,
     "reactive": 0,
-    "audio_speed": 0
+    "audio_speed": 0,
+    "crossfade_secs": 1.5,
+    "beat_threshold": 0.75,
+    "auto_dim": 0.3
   },
   "lyrics": {
     "font": "Inter",
@@ -26,9 +29,10 @@
     "hover_reveal": true,
     "glow_alpha": 1,
     "long_glow_alpha": 1,
-    "scroll_ease": [0.42, 0, 0.58, 1]
+    "scroll_ease": [0.42, 0, 0.58, 1],
+    "pre_sharp_secs": 0.5
   },
-  "cover": { "radius": 20, "shadow": 0.2, "shadow_blur": 8, "shadow_offset": 4, "max_px": 400 },
+  "cover": { "radius": 20, "shadow": 0.2, "shadow_blur": 8, "shadow_offset": 4, "max_px": 400, "fullscreen": {}, "open_scale": 0.2 },
   "now_playing": { "title_align": "left", "title_px": 25, "artist_px": 20 },
   "chrome": {},
   "app": {
@@ -45,6 +49,14 @@
     "search_radius": 12,
     "search_alpha": 0.1,
     "hide_scrollbars": true,
+    "controls": { "hover_scale": 1.2 },
+    "nav_item": { "hover": 0.1, "selected": 0.1 },
+    "chip_look": { "fill": 0.1, "hover": 0.1, "selected_fill": "white", "selected_alpha": 0.2, "selected_text": "accent" },
+    "row_look": { "height": 54, "thumb_px": 38, "hover": 0.1 },
+    "menu_look": { "hover": 0.1 },
+    "search_look": { "accent_icon": true },
+    "page_wash": [0.5, 300],
+    "page_wash_color": "#000000",
     "frost": true
   }
 }

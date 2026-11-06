@@ -16,6 +16,8 @@
     "reactive": 1.1,
     "audio_speed": 4.5,
     "scale": 1.25,
+    "crossfade_secs": 1.0,
+    "beat_threshold": 0.01,
     "layer": {
       "opacity": 0.8
     }
@@ -63,7 +65,7 @@
     ],
     "opacity_transition": {
       "frac": 0,
-      "secs": 0.9,
+      "secs": 0.5,
       "delay": 0
     },
     "blur_transition": {
@@ -71,6 +73,33 @@
       "secs": 0.5,
       "delay": 0
     },
+    "past_opacity_transition": {
+      "frac": 0,
+      "secs": 0.9,
+      "delay": 0
+    },
+    "past_blur_transition": {
+      "frac": 0,
+      "secs": 0.25,
+      "delay": 0
+    },
+    "active_opacity_transition": {
+      "frac": 0,
+      "secs": 0.3,
+      "delay": 0
+    },
+    "active_blur_transition": {
+      "frac": 0,
+      "secs": 0.3,
+      "delay": 0
+    },
+    "scale_ease": [
+      0.0,
+      0.0,
+      0.58,
+      1.0
+    ],
+    "hover_opacity": 1.0,
     "scale_secs": 0.3,
     "wobble": false,
     "glow_alpha": 0.0,
@@ -80,6 +109,10 @@
     "romanization_rem": 2.0,
     "romanization_alpha": 0.2,
     "romanization_pill": false,
+    "both_rem": [
+      2.0,
+      1.6
+    ],
     "translation_rem": 2.0,
     "translation_alpha": 0.2,
     "scroll_secs": 0.5,
@@ -102,7 +135,11 @@
     "shadow_offset": 20
   },
   "now_playing": {
-    "tabs": "strip"
+    "tabs": "strip",
+    "tab_content": "icons",
+    "tab_px": 50,
+    "tab_idle_alpha": 0.35,
+    "video_lyrics": true
   },
   "chrome": {
     "bar_color": "#141414",
@@ -111,7 +148,8 @@
     "progress_color": "white",
     "progress_radius": 60,
     "progress_thumb": false,
-    "play_button": "bare"
+    "play_button": "bare",
+    "bar_layout": "song_middle"
   },
   "app": {
     "page_bg": "static",
@@ -128,6 +166,22 @@
     "menu_radius": 16,
     "menu_border": 0.15,
     "text_dim": "#b3b3b3",
+    "menu_color": "#0a0a0a",
+    "menu_look": {
+      "row_px": 34,
+      "hover": 0.12,
+      "alpha": 0.85,
+      "icon_right": true,
+      "shadow": [
+        15,
+        50,
+        0.75
+      ],
+      "row_radius": 0
+    },
+    "search_look": {
+      "drop_radius": 12
+    },
     "search_radius": 12,
     "search_alpha": 0.1,
     "search_border": 0.1,

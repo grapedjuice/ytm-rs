@@ -19,7 +19,9 @@
     "audio_speed": 4.5,
     "layer": {
       "opacity": 0.3
-    }
+    },
+    "crossfade_secs": 1.0,
+    "beat_threshold": 0.01
   },
   "lyrics": {
     "font": "SF Pro Display",
@@ -81,7 +83,7 @@
       ]
     ],
     "opacity_transition": {
-      "secs": 0.9
+      "secs": 0.5
     },
     "blur_transition": {
       "secs": 0.5
@@ -104,7 +106,23 @@
     "scroll_offset": 0.6,
     "word_rise_px": 3.0,
     "word_rise_secs": 0.4,
-    "line_fade_secs": 1.2
+    "line_fade_secs": 1.2,
+    "scroll_ease": [
+      0.42,
+      0.0,
+      0.58,
+      1.0
+    ],
+    "past_opacity_transition": {
+      "secs": 0.9
+    },
+    "past_blur_transition": {
+      "secs": 0.25
+    },
+    "both_rem": [
+      2.0,
+      1.6
+    ]
   },
   "cover": {
     "radius": 12,
@@ -114,7 +132,19 @@
     "tabs": "pill",
     "title_align": "left",
     "title_px": 20,
-    "artist_px": 20
+    "artist_px": 20,
+    "tab_content": "icons",
+    "tab_px": 30,
+    "tab_back": [
+      0.15,
+      8
+    ],
+    "switch": {
+      "back": 0.15,
+      "selected": 0.15,
+      "radius": 8
+    },
+    "video_max_frac": 0.7
   },
   "chrome": {
     "radius": 6,
@@ -133,6 +163,33 @@
     "panel_radius": 6,
     "menu_radius": 6,
     "search_radius": 6,
-    "search_alpha": 0.08
+    "search_alpha": 0.08,
+    "all_bold": true,
+    "scrollbar": [
+      8,
+      0.12
+    ],
+    "controls": {
+      "button_fill": 0.1,
+      "button_hover": 0.1
+    },
+    "nav_item": {
+      "radius": 6,
+      "hover": 0.0,
+      "title_rows": 24
+    },
+    "card_look": {
+      "play_px": 40,
+      "play_alpha": 0.25,
+      "play_hover_accent": true
+    },
+    "menu_look": {
+      "row_px": 32,
+      "icon_right": true
+    },
+    "search_look": {
+      "height": 36,
+      "drop_radius": 6
+    }
   }
 }

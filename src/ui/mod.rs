@@ -330,6 +330,7 @@ pub struct App {
     // visuals
     art_key: Option<String>,
     art_changed: f64,
+    art_brightness: f32,
     accent: Color32,
     /// Selected theme (see `preset.rs`).
     theme_id: String,
@@ -601,6 +602,7 @@ impl App {
             seek_drag: None,
             art_key: None,
             art_changed: -10.0,
+            art_brightness: 0.0,
             accent: theme::RED,
             // Dev hook: YTM_THEME=<preset id> tries a theme without saving it.
             // The old "Classic theme" switch is the Classic theme now.
@@ -1055,9 +1057,13 @@ impl eframe::App for App {
                 let [x, y] = look.chrome.bar_margin;
                 egui::Frame::new().inner_margin(egui::Margin { left: x as i8, right: x as i8, top: 0, bottom: y as i8 })
             } else {
-                let mut f = egui::Frame::new().fill(shell::bar_fill(look, bar_alpha));
-                if app_style.bar_border {
-                    f = f.stroke(egui::Stroke::new(1.0, theme::glass(0.1)));
+                let fill = match look.chrome.bar_np_alpha.filter(|_| self.np_open) {
+                    Some(a) => theme::shade(a),
+                    None => shell::bar_fill(look, bar_alpha),
+                };
+                let mut f = egui::Frame::new().fill(fill);
+                if app_style.bar_border || look.chrome.bar_border_alpha.is_some() {
+                    f = f.stroke(egui::Stroke::new(1.0, theme::glass(look.chrome.bar_border_alpha.unwrap_or(0.1))));
                 }
                 f
             };
@@ -1074,12 +1080,17 @@ impl eframe::App for App {
                             _ => r,
                         };
                         let radius = look.chrome.bar_radius.min(r.height() / 2.0);
-                        widgets::soft_shadow(ui, r, radius, 24.0, 0.45);
+                        let [sy, sb, sa] = look.chrome.bar_shadow.unwrap_or([0.0, 24.0, 0.45]);
+                        widgets::soft_shadow(ui, r.translate(egui::vec2(0.0, sy)), radius, sb, sa);
                         // Frosted: the art's colour through it, what a blur of the page would show.
                         let fill = shell::bar_fill(look, (bar_alpha + 0.07).min(1.0));
                         let fill = if app_style.frost && self.current().is_some() { theme::lerp_color(fill, self.accent, 0.1) } else { fill };
+                        let fill = match look.chrome.bar_np_alpha.filter(|_| self.np_open) {
+                            Some(a) => theme::shade(a),
+                            None => fill,
+                        };
                         ui.painter().rect_filled(r, radius, fill);
-                        let edge = if app_style.bar_border { 0.14 } else { 0.08 };
+                        let edge = look.chrome.bar_border_alpha.unwrap_or(if app_style.bar_border { 0.14 } else { 0.08 });
                         ui.painter().rect_stroke(r, radius, egui::Stroke::new(1.0, theme::glass(edge)), egui::StrokeKind::Inside);
                         let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(r));
                         bar.set_clip_rect(r);
@@ -1107,7 +1118,7 @@ impl eframe::App for App {
                     .inner_margin(egui::Margin::symmetric(12, 14)),
             };
             egui::Panel::left("nav").resizable(false)
-                .exact_size(shell::SIDEBAR_W - (shell::SIDEBAR_W - shell::RAIL_W) * shell::sidebar_collapse(self, &ctx))
+                .exact_size(shell::SIDEBAR_W - (shell::SIDEBAR_W - shell::rail_w(self)) * shell::sidebar_collapse(self, &ctx))
                 .frame(side_frame)
                 .show_separator_line(false)
                 .show(ui, |ui| shell::sidebar(self, ui));

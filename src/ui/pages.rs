@@ -17,6 +17,10 @@ const CARD: f32 = 180.0;
 
 pub fn page(app: &mut App, ui: &mut Ui, now: f64) {
     let t = theme::ease_out(((now - app.page_changed) / 0.32) as f32);
+    let rise = app.look().app.page_rise_px * (1.0 - t);
+    if rise > 0.0 {
+        ui.add_space(rise);
+    }
     if t < 1.0 {
         // The fade-in finishes even when nothing else is drawing frames.
         ui.ctx().request_repaint();
@@ -549,6 +553,14 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let acts = &mut app.actions;
     let tracks = &c.tracks;
     let is_album = c.is_album;
+    let look = &crate::preset::active();
+    // Under the art, fading out down the header: one more picture, already loaded for the cover.
+    if let Some(a) = look.app.immersive_header {
+        let top = ui.cursor().min;
+        let band = Rect::from_min_max(pos2(ui.max_rect().left(), top.y), pos2(ui.max_rect().right(), top.y + 340.0));
+        widgets::paint_cover_fill(ui, band, &c.thumbs, theme::with_alpha(Color32::WHITE, a));
+        super::shell::vgradient(ui.painter(), band, Color32::TRANSPARENT, look.solid());
+    }
     ui.add_space(18.0);
     ui.horizontal_top(|ui| {
         let (img, _) = ui.allocate_exact_size(Vec2::splat(232.0), Sense::hover());
@@ -561,7 +573,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             ui.vertical(|ui| {
                 ui.set_max_width(full.min(760.0));
                 ui.label(RichText::new(if is_album { "ALBUM" } else { "PLAYLIST" }).font(theme::semibold(12.0)).color(theme::text_dim()));
-                ui.label(RichText::new(&c.title).font(theme::bold(40.0)).color(theme::text()));
+                ui.label(RichText::new(&c.title).font(theme::bold(look.app.header_title_px)).color(theme::text()));
                 ui.add_space(2.0);
                 let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
                 widgets::linked_text(ui, r.min, &c.byline(), &c.artists, theme::regular(15.0), theme::text_dim(), r.width(), acts);
@@ -1957,7 +1969,9 @@ pub(super) fn divider(ui: &mut Ui) {
 
 /// On/off switch tinted with the accent.
 pub(super) fn toggle(ui: &mut Ui, on: &mut bool, name: &str) -> egui::Response {
-    let (rect, mut resp) = ui.allocate_exact_size(vec2(44.0, 26.0), Sense::click());
+    let tl = crate::preset::active().app.toggle_look;
+    let [tw, th] = tl.size.unwrap_or([44.0, 26.0]);
+    let (rect, mut resp) = ui.allocate_exact_size(vec2(tw, th), Sense::click());
     if resp.clicked() {
         *on = !*on;
         resp.mark_changed();
@@ -1970,10 +1984,15 @@ pub(super) fn toggle(ui: &mut Ui, on: &mut bool, name: &str) -> egui::Response {
     let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
     let fade = if ui.is_enabled() { 1.0 } else { 0.4 };
     let off = theme::glass(0.16 + 0.06 * h);
-    ui.painter().rect_filled(rect, 13.0, theme::with_alpha(theme::lerp_color(off, accent, t), fade));
-    let knob = pos2(egui::lerp(rect.left() + 13.0..=rect.right() - 13.0, t), rect.center().y);
-    ui.painter().circle_filled(knob + vec2(0.0, 1.0), 10.0, theme::shade(0.25 * fade));
-    ui.painter().circle_filled(knob, 10.0, theme::with_alpha(Color32::WHITE, fade));
+    let off = if tl.outline { Color32::TRANSPARENT } else { off };
+    ui.painter().rect_filled(rect, th / 2.0, theme::with_alpha(theme::lerp_color(off, accent, t), fade));
+    if tl.outline && t < 1.0 {
+        ui.painter().rect_stroke(rect, th / 2.0, egui::Stroke::new(1.5, theme::with_alpha(theme::text_dim(), (1.0 - t) * fade)), egui::StrokeKind::Inside);
+    }
+    let knob_r = tl.knob.unwrap_or(20.0) / 2.0;
+    let knob = pos2(egui::lerp(rect.left() + th / 2.0..=rect.right() - th / 2.0, t), rect.center().y);
+    ui.painter().circle_filled(knob + vec2(0.0, 1.0), knob_r, theme::shade(0.25 * fade));
+    ui.painter().circle_filled(knob, knob_r, theme::with_alpha(if tl.outline && t < 0.5 { theme::text_dim() } else { Color32::WHITE }, fade));
     resp
 }
 

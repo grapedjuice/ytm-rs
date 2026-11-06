@@ -1,0 +1,115 @@
+{
+  "id": "burn",
+  "name": "Burn",
+  "creators": [
+    "semicolonhope"
+  ],
+  "blurb": "White lyrics that burn as they're sung: a fire-coloured band sweeps each word and leaves charred dark-red text with a thin red outline.",
+  "source": "Better Lyrics: ramansg/Burn-BlyricsTheme 0.3.5",
+  "background": {
+    "mode": "cover_fullbleed",
+    "np_dim": 0.22
+  },
+  "accent": "#ffffff",
+  "lyrics": {
+    "font": "Google Sans Flex",
+    "weight": "semibold",
+    "font_rem": [
+      [
+        0,
+        3
+      ]
+    ],
+    "fullscreen_scale": 1.4,
+    "line_height": 1.5,
+    "line_padding_rem": 1.35,
+    "anchor": 0.4,
+    "rest_scale": 1,
+    "active_scale": 1,
+    "wobble": false,
+    "letter_wave": {
+      "on": false
+    },
+    "glow_alpha": 0,
+    "long_glow_alpha": 0,
+    "romanization_rem": 1.5,
+    "romanization_alpha": 0.65,
+    "romanization_pill": false,
+    "translation_rem": 2,
+    "translation_alpha": 0.82,
+    "fill": "sweep",
+    "dim_alpha": 1,
+    "sung_color": "#240205",
+    "sweep_band": [
+      "#fff2a3",
+      "#ffd23f",
+      "#ff8a00",
+      "#ff3d00",
+      "#d4143d"
+    ],
+    "sweep_band_width": 0.6,
+    "stroke_em": 0.03,
+    "stroke_color": "#f64258",
+    "past": [
+      [
+        0,
+        0
+      ]
+    ],
+    "upcoming": [
+      [
+        1,
+        0
+      ]
+    ],
+    "past_line_synced": [
+      [
+        0.6,
+        0
+      ]
+    ],
+    "upcoming_line_synced": [
+      [
+        0.15,
+        0
+      ]
+    ],
+    "opacity_transition": {
+      "frac": 0,
+      "secs": 0.4,
+      "delay": 0
+    },
+    "scroll_opacity": 0.5,
+    "scroll_secs": 0.7,
+    "scroll_ease": [
+      0.165,
+      0.84,
+      0.44,
+      1
+    ],
+    "scroll_offset": 0.3
+  },
+  "cover": {
+    "radius_pct": 0.08,
+    "outline": [
+      1,
+      0.1
+    ]
+  },
+  "chrome": {
+    "play_button": "ghost",
+    "progress_color": "white",
+    "progress_thumb": false
+  },
+  "app": {
+    "font": "Google Sans Flex",
+    "page_bg": "solid",
+    "bar_alpha": 0,
+    "chip": "ghost",
+    "search_radius": 20,
+    "search_alpha": 0.1,
+    "search_border": 0.1,
+    "menu_radius": 13.92,
+    "text_dim": "#a3a3a3"
+  }
+}

@@ -1,5 +1,5 @@
 //! Windows 11's material behind the window (Settings › Appearance › Window material),
-//! for the Fluent theme: Mica, Mica Alt or Acrylic. The window must be created see-through,
+//! in any theme: Mica, Mica Alt or Acrylic. The window must be created see-through,
 //! so a change applies from the next start, and only OpenGL's window can be (Vulkan's
 //! swapchain isn't composited that way).
 
@@ -62,10 +62,9 @@ pub fn active() -> Backdrop {
     *ACTIVE.get_or_init(Backdrop::default)
 }
 
-/// Whether the material shows through the theme `look`. Only Fluent is made for it; the
-/// other themes paint over it.
-pub fn shows(look: &crate::preset::Preset) -> bool {
-    active() != Backdrop::None && look.id == "fluent"
+/// Whether the material shows: when it's on, it takes the place of the pages' background.
+pub fn shows() -> bool {
+    active() != Backdrop::None
 }
 
 /// Windows 11 22H2 or later, where `DWMWA_SYSTEMBACKDROP_TYPE` exists.

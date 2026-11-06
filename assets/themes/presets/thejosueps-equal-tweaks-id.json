@@ -1,0 +1,37 @@
+{
+  "id": "thejosueps-equal-tweaks-id",
+  "name": "EqualTweaks",
+  "creators": ["thejosuep"],
+  "blurb": "The base look with frosted-glass bars and menus, rounder covers and thumbnails, a thin outline on the cover, and larger lyrics in full screen.",
+  "source": "Better Lyrics: TheJosuep/better-lyrics-equal-tweaks-theme 1.2.0",
+  "background": {
+    "mode": "cover_static"
+  },
+  "lyrics": {
+    "fullscreen_scale": 1.333
+  },
+  "cover": {
+    "radius": 25,
+    "shadow": 0.15,
+    "shadow_blur": 5,
+    "shadow_offset": 3,
+    "outline": [1, 0.5]
+  },
+  "now_playing": {
+    "video_radius": 13
+  },
+  "app": {
+    "sidebar": "glass",
+    "sidebar_alpha": 0.5,
+    "bar_alpha": 0.5,
+    "chip_radius": 12,
+    "card_radius": 15,
+    "thumb_radius": 8,
+    "panel_radius": 10,
+    "menu_radius": 15,
+    "menu_border": 0.2,
+    "search_radius": 13,
+    "hide_scrollbars": true,
+    "frost": true
+  }
+}

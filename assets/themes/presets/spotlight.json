@@ -1,0 +1,28 @@
+{
+  "id": "spotlight",
+  "name": "Spotlight",
+  "creators": [
+    "boidushya"
+  ],
+  "blurb": "Focused lyrics: dim unsung text, with already-sung lines softly blurred out.",
+  "source": "Better Lyrics: better-lyrics/theme-spotlight 1.0.0",
+  "lyrics": {
+    "dim_alpha": 0.2,
+    "past": [
+      [
+        0.5,
+        2.5
+      ]
+    ],
+    "opacity_transition": {
+      "frac": 0,
+      "secs": 0.5,
+      "delay": 0.35
+    },
+    "blur_transition": {
+      "frac": 0,
+      "secs": 0.5,
+      "delay": 0.35
+    }
+  }
+}

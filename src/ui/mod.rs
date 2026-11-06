@@ -331,8 +331,7 @@ pub struct App {
     art_key: Option<String>,
     art_changed: f64,
     accent: Color32,
-    default_theme: bool,
-    /// Selected theme preset (see `preset.rs`); applies unless `default_theme`.
+    /// Selected theme (see `preset.rs`).
     theme_id: String,
     /// Preset whose chrome (glass, corner radius) is installed in the egui style.
     chrome_applied: Option<String>,
@@ -603,9 +602,9 @@ impl App {
             art_key: None,
             art_changed: -10.0,
             accent: theme::RED,
-            default_theme: get("default_theme").is_some_and(|v| v == "1") && std::env::var_os("YTM_THEME").is_none(),
             // Dev hook: YTM_THEME=<preset id> tries a theme without saving it.
-            theme_id: std::env::var("YTM_THEME").ok().or_else(|| get("theme")).unwrap_or_else(|| crate::preset::DEFAULT_ID.to_owned()),
+            // The old "Classic theme" switch is the Classic theme now.
+            theme_id: std::env::var("YTM_THEME").ok().or_else(|| get("default_theme").filter(|v| v == "1").map(|_| "classic".to_owned())).or_else(|| get("theme")).unwrap_or_else(|| crate::preset::DEFAULT_ID.to_owned()),
             chrome_applied: None,
             // Dev hook: YTM_APPEARANCE=light|dark|system tries a mode without saving it.
             appearance: theme::Appearance::from_key(&dev_var("YTM_APPEARANCE").map(str::to_owned).or_else(|| get("appearance")).unwrap_or_default()),
@@ -840,7 +839,6 @@ impl App {
 
     fn accent_color(&self) -> Color32 {
         let c = match self.custom_accent {
-            _ if self.default_theme => theme::RED,
             Some(custom) => custom,
             None => self.look().accent(self.accent),
         };
@@ -854,28 +852,26 @@ impl App {
         c
     }
 
-    /// Whether pages draw light: only the ytm-rs and Fluent themes have a light mode, and it follows
-    /// Settings › Appearance › Mode.
+    /// Whether pages draw light: Settings › Appearance › Mode, in any theme.
     fn light_pages(&self, ctx: &egui::Context) -> bool {
-        !self.default_theme && self.look().has_light() && self.appearance.is_light(ctx)
+        self.appearance.is_light(ctx)
     }
 
-    /// The active theme preset; the classic red theme uses the built-in look's layout.
-    /// Synced once per frame (`sync_look`), so this is a plain index, not a search.
+    /// The active theme. Synced once per frame (`sync_look`), so this is a plain index, not a search.
     fn look(&self) -> &'static crate::preset::Preset {
         crate::preset::active()
     }
 
     fn sync_look(&self) {
-        let id = if self.default_theme { crate::preset::DEFAULT_ID } else { &self.theme_id };
-        if crate::preset::active().id != id {
-            crate::preset::set_active(id);
+        if crate::preset::active().id != self.theme_id {
+            crate::preset::set_active(&self.theme_id);
         }
     }
 
     /// Height of the bottom player area (a floating bar leaves a margin around it).
     fn bar_height(&self) -> f32 {
-        if self.look().chrome.player_bar == crate::preset::PlayerBar::Floating { 100.0 } else { 86.0 }
+        let c = &self.look().chrome;
+        if c.player_bar == crate::preset::PlayerBar::Floating { c.bar_height + c.bar_margin[1] } else { c.bar_height }
     }
 
     fn toast(&mut self, msg: impl Into<String>) {
@@ -998,7 +994,7 @@ impl eframe::App for App {
         } else if playing && widgets::equalizer_shown(ctx) {
             // The playing row's bars need a steady, full rate to read as smooth.
             ctx.request_repaint_after(Duration::from_millis(16));
-        } else if playing && self.anim_bg && !self.default_theme && shell::pages_bg_moves(self.look()) {
+        } else if playing && self.anim_bg && shell::pages_bg_moves(self.look()) {
             ctx.request_repaint_after(Duration::from_millis(66));
         } else if playing || self.buffering {
             ctx.request_repaint_after(Duration::from_millis(250));
@@ -1017,7 +1013,7 @@ impl eframe::App for App {
         let np = theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), 0.42);
         let light = self.light_pages(&ctx) && np < 0.5 && !self.fullscreen;
         theme::set_mode(&ctx, light);
-        crate::backdrop::follow(!self.default_theme && crate::backdrop::shows(look), light);
+        crate::backdrop::follow(crate::backdrop::shows(), light);
         if self.chrome_applied.as_deref() != Some(look.id.as_str()) {
             if self.chrome_applied.is_none() {
                 ctx.add_texture_loader(Arc::new(crate::images::Textures::default()));
@@ -1056,9 +1052,10 @@ impl eframe::App for App {
             let floating = look.chrome.player_bar == crate::preset::PlayerBar::Floating;
             let bar_alpha = app_style.bar_alpha.clamp(0.0, 1.0);
             let frame = if floating {
-                egui::Frame::new().inner_margin(egui::Margin { left: 14, right: 14, top: 0, bottom: 14 })
+                let [x, y] = look.chrome.bar_margin;
+                egui::Frame::new().inner_margin(egui::Margin { left: x as i8, right: x as i8, top: 0, bottom: y as i8 })
             } else {
-                let mut f = egui::Frame::new().fill(theme::panel(bar_alpha));
+                let mut f = egui::Frame::new().fill(shell::bar_fill(look, bar_alpha));
                 if app_style.bar_border {
                     f = f.stroke(egui::Stroke::new(1.0, theme::glass(0.1)));
                 }
@@ -1070,13 +1067,24 @@ impl eframe::App for App {
                 .show_separator_line(false)
                 .show(ui, |ui| {
                     if floating {
+                        // A bar that stops at its widest stays centred.
                         let r = ui.max_rect();
-                        let radius = look.chrome.radius.clamp(10.0, 26.0);
+                        let r = match look.chrome.bar_max_px {
+                            Some(w) if r.width() > w => egui::Rect::from_center_size(r.center(), egui::vec2(w, r.height())),
+                            _ => r,
+                        };
+                        let radius = look.chrome.bar_radius.min(r.height() / 2.0);
                         widgets::soft_shadow(ui, r, radius, 24.0, 0.45);
-                        ui.painter().rect_filled(r, radius, theme::panel((bar_alpha + 0.07).min(1.0)));
+                        // Frosted: the art's colour through it, what a blur of the page would show.
+                        let fill = shell::bar_fill(look, (bar_alpha + 0.07).min(1.0));
+                        let fill = if app_style.frost && self.current().is_some() { theme::lerp_color(fill, self.accent, 0.1) } else { fill };
+                        ui.painter().rect_filled(r, radius, fill);
                         let edge = if app_style.bar_border { 0.14 } else { 0.08 };
                         ui.painter().rect_stroke(r, radius, egui::Stroke::new(1.0, theme::glass(edge)), egui::StrokeKind::Inside);
-                        ui.set_clip_rect(r);
+                        let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(r));
+                        bar.set_clip_rect(r);
+                        shell::player_bar(self, &mut bar, now);
+                        return;
                     }
                     shell::player_bar(self, ui, now)
                 });
@@ -1086,10 +1094,11 @@ impl eframe::App for App {
             let side_alpha = app_style.sidebar_alpha.clamp(0.0, 1.0);
             // The logo's row is 32 points tall.
             let side_margin = egui::Margin { left: 14, right: 14, top: titlebar::top_margin(16, 32.0), bottom: 16 };
+            let border = egui::Stroke::new(if app_style.sidebar_border > 0.0 { 1.0 } else { 0.0 }, theme::glass(app_style.sidebar_border));
             let side_frame = match app_style.sidebar {
                 SidebarStyle::Glass => egui::Frame::new().fill(theme::panel(side_alpha)).inner_margin(side_margin),
                 SidebarStyle::Transparent => egui::Frame::new().inner_margin(side_margin),
-                SidebarStyle::Solid => egui::Frame::new().fill(look.solid()).inner_margin(side_margin),
+                SidebarStyle::Solid => egui::Frame::new().fill(look.solid()).stroke(border).inner_margin(side_margin),
                 SidebarStyle::Floating => egui::Frame::new()
                     .fill(theme::panel(side_alpha.max(0.3)))
                     .stroke(egui::Stroke::new(1.0, theme::glass(0.08)))
@@ -1110,8 +1119,9 @@ impl eframe::App for App {
                     .show_separator_line(false)
                     .show(ui, |ui| shell::queue_drawer(self, ui));
             }
+            let sheet = app_style.sheet.map_or((Color32::TRANSPARENT, 0), |[a, r]| (theme::glass(a), r as u8));
             egui::CentralPanel::default()
-                .frame(egui::Frame::new().inner_margin(egui::Margin { left: 28, right: 0, top: titlebar::top_margin(14, 42.0), bottom: 0 }))
+                .frame(egui::Frame::new().fill(sheet.0).corner_radius(egui::CornerRadius { nw: sheet.1, ne: 0, sw: 0, se: 0 }).inner_margin(egui::Margin { left: 28, right: 0, top: titlebar::top_margin(14, 42.0), bottom: 0 }))
                 .show(ui, |ui| {
                     shell::top_bar(self, ui);
                     ui.add_space(6.0);
@@ -1230,7 +1240,7 @@ impl eframe::App for App {
             storage.set_string("last_version", crate::update::current_version());
         }
         storage.set_string("discord_enabled", b(self.discord_enabled));
-        storage.set_string("default_theme", b(self.default_theme));
+        storage.set_string("default_theme", b(false));
         if dev_var("YTM_APPEARANCE").is_none() {
             storage.set_string("appearance", self.appearance.key().to_owned());
             storage.set_string("custom_accent", self.custom_accent.map_or_else(String::new, |c| format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b())));

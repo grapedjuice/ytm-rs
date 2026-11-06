@@ -1,0 +1,137 @@
+{
+  "id": "apple-music-v3",
+  "name": "Apple Music Refine",
+  "creators": [
+    "ankit008-mishra"
+  ],
+  "blurb": "Apple Music skin with big bold lyrics and a depth blur, a darkened cover backdrop on every page, liquid-glass surfaces and a floating pill player bar.",
+  "source": "Better Lyrics: ankit008-mishra/apple-music-v3 1.1.8",
+  "background": {
+    "mode": "kawarp",
+    "solid": "#000000",
+    "intensity": 1.0,
+    "saturation": 2.0,
+    "speed": 1.0,
+    "scale": 1.25,
+    "np_dim": 0.57,
+    "page_dim": 0.55,
+    "reactive": 1.1,
+    "audio_speed": 4.5,
+    "scrim": 0.3,
+    "layer": {
+      "opacity": 0.55
+    }
+  },
+  "lyrics": {
+    "font": "SF Pro Display",
+    "agent_align": "only_v1_left",
+    "font_rem": [
+      [
+        0,
+        5.8
+      ]
+    ],
+    "dim_alpha": 0.2,
+    "past": [
+      [
+        0.0,
+        5.0
+      ]
+    ],
+    "upcoming": [
+      [
+        1.0,
+        2.0
+      ],
+      [
+        1.0,
+        3.5
+      ],
+      [
+        1.0,
+        5.0
+      ],
+      [
+        1.0,
+        6.5
+      ],
+      [
+        1.0,
+        8.0
+      ],
+      [
+        1.0,
+        9.5
+      ]
+    ],
+    "opacity_transition": {
+      "secs": 0.9
+    },
+    "blur_transition": {
+      "secs": 0.5
+    },
+    "wobble": false,
+    "letter_wave": {
+      "on": false
+    },
+    "glow_alpha": 0.0001,
+    "long_glow_alpha": 1.0,
+    "romanization_rem": 2.0,
+    "romanization_alpha": 0.11,
+    "romanization_pill": false,
+    "translation_rem": 2.0,
+    "translation_alpha": 0.11,
+    "scroll_secs": 0.4,
+    "word_rise_px": 3.0,
+    "word_rise_secs": 0.4
+  },
+  "cover": {
+    "radius": 20,
+    "shadow": 0.1,
+    "shadow_blur": 55,
+    "shadow_offset": 54,
+    "outline": [
+      1,
+      0.1
+    ]
+  },
+  "now_playing": {
+    "tabs": "strip",
+    "title_align": "left",
+    "title_px": 25
+  },
+  "chrome": {
+    "radius": 16,
+    "player_bar": "floating",
+    "bar_height": 60,
+    "bar_radius": 50,
+    "bar_color": "#1e1e1e",
+    "bar_margin": [
+      14,
+      20
+    ],
+    "progress_at": "bottom",
+    "progress_px": 3,
+    "progress_color": "white",
+    "play_button": "bare",
+    "bar_max_px": 1200.0
+  },
+  "app": {
+    "font": "SF Pro Display",
+    "page_bg": "static",
+    "page_dim": 0.55,
+    "sidebar": "glass",
+    "sidebar_alpha": 0.15,
+    "sidebar_border": 0.06,
+    "bar_alpha": 0.85,
+    "bar_border": true,
+    "thumb_radius": 10,
+    "panel_radius": 16,
+    "menu_radius": 16,
+    "menu_border": 0.15,
+    "search_radius": 100,
+    "search_alpha": 0.1,
+    "search_border": 0.08,
+    "frost": true
+  }
+}

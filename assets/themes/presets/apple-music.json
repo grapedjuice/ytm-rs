@@ -1,0 +1,138 @@
+{
+  "id": "apple-music",
+  "name": "Apple Music",
+  "creators": [
+    "tposejank"
+  ],
+  "blurb": "Apple Music look: bold lyrics with a six-step depth blur, a saturated warped cover backdrop and a black, tightly rounded interface.",
+  "source": "Better Lyrics: tposejank/blyrics-am-theme 1.0.3",
+  "accent": "#fa586a",
+  "background": {
+    "mode": "kawarp",
+    "solid": "#000000",
+    "intensity": 1.0,
+    "saturation": 2.0,
+    "speed": 1.0,
+    "scale": 1.25,
+    "np_dim": 0.57,
+    "reactive": 1.1,
+    "audio_speed": 4.5,
+    "layer": {
+      "opacity": 0.3
+    }
+  },
+  "lyrics": {
+    "font": "SF Pro Display",
+    "font_rem": [
+      [
+        0,
+        2.9
+      ],
+      [
+        1279,
+        4.0
+      ],
+      [
+        1500,
+        4.4
+      ],
+      [
+        1700,
+        5.2
+      ],
+      [
+        1900,
+        6.0
+      ]
+    ],
+    "line_padding_rem": 1.5,
+    "anchor": 0.45,
+    "dim_alpha": 0.2,
+    "past": [
+      [
+        0.0,
+        5.0
+      ]
+    ],
+    "upcoming": [
+      [
+        1.0,
+        2.0
+      ],
+      [
+        1.0,
+        3.5
+      ],
+      [
+        1.0,
+        5.0
+      ],
+      [
+        1.0,
+        6.5
+      ],
+      [
+        1.0,
+        8.0
+      ],
+      [
+        1.0,
+        9.5
+      ]
+    ],
+    "opacity_transition": {
+      "secs": 0.9
+    },
+    "blur_transition": {
+      "secs": 0.5
+    },
+    "wobble": false,
+    "letter_wave": {
+      "on": false
+    },
+    "glow_alpha": 0.0001,
+    "long_glow_alpha": 1.0,
+    "glow_rem": 1.0,
+    "background_em": 0.65,
+    "romanization_rem": 1.6,
+    "romanization_alpha": 0.2,
+    "romanization_pill": false,
+    "translation_rem": 2.0,
+    "translation_alpha": 0.2,
+    "scale_secs": 0.166,
+    "scroll_secs": 0.4,
+    "scroll_offset": 0.6,
+    "word_rise_px": 3.0,
+    "word_rise_secs": 0.4,
+    "line_fade_secs": 1.2
+  },
+  "cover": {
+    "radius": 12,
+    "max_px": 600
+  },
+  "now_playing": {
+    "tabs": "pill",
+    "title_align": "left",
+    "title_px": 20,
+    "artist_px": 20
+  },
+  "chrome": {
+    "radius": 6,
+    "bar_height": 64,
+    "bar_color": "#000000",
+    "progress_color": "white",
+    "progress_px": 3,
+    "progress_radius": 100
+  },
+  "app": {
+    "font": "SF Pro Display",
+    "page_bg": "solid",
+    "sidebar": "solid",
+    "bar_alpha": 1.0,
+    "chip_radius": 6,
+    "panel_radius": 6,
+    "menu_radius": 6,
+    "search_radius": 6,
+    "search_alpha": 0.08
+  }
+}

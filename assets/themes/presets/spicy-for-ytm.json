@@ -1,0 +1,78 @@
+{
+  "id": "spicy-for-ytm",
+  "name": "Spicy for YouTube Music",
+  "creators": ["olafix52"],
+  "blurb": "The Spicy Lyrics look: bold lyrics that blur with distance, a springy word bounce, three-dot breaks, and a vivid, fast cover warp behind every page.",
+  "source": "Better Lyrics: olafix52/spicy-for-youtube-music 1.5.0",
+  "accent": "#ffffff",
+  "background": {
+    "mode": "kawarp",
+    "np_dim": 0.65,
+    "page_dim": 0.65,
+    "intensity": 1.0,
+    "saturation": 3.75,
+    "speed": 2.5,
+    "reactive": 0.0,
+    "audio_speed": 3.3
+  },
+  "lyrics": {
+    "agent_align": "only_v1_left",
+    "font": "SF Pro Display",
+    "font_rem": [[0, 3.8]],
+    "fullscreen_scale": 1.11,
+    "line_height": 1.2,
+    "line_padding_rem": 1.5,
+    "padding_inline": [28.5, 28.5],
+    "anchor": 0.5,
+    "dim_alpha": 0.5,
+    "past": [[0.96, 1.1], [0.96, 2.2], [0.96, 3.3], [0.96, 4.4]],
+    "upcoming": [[0.76, 1.1], [0.76, 2.2], [0.76, 3.3], [0.76, 4.4]],
+    "opacity_transition": { "secs": 0.6 },
+    "blur_transition": { "secs": 0.6 },
+    "hover_reveal": true,
+    "rest_scale": 0.98,
+    "active_scale": 1.0,
+    "scale_secs": 0.45,
+    "letter_wave": { "crest": 0.07, "emphasis": 1.12 },
+    "wobble": false,
+    "word_bounce": { "lift": 0.034, "scale": 1.0505, "secs": 0.8, "spring": true },
+    "glow_alpha": 0.35,
+    "long_glow_alpha": 0.35,
+    "glow_rem": 0.6,
+    "romanization_rem": 1.9,
+    "romanization_alpha": 0.5,
+    "romanization_pill": false,
+    "translation_rem": 1.9,
+    "translation_alpha": 0.5,
+    "instrumental": "dots",
+    "scroll_secs": 0.7,
+    "scroll_ease": [0.16, 1.0, 0.3, 1.0],
+    "scroll_offset": 0.0,
+    "early_scroll": 0.0
+  },
+  "cover": {
+    "radius_pct": 0.02,
+    "size_vh": 0.572,
+    "shadow": 0.271,
+    "shadow_blur": 20,
+    "shadow_offset": 9
+  },
+  "now_playing": {
+    "title_px": 33,
+    "artist_px": 23
+  },
+  "chrome": {
+    "progress_color": "white"
+  },
+  "app": {
+    "font": "SF Pro Display",
+    "page_bg": "same",
+    "sidebar": "glass",
+    "sidebar_alpha": 0.35,
+    "bar_alpha": 0.35,
+    "bar_border": true,
+    "card_radius": 10,
+    "thumb_radius": 10,
+    "frost": true
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "id": "ad-nextgen",
+  "name": "AppleTify",
+  "creators": [
+    "a-dogann"
+  ],
+  "blurb": "Minimal dark skin mixing Apple Music and Spotify: right-leaning bold lyrics with a depth blur, a dark blurred still cover backdrop on now playing, a floating pill player bar and a red accent.",
+  "source": "Better Lyrics: a-dogann/-ADNEXTGEN-THEME 1.0.1",
+  "accent": "#fa243c",
+  "background": {
+    "mode": "cover_static",
+    "solid": "#000000",
+    "saturation": 0.8,
+    "np_dim": 0.45
+  },
+  "lyrics": {
+    "font": "SF Pro Display",
+    "agent_align": "only_v1_left",
+    "font_rem": [
+      [
+        0,
+        4.2
+      ]
+    ],
+    "dim_alpha": 0.2,
+    "past": [
+      [
+        0.0,
+        4.0
+      ]
+    ],
+    "upcoming": [
+      [
+        1.0,
+        1.5
+      ],
+      [
+        1.0,
+        3.0
+      ],
+      [
+        1.0,
+        5.0
+      ],
+      [
+        1.0,
+        8.0
+      ]
+    ],
+    "opacity_transition": {
+      "secs": 0.6
+    },
+    "blur_transition": {
+      "secs": 0.4
+    },
+    "wobble": false,
+    "letter_wave": {
+      "on": false
+    },
+    "glow_alpha": 0.0001,
+    "long_glow_alpha": 1.0,
+    "romanization_rem": 1.8,
+    "romanization_alpha": 0.09,
+    "romanization_pill": false,
+    "translation_rem": 1.8,
+    "translation_alpha": 0.09,
+    "scroll_secs": 0.4,
+    "word_rise_px": 3.0,
+    "word_rise_secs": 0.4
+  },
+  "cover": {
+    "radius": 20,
+    "shadow": 0.2,
+    "shadow_blur": 48,
+    "shadow_offset": 24,
+    "outline": [
+      1,
+      0.08
+    ]
+  },
+  "now_playing": {
+    "tabs": "strip",
+    "title_align": "left",
+    "title_px": 25
+  },
+  "chrome": {
+    "radius": 16,
+    "player_bar": "floating",
+    "bar_height": 58,
+    "bar_radius": 50,
+    "bar_color": "#1e1e1e",
+    "bar_margin": [
+      14,
+      20
+    ],
+    "progress_at": "bottom",
+    "progress_px": 2,
+    "progress_color": "white",
+    "play_button": "bare"
+  },
+  "app": {
+    "font": "SF Pro Display",
+    "page_bg": "solid",
+    "sidebar": "transparent",
+    "bar_alpha": 0.8,
+    "bar_border": true,
+    "nav": "text",
+    "chip_radius": 20,
+    "card_radius": 12,
+    "thumb_radius": 6,
+    "panel_radius": 16,
+    "menu_radius": 16,
+    "menu_border": 0.08,
+    "text_dim": "#8c8c8c",
+    "search_radius": 100,
+    "search_border": 0.08,
+    "hide_scrollbars": true,
+    "frost": true
+  }
+}

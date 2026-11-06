@@ -1,0 +1,21 @@
+{
+  "id": "recover-theme",
+  "name": "reCover",
+  "creators": ["mukeenanyafiq"],
+  "blurb": "The album cover fills the screen's height on the left and fades toward the lyrics, with a small card for the song in the corner and sung lines blurred away.",
+  "source": "Better Lyrics: mukeenanyafiq/recover-theme 1.3.8",
+  "background": { "mode": "cover_fullbleed", "np_dim": 1, "fade": [0, 1] },
+  "lyrics": {
+    "font_rem": [[0, 3.3]],
+    "line_height": 1.25,
+    "line_padding_rem": 1.8,
+    "past": [[0.1, 5]],
+    "opacity_transition": { "frac": 0, "secs": 0.75, "delay": 0.75 },
+    "blur_transition": { "frac": 0, "secs": 1.5, "delay": 0.5 },
+    "hover_scale": 1,
+    "wobble_secs": 2.5
+  },
+  "cover": { "layout": "lyrics_only", "radius": 10 },
+  "now_playing": { "info_card": true },
+  "app": { "page_bg": "solid" }
+}

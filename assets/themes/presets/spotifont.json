@@ -1,0 +1,43 @@
+{
+  "id": "spotifont",
+  "name": "Spotifont",
+  "creators": [
+    "mukeenanyafiq"
+  ],
+  "blurb": "Lyrics in Spotify's title font, a little larger and tighter, with past lines blurred and faded and everything else stock.",
+  "source": "Better Lyrics: mukeenanyafiq/spotifont-theme 1.0.0",
+  "lyrics": {
+    "font": "Spotify Mix UI Title",
+    "font_rem": [
+      [
+        0,
+        3.25
+      ]
+    ],
+    "line_height": 1.25,
+    "line_padding_rem": 1.5,
+    "past": [
+      [
+        0.5,
+        5
+      ]
+    ],
+    "opacity_transition": {
+      "frac": 0,
+      "secs": 0.5,
+      "delay": 0.3
+    },
+    "blur_transition": {
+      "frac": 0,
+      "secs": 0.5,
+      "delay": 0.3
+    },
+    "wobble_secs": 2.0
+  },
+  "cover": {
+    "radius": 7.5
+  },
+  "now_playing": {
+    "title_lyric_font": true
+  }
+}

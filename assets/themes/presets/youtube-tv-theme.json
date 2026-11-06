@@ -1,0 +1,20 @@
+{
+  "id": "youtube-tv-theme",
+  "name": "YouTube TV",
+  "creators": ["mukeenanyafiq"],
+  "blurb": "YouTube TV-style: big lyrics on the left, a large rounded cover on the right with the song centred beneath it, sung lines vanish, and the sidebar and bar are transparent.",
+  "source": "Better Lyrics: mukeenanyafiq/youtube-tv-theme 1.1.1",
+  "background": { "mode": "cover_static" },
+  "lyrics": {
+    "font_rem": [[0, 3.3]],
+    "fullscreen_scale": 1.818,
+    "line_height": 1.25,
+    "line_padding_rem": 1.8,
+    "past": [[0, 0]],
+    "opacity_transition": { "frac": 0, "secs": 0.2, "delay": 0.4 },
+    "wobble_secs": 2.5
+  },
+  "cover": { "side": "right", "radius": 20 },
+  "now_playing": { "title_align": "center", "title_px": 24, "artist_px": 24 },
+  "app": { "bar_alpha": 0 }
+}

@@ -1,0 +1,61 @@
+{
+  "id": "fluent",
+  "name": "Fluent",
+  "creators": [
+    "ytm-rs"
+  ],
+  "blurb": "Windows 11's Fluent look: Segoe UI Variable, your Windows accent colour, flat layered greys on a rounded sheet and small corners; now playing keeps a slow, calm cover backdrop.",
+  "source": "WinUI 3 Fluent design (Microsoft)",
+  "accent": "system",
+  "background": {
+    "mode": "kawarp",
+    "solid": "#202020",
+    "solid_light": "#f3f3f3",
+    "intensity": 0.6,
+    "speed": 0.5,
+    "saturation": 1.2,
+    "np_dim": 0.6,
+    "page_dim": 0.35,
+    "reactive": 0.3
+  },
+  "lyrics": {
+    "font": "Segoe UI Variable, Segoe UI",
+    "weight": "semibold",
+    "dim_alpha": 0.35
+  },
+  "cover": {
+    "radius": 8,
+    "shadow": 0.4
+  },
+  "now_playing": {
+    "title_px": 28,
+    "artist_px": 14
+  },
+  "chrome": {
+    "glass": 0.7,
+    "radius": 4,
+    "progress_radius": 4
+  },
+  "app": {
+    "font": "Segoe UI Variable, Segoe UI",
+    "page_bg": "solid",
+    "sidebar": "transparent",
+    "bar_alpha": 0.0,
+    "bar_border": true,
+    "nav": "bar",
+    "chip": "accent",
+    "chip_radius": 4,
+    "card_radius": 8,
+    "thumb_radius": 4,
+    "panel_radius": 8,
+    "menu_radius": 8,
+    "search_radius": 4,
+    "hover": 0.8,
+    "text_dim": "#c5c5c5",
+    "accent_controls": true,
+    "sheet": [
+      0.05,
+      8
+    ]
+  }
+}

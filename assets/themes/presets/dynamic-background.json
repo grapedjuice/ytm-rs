@@ -1,0 +1,50 @@
+{
+  "id": "dynamic-background",
+  "name": "Dynamic Background",
+  "creators": ["chengggit"],
+  "blurb": "An animated cover backdrop across the whole app with frosted glass; every line but the one being sung is blurred, and sung words glow.",
+  "source": "Better Lyrics: chengggit/YouTube-Music-Dynamic-Theme 4.0.0",
+  "accent": "#ffffff",
+  "background": {
+    "mode": "kawarp",
+    "np_dim": 0.75,
+    "page_dim": 0.75,
+    "intensity": 1,
+    "speed": 6.66,
+    "saturation": 1.5,
+    "reactive": 0,
+    "audio_speed": 0
+  },
+  "lyrics": {
+    "font": "Inter",
+    "weight": "semibold",
+    "font_rem": [[0, 4.0]],
+    "past": [[0.4, 6]],
+    "upcoming": [[1, 6]],
+    "opacity_transition": { "frac": 0, "secs": 0.6, "delay": 0 },
+    "blur_transition": { "frac": 0, "secs": 0.8, "delay": 0 },
+    "hover_reveal": true,
+    "glow_alpha": 1,
+    "long_glow_alpha": 1,
+    "scroll_ease": [0.42, 0, 0.58, 1]
+  },
+  "cover": { "radius": 20, "shadow": 0.2, "shadow_blur": 8, "shadow_offset": 4, "max_px": 400 },
+  "now_playing": { "title_align": "left", "title_px": 25, "artist_px": 20 },
+  "chrome": {},
+  "app": {
+    "font": "Inter",
+    "page_bg": "same",
+    "bar_alpha": 0,
+    "chip": "tonal",
+    "chip_radius": 12,
+    "card_radius": 20,
+    "thumb_radius": 8,
+    "panel_radius": 24,
+    "menu_radius": 24,
+    "text_dim": "#b3b3b3",
+    "search_radius": 12,
+    "search_alpha": 0.1,
+    "hide_scrollbars": true,
+    "frost": true
+  }
+}

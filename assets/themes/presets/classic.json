@@ -1,0 +1,27 @@
+{
+  "id": "classic",
+  "name": "Classic",
+  "creators": ["ytm-rs"],
+  "blurb": "Plain dark with red accents and no album-art colours.",
+  "source": "ytm-rs",
+  "accent": "#ff3048",
+  "background": { "mode": "accent_gradient", "solid": "#0c0a0e", "scrim": 0.3 },
+  "lyrics": {
+    "rem": 16,
+    "opacity_transition": { "secs": 0.195 },
+    "blur_transition": { "secs": 0.35 }
+  },
+  "cover": { "radius": 12, "shadow": 0.55, "shadow_blur": 60 },
+  "now_playing": { "title_align": "left", "title_px": 28, "artist_px": 17 },
+  "chrome": { "bar_height": 86, "bar_radius": 18, "bar_margin": [14, 14] },
+  "app": {
+    "page_bg": "accent",
+    "sidebar": "glass",
+    "bar_alpha": 0.55,
+    "card_radius": 8,
+    "thumb_radius": 5,
+    "panel_radius": 14,
+    "search_radius": 21,
+    "text_dim": "#b2acba"
+  }
+}

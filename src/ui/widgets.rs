@@ -247,20 +247,31 @@ pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
     let s = theme::anim_bool(ui.ctx(), resp.id.with("s"), selected, 0.2);
     use crate::preset::ChipStyle;
-    let style = crate::preset::active().app.chip;
-    let radius = (crate::preset::active().chrome.radius * 0.55).clamp(4.0, 17.0);
+    let look = crate::preset::active();
+    let style = look.app.chip;
+    let radius = look.app.chip_radius.unwrap_or((look.chrome.radius * 0.55).clamp(4.0, 17.0));
+    let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
     let (on_fill, on_fg) = match style {
-        ChipStyle::Accent => {
-            let a = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
-            (a, if a.r() as u32 + a.g() as u32 + a.b() as u32 > 480 { Color32::from_gray(15) } else { Color32::WHITE })
-        }
+        ChipStyle::Accent => (accent, if accent.r() as u32 + accent.g() as u32 + accent.b() as u32 > 480 { Color32::from_gray(15) } else { Color32::WHITE }),
+        ChipStyle::Tonal => (theme::glass(0.2), accent),
+        ChipStyle::Ghost => (theme::glass(0.2), theme::text()),
         _ => (theme::text(), theme::on_text()),
     };
-    let off_fill = if style == ChipStyle::Outline { theme::glass(0.04 * h) } else { theme::glass(0.09 + 0.06 * h) };
+    let off_fill = match style {
+        ChipStyle::Outline => theme::glass(0.04 * h),
+        ChipStyle::Ghost => theme::glass(0.1 + 0.05 * h),
+        _ => theme::glass(0.09 + 0.06 * h),
+    };
     let fill = theme::lerp_color(off_fill, on_fill, s);
     ui.painter().rect_filled(rect, radius, fill);
-    if style == ChipStyle::Outline {
-        ui.painter().rect_stroke(rect, radius, egui::Stroke::new(1.0, theme::glass(0.3 * (1.0 - s))), egui::StrokeKind::Inside);
+    match style {
+        ChipStyle::Outline => {
+            ui.painter().rect_stroke(rect, radius, egui::Stroke::new(1.0, theme::glass(0.3 * (1.0 - s))), egui::StrokeKind::Inside);
+        }
+        ChipStyle::Ghost => {
+            ui.painter().rect_stroke(rect, radius, egui::Stroke::new(1.0, theme::glass(0.2)), egui::StrokeKind::Inside);
+        }
+        _ => {}
     }
     let fg = theme::lerp_color(theme::text(), on_fg, s);
     ui.painter().galley(rect.center() - text.size() / 2.0, text, fg);
@@ -356,8 +367,7 @@ pub fn paint_disc(ui: &Ui, center: Pos2, r: f32, thumbs: &[Thumb], angle: f32, t
     let uv = t.square_uv();
     let (uc, uh) = (uv.center(), uv.width() / 2.0);
     let mut mesh = egui::Mesh::with_texture(texture.id);
-    mesh.colored_vertex(center, tint);
-    mesh.vertices[0].uv = uc;
+    mesh.vertices.push(egui::epaint::Vertex { pos: center, uv: uc, color: tint });
     let n = 96;
     for i in 0..=n {
         let a = i as f32 / n as f32 * std::f32::consts::TAU;
@@ -384,6 +394,13 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.contains_pointer(), 0.22);
     let img = Rect::from_min_size(rect.min, Vec2::splat(width));
     let radius = if c.round { width / 2.0 } else { theme::card_radius().min(width / 2.0) };
+    let look = &crate::preset::active().app;
+    if look.card_fill > 0.0 {
+        ui.painter().rect_filled(rect, radius, theme::glass(look.card_fill));
+    }
+    if look.card_stroke > 0.0 {
+        ui.painter().rect_stroke(rect, radius, egui::Stroke::new(1.0, theme::glass(look.card_stroke)), egui::StrokeKind::Inside);
+    }
     paint_cover(ui, img, &c.thumbs, radius, 1.0 + 0.06 * h * theme::hover_k());
     if h > 0.0 && !c.round {
         ui.painter().rect_filled(img, radius, theme::shade(0.28 * h));

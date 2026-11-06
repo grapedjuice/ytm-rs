@@ -1237,71 +1237,55 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
 
 /// Settings › Appearance and Theme.
 fn settings_appearance(app: &mut App, ui: &mut Ui) {
-    let was_default = app.default_theme;
     let was_theme = app.theme_id.clone();
     section_label(ui, "Appearance", None);
     settings_card(ui, |ui| {
-        // Only the ytm-rs and Fluent themes have a light mode; the others are made dark.
-        let has_modes = !app.default_theme && app.look().has_light();
-        let desc = if !has_modes {
-            "Light mode is part of the ytm-rs and Fluent themes. Pick one under Theme to use it."
-        } else if cfg!(windows) {
-            "Light or dark pages. System follows Windows' app mode. Now playing stays dark, over the album art."
+        let desc = if cfg!(windows) {
+            "Light or dark pages, in any theme. System follows Windows' app mode. Now playing stays dark, over the album art."
         } else {
-            "Light or dark pages. System follows your system's setting. Now playing stays dark, over the album art."
+            "Light or dark pages, in any theme. System follows your system's setting. Now playing stays dark, over the album art."
         };
         let mut pick = None;
-        ui.add_enabled_ui(has_modes, |ui| {
-            setting_row(ui, "Mode", Some(desc), |ui| {
-                let btn = dropdown_button(ui, app.appearance.label(), 160.0, "Mode");
-                egui::Popup::menu(&btn).show(|ui| {
-                    ui.set_width(160.0);
-                    ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-                    ui.add_space(4.0);
-                    for a in theme::Appearance::ALL {
-                        if option_row(ui, a.label(), a == app.appearance).clicked() {
-                            pick = Some(a);
-                            ui.close();
-                        }
+        setting_row(ui, "Mode", Some(desc), |ui| {
+            let btn = dropdown_button(ui, app.appearance.label(), 160.0, "Mode");
+            egui::Popup::menu(&btn).show(|ui| {
+                ui.set_width(160.0);
+                ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                ui.add_space(4.0);
+                for a in theme::Appearance::ALL {
+                    if option_row(ui, a.label(), a == app.appearance).clicked() {
+                        pick = Some(a);
+                        ui.close();
                     }
-                    ui.add_space(4.0);
-                });
+                }
+                ui.add_space(4.0);
             });
         });
         if let Some(a) = pick {
             app.appearance = a;
         }
         divider(ui);
-        setting_row(ui, "Classic theme", Some("Plain dark with red accents. Turns off album-art colours and the theme below."), |ui| {
-            toggle(ui, &mut app.default_theme, "Classic theme");
-        });
-        let enabled = !app.default_theme;
-        divider(ui);
-        ui.add_enabled_ui(enabled, |ui| {
-            setting_row(ui, "Accent colour", Some("Your own colour, instead of the one the theme picks."), |ui| {
-                let mut custom = app.custom_accent.is_some();
-                if toggle(ui, &mut custom, "Custom accent colour").changed() {
-                    app.custom_accent = custom.then(|| app.accent_color());
-                }
-                if let Some(c) = &mut app.custom_accent {
-                    ui.add_space(8.0);
-                    ui.color_edit_button_srgba(c);
-                }
-            });
+        setting_row(ui, "Accent colour", Some("Your own colour, instead of the one the theme picks."), |ui| {
+            let mut custom = app.custom_accent.is_some();
+            if toggle(ui, &mut custom, "Custom accent colour").changed() {
+                app.custom_accent = custom.then(|| app.accent_color());
+            }
+            if let Some(c) = &mut app.custom_accent {
+                ui.add_space(8.0);
+                ui.color_edit_button_srgba(c);
+            }
         });
         if crate::backdrop::supported() {
             divider(ui);
             settings_backdrop(app, ui);
         }
         divider(ui);
-        ui.add_enabled_ui(enabled, |ui| {
-            setting_row(ui, "Animated background", Some("The album art slowly drifts behind everything."), |ui| {
-                toggle(ui, &mut app.anim_bg, "Animated background");
-            });
-            divider(ui);
-            setting_row(ui, "Pulse with the music", Some("The background swells with the beat."), |ui| {
-                toggle(ui, &mut app.reactive_bg, "Pulse with the music");
-            });
+        setting_row(ui, "Animated background", Some("The album art slowly drifts behind everything, in themes whose background moves."), |ui| {
+            toggle(ui, &mut app.anim_bg, "Animated background");
+        });
+        divider(ui);
+        setting_row(ui, "Pulse with the music", Some("The background swells with the beat, in themes whose background moves."), |ui| {
+            toggle(ui, &mut app.reactive_bg, "Pulse with the music");
         });
         divider(ui);
         setting_row(ui, "Font", Some("For the whole app and the lyrics. Any font installed on this PC works, e.g. one made for your language."), |ui| {
@@ -1312,16 +1296,16 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         });
     });
 
-    let current = if app.default_theme { "Classic".to_owned() } else { crate::preset::get(&app.theme_id).name.clone() };
+    let current = crate::preset::get(&app.theme_id).name.clone();
     section_label(ui, "Theme", Some(&current));
     ui.label(
-        RichText::new("Rebuilt from the Better Lyrics community themes. Each one restyles the background, lyrics, cover, player bar and the rest of the app.")
+        RichText::new("Ported from the Better Lyrics community themes. Each one restyles the background, lyrics, cover, player bar and the rest of the app, and every setting above works in all of them.")
             .font(theme::regular(13.0))
             .color(theme::text_dim()),
     );
     ui.add_space(12.0);
     themes(app, ui);
-    if (was_default && !app.default_theme) || was_theme != app.theme_id {
+    if was_theme != app.theme_id {
         app.request_art();
     }
 }
@@ -1370,7 +1354,7 @@ fn settings_backdrop(app: &mut App, ui: &mut Ui) {
     use crate::backdrop::{self, Backdrop};
     let saved = backdrop::load(app.backend.data_dir());
     let opengl = crate::renderer::active() == crate::renderer::Renderer::OpenGl;
-    let desc = if opengl { "Windows 11's material behind the Fluent theme." } else { "Windows 11's material behind the Fluent theme. Needs OpenGL, not Vulkan." };
+    let desc = if opengl { "Windows 11's material behind the pages, in place of the theme's background." } else { "Windows 11's material behind the pages. Needs OpenGL, not Vulkan." };
     let mut pick = None;
     ui.add_enabled_ui(opengl, |ui| {
         setting_row(ui, "Window material", Some(desc), |ui| {
@@ -2055,7 +2039,7 @@ fn themes(app: &mut App, ui: &mut Ui) {
         ui.spacing_mut().item_spacing = vec2(gap, gap + 4.0);
         ui.horizontal_wrapped(|ui| {
             for p in crate::preset::all() {
-                let selected = !app.default_theme && app.theme_id == p.id;
+                let selected = app.theme_id == p.id;
                 if theme_card(ui, p, w, selected, app.accent_color()).clicked() {
                     picked = Some(p.id.clone());
                 }
@@ -2064,7 +2048,6 @@ fn themes(app: &mut App, ui: &mut Ui) {
     });
     if let Some(id) = picked {
         app.theme_id = id;
-        app.default_theme = false;
     }
 }
 
@@ -2113,9 +2096,5 @@ fn theme_card(ui: &mut Ui, p: &crate::preset::Preset, w: f32, selected: bool, ac
     widgets::text_at(ui, pos2(rect.left() + 2.0, name_y), &p.name, theme::semibold(14.5), theme::text(), w - 4.0);
     let by = if p.creators.is_empty() { "Built in".to_owned() } else { format!("by {}", p.creators.join(", ")) };
     widgets::text_at(ui, pos2(rect.left() + 2.0, name_y + 20.0), &by, theme::regular(12.0), theme::text_faint(), w - 4.0);
-    if !p.blurb.is_empty() {
-        resp.on_hover_text(&p.blurb)
-    } else {
-        resp
-    }
+    resp.on_hover_text(format!("{}\n\nFrom: {}", p.blurb, p.source))
 }

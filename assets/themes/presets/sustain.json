@@ -1,0 +1,58 @@
+{
+  "id": "sustain",
+  "name": "Sustain",
+  "creators": ["boidushya"],
+  "blurb": "Calm and minimal: DM Sans lyrics on the left over a saturated, audio-reactive backdrop. Sung lines vanish and the next four fade out and blur away.",
+  "source": "Better Lyrics: better-lyrics/theme-sustain 1.0.31",
+  "background": {
+    "mode": "kawarp",
+    "np_dim": 0.75,
+    "intensity": 1,
+    "speed": 3.33,
+    "saturation": 2,
+    "reactive": 2,
+    "audio_speed": 4,
+    "scale": 1.25,
+    "layer": { "opacity": 0.5, "pulse_secs": 8, "pulse": 0.05 }
+  },
+  "lyrics": {
+    "font": "DM Sans",
+    "weight": "semibold",
+    "font_rem": [[0, 3], [1400, 4.5], [1600, 5], [1800, 6]],
+    "line_padding_rem": 0.5,
+    "padding_inline": [20, 20],
+    "anchor": 0.5,
+    "past": [[0, 0]],
+    "upcoming": [[0.88, 1.125], [0.72, 2.5], [0.52, 4.125], [0.28, 6], [0, 0]],
+    "opacity_transition": { "frac": 0.5, "secs": 0, "delay": 0.166 },
+    "blur_transition": { "frac": 0.333, "secs": 0, "delay": 0.4 },
+    "hover_reveal": true,
+    "hover_scale": 1.01,
+    "letter_wave": { "on": true, "crest": 0.04, "settle": 0.015, "secs": 0.75, "emphasis": 1.09 },
+    "wobble": true,
+    "wobble_secs": 1,
+    "glow_alpha": 0,
+    "long_glow_alpha": 1,
+    "background_em": 0.9,
+    "scroll_secs": 0.582
+  },
+  "cover": {
+    "side": "right",
+    "radius": 20,
+    "max_px": 576,
+    "shadow": 0.1,
+    "shadow_blur": 55,
+    "shadow_offset": 54,
+    "outline": [1, 0.1]
+  },
+  "now_playing": { "title_align": "left", "title_px": 25 },
+  "chrome": { "bar_color": "#141414" },
+  "app": {
+    "font": "DM Sans",
+    "page_bg": "solid",
+    "bar_alpha": 0.2,
+    "card_radius": 20,
+    "thumb_radius": 10,
+    "frost": true
+  }
+}

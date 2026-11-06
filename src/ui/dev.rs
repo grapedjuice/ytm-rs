@@ -28,7 +28,6 @@ impl App {
             }
         } else if self.theme_id != all[n].id {
             self.theme_id = all[n].id.clone();
-            self.default_theme = false;
         }
         let shot_id = egui::Id::unique("tour-shot");
         let requested: usize = ctx.data(|d| d.get_temp(shot_id)).unwrap_or(usize::MAX);

@@ -1,0 +1,38 @@
+{
+  "id": "colorful-vocals",
+  "name": "Colorful Vocals",
+  "creators": [
+    "adaliea"
+  ],
+  "blurb": "Each singer gets their own pastel colour, with a soft glow on sung words, over a dim, punchy reactive backdrop.",
+  "source": "Better Lyrics: adaliea/blyrics-colorful-vocals 1.0.0",
+  "background": {
+    "mode": "kawarp",
+    "np_dim": 0.26,
+    "intensity": 1.0,
+    "speed": 0.87,
+    "saturation": 1.5,
+    "reactive": 5.4,
+    "audio_speed": 7.4,
+    "scale": 1.25
+  },
+  "lyrics": {
+    "agent_align": "same",
+    "dim_from_agent": true,
+    "agent_colors": [
+      "#f0f0f0",
+      "#99ccff",
+      "#ff99cc",
+      "#cc99ff",
+      "#ffcc99",
+      "#99ffcc",
+      "#ccffcc",
+      "#ccff99",
+      "#ffccff",
+      "#ffffcc"
+    ],
+    "glow_color": "#f0f0f0",
+    "glow_alpha": 0.8,
+    "long_glow_alpha": 0.8
+  }
+}

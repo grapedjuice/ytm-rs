@@ -1,0 +1,49 @@
+{
+  "id": "clarity-theme",
+  "name": "Clarity",
+  "creators": ["Al Farrizi"],
+  "blurb": "Clean glassmorphism with heavy Figtree lyrics that slide away once sung, and a floating glass player bar with a spinning vinyl peeking out of the thumbnail.",
+  "source": "Better Lyrics: AlFarrizi-Studio/Clarity-Theme 1.0.5",
+  "accent": "#1db954",
+  "background": { "mode": "cover_static" },
+  "lyrics": {
+    "font": "Figtree",
+    "weight": "bold",
+    "font_rem": [[0, 3.3]],
+    "fullscreen_scale": 1.818,
+    "line_height": 1.25,
+    "line_padding_rem": 1.8,
+    "letter_spacing_em": 0.02,
+    "past": [[0, 0]],
+    "opacity_transition": { "frac": 0, "secs": 1.6, "delay": 0 },
+    "wobble_secs": 2.5,
+    "line_exit": [-200, 1.6]
+  },
+  "cover": { "radius": 20 },
+  "chrome": {
+    "player_bar": "floating",
+    "bar_height": 92,
+    "bar_radius": 20,
+    "bar_color": "#0e0e12",
+    "bar_margin": [16, 5],
+    "progress_at": "bottom",
+    "progress_px": 4,
+    "progress_color": "white",
+    "progress_thumb": true,
+    "play_button": "bare",
+    "disc_secs": 10
+  },
+  "app": {
+    "sidebar": "glass",
+    "sidebar_alpha": 0.55,
+    "bar_alpha": 0.86,
+    "bar_border": false,
+    "panel_radius": 20,
+    "menu_radius": 14,
+    "menu_border": 0.08,
+    "menu_color": "#0e0e12",
+    "text_dim": "#b3b3b3",
+    "search_border": 0.08,
+    "frost": true
+  }
+}

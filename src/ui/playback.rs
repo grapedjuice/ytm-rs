@@ -114,12 +114,8 @@ impl App {
         self.audio.status.playing.load(Ordering::Relaxed)
     }
 
-    /// Fetch the current song's art for the background and accent. The default theme
-    /// shows neither, so it skips the download and blur until the theme is turned off.
+    /// Fetch the current song's art for the background and accent.
     pub(super) fn request_art(&mut self) {
-        if self.default_theme {
-            return;
-        }
         let Some(track) = self.current() else { return };
         if self.art_key.as_deref() == Some(track.id.as_str()) {
             return;

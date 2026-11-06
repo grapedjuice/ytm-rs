@@ -1,0 +1,94 @@
+{
+  "id": "eblp",
+  "name": "Even Better Lyrics Plus",
+  "creators": [
+    "boidushya",
+    "noah"
+  ],
+  "blurb": "Large Switzer lyrics; sung lines fade back and blur while upcoming ones stay brighter, over a vivid cover warp with a slowly turning blurred cover behind it.",
+  "source": "Better Lyrics: better-lyrics/theme-eblp 1.0.7",
+  "background": {
+    "mode": "kawarp",
+    "np_dim": 0.75,
+    "intensity": 1.0,
+    "speed": 3.33,
+    "saturation": 2.0,
+    "reactive": 2.0,
+    "audio_speed": 4.0,
+    "scale": 1.25,
+    "layer": {
+      "opacity": 0.5,
+      "pulse_secs": 8,
+      "pulse": 0.05
+    }
+  },
+  "lyrics": {
+    "font": "Switzer",
+    "weight": "semibold",
+    "font_rem": [
+      [
+        0,
+        3
+      ],
+      [
+        1400,
+        4
+      ],
+      [
+        1600,
+        5
+      ],
+      [
+        1800,
+        6
+      ]
+    ],
+    "line_padding_rem": 0.5,
+    "padding_inline": [
+      20,
+      10
+    ],
+    "past": [
+      [
+        0.33,
+        2.5
+      ]
+    ],
+    "upcoming": [
+      [
+        0.66,
+        0
+      ]
+    ],
+    "opacity_transition": {
+      "frac": 0.5,
+      "secs": 0,
+      "delay": 0.166
+    },
+    "blur_transition": {
+      "frac": 0.3333,
+      "secs": 0,
+      "delay": 0.4
+    },
+    "hover_reveal": true,
+    "hover_scale": 1.01,
+    "wobble": false,
+    "letter_wave": {
+      "on": true,
+      "crest": 0.04,
+      "settle": 0.015,
+      "secs": 0.75,
+      "emphasis": 1.09
+    },
+    "glow_alpha": 0.0001,
+    "long_glow_alpha": 1.0,
+    "background_em": 0.9
+  },
+  "cover": {
+    "radius": 20,
+    "outline": [
+      1,
+      0.1
+    ]
+  }
+}

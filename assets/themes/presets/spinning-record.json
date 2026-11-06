@@ -1,0 +1,49 @@
+{
+  "id": "spinning-record",
+  "name": "Spinning Record",
+  "creators": [
+    "Xtremerspro"
+  ],
+  "blurb": "The album art becomes a huge, darkened disc that spins without stopping and bleeds off the top-left of the window, beside softly blurred lyrics.",
+  "source": "Better Lyrics: Xtremerspro/spinning-record 1.0.0",
+  "lyrics": {
+    "dim_alpha": 0.2,
+    "past": [
+      [
+        0.5,
+        1.5
+      ]
+    ],
+    "opacity_transition": {
+      "frac": 0,
+      "secs": 0.5,
+      "delay": 0.35
+    },
+    "blur_transition": {
+      "frac": 0,
+      "secs": 0.5,
+      "delay": 0.35
+    }
+  },
+  "cover": {
+    "shape": "record",
+    "spin_secs": 60,
+    "spin_when_paused": true,
+    "record_details": false,
+    "brightness": 0.6,
+    "size_vh": 0.975,
+    "offset_vh": [
+      -0.1,
+      -0.05
+    ],
+    "shadow": 0.4,
+    "shadow_blur": 35
+  },
+  "now_playing": {
+    "show_title": false,
+    "show_video_switch": false
+  },
+  "chrome": {
+    "progress_color": "#c4c4c4"
+  }
+}

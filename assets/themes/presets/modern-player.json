@@ -1,0 +1,60 @@
+{
+  "id": "modern-player",
+  "name": "ModernPlayer",
+  "creators": [
+    "snw-mint"
+  ],
+  "blurb": "Clean and cinematic: a 24px-rounded cover capped at 520px with a tight shadow, a faint blurred cover behind, and depth-of-field blur on sung lines.",
+  "source": "Better Lyrics: snw-mint/better-lyrics-modern-player 1.0.1",
+  "background": {
+    "mode": "cover_static",
+    "layer": {
+      "opacity": 0.3
+    },
+    "np_dim": 0.3,
+    "saturation": 1.5
+  },
+  "lyrics": {
+    "line_padding_rem": 1.6,
+    "padding_inline": [
+      10,
+      10
+    ],
+    "past": [
+      [
+        0.33,
+        2.5
+      ]
+    ],
+    "upcoming": [
+      [
+        0.66,
+        0
+      ]
+    ],
+    "opacity_transition": {
+      "frac": 0.5,
+      "secs": 0,
+      "delay": 0.166
+    },
+    "blur_transition": {
+      "frac": 0.3333,
+      "secs": 0,
+      "delay": 0.4
+    },
+    "hover_reveal": true,
+    "hover_scale": 1.01
+  },
+  "cover": {
+    "radius": 24,
+    "max_px": 520,
+    "shadow": 0.2,
+    "shadow_blur": 16,
+    "shadow_offset": 4
+  },
+  "app": {
+    "font": "Google Sans",
+    "card_radius": 24,
+    "chip_radius": 5
+  }
+}

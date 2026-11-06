@@ -1,24 +1,27 @@
-//! Theme presets: native translations of the Better Lyrics community themes
-//! (github.com/better-lyrics/themes). Those are CSS for the YouTube Music website,
-//! which this app can't run, so each one is reduced to the knobs this renderer has:
-//! the background shader, lyric styling, cover treatment and chrome. The data lives
-//! in `assets/themes/presets.json`; covers in `assets/themes/covers/<id>.jpg`.
+//! Themes. Each is one file in `assets/themes/presets/<id>.json`, a complete description of
+//! the app's look over a base of stock YouTube Music and Better Lyrics: a field a theme leaves
+//! out looks stock, never like another theme. Better Lyrics community themes
+//! (github.com/better-lyrics/themes) are ported from their stylesheets, in YouTube Music's
+//! units (1 rem = 10 px). No code may branch on a theme's id: everything a theme can do is a
+//! field here, available to all of them. Covers live in `assets/themes/covers/<id>.jpg`.
 
 use std::sync::OnceLock;
 
 use egui::Color32;
 use serde::Deserialize;
 
-/// Id of the built-in look (the app's own design, not a Better Lyrics theme).
+/// Id of the app's own look, used when a saved theme no longer exists.
 pub const DEFAULT_ID: &str = "ytm-rs";
+
+// ------------------------------------------------------------------ background
 
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BgMode {
-    /// Animated warped, blurred cover.
-    #[default]
+    /// Animated warped, blurred cover (`shaderType: kawarp`).
     Kawarp,
-    /// Blurred cover, no motion.
+    /// Blurred cover, no motion: stock Better Lyrics' now playing, at a quarter brightness.
+    #[default]
     CoverStatic,
     /// Flat dark with a soft gradient in the cover's colour.
     AccentGradient,
@@ -28,12 +31,22 @@ pub enum BgMode {
     CoverFullbleed,
 }
 
+/// A second, unwarped blurred cover under everything, as themes draw with `::before`.
+#[derive(Clone, Copy, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CoverLayer {
+    pub opacity: f32,
+    /// Seconds per scale pulse (0: none) and how much it swells.
+    pub pulse_secs: f32,
+    pub pulse: f32,
+}
+
 #[derive(Clone, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Background {
     pub mode: BgMode,
     pub solid: String,
-    /// `solid` in light mode, for a solid theme that has one.
+    /// `solid` in light mode; left empty, derived from `solid`.
     pub solid_light: String,
     /// The shader values are for now playing; pages use a calmer version.
     pub intensity: f32,
@@ -43,26 +56,38 @@ pub struct Background {
     pub np_dim: f32,
     pub page_dim: f32,
     pub reactive: f32,
+    /// `audioSpeedMultiplier`: how much louder music speeds the warp up. 0: not at all.
+    pub audio_speed: f32,
+    /// Darkening over now playing's background (0.3 was the app's old default).
     pub scrim: f32,
+    pub layer: Option<CoverLayer>,
+    /// `lyrics_only` over a fullbleed cover: the fade across the cover's square, as
+    /// fractions of its width where it starts and where it's gone.
+    pub fade: [f32; 2],
 }
 
 impl Default for Background {
     fn default() -> Self {
         Self {
-            mode: BgMode::Kawarp,
-            solid: "#0c0a0e".into(),
+            mode: BgMode::CoverStatic,
+            solid: "#030303".into(),
             solid_light: String::new(),
             intensity: 1.0,
             saturation: 1.5,
             speed: 1.0,
             scale: 1.2,
-            np_dim: 0.85,
+            np_dim: 0.25,
             page_dim: 0.5,
             reactive: 1.0,
-            scrim: 0.3,
+            audio_speed: 0.0,
+            scrim: 0.0,
+            layer: None,
+            fade: [0.4, 1.0],
         }
     }
 }
+
+// ------------------------------------------------------------------ lyrics
 
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -70,6 +95,20 @@ pub enum Align {
     #[default]
     Left,
     Center,
+    Right,
+}
+
+/// Where other singers' lines go.
+#[derive(Clone, Copy, PartialEq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentAlign {
+    /// v2 and v3 on the right, v1000 (everyone) in the middle.
+    #[default]
+    Stock,
+    /// Everyone on `align`.
+    Same,
+    /// v1 on the left, everyone else on the right.
+    OnlyV1Left,
 }
 
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
@@ -84,111 +123,255 @@ pub enum Weight {
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Fill {
-    /// Soft per-character karaoke wipe.
+    /// Soft per-character karaoke wipe on word-timed lyrics. Line-timed ones fade in whole.
     #[default]
     Sweep,
     /// Each word lights fully when it starts.
     Word,
-    /// The whole active line is lit at once.
+    /// The whole line lights at once, word timing or not (richsync off).
     Line,
 }
 
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum BlurScope {
+pub enum Instrumental {
+    /// Better Lyrics' music note filling with a wave.
     #[default]
-    All,
-    /// Only lines already sung.
-    Past,
-    /// Only lines still to come.
-    Upcoming,
+    Note,
+    /// Apple Music's three dots filling in turn.
+    Dots,
+    /// A ring that closes as the break passes.
+    Ring,
+    /// Nothing: the break is empty.
+    Hidden,
+}
+
+/// A transition: `frac` of the line's length plus `secs`, after `delay`.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Timing {
+    pub frac: f32,
+    pub secs: f32,
+    pub delay: f32,
+}
+
+impl Default for Timing {
+    fn default() -> Self {
+        Self { frac: 0.0, secs: 0.2, delay: 0.0 }
+    }
+}
+
+/// A word's transient bump while it's sung (`@keyframes` on `.blyrics--word`).
+#[derive(Clone, Copy, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WordBounce {
+    /// Peak lift in em.
+    pub lift: f32,
+    /// Peak scale.
+    pub scale: f32,
+    pub secs: f32,
+    /// Where it rests afterwards, in em above the line.
+    pub settle: f32,
+    /// Overshoots like a spring rather than easing.
+    pub spring: bool,
+}
+
+/// `--blyrics-letter-wave-*`.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LetterWave {
+    pub on: bool,
+    /// Crest and settle in em.
+    pub crest: f32,
+    pub settle: f32,
+    pub secs: f32,
+    /// How much held words' letters swell.
+    pub emphasis: f32,
+}
+
+impl Default for LetterWave {
+    fn default() -> Self {
+        Self { on: true, crest: 0.05, settle: 0.02, secs: 0.9, emphasis: 1.11 }
+    }
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct LyricStyle {
     pub align: Align,
+    pub agent_align: AgentAlign,
     pub weight: Weight,
     pub font: String,
-    pub size: f32,
-    pub line_gap: f32,
-    pub anchor: f32,
-    pub fill: Fill,
-    pub active_alpha: f32,
-    pub inactive_alpha: f32,
-    pub falloff: f32,
-    pub min_alpha: f32,
-    /// Alpha for lines already sung (0 = they vanish); unset = same as upcoming.
-    pub past_alpha: Option<f32>,
-    pub sung_color: String,
-    pub blur: f32,
-    pub blur_scope: BlurScope,
-    pub glow: f32,
-    pub glow_color: String,
-    pub active_scale: f32,
-    pub lift: f32,
-    /// Values ported straight from the theme's stylesheet; when present they replace
-    /// the approximations above.
-    pub css: Option<ThemeCss>,
-}
-
-/// A Better Lyrics theme's own CSS, for the parts of it the lyrics renderer reads.
-#[derive(Clone, Default, Deserialize)]
-#[serde(default)]
-pub struct ThemeCss {
+    /// Points per rem. Always YouTube Music's 10 unless a theme is the app's own design.
+    pub rem: f32,
     /// `--blyrics-font-size` in rem by window width: `[[min_width_px, rem], ...]`.
     pub font_rem: Vec<[f32; 2]>,
-    /// `--blyrics-font-weight` (400 / 600 / 700).
-    pub font_weight: Option<u16>,
-    /// Line opacity and blur (px) before the active line (`div:not(.blyrics--active):not(.blyrics--active ~ div)`).
-    pub past: Option<[f32; 2]>,
-    /// … and after it (`.blyrics--active ~ div`).
-    pub upcoming: Option<[f32; 2]>,
-    /// `transition: opacity calc(var(--blyrics-duration) / n) delay`: `[1/n, delay s]`.
-    pub opacity_transition: Option<[f32; 2]>,
-    /// `transition: filter …`: `[1/n, delay s]`.
-    pub filter_transition: Option<[f32; 2]>,
-    /// Alpha of `--blyrics-glow-color` on the container and on held words (`[data-long-word]`).
-    pub glow_alpha: Option<f32>,
-    pub long_word_glow_alpha: Option<f32>,
-    /// Wobble transforms set to identity.
-    pub no_wobble: bool,
-    /// `--blyrics-letter-wave-*`: crest (em), settle (em), duration (s), emphasis scale.
-    pub letter_wave: Option<[f32; 4]>,
-    /// `.blyrics-background-lyric { font-size }` in em.
-    pub background_em: Option<f32>,
+    /// `clamp(min rem, vw %, max rem)`; replaces `font_rem` when set.
+    pub font_vw: Option<[f32; 3]>,
+    /// Lyrics this much bigger in full screen.
+    pub fullscreen_scale: f32,
+    pub line_height: f32,
+    pub letter_spacing_em: f32,
+    /// Space above and below each line, rem.
+    pub line_padding_rem: f32,
+    /// `.blyrics-container { padding-inline: start end }`, px.
+    pub padding_inline: [f32; 2],
+    /// Where the active line sits, a fraction down the view.
+    pub anchor: f32,
+    pub fill: Fill,
+    /// `--blyrics-lyric-inactive-color`'s alpha: unsung words, before their line's opacity.
+    pub dim_alpha: f32,
+    pub sung_color: String,
+    /// Colours per singer, v1 first; replaces `sung_color` for those who have one.
+    pub agent_colors: Vec<String>,
+    /// Unsung words in their singer's colour, not white.
+    pub dim_from_agent: bool,
+    /// Lines already sung, `[opacity, blur px]` by distance from the active line. The last
+    /// entry goes on for the rest. Empty: `[1, 0]`.
+    pub past: Vec<[f32; 2]>,
+    /// … and lines still to come.
+    pub upcoming: Vec<[f32; 2]>,
+    /// The same two for line-timed lyrics, when a theme styles them differently.
+    pub past_line_synced: Vec<[f32; 2]>,
+    pub upcoming_line_synced: Vec<[f32; 2]>,
+    /// Past lines' text alpha and colour in place of `dim_alpha` and white.
+    pub past_dim_alpha: Option<f32>,
+    pub past_color: String,
+    pub opacity_transition: Timing,
+    pub blur_transition: Timing,
+    /// Line opacity while the reader scrolls.
+    pub scroll_opacity: f32,
+    /// Text alpha while the reader scrolls or hovers a line, for themes whose unsung text is hidden.
+    pub reveal_dim_alpha: Option<f32>,
+    /// How long a line-timed line takes to fade in.
+    pub line_fade_secs: f32,
+    /// Hovering a line brings it to full opacity with no blur.
+    pub hover_reveal: bool,
     /// `--blyrics-hover-scale`.
     pub hover_scale: Option<f32>,
-    /// `.blyrics-container { padding-inline: start end }` in px.
-    pub padding_inline: Option<[f32; 2]>,
+    /// `--blyrics-scale` and `--blyrics-active-scale`.
+    pub rest_scale: f32,
+    pub active_scale: f32,
+    pub scale_secs: f32,
+    pub letter_wave: LetterWave,
+    pub wobble: bool,
+    pub wobble_secs: f32,
+    pub word_bounce: Option<WordBounce>,
+    /// Unsung words rest this many px low and glide up as they're sung, over `word_rise_secs`.
+    pub word_rise_px: f32,
+    pub word_rise_secs: f32,
+    /// Sung words settle to this alpha after this many seconds: `[alpha, secs]`.
+    pub sung_fade: Option<[f32; 2]>,
+    pub glow_color: String,
+    /// `--blyrics-glow-color`'s alpha on words, and on held words.
+    pub glow_alpha: f32,
+    pub long_glow_alpha: f32,
+    pub glow_rem: f32,
+    /// A coloured band at the sweep's edge: stops from the edge back, band width in words.
+    pub sweep_band: Vec<String>,
+    pub sweep_band_width: f32,
+    /// Outline of sung text: `[width em]` in `stroke_color`.
+    pub stroke_em: f32,
+    pub stroke_color: String,
+    /// `.blyrics-background-lyric` font size (em).
+    pub background_em: f32,
+    pub romanization_rem: f32,
+    pub romanization_alpha: f32,
+    pub romanization_pill: bool,
+    pub translation_rem: f32,
+    pub translation_alpha: f32,
+    pub instrumental: Instrumental,
+    /// The light behind the active line: `[alpha, px it reaches past the line]`.
+    pub aura: Option<[f32; 2]>,
+    /// A short bar beside the active line: `[width, height, alpha, px left of it]`.
+    pub marker_px: Option<[f32; 4]>,
+    /// Sung lines slide away: `[distance rem (negative: left), secs]`.
+    pub line_exit: Option<[f32; 2]>,
+    /// `--blyrics-scroll-*`.
+    pub scroll_secs: f32,
+    pub scroll_ease: [f32; 4],
+    pub scroll_offset: f32,
+    pub early_scroll: f32,
 }
 
 impl Default for LyricStyle {
     fn default() -> Self {
         Self {
             align: Align::Left,
+            agent_align: AgentAlign::Stock,
             weight: Weight::Bold,
             font: "inter".into(),
-            size: 1.0,
-            line_gap: 0.6,
+            rem: 10.0,
+            font_rem: vec![[0.0, 3.0]],
+            font_vw: None,
+            fullscreen_scale: 1.0,
+            line_height: 1.333,
+            letter_spacing_em: 0.0,
+            line_padding_rem: 2.0,
+            padding_inline: [0.0, 0.0],
             anchor: 0.37,
             fill: Fill::Sweep,
-            active_alpha: 0.3,
-            inactive_alpha: 0.3,
-            falloff: 0.0,
-            min_alpha: 0.3,
-            past_alpha: None,
+            dim_alpha: 0.3,
             sung_color: "white".into(),
-            blur: 0.0,
-            blur_scope: BlurScope::All,
-            glow: 0.0,
-            glow_color: "white".into(),
+            agent_colors: Vec::new(),
+            dim_from_agent: false,
+            past: Vec::new(),
+            upcoming: Vec::new(),
+            past_line_synced: Vec::new(),
+            upcoming_line_synced: Vec::new(),
+            past_dim_alpha: None,
+            past_color: String::new(),
+            opacity_transition: Timing::default(),
+            blur_transition: Timing::default(),
+            scroll_opacity: 1.0,
+            reveal_dim_alpha: None,
+            line_fade_secs: 0.33,
+            hover_reveal: false,
+            hover_scale: None,
+            rest_scale: 0.95,
             active_scale: 1.0,
-            lift: 0.0,
-            css: None,
+            scale_secs: 0.166,
+            letter_wave: LetterWave::default(),
+            wobble: true,
+            wobble_secs: 1.0,
+            word_bounce: None,
+            word_rise_px: 0.0,
+            word_rise_secs: 0.4,
+            sung_fade: None,
+            glow_color: "white".into(),
+            glow_alpha: 0.5,
+            long_glow_alpha: 0.5,
+            glow_rem: 0.8,
+            sweep_band: Vec::new(),
+            sweep_band_width: 0.6,
+            stroke_em: 0.0,
+            stroke_color: String::new(),
+            background_em: 0.75,
+            romanization_rem: 1.6,
+            romanization_alpha: 0.6,
+            romanization_pill: true,
+            translation_rem: 2.0,
+            translation_alpha: 0.6,
+            instrumental: Instrumental::Note,
+            aura: None,
+            marker_px: None,
+            line_exit: None,
+            scroll_secs: 0.75,
+            scroll_ease: [0.86, 0.0, 0.2, 1.0],
+            scroll_offset: 0.5,
+            early_scroll: 0.54,
         }
     }
 }
+
+impl LyricStyle {
+    /// The size of unsynced lyrics: a little under the synced ones.
+    pub fn plain_size(&self) -> f32 {
+        self.font_rem.first().map_or(3.0, |s| s[1]) * self.rem * 0.66
+    }
+}
+
+// ------------------------------------------------------------------ cover and now playing
 
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -197,6 +380,8 @@ pub enum Layout {
     Split,
     LyricsOnly,
     CoverHero,
+    /// A small cover in the bottom corner with the title beside it, lyrics above.
+    Corner,
 }
 
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
@@ -218,24 +403,97 @@ pub enum Shape {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct CoverStyle {
     pub layout: Layout,
     pub side: Side,
     pub shape: Shape,
     pub radius: f32,
+    /// Radius as a fraction of the cover's side, in place of `radius`.
+    pub radius_pct: Option<f32>,
     pub spin_secs: f32,
+    pub spin_when_paused: bool,
+    /// Grooves and a spindle hole on `record`.
+    pub record_details: bool,
     pub brightness: f32,
     pub size: f32,
+    /// Side as a fraction of the window's height, in place of `size`.
+    pub size_vh: Option<f32>,
+    /// Largest side in points.
+    pub max_px: Option<f32>,
+    /// Moved by this much of the window's height: `[x, y]`. It may run off the window.
+    pub offset_vh: [f32; 2],
     pub shadow: f32,
+    pub shadow_blur: f32,
+    pub shadow_offset: f32,
     pub glow: f32,
+    /// `[px, white alpha]`.
+    pub outline: [f32; 2],
 }
 
 impl Default for CoverStyle {
     fn default() -> Self {
-        Self { layout: Layout::Split, side: Side::Left, shape: Shape::Rounded, radius: 12.0, spin_secs: 60.0, brightness: 1.0, size: 1.0, shadow: 0.55, glow: 0.0 }
+        Self {
+            layout: Layout::Split,
+            side: Side::Left,
+            shape: Shape::Rounded,
+            radius: 3.0,
+            radius_pct: None,
+            spin_secs: 60.0,
+            spin_when_paused: false,
+            record_details: false,
+            brightness: 1.0,
+            size: 1.0,
+            size_vh: None,
+            max_px: None,
+            offset_vh: [0.0, 0.0],
+            shadow: 0.0,
+            shadow_blur: 60.0,
+            shadow_offset: 0.0,
+            glow: 0.0,
+            outline: [0.0, 0.0],
+        }
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TabStyle {
+    /// Lyrics and Up next chips that slide out by the ⋯ button.
+    #[default]
+    Hover,
+    /// An underlined strip above the lyrics, always there.
+    Strip,
+    /// A pill of icons in the bottom corner.
+    Pill,
+}
+
+/// The song's title block and what surrounds the cover in now playing.
+#[derive(Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NowPlayingStyle {
+    pub tabs: TabStyle,
+    pub title_align: Align,
+    pub title_px: f32,
+    pub artist_px: f32,
+    /// The title block in the lyrics' font rather than the interface's.
+    pub title_lyric_font: bool,
+    pub show_title: bool,
+    /// A translucent card in the corner with the song, in place of the title under the cover.
+    pub info_card: bool,
+    /// Song and Video switch in the header.
+    pub show_video_switch: bool,
+    /// Corner radius of the video (the cover's when unset).
+    pub video_radius: Option<f32>,
+}
+
+impl Default for NowPlayingStyle {
+    fn default() -> Self {
+        Self { tabs: TabStyle::Hover, title_align: Align::Center, title_px: 24.0, artist_px: 16.0, title_lyric_font: false, show_title: true, info_card: false, show_video_switch: true, video_radius: None }
+    }
+}
+
+// ------------------------------------------------------------------ player bar
 
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -245,39 +503,102 @@ pub enum PlayerBar {
     Floating,
 }
 
+#[derive(Clone, Copy, PartialEq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProgressAt {
+    /// Along the bar's top edge.
+    #[default]
+    Top,
+    /// Along its bottom edge.
+    Bottom,
+}
+
+#[derive(Clone, Copy, PartialEq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayButton {
+    /// White disc, dark glyph.
+    #[default]
+    Disc,
+    /// The glyph alone.
+    Bare,
+    /// White at 10% with a thin outline.
+    Ghost,
+    /// Filled with the accent.
+    Accent,
+}
+
 #[derive(Clone, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Chrome {
     pub glass: f32,
     pub radius: f32,
     pub player_bar: PlayerBar,
+    pub bar_height: f32,
+    /// A floating bar's corner radius (full pill past half its height).
+    pub bar_radius: f32,
+    /// Bar colour under `app.bar_alpha`; empty: black, or white in light mode.
+    pub bar_color: String,
+    /// `[sides, bottom]` of a floating bar.
+    pub bar_margin: [f32; 2],
+    /// A floating bar's widest, points.
+    pub bar_max_px: Option<f32>,
+    pub progress_at: ProgressAt,
+    pub progress_px: f32,
+    /// "accent", "white" or "#rrggbb".
+    pub progress_color: String,
+    pub progress_radius: f32,
+    /// A knob on hover.
+    pub progress_thumb: bool,
+    pub play_button: PlayButton,
+    pub hide_volume: bool,
+    /// A disc spinning behind the bar's thumbnail, seconds per turn.
+    pub disc_secs: Option<f32>,
 }
 
 impl Default for Chrome {
     fn default() -> Self {
-        Self { glass: 1.0, radius: 18.0, player_bar: PlayerBar::Docked }
+        Self {
+            glass: 1.0,
+            radius: 18.0,
+            player_bar: PlayerBar::Docked,
+            bar_height: 72.0,
+            bar_radius: 18.0,
+            bar_color: String::new(),
+            bar_margin: [14.0, 14.0],
+            bar_max_px: None,
+            progress_at: ProgressAt::Top,
+            progress_px: 3.0,
+            progress_color: "accent".into(),
+            progress_radius: 0.0,
+            progress_thumb: true,
+            play_button: PlayButton::Disc,
+            hide_volume: false,
+            disc_secs: None,
+        }
     }
 }
+
+// ------------------------------------------------------------------ the rest of the app
 
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PageBg {
     /// Whatever the background mode shows in now playing.
-    #[default]
     Same,
     /// Blurred cover, no motion.
     Static,
     /// Dark with a soft gradient in the cover's colour.
     Accent,
     /// The preset's solid colour.
+    #[default]
     Solid,
 }
 
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SidebarStyle {
-    #[default]
     Glass,
+    #[default]
     Transparent,
     Solid,
     /// A rounded glass card inset from the window edges.
@@ -294,86 +615,144 @@ pub enum NavStyle {
     Accent,
     /// Accent bar at the left edge, no fill.
     Bar,
+    /// No fill: the item's text and icon take the accent.
+    Text,
+    /// A white block with dark text.
+    Inverse,
 }
 
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChipStyle {
+    /// Translucent; selected is the text colour.
     #[default]
     Pill,
     Outline,
+    /// Selected is the accent.
     Accent,
+    /// Selected is translucent with accent text.
+    Tonal,
+    /// White at 10% with a thin outline, also when selected.
+    Ghost,
 }
 
-/// How the rest of the app (outside now playing) looks.
 #[derive(Clone, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct AppStyle {
     pub font: String,
     pub page_bg: PageBg,
     pub page_dim: Option<f32>,
     pub sidebar: SidebarStyle,
     pub sidebar_alpha: f32,
+    pub sidebar_border: f32,
     pub bar_alpha: f32,
     pub bar_border: bool,
     pub nav: NavStyle,
     pub chip: ChipStyle,
+    pub chip_radius: Option<f32>,
     pub card_radius: f32,
+    /// White fill and outline alpha behind cards' art and rows.
+    pub card_fill: f32,
+    pub card_stroke: f32,
     pub thumb_radius: f32,
     pub panel_radius: f32,
+    /// Menus and popups, when they differ from `panel_radius`.
+    pub menu_radius: Option<f32>,
+    /// White outline alpha on menus and dialogs.
+    pub menu_border: f32,
+    /// Menu colour; empty: the app's own.
+    pub menu_color: String,
     pub hover: f32,
     pub text_dim: String,
+    pub search_radius: f32,
+    pub search_alpha: f32,
+    pub search_border: f32,
+    pub hide_scrollbars: bool,
+    /// The accent also on the play button, sliders and toggles.
+    pub accent_controls: bool,
+    /// Pages sit on a layered sheet over the background: its white alpha and top-left radius.
+    pub sheet: Option<[f32; 2]>,
+    /// Glass panels frost the background art behind them.
+    pub frost: bool,
 }
 
 impl Default for AppStyle {
     fn default() -> Self {
         Self {
             font: "inter".into(),
-            page_bg: PageBg::Same,
+            page_bg: PageBg::Solid,
             page_dim: None,
-            sidebar: SidebarStyle::Glass,
+            sidebar: SidebarStyle::Transparent,
             sidebar_alpha: 0.28,
-            bar_alpha: 0.55,
+            sidebar_border: 0.0,
+            bar_alpha: 1.0,
             bar_border: false,
             nav: NavStyle::Pill,
             chip: ChipStyle::Pill,
-            card_radius: 8.0,
-            thumb_radius: 5.0,
-            panel_radius: 14.0,
+            chip_radius: None,
+            card_radius: 3.0,
+            card_fill: 0.0,
+            card_stroke: 0.0,
+            thumb_radius: 2.0,
+            panel_radius: 8.0,
+            menu_radius: None,
+            menu_border: 0.0,
+            menu_color: String::new(),
             hover: 1.0,
-            text_dim: "#b2acba".into(),
+            text_dim: "#aaaaaa".into(),
+            search_radius: 8.0,
+            search_alpha: 0.09,
+            search_border: 0.0,
+            hide_scrollbars: false,
+            accent_controls: false,
+            sheet: None,
+            frost: false,
         }
     }
 }
 
-#[derive(Clone, Default, Deserialize)]
-#[serde(default)]
+// ------------------------------------------------------------------ a theme
+
+#[derive(Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Preset {
     pub id: String,
     pub name: String,
     pub creators: Vec<String>,
     pub blurb: String,
+    /// What this was ported from, and which version.
+    pub source: String,
     pub background: Background,
     /// "cover" (sampled from the art), "system" (the Windows accent colour, else the
     /// cover's), or a fixed "#rrggbb".
     pub accent: String,
     pub lyrics: LyricStyle,
     pub cover: CoverStyle,
+    pub now_playing: NowPlayingStyle,
     pub chrome: Chrome,
     pub app: AppStyle,
 }
 
-impl Preset {
-    fn builtin() -> Self {
+impl Default for Preset {
+    fn default() -> Self {
         Self {
-            id: DEFAULT_ID.into(),
-            name: "ytm-rs".into(),
-            blurb: "The app's own look: animated album-art background, left-aligned karaoke lyrics.".into(),
-            accent: "cover".into(),
-            ..Default::default()
+            id: String::new(),
+            name: String::new(),
+            creators: Vec::new(),
+            blurb: String::new(),
+            source: String::new(),
+            background: Background::default(),
+            accent: "#ff0033".into(),
+            lyrics: LyricStyle::default(),
+            cover: CoverStyle::default(),
+            now_playing: NowPlayingStyle::default(),
+            chrome: Chrome::default(),
+            app: AppStyle::default(),
         }
     }
+}
 
+impl Preset {
     /// The accent to use given the one sampled from the current cover.
     pub fn accent(&self, from_cover: Color32) -> Color32 {
         if self.accent == "system" {
@@ -382,15 +761,20 @@ impl Preset {
         hex(&self.accent).unwrap_or(from_cover)
     }
 
+    /// The page colour: the theme's, or in light mode its own or one derived from it.
     pub fn solid(&self) -> Color32 {
-        let light = if crate::theme::light() { hex(&self.background.solid_light) } else { None };
-        light.or_else(|| hex(&self.background.solid)).unwrap_or(crate::theme::bg())
+        let dark = hex(&self.background.solid).unwrap_or(crate::theme::bg());
+        if !crate::theme::light() {
+            return dark;
+        }
+        hex(&self.background.solid_light).unwrap_or_else(|| derived_light(dark))
     }
+}
 
-    /// Whether this theme has a light mode (Settings › Appearance › Mode).
-    pub fn has_light(&self) -> bool {
-        self.id == DEFAULT_ID || !self.background.solid_light.is_empty()
-    }
+/// A theme with no light colour of its own: near-white, keeping a trace of its dark one's hue.
+fn derived_light(dark: Color32) -> Color32 {
+    let tint = |c: u8| 243 + (c as u32 * 9 / 255) as u8;
+    Color32::from_rgb(tint(dark.r()), tint(dark.g()), tint(dark.b()))
 }
 
 /// Resolve a colour name from the presets: "white", "accent"/"cover", or "#rrggbb".
@@ -412,15 +796,28 @@ pub fn hex(s: &str) -> Option<Color32> {
     Some(Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8))
 }
 
-/// Every preset, the built-in look first.
+const FILES: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/theme_presets.rs"));
+
+/// Every theme: the app's own and Classic first, then the rest by name.
 pub fn all() -> &'static [Preset] {
     static ALL: OnceLock<Vec<Preset>> = OnceLock::new();
     ALL.get_or_init(|| {
-        let mut v = vec![Preset::builtin()];
-        match serde_json::from_str::<Vec<Preset>>(include_str!("../assets/themes/presets.json")) {
-            Ok(list) => v.extend(list),
-            Err(e) => log::error!("theme presets: {e}"),
-        }
+        let mut v: Vec<Preset> = FILES
+            .iter()
+            .filter_map(|(file, json)| match serde_json::from_str::<Preset>(json) {
+                Ok(p) => Some(p),
+                Err(e) => {
+                    log::error!("theme {file}: {e}");
+                    None
+                }
+            })
+            .collect();
+        let rank = |p: &Preset| match p.id.as_str() {
+            DEFAULT_ID => 0,
+            "classic" => 1,
+            _ => 2,
+        };
+        v.sort_by_key(|p| (rank(p), p.name.to_lowercase()));
         v
     })
 }
@@ -451,19 +848,65 @@ pub fn cover(id: &str) -> Option<&'static [u8]> {
 mod tests {
     use super::*;
 
-    /// Every bundled preset parses, has a cover thumbnail and a unique id.
+    /// Every theme file parses (unknown fields are refused), is named after its id and
+    /// says what it comes from.
     #[test]
-    fn presets_are_complete() {
-        let list: Vec<Preset> = serde_json::from_str(include_str!("../assets/themes/presets.json")).expect("presets.json parses");
-        assert_eq!(list.len(), 27);
+    fn themes_are_complete() {
         let mut ids = std::collections::HashSet::new();
-        for p in &list {
+        for (file, json) in FILES {
+            let p: Preset = serde_json::from_str(json).unwrap_or_else(|e| panic!("{file}: {e}"));
+            assert_eq!(p.id, *file, "{file}: id differs from the file name");
             assert!(ids.insert(p.id.clone()), "duplicate id {}", p.id);
-            assert!(!p.name.is_empty() && !p.creators.is_empty() && !p.blurb.is_empty(), "{} lacks name/creators/blurb", p.id);
-            assert!(cover(&p.id).is_some(), "{} has no cover", p.id);
-            assert!(matches!(p.accent.as_str(), "cover" | "system" | "") || hex(&p.accent).is_some(), "{} accent {}", p.id, p.accent);
+            assert!(!p.name.is_empty() && !p.creators.is_empty() && !p.blurb.is_empty() && !p.source.is_empty(), "{file} lacks name/creators/blurb/source");
+            assert!(matches!(p.accent.as_str(), "cover" | "system") || hex(&p.accent).is_some(), "{file} accent {}", p.accent);
+            for c in [&p.background.solid, &p.app.text_dim] {
+                assert!(hex(c).is_some(), "{file}: bad colour {c}");
+            }
+            let l = &p.lyrics;
+            assert!(l.font_rem.windows(2).all(|w| w[0][0] < w[1][0]), "{file}: font_rem out of order");
+            assert!(!l.font_rem.is_empty() || l.font_vw.is_some(), "{file}: no lyric size");
+            assert!(p.cover.spin_secs > 0.0 && l.rem > 0.0, "{file}: zero rem or spin");
         }
-        assert_eq!(all().len(), list.len() + 1);
+        assert_eq!(all().len(), FILES.len());
         assert_eq!(get("nope").id, DEFAULT_ID);
+        assert_eq!(all()[0].id, DEFAULT_ID);
+        assert_eq!(all()[1].id, "classic");
+    }
+
+    /// Every theme has a cover for its card in Settings.
+    #[test]
+    fn themes_have_covers() {
+        for p in all().iter().filter(|p| p.source != "ytm-rs") {
+            assert!(cover(&p.id).is_some(), "{} has no cover", p.id);
+        }
+    }
+
+    /// No theme gets a feature by name: nothing outside this file's tests looks at an id.
+    #[test]
+    fn nothing_branches_on_a_theme() {
+        let src = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+        let mut stack = vec![std::path::PathBuf::from(src)];
+        while let Some(dir) = stack.pop() {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let path = e.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|x| x == "rs") && !path.ends_with("preset.rs") {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    for (file, _) in FILES {
+                        assert!(!text.contains(&format!("id == \"{file}\"")), "{} branches on the theme {file}", path.display());
+                    }
+                    assert!(!text.contains("has_light"), "{} has a per-theme switch", path.display());
+                    assert!(!text.contains("default_theme") || path.parent().is_some_and(|d| d.ends_with("ui")) && path.ends_with("mod.rs"), "{} has a per-theme switch", path.display());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_light_colour_is_derived_when_a_theme_has_none() {
+        let l = derived_light(Color32::from_rgb(0, 0, 0));
+        assert!(l.r() >= 243 && l.g() >= 243 && l.b() >= 243);
+        assert_eq!(hex("#ff0000"), Some(Color32::from_rgb(255, 0, 0)));
     }
 }

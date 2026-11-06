@@ -59,7 +59,10 @@ pub fn bg() -> Color32 {
 
 /// Menus and popups.
 pub fn menu_fill() -> Color32 {
-    if light() { Color32::WHITE } else { Color32::from_rgb(38, 34, 42) }
+    if light() {
+        return Color32::WHITE;
+    }
+    crate::preset::hex(&crate::preset::active().app.menu_color).unwrap_or(Color32::from_rgb(38, 34, 42))
 }
 
 /// Dialogs and cards that float over the page.
@@ -871,6 +874,11 @@ pub fn install_style(ctx: &egui::Context) {
         s.spacing.item_spacing = egui::vec2(8.0, 6.0);
         s.spacing.button_padding = egui::vec2(14.0, 7.0);
         s.spacing.scroll = egui::style::ScrollStyle::floating();
+        if crate::preset::active().app.hide_scrollbars {
+            let bar = &mut s.spacing.scroll;
+            (bar.dormant_handle_opacity, bar.active_handle_opacity, bar.interact_handle_opacity) = (0.0, 0.0, 0.0);
+            (bar.dormant_background_opacity, bar.active_background_opacity, bar.interact_background_opacity) = (0.0, 0.0, 0.0);
+        }
         s.text_styles.insert(egui::TextStyle::Body, regular(14.0));
         s.text_styles.insert(egui::TextStyle::Button, semibold(14.0));
         s.text_styles.insert(egui::TextStyle::Heading, bold(22.0));
@@ -894,8 +902,8 @@ fn visuals() -> egui::Visuals {
     v.interact_cursor = Some(egui::CursorIcon::PointingHand);
     let pr = egui::CornerRadius::same(p.app.panel_radius.clamp(0.0, 32.0) as u8);
     v.window_corner_radius = pr;
-    v.menu_corner_radius = pr;
-    v.window_stroke = egui::Stroke::new(1.0, glass(0.08));
+    v.menu_corner_radius = p.app.menu_radius.map_or(pr, |r| egui::CornerRadius::same(r.clamp(0.0, 32.0) as u8));
+    v.window_stroke = egui::Stroke::new(1.0, if p.app.menu_border > 0.0 { with_alpha(if light() { Color32::BLACK } else { Color32::WHITE }, p.app.menu_border) } else { glass(0.08) });
     v.popup_shadow = egui::epaint::Shadow { offset: [0, 8], blur: 28, spread: 0, color: shade(if light() { 0.16 } else { 0.5 }) };
     let r = egui::CornerRadius::same(p.chrome.radius.clamp(2.0, 28.0) as u8);
     for (w, fill) in [

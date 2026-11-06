@@ -1,0 +1,27 @@
+{
+  "id": "expressive",
+  "name": "Expressive",
+  "creators": [
+    "decipher3114"
+  ],
+  "blurb": "Material You Expressive: Google Sans Flex type on solid black surfaces with thin outlined menus, dialogs and player bar.",
+  "source": "Better Lyrics: decipher3114/better-lyrics-expressive 1.3.4",
+  "lyrics": {
+    "font": "Google Sans Flex",
+    "weight": "semibold"
+  },
+  "cover": {
+    "radius": 12
+  },
+  "chrome": {
+    "bar_color": "#000000"
+  },
+  "app": {
+    "font": "Google Sans Flex",
+    "bar_border": true,
+    "panel_radius": 12,
+    "menu_radius": 10,
+    "menu_border": 0.2,
+    "menu_color": "#000000"
+  }
+}

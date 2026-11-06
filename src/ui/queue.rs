@@ -31,6 +31,9 @@ pub struct Filled {
 
 pub struct Queue {
     pub tracks: Vec<Track>,
+    /// Songs that joined after it started (autoplay's, Play next, Add to queue): while one
+    /// plays, it isn't the album or playlist it was started from that's playing.
+    elsewhere: std::collections::HashSet<String>,
     /// The song playing (or paused, or loading).
     pub index: Option<usize>,
     pub repeat: Repeat,
@@ -46,11 +49,23 @@ const SAVED_AFTER: usize = 150;
 
 impl Queue {
     pub fn new(repeat: Repeat) -> Self {
-        Self { tracks: Vec::new(), index: None, repeat, fill: None }
+        Self { tracks: Vec::new(), elsewhere: Default::default(), index: None, repeat, fill: None }
     }
 
     pub fn current(&self) -> Option<&Track> {
         self.index.and_then(|i| self.tracks.get(i))
+    }
+
+    /// The song playing joined after the queue started, rather than being what it was
+    /// started with.
+    pub fn plays_elsewhere(&self) -> bool {
+        self.current().is_some_and(|t| self.elsewhere.contains(&t.id))
+    }
+
+    fn note_added(&mut self, id: &str) {
+        if !self.tracks.iter().any(|t| t.id == id) {
+            self.elsewhere.insert(id.to_owned());
+        }
     }
 
     /// The song playing is the last one.
@@ -67,6 +82,7 @@ impl Queue {
         self.fill = fill;
         self.index = Some(start.min(tracks.len() - 1));
         self.tracks = tracks;
+        self.elsewhere.clear();
         true
     }
 
@@ -74,6 +90,7 @@ impl Queue {
     /// the caller has checked is one of `tracks`.
     pub fn adopt(&mut self, tracks: Vec<Track>, index: usize) {
         self.tracks = tracks;
+        self.elsewhere.clear();
         self.index = Some(index);
         self.fill = None;
     }
@@ -141,6 +158,7 @@ impl Queue {
     /// Play `t` after the current song: true when nothing was playing, so it starts now.
     pub fn play_next(&mut self, t: Track) -> bool {
         let at = self.index.map_or(0, |i| i + 1).min(self.tracks.len());
+        self.note_added(&t.id);
         self.tracks.insert(at, t);
         if self.index.is_some() {
             return false;
@@ -151,6 +169,7 @@ impl Queue {
 
     /// Add `t` at the end: true when nothing was playing, so it starts now.
     pub fn enqueue(&mut self, t: Track) -> bool {
+        self.note_added(&t.id);
         self.tracks.push(t);
         if self.index.is_some() {
             return false;
@@ -187,7 +206,9 @@ impl Queue {
     pub fn add_radio(&mut self, seed: &str, tracks: Vec<Track>) -> bool {
         let have: std::collections::HashSet<String> = self.tracks.iter().map(|t| t.id.clone()).collect();
         let was_at_end = self.at_end();
-        self.tracks.extend(tracks.into_iter().filter(|t| t.id != seed && !have.contains(&t.id)));
+        let added: Vec<Track> = tracks.into_iter().filter(|t| t.id != seed && !have.contains(&t.id)).collect();
+        self.elsewhere.extend(added.iter().map(|t| t.id.clone()));
+        self.tracks.extend(added);
         was_at_end
     }
 
@@ -226,6 +247,36 @@ impl Queue {
 #[cfg(test)]
 mod tests {
     use super::{Queue, QueueFill, Repeat, Track};
+
+    #[test]
+    fn autoplay_and_added_songs_arent_what_the_queue_was_started_from() {
+        let mut q = Queue::new(Repeat::Off);
+        q.replace(vec![track("a"), track("b")], 0, None);
+        assert!(!q.plays_elsewhere());
+        q.play_next(track("next"));
+        q.enqueue(track("last"));
+        q.add_radio("b", vec![track("radio"), track("a")]);
+        let ids: Vec<&str> = q.tracks.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, ["a", "next", "b", "last", "radio"]);
+        for (i, elsewhere) in [false, true, false, true, true].into_iter().enumerate() {
+            q.index = Some(i);
+            assert_eq!(q.plays_elsewhere(), elsewhere, "{}", ids[i]);
+        }
+        // Back to a song of its own, and a new queue forgets them.
+        assert!(q.back() && q.back());
+        assert!(!q.plays_elsewhere());
+        q.replace(vec![track("radio")], 0, None);
+        assert!(!q.plays_elsewhere());
+    }
+
+    #[test]
+    fn a_song_already_queued_stays_part_of_it_when_added_again() {
+        let mut q = Queue::new(Repeat::Off);
+        q.replace(vec![track("a"), track("b")], 0, None);
+        q.enqueue(track("b"));
+        q.index = Some(1);
+        assert!(!q.plays_elsewhere());
+    }
 
     fn track(id: &str) -> Track {
         Track { id: id.into(), title: id.into(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false }

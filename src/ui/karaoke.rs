@@ -1177,7 +1177,8 @@ impl View {
                         DecoBody::Timed { words, .. } => words.first().map_or(cfg.rem() * 1.6, |w| w.font.size),
                     };
                     let dxf = Xf { content: xf.content + vec2(0.0, -0.4 * font_size * (1.0 - e)), ..xf };
-                    let a = e * opacity;
+                    // A theme's sung lines vanish (`past_alpha` 0): so does what goes with them.
+                    let a = e * opacity * (dim / 0.05).min(1.0);
                     if d.pill {
                         let r = dxf.rect(d.rect);
                         let radius = (cfg.rem() * scale).min(255.0) as u8;
@@ -2615,7 +2616,7 @@ mod tests {
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx, "Inter");
         for _ in 0..2 {
-            let _ = ctx.run_ui(Default::default(), |_| {});
+            ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
         }
         ctx
     }
@@ -2645,6 +2646,53 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A PC whose fallback list has no font for the script: the system's fallback finds one.
+    /// Needs a Devanagari font installed.
+    /// `cargo test -- --ignored system_fonts_cover_scripts_the_list_lacks --nocapture`
+    #[test]
+    #[ignore]
+    fn system_fonts_cover_scripts_the_list_lacks() {
+        let font = FontId::proportional(30.0);
+        let text = "हिजोमै";
+        let without = egui::Context::default();
+        without.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        assert!(!without.fonts_mut(|f| f.has_glyphs(&font, text)), "egui's own fonts have no Devanagari");
+        let with = egui::Context::default();
+        with.add_font_provider(Arc::new(egui_system_font_provider::SystemFontProvider::new()));
+        with.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        let g = with.fonts_mut(|f| f.layout_no_wrap(text.into(), font.clone(), Color32::WHITE));
+        assert!(with.fonts_mut(|f| f.has_glyphs(&font, text)), "the system's fallback found no font");
+        println!("laid out {} wide", g.size().x);
+    }
+
+    /// A Devanagari lyric in each bundled lyric font and weight, as the lines are laid out.
+    /// `YTM_SHOT=<file.png> cargo test --release -- --ignored devanagari_png --nocapture`
+    #[test]
+    #[ignore]
+    fn devanagari_png() {
+        use crate::preset::Weight;
+        let ctx = shot_ctx();
+        let lyric = "एक त हिजोमै खेर गइगो, आज नि अबेर भइसक्यो";
+        let mut rows = Vec::new();
+        for name in ["Inter", "DM Sans", "Google Sans Flex", "Figtree", "Instrument Sans", "Segoe UI Variable"] {
+            for weight in [Weight::Regular, Weight::Semibold, Weight::Bold] {
+                let font = crate::theme::lyric_font_for(name, weight, 30.0, lyric);
+                let g = ctx.fonts_mut(|f| f.layout_no_wrap(lyric.into(), font.clone(), Color32::WHITE));
+                let glyphs = g.rows.iter().map(|r| r.row.glyphs.len()).sum::<usize>();
+                let has = ctx.fonts_mut(|f| f.has_glyphs(&font, "एकतहिजोमैखेरगइ"));
+                println!("{name}: family {:?}, {} wide, {glyphs} glyphs, has_glyphs {has}", font.family, g.size().x);
+                rows.push(g);
+            }
+        }
+        let atlas = ctx.fonts(|f| f.image());
+        let mut img = image::RgbaImage::from_pixel(1000, 50 * rows.len() as u32 + 20, image::Rgba([24, 22, 30, 255]));
+        let h = img.height() as f32;
+        for (i, g) in rows.iter().enumerate() {
+            blit(&mut img, &atlas, pos2(20.0, 10.0 + 50.0 * i as f32), g, [242, 240, 245], (0.0, h));
+        }
+        img.save(std::env::var("YTM_SHOT").unwrap_or_else(|_| "devanagari.png".into())).unwrap();
     }
 
     /// Before/after picture of a lyric line taller than the view, while its 6th row is
@@ -2705,7 +2753,7 @@ mod tests {
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx, "Inter");
         for _ in 0..2 {
-            let _ = ctx.run_ui(Default::default(), |_| {});
+            ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
         }
         let titles = ["عمرو دياب - تملي معاك", "עומר אדם - תגידו לה", "Fairuz - نسم علينا الهوى (Live)"];
         let lyric = "يا ليل الصب متى غده أقيام الساعة موعده رقد السمار فأرقه أسف للبين يردده";

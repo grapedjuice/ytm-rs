@@ -10,10 +10,22 @@ use crate::lyrics::{Lyrics, Sync, SyncKind};
 use crate::shader::Params;
 use crate::theme::{self, icon};
 
+/// A video's glow: its colours now, where they're easing to, and its picture.
+pub(super) struct Glow {
+    current: Vec<[f32; 3]>,
+    target: Vec<[f32; 3]>,
+    tex: egui::TextureHandle,
+}
+
 pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
     use crate::preset::BgMode;
     let t = theme::anim_bool(ctx, "np-open", app.np_open && app.current().is_some(), 0.42);
     if t <= 0.001 {
+        // Closed: nothing to decode for. It picks up from the music's place when opened.
+        if app.video.take().is_some() {
+            app.video_frame = None;
+            app.glow = None;
+        }
         return;
     }
     let screen = ctx.content_rect();
@@ -73,6 +85,9 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
             }
             let k = if themed { b.scrim / 0.3 } else { 1.0 };
             super::shell::vgradient(ui.painter(), rect, theme::shade((0.18 * k).min(0.95)), theme::shade((0.42 * k).min(0.95)));
+            if app.ambient_light && app.current().cloned().is_some_and(|track| app.video_mode(&track)) {
+                paint_glow(app, ui, rect);
+            }
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(32.0, 20.0))));
             body(app, &mut child, now);
         });
@@ -84,10 +99,14 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     let look = app.look();
     let cs = &look.cover;
     let area = ui.max_rect();
-    let no_lyrics = app.no_lyrics();
+    let video_mode = app.video_mode(&track);
+    let no_lyrics = app.no_lyrics() || video_mode;
     // Header: on the window buttons' line, when the app draws them.
     let lift = 20.0 - f32::from(super::titlebar::top_margin(20, 44.0));
     let header = Rect::from_min_size(area.min - vec2(0.0, if app.fullscreen { 0.0 } else { lift }), vec2(area.width(), 44.0));
+    if track.music_video && !app.jam.active() {
+        song_video_switch(app, ui, header);
+    }
     let mut hui = ui.new_child(egui::UiBuilder::new().max_rect(header).layout(egui::Layout::left_to_right(egui::Align::Center)));
     if icon_button(&mut hui, icon::CHEVRON_DOWN, 22.0, "Close now playing", false).clicked() {
         app.np_open = false;
@@ -144,7 +163,7 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
                 ui.disable();
                 ui.multiply_opacity(0.45);
             }
-            widgets::chip(ui, "Lyrics", app.np_tab == NpTab::Lyrics && !no_lyrics).on_disabled_hover_text("No lyrics for this song")
+            widgets::chip(ui, "Lyrics", app.np_tab == NpTab::Lyrics && !no_lyrics).on_disabled_hover_text(if video_mode { "Lyrics are timed to the song: switch to Song" } else { "No lyrics for this song" })
         });
         if lyr.inner.clicked() {
             app.np_tab = if app.np_tab == NpTab::Lyrics { NpTab::Art } else { NpTab::Lyrics };
@@ -155,6 +174,14 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     });
 
     let content = Rect::from_min_max(pos2(area.left(), header.bottom() + 12.0), area.max);
+    if video_mode {
+        video_stage(app, ui, content, &track);
+        return;
+    }
+    if app.video.take().is_some() {
+        app.video_frame = None;
+        app.glow = None;
+    }
     // The side panel (lyrics / up next) slides in and out when its chip is toggled.
     // A song without lyrics shows just the artwork, with no transition.
     let last_id = egui::Id::unique("np-last-panel");
@@ -328,6 +355,123 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
             ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(if wait > 0.0 { wait } else { 0.033 }));
         }
     }
+}
+
+/// Song or Video, in the middle of the header, as YouTube Music's own apps have it.
+fn song_video_switch(app: &mut App, ui: &mut Ui, header: Rect) {
+    let rect = Rect::from_center_size(header.center(), vec2(170.0, header.height()));
+    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    row.spacing_mut().item_spacing.x = 6.0;
+    let song = widgets::chip(&mut row, "Song", !app.show_video).clicked();
+    let video = widgets::chip(&mut row, "Video", app.show_video).clicked();
+    if (song && app.show_video) || (video && !app.show_video) {
+        app.actions.push(Action::ToggleVideo);
+    }
+}
+
+/// The video as the whole view, with Up next beside it when that's open.
+fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::Track) {
+    let frame = video_frame(app, ui.ctx(), track);
+    // Up next: beside the video, or under it when there's no room.
+    let up_next = app.np_tab == NpTab::UpNext;
+    let queue_w = if up_next && content.width() > 900.0 { 360.0 } else { 0.0 };
+    let queue_h = if up_next && queue_w == 0.0 { content.height() * 0.45 } else { 0.0 };
+    let stage = Rect::from_min_max(content.min, pos2(content.right() - queue_w, content.bottom() - queue_h));
+    let (w, h) = frame.as_ref().map_or((16.0, 9.0), |t| (t.size()[0] as f32, t.size()[1] as f32));
+    let scale = (stage.width() / w.max(1.0)).min((stage.height() - 64.0).max(120.0) / h.max(1.0));
+    let fit = vec2(w * scale, h * scale);
+    let picture = Rect::from_center_size(pos2(stage.center().x, stage.top() + fit.y / 2.0), fit);
+    let radius = egui::CornerRadius::same(10);
+    match &frame {
+        Some(tex) => {
+            egui::Image::from_texture((tex.id(), fit)).corner_radius(radius).paint_at(ui, picture);
+        }
+        // On its way, or it can't be shown: the cover in its place.
+        None => {
+            ui.painter().rect_filled(picture, radius, Color32::BLACK);
+            let side = fit.y;
+            widgets::paint_cover_px(ui, Rect::from_center_size(picture.center(), Vec2::splat(side)), &track.thumbs, 0.0, 1.0, (side * ui.ctx().pixels_per_point()) as u32);
+        }
+    }
+    let cover = named(ui.interact(picture, ui.scope_id().with(("video-playback", &track.id)), Sense::click()), if app.playing() { "Pause" } else { "Play" }).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let hover = theme::anim_bool(ui.ctx(), ("video-playback-hover", &track.id), cover.hovered(), 0.16);
+    if hover > 0.0 {
+        ui.painter().circle_filled(picture.center(), 38.0, theme::shade(0.58 * hover));
+        widgets::icon_at(ui, picture.center(), if app.playing() || app.buffering { icon::PAUSE } else { icon::PLAY }, 37.0, theme::with_alpha(Color32::WHITE, hover));
+    }
+    if cover.clicked() {
+        app.actions.push(Action::TogglePlay);
+    }
+    let y = picture.bottom() + 12.0;
+    text_at(ui, pos2(picture.left(), y), &track.title, theme::bold(20.0), Color32::WHITE, fit.x);
+    let line = track.artist_line();
+    widgets::linked_text(ui, pos2(picture.left(), y + 28.0), &line, &track.artists, theme::regular(14.0), theme::text_dim(), fit.x, &mut app.actions);
+    if up_next {
+        let r = if queue_w > 0.0 { Rect::from_min_max(pos2(stage.right() + 24.0, content.top()), content.max) } else { Rect::from_min_max(pos2(content.left(), stage.bottom() + 8.0), content.max) };
+        let mut q = ui.new_child(egui::UiBuilder::new().max_rect(r));
+        q.set_clip_rect(r.intersect(ui.clip_rect()));
+        super::shell::queue_list(app, &mut q, "np");
+    }
+}
+
+/// The video's colours, eased toward the latest frame's, across all of Now playing.
+fn paint_glow(app: &mut App, ui: &mut Ui, rect: Rect) {
+    let Some(Glow { current, target, tex }) = &mut app.glow else { return };
+    let k = (ui.input(|i| i.stable_dt) * 2.5).clamp(0.0, 1.0);
+    for (c, t) in current.iter_mut().zip(target.iter()) {
+        for i in 0..3 {
+            c[i] += (t[i] - c[i]) * k;
+        }
+    }
+    let [w, h] = crate::video::GLOW_SIZE;
+    let pixels = current.iter().map(|c| Color32::from_rgb(c[0] as u8, c[1] as u8, c[2] as u8)).collect();
+    tex.set(egui::ColorImage { size: [w, h], source_size: vec2(w as f32, h as f32), pixels }, egui::TextureOptions::LINEAR);
+    // Bigger than the view, so its coarse edges stay out of sight.
+    let full = rect.expand2(rect.size() * 0.08);
+    let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+    let painter = ui.painter_at(rect);
+    painter.image(tex.id(), full, uv, Color32::from_gray(150));
+    painter.rect_filled(rect, 0.0, theme::shade(0.25));
+}
+
+/// The video's latest frame in a texture. Keeps the player, and the glow's colours, in
+/// step with what's playing.
+fn video_frame(app: &mut App, ctx: &egui::Context, track: &crate::model::Track) -> Option<egui::TextureHandle> {
+    if app.video.as_ref().is_none_or(|(id, _)| *id != track.id) {
+        app.video = Some((track.id.clone(), None));
+        app.video_frame = None;
+        app.glow = None;
+        app.backend.request(crate::backend::Req::VideoStream(track.id.clone()));
+    }
+    let player = app.video.as_ref()?.1.as_ref()?;
+    if player.failed() {
+        return None;
+    }
+    if let Some(frame) = player.take_due() {
+        if app.ambient_light {
+            let colors = crate::video::glow_colors(&frame.image);
+            match &mut app.glow {
+                Some(glow) => glow.target = colors,
+                None => {
+                    let [w, h] = crate::video::GLOW_SIZE;
+                    let image = egui::ColorImage { size: [w, h], source_size: vec2(w as f32, h as f32), pixels: vec![Color32::BLACK; w * h] };
+                    let tex = ctx.load_texture("video-glow", image, egui::TextureOptions::LINEAR);
+                    app.glow = Some(Glow { current: colors.clone(), target: colors, tex });
+                }
+            }
+        }
+        match &mut app.video_frame {
+            Some(tex) => tex.set(frame.image, egui::TextureOptions::LINEAR),
+            None => app.video_frame = Some(ctx.load_texture("music-video", frame.image, egui::TextureOptions::LINEAR)),
+        }
+    }
+    if app.playing() {
+        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+    } else if app.video_frame.is_none() {
+        // Paused or still loading: the first frame shows when it's here, or after a seek.
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    }
+    app.video_frame.clone()
 }
 
 // ------------------------------------------------------------------ lyrics

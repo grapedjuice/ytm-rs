@@ -107,7 +107,7 @@ impl App {
     /// `t`, when it's a music video to play as its song version. Not in a jam: everyone
     /// there plays the host's exact upload at the host's position.
     pub(super) fn song_of(&self, t: &Track) -> Option<Track> {
-        (self.play_songs && t.music_video && !self.jam.active()).then(|| t.clone())
+        (self.play_songs && !self.show_video && t.music_video && !self.jam.active()).then(|| t.clone())
     }
 
     pub(super) fn playing(&self) -> bool {
@@ -243,6 +243,26 @@ impl App {
     /// Start the current track, opened directly at `at` so nothing plays from 0:00 first.
     /// `report`: a new play for the account's history (not picking up last session's song).
     pub(super) fn play_current_at(&mut self, at: Duration, report: bool) {
+        self.start_current(at, report, false);
+    }
+
+    /// Whether a video is what's on show for `t`: lyrics are timed to its song, so they
+    /// don't go with it.
+    pub(super) fn video_mode(&self, t: &Track) -> bool {
+        self.show_video && t.music_video && self.playing_as().is_none() && !self.jam.active()
+    }
+
+    /// From its video to its song version, at about the same place.
+    pub(super) fn play_song_version(&mut self) {
+        let at = self.audio.status.position();
+        if self.playing() || self.buffering {
+            self.start_current(at, false, true);
+        } else {
+            self.resume_at = Some(at);
+        }
+    }
+
+    fn start_current(&mut self, at: Duration, report: bool, as_song: bool) {
         let Some(track) = self.current().cloned() else { return };
         // Picking up mid-song (a resume, a download that broke off): the position is the
         // song version's when one was playing, so that goes on; a music video stays one.
@@ -260,7 +280,7 @@ impl App {
         self.buffering = true;
         self.seek_drag = None;
         // A carried song version goes with its music video, which plays if the song won't.
-        let song_of = if carried.is_none() && at.is_zero() { self.song_of(&track) } else { None };
+        let song_of = if carried.is_none() && (at.is_zero() || as_song) { self.song_of(&track) } else { None };
         self.playing_as = carried.clone().map(|song| PlayingAs { generation: self.generation, listed: track.id.clone(), song });
         self.backend.request(Req::Play { video_id: track.id.clone(), generation: self.generation, at, report, song_of, song: carried });
         self.show_in_media(&shown);

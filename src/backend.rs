@@ -71,6 +71,8 @@ pub enum Req {
     /// `song`: the song version already playing for the music video `video_id` (picked up
     /// mid-song): played without a lookup, and the video if it won't.
     Play { video_id: String, generation: u64, at: std::time::Duration, report: bool, song_of: Option<Track>, song: Option<Track> },
+    /// A video's stream, for showing it.
+    VideoStream(String),
     /// Resolve and download a track ahead of time so skipping to it is instant.
     Prefetch { video_id: String, song_of: Option<Track> },
     Like { video_id: String, like: bool },
@@ -124,6 +126,7 @@ impl Req {
             Req::PlayCollection { .. } => "Playback",
             Req::Play { .. } => "Playback",
             Req::Prefetch { .. } => "Prefetch",
+            Req::VideoStream(_) => "Video",
             Req::Like { .. } | Req::LikeMany { .. } | Req::UnlikeBoth { .. } => "Like",
             Req::Dislike(_) => "Dislike",
             Req::CreatePlaylist { .. } => "Create playlist",
@@ -263,6 +266,8 @@ pub enum Resp {
     QuickPicksMore { seed: String, tracks: Vec<Track> },
     Explore(Explore),
     Search(SearchResults),
+    /// `None`: this video can't be shown; the picture stays.
+    VideoStream { video_id: String, stream: Option<innertube::VideoStream> },
     Suggest { query: String, round: u64, terms: Vec<ytm::Suggestion> },
     /// An album or playlist; `more`: the rest of its songs follow in `CollectionMore`.
     Collection { load: u64, c: Collection, more: bool },
@@ -350,6 +355,9 @@ pub const LIKE_GAP: std::time::Duration = std::time::Duration::from_millis(400);
 /// takes out).
 pub static LIKES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static PLAYLIST_MOVES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Tallest video fetched: 720p decodes comfortably on the CPU.
+const VIDEO_MAX_HEIGHT: u64 = 720;
 
 /// How long one like or unlike may take. Taken ones answer in about a quarter second;
 /// ones YouTube Music refuses while it limits the account are held 8–9 s before the 403
@@ -789,6 +797,13 @@ impl Backend {
                     Ok(()) => return Ok(None),
                     Err(e) => Resp::PlayError { generation, msg: format!("{e:#}") },
                 },
+                Req::VideoStream(video_id) => {
+                    let found = async { innertube::video_stream(&self.http(), &video_id, &api.visitor_data(false).await?, VIDEO_MAX_HEIGHT).await }.await;
+                    if let Err(e) = &found {
+                        log::warn!("video of {video_id}: {e:#}");
+                    }
+                    Resp::VideoStream { video_id, stream: found.ok() }
+                }
                 Req::Prefetch { video_id, song_of } => {
                     self.prefetch(video_id, song_of).await?;
                     return Ok(None);

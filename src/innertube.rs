@@ -69,6 +69,59 @@ pub async fn album_queue(http: &reqwest::Client, playlist_id: &str) -> anyhow::R
 
 /// `opus`: Opus (itag 251, about 130-160 kbps) when the song has it, else AAC.
 pub async fn audio_stream(http: &reqwest::Client, video_id: &str, visitor_data: &str, opus: bool) -> anyhow::Result<Stream> {
+    let resp = player(http, video_id, visitor_data).await?;
+    // Opus in WebM (251) when asked for; AAC-LC in MP4 (140), HE-AAC (139) as fallbacks.
+    let formats = resp["streamingData"]["adaptiveFormats"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let itags: &[u64] = if opus { &[251, 140, 139] } else { &[140, 139] };
+    itags
+        .iter()
+        .find_map(|itag| {
+            let f = formats.iter().find(|f| f["itag"] == *itag)?;
+            log::info!("visionOS: {video_id} itag {itag} ({} kbps)", f["averageBitrate"].as_u64().or(f["bitrate"].as_u64()).unwrap_or(0) / 1000);
+            Some(Stream {
+                url: f["url"].as_str()?.to_owned(),
+                size: f["contentLength"].as_str()?.parse().ok()?,
+                duration_ms: f["approxDurationMs"].as_str().and_then(|d| d.parse().ok()).unwrap_or(0),
+                loudness_db: loudness(&resp, f),
+                opus: *itag == 251,
+            })
+        })
+        .ok_or_else(|| anyhow::anyhow!("no audio stream in visionOS player response"))
+}
+
+/// A video's H.264 in fragmented MP4, the only video this app decodes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VideoStream {
+    pub url: String,
+    pub width: u32,
+    pub height: u32,
+    /// Last byte of the header.
+    pub init_end: u64,
+    /// First and last byte of the fragment index.
+    pub index: (u64, u64),
+}
+
+/// The best of `formats` at most `max_height` tall.
+fn pick_video(formats: &[Value], max_height: u64) -> Option<VideoStream> {
+    let range = |v: &Value| Some((v["start"].as_str()?.parse().ok()?, v["end"].as_str()?.parse().ok()?));
+    formats
+        .iter()
+        .filter(|f| f["mimeType"].as_str().is_some_and(|m| m.starts_with("video/mp4") && m.contains("avc1")))
+        .filter(|f| f["height"].as_u64().is_some_and(|h| h <= max_height))
+        .max_by_key(|f| f["height"].as_u64())
+        .and_then(|f| {
+            let (_, init_end) = range(&f["initRange"])?;
+            Some(VideoStream { url: f["url"].as_str()?.to_owned(), width: f["width"].as_u64()? as u32, height: f["height"].as_u64()? as u32, init_end, index: range(&f["indexRange"])? })
+        })
+}
+
+pub async fn video_stream(http: &reqwest::Client, video_id: &str, visitor_data: &str, max_height: u64) -> anyhow::Result<VideoStream> {
+    let resp = player(http, video_id, visitor_data).await?;
+    let formats = resp["streamingData"]["adaptiveFormats"].as_array().map(Vec::as_slice).unwrap_or_default();
+    pick_video(formats, max_height).ok_or_else(|| anyhow::anyhow!("no H.264 video in visionOS player response"))
+}
+
+async fn player(http: &reqwest::Client, video_id: &str, visitor_data: &str) -> anyhow::Result<Value> {
     let body = json!({
         "context": {"client": {
             "clientName": "VISIONOS",
@@ -109,21 +162,21 @@ pub async fn audio_stream(http: &reqwest::Client, video_id: &str, visitor_data: 
             status["reason"].as_str().unwrap_or("no reason given")
         );
     }
-    // Opus in WebM (251) when asked for; AAC-LC in MP4 (140), HE-AAC (139) as fallbacks.
-    let formats = resp["streamingData"]["adaptiveFormats"].as_array().map(Vec::as_slice).unwrap_or_default();
-    let itags: &[u64] = if opus { &[251, 140, 139] } else { &[140, 139] };
-    itags
-        .iter()
-        .find_map(|itag| {
-            let f = formats.iter().find(|f| f["itag"] == *itag)?;
-            log::info!("visionOS: {video_id} itag {itag} ({} kbps)", f["averageBitrate"].as_u64().or(f["bitrate"].as_u64()).unwrap_or(0) / 1000);
-            Some(Stream {
-                url: f["url"].as_str()?.to_owned(),
-                size: f["contentLength"].as_str()?.parse().ok()?,
-                duration_ms: f["approxDurationMs"].as_str().and_then(|d| d.parse().ok()).unwrap_or(0),
-                loudness_db: loudness(&resp, f),
-                opus: *itag == 251,
-            })
-        })
-        .ok_or_else(|| anyhow::anyhow!("no audio stream in visionOS player response"))
+    Ok(resp)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn video_is_the_tallest_h264_within_the_limit() {
+        let format = |itag: u64, mime: &str, height: u64| json!({"itag": itag, "mimeType": mime, "height": height, "width": height * 16 / 9, "url": format!("u{itag}"), "initRange": {"start": "0", "end": "740"}, "indexRange": {"start": "741", "end": "2000"}});
+        let formats = [format(137, "video/mp4; codecs=\"avc1.640028\"", 1080), format(136, "video/mp4; codecs=\"avc1.4D401F\"", 720), format(135, "video/mp4; codecs=\"avc1.4D401E\"", 480), format(247, "video/webm; codecs=\"vp9\"", 720), format(398, "video/mp4; codecs=\"av01.0.05M.08\"", 720)];
+        let v = pick_video(&formats, 720).unwrap();
+        assert_eq!((v.url.as_str(), v.height, v.init_end, v.index), ("u136", 720, 740, (741, 2000)));
+        assert_eq!(pick_video(&formats, 480).unwrap().url, "u135");
+        assert_eq!(pick_video(&formats, 100), None);
+        assert_eq!(pick_video(&formats[3..], 1080), None);
+    }
 }

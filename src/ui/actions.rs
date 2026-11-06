@@ -89,6 +89,15 @@ impl App {
                     self.prefetch_next();
                 }
             }
+            Action::ToggleVideo => {
+                self.show_video = !self.show_video;
+                // Its song is playing: a video only stays in time with its own audio.
+                if self.show_video {
+                    self.play_listed_upload();
+                } else if self.current().is_some_and(|t| t.music_video) && self.play_songs && !self.jam.active() {
+                    self.play_song_version();
+                }
+            }
             Action::Seek(secs) => {
                 self.seek_to(Duration::from_secs_f32(secs.max(0.0)));
                 self.lyric_view.resume();

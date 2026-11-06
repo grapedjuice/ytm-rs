@@ -110,6 +110,78 @@ pub(super) fn dev_screenshot(ctx: &egui::Context, now: f64) {
     }
 }
 
+/// Dev hook: `YTM_SCRIPT="<secs>:<step>;…"` drives a test window that has no mouse or
+/// keyboard, with seconds from the first frame. Steps: `m:x,y` moves the pointer, `c:x,y`
+/// clicks, `r:w,h` resizes, `t:text` types, `s:name` saves `<YTM_SCRIPT_DIR>/name.png`, `q` quits.
+pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+    enum Step {
+        Move(egui::Pos2),
+        Press(egui::Pos2, bool),
+        Resize(egui::Pos2),
+        Text(&'static str),
+        Shot(&'static str),
+        Quit,
+    }
+    let Some(script) = dev_var("YTM_SCRIPT") else { return };
+    static START: OnceLock<Instant> = OnceLock::new();
+    static STEPS: OnceLock<Vec<(f64, Step)>> = OnceLock::new();
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let steps = STEPS.get_or_init(|| {
+        let point = |v: &str| v.split_once(',').and_then(|(x, y)| Some(egui::pos2(x.parse().ok()?, y.parse().ok()?)));
+        let mut steps = Vec::new();
+        for step in script.split(';') {
+            let mut parts = step.splitn(3, ':');
+            let (Some(at), Some(kind)) = (parts.next().and_then(|t| t.trim().parse::<f64>().ok()), parts.next()) else { continue };
+            let value = parts.next().unwrap_or("");
+            match (kind, point(value)) {
+                ("m", Some(p)) => steps.push((at, Step::Move(p))),
+                ("c", Some(p)) => steps.extend([(at, Step::Move(p)), (at + 0.2, Step::Press(p, true)), (at + 0.3, Step::Press(p, false))]),
+                ("r", Some(p)) => steps.push((at, Step::Resize(p))),
+                ("t", _) => steps.push((at, Step::Text(value))),
+                ("s", _) => steps.push((at, Step::Shot(value))),
+                ("q", _) => steps.push((at, Step::Quit)),
+                _ => log::warn!("YTM_SCRIPT: can't read {step}"),
+            }
+        }
+        steps.sort_by(|a, b| a.0.total_cmp(&b.0));
+        steps
+    });
+    let now = START.get_or_init(Instant::now).elapsed().as_secs_f64();
+    let mut next = NEXT.load(Ordering::Relaxed);
+    while let Some((_, step)) = steps.get(next).filter(|(at, _)| *at <= now) {
+        next += 1;
+        match step {
+            Step::Move(p) => raw.events.push(egui::Event::PointerMoved(*p)),
+            Step::Press(p, pressed) => raw.events.push(egui::Event::PointerButton { pos: *p, button: egui::PointerButton::Primary, pressed: *pressed, modifiers: egui::Modifiers::NONE }),
+            Step::Resize(p) => ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(p.to_vec2())),
+            Step::Text(text) => raw.events.push(egui::Event::Text((*text).to_owned())),
+            Step::Shot(name) => {
+                let path = std::path::Path::new(dev_var("YTM_SCRIPT_DIR").unwrap_or(".")).join(format!("{name}.png"));
+                ctx.request_screenshot(move |img| {
+                    let [w, h] = img.size;
+                    let bytes: Vec<u8> = img.pixels.iter().flat_map(|c| c.to_array()).collect();
+                    if let Some(Err(e)) = image::RgbaImage::from_raw(w as u32, h as u32, bytes).map(|i| i.save(&path)) {
+                        log::warn!("screenshot failed: {e}");
+                    }
+                });
+            }
+            Step::Quit => std::process::exit(0),
+        }
+    }
+    NEXT.store(next, Ordering::Relaxed);
+    // A repaint asked for here wouldn't last the frame: an idle window has to be kept going.
+    static TICKING: AtomicBool = AtomicBool::new(false);
+    if !TICKING.swap(true, Ordering::Relaxed) {
+        let ctx = ctx.clone();
+        std::thread::spawn(move || loop {
+            ctx.request_repaint();
+            std::thread::sleep(Duration::from_millis(30));
+        });
+    }
+}
+
 /// A `YTM_*` dev hook, read once: several are checked every frame.
 pub(super) fn dev_var(name: &str) -> Option<&'static str> {
     static VARS: std::sync::OnceLock<std::collections::HashMap<String, String>> = std::sync::OnceLock::new();

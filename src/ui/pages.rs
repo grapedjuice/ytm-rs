@@ -470,7 +470,7 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     });
     card_row(ui, "s-artists", "Artists", &r.artists, acts);
     card_row(ui, "s-albums", "Albums", &r.albums, acts);
-    if !r.videos.is_empty() {
+    if !r.videos.is_empty() && !app.hide_search_videos {
         ui.add_space(26.0);
         ui.label(RichText::new("Videos").font(theme::bold(24.0)));
         ui.add_space(10.0);
@@ -1060,6 +1060,21 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
         divider(ui);
         setting_row(ui, "Output device", Some("Where the music plays. A picked device that isn't connected leaves it to Windows' default until it's back."), |ui| {
             output_device_picker(app, ui);
+        });
+        divider(ui);
+        setting_row(ui, "Show music videos", Some("Music videos play as moving video, with their own sound and no lyrics. The Song and Video switch in Now playing swaps between them either way."), |ui| {
+            let mut on = app.show_video;
+            if toggle(ui, &mut on, "Show music videos").changed() {
+                app.actions.push(Action::ToggleVideo);
+            }
+        });
+        divider(ui);
+        setting_row(ui, "Ambient light", Some("Now playing glows with the video's colours around it."), |ui| {
+            toggle(ui, &mut app.ambient_light, "Ambient light");
+        });
+        divider(ui);
+        setting_row(ui, "Hide videos in search", Some("Only songs, albums, artists and playlists in search results."), |ui| {
+            toggle(ui, &mut app.hide_search_videos, "Hide videos in search");
         });
         divider(ui);
         setting_row(ui, "Crossfade songs", Some("Blend the end of each song into the start of the next."), |ui| {

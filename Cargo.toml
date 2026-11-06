@@ -29,6 +29,8 @@ rquickjs = "0.14.0"
 roxmltree = "0.21.1"
 serde = { version = "1.0.229", features = ["derive"] }
 skrifa = "0.44.0"
+# Music videos: YouTube's H.264, decoded on the CPU. Built from source; faster with nasm installed.
+openh264 = "0.8"
 sha1 = "0.10.7"
 sha2 = "0.10.9"
 hmac = "0.12.1"

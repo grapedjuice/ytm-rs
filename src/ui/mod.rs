@@ -104,6 +104,8 @@ pub enum Action {
     /// song `id` is still at `from`.
     QueueMove { from: usize, gap: usize, id: String },
     Seek(f32),
+    /// Moving video or the picture, for music videos.
+    ToggleVideo,
     Like(Track, bool),
     /// The heart of what's playing, in the player bar, the mini player and Now playing's menu.
     LikeHeard(bool),
@@ -307,6 +309,15 @@ pub struct App {
     high_quality: bool,
     /// Play an official music video as its song version when one is found.
     play_songs: bool,
+    /// Show music videos moving, playing their own audio to stay in time.
+    show_video: bool,
+    /// The video on show or on its way, by id.
+    video: Option<(String, Option<crate::video::Player>)>,
+    video_frame: Option<egui::TextureHandle>,
+    /// The glow around a video, from its colours.
+    ambient_light: bool,
+    glow: Option<nowplaying::Glow>,
+    hide_search_videos: bool,
     /// The song version playing in place of the current music video.
     playing_as: Option<PlayingAs>,
     /// The output device picked in settings (cpal's id and its name, for when it's not
@@ -547,6 +558,12 @@ impl App {
             log_volume: get("log_volume").is_none_or(|v| v == "1"),
             high_quality: get("high_quality").is_none_or(|v| v == "1"),
             play_songs: get("play_songs").is_none_or(|v| v == "1"),
+            show_video: dev_var("YTM_VIDEO").is_some() || get("show_video").is_some_and(|v| v == "1"),
+            video: None,
+            video_frame: None,
+            ambient_light: get("ambient_light").is_none_or(|v| v == "1"),
+            glow: None,
+            hide_search_videos: get("hide_search_videos").is_some_and(|v| v == "1"),
             playing_as: None,
             output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
             output_devices: Vec::new(),
@@ -639,7 +656,7 @@ impl App {
         };
         app.request_liked(false);
         // Dev hooks: YTM_SMOKE="query" searches and plays the first song ("id:<videoId>[,<videoId>…]"
-        // plays that video); YTM_SEARCH
+        // plays that video; with YTM_VIDEO, shown as a video); YTM_SEARCH
         // only searches; YTM_PAGE opens a page; YTM_NOWPLAYING opens the overlay.
         if let Some(s) = get(SESSION_KEY).filter(|_| std::env::var_os("YTM_SMOKE").is_none()) {
             app.restore_session(&s);
@@ -647,7 +664,7 @@ impl App {
         let smoke = std::env::var("YTM_SMOKE").ok().filter(|q| !q.is_empty());
         if let Some(ids) = smoke.as_deref().and_then(|q| q.strip_prefix("id:")) {
             // "id:a,b,c" queues several.
-            let track = |id: &str| Track { id: id.to_owned(), title: id.to_owned(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false };
+            let track = |id: &str| Track { id: id.to_owned(), title: id.to_owned(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: dev_var("YTM_VIDEO").is_some() };
             app.play_list(ids.split(',').map(track).collect(), 0);
         } else if let Some(q) = smoke {
             app.go(Page::Search(q.clone()));
@@ -1128,6 +1145,7 @@ impl eframe::App for App {
     /// Dev hook: `YTM_FAKE_POINTER=x,y` parks a synthetic pointer there, for testing
     /// hover behaviour without touching the real mouse.
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        dev::dev_script(ctx, raw);
         // Dev hook: YTM_FAKE_WHEEL="secs,notches" injects one wheel event, for testing.
         if let Some((at, n)) = dev_var("YTM_FAKE_WHEEL").and_then(|v| {
             let (a, n) = v.split_once(',')?;
@@ -1181,6 +1199,9 @@ impl eframe::App for App {
         storage.set_string("log_volume", b(self.log_volume));
         storage.set_string("high_quality", b(self.high_quality));
         storage.set_string("play_songs", b(self.play_songs));
+        storage.set_string("show_video", b(self.show_video));
+        storage.set_string("ambient_light", b(self.ambient_light));
+        storage.set_string("hide_search_videos", b(self.hide_search_videos));
         let folder = crate::downloads::folder();
         storage.set_string("download_dir", if folder == crate::downloads::default_folder() { String::new() } else { folder.display().to_string() });
         let (device, device_name) = self.output_device.clone().unzip();

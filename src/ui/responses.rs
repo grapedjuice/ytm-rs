@@ -104,6 +104,17 @@ impl App {
                 self.explore = Some(e);
                 self.loading = false;
             }
+            Resp::VideoStream { video_id, stream } => {
+                if let Some((id, player)) = &mut self.video
+                    && *id == video_id
+                {
+                    let none = stream.is_none();
+                    *player = stream.map(|s| crate::video::Player::start(s, self.backend.http(), self.audio.status.clone()));
+                    if none {
+                        self.toast("This video can't be shown");
+                    }
+                }
+            }
             Resp::Search(r) => {
                 if self.smoke.as_ref() == Some(&r.query) {
                     self.smoke = None;

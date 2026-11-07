@@ -8,7 +8,7 @@ use crate::model::{ShelfKind, Target, Track};
 
 use super::lists::{Arrival, Done, LIKED_MUSIC, Opened, Start};
 use super::queue::QueueFill;
-use super::{App, shuffle};
+use super::{App, LibTab, Page, shuffle};
 
 impl App {
     /// Load an album or playlist, unless a load of it is under way. `changed`: if one is,
@@ -75,6 +75,31 @@ impl App {
         let fill = self.receiving(&id).then(|| QueueFill { id: id.clone(), load: o.load, shuffled, ran_out: false });
         self.queue_source = Some(if o.c.is_album { Target::Album(id) } else { Target::Playlist(id) });
         self.play_list_filling(tracks, 0, fill);
+    }
+
+    /// The album, playlist or artist the song playing was started from, and its name; none
+    /// once autoplay, Play next or Add to queue moved on from it.
+    pub(super) fn playing_from(&self) -> Option<(Page, String)> {
+        let source = self.queue_source.as_ref().filter(|_| !self.queue.plays_elsewhere())?;
+        let played = self.played_title.as_ref().filter(|(t, _)| t == source).map(|(_, n)| n.clone());
+        let (page, name) = match source {
+            Target::Playlist(id) if id == LIKED_MUSIC => (Page::Library(LibTab::Songs), "Liked Music".to_owned()),
+            Target::Album(id) | Target::Playlist(id) => {
+                // Kept while it plays, or played from its card; the sidebar's list has the name if it went anyway.
+                let sidebar = self.library.as_ref().map(|l| l.playlists.as_slice()).or(self.sidebar_cache.as_deref()).unwrap_or_default();
+                let name = self.opened(id).map(|o| o.c.title.clone()).or(played).or_else(|| sidebar.iter().find(|c| matches!(&c.target, Target::Playlist(p) if p == id)).map(|c| c.title.clone()))?;
+                (if matches!(source, Target::Album(_)) { Page::Album(id.clone()) } else { Page::Playlist(id.clone()) }, name)
+            }
+            // The artist page shown last, its card's play, or else the song's own credit.
+            Target::Artist(id) => {
+                let name = self.artist.as_ref().filter(|a| &a.id == id).map(|a| a.name.clone()).or(played).or_else(|| {
+                    self.queue.current()?.artists.iter().find(|l| l.id.as_ref() == Some(id)).map(|l| l.name.clone())
+                })?;
+                (Page::Artist(id.clone()), name)
+            }
+            Target::Song(_) => return None,
+        };
+        (!name.is_empty()).then_some((page, name))
     }
 
     /// The album or playlist on screen.

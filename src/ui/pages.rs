@@ -1542,6 +1542,8 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
                 app.chrome_applied = None;
             }
         });
+        divider(ui);
+        settings_zoom(ui);
     });
 
     let current = if app.default_theme { "Classic".to_owned() } else { crate::preset::get(&app.theme_id).name.clone() };
@@ -1561,6 +1563,33 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
     }
     if (was_default && !app.default_theme) || was_theme != app.theme_id {
         app.request_art();
+    }
+}
+
+/// Settings › Appearance › Zoom: egui's zoom, the one Ctrl + plus / minus changes (and
+/// egui keeps between starts).
+fn settings_zoom(ui: &mut Ui) {
+    const LEVELS: [f32; 8] = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
+    let pct = |z: f32| format!("{}%", (z * 100.0).round());
+    let zoom = ui.ctx().zoom_factor();
+    let mut pick = None;
+    setting_row(ui, "Zoom", Some("Makes everything bigger or smaller. Ctrl + plus, minus and 0 do the same."), |ui| {
+        let btn = dropdown_button(ui, &pct(zoom), 160.0, "Zoom");
+        egui::Popup::menu(&btn).show(|ui| {
+            ui.set_width(160.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+            ui.add_space(4.0);
+            for z in LEVELS {
+                if option_row(ui, &pct(z), (z - zoom).abs() < 0.005).clicked() {
+                    pick = Some(z);
+                    ui.close();
+                }
+            }
+            ui.add_space(4.0);
+        });
+    });
+    if let Some(z) = pick {
+        ui.ctx().set_zoom_factor(z);
     }
 }
 
@@ -1784,6 +1813,7 @@ fn settings_shortcuts(ui: &mut Ui) {
             ("Back / forward", &["Alt", "← / →"]),
             ("Back / forward with the mouse", &["Side buttons"]),
             ("Refresh the page", &["F5 / Ctrl + R"]),
+            ("Zoom in / out / reset", &["Ctrl", "+ / − / 0"]),
             ("Leave full screen, now playing or selecting", &["Esc"]),
         ];
         for (i, (what, combo)) in keys.iter().enumerate() {

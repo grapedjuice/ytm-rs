@@ -960,6 +960,22 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
             ui.label(egui::RichText::new("Nothing queued yet").color(theme::text_dim()));
             return;
         }
+        if let Some((page, name)) = app.playing_from() {
+            let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
+            let lead = ui.painter().text(rect.left_center(), Align2::LEFT_CENTER, "Playing from", theme::regular(13.0), theme::text_dim());
+            let left = lead.right() + 5.0;
+            let g = widgets::galley(ui, &name, theme::semibold(13.0), theme::text(), rect.right() - left);
+            let at = Rect::from_min_size(pos2(left, rect.center().y - g.size().y / 2.0), g.size());
+            let resp = named(ui.interact(at, ui.scope_id().with(("playing-from", salt)), Sense::click()), &format!("Playing from {name}")).on_hover_cursor(egui::CursorIcon::PointingHand);
+            if resp.hovered() {
+                ui.painter().hline(at.x_range(), at.bottom(), egui::Stroke::new(1.0, theme::text()));
+            }
+            ui.painter().galley(at.min, g, theme::text());
+            if resp.clicked() {
+                app.go(page);
+            }
+            ui.add_space(6.0);
+        }
         let start = app.queue.index.unwrap_or(0);
         ui.checkbox(&mut app.autoplay, egui::RichText::new("Autoplay similar songs").color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
         ui.add_space(6.0);

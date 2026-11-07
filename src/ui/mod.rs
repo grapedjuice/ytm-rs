@@ -377,6 +377,9 @@ pub struct App {
     queue_open: bool,
     /// A song row being dragged.
     row_drag: Option<row_drag::RowDrag>,
+    /// Settings: the category on show, and what its search box is looking for.
+    settings_tab: pages::SettingsTab,
+    settings_query: String,
     fullscreen: bool,
     /// The mini player: the window shrunk to a strip.
     mini: mini::Mini,
@@ -632,6 +635,8 @@ impl App {
             np_tab: if get("np_art").is_some_and(|v| v == "1") { NpTab::Art } else { NpTab::Lyrics },
             queue_open: false,
             row_drag: None,
+            settings_tab: Default::default(),
+            settings_query: String::new(),
             fullscreen: false,
             mini: mini::Mini::load(get),
             lyrics: None,
@@ -694,6 +699,7 @@ impl App {
         }
         // Dev hook: YTM_PROXY_INPUT=<address> opens Settings › Network on Custom with it typed in.
         if let Some(v) = dev_var("YTM_PROXY_INPUT") {
+            app.settings_tab = pages::SettingsTab::General;
             app.proxy_mode = crate::proxy::Setting::Custom(String::new());
             app.proxy_url = v.to_owned();
         }
@@ -783,6 +789,7 @@ impl App {
         };
         self.suggestions = Default::default();
         self.suggest_sel = None;
+        self.settings_query.clear();
         // Choosing a transfer match lasts while searching; any other page ends it.
         if !matches!(self.page, Page::Search(_)) {
             self.xfer.picking = None;

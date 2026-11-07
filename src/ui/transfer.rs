@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 
 use egui::{Align2, Color32, Rect, RichText, Sense, Ui, pos2, vec2};
 
-use super::pages::{page_title, section_label, setting_row, settings_card};
+use super::pages::{filter_show, page_title, setting_row, settings_card, settings_section as section};
 use super::widgets::{self, icon_at, named, paint_cover, pill, text_at};
 use super::{Action, App, LibTab, Page};
 use crate::model::{Target, Thumb, Track as YtTrack};
@@ -132,12 +132,13 @@ fn contrast(bg: Color32) -> Color32 {
 }
 
 fn breadcrumb(app: &mut App, ui: &mut Ui) {
-    let g = widgets::galley(ui, "Settings › Transfer from Spotify", theme::regular(13.0), theme::text_dim(), 400.0);
+    let g = widgets::galley(ui, "Settings › General › Transfer from Spotify", theme::regular(13.0), theme::text_dim(), 400.0);
     let (rect, resp) = ui.allocate_exact_size(g.size(), Sense::click());
     let resp = named(resp, "Back to Settings").on_hover_cursor(egui::CursorIcon::PointingHand);
     let c = if resp.hovered() { theme::text() } else { theme::text_dim() };
     ui.painter().galley(rect.min, g, c);
     if resp.clicked() {
+        app.settings_tab = super::pages::SettingsTab::General;
         app.actions.push(Action::Go(Page::Settings));
     }
 }
@@ -209,6 +210,7 @@ fn setup(app: &mut App, ui: &mut Ui) {
         settings_card(ui, |ui| {
             setting_row(ui, "Sign in to YouTube Music first", Some("The songs go into your YouTube Music account."), |ui| {
                 if pill(ui, "Go to Settings", None, true).clicked() {
+                    app.settings_tab = super::pages::SettingsTab::Account;
                     app.actions.push(Action::Go(Page::Settings));
                 }
             });
@@ -1400,10 +1402,12 @@ fn failed(app: &mut App, ui: &mut Ui, e: &str) {
 pub fn settings_section(app: &mut App, ui: &mut Ui) {
     let xfer = app.transfer.clone();
     xfer.ensure_account(&app.backend);
-    section_label(ui, "Import", None);
     let account = xfer.account.lock().unwrap().clone();
     let mut open = false;
-    settings_card(ui, |ui| {
+    section(ui, "Import", None, None, |ui| {
+        if !filter_show(ui, "Transfer from Spotify copy your liked songs or any playlist into YouTube Music") {
+            return;
+        }
         let w = ui.available_width();
         let (rect, _) = ui.allocate_exact_size(vec2(w, 78.0), Sense::hover());
         let b = Rect::from_min_size(pos2(rect.left(), rect.center().y - 22.0), vec2(44.0, 44.0));

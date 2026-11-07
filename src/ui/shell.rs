@@ -277,6 +277,9 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             } else {
                 ui.multiply_opacity(2.0 * t - 1.0);
                 nav(ui, icon::CIRCLE_USER, "Sign in", Page::Settings, false, &mut go_to);
+                if go_to.is_some() {
+                    app.settings_tab = super::pages::SettingsTab::Account;
+                }
             }
             return;
         }
@@ -487,6 +490,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
                 icon_at(ui, r.center(), icon::USER, 18.0, theme::text_dim());
             }
             if resp.clicked() {
+                app.settings_tab = super::pages::SettingsTab::Account;
                 app.actions.push(Action::Go(Page::Settings));
             }
             if app.loading {

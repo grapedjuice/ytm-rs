@@ -1,5 +1,6 @@
 //! Page bodies. Every page fades and slides in when navigated to.
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 
@@ -31,6 +32,11 @@ pub fn page(app: &mut App, ui: &mut Ui, now: f64) {
     if let Some(y) = super::dev_var("YTM_SCROLL").and_then(|v| v.parse::<f32>().ok()) {
         area = area.vertical_scroll_offset(y);
     }
+    // Its list of categories stays put while one scrolls.
+    if page == Page::Settings {
+        settings(app, ui);
+        return;
+    }
     let out = area.show(ui, |ui| {
         ui.set_max_width((ui.available_width() - 20.0).max(0.0));
         ui.add_space(18.0 * (1.0 - t));
@@ -41,7 +47,7 @@ pub fn page(app: &mut App, ui: &mut Ui, now: f64) {
             Page::Album(id) | Page::Playlist(id) => collection(app, ui, id, now),
             Page::Artist(id) => artist(app, ui, id, now),
             Page::Library(tab) => library(app, ui, *tab, now),
-            Page::Settings => settings(app, ui),
+            Page::Settings => {}
             Page::Transfer => super::transfer::page(app, ui, now),
             Page::Jam => super::jam::page(app, ui),
         }
@@ -907,42 +913,262 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
 
 // ------------------------------------------------------------------ settings
 
-fn settings(app: &mut App, ui: &mut Ui) {
-    // One centred column; every section shares its width.
-    let avail = ui.available_width();
-    let w = avail.min(920.0);
-    ui.horizontal(|ui| {
-        ui.add_space(((avail - w) / 2.0).max(0.0));
-        ui.vertical(|ui| {
-            ui.set_width(w);
-            settings_body(app, ui);
-            ui.add_space(40.0);
-        });
-    });
+/// Settings' categories, listed beside the one on show.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum SettingsTab {
+    #[default]
+    Account,
+    Playback,
+    Lyrics,
+    Appearance,
+    General,
+    Shortcuts,
+    About,
 }
 
-fn settings_body(app: &mut App, ui: &mut Ui) {
-    page_title(ui, "Settings");
-    settings_account(app, ui);
-    settings_playback(app, ui);
-    settings_downloads(ui);
-    settings_lyrics(app, ui);
-    settings_appearance(app, ui);
-    settings_window(app, ui);
-    settings_app_icon(app, ui);
-    settings_connections(app, ui);
-    section_label(ui, "Network", None);
-    settings_card(ui, |ui| network(app, ui));
-    super::transfer::settings_section(app, ui);
-    settings_updates(app, ui);
-    settings_shortcuts(ui);
-    settings_about(ui);
-    settings_sign_off(app, ui);
+impl SettingsTab {
+    /// Most used first, which is how they're listed.
+    const ALL: [Self; 7] = [Self::Account, Self::Playback, Self::Lyrics, Self::Appearance, Self::General, Self::Shortcuts, Self::About];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Playback => "Playback",
+            Self::Lyrics => "Lyrics",
+            Self::Appearance => "Appearance",
+            Self::Account => "Account",
+            Self::General => "General",
+            Self::Shortcuts => "Keyboard shortcuts",
+            Self::About => "About",
+        }
+    }
 }
+
+/// What Settings' search box is looking for, for the frame being drawn. Only Settings
+/// sets it, so the rows and cards other pages borrow stay as they are.
+#[derive(Default)]
+struct SettingsFilter {
+    words: Vec<String>,
+    /// The section and category being drawn, which count as part of each row's text.
+    section: String,
+    tab: &'static str,
+    /// What's shown so far, in this section and on the whole page.
+    in_section: usize,
+    total: usize,
+}
+
+thread_local! {
+    static FILTER: RefCell<SettingsFilter> = RefCell::default();
+}
+
+/// Every word is in `text` or the name of its section. `words` are lowercase.
+fn words_match(words: &[String], section: &str, text: &str) -> bool {
+    let (section, text) = (section.to_lowercase(), text.to_lowercase());
+    words.iter().all(|w| section.contains(w.as_str()) || text.contains(w.as_str()))
+}
+
+fn filtering() -> bool {
+    FILTER.with_borrow(|f| !f.words.is_empty())
+}
+
+/// Whether what's looked for is in `text`, and it isn't counted as shown.
+fn filter_hit(text: &str) -> bool {
+    FILTER.with_borrow(|f| f.words.is_empty() || words_match(&f.words, &f.section, text))
+}
+
+/// Whether something described by `text` is shown. In a search it's counted, and set off
+/// from what's above it, as the rows that would have gone between aren't there.
+pub(super) fn filter_show(ui: &mut Ui, text: &str) -> bool {
+    if !filtering() {
+        return true;
+    }
+    if !filter_hit(text) {
+        return false;
+    }
+    let first = FILTER.with_borrow_mut(|f| {
+        f.in_section += 1;
+        f.total += 1;
+        f.in_section == 1
+    });
+    if !first {
+        divider_line(ui);
+    }
+    true
+}
+
+/// A wide window has room for the categories beside what's in them; this is the page's
+/// width below which they go above it.
+const SETTINGS_SIDE_BY_SIDE: f32 = 680.0;
+const SETTINGS_RAIL: f32 = 200.0;
+const SETTINGS_GAP: f32 = 32.0;
+const SETTINGS_COLUMN: f32 = 800.0;
+const SETTINGS_SEARCH_H: f32 = 38.0;
+
+fn settings(app: &mut App, ui: &mut Ui) {
+    let words: Vec<String> = app.settings_query.to_lowercase().split_whitespace().map(str::to_owned).collect();
+    FILTER.set(SettingsFilter { words, ..Default::default() });
+    let full = ui.available_rect_before_wrap();
+    let side_by_side = full.width() >= SETTINGS_SIDE_BY_SIDE;
+    let used = SETTINGS_RAIL + SETTINGS_GAP + SETTINGS_COLUMN;
+    let left = full.left() + ((full.width() - used) / 2.0).max(0.0);
+    let top_down = egui::Layout::top_down(egui::Align::Min);
+    let body = if side_by_side {
+        let rail = Rect::from_min_max(pos2(left, full.top()), pos2(left + SETTINGS_RAIL, full.bottom()));
+        settings_rail(app, &mut ui.new_child(egui::UiBuilder::new().max_rect(rail).layout(top_down)));
+        Rect::from_min_max(pos2(rail.right() + SETTINGS_GAP, full.top()), full.max)
+    } else {
+        let mut head = ui.new_child(egui::UiBuilder::new().max_rect(full.shrink2(vec2(16.0, 0.0))).layout(top_down));
+        settings_head(app, &mut head);
+        head.horizontal_wrapped(|ui| {
+            let mut pick = None;
+            for t in SettingsTab::ALL {
+                if chip(ui, t.label(), !filtering() && t == app.settings_tab).clicked() {
+                    pick = Some(t);
+                }
+            }
+            if let Some(t) = pick {
+                settings_open(app, t);
+            }
+        });
+        Rect::from_min_max(pos2(full.left() + 16.0, head.min_rect().bottom()), full.max)
+    };
+    let mut area = egui::ScrollArea::vertical().id_salt(("settings", if filtering() { None } else { Some(app.settings_tab.label()) })).auto_shrink(false);
+    // Dev hook: YTM_SCROLL=<px> pins the page scroll, for screenshots of lower sections.
+    if let Some(y) = super::dev_var("YTM_SCROLL").and_then(|v| v.parse::<f32>().ok()) {
+        area = area.vertical_scroll_offset(y);
+    }
+    let mut column = ui.new_child(egui::UiBuilder::new().max_rect(body).layout(top_down));
+    area.show(&mut column, |ui| {
+        ui.set_max_width((ui.available_width() - 20.0).clamp(0.0, SETTINGS_COLUMN));
+        if filtering() {
+            for tab in SettingsTab::ALL {
+                FILTER.with_borrow_mut(|f| f.tab = tab.label());
+                settings_tab(app, ui, tab);
+            }
+            if FILTER.with_borrow(|f| f.total == 0) {
+                ui.add_space(40.0);
+                ui.label(RichText::new(format!("No settings match \"{}\"", app.settings_query.trim())).font(theme::regular(14.0)).color(theme::text_dim()));
+            }
+        } else {
+            settings_tab(app, ui, app.settings_tab);
+        }
+        ui.add_space(40.0);
+    });
+    ui.advance_cursor_after_rect(full);
+    FILTER.take();
+}
+
+/// Picking a category ends a search: it's where you were looking to go.
+fn settings_open(app: &mut App, tab: SettingsTab) {
+    app.settings_tab = tab;
+    app.settings_query.clear();
+}
+
+fn settings_tab(app: &mut App, ui: &mut Ui, tab: SettingsTab) {
+    match tab {
+        SettingsTab::Playback => settings_playback(app, ui),
+        SettingsTab::Lyrics => settings_lyrics(app, ui),
+        SettingsTab::Appearance => {
+            settings_appearance(app, ui);
+            settings_app_icon(app, ui);
+        }
+        SettingsTab::Account => {
+            settings_account(app, ui);
+            settings_connections(app, ui);
+        }
+        SettingsTab::General => {
+            settings_window(app, ui);
+            settings_downloads(ui);
+            settings_section(ui, "Network", None, None, |ui| network(app, ui));
+            super::transfer::settings_section(app, ui);
+        }
+        SettingsTab::Shortcuts => settings_shortcuts(ui),
+        SettingsTab::About => {
+            settings_updates(app, ui);
+            settings_about(ui);
+            if !filtering() {
+                settings_sign_off(app, ui);
+            }
+        }
+    }
+}
+
+/// The page's title and its search box.
+fn settings_head(app: &mut App, ui: &mut Ui) {
+    page_title(ui, "Settings");
+    ui.add_space(12.0);
+    settings_search(app, ui);
+    ui.add_space(14.0);
+}
+
+/// The title, the search box and the categories, on a wide window.
+fn settings_rail(app: &mut App, ui: &mut Ui) {
+    settings_head(app, ui);
+    let mut pick = None;
+    for t in SettingsTab::ALL {
+        if settings_rail_row(ui, t.label(), !filtering() && t == app.settings_tab).clicked() {
+            pick = Some(t);
+        }
+    }
+    if let Some(t) = pick {
+        settings_open(app, t);
+    }
+}
+
+fn settings_rail_row(ui: &mut Ui, label: &str, selected: bool) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
+    let resp = named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
+    let s = theme::anim_bool(ui.ctx(), resp.id.with("s"), selected, 0.15);
+    if h + s > 0.0 {
+        ui.painter().rect_filled(rect, 10.0, theme::glass(0.05 * h + 0.10 * s));
+    }
+    let color = theme::lerp_color(theme::text_dim(), theme::text(), h.max(s));
+    ui.painter().text(pos2(rect.left() + 14.0, rect.center().y), Align2::LEFT_CENTER, label, theme::semibold(14.0), color);
+    resp
+}
+
+fn settings_search(app: &mut App, ui: &mut Ui) {
+    let (rect, field) = ui.allocate_exact_size(vec2(ui.available_width(), SETTINGS_SEARCH_H), Sense::click());
+    let field = field.on_hover_cursor(egui::CursorIcon::Text);
+    ui.painter().rect_filled(rect, SETTINGS_SEARCH_H / 2.0, theme::glass(0.09));
+    widgets::icon_at(ui, pos2(rect.left() + 18.0, rect.center().y), icon::SEARCH, 15.0, theme::text_dim());
+    let clearable = !app.settings_query.is_empty();
+    let end = rect.right() - if clearable { 34.0 } else { 12.0 };
+    let inner = Rect::from_min_max(pos2(rect.left() + 34.0, rect.top() + 3.0), pos2(end, rect.bottom() - 3.0));
+    let edit = ui.put(
+        inner,
+        egui::TextEdit::singleline(&mut app.settings_query)
+            .hint_text(RichText::new("Search settings").color(theme::text_faint()))
+            .font(theme::regular(14.0))
+            .frame(egui::Frame::NONE)
+            .align(Align2::LEFT_CENTER)
+            .desired_width(inner.width()),
+    );
+    if clearable {
+        let x = Rect::from_center_size(pos2(rect.right() - 19.0, rect.center().y), Vec2::splat(26.0));
+        let resp = named(ui.interact(x, ui.scope_id().with("settings-clear"), Sense::click()), "Clear").on_hover_cursor(egui::CursorIcon::PointingHand);
+        let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
+        if h > 0.0 {
+            ui.painter().circle_filled(x.center(), 13.0, theme::glass(0.10 * h));
+        }
+        widgets::icon_at(ui, x.center(), icon::X, 14.0, theme::lerp_color(theme::text_dim(), theme::text(), h));
+        if resp.clicked() {
+            app.settings_query.clear();
+            edit.request_focus();
+        }
+    }
+    if field.clicked() {
+        edit.request_focus();
+    }
+    // Esc takes the focus from a text box: it clears this one too.
+    if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        app.settings_query.clear();
+    }
+}
+
 
 /// Settings › Account: signing in and out, and which channel to use.
 fn settings_account(app: &mut App, ui: &mut Ui) {
-    section_label(ui, "Account", None);
     let busy = app.signing_in.load(Ordering::Relaxed);
     let (mut sign_in, mut sign_out) = (false, false);
     // Asked again now and then while Settings shows: a failed ask, or a channel made since.
@@ -951,7 +1177,7 @@ fn settings_account(app: &mut App, ui: &mut Ui) {
         app.channels_asked = Some(now);
         app.backend.request(crate::backend::Req::Channels);
     }
-    settings_card(ui, |ui| {
+    settings_section(ui, "Account", None, None, |ui| {
         if app.logged_in {
             let name = app.account_name.clone().unwrap_or_else(|| "YouTube Music".to_owned());
             setting_row(ui, &name, Some("Signed in with Google. Your home feed, library and likes come from this account. Saved encrypted in Windows Credential Manager."), |ui| {
@@ -974,7 +1200,7 @@ fn settings_account(app: &mut App, ui: &mut Ui) {
             });
         }
     });
-    if busy {
+    if busy && !filtering() {
         ui.add_space(6.0);
         ui.label(RichText::new("Finish signing in in the window that opened.").font(theme::regular(12.5)).color(theme::text_dim()));
     }
@@ -1030,51 +1256,9 @@ fn channel_picker(app: &mut App, ui: &mut Ui) {
 
 /// Settings › Playback.
 fn settings_playback(app: &mut App, ui: &mut Ui) {
-    section_label(ui, "Playback", None);
-    settings_card(ui, |ui| {
+    settings_section(ui, "Playback", None, None, |ui| {
         setting_row(ui, "Autoplay", Some("Keep playing similar songs when the queue ends."), |ui| {
             toggle(ui, &mut app.autoplay, "Autoplay");
-        });
-        divider(ui);
-        setting_row(ui, "Volume normalization", Some("Turn loud songs down to the same level, like YouTube Music does."), |ui| {
-            if toggle(ui, &mut app.normalize, "Volume normalization").changed() {
-                app.audio.set_normalize(app.normalize);
-            }
-        });
-        divider(ui);
-        setting_row(ui, "Logarithmic volume", Some("Space the volume slider out the way ears hear loudness, so quiet levels aren't squeezed into its first few pixels."), |ui| {
-            if toggle(ui, &mut app.log_volume, "Logarithmic volume").changed() {
-                app.audio.set_log_volume(app.log_volume);
-            }
-        });
-        divider(ui);
-        setting_row(ui, "High quality audio", Some("256 kbps instead of 128 kbps, for accounts with YouTube Premium. Applies from the next song."), |ui| {
-            if toggle(ui, &mut app.high_quality, "High quality audio").changed() {
-                app.backend.set_high_quality(app.high_quality);
-            }
-        });
-        divider(ui);
-        setting_row(ui, "Play songs, not music videos", Some("An official music video plays as its song, the album recording, when YouTube Music has one: no intros, skits or video-only edits. Lists still show what they hold."), |ui| {
-            toggle(ui, &mut app.play_songs, "Play songs, not music videos");
-        });
-        divider(ui);
-        setting_row(ui, "Output device", Some("Where the music plays. A picked device that isn't connected leaves it to Windows' default until it's back."), |ui| {
-            output_device_picker(app, ui);
-        });
-        divider(ui);
-        setting_row(ui, "Show music videos", Some("Music videos play as moving video, with their own sound and no lyrics. The Song and Video switch in Now playing swaps between them either way."), |ui| {
-            let mut on = app.show_video;
-            if toggle(ui, &mut on, "Show music videos").changed() {
-                app.actions.push(Action::ToggleVideo);
-            }
-        });
-        divider(ui);
-        setting_row(ui, "Ambient light", Some("Now playing glows with the video's colours around it."), |ui| {
-            toggle(ui, &mut app.ambient_light, "Ambient light");
-        });
-        divider(ui);
-        setting_row(ui, "Hide videos in search", Some("Only songs, albums, artists and playlists in search results."), |ui| {
-            toggle(ui, &mut app.hide_search_videos, "Hide videos in search");
         });
         divider(ui);
         setting_row(ui, "Crossfade songs", Some("Blend the end of each song into the start of the next."), |ui| {
@@ -1094,6 +1278,49 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
                 toggle(ui, &mut app.crossfade_skips, "Crossfade when skipping");
             });
         }
+    });
+    settings_section(ui, "Sound", None, None, |ui| {
+        setting_row(ui, "Volume normalization", Some("Turn loud songs down to the same level, like YouTube Music does."), |ui| {
+            if toggle(ui, &mut app.normalize, "Volume normalization").changed() {
+                app.audio.set_normalize(app.normalize);
+            }
+        });
+        divider(ui);
+        setting_row(ui, "Logarithmic volume", Some("Space the volume slider out the way ears hear loudness, so quiet levels aren't squeezed into its first few pixels."), |ui| {
+            if toggle(ui, &mut app.log_volume, "Logarithmic volume").changed() {
+                app.audio.set_log_volume(app.log_volume);
+            }
+        });
+        divider(ui);
+        setting_row(ui, "High quality audio", Some("256 kbps instead of 128 kbps, for accounts with YouTube Premium. Applies from the next song."), |ui| {
+            if toggle(ui, &mut app.high_quality, "High quality audio").changed() {
+                app.backend.set_high_quality(app.high_quality);
+            }
+        });
+        divider(ui);
+        setting_row(ui, "Output device", Some("Where the music plays. A picked device that isn't connected leaves it to Windows' default until it's back."), |ui| {
+            output_device_picker(app, ui);
+        });
+    });
+    settings_section(ui, "Music videos", None, None, |ui| {
+        setting_row(ui, "Play songs, not music videos", Some("An official music video plays as its song, the album recording, when YouTube Music has one: no intros, skits or video-only edits. Lists still show what they hold."), |ui| {
+            toggle(ui, &mut app.play_songs, "Play songs, not music videos");
+        });
+        divider(ui);
+        setting_row(ui, "Show music videos", Some("Music videos play as moving video, with their own sound and no lyrics. The Song and Video switch in Now playing swaps between them either way."), |ui| {
+            let mut on = app.show_video;
+            if toggle(ui, &mut on, "Show music videos").changed() {
+                app.actions.push(Action::ToggleVideo);
+            }
+        });
+        divider(ui);
+        setting_row(ui, "Ambient light", Some("Now playing glows with the video's colours around it."), |ui| {
+            toggle(ui, &mut app.ambient_light, "Ambient light");
+        });
+        divider(ui);
+        setting_row(ui, "Hide videos in search", Some("Only songs, albums, artists and playlists in search results."), |ui| {
+            toggle(ui, &mut app.hide_search_videos, "Hide videos in search");
+        });
         divider(ui);
         setting_row(ui, "Skip non-music parts", Some("Jump over talking, skits and sponsor breaks in music videos, as marked by the SponsorBlock community. Album songs don't have any."), |ui| {
             if toggle(ui, &mut app.sponsorblock, "Skip non-music parts").changed() {
@@ -1105,14 +1332,7 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
 
 /// Settings › Downloads.
 fn settings_downloads(ui: &mut Ui) {
-    section_label(ui, "Downloads", None);
-    ui.label(
-        RichText::new("Download songs from their menu. They're saved at the best quality your account gets, tagged with their cover art, and play from the file, even offline.")
-            .font(theme::regular(13.0))
-            .color(theme::text_dim()),
-    );
-    ui.add_space(12.0);
-    settings_card(ui, |ui| {
+    settings_section(ui, "Downloads", None, Some("Download songs from their menu. They're saved at the best quality your account gets, tagged with their cover art, and play from the file, even offline."), |ui| {
         let folder = crate::downloads::folder().display().to_string();
         setting_row(ui, "Download folder", Some(&folder), |ui| {
             if pill(ui, "Change", None, false).clicked() {
@@ -1128,8 +1348,7 @@ fn settings_downloads(ui: &mut Ui) {
 
 /// Settings › Lyrics: the better-lyrics extension's options.
 fn settings_lyrics(app: &mut App, ui: &mut Ui) {
-    section_label(ui, "Lyrics", None);
-    settings_card(ui, |ui| {
+    settings_section(ui, "Lyrics", None, None, |ui| {
         setting_row(ui, "Romanization", Some("Japanese, Korean, Chinese, Cyrillic and other scripts in Latin letters. Timed with the lyrics when the source has it."), |ui| {
             toggle(ui, &mut app.show_roman, "Romanization");
         });
@@ -1174,13 +1393,20 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
                 *v = ((*v - step) * 10.0).round() / 10.0;
             }
         });
-        divider(ui);
+    });
+    settings_section(ui, "Lyrics timing", None, None, |ui| {
         // Offsets: seconds taken off the lyrics clock, as the extension's dock sets them.
-        for (title, desc, which) in [
+        for (i, (title, desc, which)) in [
             ("Timing offset", "Shift all lyrics later (+) or earlier (−).", 0),
             ("Word-synced trim", "Extra shift for syllable and word-synced lyrics.", 1),
             ("Line-synced trim", "Extra shift for line-synced lyrics.", 2),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if i > 0 {
+                divider(ui);
+            }
             setting_row(ui, title, Some(desc), |ui| {
                 let v = match which {
                     0 => &mut app.lyric_prefs.global_offset,
@@ -1195,11 +1421,18 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
                     *v = ((*v - 0.1) * 10.0).round() / 10.0;
                 }
             });
-            divider(ui);
         }
+    });
+    settings_section(ui, "Lyrics sources", None, None, |ui| {
         // Source order: the first enabled source with lyrics for a song is shown; the
         // lyrics toolbar can pick another for that song.
-        setting_row(ui, "Lyrics sources", Some("Tried in this order. Switch one off to skip it; the toolbar under the lyrics picks a different one for a single song."), |_| {});
+        let names = app.lyric_prefs.order.iter().map(|(p, _)| p.name()).collect::<Vec<_>>().join(" ");
+        if !filter_show(ui, &format!("Sources tried in this order switch off toolbar {names}")) {
+            return;
+        }
+        ui.add_space(12.0);
+        ui.label(RichText::new("Tried in this order. Switch one off to skip it; the toolbar under the lyrics picks a different one for a single song.").font(theme::regular(12.5)).color(theme::text_dim()));
+        ui.add_space(8.0);
         let n = app.lyric_prefs.order.len();
         let mut swap: Option<(usize, usize)> = None;
         for i in 0..n {
@@ -1239,8 +1472,7 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
 fn settings_appearance(app: &mut App, ui: &mut Ui) {
     let was_default = app.default_theme;
     let was_theme = app.theme_id.clone();
-    section_label(ui, "Appearance", None);
-    settings_card(ui, |ui| {
+    settings_section(ui, "Appearance", None, None, |ui| {
         // Only the ytm-rs and Fluent themes have a light mode; the others are made dark.
         let has_modes = !app.default_theme && app.look().has_light();
         let desc = if !has_modes {
@@ -1313,14 +1545,20 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
     });
 
     let current = if app.default_theme { "Classic".to_owned() } else { crate::preset::get(&app.theme_id).name.clone() };
-    section_label(ui, "Theme", Some(&current));
-    ui.label(
-        RichText::new("Rebuilt from the Better Lyrics community themes. Each one restyles the background, lyrics, cover, player bar and the rest of the app.")
-            .font(theme::regular(13.0))
-            .color(theme::text_dim()),
-    );
-    ui.add_space(12.0);
-    themes(app, ui);
+    // Not a card of rows, so it's narrowed here: to the themes that match.
+    let shown: Vec<&crate::preset::Preset> = FILTER.with_borrow_mut(|f| {
+        f.section = "Themes".to_owned();
+        crate::preset::all().iter().filter(|p| f.words.is_empty() || words_match(&f.words, &f.section, &format!("{} {} {}", p.name, p.creators.join(" "), p.blurb))).collect()
+    });
+    if !shown.is_empty() {
+        FILTER.with_borrow_mut(|f| f.total += shown.len());
+        section_label(ui, "Themes", settings_value(Some(&current)).as_deref());
+        if !filtering() {
+            ui.label(RichText::new("Rebuilt from the Better Lyrics community themes. Each one restyles the background, lyrics, cover, player bar and the rest of the app.").font(theme::regular(13.0)).color(theme::text_dim()));
+            ui.add_space(12.0);
+        }
+        themes(app, ui, &shown);
+    }
     if (was_default && !app.default_theme) || was_theme != app.theme_id {
         app.request_art();
     }
@@ -1328,8 +1566,7 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
 
 /// Settings › Window.
 fn settings_window(app: &mut App, ui: &mut Ui) {
-    section_label(ui, "Window", None);
-    settings_card(ui, |ui| {
+    settings_section(ui, "Window", None, None, |ui| {
         setting_row(ui, "Close to tray", Some("Clicking × hides the window and keeps the music playing. Click the tray icon to bring it back, or right-click it to quit."), |ui| {
             toggle(ui, &mut app.close_to_tray, "Close to tray");
         });
@@ -1408,17 +1645,12 @@ fn settings_backdrop(app: &mut App, ui: &mut Ui) {
 
 /// Settings › App icon.
 fn settings_app_icon(app: &mut App, ui: &mut Ui) {
-    section_label(ui, "App icon", Some(crate::appicon::get(app.app_icon).name));
-    ui.label(
-        RichText::new("Changes the icon on the window, taskbar, tray and Start menu. A pinned taskbar icon can take a moment to catch up.")
-            .font(theme::regular(13.0))
-            .color(theme::text_dim()),
-    );
-    ui.add_space(12.0);
-    settings_card(ui, |ui| {
-        ui.add_space(14.0);
-        app_icons(app, ui);
-        ui.add_space(14.0);
+    settings_section(ui, "App icon", Some(crate::appicon::get(app.app_icon).name), Some("Changes the icon on the window, taskbar, tray and Start menu. A pinned taskbar icon can take a moment to catch up."), |ui| {
+        if filter_show(ui, "Changes the icon on the window, taskbar, tray and Start menu") {
+            ui.add_space(14.0);
+            app_icons(app, ui);
+            ui.add_space(14.0);
+        }
         divider(ui);
         setting_row(ui, "Preview", Some("How it looks on the taskbar and in the tray."), |ui| {
             icon_preview(ui, crate::appicon::get(app.app_icon));
@@ -1429,8 +1661,7 @@ fn settings_app_icon(app: &mut App, ui: &mut Ui) {
 /// Settings › Connections.
 fn settings_connections(app: &mut App, ui: &mut Ui) {
     let mut discord_enabled = app.discord_enabled;
-    section_label(ui, "Connections", None);
-    settings_card(ui, |ui| {
+    settings_section(ui, "Connections", None, None, |ui| {
         setting_row(ui, "Discord", Some("Show what you're playing on your Discord profile."), |ui| {
             toggle(ui, &mut discord_enabled, "Discord");
         });
@@ -1465,11 +1696,10 @@ fn settings_connections(app: &mut App, ui: &mut Ui) {
 
 /// Settings › Updates.
 fn settings_updates(app: &mut App, ui: &mut Ui) {
-    section_label(ui, "Updates", None);
     let state = app.updater.as_ref().map(|u| u.state());
     let installed = super::updatable();
     let (mut check, mut restart) = (false, false);
-    settings_card(ui, |ui| {
+    settings_section(ui, "Updates", None, None, |ui| {
         use crate::update::State;
         let status = if !installed {
             "Updates only work in the installed or portable app (this is a development build).".to_owned()
@@ -1504,7 +1734,7 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
             Some(State::Ready { version, .. }) => (version.clone(), true),
             _ => (crate::update::current_version(), false),
         };
-        if let Some(md) = app.updater.as_ref().and_then(|u| u.notes(&notes_v)) {
+        if let Some(md) = app.updater.as_ref().and_then(|u| u.notes(&notes_v)).filter(|_| !filtering()) {
             divider(ui);
             let id = egui::Id::unique(("whats-new-open", &notes_v));
             let mut open = ui.data(|d| d.get_temp(id)).unwrap_or(ready);
@@ -1541,8 +1771,7 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
 
 /// Settings › Keyboard shortcuts.
 fn settings_shortcuts(ui: &mut Ui) {
-    section_label(ui, "Keyboard shortcuts", None);
-    settings_card(ui, |ui| {
+    settings_section(ui, "Keyboard shortcuts", None, None, |ui| {
         let keys: &[(&str, &[&str])] = &[
             ("Play / pause", &["Space"]),
             ("Next / previous song", &["Ctrl", "→ / ←"]),
@@ -1558,6 +1787,9 @@ fn settings_shortcuts(ui: &mut Ui) {
             ("Leave full screen, now playing or selecting", &["Esc"]),
         ];
         for (i, (what, combo)) in keys.iter().enumerate() {
+            if !filter_show(ui, &format!("{what} {}", combo.join(" "))) {
+                continue;
+            }
             if i > 0 {
                 divider(ui);
             }
@@ -1577,8 +1809,7 @@ fn settings_shortcuts(ui: &mut Ui) {
 
 /// Settings › About.
 fn settings_about(ui: &mut Ui) {
-    section_label(ui, "About", None);
-    settings_card(ui, |ui| {
+    settings_section(ui, "About", None, None, |ui| {
         setting_row(ui, &format!("ytm-rs {}", env!("CARGO_PKG_VERSION")), Some("A fast, native YouTube Music client."), |_| {});
         for (title, desc) in [
             ("Lyrics", "Better Lyrics API: Musixmatch, LRCLIB, QQ, KuGou and Better Lyrics TTML"),
@@ -1649,6 +1880,7 @@ fn network(app: &mut App, ui: &mut Ui) {
             };
             setting_row(ui, "Windows proxy", Some(&desc), |_| {});
         }
+        Setting::Custom(_) if !filter_hit("Proxy address") => {}
         Setting::Custom(_) => {
             divider(ui);
             ui.add_space(12.0);
@@ -1928,27 +2160,76 @@ fn thousands(n: u64) -> String {
 pub(super) fn section_label(ui: &mut Ui, title: &str, value: Option<&str>) {
     ui.add_space(30.0);
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
+    section_heading(ui, rect, title, value);
+    ui.add_space(10.0);
+}
+
+fn section_heading(ui: &Ui, rect: Rect, title: &str, value: Option<&str>) {
     ui.painter().text(pos2(rect.left() + 2.0, rect.center().y), Align2::LEFT_CENTER, title, theme::bold(17.0), theme::text());
     if let Some(v) = value {
         ui.painter().text(pos2(rect.right() - 2.0, rect.center().y), Align2::RIGHT_CENTER, v, theme::semibold(13.0), theme::text_dim());
     }
-    ui.add_space(10.0);
 }
 
-pub(super) fn settings_card(ui: &mut Ui, body: impl FnOnce(&mut Ui)) {
+/// The value beside a section's heading: in a search, the category it's in.
+fn settings_value(value: Option<&str>) -> Option<String> {
+    FILTER.with_borrow(|f| if f.words.is_empty() { value.map(str::to_owned) } else { Some(f.tab.to_owned()) })
+}
+
+fn settings_frame() -> egui::Frame {
     egui::Frame::new()
         .fill(theme::glass(0.06))
         .stroke(egui::Stroke::new(1.0, theme::glass(0.05)))
         .corner_radius(theme::panel_radius())
         .inner_margin(egui::Margin::symmetric(20, 6))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            body(ui);
-        });
 }
 
-/// A settings row: title and description on the left, the control on the right.
+pub(super) fn settings_card(ui: &mut Ui, body: impl FnOnce(&mut Ui)) {
+    settings_frame().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        body(ui);
+    });
+}
+
+/// A section of Settings: its heading, a line about it, and a card of rows. In a search
+/// it shows only the rows that match, and nothing at all if none do.
+pub(super) fn settings_section(ui: &mut Ui, title: &str, value: Option<&str>, note: Option<&str>, body: impl FnOnce(&mut Ui)) {
+    if !filtering() {
+        section_label(ui, title, value);
+        if let Some(n) = note {
+            ui.label(RichText::new(n).font(theme::regular(13.0)).color(theme::text_dim()));
+            ui.add_space(12.0);
+        }
+        settings_card(ui, body);
+        return;
+    }
+    FILTER.with_borrow_mut(|f| {
+        f.section = title.to_owned();
+        f.in_section = 0;
+    });
+    // In a child, for whether it had anything to show to decide if it takes up room.
+    const HEADING: f32 = 60.0;
+    let area = ui.available_rect_before_wrap();
+    let mut child = ui.new_child(egui::UiBuilder::new().id_salt(("settings-section", title)).max_rect(area).layout(egui::Layout::top_down(egui::Align::Min)));
+    child.add_space(HEADING);
+    let mut card = settings_frame().begin(&mut child);
+    let w = card.content_ui.available_width();
+    card.content_ui.set_width(w);
+    body(&mut card.content_ui);
+    if FILTER.with_borrow(|f| f.in_section > 0) {
+        card.end(&mut child);
+        let heading = Rect::from_min_size(pos2(area.left(), area.top() + 30.0), vec2(area.width(), 20.0));
+        section_heading(ui, heading, title, settings_value(value).as_deref().filter(|v| *v != title));
+        ui.advance_cursor_after_rect(child.min_rect());
+    }
+}
+
+/// A settings row: title and description on the left, the control on the right. A search
+/// that doesn't find it leaves it out.
 pub(super) fn setting_row(ui: &mut Ui, title: &str, desc: Option<&str>, control: impl FnOnce(&mut Ui)) {
+    if !filter_show(ui, &format!("{title} {}", desc.unwrap_or_default())) {
+        return;
+    }
     let w = ui.available_width();
     let text_w = (w - 230.0).max(200.0);
     let title_g = widgets::galley(ui, title, theme::semibold(14.5), theme::text(), text_w);
@@ -1968,6 +2249,13 @@ pub(super) fn setting_row(ui: &mut Ui, title: &str, desc: Option<&str>, control:
 }
 
 pub(super) fn divider(ui: &mut Ui) {
+    // A search has rows left out: each one it shows draws its own.
+    if !filtering() {
+        divider_line(ui);
+    }
+}
+
+fn divider_line(ui: &mut Ui) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
     ui.painter().rect_filled(rect, 0.0, theme::glass(0.07));
 }
@@ -2046,7 +2334,7 @@ fn keycap(ui: &Ui, right: egui::Pos2, key: &str) -> f32 {
 }
 
 /// Theme preset gallery: one card per preset with its cover, name and creators.
-fn themes(app: &mut App, ui: &mut Ui) {
+fn themes(app: &mut App, ui: &mut Ui, shown: &[&crate::preset::Preset]) {
     let avail = ui.available_width();
     let gap = 16.0;
     let cols = ((avail + gap) / (200.0 + gap)).floor().max(1.0);
@@ -2055,7 +2343,7 @@ fn themes(app: &mut App, ui: &mut Ui) {
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing = vec2(gap, gap + 4.0);
         ui.horizontal_wrapped(|ui| {
-            for p in crate::preset::all() {
+            for p in shown {
                 let selected = !app.default_theme && app.theme_id == p.id;
                 if theme_card(ui, p, w, selected, app.accent_color()).clicked() {
                     picked = Some(p.id.clone());
@@ -2118,5 +2406,66 @@ fn theme_card(ui: &mut Ui, p: &crate::preset::Preset, w: f32, selected: bool, ac
         resp.on_hover_text(&p.blurb)
     } else {
         resp
+    }
+}
+
+#[cfg(test)]
+mod settings_search_tests {
+    use super::*;
+
+    fn words(q: &str) -> Vec<String> {
+        q.to_lowercase().split_whitespace().map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn every_word_has_to_be_there_in_any_case() {
+        assert!(words_match(&words("Close TRAY"), "Window", "Close to tray"));
+        assert!(!words_match(&words("close discord"), "Window", "Close to tray"));
+    }
+
+    #[test]
+    fn a_section_s_name_counts_for_its_rows() {
+        assert!(words_match(&words("network"), "Network", "Test connection"));
+        assert!(words_match(&words("network test"), "Network", "Test connection"));
+    }
+
+    /// Whether `control` ran for a row, and how much room the section took, while
+    /// searching for `q`.
+    fn section_with_a_row(q: &str) -> (bool, f32) {
+        let ctx = egui::Context::default();
+        let (mut ran, mut height) = (false, 0.0);
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(800.0, 600.0))), ..Default::default() };
+        let mut output = ctx.run_ui(raw, |ui| {
+            FILTER.set(SettingsFilter { words: words(q), ..Default::default() });
+            let top = ui.cursor().top();
+            settings_section(ui, "Window", None, None, |ui| {
+                setting_row(ui, "Close to tray", Some("Keeps the music playing."), |_| ran = true);
+            });
+            height = ui.cursor().top() - top;
+            FILTER.take();
+        });
+        output.textures_delta.clear();
+        (ran, height)
+    }
+
+    #[test]
+    fn a_section_with_nothing_found_takes_no_room() {
+        let (ran, height) = section_with_a_row("discord");
+        assert!(!ran);
+        assert_eq!(height, 0.0);
+    }
+
+    #[test]
+    fn a_section_with_a_match_shows_it() {
+        let (ran, height) = section_with_a_row("music");
+        assert!(ran);
+        assert!(height > 60.0, "the heading and the row need room, got {height}");
+    }
+
+    #[test]
+    fn rows_elsewhere_are_never_filtered() {
+        // Jam and transfer use the same rows, with no search on their pages.
+        assert!(!filtering());
+        assert!(filter_hit("anything at all"));
     }
 }

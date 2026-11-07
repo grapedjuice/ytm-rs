@@ -50,7 +50,12 @@ pub struct Rows {
 pub fn grip(ui: &mut Ui, drag: &mut Option<RowDrag>, list: Id, i: usize, t: &Track) {
     if !ui.input(|input| input.any_touches()) {
         let rect = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), row_height(ui)));
-        if ui.interact(rect, ui.scope_id().with("grip"), Sense::DRAG).drag_started() {
+        // egui counts a drag-only widget as dragged from the press itself: wait until the
+        // pointer has moved too far (or held too long) for a click. A drag some other list
+        // left behind gives way.
+        let grip = ui.interact(rect, ui.scope_id().with("grip"), Sense::DRAG);
+        let held = drag.as_ref().is_some_and(|d| d.list == list && d.from == i);
+        if grip.dragged_by(egui::PointerButton::Primary) && !held && ui.input(|input| input.pointer.is_decidedly_dragging()) {
             *drag = Some(RowDrag { list, from: i, track: t.clone(), seen: ui.ctx().cumulative_frame_nr() });
         }
     }
@@ -247,6 +252,39 @@ mod tests {
         assert_eq!(l.clicked, [3]);
         assert!(l.drag.is_none());
         assert!(l.dropped.is_empty());
+    }
+
+    #[test]
+    fn pressing_a_row_doesnt_pick_it_up() {
+        let mut l = List::new(40);
+        l.pick_up(3, 300.0);
+        l.frame(vec![]);
+        l.move_to(l.at + vec2(2.0, 2.0));
+        assert!(l.drag.is_none());
+        l.button(false);
+    }
+
+    #[test]
+    fn the_right_button_doesnt_move_rows() {
+        let mut l = List::new(40);
+        let p = l.on_row(1, 300.0);
+        l.move_to(p);
+        l.frame(vec![Event::PointerButton { pos: p, button: PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE }]);
+        l.glide_to(l.on_row(5, 300.0));
+        l.frame(vec![Event::PointerButton { pos: l.at, button: PointerButton::Secondary, pressed: false, modifiers: Modifiers::NONE }]);
+        assert!(l.dropped.is_empty());
+        assert!(l.drag.is_none());
+    }
+
+    #[test]
+    fn a_drag_left_behind_by_another_list_doesnt_block_a_new_one() {
+        let mut l = List::new(40);
+        l.drag = Some(RowDrag { list: egui::Id::unique("gone"), from: 0, track: song(0), seen: 0 });
+        l.pick_up(1, 300.0);
+        l.glide_to(l.on_row(5, 300.0));
+        l.button(false);
+        l.frame(vec![]);
+        assert_eq!(l.dropped.len(), 1);
     }
 
     #[test]

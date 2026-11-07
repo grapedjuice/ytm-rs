@@ -752,8 +752,20 @@ impl App {
     }
 
     /// Reload the current page's data in place: no page transition, the page stays as
-    /// it is until the new data arrives.
+    /// it is until the new data arrives. Unlike a visit, it also reloads a list kept from
+    /// the last few minutes and the search already shown.
     fn refresh(&mut self) {
+        let liked_out = self.page == Page::Library(LibTab::Songs) && !self.logged_in;
+        if let Some(id) = self.page_list().filter(|_| !liked_out).map(str::to_owned)
+            && let Some(s) = self.lists.load(&id, matches!(self.page, Page::Album(_)), false)
+        {
+            self.start_load(s);
+        }
+        if let Page::Search(q) = &self.page
+            && self.search.as_ref().is_some_and(|s| &s.query == q)
+        {
+            self.backend.request(Req::Search(q.clone()));
+        }
         let changed = self.page_changed;
         self.page_loaded();
         self.page_changed = changed;

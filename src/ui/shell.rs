@@ -223,10 +223,15 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
 
     let mut go_to: Option<Page> = None;
     let look = NavLook::of(app);
+    let p = app.page.clone();
+    let logged_in = app.logged_in;
     let nav = |ui: &mut Ui, glyph: char, label: &str, page: Page, selected: bool, go_to: &mut Option<Page>| {
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
         let mut resp = named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
-        if collapsed {
+        // Clicking the page you're on reloads it; say so where that loads anything.
+        if page == p && (matches!(page, Page::Home | Page::Explore) || (logged_in && matches!(page, Page::Library(_)))) {
+            resp = resp.on_hover_text("Refresh (F5)");
+        } else if collapsed {
             resp = resp.on_hover_text(label);
         }
         let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
@@ -242,7 +247,6 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             *go_to = Some(page);
         }
     };
-    let p = app.page.clone();
     nav(ui, icon::HOUSE, "Home", Page::Home, p == Page::Home, &mut go_to);
     nav(ui, icon::COMPASS, "Explore", Page::Explore, p == Page::Explore, &mut go_to);
     nav(ui, icon::LIBRARY, "Library", Page::Library(LibTab::Playlists), matches!(p, Page::Library(_)), &mut go_to);

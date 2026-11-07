@@ -1554,6 +1554,7 @@ fn settings_shortcuts(ui: &mut Ui) {
             ("Mini player on / off", &["Ctrl", "M"]),
             ("Back / forward", &["Alt", "← / →"]),
             ("Back / forward with the mouse", &["Side buttons"]),
+            ("Refresh the page", &["F5 / Ctrl + R"]),
             ("Leave full screen, now playing or selecting", &["Esc"]),
         ];
         for (i, (what, combo)) in keys.iter().enumerate() {

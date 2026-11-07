@@ -482,7 +482,7 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
     match &track {
         Some(t) => paint_cover(ui, art, &t.thumbs, theme::thumb_radius() + 1.0, 1.0),
         None => {
-            ui.painter().rect_filled(art, theme::thumb_radius() + 1.0, theme::glass(0.08));
+            ui.painter().rect_filled(art, theme::thumb_radius() + 1.0, theme::glass_panel(0.08));
             icon_at(ui, art.center(), icon::MUSIC, 28.0, theme::text_faint());
         }
     }

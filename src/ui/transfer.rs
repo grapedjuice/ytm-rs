@@ -747,7 +747,7 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
         })
         .collect();
     let mut acts = Vec::new();
-    egui::Frame::new().fill(theme::glass(0.04)).corner_radius(theme::panel_radius()).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+    egui::Frame::new().fill(theme::glass_panel(0.04)).corner_radius(theme::panel_radius()).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         list_header(ui);
         if rows.is_empty() {
@@ -788,7 +788,7 @@ fn stat_row(ui: &mut Ui, stats: &[(String, &str, bool)], accent: Color32) {
         ui.spacing_mut().item_spacing.x = gap;
         for (value, label, ring) in stats {
             let (rect, _) = ui.allocate_exact_size(vec2(w, 66.0), Sense::hover());
-            ui.painter().rect_filled(rect, 12.0, theme::glass(0.06));
+            ui.painter().rect_filled(rect, 12.0, theme::glass_panel(0.06));
             if *ring {
                 ui.painter().rect_stroke(rect, 12.0, egui::Stroke::new(1.5, accent), egui::StrokeKind::Inside);
             }
@@ -942,7 +942,7 @@ fn review(app: &mut App, ui: &mut Ui) {
             ui.vertical(|ui| {
                 ui.set_width(queue_w);
                 let card_h = if app.xfer.card_h > 0.0 { app.xfer.card_h } else { 560.0 };
-                egui::Frame::new().fill(theme::glass(0.04)).corner_radius(theme::panel_radius()).inner_margin(10).show(ui, |ui| {
+                egui::Frame::new().fill(theme::glass_panel(0.04)).corner_radius(theme::panel_radius()).inner_margin(10).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     // The same height as the card beside it, whatever's in the list.
                     ui.set_height(card_h - 20.0);
@@ -1030,7 +1030,7 @@ fn review(app: &mut App, ui: &mut Ui) {
                 }
                 ui.add_space(10.0);
                 let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-                ui.painter().rect_filled(line, 0.0, theme::glass(0.10));
+                ui.painter().rect_filled(line, 0.0, theme::glass_panel(0.10));
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("PICK THE RIGHT ONE ON YOUTUBE MUSIC").font(theme::bold(11.5)).color(theme::text_faint()));
@@ -1316,7 +1316,7 @@ fn done(app: &mut App, ui: &mut Ui) {
     let mut copy = None;
     let mut search = None;
     if !missed.is_empty() {
-        egui::Frame::new().fill(theme::glass(0.04)).corner_radius(theme::panel_radius()).inner_margin(egui::Margin::symmetric(16, 12)).show(ui, |ui| {
+        egui::Frame::new().fill(theme::glass_panel(0.04)).corner_radius(theme::panel_radius()).inner_margin(egui::Margin::symmetric(16, 12)).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 ui.label(RichText::new(format!("NOT ADDED ({})", fmt_n(missed.len()))).font(theme::bold(11.5)).color(theme::text_faint()));

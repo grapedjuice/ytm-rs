@@ -683,7 +683,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         // Cover-fit: crop the image's top band to the hero's aspect.
         let vis_h = (img_ratio / (w / hero_h)).min(1.0);
         let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, vis_h));
-        ui.painter().rect_filled(hero, 14.0, theme::glass(0.07));
+        ui.painter().rect_filled(hero, 14.0, theme::glass_panel(0.07));
         widgets::paint_remote(ui, &t.url, hero, 14.0, uv, Color32::WHITE);
     } else {
         ui.painter().rect_filled(hero, 14.0, theme::with_alpha(accent, 0.25));
@@ -2178,8 +2178,8 @@ fn settings_value(value: Option<&str>) -> Option<String> {
 
 fn settings_frame() -> egui::Frame {
     egui::Frame::new()
-        .fill(theme::glass(0.06))
-        .stroke(egui::Stroke::new(1.0, theme::glass(0.05)))
+        .fill(theme::glass_panel(0.06))
+        .stroke(egui::Stroke::new(1.0, theme::glass_panel(0.05)))
         .corner_radius(theme::panel_radius())
         .inner_margin(egui::Margin::symmetric(20, 6))
 }
@@ -2257,7 +2257,7 @@ pub(super) fn divider(ui: &mut Ui) {
 
 fn divider_line(ui: &mut Ui) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().rect_filled(rect, 0.0, theme::glass(0.07));
+    ui.painter().rect_filled(rect, 0.0, theme::glass_panel(0.07));
 }
 
 /// On/off switch tinted with the accent.
@@ -2381,7 +2381,7 @@ fn theme_card(ui: &mut Ui, p: &crate::preset::Preset, w: f32, selected: bool, ac
             let c = img.center();
             painter.circle_filled(c - vec2(w * 0.18, 0.0), img_h * 0.42, theme::with_alpha(accent, 0.35));
             painter.circle_filled(c + vec2(w * 0.2, img_h * 0.1), img_h * 0.36, theme::with_alpha(Color32::from_rgb(110, 80, 200), 0.3));
-            painter.rect_filled(Rect::from_center_size(c - vec2(w * 0.22, 0.0), Vec2::splat(img_h * 0.42)), 6.0, theme::glass(0.25));
+            painter.rect_filled(Rect::from_center_size(c - vec2(w * 0.22, 0.0), Vec2::splat(img_h * 0.42)), 6.0, theme::glass_panel(0.25));
             for (i, len) in [0.34f32, 0.42, 0.28].iter().enumerate() {
                 let y = c.y - img_h * 0.12 + i as f32 * img_h * 0.13;
                 let a = if i == 1 { 0.9 } else { 0.35 };

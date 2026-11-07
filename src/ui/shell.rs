@@ -258,7 +258,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
 
     ui.add_space(14.0);
     let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().rect_filled(line, 0.0, theme::glass(0.08));
+    ui.painter().rect_filled(line, 0.0, theme::glass_panel(0.08));
     ui.add_space(14.0 - 4.0 * t);
 
     let transferring = super::transfer::sidebar_visible(app, ui.input(|i| i.time));
@@ -880,7 +880,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
                 ui.set_opacity(a);
                 let (r, _) = ui.allocate_exact_size(pop.size(), Sense::hover());
                 ui.painter().rect_filled(r, 20.0, theme::menu_fill());
-                ui.painter().rect_stroke(r, 20.0, egui::Stroke::new(1.0, theme::glass(0.08)), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(r, 20.0, egui::Stroke::new(1.0, theme::glass_panel(0.08)), egui::StrokeKind::Inside);
                 volume_slider(app, ui, Rect::from_center_size(r.center(), vec2(r.width() - 32.0, 20.0)), "s");
             });
         }

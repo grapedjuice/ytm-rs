@@ -744,7 +744,7 @@ fn menu_caption(ui: &mut Ui, text: &str) {
 fn menu_divider(ui: &mut Ui) {
     ui.add_space(5.0);
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().rect_filled(r.shrink2(vec2(8.0, 0.0)), 0.0, theme::glass(0.08));
+    ui.painter().rect_filled(r.shrink2(vec2(8.0, 0.0)), 0.0, theme::glass_panel(0.08));
     ui.add_space(5.0);
 }
 

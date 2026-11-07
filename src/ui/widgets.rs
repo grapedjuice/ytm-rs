@@ -307,7 +307,7 @@ pub fn paint_cover_px(ui: &Ui, rect: Rect, thumbs: &[Thumb], radius: f32, zoom: 
         return;
     }
     let px = fetch_px(px);
-    ui.painter().rect_filled(rect, radius, theme::glass(0.07));
+    ui.painter().rect_filled(rect, radius, theme::glass_panel(0.07));
     let Some(t) = pick_thumb(thumbs, px.min(544)) else {
         icon_at(ui, rect.center(), icon::MUSIC, rect.width() * 0.3, theme::text_faint());
         return;
@@ -347,7 +347,7 @@ pub fn preload_cover(ctx: &egui::Context, thumbs: &[Thumb], px: u32) {
 /// The cover as a disc rotated by `angle` (radians): a textured triangle fan, since
 /// egui's image rotation doesn't round corners. Fetched at `px` (see [`paint_cover_px`]).
 pub fn paint_disc(ui: &Ui, center: Pos2, r: f32, thumbs: &[Thumb], angle: f32, tint: Color32, px: u32) {
-    ui.painter().circle_filled(center, r, theme::glass(0.07));
+    ui.painter().circle_filled(center, r, theme::glass_panel(0.07));
     let px = fetch_px(px);
     let Some(t) = pick_thumb(thumbs, px.min(544)) else { return };
     let url = steady_url(ui.ctx(), &t.url, px);
@@ -927,7 +927,7 @@ pub fn shimmer_band(ui: &Ui, r: Rect, radius: f32, time: f64) {
     let x = r.left() + (r.width() + 400.0) * phase - 200.0;
     let band = Rect::from_min_max(pos2((x - 120.0).max(r.left()), r.top()), pos2((x + 120.0).min(r.right()), r.bottom()));
     if band.width() > 0.0 {
-        ui.painter().rect_filled(band, radius, theme::glass(0.04));
+        ui.painter().rect_filled(band, radius, theme::glass_panel(0.04));
     }
 }
 
@@ -977,7 +977,7 @@ pub fn skeleton_rows(ui: &mut Ui, time: f64, rows: usize) {
             (Rect::from_min_size(pos2(r.left() + 64.0, cy - 13.0), vec2((r.width() * 0.3).min(260.0), 11.0)), 4.0),
             (Rect::from_min_size(pos2(r.left() + 64.0, cy + 4.0), vec2((r.width() * 0.18).min(160.0), 9.0)), 4.0),
         ] {
-            ui.painter().rect_filled(b, radius, theme::glass(0.06));
+            ui.painter().rect_filled(b, radius, theme::glass_panel(0.06));
             shimmer_band(ui, b, radius, time);
         }
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(66));
@@ -987,7 +987,7 @@ pub fn skeleton_rows(ui: &mut Ui, time: f64, rows: usize) {
 /// Shimmering placeholder blocks while a page loads.
 pub fn skeleton(ui: &mut Ui, time: f64, rows: usize, card: f32) {
     let shimmer = |ui: &Ui, r: Rect, radius: f32| {
-        ui.painter().rect_filled(r, radius, theme::glass(0.06));
+        ui.painter().rect_filled(r, radius, theme::glass_panel(0.06));
         shimmer_band(ui, r, radius, time);
     };
     let top = ui.cursor().top();

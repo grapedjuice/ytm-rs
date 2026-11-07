@@ -112,7 +112,7 @@ pub(super) fn dev_screenshot(ctx: &egui::Context, now: f64) {
 
 /// Dev hook: `YTM_SCRIPT="<secs>:<step>;…"` drives a test window that has no mouse or
 /// keyboard, with seconds from the first frame. Steps: `m:x,y` moves the pointer, `c:x,y`
-/// clicks, `r:w,h` resizes, `t:text` types, `s:name` saves `<YTM_SCRIPT_DIR>/name.png`, `q` quits.
+/// clicks, `r:w,h` resizes, `t:text` types, `k:esc` presses Esc, `s:name` saves `<YTM_SCRIPT_DIR>/name.png`, `q` quits.
 pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
     use std::sync::OnceLock;
     use std::time::Instant;
@@ -121,6 +121,7 @@ pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
         Press(egui::Pos2, bool),
         Resize(egui::Pos2),
         Text(&'static str),
+        Esc,
         Shot(&'static str),
         Quit,
     }
@@ -140,6 +141,7 @@ pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
                 ("c", Some(p)) => steps.extend([(at, Step::Move(p)), (at + 0.2, Step::Press(p, true)), (at + 0.3, Step::Press(p, false))]),
                 ("r", Some(p)) => steps.push((at, Step::Resize(p))),
                 ("t", _) => steps.push((at, Step::Text(value))),
+                ("k", _) if value == "esc" => steps.push((at, Step::Esc)),
                 ("s", _) => steps.push((at, Step::Shot(value))),
                 ("q", _) => steps.push((at, Step::Quit)),
                 _ => log::warn!("YTM_SCRIPT: can't read {step}"),
@@ -157,6 +159,11 @@ pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
             Step::Press(p, pressed) => raw.events.push(egui::Event::PointerButton { pos: *p, button: egui::PointerButton::Primary, pressed: *pressed, modifiers: egui::Modifiers::NONE }),
             Step::Resize(p) => ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(p.to_vec2())),
             Step::Text(text) => raw.events.push(egui::Event::Text((*text).to_owned())),
+            Step::Esc => {
+                for pressed in [true, false] {
+                    raw.events.push(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE });
+                }
+            }
             Step::Shot(name) => {
                 let path = std::path::Path::new(dev_var("YTM_SCRIPT_DIR").unwrap_or(".")).join(format!("{name}.png"));
                 ctx.request_screenshot(move |img| {

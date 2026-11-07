@@ -266,7 +266,7 @@ fn dialog_row(ui: &mut Ui, thumbs: Option<&[crate::model::Thumb]>, glyph: Option
     match (thumbs, glyph) {
         (Some(t), _) => widgets::paint_cover(ui, art, t, 6.0, 1.0),
         (None, Some(g)) => {
-            ui.painter().rect_filled(art, 6.0, theme::glass(0.1));
+            ui.painter().rect_filled(art, 6.0, theme::glass_panel(0.1));
             widgets::icon_at(ui, art.center(), g, 18.0, theme::text());
         }
         _ => {}

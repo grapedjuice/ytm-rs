@@ -70,10 +70,24 @@ pub fn surface_fill() -> Color32 {
 /// Theme preset multiplier for every glass surface (f32 bits; 1.0 by default).
 static GLASS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f80_0000);
 
-/// White at `a` opacity, for glassy surfaces over the background (black in light mode).
+/// White at `a` opacity for controls: hover, selection, tracks, fields and toggles (black
+/// in light mode). A theme can make these stronger but not weaker, or they'd disappear.
 pub fn glass(a: f32) -> Color32 {
-    let k = f32::from_bits(GLASS.load(std::sync::atomic::Ordering::Relaxed));
-    let a = ((a * k).min(1.0) * 255.0) as u8;
+    glass_at(a * glass_scale().max(1.0))
+}
+
+/// White at `a` opacity for what only decorates: panels, dividers and placeholders. These
+/// follow the theme's glass setting all the way down.
+pub fn glass_panel(a: f32) -> Color32 {
+    glass_at(a * glass_scale())
+}
+
+fn glass_scale() -> f32 {
+    f32::from_bits(GLASS.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+fn glass_at(a: f32) -> Color32 {
+    let a = (a.min(1.0) * 255.0) as u8;
     if light() { Color32::from_black_alpha(a) } else { Color32::from_white_alpha(a) }
 }
 

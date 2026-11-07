@@ -314,7 +314,8 @@ impl App {
         if full && self.np_open {
             self.set_fullscreen(ctx, !self.fullscreen);
         }
-        if esc {
+        // A menu or dialog that's open takes this Esc for itself.
+        if esc && !egui::Popup::is_any_open(ctx) && ctx.memory(|m| m.top_modal_layer()).is_none() {
             if self.row_drag.take().is_some() {
                 // Just the drag.
             } else if self.fullscreen {

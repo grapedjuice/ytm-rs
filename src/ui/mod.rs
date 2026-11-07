@@ -1079,7 +1079,7 @@ impl eframe::App for App {
             } else {
                 let mut f = egui::Frame::new().fill(theme::panel(bar_alpha));
                 if app_style.bar_border {
-                    f = f.stroke(egui::Stroke::new(1.0, theme::glass(0.1)));
+                    f = f.stroke(egui::Stroke::new(1.0, theme::glass_panel(0.1)));
                 }
                 f
             };
@@ -1094,7 +1094,7 @@ impl eframe::App for App {
                         widgets::soft_shadow(ui, r, radius, 24.0, 0.45);
                         ui.painter().rect_filled(r, radius, theme::panel((bar_alpha + 0.07).min(1.0)));
                         let edge = if app_style.bar_border { 0.14 } else { 0.08 };
-                        ui.painter().rect_stroke(r, radius, egui::Stroke::new(1.0, theme::glass(edge)), egui::StrokeKind::Inside);
+                        ui.painter().rect_stroke(r, radius, egui::Stroke::new(1.0, theme::glass_panel(edge)), egui::StrokeKind::Inside);
                         ui.set_clip_rect(r);
                     }
                     shell::player_bar(self, ui, now)
@@ -1111,7 +1111,7 @@ impl eframe::App for App {
                 SidebarStyle::Solid => egui::Frame::new().fill(look.solid()).inner_margin(side_margin),
                 SidebarStyle::Floating => egui::Frame::new()
                     .fill(theme::panel(side_alpha.max(0.3)))
-                    .stroke(egui::Stroke::new(1.0, theme::glass(0.08)))
+                    .stroke(egui::Stroke::new(1.0, theme::glass_panel(0.08)))
                     .corner_radius(egui::CornerRadius::same(theme::panel_radius().max(12)))
                     .outer_margin(egui::Margin { left: 10, right: 4, top: 10, bottom: 10 })
                     .inner_margin(egui::Margin::symmetric(12, 14)),

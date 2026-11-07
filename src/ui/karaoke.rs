@@ -786,6 +786,9 @@ pub struct View {
     page: Option<(usize, i32)>,
     last_t: f64,
     last_wall: f64,
+    /// The font atlas's fill last frame: egui empties the atlas when it fills up or the
+    /// fonts change, and nothing laid out or copied from it before that is valid.
+    atlas_fill: f32,
     user_until: f64,
     /// Reader scrolling was on last frame: when it ends, scroll back to the current line.
     was_user: bool,
@@ -856,6 +859,13 @@ impl View {
         let rect = f.rect;
         let ctx = ui.ctx().clone();
         self.shown_pass = ctx.cumulative_pass_nr();
+        let fill = ctx.fonts(|fv| fv.font_atlas_fill_ratio());
+        if fill < self.atlas_fill {
+            self.layout = None;
+            self.glow.atlas = None;
+            self.glow.lines.clear();
+        }
+        self.atlas_fill = fill;
         let cfg = Cfg::new(f.style, f.accent, rect.width(), ctx.content_rect().width(), f.centered, f.scale);
         let layout_key = hash((f.key, rect.width().round() as i32, cfg.size.to_bits(), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, cfg.weight as u8));
         if self.layout.as_ref().is_none_or(|l| l.key != layout_key) {

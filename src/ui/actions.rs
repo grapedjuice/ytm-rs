@@ -274,15 +274,24 @@ impl App {
                 ctrl(egui::Key::ArrowDown),
                 // Once per press: holding it doesn't flip back and forth.
                 i.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::M, pressed: true, repeat: false, modifiers, .. } if modifiers.ctrl)),
+                // Once per press too: holding it doesn't fire a request every repeat.
+                i.events.iter().any(|e| {
+                    matches!(e, egui::Event::Key { key, pressed: true, repeat: false, modifiers, .. }
+                        if !editing && (*key == egui::Key::F5 || (*key == egui::Key::R && modifiers.ctrl)))
+                }),
             )
         });
-        let (space, back, fwd, next, prev, lyr, full, esc, vol_up, vol_down, mini) = i;
+        let (space, back, fwd, next, prev, lyr, full, esc, vol_up, vol_down, mini, refresh) = i;
         if mini {
             self.actions.push(Action::Mini(!self.mini.target()));
         }
         // The mini player has no pages or now playing to go to, nor does a window on
         // its way back until it's there.
-        let (back, fwd, lyr, full, esc) = if self.mini.busy() { (false, false, false, false, false) } else { (back, fwd, lyr, full, esc) };
+        let (back, fwd, lyr, full, esc, refresh) =
+            if self.mini.busy() { (false, false, false, false, false, false) } else { (back, fwd, lyr, full, esc, refresh) };
+        if refresh {
+            self.refresh();
+        }
         if space {
             self.toggle();
         }

@@ -111,6 +111,22 @@ pub struct Background {
     pub np_contrast: f32,
     /// A fullbleed cover crossfades to the next by `crossfade_secs`, after `crossfade_delay`.
     pub fullbleed_fade: bool,
+    /// The background's own values while a video drives it, where they differ from the art's.
+    pub video: VideoBackdrop,
+}
+
+/// What `video_backdrop` draws with, each falling back to the same setting for the art.
+#[derive(Clone, Copy, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct VideoBackdrop {
+    /// `videoSaturation`.
+    pub saturation: Option<f32>,
+    /// `videoDithering`.
+    pub dither: Option<f32>,
+    /// `videoDimStrength`: bright pictures are darkened by up to this much.
+    pub auto_dim: Option<f32>,
+    /// `videoBlurPasses`.
+    pub blur_passes: Option<u32>,
 }
 
 impl Default for Background {
@@ -142,6 +158,7 @@ impl Default for Background {
             fade: [0.4, 1.0],
             np_contrast: 1.0,
             fullbleed_fade: false,
+            video: VideoBackdrop::default(),
         }
     }
 }
@@ -181,6 +198,9 @@ pub enum Weight {
     Medium,
     /// 250. Latin in the interface's own face; other faces draw it as Regular.
     Light,
+    /// Weight 800. Inter's and Figtree's bold already is; an installed font gets its own instance,
+    /// and the other bundled fonts draw their bold, the heaviest they have.
+    ExtraBold,
 }
 
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
@@ -450,6 +470,11 @@ pub struct LyricStyle {
     pub rest_saturate: f32,
     /// How long lines above and below the active one take to scroll, against the usual.
     pub scroll_sides: [f32; 2],
+    /// How long each line takes to scroll by how far it is from the sung one `i`, in ms:
+    /// `[above, above log, below, below log, below step]`, as `above + ln(i + 1) * above log`
+    /// and `below + ln(i + 1) * below log + i * below step`. Replaces `scroll_secs` and
+    /// `scroll_sides`.
+    pub scroll_curve: Option<[f32; 5]>,
     /// Line-timed lyrics: each word this much after the last, seconds.
     pub line_stagger: f32,
     /// Songs whose lyrics are nothing but an instrumental break show as having none.
@@ -502,6 +527,8 @@ pub struct LyricStyle {
     pub resume_look: [f32; 3],
     /// How long lines take to change while the reader scrolls.
     pub scroll_transition: Option<Timing>,
+    /// Opacity's own time while the reader scrolls, when it differs from `scroll_transition`.
+    pub scroll_opacity_transition: Option<Timing>,
     /// How much of a word's length unsung words take to rise, on top of `word_rise_secs`.
     pub word_rise_ratio: f32,
     /// Unsung words rest this many em low.
@@ -536,6 +563,9 @@ pub struct LyricStyle {
     pub resume_black: bool,
     pub resume_shadow: Option<[f32; 3]>,
     pub resume_offset: [f32; 2],
+    /// In full screen, the Resume Autoscroll button's own spot: `[px from the lyrics' left,
+    /// fraction of their height down]`.
+    pub resume_fullscreen: Option<[f32; 2]>,
     /// `--blyrics-scroll-*`.
     pub scroll_secs: f32,
     pub scroll_ease: [f32; 4],
@@ -653,6 +683,7 @@ impl Default for LyricStyle {
             column_overlays: Vec::new(),
             rest_saturate: 1.0,
             scroll_sides: [1.0, 1.0],
+            scroll_curve: None,
             line_stagger: 0.05,
             hide_instrumental_only: false,
             deco_enter: None,
@@ -683,6 +714,7 @@ impl Default for LyricStyle {
             ring_wave: false,
             resume_look: [10.0, 0.10, 0.2],
             scroll_transition: None,
+            scroll_opacity_transition: None,
             word_rise_ratio: 0.0,
             word_rest_em: 0.0,
             hover_unsung_alpha: None,
@@ -702,6 +734,7 @@ impl Default for LyricStyle {
             resume_black: false,
             resume_shadow: None,
             resume_offset: [0.0, 0.0],
+            resume_fullscreen: None,
             scroll_secs: 0.75,
             scroll_ease: [0.86, 0.0, 0.2, 1.0],
             scroll_offset: 0.5,
@@ -783,6 +816,9 @@ pub struct CoverStyle {
     pub shadow2: Option<[f32; 3]>,
     /// A third.
     pub shadow3: Option<[f32; 3]>,
+    /// And a fourth and fifth; `y` can be negative, for one that falls upward.
+    pub shadow4: Option<[f32; 3]>,
+    pub shadow5: Option<[f32; 3]>,
     /// Opening, it also slides in from this share of its side, and fades in.
     pub open_slide: f32,
     pub open_fade: bool,
@@ -824,6 +860,12 @@ pub struct CoverFullscreen {
     pub enter: Option<[f32; 2]>,
     /// Settles from this scale on leaving full screen: `[scale, secs]`.
     pub leave: Option<[f32; 2]>,
+    /// Where `enter` starts from, down by this fraction of the window's height.
+    pub enter_shift_vh: f32,
+    /// And `leave`.
+    pub leave_shift_vh: f32,
+    /// `enter` and `leave` also fade in, over this much of their time.
+    pub settle_fade: f32,
     /// Its shadow and brightness here.
     pub shadow: Option<f32>,
     pub brightness: Option<f32>,
@@ -856,6 +898,8 @@ impl Default for CoverStyle {
             max_frac: None,
             shadow2: None,
             shadow3: None,
+            shadow4: None,
+            shadow5: None,
             open_slide: 0.0,
             open_fade: false,
             overlay_gradient: None,
@@ -896,6 +940,9 @@ pub struct NowPlayingStyle {
     pub show_title: bool,
     /// A translucent card in the corner with the song, in place of the title under the cover.
     pub info_card: bool,
+    /// The card holds only the text, as wide as that, and stays over a `cover_fullbleed`
+    /// cover beside the lyrics in full screen.
+    pub info_card_text_only: bool,
     /// Song and Video switch in the header.
     pub show_video_switch: bool,
     /// Corner radius of the video (the cover's when unset).
@@ -949,6 +996,14 @@ pub struct NowPlayingStyle {
     pub title_shadow: Option<[f32; 2]>,
     /// Buttons on the cover: `[px, black alpha, hover scale]`.
     pub cover_buttons: [f32; 3],
+    /// In full screen, previous and next on the cover when the pointer's over it, as
+    /// `[px, black alpha, hover scale]`, whether `cover_controls` is on or not.
+    pub fullscreen_cover_buttons: Option<[f32; 3]>,
+    /// The size of the icons on the tabs.
+    pub tab_icon_px: f32,
+    /// The tabs' capsule catching the light: white alpha of its top edge, of a ring all
+    /// round, and of its bottom edge.
+    pub tab_bevel: Option<[f32; 3]>,
     /// The lyrics' panel in full screen, of the view, and its side padding.
     pub fullscreen_panel_frac: Option<f32>,
     /// Padding around everything in full screen, px, in place of the usual.
@@ -1056,7 +1111,7 @@ pub struct TitleCard {
 
 impl Default for NowPlayingStyle {
     fn default() -> Self {
-        Self { tabs: TabStyle::Hover, title_align: Align::Center, title_px: 24.0, artist_px: 16.0, title_lyric_font: false, show_title: true, info_card: false, show_video_switch: true, video_radius: None, tab_content: TabContent::Labels, tab_idle_alpha: 1.0, tab_px: 34.0, tab_back: None, switch: SwitchLook::default(), title_alpha: 1.0, artist_alpha: 1.0, title_weight: Weight::Bold, artist_weight: Weight::Regular, title_card: None, info_card_look: [0.45, 14.0], panel_frac: None, cover_controls: false, video_lyrics: false, video_max_frac: None, no_lyrics_text: String::new(), no_lyrics: NoLyrics::default(), tab_label_px: 12.5, tab_edge: 0.0, tab_selected_color: String::new(), tab_glow: 0.0, tab_pill: None, tab_width_frac: None, video_panel_frac: None, video_pill: false, title_max_px: None, title_shadow: None, cover_buttons: [44.0, 0.5, 1.0], fullscreen_panel_frac: None, fullscreen_padding: None, header_autohide: false, cover_play_px: 76.0, cover_play_bare: false, cover_progress: false, fullscreen_progress_px: 0.0, title_edge_fade: 0.0, tab_line_px: 1.5, tab_label_weight: Weight::Semibold, tab_label_selected: String::new(), tab_back_black: false, tab_ring: 0.0, tab_under_cover: false, info_card_top: false, info_card_margin: 0.0, info_card_weights: None, fullscreen_title_weight: None, fullscreen_panel_inset: None, fullscreen_progress_radius: 0.0, cover_play_hover: 1.0 }
+        Self { tabs: TabStyle::Hover, title_align: Align::Center, title_px: 24.0, artist_px: 16.0, title_lyric_font: false, show_title: true, info_card: false, info_card_text_only: false, show_video_switch: true, video_radius: None, tab_content: TabContent::Labels, tab_idle_alpha: 1.0, tab_px: 34.0, tab_back: None, switch: SwitchLook::default(), title_alpha: 1.0, artist_alpha: 1.0, title_weight: Weight::Bold, artist_weight: Weight::Regular, title_card: None, info_card_look: [0.45, 14.0], panel_frac: None, cover_controls: false, video_lyrics: false, video_max_frac: None, no_lyrics_text: String::new(), no_lyrics: NoLyrics::default(), tab_label_px: 12.5, tab_edge: 0.0, tab_selected_color: String::new(), tab_glow: 0.0, tab_pill: None, tab_width_frac: None, video_panel_frac: None, video_pill: false, title_max_px: None, title_shadow: None, cover_buttons: [44.0, 0.5, 1.0], fullscreen_cover_buttons: None, tab_icon_px: 18.0, tab_bevel: None, fullscreen_panel_frac: None, fullscreen_padding: None, header_autohide: false, cover_play_px: 76.0, cover_play_bare: false, cover_progress: false, fullscreen_progress_px: 0.0, title_edge_fade: 0.0, tab_line_px: 1.5, tab_label_weight: Weight::Semibold, tab_label_selected: String::new(), tab_back_black: false, tab_ring: 0.0, tab_under_cover: false, info_card_top: false, info_card_margin: 0.0, info_card_weights: None, fullscreen_title_weight: None, fullscreen_panel_inset: None, fullscreen_progress_radius: 0.0, cover_play_hover: 1.0 }
     }
 }
 
@@ -1218,6 +1273,8 @@ pub enum TimeAt {
     Right,
     /// Under the transport.
     UnderTransport,
+    /// Over the progress line, with `progress_at` `above_transport`.
+    AboveProgress,
 }
 
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
@@ -1533,6 +1590,8 @@ pub struct GlassLook {
     /// Over the cover and the background in now playing.
     pub title_card: Option<[f32; 3]>,
     pub tabs: Option<[f32; 3]>,
+    /// `brightness()` in the tabs' backdrop filter.
+    pub tabs_bright: Option<f32>,
     pub switch: Option<[f32; 3]>,
     pub resume: Option<[f32; 3]>,
     pub instrumental: Option<[f32; 3]>,
@@ -1550,6 +1609,8 @@ pub struct Controls {
     pub ghost_outline: f32,
     pub press_scale: f32,
     pub hover_scale: f32,
+    /// A shelf's scroll arrows on hover: `[scale, degrees turned]`.
+    pub arrow_hover: Option<[f32; 2]>,
     /// White alpha of a button, added on hover.
     pub button_fill: f32,
     pub button_hover: f32,
@@ -1577,7 +1638,7 @@ pub struct Controls {
 
 impl Default for Controls {
     fn default() -> Self {
-        Self { idle_alpha: 1.0, ghost_outline: 0.0, press_scale: 0.9, hover_scale: 1.0, button_fill: 0.10, button_hover: 0.08, hover_color: String::new(), accent_primary: false, hover_border: 0.0, press_fill: 0.0, shadow: None, press_cards: 1.0, press_chips: 1.0, press_rows: 1.0, play_hover_scale: 1.05, play_hover_color: String::new(), focus: None, spring: false }
+        Self { idle_alpha: 1.0, ghost_outline: 0.0, press_scale: 0.9, hover_scale: 1.0, arrow_hover: None, button_fill: 0.10, button_hover: 0.08, hover_color: String::new(), accent_primary: false, hover_border: 0.0, press_fill: 0.0, shadow: None, press_cards: 1.0, press_chips: 1.0, press_rows: 1.0, play_hover_scale: 1.05, play_hover_color: String::new(), focus: None, spring: false }
     }
 }
 
@@ -1746,6 +1807,9 @@ pub struct VectorIcon {
     /// Mirrored left to right.
     #[serde(default)]
     pub flip: bool,
+    /// Drawn as a line this wide with round ends, in the path's units, instead of filled.
+    #[serde(default)]
+    pub stroke: f32,
 }
 
 /// The queue's rows, where they differ from every other list's.
@@ -1760,6 +1824,8 @@ pub struct QueueLook {
     pub image_dim: Option<f32>,
     /// The panel's own space at its sides, px.
     pub side_pad: f32,
+    /// Space under the current song's row, px.
+    pub current_gap: f32,
 }
 
 impl Default for RowLook {

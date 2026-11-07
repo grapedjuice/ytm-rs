@@ -595,11 +595,13 @@ uniform float u_opacity;
 uniform float u_saturate;
 uniform float u_contrast;
 uniform float u_fade;
+uniform float u_bright;
 void main() {
   vec3 c = at(mix(u_src.xy, u_src.zw, v_uv)).rgb;
   float gray = dot(c, vec3(0.299, 0.587, 0.114));
   c = mix(vec3(gray), c, u_saturate);
   c = clamp((c - 0.5) * u_contrast + 0.5, 0.0, 1.0);
+  c = min(c * u_bright, vec3(1.0));
   vec2 p = (v_uv - 0.5) * u_size;
   vec2 q = abs(p) - u_size * 0.5 + u_radius;
   float d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - u_radius;
@@ -634,8 +636,8 @@ struct GlassGl {
     down: GlassProgram,
     up: GlassProgram,
     show: GlassProgram,
-    /// u_size, u_radius, u_opacity, u_saturate, u_contrast, u_fade.
-    show_loc: [Option<glow::UniformLocation>; 6],
+    /// u_size, u_radius, u_opacity, u_saturate, u_contrast, u_fade, u_bright.
+    show_loc: [Option<glow::UniformLocation>; 7],
     vao: glow::VertexArray,
     fbo: glow::Framebuffer,
     tex: [glow::Texture; LEVELS],
@@ -710,7 +712,7 @@ fn make_glass(gl: &glow::Context) -> anyhow::Result<GlassGl> {
             Ok(GlassProgram { program: p, tex: gl.get_uniform_location(p, "u_tex"), src: gl.get_uniform_location(p, "u_src"), step: gl.get_uniform_location(p, "u_step") })
         };
         let (down, up, show) = (program(GLASS_DOWN)?, program(GLASS_UP)?, program(GLASS_SHOW)?);
-        let show_loc = ["u_size", "u_radius", "u_opacity", "u_saturate", "u_contrast", "u_fade"].map(|n| gl.get_uniform_location(show.program, n));
+        let show_loc = ["u_size", "u_radius", "u_opacity", "u_saturate", "u_contrast", "u_fade", "u_bright"].map(|n| gl.get_uniform_location(show.program, n));
         let vao = gl.create_vertex_array().map_err(anyhow::Error::msg)?;
         let fbo = gl.create_framebuffer().map_err(anyhow::Error::msg)?;
         let mut tex = Vec::new();
@@ -728,6 +730,11 @@ fn make_glass(gl: &glow::Context) -> anyhow::Result<GlassGl> {
 
 /// Frost what's already been drawn behind `rect`. Does nothing when glass isn't available.
 pub fn frost(painter: &egui::Painter, rect: egui::Rect, f: Frost) {
+    frost_bright(painter, rect, f, 1.0);
+}
+
+/// `frost`, with `brightness()` in the filter too.
+pub fn frost_bright(painter: &egui::Painter, rect: egui::Rect, f: Frost, bright: f32) {
     if f.opacity <= 0.0 || f.look[0] <= 0.0 || !glass_ready() {
         return;
     }
@@ -736,12 +743,12 @@ pub fn frost(painter: &egui::Painter, rect: egui::Rect, f: Frost) {
         let Some(lock) = GLASS.get() else { return };
         let mut guard = lock.lock().unwrap();
         let Some(g) = guard.as_mut() else { return };
-        unsafe { draw_frost(gl, g, &info, f) };
+        unsafe { draw_frost(gl, g, &info, f, bright) };
     });
     painter.add(egui::PaintCallback { rect, callback: Arc::new(cb) });
 }
 
-unsafe fn draw_frost(gl: &glow::Context, g: &mut GlassGl, info: &egui::PaintCallbackInfo, f: Frost) {
+unsafe fn draw_frost(gl: &glow::Context, g: &mut GlassGl, info: &egui::PaintCallbackInfo, f: Frost, bright: f32) {
     unsafe {
         let [sw, sh] = info.screen_size_px.map(|v| v as i32);
         if sw <= 0 || sh <= 0 {
@@ -827,13 +834,14 @@ unsafe fn draw_frost(gl: &glow::Context, g: &mut GlassGl, info: &egui::PaintCall
         let src = [vp.left_px as f32 * 0.5 / w, vp.from_bottom_px as f32 * 0.5 / h, (vp.left_px + vp.width_px) as f32 * 0.5 / w, (vp.from_bottom_px + vp.height_px) as f32 * 0.5 / h];
         set(&g.show, src, [0.0, 0.0]);
         let ppp = info.pixels_per_point;
-        let [size, radius, opacity, saturate, contrast, fade] = g.show_loc.each_ref();
+        let [size, radius, opacity, saturate, contrast, fade, brightness] = g.show_loc.each_ref();
         gl.uniform_2_f32(size.as_ref(), vp.width_px as f32, vp.height_px as f32);
         gl.uniform_1_f32(radius.as_ref(), (f.radius * ppp).min(vp.width_px.min(vp.height_px) as f32 / 2.0));
         gl.uniform_1_f32(opacity.as_ref(), f.opacity.clamp(0.0, 1.0));
         gl.uniform_1_f32(saturate.as_ref(), f.look[1]);
         gl.uniform_1_f32(contrast.as_ref(), f.look[2]);
         gl.uniform_1_f32(fade.as_ref(), f.fade * ppp);
+        gl.uniform_1_f32(brightness.as_ref(), bright);
         gl.draw_arrays(glow::TRIANGLES, 0, 3);
     }
 }

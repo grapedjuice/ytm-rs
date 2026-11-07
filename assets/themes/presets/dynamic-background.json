@@ -35,7 +35,8 @@
     "scroll_ease": [0.42, 0, 0.58, 1],
     "pre_sharp_secs": 0.5,
     "scroll_transition": { "frac": 0, "secs": 0.35, "delay": 0 },
-    "resume_look": [12, 0.1, 0]
+    "resume_look": [12, 0.1, 0],
+    "scroll_opacity_transition": {"frac": 0, "secs": 0.2, "delay": 0}
   },
   "cover": { "radius": 20, "shadow": 0.2, "shadow_blur": 8, "shadow_offset": 4, "max_px": 400, "fullscreen": {
       "corner_layout": true

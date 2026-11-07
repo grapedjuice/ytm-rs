@@ -170,7 +170,7 @@
     "tabular_digits": true,
     "queue_upper": true,
     "heading_tracking_em": -0.015,
-    "header_title_weight": "bold",
+    "header_title_weight": "extra_bold",
     "glass": {
       "top_bar": [12, 1.8, 1],
       "bar": [30, 1.6, 1],

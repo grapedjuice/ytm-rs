@@ -232,6 +232,7 @@ struct Cfg {
     hover_glow: Option<[f32; 2]>,
     rest_saturate: f32,
     scroll_sides: [f32; 2],
+    scroll_curve: Option<[f32; 5]>,
     line_stagger: f64,
     deco_enter: [f32; 4],
     sweep_soft: Option<f32>,
@@ -267,6 +268,7 @@ struct Cfg {
     dot_em: Option<[f32; 2]>,
     ring_wave: bool,
     scroll_t: Option<Timing>,
+    scroll_op_t: Option<Timing>,
     rise_ratio: f64,
     rest_em: f32,
 }
@@ -427,6 +429,7 @@ impl Cfg {
             hover_glow: s.hover_glow,
             rest_saturate: s.rest_saturate,
             scroll_sides: s.scroll_sides,
+            scroll_curve: s.scroll_curve,
             line_stagger: s.line_stagger as f64,
             deco_enter: s.deco_enter.unwrap_or([-0.4, 0.0, DECO_ENTRY as f32, 0.0]),
             sweep_soft: s.sweep_soft,
@@ -462,6 +465,7 @@ impl Cfg {
             dot_em: s.dot_em,
             ring_wave: s.ring_wave,
             scroll_t: s.scroll_transition,
+            scroll_op_t: s.scroll_opacity_transition,
             rise_ratio: s.word_rise_ratio as f64,
             rest_em: s.word_rest_em,
         }
@@ -1352,7 +1356,10 @@ impl View {
             let mut dy = 0.0;
             for a in &self.scrolls {
                 let rel = i as isize - a.active as isize;
-                let d = (scroll_duration(rel, a.delta) + cfg.scroll_secs - 0.75) * cfg.scroll_sides[usize::from(rel > 0)] as f64;
+                let d = match cfg.scroll_curve {
+                    Some(curve) => curve_duration(rel, a.delta, curve),
+                    None => (scroll_duration(rel, a.delta) + cfg.scroll_secs - 0.75) * cfg.scroll_sides[usize::from(rel > 0)] as f64,
+                };
                 let p = ((f.now - a.start) / d.max(0.01)).clamp(0.0, 1.0) as f32;
                 dy += a.delta * (1.0 - cfg.scroll_ease.at(p));
             }
@@ -1432,7 +1439,7 @@ impl View {
                     (None, None)
                 };
                 match cfg.scroll_t.filter(|_| user) {
-                    Some(x) => (timing(x), timing(x)),
+                    Some(x) => (timing(cfg.scroll_op_t.unwrap_or(x)), timing(x)),
                     None => (timing(o.unwrap_or(cfg.opacity_t)), timing(b.unwrap_or(cfg.blur_t))),
                 }
             };
@@ -1781,9 +1788,21 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
 
 /// Duration of one line's part in a scroll, by its distance from the active line
 /// (`LINE_SCROLL_AFTER_FUNCTION` and the `above` variant).
-fn scroll_duration(rel: isize, delta: f32) -> f64 {
+/// Whether a line sits on the side the scroll is coming from.
+fn is_above(rel: isize, delta: f32) -> bool {
     let up = delta < 0.0;
-    let above = (rel < 0 && !up) || (rel > 0 && up);
+    (rel < 0 && !up) || (rel > 0 && up)
+}
+
+/// A theme's `scroll_curve`: seconds for a line `rel` lines from the sung one.
+fn curve_duration(rel: isize, delta: f32, [above, above_log, below, below_log, below_step]: [f32; 5]) -> f64 {
+    let i = rel.unsigned_abs() as f64;
+    let log = (i + 1.0).ln();
+    (if is_above(rel, delta) { above as f64 + log * above_log as f64 } else { below as f64 + log * below_log as f64 + i * below_step as f64 }) / 1000.0
+}
+
+fn scroll_duration(rel: isize, delta: f32) -> f64 {
+    let above = is_above(rel, delta);
     let i = rel.unsigned_abs() as f64;
     if above { (750.0 + i.min(6.0) * 20.0) / 1000.0 } else { (750.0 + (i + 2.0).ln() * 80.0 + (i + 1.0) * 20.0) / 1000.0 }
 }
@@ -2508,6 +2527,14 @@ impl Slot {
 /// A blurred line's radius in 1/4 px and scale in 1/1000.
 type LineStep = (i32, i32);
 
+/// What a blurred line's image is kept for. Its scale only matters as far as the blur can
+/// show it: a soft glow is drawn again for each 5% and a slight blur for each 1%, so a line
+/// easing to its new size isn't blurred afresh on every frame on the way.
+fn line_step(radius: f32, scale: f32) -> LineStep {
+    let per = if radius >= 8.0 { 20.0 } else if radius >= 1.0 { 100.0 } else { 1000.0 };
+    ((radius * 4.0) as i32, ((scale * per).round() / per * 1000.0).round() as i32)
+}
+
 #[derive(Default)]
 struct Glow {
     /// A copy of the font atlas, refreshed when glyphs we need aren't in it yet.
@@ -2630,7 +2657,7 @@ impl Glow {
             return None;
         }
         let now = ctx.input(|i| i.time);
-        let step = ((radius * 4.0) as i32, (scale * 1000.0).round() as i32);
+        let step = line_step(radius, scale);
         if let Some((s, r, rect, used)) = self.lines.get_mut(&key)
             && *r == step
         {
@@ -3509,6 +3536,25 @@ mod tests {
         assert!(w[0].0 < w[3].0);
         // Zero-duration words float all letters together.
         assert!(letter_waves(3, 0.0, 0.9).iter().all(|w| w.0 == 0.0 && (w.1 - 0.9).abs() < 1e-9));
+    }
+
+    #[test]
+    fn a_soft_blur_isnt_redrawn_for_a_small_change_of_size() {
+        assert_eq!(line_step(26.0, 1.004), line_step(26.0, 1.012));
+        assert_ne!(line_step(26.0, 0.94), line_step(26.0, 1.012));
+        assert_eq!(line_step(2.0, 1.001), line_step(2.0, 1.004));
+        assert_ne!(line_step(2.0, 1.0), line_step(2.0, 1.012));
+        // Barely blurred, it stays exact.
+        assert_ne!(line_step(0.5, 1.001), line_step(0.5, 1.002));
+    }
+
+    #[test]
+    fn a_scroll_curve_grows_with_distance() {
+        let curve = [620.0, 16.0, 650.0, 58.0, 12.0];
+        // The sung line itself: below, with nothing added.
+        assert!((curve_duration(0, 10.0, curve) - 0.650).abs() < 1e-6);
+        assert!((curve_duration(-3, 10.0, curve) - (0.620 + 4f64.ln() * 0.016)).abs() < 1e-6);
+        assert!((curve_duration(3, 10.0, curve) - (0.650 + 4f64.ln() * 0.058 + 0.036)).abs() < 1e-6);
     }
 
     #[test]

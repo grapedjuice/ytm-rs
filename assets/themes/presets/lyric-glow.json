@@ -90,14 +90,14 @@
       { "color": "#9b86ff", "alpha": 0.028, "x": 0.78, "y": 0.62, "rx": 0.385, "ry": 0.21 },
       { "color": "#000000", "alpha": 0.085, "x": 0.0, "y": 0.5, "rx": 0.28, "ry": 0.9 }
     ],
-    "scroll_sides": [0.93, 1.09],
     "line_stagger": 0.022,
     "scroll_secs": 0.69,
     "scroll_ease": [0.18, 0.82, 0.22, 1.0],
     "scroll_offset": 0.5,
     "rest_saturate_far": 0.8,
     "decor_active_alpha": 0.62,
-    "marker_colors_alt": ["#ff78ac", "#9b86ff"]
+    "marker_colors_alt": ["#ff78ac", "#9b86ff"],
+    "scroll_curve": [620, 16, 650, 58, 12]
   },
   "cover": {
     "radius": 18,

@@ -151,7 +151,9 @@
       13,
       0.09
     ],
-    "shadow3": [4, 6, 0.2]
+    "shadow3": [4, 6, 0.2],
+    "shadow4": [-12, 30, 0.06],
+    "shadow5": [-3, 5, 0.04]
   },
   "now_playing": {
     "title_align": "left",
@@ -167,7 +169,8 @@
       "back": 0.1,
       "selected": 0.1
     },
-    "fullscreen_progress_radius": 6
+    "fullscreen_progress_radius": 6,
+    "fullscreen_cover_buttons": [36, 0, 1]
   },
   "chrome": {
     "bar_color": "#141414",

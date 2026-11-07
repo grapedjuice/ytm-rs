@@ -888,11 +888,12 @@ impl App {
 
     /// Height of the bottom player area (a floating bar leaves a margin around it).
     /// Back to the cover after a video had the background.
-    fn restore_art(&self) {
+    fn restore_art(&mut self) {
         if self.look().background.video_backdrop
             && let (Some(bg), Some(art)) = (&self.bg, &self.track_art)
         {
             bg.set_live(art.clone());
+            self.art_brightness = art.brightness;
         }
     }
 
@@ -950,6 +951,10 @@ impl eframe::App for App {
         jam::dev_script(self, ctx, now);
         if self.page_changed < 0.0 {
             self.page_changed = now;
+        }
+        // Dev hook: YTM_FAKE_FULLSCREEN=<secs> lays out as full screen from then on, without touching the window.
+        if let Some(t) = dev_var("YTM_FAKE_FULLSCREEN").and_then(|v| v.parse::<f64>().ok()) {
+            self.fullscreen = now >= t;
         }
         // Dev hook: YTM_NP_TOGGLE_AT=<secs>[,<secs>…] clicks the Lyrics chip at those times.
         if let Some(v) = dev_var("YTM_NP_TOGGLE_AT") {

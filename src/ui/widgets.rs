@@ -298,15 +298,22 @@ pub fn squircle(rect: Rect, r: f32) -> Vec<Pos2> {
 
 /// Circular icon button with an animated hover halo.
 pub fn icon_button(ui: &mut Ui, glyph: char, size: f32, name: &str, active: bool) -> Response {
+    icon_button_turning(ui, glyph, size, name, active, None)
+}
+
+/// `icon_button` that grows and turns on hover: `[scale, degrees]`.
+pub fn icon_button_turning(ui: &mut Ui, glyph: char, size: f32, name: &str, active: bool, hover: Option<[f32; 2]>) -> Response {
     let d = size + 16.0;
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(d), Sense::click());
     let resp = named(resp, name).on_hover_text(name).on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
     let c = &crate::preset::active().app.controls;
+    let turned = hover.map_or(0.0, |_| theme::anim_bool(ui.ctx(), resp.id.with("turn"), resp.hovered(), 0.3));
+    let [grow, degrees] = hover.map_or([1.0, 0.0], |[s, a]| [1.0 + (s - 1.0) * turned, a * turned]);
     if h > 0.0 {
-        ui.painter().circle_filled(rect.center(), d / 2.0, theme::glass(0.10 * h));
+        ui.painter().circle_filled(rect.center(), d / 2.0 * grow, theme::glass(0.10 * h));
         if c.ghost_outline.max(c.hover_border) > 0.0 {
-            ui.painter().circle_stroke(rect.center(), d / 2.0, egui::Stroke::new(1.0, theme::glass(c.ghost_outline.max(c.hover_border) * h)));
+            ui.painter().circle_stroke(rect.center(), d / 2.0 * grow, egui::Stroke::new(1.0, theme::glass(c.ghost_outline.max(c.hover_border) * h)));
         }
     }
     if c.press_fill > 0.0 && resp.is_pointer_button_down_on() {
@@ -316,8 +323,46 @@ pub fn icon_button(ui: &mut Ui, glyph: char, size: f32, name: &str, active: bool
     let lit = crate::preset::hex(&c.hover_color).unwrap_or_else(theme::text);
     let color = if active { theme::text() } else { theme::lerp_color(theme::with_alpha(theme::text_dim(), c.idle_alpha.clamp(0.5, 1.0)), lit, h) };
     let press = if resp.is_pointer_button_down_on() { c.press_scale } else { 1.0 + (c.hover_scale - 1.0) * h };
-    icon_at(ui, rect.center(), glyph, size * press, color);
+    if degrees != 0.0 {
+        icon_turned(ui, rect.center(), glyph, size * press * grow, color, degrees);
+    } else {
+        icon_at(ui, rect.center(), glyph, size * press * grow, color);
+    }
     resp
+}
+
+/// A font icon turned about its middle.
+fn icon_turned(ui: &Ui, center: Pos2, glyph: char, size: f32, color: Color32, degrees: f32) {
+    let g = ui.painter().layout_no_wrap(glyph.to_string(), theme::icon_font(size), color);
+    let ink = if g.mesh_bounds.is_positive() { g.mesh_bounds.center().to_vec2() } else { g.size() / 2.0 };
+    let angle = degrees.to_radians();
+    // Text turns about the corner it's placed by.
+    let pos = center - egui::emath::Rot2::from_angle(angle) * ink;
+    ui.painter().add(egui::epaint::TextShape::new(pos, g, color).with_angle(angle));
+}
+
+/// A capsule catching the light, inset 1 px as `box-shadow: inset` is: `[top edge, ring, bottom edge]`
+/// in white alpha, the edges fading out toward the middle.
+pub fn bevel(painter: &egui::Painter, rect: Rect, radius: f32, [top, ring, bottom]: [f32; 3]) {
+    if ring > 0.0 {
+        painter.rect_stroke(rect, radius, egui::Stroke::new(1.0, theme::with_alpha(Color32::WHITE, ring)), egui::StrokeKind::Inside);
+    }
+    let r = rect.shrink(0.5);
+    let round = radius.min(r.height() / 2.0).min(r.width() / 2.0);
+    const CORNER: usize = 12;
+    let mut points = Vec::with_capacity(4 * (CORNER + 1));
+    for (i, c) in [pos2(r.right() - round, r.top() + round), pos2(r.right() - round, r.bottom() - round), pos2(r.left() + round, r.bottom() - round), pos2(r.left() + round, r.top() + round)].into_iter().enumerate() {
+        for k in 0..=CORNER {
+            let a = (i as f32 - 1.0 + k as f32 / CORNER as f32) * std::f32::consts::FRAC_PI_2;
+            points.push(c + vec2(a.cos(), a.sin()) * round);
+        }
+    }
+    let stroke = egui::epaint::PathStroke::new_uv(1.0, move |b: Rect, p: Pos2| {
+        let t = ((p.y - b.top()) / b.height().max(1.0)).clamp(0.0, 1.0);
+        let a = top * (1.0 - t / 0.4).max(0.0) + bottom * ((t - 0.6) / 0.4).max(0.0);
+        theme::with_alpha(Color32::WHITE, a)
+    });
+    painter.add(egui::epaint::PathShape { points, closed: true, fill: Color32::TRANSPARENT, stroke });
 }
 
 /// Rounded pill button. `primary` = white with dark text (YouTube Music's Play button).
@@ -959,15 +1004,24 @@ pub fn row_height(ui: &Ui) -> f32 {
 /// A long list of song rows: only the ones on screen are built; the rest is empty space
 /// of the same height. `row(ui, i)` draws row `i`, under an id of its own so its hover
 /// and menu state don't jump to another song as the list scrolls.
-pub fn visible_rows(ui: &mut Ui, n: usize, mut row: impl FnMut(&mut Ui, usize)) {
+pub fn visible_rows(ui: &mut Ui, n: usize, row: impl FnMut(&mut Ui, usize)) {
+    visible_rows_gap(ui, n, 0.0, row);
+}
+
+/// `visible_rows`, with space under the first row.
+pub fn visible_rows_gap(ui: &mut Ui, n: usize, gap: f32, mut row: impl FnMut(&mut Ui, usize)) {
     let h = row_height(ui);
     let top = ui.cursor().top();
     let clip = ui.clip_rect();
-    let first = (((clip.top() - top) / h).floor().max(0.0) as usize).min(n);
+    let first = (((clip.top() - top - gap) / h).floor().max(0.0) as usize).min(n);
     let last = ((((clip.bottom() - top) / h).ceil().max(0.0)) as usize + 1).clamp(first, n);
-    ui.add_space(first as f32 * h);
+    // Past the first row, its gap is in what's skipped.
+    ui.add_space(first as f32 * h + if first > 0 { gap } else { 0.0 });
     for i in first..last {
         ui.push_id(i, |ui| row(ui, i));
+        if i == 0 && gap > 0.0 {
+            ui.add_space(gap);
+        }
     }
     ui.add_space((n - last) as f32 * h);
 }
@@ -1183,8 +1237,9 @@ pub fn shelf_header(ui: &mut Ui, title: &str, strap: Option<&str>, strap_thumb: 
         });
         if arrows {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                res.1 = icon_button(ui, icon::CHEVRON_RIGHT, 18.0, &format!("Scroll {title} right"), false).clicked();
-                res.0 = icon_button(ui, icon::CHEVRON_LEFT, 18.0, &format!("Scroll {title} left"), false).clicked();
+                let turn = crate::preset::active().app.controls.arrow_hover;
+                res.1 = icon_button_turning(ui, icon::CHEVRON_RIGHT, 18.0, &format!("Scroll {title} right"), false, turn).clicked();
+                res.0 = icon_button_turning(ui, icon::CHEVRON_LEFT, 18.0, &format!("Scroll {title} left"), false, turn).clicked();
             });
         }
     });

@@ -15,7 +15,8 @@
     "resume_look": [50, 0.1, 0.2],
     "resume_black": true,
     "resume_shadow": [10, 10, 0.25],
-    "resume_text_px": 15
+    "resume_text_px": 15,
+    "resume_fullscreen": [200, 0.1]
   },
   "cover": {
     "radius": 25,
@@ -116,7 +117,8 @@
     "queue_look": {
       "thumb_radius": 5,
       "pad": 15,
-      "hover_border": 0.13
+      "hover_border": 0.13,
+      "current_gap": 10
     }
   }
 }

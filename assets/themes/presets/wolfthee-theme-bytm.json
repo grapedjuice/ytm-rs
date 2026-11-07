@@ -18,7 +18,8 @@
     "beat_threshold": 0.75,
     "auto_dim": 0.3,
     "blur_passes": 6,
-    "video_backdrop": true
+    "video_backdrop": true,
+    "video": {"saturation": 1.5, "dither": 0.008, "auto_dim": 0.3, "blur_passes": 8}
   },
   "lyrics": {
     "weight": "semibold",
@@ -67,7 +68,7 @@
     "progress_radius": 100,
     "progress_at": "above_transport",
     "progress_thumb_px": 5,
-    "time_at": "under_transport",
+    "time_at": "above_progress",
     "play_scale": 0.87,
     "bar_border_alpha": 0.1,
     "progress_width_frac": 0.2,

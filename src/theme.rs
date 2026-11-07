@@ -334,6 +334,7 @@ static SEMIBOLD: std::sync::LazyLock<FontFamily> = std::sync::LazyLock::new(|| F
 static BOLD: std::sync::LazyLock<FontFamily> = std::sync::LazyLock::new(|| FontFamily::Name("bold".into()));
 static MEDIUM: std::sync::LazyLock<FontFamily> = std::sync::LazyLock::new(|| FontFamily::Name("medium".into()));
 static LIGHT_FACE: std::sync::LazyLock<FontFamily> = std::sync::LazyLock::new(|| FontFamily::Name("light".into()));
+static EXTRA_BOLD: std::sync::LazyLock<FontFamily> = std::sync::LazyLock::new(|| FontFamily::Name("extrabold".into()));
 static ICONS: std::sync::LazyLock<FontFamily> = std::sync::LazyLock::new(|| FontFamily::Name("icons".into()));
 
 pub fn semibold(size: f32) -> FontId {
@@ -346,6 +347,7 @@ pub fn semibold(size: f32) -> FontId {
 /// Interface text in a theme's weight.
 pub fn weighted(w: crate::preset::Weight, size: f32) -> FontId {
     match w {
+        crate::preset::Weight::ExtraBold => FontId::new(size, EXTRA_BOLD.clone()),
         crate::preset::Weight::Regular => regular(size),
         crate::preset::Weight::Semibold => semibold(size),
         crate::preset::Weight::Bold => bold(size),
@@ -494,6 +496,8 @@ static CHOICE: std::sync::RwLock<Option<Chosen>> = std::sync::RwLock::new(None);
 struct Chosen {
     name: String,
     faces: [Face; 5],
+    /// Its 800, nearest it has.
+    extra_bold: Face,
 }
 
 /// One face of a primary font: the bytes, the face in the file, and the weight to set
@@ -545,6 +549,7 @@ fn family(key: &str, weight: crate::preset::Weight, size: f32) -> FontId {
         Weight::Bold => 2,
         Weight::Medium => 3,
         Weight::Light => 4,
+        Weight::ExtraBold => 5,
     };
     FontId::new(size, FontFamily::Name(format!("{key}-{w}").into()))
 }
@@ -690,16 +695,25 @@ fn scan_fonts() -> Vec<SysFamily> {
 fn choose_faces(family: &SysFamily) -> Option<[Face; 5]> {
     let mut faces = Vec::new();
     for target in [400.0, 600.0, 750.0, 500.0, 250.0] {
-        let best = family.faces.iter().min_by_key(|f| match f.wght {
-            Some((lo, hi)) if (lo..=hi).contains(&target) => 0,
-            Some((lo, hi)) => (target - target.clamp(lo, hi)).abs() as i32,
-            None => (f.weight - target).abs() as i32,
-        })?;
-        let bytes = map(&best.path)?;
-        // Interface text is about this big, where the axis is at its most legible.
-        faces.push(Face { bytes, index: best.index, wght: best.wght.map(|(lo, hi)| target.clamp(lo, hi)), opsz: best.opsz.map(|(lo, hi)| 14.0f32.clamp(lo, hi)) });
+        faces.push(face_near(family, target)?);
     }
     faces.try_into().ok()
+}
+
+/// The face in a family that comes closest to this weight.
+fn closest_face(family: &SysFamily, target: f32) -> Option<&SysFace> {
+    family.faces.iter().min_by_key(|f| match f.wght {
+        Some((lo, hi)) if (lo..=hi).contains(&target) => 0,
+        Some((lo, hi)) => (target - target.clamp(lo, hi)).abs() as i32,
+        None => (f.weight - target).abs() as i32,
+    })
+}
+
+fn face_near(family: &SysFamily, target: f32) -> Option<Face> {
+    let best = closest_face(family, target)?;
+    let bytes = map(&best.path)?;
+    // Interface text is about this big, where the axis is at its most legible.
+    Some(Face { bytes, index: best.index, wght: best.wght.map(|(lo, hi)| target.clamp(lo, hi)), opsz: best.opsz.map(|(lo, hi)| 14.0f32.clamp(lo, hi)) })
 }
 
 /// Load the faces of the installed font in use, if that's what it is: the listener's
@@ -716,11 +730,11 @@ fn load_choice(ui_font: &str) {
     }
     // Only when an installed font is set: a one-off scan, the first time.
     let all = INSTALLED_FONTS.get_or_init(scan_fonts);
-    let faces = name.split(',').map(str::trim).find_map(|n| all.iter().find(|f| f.name.eq_ignore_ascii_case(n)).and_then(choose_faces));
+    let faces = name.split(',').map(str::trim).find_map(|n| all.iter().find(|f| f.name.eq_ignore_ascii_case(n)).and_then(|f| Some((choose_faces(f)?, face_near(f, 800.0)?))));
     if faces.is_none() {
         log::warn!("font {name:?} isn't installed; using Inter");
     }
-    *CHOICE.write().unwrap() = faces.map(|faces| Chosen { name, faces });
+    *CHOICE.write().unwrap() = faces.map(|(faces, extra_bold)| Chosen { name, faces, extra_bold });
 }
 
 // System fallbacks: egui's fonts cover Latin only, so CJK, Arabic, Indic, Thai,
@@ -886,10 +900,26 @@ pub fn install_fonts(ctx: &egui::Context, ui_font: &str) {
             }
         }
     }
+    // 800: a bundled font's bold chain under another name, so nothing more is loaded; only
+    // an installed font has a face of its own for it, on the same fallbacks.
+    let extra_bold = CHOICE.read().unwrap().as_ref().map(|c| c.extra_bold);
+    for (key, _) in &groups {
+        let mut chain = defs.families[&FontFamily::Name(format!("{key}-2").into())].clone();
+        if *key == "choice"
+            && let Some(face) = extra_bold
+        {
+            defs.font_data.insert("choice-5".to_owned(), Arc::new(font_data(face, 0.0)));
+            chain[0] = "choice-5".to_owned();
+        }
+        if *key == ui_key {
+            defs.families.insert(FontFamily::Name("extrabold".into()), chain.clone());
+        }
+        defs.families.insert(FontFamily::Name(format!("{key}-5").into()), chain);
+    }
     // With no installed font picked, the "choice" families are Inter's, so they always
     // exist without a second copy of Inter and its fallbacks.
     if choice.is_none() {
-        for w in 0..5 {
+        for w in 0..6 {
             let inter = defs.families[&FontFamily::Name(format!("inter-{w}").into())].clone();
             defs.families.insert(FontFamily::Name(format!("choice-{w}").into()), inter);
         }
@@ -1029,3 +1059,22 @@ fn visuals() -> egui::Visuals {
     v
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixed(weight: f32) -> SysFace {
+        SysFace { path: std::path::PathBuf::new(), index: 0, weight, wght: None, opsz: None }
+    }
+
+    #[test]
+    fn extra_bold_takes_the_nearest_face_to_800() {
+        let family = SysFamily { name: "Test".into(), faces: vec![fixed(400.0), fixed(700.0), fixed(800.0), fixed(900.0)] };
+        assert_eq!(closest_face(&family, 800.0).unwrap().weight, 800.0);
+        let lighter = SysFamily { name: "Test".into(), faces: vec![fixed(400.0), fixed(700.0)] };
+        assert_eq!(closest_face(&lighter, 800.0).unwrap().weight, 700.0);
+        // A variable font that reaches it is as close as it gets.
+        let variable = SysFamily { name: "Test".into(), faces: vec![SysFace { wght: Some((100.0, 900.0)), ..fixed(400.0) }] };
+        assert_eq!(closest_face(&variable, 800.0).unwrap().wght, Some((100.0, 900.0)));
+    }
+}

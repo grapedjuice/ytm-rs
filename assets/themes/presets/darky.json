@@ -224,7 +224,8 @@
       "accent_primary": true,
       "play_hover_scale": 1.15,
       "press_chips": 0.95,
-      "press_rows": 0.98
+      "press_rows": 0.98,
+      "arrow_hover": [1.15, 5]
     },
     "nav_item": {
       "radius": 12,

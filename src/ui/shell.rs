@@ -950,7 +950,9 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let above = look.chrome.progress_at == crate::preset::ProgressAt::AboveTransport;
     // Over the transport, as wide as a third of the bar.
     let track_rect = if above { Rect::from_center_size(pos2(full.center().x + look.chrome.transport_shift + look.chrome.transport_shift_frac * full.width(), track_rect.center().y), vec2(look.chrome.progress_width_frac.map_or((full.width() * 0.34).clamp(220.0, 520.0), |f| (full.width() * f).max(160.0)), track_rect.height())) } else { track_rect };
-    let edge_y = if above { track_rect.top() + 7.0 } else if at_bottom { track_rect.bottom() - progress_px } else { track_rect.top() };
+    // The time sits over the line, the line coming down to make room.
+    let time_over = above && look.chrome.time_at == crate::preset::TimeAt::AboveProgress;
+    let edge_y = if time_over { track_rect.top() + 24.0 } else if above { track_rect.top() + 7.0 } else if at_bottom { track_rect.bottom() - progress_px } else { track_rect.top() };
     let bar_hit = Rect::from_min_size(pos2(track_rect.left(), edge_y - 6.0), vec2(track_rect.width(), 14.0));
     let resp = ui.interact(bar_hit, ui.scope_id().with("progress"), Sense::click_and_drag());
     let resp = if total > 0.0 { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
@@ -1044,7 +1046,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let half = if tight { 125.0 } else { 141.0 };
     let compact_vol = free(half) < 140.0 + time_w;
     let compact_vol = compact_vol || chrome.volume_on_hover;
-    let show_time = free(half) >= if compact_vol { 36.0 } else { 140.0 } + time_w && !time_under;
+    let show_time = free(half) >= if compact_vol { 36.0 } else { 140.0 } + time_w && !time_under && chrome.time_at != crate::preset::TimeAt::AboveProgress;
     // Where the song starts: at the left, or just right of the left-hand transport, the
     // middle of what's left then being about the bar's.
     let art_x = if song_middle { row.left() + 300.0 } else { row.left() + 30.0 };
@@ -1197,7 +1199,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
 
     // Centre: transport
     let accent = app.accent_color();
-    let center = if song_middle { pos2(row.left() + 130.0, cy) } else { pos2(row.center().x, cy) } + vec2(chrome.transport_shift + chrome.transport_shift_frac * full.width(), if time_under { -9.0 } else { 0.0 });
+    let center = if song_middle { pos2(row.left() + 130.0, cy) } else { pos2(row.center().x, cy) } + vec2(chrome.transport_shift + chrome.transport_shift_frac * full.width(), if time_under { -9.0 } else if time_over { 12.0 } else { 0.0 });
     let ctl = |ui: &mut Ui, dx: f32, glyph: char, name: &str, active: bool, size: f32| -> bool {
         let size = size * bar_scale * chrome.transport_scale.clamp(0.75, 1.5);
         let dx = dx * chrome.transport_gap.clamp(0.7, 1.5);
@@ -1289,6 +1291,11 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         && let Some(g) = time_g.clone()
     {
         ui.painter().galley(pos2(center.x - g.size().x / 2.0, center.y + 21.0), g, theme::text_dim());
+    }
+    if time_over
+        && let Some(g) = time_g.clone()
+    {
+        ui.painter().galley(pos2(line.center().x - g.size().x / 2.0, edge_y - g.size().y - 3.0), g, theme::text_dim());
     }
 
     // Right: time, volume, lyrics, queue, expand
@@ -1465,8 +1472,10 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
         let (queue, liked, acts, has_current, by, drag) = (&app.queue.tracks, &app.liked, &mut app.actions, app.queue.index.is_some(), &app.jam.by, &mut app.row_drag);
         // Songs to come can be dragged into another order; in a jam, by the host.
         let (list, movable) = (egui::Id::unique(("queue", salt)), !app.jam.guest());
-        let top = ui.cursor().top();
-        widgets::visible_rows(ui, queue.len() - start, |ui, k| {
+        let gap = if has_current { q.current_gap } else { 0.0 };
+        // Only the songs below the current one can be dragged to, so they're what it's measured from.
+        let top = ui.cursor().top() + gap;
+        widgets::visible_rows_gap(ui, queue.len() - start, gap, |ui, k| {
             let i = start + k;
             let t = &queue[i];
             // The first row is the current song.

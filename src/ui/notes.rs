@@ -266,6 +266,8 @@ pub fn card(app: &mut App, ctx: &egui::Context) {
     let screen = ctx.content_rect();
     let at = egui::pos2(screen.right() - 24.0, screen.bottom() - app.bar_height() - 20.0);
     let t = theme::anim_bool(ctx, "whats-new-in", true, 0.35);
+    // A see-through dialog fill needs its frost here too.
+    widgets::modal_extras(ctx, egui::Id::unique("whats-new"));
     let (mut dismiss, mut all) = (false, false);
     egui::Area::new(egui::Id::unique("whats-new"))
         .order(egui::Order::Foreground)
@@ -273,7 +275,8 @@ pub fn card(app: &mut App, ctx: &egui::Context) {
         .fixed_pos(at + vec2(0.0, 16.0 * (1.0 - t)))
         .show(ctx, |ui| {
             ui.multiply_opacity(t);
-            surface().corner_radius(14).inner_margin(Margin { left: 18, right: 12, top: 14, bottom: 16 }).show(ui, |ui| {
+            let radius = crate::preset::active().app.menu_radius.unwrap_or(14.0).clamp(0.0, 32.0) as u8;
+            surface().corner_radius(radius).inner_margin(Margin { left: 18, right: 12, top: 14, bottom: 16 }).show(ui, |ui| {
                 ui.set_width(330.0);
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 ui.horizontal_top(|ui| {

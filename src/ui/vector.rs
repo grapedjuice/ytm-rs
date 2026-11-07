@@ -1,9 +1,15 @@
-//! A theme's own icons: SVG path data, filled and drawn into a texture once per size.
+//! A theme's own icons: SVG path data, filled or stroked and drawn into a texture once per size.
 
 use egui::{Color32, ColorImage, Pos2, Rect, TextureHandle, TextureOptions, Ui, Vec2, pos2, vec2};
 
 /// Paths as closed polygons in the path's own units.
+#[cfg(test)]
 fn flatten(d: &str) -> Vec<Vec<[f32; 2]>> {
+    flatten_paths(d, false)
+}
+
+/// `close_ends`: a path that closes ends on its first point, for a stroke to go all the way round.
+fn flatten_paths(d: &str, close_ends: bool) -> Vec<Vec<[f32; 2]>> {
     let mut tokens = Tokens { s: d.as_bytes(), i: 0 };
     let mut polys: Vec<Vec<[f32; 2]>> = Vec::new();
     let mut cur: Vec<[f32; 2]> = Vec::new();
@@ -22,6 +28,9 @@ fn flatten(d: &str) -> Vec<Vec<[f32; 2]>> {
         match cmd.to_ascii_uppercase() {
             b'Z' => {
                 if !cur.is_empty() {
+                    if close_ends {
+                        cur.push([start_x, start_y]);
+                    }
                     polys.push(std::mem::take(&mut cur));
                 }
                 x = start_x;
@@ -198,6 +207,30 @@ fn arc(out: &mut Vec<[f32; 2]>, from: [f32; 2], to: [f32; 2], rx: f32, ry: f32, 
     }
 }
 
+/// The outline of lines this wide with round ends and joins, as polygons all wound the same
+/// way, so where they overlap the non-zero rule keeps them one shape.
+fn stroke_outline(lines: &[Vec<[f32; 2]>], width: f32) -> Vec<Vec<[f32; 2]>> {
+    const ROUND: usize = 16;
+    let r = width / 2.0;
+    let mut out = Vec::new();
+    for line in lines {
+        for (i, a) in line.iter().enumerate() {
+            out.push((0..ROUND).map(|k| {
+                let (s, c) = (-(k as f32) / ROUND as f32 * std::f32::consts::TAU).sin_cos();
+                [a[0] + c * r, a[1] + s * r]
+            }).collect());
+            let Some(b) = line.get(i + 1) else { continue };
+            let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+            let len = dx.hypot(dy);
+            if len > 0.0 {
+                let (nx, ny) = (-dy / len * r, dx / len * r);
+                out.push(vec![[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]]);
+            }
+        }
+    }
+    out
+}
+
 /// How much of each pixel the polygons cover, by the non-zero rule, on four lines a pixel.
 fn coverage(polys: &[Vec<[f32; 2]>], w: usize, h: usize) -> Vec<f32> {
     const LINES: usize = 4;
@@ -241,10 +274,13 @@ fn rasterize(icon: &crate::preset::VectorIcon, px: usize) -> ColorImage {
     let [ox, oy] = icon.origin;
     let scale = px as f32 / vw.max(vh).max(1.0);
     let (dx, dy) = ((px as f32 - vw * scale) / 2.0 - ox * scale, (px as f32 - vh * scale) / 2.0 - oy * scale);
-    let mut polys = flatten(&icon.d);
+    let mut polys = flatten_paths(&icon.d, icon.stroke > 0.0);
     for p in polys.iter_mut().flatten() {
         let x = p[0] * scale + dx;
         *p = [if icon.flip { px as f32 - x } else { x }, p[1] * scale + dy];
+    }
+    if icon.stroke > 0.0 {
+        polys = stroke_outline(&polys, icon.stroke * scale);
     }
     let cover = coverage(&polys, px, px);
     let pixels = cover.iter().map(|c| Color32::from_white_alpha((c.clamp(0.0, 1.0) * 255.0) as u8)).collect();
@@ -289,7 +325,7 @@ mod tests {
     use super::*;
 
     fn icon(d: &str) -> crate::preset::VectorIcon {
-        crate::preset::VectorIcon { view: [10.0, 10.0], origin: [0.0, 0.0], d: d.into(), flip: false }
+        crate::preset::VectorIcon { view: [10.0, 10.0], origin: [0.0, 0.0], d: d.into(), flip: false, stroke: 0.0 }
     }
 
     #[test]
@@ -315,6 +351,26 @@ mod tests {
         let hole = rasterize(&icon("M0 0H10V10H0ZM3 3V7H7V3Z"), 10);
         assert_eq!(same.pixels[55].a(), 255);
         assert_eq!(hole.pixels[55].a(), 0);
+    }
+
+    #[test]
+    fn a_stroke_draws_the_line_and_keeps_its_overlaps() {
+        let img = rasterize(&crate::preset::VectorIcon { stroke: 2.0, ..icon("M2 5H8M5 2V8") }, 10);
+        // On each line, and where they cross (the windings add, they don't cancel).
+        assert_eq!(img.pixels[5 * 10 + 3].a(), 255);
+        assert_eq!(img.pixels[3 * 10 + 5].a(), 255);
+        assert_eq!(img.pixels[5 * 10 + 5].a(), 255);
+        // Round ends reach past the end, and the corners stay empty.
+        assert!(img.pixels[5 * 10 + 1].a() > 100);
+        assert_eq!(img.pixels[0].a(), 0);
+    }
+
+    #[test]
+    fn a_stroke_goes_all_the_way_round_a_closed_path() {
+        let img = rasterize(&crate::preset::VectorIcon { stroke: 1.0, ..icon("M2 2H8V8H2Z") }, 10);
+        // The closing side, and the inside stays empty.
+        assert!(img.pixels[5 * 10 + 2].a() > 100);
+        assert_eq!(img.pixels[5 * 10 + 5].a(), 0);
     }
 
     #[test]

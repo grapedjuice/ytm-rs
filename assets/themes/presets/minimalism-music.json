@@ -95,7 +95,10 @@
     "fullscreen": {
       "size_vh": 0.6,
       "enter": [0.9, 1.1],
-      "leave": [1.08, 0.9]
+      "leave": [1.08, 0.9],
+      "enter_shift_vh": 0.015,
+      "leave_shift_vh": -0.01,
+      "settle_fade": 0.35
     },
     "open_scale": 0.9,
     "open_secs": 0.9,

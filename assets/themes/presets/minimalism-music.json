@@ -82,7 +82,8 @@
     ],
     "line_fade_secs": 2.25,
     "padding_top": 10,
-    "dot_em": [0.36, 0.32]
+    "dot_em": [0.36, 0.32],
+    "decor_em": 0.4
   },
   "cover": {
     "radius": 10,
@@ -93,15 +94,18 @@
     ],
     "fullscreen": {
       "size_vh": 0.6,
-      "enter": [0.9, 1.1]
+      "enter": [0.9, 1.1],
+      "leave": [1.08, 0.9]
     },
     "open_scale": 0.9,
-    "open_secs": 0.9
+    "open_secs": 0.9,
+    "open_fade": true
   },
   "now_playing": {
     "switch": {
       "back": 0,
-      "selected": 0.1
+      "selected": 0.1,
+      "plain": true
     },
     "panel_frac": [
       0.4,
@@ -118,7 +122,8 @@
     "progress_color": "white",
     "progress_radius": 100,
     "bar_layout": "song_left",
-    "byline_marquee": true
+    "byline_marquee": true,
+    "marquee_secs": 7
   },
   "app": {
     "font": "SF Pro Display",

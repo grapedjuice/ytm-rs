@@ -84,7 +84,7 @@
     "marker_hover": 0.38,
     "active_glow": [26, 0.055],
     "active_glow_colors": ["#67d9ff", "#9b86ff"],
-    "rest_saturate": 0.89,
+    "rest_saturate": 0.98,
     "column_overlays": [
       { "color": "#67d9ff", "alpha": 0.035, "x": 0.5, "y": 0.44, "rx": 0.5, "ry": 0.24 },
       { "color": "#9b86ff", "alpha": 0.028, "x": 0.78, "y": 0.62, "rx": 0.385, "ry": 0.21 },
@@ -94,7 +94,10 @@
     "line_stagger": 0.022,
     "scroll_secs": 0.69,
     "scroll_ease": [0.18, 0.82, 0.22, 1.0],
-    "scroll_offset": 0.5
+    "scroll_offset": 0.5,
+    "rest_saturate_far": 0.8,
+    "decor_active_alpha": 0.62,
+    "marker_colors_alt": ["#ff78ac", "#9b86ff"]
   },
   "cover": {
     "radius": 18,
@@ -130,7 +133,14 @@
     "thumb_disc_secs": 14,
     "thumb_px": 32,
     "bar_border_alpha": 0.18,
-    "progress_inset": 12
+    "progress_inset": 12,
+    "bar_tint": ["#67d9ff", "#9b86ff"],
+    "bar_tint_alpha": 0.06,
+    "bar_edge_color": "#96cdff",
+    "bar_edge_top": true,
+    "bar_docked_shadow": [40, 0.12],
+    "thumb_glow": [14, 0.35],
+    "thumb_glow_color": "#67d9ff"
   },
   "app": {
     "font": "SF Pro Display",

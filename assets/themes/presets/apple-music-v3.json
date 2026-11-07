@@ -229,6 +229,9 @@
         0.75,
         27
       ]
+    },
+    "queue_look": {
+      "thumb_radius": 5
     }
   }
 }

@@ -64,7 +64,8 @@
     ],
     "chip_look": {
       "height": 26,
-      "fill": 0.15
+      "fill": 0.15,
+      "text_color": "#d1d1d1"
     }
   },
   "now_playing": {
@@ -77,7 +78,8 @@
     "tab_pill": 0.15,
     "switch": {
       "back": 0.1,
-      "radius": 16
+      "radius": 16,
+      "plain": true
     }
   }
 }

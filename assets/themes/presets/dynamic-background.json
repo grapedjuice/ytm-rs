@@ -37,7 +37,12 @@
     "scroll_transition": { "frac": 0, "secs": 0.35, "delay": 0 },
     "resume_look": [12, 0.1, 0]
   },
-  "cover": { "radius": 20, "shadow": 0.2, "shadow_blur": 8, "shadow_offset": 4, "max_px": 400, "fullscreen": {}, "open_scale": 0.2, "open_secs": 0.75 },
+  "cover": { "radius": 20, "shadow": 0.2, "shadow_blur": 8, "shadow_offset": 4, "max_px": 400, "fullscreen": {
+      "corner_layout": true
+    }, "open_scale": 0.2, "open_secs": 0.75,
+    "open_slide": 0.6,
+    "open_fade": true,
+    "overlay_gradient": [0.5, 0] },
   "now_playing": { "title_align": "left", "title_px": 25, "artist_px": 20, "title_max_px": 500, "fullscreen_panel_frac": 0.4, "header_autohide": true },
   "chrome": {},
   "app": {
@@ -65,6 +70,7 @@
     "header_image_alpha": 0.8,
     "header_gradient": [0.5, 0],
     "np_open_secs": 0.65,
-    "glass": { "top_bar": [8, 1, 1], "menu": [8, 1, 1], "search_drop": [8, 1, 1], "toast": [8, 1, 1], "dialog": [8, 1, 1] }
+    "glass": { "top_bar": [8, 1, 1], "menu": [8, 1, 1], "search_drop": [8, 1, 1], "toast": [8, 1, 1], "dialog": [8, 1, 1] },
+    "ui_fade_secs": 0.4
   }
 }

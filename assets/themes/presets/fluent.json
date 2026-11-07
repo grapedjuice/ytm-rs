@@ -32,7 +32,8 @@
     "artist_px": 14,
     "title_weight": "semibold",
     "tabs": "strip",
-    "tab_selected_color": "accent"
+    "tab_selected_color": "accent",
+    "tab_line_px": 3
   },
   "chrome": {
     "glass": 0.7,
@@ -41,7 +42,10 @@
     "progress_px": 4,
     "progress_color": "accent",
     "progress_thumb_px": 10,
-    "progress_thumb_dot": true
+    "progress_thumb_dot": true,
+    "progress_thumb_color": "#454545",
+    "progress_thumb_dot_color": "accent",
+    "progress_thumb_dot_frac": 0.6
   },
   "app": {
     "font": "Segoe UI Variable, Segoe UI",
@@ -73,7 +77,9 @@
       "height": 40,
       "hover": 0.06,
       "selected": 0.06,
-      "press": 0.04
+      "press": 0.04,
+      "bar_px": 16,
+      "selected_fill": "#ffffff"
     },
     "controls": {
       "focus": { "color": "white", "px": 2, "inner_px": 1 }
@@ -100,7 +106,7 @@
     },
     "search_look": {
       "height": 32,
-      "focus_color": "#60cdff",
+      "focus_color": "accent",
       "underline": true,
       "drop_radius": 8
     },

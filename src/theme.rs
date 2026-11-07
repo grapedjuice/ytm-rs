@@ -39,7 +39,24 @@ pub fn set_mode(ctx: &egui::Context, light: bool) -> bool {
 
 /// Main text.
 pub fn text() -> Color32 {
-    if light() { TEXT_LIGHT } else { TEXT }
+    if light() {
+        return TEXT_LIGHT;
+    }
+    match TEXT_OVER.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => TEXT,
+        v => {
+            let [r, g, b, a] = v.to_le_bytes();
+            Color32::from_rgba_premultiplied(r, g, b, a)
+        }
+    }
+}
+
+/// The theme's main text colour, when it has one (0: none), and its small fades against the usual.
+static TEXT_OVER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static FADE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f80_0000);
+
+fn fade() -> f32 {
+    f32::from_bits(FADE.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 /// Text and icons on a fill of the main text colour (a primary button, a selected chip).
@@ -288,11 +305,11 @@ pub const SPEED: f32 = 0.65;
 
 /// Animate toward `target` (eased), keyed by `id`. Requests repaints while moving.
 pub fn anim(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, target: f32, secs: f32) -> f32 {
-    ctx.animate_value_with_time(egui::Id::unique(id), target, secs * SPEED)
+    ctx.animate_value_with_time(egui::Id::unique(id), target, secs * SPEED * fade())
 }
 
 pub fn anim_bool(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, on: bool, secs: f32) -> f32 {
-    let t = ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED);
+    let t = ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED * fade());
     if crate::preset::active().app.controls.spring { ease_back(t) } else { ease_out(t) }
 }
 
@@ -926,6 +943,8 @@ pub fn apply_chrome(ctx: &egui::Context, p: &crate::preset::Preset) {
     GLASS.store(p.chrome.glass.clamp(0.0, 2.5).to_bits(), std::sync::atomic::Ordering::Relaxed);
     let dim = crate::preset::hex(&p.app.text_dim).unwrap_or(TEXT_DIM);
     DIM.store(u32::from_le_bytes(dim.to_array()), std::sync::atomic::Ordering::Relaxed);
+    TEXT_OVER.store(crate::preset::hex(&p.app.text_color).map_or(0, |c| u32::from_le_bytes(c.to_array())), std::sync::atomic::Ordering::Relaxed);
+    FADE.store(p.app.ui_fade_secs.map_or(1.0, |s| (s / 0.18).clamp(0.3, 3.0)).to_bits(), std::sync::atomic::Ordering::Relaxed);
     install_style(ctx);
     install_fonts(ctx, &p.app.font);
 }
@@ -953,7 +972,7 @@ pub fn install_style(ctx: &egui::Context) {
         s.text_styles.insert(egui::TextStyle::Small, regular(12.0));
         s.visuals = visuals();
         s.interaction.selectable_labels = false;
-        s.animation_time = 0.18 * SPEED;
+        s.animation_time = 0.18 * SPEED * fade();
     });
 }
 
@@ -1001,7 +1020,7 @@ fn visuals() -> egui::Visuals {
         v.text_edit_bg_color = Some(glass(i.fill));
         v.widgets.inactive.corner_radius = egui::CornerRadius::same(i.radius.clamp(0.0, 28.0) as u8);
         if i.focus_px > 0.0 {
-            v.selection.stroke = egui::Stroke::new(i.focus_px, p.accent(RED));
+            v.selection.stroke = egui::Stroke::new(i.focus_px, i.focus_white.map_or(p.accent(RED), |a| with_alpha(Color32::WHITE, a)));
         }
     }
     if p.app.dialog_bottom_line {

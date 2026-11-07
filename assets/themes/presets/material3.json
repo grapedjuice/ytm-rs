@@ -38,7 +38,8 @@
   },
   "now_playing": {
     "tabs": "strip",
-    "tab_selected_color": "#ffb4a9"
+    "tab_selected_color": "#ffb4a9",
+    "tab_label_selected": "#f1dedc"
   },
   "chrome": {
     "play_button": "bare"
@@ -73,8 +74,9 @@
       "radius": 24,
       "height": 48,
       "hover": 0.08,
-      "selected": 0.12,
-      "press": 0.12
+      "selected": 1,
+      "press": 0.12,
+      "selected_fill": "#5d3f3c"
     },
     "chip_look": {
       "fill": 0.1,
@@ -82,6 +84,11 @@
       "selected_fill": "#4b5429",
       "selected_alpha": 1.0,
       "selected_text": "#e1e4b9"
+    },
+    "text_color": "#f1dedc",
+    "top_bar": {
+      "band": [0.78, 76],
+      "band_color": "#1a1110"
     }
   }
 }

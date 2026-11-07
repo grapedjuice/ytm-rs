@@ -150,7 +150,8 @@
       12,
       13,
       0.09
-    ]
+    ],
+    "shadow3": [4, 6, 0.2]
   },
   "now_playing": {
     "title_align": "left",
@@ -165,13 +166,15 @@
     "switch": {
       "back": 0.1,
       "selected": 0.1
-    }
+    },
+    "fullscreen_progress_radius": 6
   },
   "chrome": {
     "bar_color": "#141414",
     "byline_marquee": true,
     "marquee_fade": 18,
-    "transport_shift": 43
+    "transport_shift": 0,
+    "transport_shift_frac": 0.028
   },
   "app": {
     "font": "DM Sans",
@@ -198,6 +201,9 @@
     },
     "glass": {
       "top_bar": [25, 1, 1]
+    },
+    "queue_look": {
+      "thumb_radius": 5
     }
   }
 }

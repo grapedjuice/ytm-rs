@@ -52,7 +52,7 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
                 let rotate = if layer.rotate_secs > 0.0 { (now / layer.rotate_secs as f64 % 1.0) as f32 * std::f32::consts::TAU } else { 0.0 };
                 // Turning, it needs room for its corners.
                 let room = if layer.rotate_secs > 0.0 { 1.45 } else { 1.0 };
-                bg.paint(&painter, rect, Params { time: 0.0, blend: 1.0, intensity: 0.0, saturation: b.saturation, dim: layer.opacity, scale: (b.scale * room) + pulse, contrast: 1.0, dither: b.dither, rotate });
+                bg.paint(&painter, rect, Params { time: 0.0, blend: 1.0, intensity: 0.0, saturation: layer.saturate.unwrap_or(b.saturation), dim: layer.opacity * layer.brightness.unwrap_or(1.0), scale: (b.scale * room) + pulse, contrast: 1.0, dither: b.dither, rotate });
                 if layer.pulse_secs > 0.0 || layer.rotate_secs > 0.0 {
                     ctx.request_repaint_after(std::time::Duration::from_millis(33));
                 }
@@ -68,7 +68,15 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
                     let area = if side_by_side { Rect::from_min_size(rect.min, Vec2::splat(rect.height())) } else { rect };
                     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area));
                     child.set_clip_rect(area);
-                    widgets::paint_cover_fill(&child, area, &track.thumbs, Color32::from_gray((b.np_dim.clamp(0.0, 1.0) * 255.0) as u8));
+                    let tint = Color32::from_gray((b.np_dim.clamp(0.0, 1.0) * 255.0) as u8);
+                    let fading = b.fullbleed_fade.then(|| fullbleed_fade(&child, &track.id, &track.thumbs, now, b.crossfade_delay as f64, b.crossfade_secs as f64)).flatten();
+                    match fading {
+                        Some((old, k)) => {
+                            widgets::paint_cover_fill(&child, area, &old, tint);
+                            widgets::paint_cover_fill(&child, area, &track.thumbs, tint.gamma_multiply(k));
+                        }
+                        None => widgets::paint_cover_fill(&child, area, &track.thumbs, tint),
+                    }
                     if side_by_side {
                         let fade = Rect::from_min_max(pos2(area.left() + area.width() * b.fade[0], area.top()), pos2(area.left() + area.width() * b.fade[1], area.bottom()));
                         super::shell::hgradient(&painter, fade, Color32::TRANSPARENT, solid);
@@ -88,7 +96,7 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
                         saturation: b.saturation,
                         dim: b.np_dim * (1.0 - b.auto_dim * app.art_brightness),
                         scale: b.scale + level.min(0.5) * 0.12,
-                        contrast: 1.0,
+                        contrast: b.np_contrast,
                         dither: b.dither,
                         rotate: 0.0,
                     },
@@ -293,7 +301,8 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     let glide = p * p * (3.0 - 2.0 * p);
     let narrow = content.width() < 860.0;
     let corner = !narrow && cs.layout == Layout::Corner;
-    let lyrics_only = narrow || corner || cs.layout == Layout::LyricsOnly;
+    let fs_corner = !narrow && app.fullscreen && cs.fullscreen.is_some_and(|f| f.corner_layout);
+    let lyrics_only = narrow || corner || fs_corner || cs.layout == Layout::LyricsOnly;
     // reCover: the backdrop cover sits on the left, so the lyrics take the right side.
     let beside_cover = !narrow && cs.layout == Layout::LyricsOnly && look.background.mode == crate::preset::BgMode::CoverFullbleed;
     let centered = lyrics_only && !beside_cover;
@@ -301,7 +310,13 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     let col_art = Rect::from_center_size(content.center(), vec2(content.width().min(content.height() * 0.9), content.height()));
     let slide = 72.0;
     let corner_h = (content.height() * 0.24).clamp(96.0, 190.0);
-    let right = if corner {
+    let right = if fs_corner {
+        // A small cover at the bottom left with the title beside it, the lyrics on the right.
+        let share = look.now_playing.fullscreen_panel_frac.unwrap_or(0.5);
+        let split = content.right() - content.width() * share;
+        corner_block(app, ui, Rect::from_min_max(pos2(content.left(), content.bottom() - corner_h), pos2(split - 24.0, content.bottom())), &track);
+        Rect::from_min_max(pos2(split, content.top()), content.max)
+    } else if corner {
         // A small cover in the corner, the title beside it, the lyrics over them.
         corner_block(app, ui, Rect::from_min_max(pos2(content.left(), content.bottom() - corner_h), content.max), &track);
         Rect::from_min_max(content.min, pos2(content.right(), content.bottom() - corner_h - 12.0))
@@ -350,6 +365,8 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     }
     let toward = if !lyrics_only && cs.side == Side::Right { -slide } else { slide };
     let rect = right.translate(vec2(toward * (1.0 - panel_vis), 0.0));
+    let inset = look.now_playing.fullscreen_panel_inset.filter(|_| app.fullscreen);
+    let rect = inset.map_or(rect, |[top, bottom]| Rect::from_min_max(pos2(rect.left(), rect.top() + top), pos2(rect.right(), rect.bottom() - bottom)));
     // Switching between Lyrics and Up next: the old one fades out over the first 55%,
     // the new one fades in and rises into place from a third of the way.
     for (tab, key) in [(NpTab::Lyrics, "np-tab-lyrics"), (NpTab::UpNext, "np-tab-upnext")] {
@@ -369,13 +386,38 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         let rise = if panel_tab == tab { 18.0 * (1.0 - vis) } else { 0.0 };
         let r = rect.translate(vec2(0.0, rise));
         let mut rui = ui.new_child(egui::UiBuilder::new().max_rect(r));
-        rui.set_clip_rect(content.intersect(ui.clip_rect()));
+        rui.set_clip_rect(if inset.is_some() { ui.clip_rect() } else { content.intersect(ui.clip_rect()) });
         rui.multiply_opacity(panel_vis * vis);
         match tab {
             NpTab::Lyrics => lyrics_panel(app, &mut rui, r, now, centered),
             _ => super::shell::queue_list(app, &mut rui, "np"),
         }
     }
+}
+
+/// While a fullbleed cover crossfades to the next: the one it's leaving, and how far along.
+fn fullbleed_fade(ui: &Ui, id: &str, thumbs: &[crate::model::Thumb], now: f64, delay: f64, secs: f64) -> Option<(Vec<crate::model::Thumb>, f32)> {
+    #[derive(Clone)]
+    struct Fade {
+        id: String,
+        thumbs: Vec<crate::model::Thumb>,
+        old: Vec<crate::model::Thumb>,
+        at: f64,
+    }
+    let key = egui::Id::unique("fullbleed-fade");
+    let mut f = ui.ctx().data(|d| d.get_temp::<Fade>(key)).unwrap_or(Fade { id: id.to_owned(), thumbs: thumbs.to_vec(), old: Vec::new(), at: f64::MIN });
+    if f.id != id {
+        f = Fade { id: id.to_owned(), thumbs: thumbs.to_vec(), old: f.thumbs, at: now };
+        ui.ctx().data_mut(|d| d.insert_temp(key, f.clone()));
+    } else if f.at == f64::MIN {
+        ui.ctx().data_mut(|d| d.insert_temp(key, f.clone()));
+    }
+    let k = theme::ease_in_out(((now - f.at - delay) / secs.max(0.05)) as f32);
+    if k >= 1.0 || f.old.is_empty() {
+        return None;
+    }
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
+    Some((f.old, k))
 }
 
 /// A seek bar along the bottom of full screen, with the times on it.
@@ -386,10 +428,11 @@ fn fullscreen_progress(app: &mut App, ui: &mut Ui, screen: Rect, px: f32) {
     let r = Rect::from_min_max(pos2(screen.left(), screen.bottom() - px), screen.max);
     let resp = ui.interact(r, ui.scope_id().with("full-seek"), Sense::click());
     let resp = named(resp, "Seek").on_hover_cursor(egui::CursorIcon::PointingHand);
-    ui.painter().rect_filled(r, 0.0, theme::with_alpha(Color32::WHITE, 0.12));
+    let bar_r = app.look().now_playing.fullscreen_progress_radius;
+    ui.painter().rect_filled(r, bar_r, theme::with_alpha(Color32::WHITE, 0.12));
     if total > 0.0 {
         let filled = Rect::from_min_size(r.min, vec2(r.width() * pos / total, r.height()));
-        ui.painter().rect_filled(filled, 0.0, theme::with_alpha(Color32::WHITE, 0.32));
+        ui.painter().rect_filled(filled, bar_r, theme::with_alpha(Color32::WHITE, 0.32));
         let font = theme::semibold((px * 0.55).clamp(10.0, 14.0));
         ui.painter().text(pos2(r.left() + 12.0, r.center().y), egui::Align2::LEFT_CENTER, super::fmt_time(pos as u32), font.clone(), Color32::WHITE);
         ui.painter().text(pos2(r.right() - 12.0, r.center().y), egui::Align2::RIGHT_CENTER, super::fmt_time(total as u32), font, Color32::WHITE);
@@ -447,13 +490,17 @@ fn np_tabs(app: &mut App, ui: &mut Ui, content: Rect, style: crate::preset::TabS
             let w = if np.tab_content == TabContent::Icons { w.min(56.0) } else { w };
             let w = np.tab_width_frac.map_or(w, |f| (content.width() * f / 2.0).clamp(56.0, 220.0));
             let sel_color = if np.tab_selected_color.is_empty() { Color32::WHITE } else { crate::preset::paint(&np.tab_selected_color, app.accent_color()) };
-            let tab_h = np.tab_px.clamp(26.0, 44.0);
+            let tab_h = np.tab_px.clamp(26.0, 56.0);
             let r = Rect::from_min_size(pos2(right - w * 2.0, content.top() - 44.0 + (34.0 - tab_h) / 2.0), vec2(w * 2.0, tab_h));
+            // Under the cover, once it has said where that is.
+            let under = ui.ctx().data(|d| d.get_temp::<egui::Pos2>(egui::Id::unique("np-under-cover"))).filter(|_| np.tab_under_cover);
+            let r = under.map_or(r, |p| Rect::from_center_size(p + vec2(0.0, tab_h / 2.0), r.size()));
+            let w = r.width() / 2.0;
             if let Some([a, radius]) = np.tab_back {
                 if let Some(g) = app.look().app.glass.tabs {
                     crate::shader::frost(ui.painter(), r, crate::shader::Frost { look: g, radius: radius.min(tab_h / 2.0), opacity: 1.0, fade: 0.0 });
                 }
-                ui.painter().rect_filled(r, radius.min(tab_h / 2.0), theme::with_alpha(Color32::WHITE, a));
+                ui.painter().rect_filled(r, radius.min(tab_h / 2.0), theme::with_alpha(if np.tab_back_black { Color32::BLACK } else { Color32::WHITE }, a));
             }
             if np.tab_edge > 0.0 {
                 ui.painter().hline(r.x_range(), r.bottom() - 0.5, egui::Stroke::new(1.0, theme::with_alpha(Color32::WHITE, np.tab_edge)));
@@ -464,12 +511,16 @@ fn np_tabs(app: &mut App, ui: &mut Ui, content: Rect, style: crate::preset::TabS
                 // Slides from one tab to the other.
                 let at = theme::anim(ui.ctx(), "np-tab-pill", if lyrics_on { 1.0 } else { 0.0 }, 0.25);
                 let cell = Rect::from_min_size(r.min + vec2(w * at, 0.0), vec2(w, r.height())).shrink(3.0);
-                ui.painter().rect_filled(cell, np.tab_back.map_or(8.0, |b| (b[1] - 3.0).max(2.0)).min(cell.height() / 2.0), theme::with_alpha(Color32::WHITE, a));
+                let cell_r = np.tab_back.map_or(8.0, |b| (b[1] - 3.0).max(2.0)).min(cell.height() / 2.0);
+                ui.painter().rect_filled(cell, cell_r, theme::with_alpha(Color32::WHITE, a));
+                if np.tab_ring > 0.0 {
+                    ui.painter().rect_stroke(cell, cell_r, egui::Stroke::new(1.0, theme::with_alpha(Color32::WHITE, np.tab_ring)), egui::StrokeKind::Inside);
+                }
             }
             for (i, (label, glyph, on, tab)) in [("UP NEXT", icon::LIST_MUSIC, up_on, NpTab::UpNext), ("LYRICS", icon::MIC_VOCAL, lyrics_on, NpTab::Lyrics)].into_iter().enumerate() {
                 let cell = Rect::from_min_size(r.min + vec2(w * i as f32, 0.0), vec2(w, r.height()));
                 let resp = named(ui.interact(cell, ui.scope_id().with(("np-tab", i)), Sense::click()), label).on_hover_text(label).on_hover_cursor(egui::CursorIcon::PointingHand);
-                let c = if on { sel_color } else if resp.hovered() { Color32::WHITE } else { theme::with_alpha(theme::text_dim(), idle) };
+                let c = if on { crate::preset::hex(&np.tab_label_selected).unwrap_or(sel_color) } else if resp.hovered() { Color32::WHITE } else { theme::with_alpha(theme::text_dim(), idle) };
                 if on && np.tab_glow > 0.0 {
                     let g = egui::epaint::Shadow { offset: [0, 0], blur: 18, spread: 0, color: theme::with_alpha(sel_color, np.tab_glow) };
                     ui.painter().add(g.as_shape(cell.shrink(10.0), egui::CornerRadius::same(8)));
@@ -477,16 +528,16 @@ fn np_tabs(app: &mut App, ui: &mut Ui, content: Rect, style: crate::preset::TabS
                 widgets::focus_ring(ui, &resp, cell, 6.0);
                 match np.tab_content {
                     TabContent::Labels => {
-                        ui.painter().text(cell.center(), egui::Align2::CENTER_CENTER, label, theme::semibold(np.tab_label_px), c);
+                        ui.painter().text(cell.center(), egui::Align2::CENTER_CENTER, label, theme::weighted(np.tab_label_weight, np.tab_label_px), c);
                     }
                     TabContent::Icons => widgets::icon_at(ui, cell.center(), glyph, 18.0, c),
                     TabContent::Both => {
                         widgets::icon_at(ui, cell.center() - vec2(30.0, 0.0), glyph, 15.0, c);
-                        ui.painter().text(cell.center() + vec2(9.0, 0.0), egui::Align2::CENTER_CENTER, label, theme::semibold(np.tab_label_px - 1.0), c);
+                        ui.painter().text(cell.center() + vec2(9.0, 0.0), egui::Align2::CENTER_CENTER, label, theme::weighted(np.tab_label_weight, np.tab_label_px - 1.0), c);
                     }
                 }
                 if on && np.tab_pill.is_none() {
-                    ui.painter().hline(cell.x_range(), cell.bottom() - 1.0, egui::Stroke::new(1.5, sel_color));
+                    ui.painter().hline(cell.x_range(), cell.bottom() - np.tab_line_px * 0.67, egui::Stroke::new(np.tab_line_px, sel_color));
                 }
                 if resp.clicked() {
                     pick = Some(if on { NpTab::Art } else { tab });
@@ -494,17 +545,27 @@ fn np_tabs(app: &mut App, ui: &mut Ui, content: Rect, style: crate::preset::TabS
             }
         }
         TabStyle::Pill => {
-            let size = vec2(88.0, 40.0);
+            // Its height and fill are the theme's, when it sets them.
+            let pill_h = if np.tab_px == 34.0 { 40.0 } else { np.tab_px.clamp(28.0, 44.0) };
+            let cell_w = pill_h * 1.1;
+            let size = vec2(cell_w * 2.0, pill_h);
             let r = Rect::from_min_size(content.max - size - vec2(8.0, 8.0), size);
+            let [pill_a, pill_r] = np.tab_back.unwrap_or([0.12, pill_h / 2.0]);
+            let pill_r = pill_r.min(pill_h / 2.0);
             if let Some(g) = app.look().app.glass.tabs {
-                crate::shader::frost(ui.painter(), r, crate::shader::Frost { look: g, radius: 20.0, opacity: 1.0, fade: 0.0 });
+                crate::shader::frost(ui.painter(), r, crate::shader::Frost { look: g, radius: pill_r, opacity: 1.0, fade: 0.0 });
             }
-            ui.painter().rect_filled(r, 20.0, theme::with_alpha(Color32::WHITE, 0.12));
+            ui.painter().rect_filled(r, pill_r, theme::with_alpha(if np.tab_back_black { Color32::BLACK } else { Color32::WHITE }, pill_a));
             for (i, (glyph, label, on, tab)) in [(icon::MIC_VOCAL, "Lyrics", lyrics_on, NpTab::Lyrics), (icon::LIST_MUSIC, "Up next", up_on, NpTab::UpNext)].into_iter().enumerate() {
-                let cell = Rect::from_min_size(r.min + vec2(44.0 * i as f32, 0.0), vec2(44.0, 40.0));
+                let cell = Rect::from_min_size(r.min + vec2(cell_w * i as f32, 0.0), vec2(cell_w, pill_h));
                 let resp = named(ui.interact(cell, ui.scope_id().with(("np-pill", i)), Sense::click()), label).on_hover_text(label).on_hover_cursor(egui::CursorIcon::PointingHand);
                 if on {
-                    ui.painter().rect_filled(cell.shrink(3.0), 17.0, theme::with_alpha(Color32::WHITE, 0.2));
+                    let picked = cell.shrink(3.0);
+                    let picked_r = (pill_r - 3.0).max(2.0);
+                    ui.painter().rect_filled(picked, picked_r, theme::with_alpha(Color32::WHITE, np.tab_pill.unwrap_or(0.2)));
+                    if np.tab_ring > 0.0 {
+                        ui.painter().rect_stroke(picked, picked_r, egui::Stroke::new(1.0, theme::with_alpha(Color32::WHITE, np.tab_ring)), egui::StrokeKind::Inside);
+                    }
                 }
                 widgets::icon_at(ui, cell.center(), glyph, 18.0, if on { Color32::WHITE } else { theme::with_alpha(theme::text_dim(), idle) });
                 if resp.clicked() {
@@ -544,7 +605,9 @@ fn corner_block(app: &mut App, ui: &mut Ui, r: Rect, track: &crate::model::Track
 fn info_card(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::Track) {
     let np = &app.look().now_playing;
     let size = vec2((content.width() * 0.34).clamp(220.0, 420.0), 76.0);
-    let r = Rect::from_min_size(pos2(content.left(), content.bottom() - size.y), size);
+    let m = np.info_card_margin;
+    let r = if np.info_card_top { Rect::from_min_size(content.min + vec2(m, m), size) } else { Rect::from_min_size(pos2(content.left() + m, content.bottom() - size.y - m), size) };
+    let [card_title, card_artist] = np.info_card_weights.unwrap_or([crate::preset::Weight::Semibold, crate::preset::Weight::Regular]);
     if let Some(g) = app.look().app.glass.title_card {
         crate::shader::frost(ui.painter(), r, crate::shader::Frost { look: g, radius: np.info_card_look[1], opacity: 1.0, fade: 0.0 });
     }
@@ -552,9 +615,12 @@ fn info_card(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::Tr
     let art = Rect::from_min_size(r.min + vec2(10.0, 10.0), Vec2::splat(56.0));
     widgets::paint_cover(ui, art, &track.thumbs, 8.0, 1.0);
     let w = (r.right() - art.right() - 24.0).max(20.0);
-    text_at(ui, pos2(art.right() + 12.0, r.top() + 14.0), &track.title, theme::semibold(np.title_px.min(18.0)), Color32::WHITE, w);
+    if let Some([y, a]) = np.title_shadow {
+        text_at(ui, pos2(art.right() + 12.0, r.top() + 14.0 + y), &track.title, theme::weighted(card_title, np.title_px.min(18.0)), theme::shade(a), w);
+    }
+    text_at(ui, pos2(art.right() + 12.0, r.top() + 14.0), &track.title, theme::weighted(card_title, np.title_px.min(18.0)), Color32::WHITE, w);
     let line = track.artist_line();
-    widgets::linked_text(ui, pos2(art.right() + 12.0, r.top() + 40.0), &line, &track.artists, theme::regular(np.artist_px.min(14.0)), theme::text_dim(), w, &mut app.actions);
+    widgets::linked_text(ui, pos2(art.right() + 12.0, r.top() + 40.0), &line, &track.artists, theme::weighted(card_artist, np.artist_px.min(14.0)), theme::text_dim(), w, &mut app.actions);
 }
 
 /// Artwork with the title and artists under it, laid out in `col`. `px`: the size to
@@ -567,8 +633,14 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     let np = &look.now_playing;
     let side = art_side(cs, col, app.fullscreen, ui.ctx().content_rect().width());
     // Opening now playing, the cover grows into place.
-    let opening = if cs.open_scale < 1.0 { egui::lerp(cs.open_scale..=1.0, theme::anim_bool(ui.ctx(), "np-cover-open", app.np_open, cs.open_secs)) } else { 1.0 };
+    let opened = if cs.open_scale < 1.0 || cs.open_slide != 0.0 || cs.open_fade { theme::anim_bool(ui.ctx(), "np-cover-open", app.np_open, cs.open_secs) } else { 1.0 };
+    let opening = if cs.open_scale < 1.0 { egui::lerp(cs.open_scale..=1.0, opened) } else { 1.0 };
     let fs = cs.fullscreen.filter(|_| app.fullscreen).unwrap_or_default();
+    // Leaving full screen, it settles from a little bigger.
+    let opening = opening * match cs.fullscreen.and_then(|f| f.leave).filter(|_| !app.fullscreen) {
+        Some([from, secs]) => egui::lerp(from..=1.0, theme::anim_bool(ui.ctx(), "np-cover-left", !app.fullscreen, secs)),
+        None => 1.0,
+    };
     // Going full screen, it grows from a little smaller.
     let opening = opening * match cs.fullscreen.and_then(|f| f.enter).filter(|_| app.fullscreen) {
         Some([from, secs]) => egui::lerp(from..=1.0, theme::anim_bool(ui.ctx(), "np-cover-full", app.fullscreen, secs)),
@@ -579,7 +651,10 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         let [x, y] = fs.padding.unwrap_or(cs.padding);
         vec2(x, y)
     });
-    let art = Rect::from_center_size(art.center(), art.size() * opening);
+    let art = Rect::from_center_size(art.center(), art.size() * opening).translate(vec2(cs.open_slide * side * (1.0 - opened), 0.0));
+    if cs.open_fade {
+        ui.multiply_opacity(opened.clamp(0.0, 1.0));
+    }
     let round = cs.shape != Shape::Rounded && !fs.plain_shape;
     let radius = if round { side / 2.0 } else { fs.radius.unwrap_or(cs.radius_pct.map_or(cs.radius, |p| p * side)).clamp(0.0, side / 2.0) };
     let cr = if cs.top_only && !round { egui::CornerRadius { nw: radius.min(255.0) as u8, ne: radius.min(255.0) as u8, sw: 0, se: 0 } } else { egui::CornerRadius::same(radius.min(255.0) as u8) };
@@ -587,16 +662,18 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         let s = egui::epaint::Shadow { offset: [0, 16], blur: 90, spread: 6, color: theme::with_alpha(app.accent_color(), cs.glow.min(1.0) * 0.7) };
         ui.painter().add(s.as_shape(art, cr));
     }
-    if cs.shadow > 0.0 {
-        widgets::soft_shadow(ui, art.translate(vec2(0.0, cs.shadow_offset)), radius.min(255.0), cs.shadow_blur, cs.shadow.min(1.0));
+    let shadow_a = fs.shadow.unwrap_or(cs.shadow);
+    if shadow_a > 0.0 {
+        widgets::soft_shadow(ui, art.translate(vec2(0.0, cs.shadow_offset)), radius.min(255.0), cs.shadow_blur, shadow_a.min(1.0));
     }
-    if let Some([y, blur, a]) = cs.shadow2 {
+    for [y, blur, a] in [cs.shadow2, cs.shadow3].into_iter().flatten() {
         widgets::soft_shadow(ui, art.translate(vec2(0.0, y)), radius.min(255.0), blur, a);
     }
     if cs.opacity < 1.0 {
         ui.multiply_opacity(cs.opacity);
     }
-    let tint = Color32::from_gray((cs.brightness.clamp(0.1, 1.0) * 255.0) as u8);
+    let brightness = fs.brightness.unwrap_or(cs.brightness);
+    let tint = Color32::from_gray((brightness.clamp(0.1, 1.0) * 255.0) as u8);
     if round {
         if cs.shape == Shape::Record && (app.playing() || cs.spin_when_paused) {
             let dt = ui.input(|i| i.stable_dt).min(0.1) as f64;
@@ -619,8 +696,11 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         } else {
             widgets::paint_cover_px(ui, art, &track.thumbs, radius, 1.0, px);
         }
-        if cs.brightness < 0.99 {
-            ui.painter().rect_filled(art, cr, theme::shade(1.0 - cs.brightness));
+        if brightness < 0.99 {
+            ui.painter().rect_filled(art, cr, theme::shade(1.0 - brightness));
+        }
+        if let Some([from, to]) = cs.overlay_gradient {
+            super::shell::vgradient(ui.painter(), art.shrink(radius.min(art.width() / 4.0) * 0.3), theme::shade(from), theme::shade(to));
         }
     }
     if cs.opacity < 1.0 {
@@ -637,7 +717,8 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         if !np.cover_play_bare {
             ui.painter().circle_filled(art.center(), np.cover_play_px / 2.0, theme::shade(0.58 * hover));
         }
-        widgets::icon_at(ui, art.center(), if app.playing() || app.buffering { icon::PAUSE } else { icon::PLAY }, np.cover_play_px * 0.49, theme::with_alpha(Color32::WHITE, hover));
+        let grown = if np.cover_play_hover != 1.0 && ui.rect_contains_pointer(Rect::from_center_size(art.center(), Vec2::splat(np.cover_play_px))) { np.cover_play_hover } else { 1.0 };
+        widgets::icon_at(ui, art.center(), if app.playing() || app.buffering { icon::PAUSE } else { icon::PLAY }, np.cover_play_px * 0.49 * grown, theme::with_alpha(Color32::WHITE, hover));
     }
     if cover.clicked() { app.actions.push(Action::TogglePlay); }
     // Previous and next on the cover too, for themes that put the transport there. The bar still has them.
@@ -686,6 +767,10 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     let w = side.min(col.width()).min(np.title_max_px.unwrap_or(f32::INFINITY));
     let joined = np.title_card.is_some_and(|c| c.attached);
     let title_y = art.bottom().min(col.bottom() - np.title_px - np.artist_px - 24.0) + if joined { 12.0 } else { 22.0 };
+    if np.tab_under_cover {
+        let y = (title_y + np.title_px * 1.4 + np.artist_px * 1.5 + 16.0).min(col.bottom() - np.tab_px);
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique("np-under-cover"), pos2(art.center().x, y)));
+    }
     let line = track.artist_line();
     if np.info_card {
         info_card(app, ui, col, track);
@@ -693,7 +778,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         let (title_font, artist_font) = if np.title_lyric_font {
             (theme::lyric_font(&look.lyrics.font, np.title_weight, np.title_px), theme::lyric_font(&look.lyrics.font, np.artist_weight, np.artist_px))
         } else {
-            (theme::weighted(np.title_weight, np.title_px), theme::weighted(np.artist_weight, np.artist_px))
+            (theme::weighted(np.fullscreen_title_weight.filter(|_| app.fullscreen).unwrap_or(np.title_weight), np.title_px), theme::weighted(np.artist_weight, np.artist_px))
         };
         // A card around the block, joined to the cover.
         if let Some(card) = np.title_card {
@@ -772,8 +857,9 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
 fn song_video_switch(app: &mut App, ui: &mut Ui, header: Rect) {
     let look = app.look().now_playing.switch;
     // In the bottom corner, in some themes, rather than in the middle of the header.
-    let header = if look.at_corner { Rect::from_min_size(pos2(ui.max_rect().left(), ui.max_rect().bottom() - header.height()), vec2(170.0, header.height())) } else { header };
-    let header = header.translate(vec2(0.0, look.y_offset));
+    let corner_x = if look.at_right { ui.max_rect().right() - 170.0 } else { ui.max_rect().left() };
+    let header = if look.at_corner { Rect::from_min_size(pos2(corner_x, ui.max_rect().bottom() - header.height()), vec2(170.0, header.height())) } else { header };
+    let header = header.translate(vec2(0.0, look.y_offset_full.filter(|_| app.fullscreen).unwrap_or(look.y_offset)));
     let rect = Rect::from_center_size(header.center(), vec2(170.0, header.height()));
     let mut row = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
     row.spacing_mut().item_spacing.x = 6.0;
@@ -796,8 +882,22 @@ fn song_video_switch(app: &mut App, ui: &mut Ui, header: Rect) {
         let cell = Rect::from_center_size(header.center() + vec2(if app.show_video { 34.0 } else { -36.0 }, 0.0), vec2(68.0, 34.0));
         ui.painter().rect_filled(cell, look.radius.unwrap_or(17.0), theme::with_alpha(Color32::WHITE, a));
     }
-    let song = widgets::chip(&mut row, "Song", !app.show_video).clicked();
-    let video = widgets::chip(&mut row, "Video", app.show_video).clicked();
+    let (song, video) = if look.plain {
+        // Plain words in the same places as the selected fill above.
+        let word = |ui: &mut Ui, label: &str, x: f32, on: bool| {
+            let r = Rect::from_center_size(header.center() + vec2(x, 0.0), vec2(68.0, 34.0));
+            let resp = named(ui.interact(r, ui.scope_id().with(("av", label)), Sense::click()), label).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let c = if on || resp.hovered() { Color32::WHITE } else { theme::text_dim() };
+            if !super::vector::paint(ui, &label.to_lowercase(), r.center(), 18.0, c) {
+                ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, label, theme::semibold(13.5), c);
+            }
+            widgets::focus_ring(ui, &resp, r, look.radius.unwrap_or(17.0));
+            resp.clicked()
+        };
+        (word(ui, "Song", -36.0, !app.show_video), word(ui, "Video", 34.0, app.show_video))
+    } else {
+        (widgets::chip(&mut row, "Song", !app.show_video).clicked(), widgets::chip(&mut row, "Video", app.show_video).clicked())
+    };
     if (song && app.show_video) || (video && !app.show_video) {
         app.actions.push(Action::ToggleVideo);
     }
@@ -1066,21 +1166,25 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
     // in, and its text glows on hover.
     let shown = theme::anim_bool(ui.ctx(), "lyr-resume", out.user_scrolling, 0.2);
     if shown > 0.0 {
-        let font = theme::lyric_font(&style.font, crate::preset::Weight::Semibold, 17.5);
+        let font = theme::lyric_font(&style.font, crate::preset::Weight::Semibold, style.resume_text_px.unwrap_or(17.5));
         let g = widgets::galley(ui, "Resume Autoscroll", font, Color32::WHITE, rect.width() - 40.0);
         let size = g.size() + vec2(20.0, 10.0) + Vec2::splat(2.0);
         let em = 17.5;
         let y = rect.top() + 8.0 + egui::lerp(-3.0 * em..=0.5 * em, theme::ease_out(shown));
-        let r = Rect::from_min_size(pos2(rect.center().x - size.x / 2.0, y), size);
+        let size = vec2(size.x, style.resume_height.unwrap_or(size.y));
+        let r = Rect::from_min_size(pos2(rect.center().x - size.x / 2.0, y), size).translate(Vec2::from(style.resume_offset));
         let resp = ui.interact(r, ui.scope_id().with("lyr-resume-btn"), if out.user_scrolling { Sense::click() } else { Sense::hover() });
         let resp = named(resp, "Resume Autoscroll").on_hover_cursor(egui::CursorIcon::PointingHand);
         let hover = theme::anim_bool(ui.ctx(), "lyr-resume-h", resp.hovered() && out.user_scrolling, 0.25);
         let p = ui.painter().with_clip_rect(rect.expand2(vec2(0.0, 4.0)));
+        if let Some([sy, blur, a]) = style.resume_shadow {
+            p.add(egui::epaint::Shadow { offset: [0, sy as i8], blur: blur as u8, spread: 0, color: theme::shade(a * shown) }.as_shape(r, egui::CornerRadius::same(style.resume_look[0].min(255.0) as u8)));
+        }
         if let Some(g) = app.look().app.glass.resume {
             crate::shader::frost(&p, r, crate::shader::Frost { look: g, radius: style.resume_look[0], opacity: shown, fade: 0.0 });
         }
         let [res_r, res_fill, res_line] = style.resume_look;
-        p.rect_filled(r, res_r, theme::with_alpha(Color32::WHITE, res_fill * shown));
+        p.rect_filled(r, res_r, theme::with_alpha(if style.resume_black { Color32::BLACK } else { Color32::WHITE }, res_fill * shown));
         p.rect_stroke(r, res_r, egui::Stroke::new(1.0, theme::with_alpha(Color32::WHITE, res_line * shown)), egui::StrokeKind::Inside);
         let at = r.center() - g.size() / 2.0;
         if hover > 0.0

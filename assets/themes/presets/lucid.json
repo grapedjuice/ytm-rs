@@ -147,7 +147,9 @@
     "size_vh": 0.55,
     "shadow": 0.4,
     "shadow_blur": 50,
-    "shadow_offset": 20
+    "shadow_offset": 20,
+    "open_slide": 0.6,
+    "open_fade": true
   },
   "now_playing": {
     "tabs": "strip",
@@ -198,7 +200,8 @@
         30,
         0.5
       ],
-      "row_radius": 8
+      "row_radius": 8,
+      "dialog_alpha": 0.4
     },
     "search_look": {
       "drop_radius": 20,

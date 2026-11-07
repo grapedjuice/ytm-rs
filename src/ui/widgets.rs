@@ -172,6 +172,10 @@ pub fn linked_text(
 }
 
 pub fn icon_at(ui: &Ui, center: Pos2, glyph: char, size: f32, color: Color32) {
+    // A theme's own icon for it. Most have none.
+    if !crate::preset::active().app.icons.is_empty() && super::vector::name_of(glyph).is_some_and(|name| super::vector::paint(ui, name, center, size * 1.1, color)) {
+        return;
+    }
     // Centred on the drawn shape: egui places these glyphs flush left in their box
     // (dropping the font's side bearing) and a little high, so box-centring is off.
     let g = ui.painter().layout_no_wrap(glyph.to_string(), theme::icon_font(size), color);
@@ -284,7 +288,8 @@ pub fn squircle(rect: Rect, r: f32) -> Vec<Pos2> {
             let a = i as f32 / STEPS as f32 * std::f32::consts::FRAC_PI_2;
             let a = if flip { std::f32::consts::FRAC_PI_2 - a } else { a };
             // |x|^4 + |y|^4 = 1: going around, x from 0 to 1 at the top right.
-            let (x, y) = (a.sin().sqrt(), a.cos().sqrt());
+            // `cos` of a quarter turn comes out a hair below zero, and its root isn't a number.
+            let (x, y) = (a.sin().max(0.0).sqrt(), a.cos().max(0.0).sqrt());
             pts.push(pos2(cx + sx * x * r, cy + sy * y * r));
         }
     }
@@ -396,6 +401,7 @@ pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
     let fill = theme::lerp_color(off_fill, on_fill, s);
     let press = crate::preset::active().app.controls.press_chips;
     let rect = if press < 1.0 && resp.is_pointer_button_down_on() { Rect::from_center_size(rect.center(), rect.size() * press) } else { rect };
+    let rect = rect.translate(vec2(0.0, -chips.hover_lift * h));
     // In a segmented row the inner corners are small, the row's ends round by the gap's side.
     let radius = chips.segmented.map_or(radius, |[_, inner, _]| inner);
     ui.painter().rect_filled(rect, radius, fill);
@@ -570,24 +576,28 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
     let h = if active.is_some() { 1.0 } else { h };
     let mut play_hit = false;
     if h > 0.01 {
-        let center = img.right_bottom() + vec2(-30.0, -30.0 + 8.0 * (1.0 - h));
+        let center = if cl.play_center { img.center() } else { img.right_bottom() + vec2(-30.0, -30.0 + 8.0 * (1.0 - h)) };
         let prect = Rect::from_center_size(center, Vec2::splat(cl.play_px.max(32.0)));
         let p = ui.interact(prect, resp.id.with("play"), Sense::click());
         let playing = active == Some(true);
         let p = named(p, &format!("{} {}", if playing { "Pause" } else { "Play" }, c.title)).on_hover_cursor(egui::CursorIcon::PointingHand);
         let ph = theme::anim_bool(ui.ctx(), p.id.with("h"), p.hovered(), 0.12);
         let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
-        let back = theme::shade(cl.play_alpha * h);
+        let rest_a = egui::lerp(cl.play_alpha..=cl.play_hover_alpha.unwrap_or(cl.play_alpha), ph) * h;
+        let back = crate::preset::hex(&cl.play_color).map_or(theme::shade(rest_a), |c| theme::with_alpha(c, rest_a));
         let back = if cl.play_hover_accent { theme::lerp_color(back, accent, ph) } else { back };
         if let Some(g) = look.glass.card_play {
             crate::shader::frost(ui.painter(), Rect::from_center_size(center, prect.size() + Vec2::splat(4.0 * ph)), crate::shader::Frost { look: g, radius: 999.0, opacity: h, fade: 0.0 });
         }
         let play_r = (prect.width() / 2.0 + 2.0 * ph) * (1.0 + (cl.play_hover_scale - 1.0) * ph);
-        ui.painter().circle_filled(center, play_r, back);
+        if !cl.play_bare {
+            ui.painter().circle_filled(center, play_r, back);
+        }
         if cl.play_ring > 0.0 {
             ui.painter().circle_stroke(center, play_r - 0.5, egui::Stroke::new(1.0, theme::with_alpha(Color32::WHITE, cl.play_ring * h)));
         }
-        play_pause_glyph(ui, center, 10.0, theme::with_alpha(Color32::WHITE, h), playing);
+        let glyph_c = crate::preset::hex(&cl.play_glyph_color).unwrap_or(Color32::WHITE);
+        play_pause_glyph(ui, center, cl.play_glyph_px * (1.0 + (cl.play_hover_scale - 1.0) * ph), theme::with_alpha(glyph_c, h), playing);
         play_hit = p.clicked();
     }
     let tcolor = theme::text();
@@ -741,6 +751,7 @@ pub fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
     } else {
         0.0
     };
+    let slide = slide + if m.row_slide > 0.0 { m.row_slide * theme::anim_bool(ui.ctx(), response.id.with("slide"), response.hovered(), 0.12) } else { 0.0 };
     let (icon_x, text_x) = if m.icon_right { (rect.right() - 19.0 + slide, rect.left() + 12.0 + slide) } else { (rect.left() + 19.0 + slide, rect.left() + 40.0 + slide) };
     if let Some(glyph) = glyph {
         icon_at(ui, pos2(icon_x, rect.center().y), glyph, 16.0, color);
@@ -963,7 +974,15 @@ pub fn visible_rows(ui: &mut Ui, n: usize, mut row: impl FnMut(&mut Ui, usize)) 
 
 /// Song row: cover (or index), title, artists, album, duration. Click plays.
 pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) -> Response {
-    let rl = &crate::preset::active().app.row_look;
+    let in_queue;
+    let rl = match ui.data(|d| d.get_temp::<bool>(egui::Id::unique("in-queue"))).filter(|on| *on).map(|_| crate::preset::active().app.queue_look) {
+        Some(q) => {
+            let base = &crate::preset::active().app.row_look;
+            in_queue = crate::preset::RowLook { thumb_radius: q.thumb_radius.or(base.thumb_radius), radius: q.radius.unwrap_or(base.radius), pad: q.pad.unwrap_or(base.pad), hover_border: q.hover_border.unwrap_or(base.hover_border), image_zoom: q.image_zoom.unwrap_or(base.image_zoom), image_dim: q.image_dim.unwrap_or(base.image_dim), ..base.clone() };
+            &in_queue
+        }
+        None => &crate::preset::active().app.row_look,
+    };
     let (rect, base) = ui.allocate_exact_size(vec2(ui.available_width(), rl.height), Sense::hover());
     if !ui.is_rect_visible(rect) {
         return base;
@@ -978,6 +997,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     // Grows or shrinks on the row's own place, the list around it staying put.
     let press = if resp.is_pointer_button_down_on() { crate::preset::active().app.controls.press_rows } else { 1.0 };
     let rect = if rl.hover_scale != 1.0 || press != 1.0 { Rect::from_center_size(rect.center(), rect.size() * (1.0 + (rl.hover_scale - 1.0) * h) * press) } else { rect };
+    let rect = rect.translate(vec2(0.0, -rl.hover_lift * h));
     if h > 0.0 || o.current {
         let a = if o.current { rl.current + 0.05 * h } else { rl.hover * h };
         let fill = match crate::preset::hex(&rl.current_color).filter(|_| o.current) {
@@ -1363,6 +1383,12 @@ pub fn skeleton(ui: &mut Ui, time: f64, rows: usize, card: f32) {
 #[cfg(test)]
 mod shelf_scroll_tests {
     use super::{shelf_page_starts, shelf_page_target};
+
+    #[test]
+    fn a_squircle_has_only_real_points(){
+        let pts = crate::ui::widgets::squircle(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::splat(100.0)), 20.0);
+        assert!(pts.iter().all(|p| p.x.is_finite() && p.y.is_finite()));
+    }
 
     #[test]
     fn arrows_visit_aligned_pages_in_both_directions() {

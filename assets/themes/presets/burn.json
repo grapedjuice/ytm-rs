@@ -132,7 +132,9 @@
     "time_weight": "light",
     "thumb_radius": 3.2,
     "icon_alpha": 0.7,
-    "bar_cover_alpha": 0.22
+    "bar_cover_alpha": 0.22,
+    "tip_fill": "#ffffff",
+    "tip_text": "#000000"
   },
   "app": {
     "font": "Google Sans Flex",
@@ -200,6 +202,7 @@
       "back": 0.1,
       "selected": 0.15,
       "stroke": 0.1
-    }
+    },
+    "tab_ring": 0.12
   }
 }

@@ -26,6 +26,7 @@ mod shell;
 mod titlebar;
 pub use titlebar::{custom as custom_titlebar, set_hwnd as set_titlebar_hwnd};
 mod transfer;
+mod vector;
 mod widgets;
 
 use std::collections::{HashMap, HashSet};
@@ -647,7 +648,8 @@ impl App {
             np_tab: if get("np_art").is_some_and(|v| v == "1") { NpTab::Art } else { NpTab::Lyrics },
             queue_open: false,
             row_drag: None,
-            fullscreen: false,
+            // Dev hook: the full screen layout, leaving the window where it is.
+            fullscreen: dev_var("YTM_FAKE_FULLSCREEN").is_some(),
             mini: mini::Mini::load(get),
             lyrics: None,
             lyrics_extras: None,
@@ -1087,7 +1089,7 @@ impl eframe::App for App {
                     None => shell::bar_fill(look, bar_alpha),
                 };
                 let mut f = egui::Frame::new().fill(fill);
-                if (app_style.bar_border || look.chrome.bar_border_alpha.is_some()) && (look.chrome.bar_np_border || !self.np_open) {
+                if (app_style.bar_border || look.chrome.bar_border_alpha.is_some()) && (look.chrome.bar_np_border || !self.np_open) && !look.chrome.bar_edge_top {
                     f = f.stroke(egui::Stroke::new(1.0, theme::glass(look.chrome.bar_border_alpha.unwrap_or(0.1))));
                 }
                 f

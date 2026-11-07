@@ -201,12 +201,14 @@ struct NavLook {
     hover: f32,
     selected: f32,
     outline: f32,
+    selected_fill: Option<Color32>,
+    bar_px: f32,
 }
 
 impl NavLook {
     fn of(app: &App) -> Self {
         let i = &app.look().app.nav_item;
-        Self { style: app.look().app.nav, radius: i.radius.unwrap_or((app.look().chrome.radius * 0.6).clamp(4.0, 16.0)), accent: app.accent_color(), hover: i.hover, selected: i.selected, outline: app.look().app.controls.ghost_outline }
+        Self { style: app.look().app.nav, radius: i.radius.unwrap_or((app.look().chrome.radius * 0.6).clamp(4.0, 16.0)), accent: app.accent_color(), hover: i.hover, selected: if theme::light() && !i.selected_fill.is_empty() { 0.12 } else { i.selected }, outline: app.look().app.controls.ghost_outline, selected_fill: crate::preset::hex(&i.selected_fill).filter(|_| !theme::light()), bar_px: i.bar_px }
     }
 }
 
@@ -230,7 +232,15 @@ fn nav_bg(ui: &Ui, look: NavLook, rect: Rect, h: f32, s: f32) -> Color32 {
             theme::lerp_color(icon_fg, theme::on_text(), s)
         }
         NavStyle::Pill => {
-            ui.painter().rect_filled(rect, nav_r, theme::glass(look.hover * h + look.selected * s));
+            match look.selected_fill {
+                Some(c) => {
+                    ui.painter().rect_filled(rect, nav_r, theme::glass(look.hover * h));
+                    ui.painter().rect_filled(rect, nav_r, theme::with_alpha(c, look.selected * s));
+                }
+                None => {
+                    ui.painter().rect_filled(rect, nav_r, theme::glass(look.hover * h + look.selected * s));
+                }
+            }
             icon_fg
         }
         NavStyle::Accent => {
@@ -240,7 +250,10 @@ fn nav_bg(ui: &Ui, look: NavLook, rect: Rect, h: f32, s: f32) -> Color32 {
         }
         NavStyle::Bar => {
             ui.painter().rect_filled(rect, nav_r, theme::glass(look.hover * h));
-            let bar = Rect::from_center_size(pos2(rect.left() + 2.0, rect.center().y), vec2(3.0, 20.0 * s));
+            if let Some(c) = look.selected_fill {
+                ui.painter().rect_filled(rect, nav_r, theme::with_alpha(c, look.selected * s));
+            }
+            let bar = Rect::from_center_size(pos2(rect.left() + 2.0, rect.center().y), vec2(3.0, look.bar_px * s));
             ui.painter().rect_filled(bar, 2.0, accent);
             icon_fg
         }
@@ -271,6 +284,21 @@ pub fn sidebar_collapse(app: &App, ctx: &egui::Context) -> f32 {
     let t = ctx.animate_bool_with_time(egui::Id::unique("sidebar-collapse"), is_rail(app), 0.28 * theme::SPEED);
     // Ease in-out: starts and lands gently in both directions.
     t * t * (3.0 - 2.0 * t)
+}
+
+/// The theme's name for the app, its last word perhaps in a second colour.
+fn logo_name(ui: &mut Ui, logo: &crate::preset::TopBarLook, accent: Color32) {
+    let c = if logo.logo_color.is_empty() { theme::text() } else { crate::preset::paint(&logo.logo_color, accent) };
+    ui.spacing_mut().item_spacing.x = 0.0;
+    match logo.logo_text.rsplit_once(' ').filter(|_| !logo.logo_color2.is_empty()) {
+        Some((first, last)) => {
+            ui.label(egui::RichText::new(format!("{first} ")).font(theme::bold(17.0)).color(c));
+            ui.label(egui::RichText::new(last).font(theme::bold(17.0)).color(crate::preset::paint(&logo.logo_color2, accent)));
+        }
+        None => {
+            ui.label(egui::RichText::new(&logo.logo_text).font(theme::bold(17.0)).color(c));
+        }
+    }
 }
 
 /// One layout for both states, so collapsing animates: the panel narrows while icons
@@ -308,8 +336,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         if logo.logo_text.is_empty() {
             ui.label(egui::RichText::new("Music").font(theme::bold(22.0)).color(theme::text()));
         } else {
-            let c = if logo.logo_color.is_empty() { theme::text() } else { crate::preset::paint(&logo.logo_color, app.accent_color()) };
-            ui.label(egui::RichText::new(&logo.logo_text).font(theme::bold(17.0)).color(c));
+            logo_name(ui, &logo, app.accent_color());
         }
     });
     ui.add_space(22.0);
@@ -317,7 +344,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     let mut go_to: Option<Page> = None;
     let look = NavLook::of(app);
     let nav = |ui: &mut Ui, glyph: char, label: &str, page: Page, selected: bool, go_to: &mut Option<Page>| {
-        let height = if item.rail_labels { lerp(item.height..=item.height.max(62.0), t) } else { item.height };
+        let height = if item.rail_labels { lerp(item.height..=item.rail_height.unwrap_or(item.height.max(62.0)), t) } else { lerp(item.height..=item.rail_height.unwrap_or(item.height), t) };
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
         let mut resp = named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
         if collapsed && !item.rail_labels {
@@ -326,7 +353,10 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
         let s = theme::anim_bool(ui.ctx(), resp.id.with("s"), selected, 0.2);
         let rect = rect.shrink2(vec2(item.side_margin, 0.0));
-        let icon_fg = nav_bg(ui, look, rect, h, s);
+        // On a rail with labels the row is cut by the rail: keep to what's seen, and centre on it.
+        let rect = if item.rail_labels && t > 0.5 { rect.with_max_x(rect.right().min(ui.clip_rect().right() - 4.0)) } else { rect };
+        let fill_rect = if item.hover_zoom != 1.0 { Rect::from_center_size(rect.center(), rect.size() * (1.0 + (item.hover_zoom - 1.0) * h)) } else { rect };
+        let icon_fg = nav_bg(ui, look, fill_rect, h, s);
         if item.press > 0.0 && resp.is_pointer_button_down_on() {
             ui.painter().rect_filled(rect, look.radius, theme::glass(item.press));
         }
@@ -509,13 +539,17 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         let screen = ui.ctx().content_rect();
         let [a, px] = tb.band.unwrap_or([0.0, search_h + 34.0]);
         let band = Rect::from_min_max(pos2(r.left() - 28.0, screen.top()), pos2(r.right(), r.top() + px));
+        let on = if tb.band_on_scroll { (app.page_scrolled / 40.0).clamp(0.0, 1.0) } else { 1.0 };
         // The band takes the pointer from what's scrolled under it.
         if let Some(g) = glass {
             ui.interact(Rect::from_min_size(band.min, vec2(band.width(), r.top() + search_h + 6.0 - screen.top())), ui.scope_id().with("band-back"), Sense::hover());
-            crate::shader::frost(ui.painter(), band, crate::shader::Frost { look: g, radius: 0.0, opacity: 1.0, fade: 24.0 });
+            // Down to where the page starts, so nothing at rest sits in the blur.
+            let frosted = band.with_max_y(r.top() + search_h.max(42.0) + 6.0);
+            crate::shader::frost(ui.painter(), frosted, crate::shader::Frost { look: g, radius: 0.0, opacity: on, fade: 12.0 });
         }
         if a > 0.0 {
-            vgradient(ui.painter(), band, theme::shade(a), Color32::TRANSPARENT);
+            let top = crate::preset::hex(&tb.band_color).map_or(theme::shade(a * on), |c| theme::with_alpha(c, a * on));
+            vgradient(ui.painter(), band, top, Color32::TRANSPARENT);
         }
     }
     if let Some(max) = tb.capsule_px {
@@ -533,6 +567,11 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
     }
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
+        if tb.logo_in_bar && !tb.logo_text.is_empty() {
+            ui.add_space(6.0);
+            ui.allocate_ui_with_layout(vec2(136.0, app.look().app.search_look.height.max(30.0)), egui::Layout::left_to_right(egui::Align::Center), |ui| logo_name(ui, &tb, app.accent_color()));
+            ui.add_space(10.0);
+        }
         if icon_button(ui, icon::CHEVRON_LEFT, 20.0, "Back", false).clicked() {
             app.nav_back();
         }
@@ -549,6 +588,9 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         let width = (ui.available_width() - reserve).clamp(narrowest, sl.max_px.max(narrowest));
         // Anywhere on the pill focuses the box, not just on the text area inside it.
         let (rect, field) = ui.allocate_exact_size(vec2(width, sl.height.max(30.0)), Sense::click());
+        if let Some(g) = app.look().app.glass.search.filter(|_| !theme::light()) {
+            crate::shader::frost(ui.painter(), rect, crate::shader::Frost { look: g, radius: app.look().app.search_radius.min(21.0), opacity: 1.0, fade: 0.0 });
+        }
         let field = field.on_hover_cursor(egui::CursorIcon::Text);
         let focus = theme::anim_bool(ui.ctx(), "search-focus", app.search_focused, 0.2);
         let box_look = &app.look().app;
@@ -725,7 +767,7 @@ pub fn suggestions(app: &mut App, ctx: &egui::Context) {
                 crate::shader::frost(ui.painter(), last, crate::shader::Frost { look: g, radius: drop_r, opacity: t, fade: 0.0 });
             }
             egui::Frame::new()
-                .fill(if app.look().app.glass.search_drop.is_some() && crate::shader::glass_ready() { theme::with_alpha(crate::preset::hex(&app.look().app.menu_color).unwrap_or(Color32::from_rgb(38, 34, 42)), app.look().app.menu_look.alpha) } else { theme::menu_fill() })
+                .fill(if app.look().app.glass.search_drop.is_some() && crate::shader::glass_ready() { theme::with_alpha(crate::preset::hex(&app.look().app.menu_color).unwrap_or(Color32::from_rgb(38, 34, 42)), sl.drop_alpha.unwrap_or(app.look().app.menu_look.alpha)) } else { theme::menu_fill() })
                 .corner_radius(if sl.attached { egui::CornerRadius { nw: 0, ne: 0, sw: drop_r as u8, se: drop_r as u8 } } else { egui::CornerRadius::same(drop_r as u8) })
                 .stroke(egui::Stroke::new(if sl.drop_ring > 0.0 { 1.0 } else { 0.0 }, theme::glass(sl.drop_ring)))
                 .inner_margin(6)
@@ -853,7 +895,10 @@ pub fn floating_bar(app: &mut App, ui: &mut Ui, slot: Rect, now: f64) {
     };
     ui.painter().rect_filled(r, radius, fill);
     let edge = look.chrome.bar_border_alpha.unwrap_or(if look.app.bar_border { 0.14 } else { 0.08 });
-    ui.painter().rect_stroke(r, radius, egui::Stroke::new(1.0, theme::glass(edge)), egui::StrokeKind::Inside);
+    if !(look.chrome.bar_np_no_edge && app.np_open) {
+        let c = crate::preset::hex(&look.chrome.bar_edge_color).map_or(theme::glass(edge), |c| theme::with_alpha(c, edge));
+        ui.painter().rect_stroke(r, radius, egui::Stroke::new(1.0, c), egui::StrokeKind::Inside);
+    }
     let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(r));
     bar.set_clip_rect(r);
     player_bar(app, &mut bar, now);
@@ -872,6 +917,25 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let progress_color = if look.chrome.progress_color == "white" { theme::text() } else { progress_color };
     let progress_color = theme::with_alpha(progress_color, look.chrome.progress_alpha);
     let chrome = look.chrome.clone();
+    if chrome.bar_tint.len() >= 2 && chrome.bar_tint_alpha > 0.0 && !theme::light() {
+        let stops = chrome.bar_tint.len();
+        for i in 0..stops - 1 {
+            let at = |k: usize| theme::with_alpha(crate::preset::paint(&chrome.bar_tint[k], app.accent_color()), chrome.bar_tint_alpha);
+            let seg = Rect::from_min_max(pos2(egui::lerp(full.x_range(), i as f32 / (stops - 1) as f32), full.top()), pos2(egui::lerp(full.x_range(), (i + 1) as f32 / (stops - 1) as f32), full.bottom()));
+            hgradient(ui.painter(), seg, at(i), at(i + 1));
+        }
+    }
+    if chrome.player_bar != crate::preset::PlayerBar::Floating {
+        if chrome.bar_edge_top && chrome.bar_border_alpha.is_some() && (chrome.bar_np_border || !app.np_open) {
+            let a = chrome.bar_border_alpha.unwrap_or(0.1);
+            let c = crate::preset::hex(&chrome.bar_edge_color).map_or(theme::glass(a), |c| theme::with_alpha(c, a));
+            ui.painter().hline(full.x_range(), full.top() + 0.5, egui::Stroke::new(1.0, c));
+        }
+        if let Some([px, a]) = chrome.bar_docked_shadow.filter(|_| !app.np_open) {
+            let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::unique("bar-shadow")));
+            vgradient(&p, Rect::from_min_max(pos2(full.left(), full.top() - px), pos2(full.right(), full.top())), Color32::TRANSPARENT, theme::shade(a));
+        }
+    }
     let status = app.audio.status.clone();
     let track = app.current().cloned();
     let playing = app.playing();
@@ -885,7 +949,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     // Progress line along the top edge; thickens with a knob on hover.
     let above = look.chrome.progress_at == crate::preset::ProgressAt::AboveTransport;
     // Over the transport, as wide as a third of the bar.
-    let track_rect = if above { Rect::from_center_size(pos2(full.center().x + look.chrome.transport_shift, track_rect.center().y), vec2((full.width() * 0.34).clamp(220.0, 520.0), track_rect.height())) } else { track_rect };
+    let track_rect = if above { Rect::from_center_size(pos2(full.center().x + look.chrome.transport_shift + look.chrome.transport_shift_frac * full.width(), track_rect.center().y), vec2(look.chrome.progress_width_frac.map_or((full.width() * 0.34).clamp(220.0, 520.0), |f| (full.width() * f).max(160.0)), track_rect.height())) } else { track_rect };
     let edge_y = if above { track_rect.top() + 7.0 } else if at_bottom { track_rect.bottom() - progress_px } else { track_rect.top() };
     let bar_hit = Rect::from_min_size(pos2(track_rect.left(), edge_y - 6.0), vec2(track_rect.width(), 14.0));
     let resp = ui.interact(bar_hit, ui.scope_id().with("progress"), Sense::click_and_drag());
@@ -919,18 +983,28 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let over = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, ui.scope_id().with("seek-over")));
         if progress_thumb {
             let knob = pos2(filled.right(), line.center().y);
-            over.circle_filled(knob, chrome.progress_thumb_px * h, progress_color);
+            let knob_c = if chrome.progress_thumb_color.is_empty() { progress_color } else { crate::preset::paint(&chrome.progress_thumb_color, app.accent_color()) };
+            match chrome.progress_thumb_pill {
+                Some([kw, kh]) => {
+                    over.rect_filled(Rect::from_center_size(knob, vec2(kw, kh) * h), kw.min(kh) / 2.0, knob_c);
+                }
+                None => {
+                    over.circle_filled(knob, chrome.progress_thumb_px * h, knob_c);
+                }
+            }
             if chrome.progress_thumb_dot {
-                over.circle_filled(knob, chrome.progress_thumb_px * 0.4 * h, theme::on_text());
+                let dot_c = if chrome.progress_thumb_dot_color.is_empty() { theme::on_text() } else { crate::preset::paint(&chrome.progress_thumb_dot_color, app.accent_color()) };
+                over.circle_filled(knob, chrome.progress_thumb_px * chrome.progress_thumb_dot_frac * h, dot_c);
             }
         }
         if let Some(p) = resp.hover_pos() {
             let t = ((p.x - line.left()) / line.width()).clamp(0.0, 1.0) * total;
             let tip = pos2(p.x, line.top() - 16.0);
-            let g = widgets::galley(ui, &fmt_time(t as u32), theme::semibold(12.0), Color32::WHITE, 80.0);
+            let tip_text = crate::preset::hex(&chrome.tip_text).unwrap_or(Color32::WHITE);
+            let g = widgets::galley(ui, &fmt_time(t as u32), theme::semibold(12.0), tip_text, 80.0);
             let bg = Rect::from_center_size(tip, g.size() + vec2(12.0, 6.0));
-            over.rect_filled(bg, 6.0, theme::shade(0.75));
-            over.galley(bg.min + vec2(6.0, 3.0), g, Color32::WHITE);
+            over.rect_filled(bg, 6.0, crate::preset::hex(&chrome.tip_fill).unwrap_or(theme::shade(0.75)));
+            over.galley(bg.min + vec2(6.0, 3.0), g, tip_text);
         }
     }
     if total > 0.0
@@ -1004,6 +1078,10 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let ar = named(ar, "Open now playing").on_hover_cursor(egui::CursorIcon::PointingHand);
         let ah = theme::anim_bool(ui.ctx(), ar.id.with("h"), ar.hovered(), 0.15);
         if let Some(secs) = chrome.thumb_disc_secs {
+            if let Some([blur, a]) = chrome.thumb_glow {
+                let c = crate::preset::paint(&chrome.thumb_glow_color, app.accent_color());
+                ui.painter().add(egui::epaint::Shadow { offset: [0, 0], blur: blur as u8, spread: 0, color: theme::with_alpha(c, a) }.as_shape(art, egui::CornerRadius::same((art.width() / 2.0) as u8)));
+            }
             // The thumbnail as a little record. Frames for it come from the player's own
             // pace; paused, it holds still.
             let turn = if playing { (now / secs.max(1.0) as f64 % 1.0) as f32 * std::f32::consts::TAU } else { 0.0 };
@@ -1011,6 +1089,10 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             ui.painter().circle_filled(art.center(), 2.0, theme::shade(0.8));
             ui.painter().circle_stroke(art.center(), art.width() / 2.0, egui::Stroke::new(1.0, theme::glass(0.2)));
         } else {
+            if let Some([blur, a]) = chrome.thumb_glow {
+                let c = crate::preset::paint(&chrome.thumb_glow_color, app.accent_color());
+                ui.painter().add(egui::epaint::Shadow { offset: [0, 0], blur: blur as u8, spread: 0, color: theme::with_alpha(c, a) }.as_shape(art, egui::CornerRadius::same(thumb_r as u8)));
+            }
             paint_cover(ui, art, &t.thumbs, thumb_r, 1.0);
         }
         if ah > 0.0 {
@@ -1045,7 +1127,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         if let Some(g) = long {
             const GAP: f32 = 40.0;
             let cycle = g.size().x + GAP;
-            let shift = (now as f32 * 30.0) % cycle;
+            let speed = chrome.marquee_secs.map_or(30.0, |s| cycle / s.max(1.0));
+            let shift = (now as f32 * speed) % cycle;
             let clip = ui.painter().with_clip_rect(byline_area);
             clip.galley(byline_area.min - vec2(shift, 0.0), g.clone(), byline_color);
             clip.galley(byline_area.min + vec2(cycle - shift, 0.0), g, byline_color);
@@ -1114,7 +1197,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
 
     // Centre: transport
     let accent = app.accent_color();
-    let center = if song_middle { pos2(row.left() + 130.0, cy) } else { pos2(row.center().x, cy) } + vec2(chrome.transport_shift, if time_under { -9.0 } else { 0.0 });
+    let center = if song_middle { pos2(row.left() + 130.0, cy) } else { pos2(row.center().x, cy) } + vec2(chrome.transport_shift + chrome.transport_shift_frac * full.width(), if time_under { -9.0 } else { 0.0 });
     let ctl = |ui: &mut Ui, dx: f32, glyph: char, name: &str, active: bool, size: f32| -> bool {
         let size = size * bar_scale * chrome.transport_scale.clamp(0.75, 1.5);
         let dx = dx * chrome.transport_gap.clamp(0.7, 1.5);
@@ -1364,13 +1447,19 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
 /// Current track plus everything after it. Shared by the drawer and now playing.
 pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
     let rows = super::pages::Rows::new(app, ui.input(|i| i.time));
+    let q = app.look().app.queue_look;
+    let differs = q.thumb_radius.is_some() || q.radius.is_some() || q.pad.is_some() || q.hover_border.is_some() || q.image_zoom.is_some() || q.image_dim.is_some();
+    ui.data_mut(|d| d.insert_temp(egui::Id::unique("in-queue"), differs));
     egui::ScrollArea::vertical().id_salt(("queue", salt)).auto_shrink(false).show(ui, |ui| {
         if app.queue.tracks.is_empty() {
             ui.label(egui::RichText::new("Nothing queued yet").color(theme::text_dim()));
             return;
         }
         let start = app.queue.index.unwrap_or(0);
-        ui.checkbox(&mut app.autoplay, egui::RichText::new("Autoplay similar songs").color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
+        ui.horizontal(|ui| {
+            ui.add_space(q.side_pad);
+            ui.checkbox(&mut app.autoplay, egui::RichText::new("Autoplay similar songs").color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
+        });
         ui.add_space(6.0);
         let accent = app.accent_color();
         let (queue, liked, acts, has_current, by, drag) = (&app.queue.tracks, &app.liked, &mut app.actions, app.queue.index.is_some(), &app.jam.by, &mut app.row_drag);
@@ -1407,6 +1496,7 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
             acts.push(Action::QueueMove { from: d.from, gap: d.gap, id: d.id });
         }
     });
+    ui.data_mut(|d| d.insert_temp(egui::Id::unique("in-queue"), false));
 }
 
 // ------------------------------------------------------------------ toast

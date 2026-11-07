@@ -159,7 +159,8 @@ fn rule_color() -> Color32 {
 pub(super) fn surface() -> egui::Frame {
     let look = &crate::preset::active().app;
     // A theme's own dialog fill; see-through only when what's behind is really frosted.
-    let alpha = if look.glass.dialog.is_some() && crate::shader::glass_ready() { look.menu_look.alpha } else { look.menu_look.alpha.max(0.85) };
+    let wanted = look.menu_look.dialog_alpha.unwrap_or(look.menu_look.alpha);
+    let alpha = if look.glass.dialog.is_some() && crate::shader::glass_ready() { wanted } else { wanted.max(0.85) };
     let dark = crate::preset::hex(&look.menu_color).map_or(Color32::from_gray(28), |c| theme::with_alpha(c, alpha));
     egui::Frame::new()
         .fill(if theme::light() { theme::surface_fill() } else { dark })

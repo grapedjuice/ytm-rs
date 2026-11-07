@@ -41,6 +41,9 @@ pub struct CoverLayer {
     pub pulse: f32,
     /// Seconds per full turn. 0: it doesn't turn.
     pub rotate_secs: f32,
+    /// Its own brightness and saturation, in place of the background's.
+    pub brightness: Option<f32>,
+    pub saturate: Option<f32>,
 }
 
 /// A soft ellipse of colour, placed in fractions of the view.
@@ -104,6 +107,10 @@ pub struct Background {
     /// `lyrics_only` over a fullbleed cover: the fade across the cover's square, as
     /// fractions of its width where it starts and where it's gone.
     pub fade: [f32; 2],
+    /// Now playing's contrast.
+    pub np_contrast: f32,
+    /// A fullbleed cover crossfades to the next by `crossfade_secs`, after `crossfade_delay`.
+    pub fullbleed_fade: bool,
 }
 
 impl Default for Background {
@@ -133,6 +140,8 @@ impl Default for Background {
             blur_passes: 6,
             video_backdrop: false,
             fade: [0.4, 1.0],
+            np_contrast: 1.0,
+            fullbleed_fade: false,
         }
     }
 }
@@ -497,6 +506,36 @@ pub struct LyricStyle {
     pub word_rise_ratio: f32,
     /// Unsung words rest this many em low.
     pub word_rest_em: f32,
+    /// The sung line's unsung words' alpha under the pointer.
+    pub hover_unsung_alpha: Option<f32>,
+    /// `hover_glow` only on the line being sung.
+    pub hover_glow_sung_only: bool,
+    /// Hovering the panel at all reveals every line, as scrolling does.
+    pub panel_reveal: bool,
+    /// Romanization and translation on the sung line, alpha.
+    pub decor_active_alpha: Option<f32>,
+    /// Their size as a share of the line's, in place of rem.
+    pub decor_em: Option<f32>,
+    /// Their line height.
+    pub decor_line_height: Option<f32>,
+    /// Background vocals while they're being sung, against the line's: alpha.
+    pub background_lit_alpha: Option<f32>,
+    /// A translation comes in this much after a romanization, seconds.
+    pub translation_delay: f32,
+    /// A sung line leaving goes toward its own side.
+    pub line_exit_by_side: bool,
+    /// A line turning active sharpens from this blur, in place of its resting one.
+    pub active_blur_from: Option<f32>,
+    /// The bar beside other singers' lines.
+    pub marker_colors_alt: Vec<String>,
+    /// `rest_saturate` four lines away and more.
+    pub rest_saturate_far: Option<f32>,
+    /// The resume button: height, text, black fill, shadow `[px down, blur, alpha]`, moved by `[x, y]` px.
+    pub resume_height: Option<f32>,
+    pub resume_text_px: Option<f32>,
+    pub resume_black: bool,
+    pub resume_shadow: Option<[f32; 3]>,
+    pub resume_offset: [f32; 2],
     /// `--blyrics-scroll-*`.
     pub scroll_secs: f32,
     pub scroll_ease: [f32; 4],
@@ -646,6 +685,23 @@ impl Default for LyricStyle {
             scroll_transition: None,
             word_rise_ratio: 0.0,
             word_rest_em: 0.0,
+            hover_unsung_alpha: None,
+            hover_glow_sung_only: false,
+            panel_reveal: false,
+            decor_active_alpha: None,
+            decor_em: None,
+            decor_line_height: None,
+            background_lit_alpha: None,
+            translation_delay: 0.0,
+            line_exit_by_side: false,
+            active_blur_from: None,
+            marker_colors_alt: Vec::new(),
+            rest_saturate_far: None,
+            resume_height: None,
+            resume_text_px: None,
+            resume_black: false,
+            resume_shadow: None,
+            resume_offset: [0.0, 0.0],
             scroll_secs: 0.75,
             scroll_ease: [0.86, 0.0, 0.2, 1.0],
             scroll_offset: 0.5,
@@ -725,6 +781,13 @@ pub struct CoverStyle {
     pub max_frac: Option<f32>,
     /// A second, wider shadow: `[px down, blur, alpha]`.
     pub shadow2: Option<[f32; 3]>,
+    /// A third.
+    pub shadow3: Option<[f32; 3]>,
+    /// Opening, it also slides in from this share of its side, and fades in.
+    pub open_slide: f32,
+    pub open_fade: bool,
+    /// A gradient over the cover: `[top, bottom]` black alpha.
+    pub overlay_gradient: Option<[f32; 2]>,
     /// What changes in full screen.
     pub fullscreen: Option<CoverFullscreen>,
     /// Opening now playing, the cover grows from this scale.
@@ -759,6 +822,13 @@ pub struct CoverFullscreen {
     pub padding: Option<[f32; 2]>,
     /// Grows from this scale on going full screen, over this long: `[scale, secs]`.
     pub enter: Option<[f32; 2]>,
+    /// Settles from this scale on leaving full screen: `[scale, secs]`.
+    pub leave: Option<[f32; 2]>,
+    /// Its shadow and brightness here.
+    pub shadow: Option<f32>,
+    pub brightness: Option<f32>,
+    /// The cover small at the bottom left with the title beside it, the lyrics on the right.
+    pub corner_layout: bool,
 }
 
 impl Default for CoverStyle {
@@ -785,6 +855,10 @@ impl Default for CoverStyle {
             opacity: 1.0,
             max_frac: None,
             shadow2: None,
+            shadow3: None,
+            open_slide: 0.0,
+            open_fade: false,
+            overlay_gradient: None,
             fullscreen: None,
             open_scale: 1.0,
             open_secs: 0.6,
@@ -890,6 +964,28 @@ pub struct NowPlayingStyle {
     pub fullscreen_progress_px: f32,
     /// The ends of a title too long for its width fade, px.
     pub title_edge_fade: f32,
+    /// The selected tab's line, px; the labels' weight; the selected label's colour when it differs from the line's.
+    pub tab_line_px: f32,
+    pub tab_label_weight: Weight,
+    pub tab_label_selected: String,
+    /// `tab_back` in black rather than white.
+    pub tab_back_black: bool,
+    /// White alpha of a line around the selected tab.
+    pub tab_ring: f32,
+    /// The tabs under the cover, in place of the header.
+    pub tab_under_cover: bool,
+    /// The corner card at the top, this far from the corner, with these weights: `[title, artist]`.
+    pub info_card_top: bool,
+    pub info_card_margin: f32,
+    pub info_card_weights: Option<[Weight; 2]>,
+    /// The title's weight in full screen.
+    pub fullscreen_title_weight: Option<Weight>,
+    /// The lyrics panel in full screen, from the view's top and bottom, px. Can be negative.
+    pub fullscreen_panel_inset: Option<[f32; 2]>,
+    /// Full screen's seek bar's corners.
+    pub fullscreen_progress_radius: f32,
+    /// A cover's play button grows this much under the pointer.
+    pub cover_play_hover: f32,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -937,6 +1033,12 @@ pub struct SwitchLook {
     pub at_corner: bool,
     /// Moved down, px.
     pub y_offset: f32,
+    /// In the corner, the right one.
+    pub at_right: bool,
+    /// Song and Video as plain words, the selected one over `selected`.
+    pub plain: bool,
+    /// Moved down in full screen, in place of `y_offset`.
+    pub y_offset_full: Option<f32>,
 }
 
 #[derive(Clone, Copy, Default, Deserialize)]
@@ -954,7 +1056,7 @@ pub struct TitleCard {
 
 impl Default for NowPlayingStyle {
     fn default() -> Self {
-        Self { tabs: TabStyle::Hover, title_align: Align::Center, title_px: 24.0, artist_px: 16.0, title_lyric_font: false, show_title: true, info_card: false, show_video_switch: true, video_radius: None, tab_content: TabContent::Labels, tab_idle_alpha: 1.0, tab_px: 34.0, tab_back: None, switch: SwitchLook::default(), title_alpha: 1.0, artist_alpha: 1.0, title_weight: Weight::Bold, artist_weight: Weight::Regular, title_card: None, info_card_look: [0.45, 14.0], panel_frac: None, cover_controls: false, video_lyrics: false, video_max_frac: None, no_lyrics_text: String::new(), no_lyrics: NoLyrics::default(), tab_label_px: 12.5, tab_edge: 0.0, tab_selected_color: String::new(), tab_glow: 0.0, tab_pill: None, tab_width_frac: None, video_panel_frac: None, video_pill: false, title_max_px: None, title_shadow: None, cover_buttons: [44.0, 0.5, 1.0], fullscreen_panel_frac: None, fullscreen_padding: None, header_autohide: false, cover_play_px: 76.0, cover_play_bare: false, cover_progress: false, fullscreen_progress_px: 0.0, title_edge_fade: 0.0 }
+        Self { tabs: TabStyle::Hover, title_align: Align::Center, title_px: 24.0, artist_px: 16.0, title_lyric_font: false, show_title: true, info_card: false, show_video_switch: true, video_radius: None, tab_content: TabContent::Labels, tab_idle_alpha: 1.0, tab_px: 34.0, tab_back: None, switch: SwitchLook::default(), title_alpha: 1.0, artist_alpha: 1.0, title_weight: Weight::Bold, artist_weight: Weight::Regular, title_card: None, info_card_look: [0.45, 14.0], panel_frac: None, cover_controls: false, video_lyrics: false, video_max_frac: None, no_lyrics_text: String::new(), no_lyrics: NoLyrics::default(), tab_label_px: 12.5, tab_edge: 0.0, tab_selected_color: String::new(), tab_glow: 0.0, tab_pill: None, tab_width_frac: None, video_panel_frac: None, video_pill: false, title_max_px: None, title_shadow: None, cover_buttons: [44.0, 0.5, 1.0], fullscreen_panel_frac: None, fullscreen_padding: None, header_autohide: false, cover_play_px: 76.0, cover_play_bare: false, cover_progress: false, fullscreen_progress_px: 0.0, title_edge_fade: 0.0, tab_line_px: 1.5, tab_label_weight: Weight::Semibold, tab_label_selected: String::new(), tab_back_black: false, tab_ring: 0.0, tab_under_cover: false, info_card_top: false, info_card_margin: 0.0, info_card_weights: None, fullscreen_title_weight: None, fullscreen_panel_inset: None, fullscreen_progress_radius: 0.0, cover_play_hover: 1.0 }
     }
 }
 
@@ -1078,6 +1180,34 @@ pub struct Chrome {
     pub progress_thumb_dot: bool,
     /// The docked bar's outline over now playing too.
     pub bar_np_border: bool,
+    /// A floating bar has no outline over now playing.
+    pub bar_np_no_edge: bool,
+    /// A tint across the bar, left to right, in `bar_tint_alpha`.
+    pub bar_tint: Vec<String>,
+    pub bar_tint_alpha: f32,
+    /// The outline's colour in place of white, and only along the docked bar's top.
+    pub bar_edge_color: String,
+    pub bar_edge_top: bool,
+    /// A docked bar's shadow up over the page: `[px, alpha]`.
+    pub bar_docked_shadow: Option<[f32; 2]>,
+    /// A glow around the bar's thumbnail: `[blur px, alpha]`, in `thumb_glow_color`.
+    pub thumb_glow: Option<[f32; 2]>,
+    pub thumb_glow_color: String,
+    /// The seek tip's fill and text.
+    pub tip_fill: String,
+    pub tip_text: String,
+    /// A progress line over the transport: its width as a fraction of the bar.
+    pub progress_width_frac: Option<f32>,
+    /// The knob's colour, its dot's colour, and the dot against the knob.
+    pub progress_thumb_color: String,
+    pub progress_thumb_dot_color: String,
+    pub progress_thumb_dot_frac: f32,
+    /// The knob as a pill, `[width, height]`.
+    pub progress_thumb_pill: Option<[f32; 2]>,
+    /// A scrolling byline goes round in this many seconds, in place of a fixed speed.
+    pub marquee_secs: Option<f32>,
+    /// The transport moved along the bar, as a fraction of its width.
+    pub transport_shift_frac: f32,
 }
 
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
@@ -1155,6 +1285,23 @@ impl Default for Chrome {
             progress_thumb_px: 7.0,
             progress_thumb_dot: false,
             bar_np_border: true,
+            bar_np_no_edge: false,
+            bar_tint: Vec::new(),
+            bar_tint_alpha: 0.0,
+            bar_edge_color: String::new(),
+            bar_edge_top: false,
+            bar_docked_shadow: None,
+            thumb_glow: None,
+            thumb_glow_color: String::new(),
+            tip_fill: String::new(),
+            tip_text: String::new(),
+            progress_width_frac: None,
+            progress_thumb_color: String::new(),
+            progress_thumb_dot_color: String::new(),
+            progress_thumb_dot_frac: 0.4,
+            progress_thumb_pill: None,
+            marquee_secs: None,
+            transport_shift_frac: 0.0,
         }
     }
 }
@@ -1319,6 +1466,21 @@ pub struct AppStyle {
     pub page_side: Option<[f32; 2]>,
     /// New pages slide up from this far on opening now playing... and a plain fade if 0.
     pub np_open_secs: f32,
+    /// The main text colour on dark pages.
+    pub text_color: String,
+    /// How long the interface's small fades take: hovers, presses, selections.
+    pub ui_fade_secs: Option<f32>,
+    /// A playlist's art: its shadow `[px down, blur, alpha]` and its growth under the pointer.
+    pub header_art_shadow: Option<[f32; 3]>,
+    pub header_art_hover: f32,
+    /// A playlist's Play button's shadow, in the accent: `[px down, blur, alpha]`.
+    pub header_play_shadow: Option<[f32; 3]>,
+    /// The queue's rows, where they differ.
+    pub queue_look: QueueLook,
+    /// An artist's top songs in this many columns, on a wide page.
+    pub top_songs_cols: u32,
+    /// The theme's own icons, by name: home, explore, library, previous, next, up_next, lyrics, song, video.
+    pub icons: std::collections::HashMap<String, VectorIcon>,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -1328,11 +1490,13 @@ pub struct InputLook {
     pub radius: f32,
     /// A ring on the focused box, in the accent.
     pub focus_px: f32,
+    /// The ring in white at this alpha, in place of the accent.
+    pub focus_white: Option<f32>,
 }
 
 impl Default for InputLook {
     fn default() -> Self {
-        Self { fill: 0.08, radius: 8.0, focus_px: 0.0 }
+        Self { fill: 0.08, radius: 8.0, focus_px: 0.0, focus_white: None }
     }
 }
 
@@ -1372,6 +1536,8 @@ pub struct GlassLook {
     pub switch: Option<[f32; 3]>,
     pub resume: Option<[f32; 3]>,
     pub instrumental: Option<[f32; 3]>,
+    /// The search box itself.
+    pub search: Option<[f32; 3]>,
 }
 
 /// Buttons in general.
@@ -1449,11 +1615,19 @@ pub struct NavItem {
     pub playlists_plus: bool,
     /// The sidebar's top shows the blurred cover, fading out: `[alpha, px]`.
     pub cover_tint: Option<[f32; 2]>,
+    /// The selected entry's fill in this colour, at `selected`'s alpha.
+    pub selected_fill: String,
+    /// The Bar style's bar, px tall.
+    pub bar_px: f32,
+    /// Entries' height on the rail, in place of `height`.
+    pub rail_height: Option<f32>,
+    /// A hovered entry's fill grows by this.
+    pub hover_zoom: f32,
 }
 
 impl Default for NavItem {
     fn default() -> Self {
-        Self { radius: None, height: 42.0, hover: 0.05, selected: 0.10, slide: 0.0, rail: false, rail_px: 76.0, rail_labels: false, title_rows: None, width: None, press: 0.0, hide_divider: false, scroll_fill: false, selected_color: String::new(), side_margin: 0.0, playlists_label: String::new(), playlists_plus: false, cover_tint: None }
+        Self { radius: None, height: 42.0, hover: 0.05, selected: 0.10, slide: 0.0, rail: false, rail_px: 76.0, rail_labels: false, title_rows: None, width: None, press: 0.0, hide_divider: false, scroll_fill: false, selected_color: String::new(), side_margin: 0.0, playlists_label: String::new(), playlists_plus: false, cover_tint: None, selected_fill: String::new(), bar_px: 20.0, rail_height: None, hover_zoom: 1.0 }
     }
 }
 
@@ -1474,11 +1648,14 @@ pub struct ChipLook {
     pub selected_weight: Option<Weight>,
     /// Joined in a row like a segmented control: `[outer radius, inner radius, gap]`.
     pub segmented: Option<[f32; 3]>,
+    /// A hovered chip rises this far, px; text colour of unselected chips.
+    pub hover_lift: f32,
+    pub text_color: String,
 }
 
 impl Default for ChipLook {
     fn default() -> Self {
-        Self { height: 34.0, fill: None, hover: None, selected_fill: String::new(), selected_alpha: 1.0, selected_text: String::new(), weight: Weight::Semibold, border: 0.0, selected_weight: None, segmented: None }
+        Self { height: 34.0, fill: None, hover: None, selected_fill: String::new(), selected_alpha: 1.0, selected_text: String::new(), weight: Weight::Semibold, border: 0.0, selected_weight: None, segmented: None, hover_lift: 0.0, text_color: String::new() }
     }
 }
 
@@ -1509,11 +1686,18 @@ pub struct CardLook {
     pub play_hover_scale: f32,
     /// The ⋮ button lights up in the accent on hover.
     pub menu_hover_accent: bool,
+    /// The play button: in the art's middle, a bare glyph with no disc, its colours, its fill under the pointer, the glyph's size.
+    pub play_center: bool,
+    pub play_bare: bool,
+    pub play_color: String,
+    pub play_glyph_color: String,
+    pub play_hover_alpha: Option<f32>,
+    pub play_glyph_px: f32,
 }
 
 impl Default for CardLook {
     fn default() -> Self {
-        Self { hover_scale: 1.0, shadow: None, title_px: 14.5, title_weight: Weight::Semibold, subtitle_alpha: 1.0, image_zoom: 0.06, image_dim: 0.28, image_outline: 0.0, play_px: 44.0, play_alpha: 0.62, play_hover_accent: false, shadow_rest: false, lift_px: 0.0, play_ring: 0.0, play_hover_scale: 1.0, menu_hover_accent: false }
+        Self { hover_scale: 1.0, shadow: None, title_px: 14.5, title_weight: Weight::Semibold, subtitle_alpha: 1.0, image_zoom: 0.06, image_dim: 0.28, image_outline: 0.0, play_px: 44.0, play_alpha: 0.62, play_hover_accent: false, shadow_rest: false, lift_px: 0.0, play_ring: 0.0, play_hover_scale: 1.0, menu_hover_accent: false, play_center: false, play_bare: false, play_color: String::new(), play_glyph_color: String::new(), play_hover_alpha: None, play_glyph_px: 10.0 }
     }
 }
 
@@ -1546,11 +1730,41 @@ pub struct RowLook {
     pub pad: f32,
     /// Artists, plays and durations: their alpha.
     pub byline_alpha: f32,
+    /// A hovered row rises this far, px.
+    pub hover_lift: f32,
+}
+
+/// An icon as SVG path data, filled.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VectorIcon {
+    /// `[width, height]` of the path's box, and `[x, y]` of its corner when that isn't zero.
+    pub view: [f32; 2],
+    #[serde(default)]
+    pub origin: [f32; 2],
+    pub d: String,
+    /// Mirrored left to right.
+    #[serde(default)]
+    pub flip: bool,
+}
+
+/// The queue's rows, where they differ from every other list's.
+#[derive(Clone, Copy, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct QueueLook {
+    pub thumb_radius: Option<f32>,
+    pub radius: Option<f32>,
+    pub pad: Option<f32>,
+    pub hover_border: Option<f32>,
+    pub image_zoom: Option<f32>,
+    pub image_dim: Option<f32>,
+    /// The panel's own space at its sides, px.
+    pub side_pad: f32,
 }
 
 impl Default for RowLook {
     fn default() -> Self {
-        Self { height: 56.0, thumb_px: 40.0, radius: 8.0, hover: 0.07, current: 0.07, current_color: String::new(), current_bar: 0.0, separator: 0.0, hover_menu: false, menu_dots_across: false, hover_scale: 1.0, hover_border: 0.0, thumb_radius: None, image_zoom: 0.0, image_dim: 0.5, pad: 10.0, byline_alpha: 1.0 }
+        Self { height: 56.0, thumb_px: 40.0, radius: 8.0, hover: 0.07, current: 0.07, current_color: String::new(), current_bar: 0.0, separator: 0.0, hover_menu: false, menu_dots_across: false, hover_scale: 1.0, hover_border: 0.0, thumb_radius: None, image_zoom: 0.0, image_dim: 0.5, pad: 10.0, byline_alpha: 1.0, hover_lift: 0.0 }
     }
 }
 
@@ -1576,11 +1790,15 @@ pub struct MenuLook {
     pub min_px: f32,
     /// Hovered rows' icon and text take the accent.
     pub hover_accent: bool,
+    /// Hovered rows' icon and text slide this far, px.
+    pub row_slide: f32,
+    /// Dialogs' alpha, where it differs from a menu's.
+    pub dialog_alpha: Option<f32>,
 }
 
 impl Default for MenuLook {
     fn default() -> Self {
-        Self { row_px: 32.0, hover: 0.12, alpha: 1.0, icon_right: false, shadow: None, row_radius: 7.0, pop: None, item_slide: 0.0, separator: 0.0, min_px: 226.0, hover_accent: false }
+        Self { row_px: 32.0, hover: 0.12, alpha: 1.0, icon_right: false, shadow: None, row_radius: 7.0, pop: None, item_slide: 0.0, separator: 0.0, min_px: 226.0, hover_accent: false, row_slide: 0.0, dialog_alpha: None }
     }
 }
 
@@ -1609,11 +1827,13 @@ pub struct SearchLook {
     pub item_radius: f32,
     /// The list opens downward from nothing.
     pub drop_grow: bool,
+    /// The list's alpha, where it differs from a menu's.
+    pub drop_alpha: Option<f32>,
 }
 
 impl Default for SearchLook {
     fn default() -> Self {
-        Self { height: 42.0, max_px: 560.0, color: String::new(), focus_color: String::new(), focus_ring: 0.0, drop_radius: None, accent_icon: false, open_color: String::new(), attached: false, outer: None, underline: false, drop_ring: 0.0, item_radius: 8.0, drop_grow: false }
+        Self { height: 42.0, max_px: 560.0, color: String::new(), focus_color: String::new(), focus_ring: 0.0, drop_radius: None, accent_icon: false, open_color: String::new(), attached: false, outer: None, underline: false, drop_ring: 0.0, item_radius: 8.0, drop_grow: false, drop_alpha: None }
     }
 }
 
@@ -1626,6 +1846,12 @@ pub struct TopBarLook {
     pub capsule: [f32; 2],
     /// A band behind the row, fading out below it: `[black alpha, px]`.
     pub band: Option<[f32; 2]>,
+    /// Its colour in place of black, and whether it only comes once the page has scrolled.
+    pub band_color: String,
+    pub band_on_scroll: bool,
+    /// The name's last word in this colour, and the name at the start of this row too.
+    pub logo_color2: String,
+    pub logo_in_bar: bool,
     /// A name in place of the sidebar's logo, in `logo_color`.
     pub logo_text: String,
     pub logo_color: String,
@@ -1660,6 +1886,8 @@ pub struct ToggleLook {
     pub outline: bool,
     /// On is too, in white.
     pub on_outline: bool,
+    /// Off's outline: `[px, white alpha]`, in place of a thin line in the dim colour.
+    pub off_outline: Option<[f32; 2]>,
 }
 
 impl Default for AppStyle {
@@ -1734,6 +1962,14 @@ impl Default for AppStyle {
             page_scale: None,
             page_side: None,
             np_open_secs: 0.42,
+            text_color: String::new(),
+            ui_fade_secs: None,
+            header_art_shadow: None,
+            header_art_hover: 1.0,
+            header_play_shadow: None,
+            queue_look: QueueLook::default(),
+            top_songs_cols: 1,
+            icons: Default::default(),
         }
     }
 }

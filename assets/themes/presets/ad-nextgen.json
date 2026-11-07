@@ -11,7 +11,8 @@
     "mode": "cover_static",
     "solid": "#000000",
     "saturation": 0.8,
-    "np_dim": 0.45
+    "np_dim": 0.45,
+    "np_contrast": 1.1
   },
   "lyrics": {
     "font": "SF Pro Display",
@@ -196,7 +197,8 @@
       "rail_labels": true,
       "hover": 0.1,
       "radius": 6,
-      "hide_divider": true
+      "hide_divider": true,
+      "rail_height": 72
     },
     "chip_look": {
       "height": 34,
@@ -258,8 +260,13 @@
         26
       ],
       "logo_text": "YouTube Music",
-      "logo_color": "accent"
+      "logo_color": "accent",
+      "logo_color2": "#ffffff",
+      "logo_in_bar": true
     },
-    "header_title_px": 32.0
+    "header_title_px": 32.0,
+    "header_art_shadow": [20, 50, 0.6],
+    "header_art_hover": 1.03,
+    "header_play_shadow": [8, 24, 0.45]
   }
 }

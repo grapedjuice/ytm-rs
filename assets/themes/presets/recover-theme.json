@@ -75,7 +75,10 @@
     "title_weight": "medium",
     "artist_weight": "medium",
     "title_shadow": [0, 0.5],
-    "fullscreen_panel_frac": 0.55
+    "fullscreen_panel_frac": 0.55,
+    "info_card_top": true,
+    "info_card_margin": 20,
+    "info_card_weights": ["medium", "medium"]
   },
   "app": {
     "page_bg": "solid",

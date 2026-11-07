@@ -51,7 +51,8 @@
     "video_lyrics": true,
     "video_max_frac": 0.6,
     "title_shadow": [0, 0.2],
-    "fullscreen_padding": [192, 0]
+    "fullscreen_padding": [192, 0],
+    "fullscreen_panel_inset": [-48, 6]
   },
   "app": {
     "bar_alpha": 0,

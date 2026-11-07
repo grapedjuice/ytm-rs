@@ -132,7 +132,15 @@ fn placeholder(app: &mut App, ui: &mut Ui, now: f64, rows: usize, card: f32) {
 fn play_pill(ui: &mut Ui, acts: &mut Vec<Action>, target: &Target, tracks: &[Track]) {
     let active = widgets::active_state(ui, target);
     let (label, glyph) = if active == Some(true) { ("Pause", icon::PAUSE) } else { ("Play", icon::PLAY) };
-    if pill(ui, label, Some(glyph), true).clicked() {
+    // Under the button, placed once the button has said where it is.
+    let shadow_at = ui.painter().add(egui::Shape::Noop);
+    let resp = pill(ui, label, Some(glyph), true);
+    if let Some([y, blur, a]) = crate::preset::active().app.header_play_shadow {
+        let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
+        let s = egui::epaint::Shadow { offset: [0, y as i8], blur: blur as u8, spread: 0, color: theme::with_alpha(accent, a) };
+        ui.painter().set(shadow_at, s.as_shape(resp.rect, egui::CornerRadius::same((resp.rect.height() / 2.0) as u8)));
+    }
+    if resp.clicked() {
         if active.is_some() {
             acts.push(Action::TogglePlay);
         } else if !tracks.is_empty() {
@@ -564,7 +572,9 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     if let Some(a) = look.app.immersive_header {
         let top = ui.cursor().min;
         let band = Rect::from_min_max(pos2(ui.max_rect().left(), top.y), pos2(ui.max_rect().right(), top.y + 340.0));
-        widgets::paint_cover_fill(ui, band, &c.thumbs, theme::with_alpha(Color32::WHITE, look.app.header_image_alpha.unwrap_or(a)));
+        // On a pale page the picture stays faint: dark text goes over it.
+        let shown = look.app.header_image_alpha.unwrap_or(a) * if theme::light() { 0.35 } else { 1.0 };
+        widgets::paint_cover_fill(ui, band, &c.thumbs, theme::with_alpha(Color32::WHITE, shown));
         match look.app.header_gradient {
             Some([from, to]) => super::shell::vgradient(ui.painter(), band, theme::shade(from), theme::shade(to)),
             None => super::shell::vgradient(ui.painter(), band, Color32::TRANSPARENT, look.solid()),
@@ -572,8 +582,10 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     }
     ui.add_space(18.0);
     ui.horizontal_top(|ui| {
-        let (img, _) = ui.allocate_exact_size(Vec2::splat(232.0), Sense::hover());
-        widgets::soft_shadow(ui, img, 10.0, 40.0, 0.5);
+        let (img, img_resp) = ui.allocate_exact_size(Vec2::splat(232.0), Sense::hover());
+        let img = if look.app.header_art_hover != 1.0 { Rect::from_center_size(img.center(), img.size() * (1.0 + (look.app.header_art_hover - 1.0) * theme::anim_bool(ui.ctx(), "header-art-h", img_resp.hovered(), 0.2))) } else { img };
+        let [sy, sb, sa] = look.app.header_art_shadow.unwrap_or([0.0, 40.0, 0.5]);
+        widgets::soft_shadow(ui, img.translate(vec2(0.0, sy)), 10.0, sb, sa);
         paint_cover(ui, img, &c.thumbs, theme::card_radius() + 2.0, 1.0);
         ui.add_space(26.0);
         ui.vertical(|ui| {
@@ -738,11 +750,25 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         });
         ui.add_space(12.0);
         let plays_col = top.iter().take(5).any(|t| t.plays.is_some());
+        // Two columns on a wide page, in the themes that have them.
+        let cols = crate::preset::active().app.top_songs_cols.clamp(1, 2) as usize;
+        if cols == 2 && ui.available_width() >= 900.0 {
+            let shown = top.len().min(8);
+            ui.columns(2, |c| {
+                for (i, t) in top.iter().enumerate().take(shown) {
+                    let o = RowOpts { plays_col: false, ..rows.opts(&app.liked, t, None, true) };
+                    if track_row(&mut c[i % 2], t, &o, acts).clicked() {
+                        acts.push(Action::Play(top.clone(), i));
+                    }
+                }
+            });
+        } else {
         for (i, t) in top.iter().enumerate().take(5) {
             let o = RowOpts { plays_col, ..rows.opts(&app.liked, t, None, true) };
             if track_row(ui, t, &o, acts).clicked() {
                 acts.push(Action::Play(top.clone(), i));
             }
+        }
         }
     }
     card_row(ui, "a-albums", "Albums & singles", &a.albums, acts);
@@ -2001,7 +2027,11 @@ pub(super) fn toggle(ui: &mut Ui, on: &mut bool, name: &str) -> egui::Response {
     let off = if tl.outline { Color32::TRANSPARENT } else { off };
     ui.painter().rect_filled(rect, th / 2.0, theme::with_alpha(theme::lerp_color(off, accent, t), fade));
     if tl.outline && t < 1.0 {
-        ui.painter().rect_stroke(rect, th / 2.0, egui::Stroke::new(1.5, theme::with_alpha(theme::text_dim(), (1.0 - t) * fade)), egui::StrokeKind::Inside);
+        let line = match tl.off_outline {
+            Some([px, a]) => egui::Stroke::new(px, theme::with_alpha(Color32::WHITE, a * (1.0 - t) * fade)),
+            None => egui::Stroke::new(1.5, theme::with_alpha(theme::text_dim(), (1.0 - t) * fade)),
+        };
+        ui.painter().rect_stroke(rect, th / 2.0, line, egui::StrokeKind::Inside);
     }
     if tl.on_outline && t > 0.0 {
         ui.painter().rect_filled(rect, th / 2.0, theme::with_alpha(theme::shade(1.0), t * fade));
@@ -2010,7 +2040,10 @@ pub(super) fn toggle(ui: &mut Ui, on: &mut bool, name: &str) -> egui::Response {
     let knob_r = tl.knob.unwrap_or(20.0) / 2.0;
     let knob = pos2(egui::lerp(rect.left() + th / 2.0..=rect.right() - th / 2.0, t), rect.center().y);
     ui.painter().circle_filled(knob + vec2(0.0, 1.0), knob_r, theme::shade(0.25 * fade));
-    ui.painter().circle_filled(knob, knob_r, theme::with_alpha(if tl.outline && t < 0.5 { theme::text_dim() } else { Color32::WHITE }, fade));
+    // On a pale accent a white knob would vanish into its track.
+    let pale = accent.r() as u32 + accent.g() as u32 + accent.b() as u32 > 620 && !tl.on_outline;
+    let on_knob = if pale { Color32::from_gray(24) } else { Color32::WHITE };
+    ui.painter().circle_filled(knob, knob_r, theme::with_alpha(if tl.outline && t < 0.5 { theme::text_dim() } else if t < 0.5 { Color32::WHITE } else { on_knob }, fade));
     resp
 }
 

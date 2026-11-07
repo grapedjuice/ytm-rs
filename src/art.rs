@@ -50,7 +50,7 @@ pub fn soften(art: &mut Art, passes: u32) {
         return;
     }
     let n = SIZE as usize;
-    let mut px: Vec<[f32; 3]> = art.rgba.chunks_exact(4).map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]).collect();
+    let mut px: Vec<[f32; 3]> = art.rgba.as_chunks::<4>().0.iter().map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]).collect();
     for _ in 0..passes.min(6) {
         px = box_blur(&px, n, 3);
     }

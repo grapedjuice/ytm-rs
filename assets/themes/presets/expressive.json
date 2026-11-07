@@ -19,14 +19,17 @@
   },
   "now_playing": {
     "title_weight": "medium",
-    "artist_weight": "medium"
+    "artist_weight": "medium",
+    "tab_label_weight": "semibold",
+    "fullscreen_title_weight": "semibold"
   },
   "chrome": {
     "bar_color": "#000000",
     "bar_np_alpha": 0,
     "bar_border_alpha": 0.2,
     "bar_np_border": false,
-    "time_weight": "medium"
+    "time_weight": "medium",
+    "bar_edge_top": true
   },
   "app": {
     "font": "Google Sans Flex",
@@ -37,7 +40,7 @@
     "menu_color": "#000000",
     "heading_weight": "semibold",
     "header_title_weight": "semibold",
-    "input": { "fill": 0.06, "radius": 6 },
+    "input": { "fill": 0.06, "radius": 6, "focus_px": 2, "focus_white": 0.12 },
     "chip_look": { "weight": "medium" },
     "row_look": {
       "radius": 8,
@@ -60,7 +63,8 @@
       ],
       "knob": 16,
       "outline": true,
-      "on_outline": true
+      "on_outline": true,
+      "off_outline": [2, 1]
     }
   }
 }

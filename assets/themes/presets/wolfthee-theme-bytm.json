@@ -49,7 +49,7 @@
     "shadow_blur": 16,
     "shadow_offset": 5
   },
-  "now_playing": { "tabs": "strip", "tab_content": "icons", "tab_width_frac": 0.5, "cover_controls": true, "cover_buttons": [42, 0.5, 1.2], "cover_play_bare": true, "fullscreen_panel_frac": 0.55 },
+  "now_playing": { "tabs": "strip", "tab_content": "icons", "tab_width_frac": 0.5, "cover_controls": true, "cover_buttons": [42, 0.5, 1.2], "cover_play_bare": true, "fullscreen_panel_frac": 0.55, "cover_play_hover": 1.2 },
   "chrome": {
     "radius": 6,
     "player_bar": "floating",
@@ -69,7 +69,10 @@
     "progress_thumb_px": 5,
     "time_at": "under_transport",
     "play_scale": 0.87,
-    "bar_border_alpha": 0.1
+    "bar_border_alpha": 0.1,
+    "progress_width_frac": 0.2,
+    "progress_thumb_pill": [12, 6],
+    "bar_np_no_edge": true
   },
   "app": {
     "page_bg": "solid",
@@ -85,17 +88,22 @@
     "menu_radius": 6,
     "menu_border": 0.1,
     "menu_color": "#101010",
-    "menu_look": { "hover": 0.1, "shadow": [3, 15, 0.5], "row_radius": 6, "pop": [0.85, 0.3], "min_px": 305 },
+    "menu_look": { "hover": 0.1, "shadow": [3, 15, 0.5], "row_radius": 6, "pop": [0.85, 0.3], "min_px": 305, "row_slide": 4, "item_slide": 0 },
     "search_look": { "drop_radius": 6, "attached": true, "drop_grow": true },
     "nav_item": { "radius": 6, "hover": 0.1, "slide": 4, "press": 0.3, "cover_tint": [0.7, 800] },
     "row_look": { "height": 64, "radius": 6, "hover": 0.1, "current": 0.1, "current_bar": 4, "hover_scale": 1.02 },
-    "card_look": { "image_zoom": 0.04, "image_dim": 0.5 },
+    "card_look": { "image_zoom": 0.04, "image_dim": 0.5, "play_color": "#ffffff", "play_glyph_color": "#000000" },
     "controls": { "button_fill": 0.05, "button_hover": 0.05, "press_fill": 0.3, "shadow": [3, 7, 0.1], "play_hover_scale": 1.1, "spring": true },
     "text_dim": "#bcbcbc",
     "search_radius": 6,
     "search_alpha": 0.1,
     "header_gradient": [0, 1],
     "np_open_secs": 0.5,
-    "glass": { "bar": [16, 1, 1] }
+    "glass": { "bar": [16, 1, 1] },
+    "ui_fade_secs": 0.25,
+    "icons": {"up_next": {"view": [18.0, 18.0], "origin": [0, 0], "d": "M2.634 5.537a.906.906 0 1 0 0-1.813.906.906 0 1 0 0 1.813zm3.192-.325h9.865a.576.576 0 0 0 .585-.578.578.578 0 0 0-.585-.585H5.826a.574.574 0 0 0-.585.585c0 .325.253.578.585.578zM2.634 9.906c.506 0 .91-.404.91-.91a.906.906 0 0 0-.91-.91.906.906 0 0 0-.91.91c0 .506.405.91.91.91zm3.192-.325h9.865a.582.582 0 1 0 0-1.162H5.826a.572.572 0 0 0-.585.577c0 .325.253.585.585.585zm-3.192 4.694a.91.91 0 1 0-.001-1.82.91.91 0 0 0 0 1.82zm3.192-.332h9.865a.576.576 0 0 0 .585-.577.578.578 0 0 0-.585-.585H5.826a.574.574 0 0 0-.585.585c0 .324.253.577.585.577z"}, "lyrics": {"view": [960.0, 960.0], "origin": [0.0, -960.0], "d": "M640.06-151.87q-51.97 0-88.41-36.38-36.43-36.38-36.43-88.35 0-51.97 36.39-88.28 36.4-36.32 88.39-36.32 9.3 0 17.76 1.15 8.46 1.14 16.26 5.18v-333.02h214.11v90.76H764.78v360.48q0 51.99-36.38 88.39-36.37 36.39-88.34 36.39ZM111.87-295.61v-90.76h324.54v90.76H111.87Zm0-170.76v-90.76h482.15v90.76H111.87Zm0-170.76v-90.76h482.15v90.76H111.87Z"}},
+    "queue_look": {
+      "side_pad": 12
+    }
   }
 }

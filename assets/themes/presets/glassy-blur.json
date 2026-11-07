@@ -19,7 +19,9 @@
     "crossfade_secs": 1.0,
     "beat_threshold": 0.01,
     "layer": {
-      "opacity": 0.8
+      "opacity": 0.8,
+      "brightness": 0.7,
+      "saturate": 1.5
     },
     "blur_passes": 7,
     "dither": 0.004
@@ -134,7 +136,8 @@
     "deco_enter": [-0.3, 0, 0.5, 0],
     "scroll_scale": 0.95,
     "scroll_transition": { "frac": 0, "secs": 0.3, "delay": 0 },
-    "resume_look": [12, 0.1, 0]
+    "resume_look": [12, 0.1, 0],
+    "translation_delay": 0.15
   },
   "cover": {
     "radius": 16,
@@ -224,6 +227,10 @@
     "search_radius": 12,
     "search_alpha": 0.1,
     "search_border": 0.1,
-    "hide_scrollbars": true
+    "hide_scrollbars": true,
+    "queue_look": {
+      "image_dim": 0.6,
+      "image_zoom": 0.15
+    }
   }
 }

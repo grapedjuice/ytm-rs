@@ -25,7 +25,8 @@
     "romanization_weight": "medium",
     "romanization_pill": false,
     "translation_font": "Lexend",
-    "translation_weight": "semibold"
+    "translation_weight": "semibold",
+    "line_exit_by_side": true
   },
   "cover": { "radius": 20, "disc_slide_secs": 0.7 },
   "now_playing": {
@@ -37,7 +38,9 @@
     "tab_pill": 0.18,
     "title_align": "left",
     "video_lyrics": true,
-    "video_panel_frac": [0.5, 0.6]
+    "video_panel_frac": [0.5, 0.6],
+    "tab_under_cover": true,
+    "tab_ring": 0.2
   },
   "chrome": {
     "player_bar": "floating",
@@ -81,11 +84,12 @@
     "text_dim": "#b3b3b3",
     "search_alpha": 0.55,
     "search_border": 0.08,
-    "search_look": { "max_px": 700, "color": "#0e0e12" },
+    "search_look": { "max_px": 700, "color": "#0e0e12", "drop_alpha": 0.55 },
     "nav_item": { "hover": 0.12, "selected": 0.10 },
     "menu_look": { "hover": 0.12, "alpha": 0.86, "row_radius": 8, "shadow": [12, 40, 0.45] },
     "toast_look": { "secs": 1.5 },
     "tabular_digits": true,
-    "glass": { "top_bar": [10, 1, 1], "bar": [28, 1.5, 1], "menu": [28, 1.5, 1], "search_drop": [24, 1.5, 1], "dialog": [28, 1.5, 1] }
+    "glass": { "top_bar": [10, 1, 1], "bar": [28, 1.5, 1], "menu": [28, 1.5, 1], "search_drop": [24, 1.5, 1], "dialog": [28, 1.5, 1], "search": [24, 1, 1] },
+    "icons": {"up_next": {"view": [24, 24], "origin": [0, 0], "d": "M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"}, "lyrics": {"view": [24, 24], "origin": [0, 0], "d": "M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"}}
   }
 }

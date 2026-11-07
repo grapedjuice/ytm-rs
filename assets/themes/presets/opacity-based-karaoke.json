@@ -10,7 +10,8 @@
     "mode": "cover_fullbleed",
     "np_dim": 0.22,
     "crossfade_secs": 2.5,
-    "crossfade_delay": 5.0
+    "crossfade_delay": 5.0,
+    "fullbleed_fade": true
   },
   "accent": "#ffffff",
   "lyrics": {
@@ -108,7 +109,8 @@
     ],
     "hover_box_line": 0.1,
     "hover_opacity": 1,
-    "hover_dim_alpha": 0.95
+    "hover_dim_alpha": 0.95,
+    "panel_reveal": true
   },
   "cover": {
     "radius_pct": 0.08,
@@ -126,7 +128,9 @@
     "time_alpha": 0.87,
     "time_weight": "light",
     "icon_alpha": 0.7,
-    "bar_cover_alpha": 0.22
+    "bar_cover_alpha": 0.22,
+    "tip_fill": "#ffffff",
+    "tip_text": "#000000"
   },
   "app": {
     "font": "Google Sans Flex",

@@ -12,7 +12,10 @@
   "lyrics": {
     "fullscreen_scale": 1.333,
     "fullscreen_inline": [0, 5],
-    "resume_look": [50, 0, 0.2]
+    "resume_look": [50, 0.1, 0.2],
+    "resume_black": true,
+    "resume_shadow": [10, 10, 0.25],
+    "resume_text_px": 15
   },
   "cover": {
     "radius": 25,
@@ -36,7 +39,8 @@
       "back": 0.35,
       "back_black": true,
       "stroke": 0.2,
-      "shadow": [4, 10, 0.15]
+      "shadow": [4, 10, 0.15],
+      "y_offset_full": 30
     }
   },
   "app": {
@@ -62,7 +66,8 @@
       "resume": [20, 1, 1]
     },
     "top_bar": {
-      "band": [0.5, 76]
+      "band": [0.5, 76],
+      "band_on_scroll": true
     },
     "dialog_bottom_line": true,
     "controls": {
@@ -96,9 +101,10 @@
       "hover": 0.18
     },
     "card_look": {
-      "play_alpha": 0.75,
+      "play_alpha": 0.4,
       "play_ring": 0.2,
-      "play_hover_scale": 1.15
+      "play_hover_scale": 1.15,
+      "play_hover_alpha": 0.75
     },
     "row_look": {
       "hover": 0.03,
@@ -106,6 +112,11 @@
       "pad": 5,
       "byline_alpha": 0.75
     },
-    "strap_alpha": 0.75
+    "strap_alpha": 0.75,
+    "queue_look": {
+      "thumb_radius": 5,
+      "pad": 15,
+      "hover_border": 0.13
+    }
   }
 }

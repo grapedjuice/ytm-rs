@@ -86,6 +86,42 @@ pub enum NpTab {
     Art,
 }
 
+/// Where the accent colour comes from (Settings › Appearance › Accent colour).
+#[derive(Clone, Copy, PartialEq)]
+pub enum AccentSource {
+    /// The theme's own: a fixed colour, the cover's, or the system's.
+    Theme,
+    /// The system accent colour, whatever the theme.
+    System,
+    Custom(Color32),
+}
+
+impl AccentSource {
+    /// Saved as "" (theme), "system" or "#rrggbb"; older versions read "system" as the theme's.
+    fn from_key(v: &str) -> Self {
+        match v {
+            "system" => Self::System,
+            v => crate::preset::hex(v).map_or(Self::Theme, Self::Custom),
+        }
+    }
+
+    fn key(self) -> String {
+        match self {
+            Self::Theme => String::new(),
+            Self::System => "system".into(),
+            Self::Custom(c) => format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Theme => "Theme",
+            Self::System => "System",
+            Self::Custom(_) => "Custom",
+        }
+    }
+}
+
 /// User intents collected while drawing; applied after the frame's UI pass.
 pub enum Action {
     Play(Vec<Track>, usize),
@@ -341,8 +377,8 @@ pub struct App {
     chrome_applied: Option<String>,
     /// Light or dark pages (the ytm-rs theme's; see `light_pages`).
     appearance: theme::Appearance,
-    /// The listener's accent colour, instead of the theme's.
-    custom_accent: Option<Color32>,
+    /// The theme's accent colour, the system's or the listener's own.
+    accent_source: AccentSource,
     /// The play button and volume slider in the accent colour, like the progress line.
     accent_controls: bool,
     anim_bg: bool,
@@ -624,7 +660,7 @@ impl App {
             chrome_applied: None,
             // Dev hook: YTM_APPEARANCE=light|dark|system tries a mode without saving it.
             appearance: theme::Appearance::from_key(&dev_var("YTM_APPEARANCE").map(str::to_owned).or_else(|| get("appearance")).unwrap_or_default()),
-            custom_accent: get("custom_accent").and_then(|v| crate::preset::hex(&v)),
+            accent_source: AccentSource::from_key(&get("custom_accent").unwrap_or_default()),
             accent_controls: get("accent_controls").is_some_and(|v| v == "1"),
             anim_bg: get("anim_bg").is_none_or(|v| v == "1"),
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
@@ -871,12 +907,18 @@ impl App {
         }
     }
 
-    fn accent_color(&self) -> Color32 {
-        let c = match self.custom_accent {
+    /// The accent before `accent_color` deepens it for light pages.
+    fn base_accent(&self) -> Color32 {
+        match self.accent_source {
             _ if self.default_theme => theme::RED,
-            Some(custom) => custom,
-            None => self.look().accent(self.accent),
-        };
+            AccentSource::Custom(c) => c,
+            AccentSource::System => theme::system_accent().unwrap_or_else(|| self.look().accent(self.accent)),
+            AccentSource::Theme => self.look().accent(self.accent),
+        }
+    }
+
+    fn accent_color(&self) -> Color32 {
+        let c = self.base_accent();
         if theme::light() {
             // A pale cover colour would barely show on light pages: deepen it.
             let luma = 0.299 * c.r() as f32 + 0.587 * c.g() as f32 + 0.114 * c.b() as f32;
@@ -1267,7 +1309,7 @@ impl eframe::App for App {
         storage.set_string("default_theme", b(self.default_theme));
         if dev_var("YTM_APPEARANCE").is_none() {
             storage.set_string("appearance", self.appearance.key().to_owned());
-            storage.set_string("custom_accent", self.custom_accent.map_or_else(String::new, |c| format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b())));
+            storage.set_string("custom_accent", self.accent_source.key());
         }
         if std::env::var_os("YTM_THEME").is_none() {
             storage.set_string("theme", self.theme_id.clone());

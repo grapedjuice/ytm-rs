@@ -1547,12 +1547,38 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         let enabled = !app.default_theme;
         divider(ui);
         ui.add_enabled_ui(enabled, |ui| {
-            setting_row(ui, "Accent colour", Some("Your own colour, instead of the one the theme picks."), |ui| {
-                let mut custom = app.custom_accent.is_some();
-                if toggle(ui, &mut custom, "Custom accent colour").changed() {
-                    app.custom_accent = custom.then(|| app.accent_color());
+            use super::AccentSource;
+            // System is offered where there's a system accent to follow (Windows).
+            let has_system = theme::system_accent().is_some();
+            let desc = if has_system {
+                "The theme's colour, your Windows accent colour, or one you pick."
+            } else {
+                "The theme's colour, or one you pick."
+            };
+            setting_row(ui, "Accent colour", Some(desc), |ui| {
+                let btn = dropdown_button(ui, app.accent_source.label(), 120.0, "Accent colour");
+                let mut pick = None;
+                egui::Popup::menu(&btn).show(|ui| {
+                    ui.set_width(120.0);
+                    ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                    ui.add_space(4.0);
+                    let current = app.accent_source;
+                    // Custom starts from the colour showing now (before light pages deepen
+                    // it, or it would be deepened twice).
+                    let options = [AccentSource::Theme, AccentSource::System, AccentSource::Custom(app.base_accent())];
+                    for o in options.into_iter().filter(|o| has_system || *o != AccentSource::System) {
+                        let selected = std::mem::discriminant(&o) == std::mem::discriminant(&current);
+                        if option_row(ui, o.label(), selected).clicked() {
+                            pick = (!selected).then_some(o);
+                            ui.close();
+                        }
+                    }
+                    ui.add_space(4.0);
+                });
+                if let Some(p) = pick {
+                    app.accent_source = p;
                 }
-                if let Some(c) = &mut app.custom_accent {
+                if let AccentSource::Custom(c) = &mut app.accent_source {
                     ui.add_space(8.0);
                     ui.color_edit_button_srgba(c);
                 }

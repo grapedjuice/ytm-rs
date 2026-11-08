@@ -990,7 +990,15 @@ impl eframe::App for App {
         // System media controls and taskbar buttons follow the player however it changed.
         let playing = self.playing() || self.buffering;
         if let Some(m) = &mut self.media {
-            m.set_playing(playing);
+            // Not for a song shown without loading, while the last one may still be stopping.
+            if self.resume_at.is_none() {
+                m.sync_length(self.audio.status.stream_duration(self.generation));
+            }
+            // A song not loaded yet is at its start point; the player may still be stopping.
+            m.sync(playing, self.buffering, self.resume_at.unwrap_or_else(|| self.audio.status.position()));
+            if let Some(wait) = m.sync_volume(self.audio.volume()) {
+                ctx.request_repaint_after(wait);
+            }
         }
         self.request_lyric_extras();
         // Upload: files from the picker, or dropped onto the window.

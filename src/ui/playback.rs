@@ -167,6 +167,7 @@ impl App {
         self.resume_at = Some(Duration::from_millis(s.position_ms));
         self.listened_at = s.listened_at;
         self.request_art();
+        self.show_in_media(&shown);
         self.backend.request(Req::Lyrics(shown));
     }
 
@@ -209,6 +210,7 @@ impl App {
         self.resume_at = Some(Duration::ZERO);
         self.resume_counts = true;
         self.request_art();
+        self.show_in_media(&track);
         self.backend.request(Req::Lyrics(track.clone()));
         self.toast(format!("Picked up \"{}\" from your other device. Press play to carry on.", track.title));
     }
@@ -296,7 +298,7 @@ impl App {
         self.backend.request(Req::Play { video_id: track.id.clone(), generation: self.generation, at, report, song_of, song: carried });
         self.show_in_media(&shown);
         if let Some(m) = &mut self.media {
-            m.set_playing(true);
+            m.start(at);
         }
         // Background art follows the track; lyrics and segments, what plays.
         self.request_art();

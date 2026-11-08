@@ -499,6 +499,9 @@ fn sync(app: &mut App) {
             app.audio.status.position_ms.store(target.as_millis() as u64, Ordering::Relaxed);
             app.audio.status.duration_ms.store(app.current().and_then(|t| t.duration).map_or(0, |d| d as u64 * 1000), Ordering::Relaxed);
             app.request_art();
+            if let Some(t) = app.current().cloned() {
+                app.show_in_media(&t);
+            }
         }
         return;
     }

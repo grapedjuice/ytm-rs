@@ -420,6 +420,9 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
     let more_rect = Rect::from_center_size(pos2(rect.right() - 16.0, sub_y + 8.0), Vec2::splat(30.0));
     let more = more_button(ui, more_rect, resp.id.with("more"), "Options");
     egui::Popup::menu(&more).show(|ui| card_menu_contents(ui, c, liked, acts));
+    // Right-click anywhere on the card opens the same menu, even on the play button,
+    // a linked name or ⋮, which take the click themselves.
+    resp.container_context_menu(|ui| card_menu_contents(ui, c, liked, acts));
 
     if play_hit {
         match &c.target {

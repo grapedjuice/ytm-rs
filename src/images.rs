@@ -167,13 +167,20 @@ impl BytesLoader for HttpImages {
 }
 
 /// GPU memory the thumbnails may keep before the least recently drawn are dropped.
-const TEXTURE_BUDGET: usize = 96 * 1024 * 1024;
+const TEXTURE_BUDGET: usize = 64 * 1024 * 1024;
+/// A big picture (now playing's cover, a banner: 3.5 MB at 960 px) not drawn for this
+/// long is dropped even under the budget: one per song played would otherwise pile up
+/// until it. It comes back from the disk cache when it's next shown.
+const BIG: usize = 1024 * 1024;
+const BIG_UNUSED: Duration = Duration::from_secs(30);
 
 struct Texture {
     handle: TextureHandle,
     options: TextureOptions,
     size: Vec2,
     last_used: u64,
+    /// When it was last drawn.
+    drawn: Instant,
 }
 
 #[derive(Default)]
@@ -208,6 +215,7 @@ impl TextureLoader for Textures {
             let pass = state.pass;
             if let Some(t) = state.cache.get_mut(uri).filter(|t| t.options == options) {
                 t.last_used = pass;
+                t.drawn = Instant::now();
                 return Ok(TexturePoll::Ready { texture: SizedTexture::new(t.handle.id(), t.size) });
             }
         }
@@ -226,7 +234,7 @@ impl TextureLoader for Textures {
                 }
                 let mut state = self.state.lock().unwrap();
                 let last_used = state.pass;
-                state.cache.insert(uri.to_owned(), Texture { handle, options, size, last_used });
+                state.cache.insert(uri.to_owned(), Texture { handle, options, size, last_used, drawn: Instant::now() });
                 Ok(TexturePoll::Ready { texture })
             }
         }
@@ -243,6 +251,7 @@ impl TextureLoader for Textures {
     fn end_pass(&self, pass_index: u64) {
         let mut state = self.state.lock().unwrap();
         state.pass = pass_index;
+        state.cache.retain(|_, t| t.handle.byte_size() < BIG || t.drawn.elapsed() < BIG_UNUSED);
         let mut total = state.cache.values().map(|t| t.handle.byte_size()).sum::<usize>();
         if total <= TEXTURE_BUDGET {
             return;

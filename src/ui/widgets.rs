@@ -204,6 +204,12 @@ pub fn icon_button(ui: &mut Ui, glyph: char, size: f32, name: &str, active: bool
     resp
 }
 
+/// Dark or light text, whichever reads on `bg`.
+pub fn contrast(bg: Color32) -> Color32 {
+    let l = 0.299 * bg.r() as f32 + 0.587 * bg.g() as f32 + 0.114 * bg.b() as f32;
+    if l > 150.0 { Color32::from_gray(20) } else { Color32::WHITE }
+}
+
 /// Rounded pill button. `primary` = white with dark text (YouTube Music's Play button).
 pub fn pill(ui: &mut Ui, label: &str, glyph: Option<char>, primary: bool) -> Response {
     // Laid out once; the colour is given when it's painted.

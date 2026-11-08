@@ -438,6 +438,18 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
         return;
     }
     let rows = Rows::new(app, now);
+    // A song played from here starts its radio, as in YouTube Music, rather than the other
+    // results queued after it; the one playing pauses or resumes.
+    let current = app.current_id().map(str::to_owned);
+    let play = |t: &Track| {
+        if pick {
+            Action::TransferPick(t.clone())
+        } else if current.as_deref() == Some(t.id.as_str()) {
+            Action::TogglePlay
+        } else {
+            Action::Radio(t.clone())
+        }
+    };
     let Some(r) = &app.search else { return };
     let acts = &mut app.actions;
     let liked = &app.liked;
@@ -466,10 +478,10 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
             ui.label(RichText::new("Songs").font(theme::bold(24.0)));
             ui.add_space(8.0);
             let plays_col = r.tracks.iter().take(4).any(|t| t.plays.is_some());
-            for (i, t) in r.tracks.iter().take(4).enumerate() {
+            for t in r.tracks.iter().take(4) {
                 let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, false) };
                 if track_row(ui, t, &o, acts).clicked() {
-                    acts.push(if pick { Action::TransferPick(t.clone()) } else { Action::Play(r.tracks.clone(), i) });
+                    acts.push(play(t));
                 }
             }
         });
@@ -481,10 +493,10 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
         ui.label(RichText::new("Videos").font(theme::bold(24.0)));
         ui.add_space(10.0);
         let plays_col = r.videos.iter().take(6).any(|t| t.plays.is_some());
-        for (i, t) in r.videos.iter().take(6).enumerate() {
+        for t in r.videos.iter().take(6) {
             let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, false) };
             if track_row(ui, t, &o, acts).clicked() {
-                acts.push(if pick { Action::TransferPick(t.clone()) } else { Action::Play(r.videos.clone(), i) });
+                acts.push(play(t));
             }
         }
     }
@@ -493,10 +505,10 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
         ui.label(RichText::new("More songs").font(theme::bold(24.0)));
         ui.add_space(10.0);
         let plays_col = r.tracks.iter().skip(4).any(|t| t.plays.is_some());
-        for (i, t) in r.tracks.iter().enumerate().skip(4) {
+        for t in r.tracks.iter().skip(4) {
             let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, true) };
             if track_row(ui, t, &o, acts).clicked() {
-                acts.push(if pick { Action::TransferPick(t.clone()) } else { Action::Play(r.tracks.clone(), i) });
+                acts.push(play(t));
             }
         }
     }
@@ -1521,6 +1533,10 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
                 }
             });
         });
+        divider(ui);
+        setting_row(ui, "Accent-coloured controls", Some("The play button and volume slider in the accent colour, like the progress line."), |ui| {
+            toggle(ui, &mut app.accent_controls, "Accent-coloured controls");
+        });
         if crate::backdrop::supported() {
             divider(ui);
             settings_backdrop(app, ui);
@@ -1542,6 +1558,8 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
                 app.chrome_applied = None;
             }
         });
+        divider(ui);
+        settings_zoom(ui);
     });
 
     let current = if app.default_theme { "Classic".to_owned() } else { crate::preset::get(&app.theme_id).name.clone() };
@@ -1561,6 +1579,32 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
     }
     if (was_default && !app.default_theme) || was_theme != app.theme_id {
         app.request_art();
+    }
+}
+
+/// Settings › Appearance › Zoom: the size of everything, as Ctrl + plus / minus sets it.
+fn settings_zoom(ui: &mut Ui) {
+    const STEPS: [f32; 9] = [0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
+    let pct = |z: f32| format!("{}%", (z * 100.0).round() as i32);
+    let zoom = ui.ctx().zoom_factor();
+    let mut pick = None;
+    setting_row(ui, "Zoom", Some("Makes everything bigger or smaller. Ctrl + plus and Ctrl + minus do the same, and Ctrl + 0 goes back to 100%."), |ui| {
+        let btn = dropdown_button(ui, &pct(zoom), 120.0, "Zoom");
+        egui::Popup::menu(&btn).show(|ui| {
+            ui.set_width(120.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+            ui.add_space(4.0);
+            for z in STEPS {
+                if option_row(ui, &pct(z), (z - zoom).abs() < 0.005).clicked() {
+                    pick = Some(z);
+                    ui.close();
+                }
+            }
+            ui.add_space(4.0);
+        });
+    });
+    if let Some(z) = pick {
+        ui.ctx().set_zoom_factor(z);
     }
 }
 
@@ -1784,6 +1828,8 @@ fn settings_shortcuts(ui: &mut Ui) {
             ("Back / forward", &["Alt", "← / →"]),
             ("Back / forward with the mouse", &["Side buttons"]),
             ("Refresh the page", &["F5 / Ctrl + R"]),
+            ("Zoom in / out", &["Ctrl", "+ / −"]),
+            ("Zoom back to 100%", &["Ctrl", "0"]),
             ("Leave full screen, now playing or selecting", &["Esc"]),
         ];
         for (i, (what, combo)) in keys.iter().enumerate() {

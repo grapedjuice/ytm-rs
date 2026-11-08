@@ -209,7 +209,7 @@ impl Lists {
         let sent = c.tracks.len();
         self.edits.correct_collection(&mut c);
         if !more {
-            self.edits.complete(&mut c);
+            self.edits.complete_load(&mut c);
         }
         let id = c.id.clone();
         log::debug!("list {id}: load {load} in, {sent} songs sent, {} after local edits, more={more}", c.tracks.len());
@@ -247,7 +247,7 @@ impl Lists {
                 o.complete = !more;
                 if !more {
                     // They go to a queue filling from this load too.
-                    tracks.extend(edits.complete(&mut o.c));
+                    tracks.extend(edits.complete_load(&mut o.c));
                 }
                 log::debug!("list {id}: load {load} page, {sent} sent, {} added, {} total, more={more}", tracks.len(), o.c.tracks.len());
                 true
@@ -480,9 +480,21 @@ impl RecentEdits {
         });
     }
 
+    /// All of a playlist as YouTube Music just sent it, completed (see `complete`). Its
+    /// header lags behind edits, both ways and more than its list: while some made here
+    /// are recent, it counts the songs it has. Otherwise the header's count stands (it
+    /// counts songs it hides too), unless it lists more. One with no count (an album)
+    /// gets none.
+    fn complete_load(&self, c: &mut Collection) -> Vec<Track> {
+        let header_lags = self.pending(&c.id);
+        let missing = self.complete(c);
+        let listed = c.tracks.len() as u64;
+        c.count = c.count.map(|n| if header_lags { listed } else { n.max(listed) });
+        missing
+    }
+
     /// All of a playlist: the songs added here that it doesn't list yet go at its end, once
-    /// each (and are returned). Its header lags behind its list, so they count on top of
-    /// it, and it counts at least the songs it has. One with no count (an album) gets none.
+    /// each (and are returned), and count on top of it.
     fn complete(&self, c: &mut Collection) -> Vec<Track> {
         let mut missing: Vec<Track> = Vec::new();
         for (t, ..) in self.adds.get(&c.id).into_iter().flatten() {
@@ -1039,6 +1051,24 @@ mod tests {
         lists.added("PL1", &[track("d")]);
         load_whole(&mut lists, "PL1", &["a", "b"], &[]);
         assert_eq!(songs(&lists, "PL1"), ["a", "b", "c", "d"]);
+    }
+
+    #[test]
+    fn a_header_still_counting_a_song_taken_out_here_isnt_believed() {
+        let mut lists = Lists::default();
+        load_whole(&mut lists, "PL1", &["a", "b", "c", "d", "e"], &[]);
+        lists.edits.remove("PL1", &[("e".to_owned(), "set-e".to_owned())]);
+        lists.edits.confirm_removal("PL1");
+        // The list is without it already, its header not yet.
+        let s = lists.load("PL1", false, false).unwrap();
+        lists.arrived(s.load, Collection { count: Some(5), ..collection("PL1", &["a", "b", "c", "d"]) }, false, &[]).unwrap();
+        assert_eq!(lists.get("PL1").unwrap().c.count, Some(4));
+        // Nor one already counting a song added here that the list lacks yet.
+        lists.added("PL2", &[track("c")]);
+        let s = lists.load("PL2", false, false).unwrap();
+        lists.arrived(s.load, Collection { count: Some(3), ..collection("PL2", &["a", "b"]) }, false, &[]).unwrap();
+        assert_eq!(songs(&lists, "PL2"), ["a", "b", "c"]);
+        assert_eq!(lists.get("PL2").unwrap().c.count, Some(3));
     }
 
     #[test]

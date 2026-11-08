@@ -339,7 +339,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     if cover.clicked() { app.actions.push(Action::TogglePlay); }
     let w = side;
     let title_y = art.bottom() + 22.0;
-    text_at(ui, pos2(art.left(), title_y), &track.title, theme::bold(28.0), Color32::WHITE, w);
+    widgets::title_at(ui, pos2(art.left(), title_y), &track.title, track.explicit, theme::bold(28.0), Color32::WHITE, w);
     // Each artist opens their own page (features included).
     let line = track.artist_line();
     widgets::linked_text(ui, pos2(art.left(), title_y + 40.0), &line, &track.artists, theme::regular(17.0), theme::text_dim(), w, &mut app.actions);
@@ -403,7 +403,7 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
         app.actions.push(Action::TogglePlay);
     }
     let y = picture.bottom() + 12.0;
-    text_at(ui, pos2(picture.left(), y), &track.title, theme::bold(20.0), Color32::WHITE, fit.x);
+    widgets::title_at(ui, pos2(picture.left(), y), &track.title, track.explicit, theme::bold(20.0), Color32::WHITE, fit.x);
     let line = track.artist_line();
     widgets::linked_text(ui, pos2(picture.left(), y + 28.0), &line, &track.artists, theme::regular(14.0), theme::text_dim(), fit.x, &mut app.actions);
     if up_next {

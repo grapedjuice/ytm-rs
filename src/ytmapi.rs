@@ -54,6 +54,8 @@ pub struct Api {
     refusals: std::sync::atomic::AtomicU64,
     /// When the session cookies were last rotated (unix ms).
     rotated_at: std::sync::atomic::AtomicU64,
+    /// YouTube's Restricted Mode, asked for in every request.
+    restricted: std::sync::atomic::AtomicBool,
 }
 
 /// music.youtube.com's "not available in your area" page, served to addresses in a
@@ -86,7 +88,13 @@ impl Api {
             paused_until: Default::default(),
             refusals: Default::default(),
             rotated_at: Default::default(),
+            restricted: Default::default(),
         }
+    }
+
+    /// Restricted Mode: YouTube leaves out explicit songs and what else it finds mature.
+    pub fn set_restricted(&self, on: bool) {
+        self.restricted.store(on, Relaxed);
     }
 
     pub fn account(&self) -> Option<Arc<Session>> {
@@ -409,6 +417,9 @@ impl Api {
             "request": {"useSsl": true},
             "user": {"lockedSafetyMode": false},
         });
+        if self.restricted.load(Relaxed) {
+            payload["context"]["user"]["enableSafetyMode"] = true.into();
+        }
         let mut req = crate::proxy::http()
             .post(format!("{ORIGIN}/youtubei/v1/{endpoint}?prettyPrint=false"))
             .header("User-Agent", webmusic::UA)

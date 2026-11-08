@@ -184,15 +184,16 @@ fn counterparts<'a>(v: &'a Value, video_id: &str) -> impl Iterator<Item = &'a Va
 }
 
 /// The song version of a music video, by a signed-out search (a signed-in one would
-/// land in the account's search history). Only a sure match counts: [`same_song`].
-pub async fn searched_song(api: &Api, video: &Track) -> anyhow::Result<Option<Track>> {
+/// land in the account's search history). Only a sure match counts: [`same_song`], and with
+/// `clean` only one that isn't explicit (an album's clean edit is often among the hits).
+pub async fn searched_song(api: &Api, video: &Track, clean: bool) -> anyhow::Result<Option<Track>> {
     let title = without_artist(&song_title(&video.title), video);
     let query = match video.artists.first() {
         Some(a) => format!("{title} {}", a.name),
         None => return Ok(None),
     };
     let hits = search_songs(api, &query, false).await?;
-    Ok(hits.into_iter().take(5).find(|h| same_song(video, h)))
+    Ok(hits.into_iter().take(5).find(|h| same_song(video, h) && !(clean && h.explicit)))
 }
 
 /// Whether `hit` (a song from a search) is the song of the music video `video`: the same
@@ -1327,6 +1328,7 @@ fn two_row(r: &Value) -> Option<Card> {
             track_nr: None,
             plays: None,
             music_video: music_video(&[nav]),
+            explicit: explicit(&r["subtitleBadges"]),
         })
     } else if let Some(playlist) = nav["watchPlaylistEndpoint"]["playlistId"].as_str() {
         Target::Playlist(playlist.to_owned())
@@ -1397,6 +1399,11 @@ fn music_video(parts: &[&Value]) -> bool {
     video_type(parts) == Some("MUSIC_VIDEO_TYPE_OMV")
 }
 
+/// Marked explicit: an "E" among the item's badges (rows' `badges`, cards' `subtitleBadges`).
+fn explicit(badges: &Value) -> bool {
+    arr(badges).iter().any(|b| b["musicInlineBadgeRenderer"]["icon"]["iconType"] == "MUSIC_EXPLICIT_BADGE")
+}
+
 fn list_item(r: &Value) -> Option<Track> {
     let cols = arr(&r["flexColumns"]);
     let col = |i: usize| cols.get(i).map(|c| &c["musicResponsiveListItemFlexColumnRenderer"]["text"]);
@@ -1449,7 +1456,7 @@ fn list_item(r: &Value) -> Option<Track> {
     }
     let track_nr = text(&r["index"]).and_then(|n| n.parse().ok());
     let music_video = music_video(&[&r["overlay"], &r["flexColumns"][0]]);
-    Some(Track { id, title, artists, album, duration, thumbs: thumbs(&r["thumbnail"]["musicThumbnailRenderer"]), track_nr, plays, music_video })
+    Some(Track { id, title, artists, album, duration, thumbs: thumbs(&r["thumbnail"]["musicThumbnailRenderer"]), track_nr, plays, music_video, explicit: explicit(&r["badges"]) })
 }
 
 /// A song in a radio / up-next panel.
@@ -1476,6 +1483,7 @@ fn panel_item(r: &Value) -> Option<Track> {
         track_nr: None,
         plays: None,
         music_video: music_video(&[&r["navigationEndpoint"]]),
+        explicit: explicit(&r["badges"]),
     })
 }
 
@@ -1866,7 +1874,7 @@ mod tests {
     async fn song_plays_live() {
         let api = crate::ytmapi::Api::new(&std::env::temp_dir().join("ytm-rs-song-plays-test"));
         let artist = |name: &str| vec![Link { name: name.into(), id: None }];
-        let song = |id: &str, title: &str, by: &str| Track { id: id.into(), title: title.into(), artists: artist(by), album: None, duration: None, thumbs: Vec::new(), track_nr: None, plays: None, music_video: false };
+        let song = |id: &str, title: &str, by: &str| Track { id: id.into(), title: title.into(), artists: artist(by), ..Default::default() };
         for t in [song("L3XPdkm2F9Q", "独り言 - Hitori Goto", "Asagaya Romantics")] {
             let plays = song_plays(&api, &t).await.unwrap();
             println!("{} {}: {plays:?}", t.id, t.title);
@@ -1980,12 +1988,8 @@ mod tests {
             id: title.into(),
             title: title.into(),
             artists: artists.iter().map(|a| Link { name: a.to_string(), id: None }).collect(),
-            album: None,
             duration: Some(secs),
-            thumbs: vec![],
-            track_nr: None,
-            plays: None,
-            music_video: false,
+            ..Default::default()
         }
     }
 
@@ -2093,7 +2097,7 @@ mod tests {
 
     #[test]
     fn a_radio_is_its_songs_or_its_videos_when_it_has_only_those() {
-        let t = |id: &str| Track { id: id.into(), title: id.into(), artists: Vec::new(), album: None, duration: None, thumbs: Vec::new(), track_nr: None, plays: None, music_video: false };
+        let t = |id: &str| Track { id: id.into(), title: id.into(), artists: Vec::new(), ..Default::default() };
         let ids = |items: &[(Track, bool)]| radio_tracks(items).map(|t| t.id.clone()).collect::<Vec<_>>();
         assert_eq!(ids(&[(t("a"), false), (t("v"), true), (t("b"), false)]), ["a", "b"]);
         // A music video's radio: music videos only, kept rather than nothing.
@@ -2116,6 +2120,24 @@ mod tests {
         assert!(!row("MUSIC_VIDEO_TYPE_UGC"));
     }
 
+    #[test]
+    fn explicit_songs_are_marked_in_rows_radio_and_cards() {
+        let badge = |icon: &str| json!([{"musicInlineBadgeRenderer": {"icon": {"iconType": icon}}}]);
+        let mut r = album_row("x", "Song", "MUSIC_VIDEO_TYPE_ATV")["musicResponsiveListItemRenderer"].clone();
+        assert!(!list_item(&r).unwrap().explicit);
+        r["badges"] = badge("MUSIC_EXPLICIT_BADGE");
+        assert!(list_item(&r).unwrap().explicit);
+        // Another badge isn't it.
+        r["badges"] = badge("OFFLINE_PIN");
+        assert!(!list_item(&r).unwrap().explicit);
+        let mut p = serde_json::from_str::<Value>(PANEL_ITEM).unwrap()["playlistPanelVideoRenderer"].clone();
+        assert!(!panel_item(&p).unwrap().explicit);
+        p["badges"] = badge("MUSIC_EXPLICIT_BADGE");
+        assert!(panel_item(&p).unwrap().explicit);
+        let card = json!({"title": {"runs": [{"text": "Song"}]}, "navigationEndpoint": {"watchEndpoint": {"videoId": "x"}}, "subtitleBadges": badge("MUSIC_EXPLICIT_BADGE")});
+        assert!(matches!(two_row(&card).unwrap().target, Target::Song(t) if t.explicit));
+    }
+
     /// A signed-out search for the songs of a few music videos. Run alone:
     /// `cargo test --bin ytm-rs -- --ignored ytm::tests::searched_song_live --exact --nocapture`
     #[tokio::test]
@@ -2128,7 +2150,7 @@ mod tests {
             video("Kisi Nazar Ko Tera Intezar", &["Asha Bhosle"], 452),
             video("Bad Guy", &["Billie Eilish"], 207),
         ] {
-            let found = searched_song(&api, &v).await.unwrap();
+            let found = searched_song(&api, &v, false).await.unwrap();
             println!("{} -> {:?}", v.title, found.as_ref().map(|s| (&s.id, &s.title, s.artist_line(), s.duration)));
         }
     }

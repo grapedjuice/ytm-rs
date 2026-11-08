@@ -176,7 +176,8 @@ impl App {
                 // Optimistic: drop the rows now; the playlist reloads once YouTube confirms.
                 c.remove_rows(&rows);
                 log::debug!("list {playlist}: removing {} entries", items.len());
-                self.lists.edits.remove(&playlist, items.iter().map(|(_, set)| set.clone()));
+                self.lists.edits.remove(&playlist, &items);
+                self.sync_card_count(&playlist);
                 self.selection.clear();
                 self.backend.request(Req::RemoveFromPlaylist { playlist_id: playlist, items });
             }

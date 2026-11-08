@@ -515,7 +515,13 @@ pub async fn playlist_start(api: &Api, id: &str, auth: bool, limit: Option<usize
         anyhow::bail!("YouTube Music returned an empty playlist");
     };
     // Mixes (RD…) continue without end: stop at the length the header gives, or at 500.
-    let all = count.map_or(if id.starts_with("RD") { 500 } else { usize::MAX }, |c| c as usize);
+    // Not your own playlists (PL…), which end: their header lags behind an edit, and would
+    // cut off a song just added.
+    let all = match count {
+        Some(c) if !id.starts_with("PL") => c as usize,
+        _ if id.starts_with("RD") => 500,
+        _ => usize::MAX,
+    };
     let limit = limit.map_or(all, |l| l.min(all));
     pl.tracks.truncate(limit);
     pl.set_ids.truncate(limit);

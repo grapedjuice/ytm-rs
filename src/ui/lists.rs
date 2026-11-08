@@ -246,7 +246,8 @@ impl Lists {
                 o.c.set_ids.extend(set_ids);
                 o.complete = !more;
                 if !more {
-                    edits.complete(&mut o.c);
+                    // They go to a queue filling from this load too.
+                    tracks.extend(edits.complete(&mut o.c));
                 }
                 log::debug!("list {id}: load {load} page, {sent} sent, {} added, {} total, more={more}", tracks.len(), o.c.tracks.len());
                 true
@@ -320,6 +321,16 @@ impl Lists {
         }
     }
 
+    /// Songs shown as added that YouTube Music didn't take: out of the kept copy too.
+    pub fn add_failed(&mut self, playlist: &str, video_ids: &[String]) {
+        let gone = self.edits.add_failed(playlist, video_ids);
+        if let Some(o) = self.opened.iter_mut().find(|o| o.c.id == playlist) {
+            // Its rows that YouTube Music didn't list (no setVideoId).
+            let rows: Vec<usize> = (0..o.c.tracks.len()).filter(|&i| !o.c.set_ids.get(i).is_some_and(Option::is_some) && gone.contains(&o.c.tracks[i].id)).collect();
+            o.c.remove_rows(&rows);
+        }
+    }
+
     /// Kept, or loading.
     pub fn known(&self, id: &str) -> bool {
         self.get(id).is_some() || self.loading(id)
@@ -353,8 +364,9 @@ pub struct RecentEdits {
     likes: HashMap<String, (bool, Option<Track>, EditAge)>,
     /// Playlist: the entries (`setVideoId`s) taken out of it, and when.
     removals: HashMap<String, (HashSet<String>, EditAge)>,
-    /// Playlist: the songs added to it, and when.
-    adds: HashMap<String, (Vec<Track>, EditAge)>,
+    /// Playlist: the songs added to it, each with when, and how many of its adds are
+    /// still unanswered (each add is answered on its own).
+    adds: HashMap<String, Vec<(Track, EditAge, u32)>>,
 }
 
 #[derive(Clone, Copy)]
@@ -392,10 +404,15 @@ impl RecentEdits {
         }
     }
 
-    pub fn remove(&mut self, playlist: &str, set_ids: impl IntoIterator<Item = String>) {
+    /// `(videoId, setVideoId)` entries taken out of a playlist. A song added here lately
+    /// and taken out again isn't put back.
+    pub fn remove(&mut self, playlist: &str, items: &[(String, String)]) {
         let (set, age) = self.removals.entry(playlist.to_owned()).or_insert_with(|| (HashSet::new(), EditAge::new()));
-        set.extend(set_ids);
+        set.extend(items.iter().map(|(_, s)| s.clone()));
         *age = EditAge::new();
+        if let Some(added) = self.adds.get_mut(playlist) {
+            added.retain(|(t, ..)| !items.iter().any(|(v, _)| *v == t.id));
+        }
     }
 
     pub fn confirm_removal(&mut self, playlist: &str) {
@@ -405,33 +422,78 @@ impl RecentEdits {
     }
 
     fn add(&mut self, playlist: &str, tracks: &[Track]) {
-        let (added, age) = self.adds.entry(playlist.to_owned()).or_insert_with(|| (Vec::new(), EditAge::new()));
-        added.extend(tracks.iter().cloned());
-        *age = EditAge::new();
+        // Ones that have run out don't come back with these.
+        self.prune();
+        let added = self.adds.entry(playlist.to_owned()).or_default();
+        for t in tracks {
+            // One added already keeps its age, and its answer.
+            match added.iter_mut().find(|(x, ..)| x.id == t.id) {
+                Some((.., unanswered)) => *unanswered += 1,
+                None => added.push((t.clone(), EditAge::new(), 1)),
+            }
+        }
     }
 
-    pub fn confirm_add(&mut self, playlist: &str) {
-        if let Some((_, age)) = self.adds.get_mut(playlist) {
-            age.confirmed = Some(Instant::now());
+    /// YouTube Music took these songs into the playlist.
+    pub fn confirm_add(&mut self, playlist: &str, video_ids: &[String]) {
+        for (t, age, unanswered) in self.adds.get_mut(playlist).into_iter().flatten() {
+            if video_ids.contains(&t.id) {
+                age.confirmed.get_or_insert_with(Instant::now);
+                *unanswered = unanswered.saturating_sub(1);
+            }
         }
+    }
+
+    /// YouTube Music didn't take these songs into the playlist: the ones it hasn't taken,
+    /// and isn't still answering another add of, stop showing (and are returned).
+    fn add_failed(&mut self, playlist: &str, video_ids: &[String]) -> Vec<String> {
+        let mut gone = Vec::new();
+        if let Some(added) = self.adds.get_mut(playlist) {
+            added.retain_mut(|(t, age, unanswered)| {
+                if !video_ids.contains(&t.id) {
+                    return true;
+                }
+                *unanswered = unanswered.saturating_sub(1);
+                let keep = age.confirmed.is_some() || *unanswered > 0;
+                if !keep {
+                    gone.push(t.id.clone());
+                }
+                keep
+            });
+        }
+        gone
+    }
+
+    /// Songs were added to or taken out of the playlist here lately, so what YouTube
+    /// Music says of it may not show that yet.
+    pub fn pending(&self, playlist: &str) -> bool {
+        self.adds.get(playlist).is_some_and(|a| a.iter().any(|(_, age, _)| age.live(REMOVAL_UNANSWERED)))
+            || self.removals.get(playlist).is_some_and(|(_, age)| age.live(REMOVAL_UNANSWERED))
     }
 
     fn prune(&mut self) {
         self.likes.retain(|_, (_, _, age)| age.live(LIKE_UNANSWERED));
         self.removals.retain(|_, (_, age)| age.live(REMOVAL_UNANSWERED));
-        self.adds.retain(|_, (_, age)| age.live(REMOVAL_UNANSWERED));
+        self.adds.retain(|_, added| {
+            added.retain(|(_, age, _)| age.live(REMOVAL_UNANSWERED));
+            !added.is_empty()
+        });
     }
 
-    /// All of a playlist: the songs added here that it doesn't list yet go at its end, and
-    /// it counts at least the songs it has (YouTube Music's header can lag behind its list).
-    fn complete(&self, c: &mut Collection) {
-        for t in self.adds.get(&c.id).map_or(&[][..], |(added, _)| added) {
-            if !c.tracks.iter().any(|x| x.id == t.id) {
-                c.tracks.push(t.clone());
-                c.set_ids.push(None);
+    /// All of a playlist: the songs added here that it doesn't list yet go at its end, once
+    /// each (and are returned). Its header lags behind its list, so they count on top of
+    /// it, and it counts at least the songs it has. One with no count (an album) gets none.
+    fn complete(&self, c: &mut Collection) -> Vec<Track> {
+        let mut missing: Vec<Track> = Vec::new();
+        for (t, ..) in self.adds.get(&c.id).into_iter().flatten() {
+            if !c.tracks.iter().chain(&missing).any(|x| x.id == t.id) {
+                missing.push(t.clone());
             }
         }
-        c.count = c.count.max(Some(c.tracks.len() as u64));
+        c.tracks.extend(missing.iter().cloned());
+        c.set_ids.extend(missing.iter().map(|_| None));
+        c.count = c.count.map(|n| (n + missing.len() as u64).max(c.tracks.len() as u64));
+        missing
     }
 
     /// Whether a song row YouTube Music sent still stands: not taken out of that
@@ -767,7 +829,7 @@ mod tests {
 
         // An entry taken out of a playlist here stays out of a page still listing it.
         let s = lists.load("PL1", false, false).unwrap();
-        lists.edits.remove("PL1", ["set-c".to_owned()]);
+        lists.edits.remove("PL1", &[("c".to_owned(), "set-c".to_owned())]);
         lists.arrived(s.load, collection("PL1", &["c", "d"]), true, &[]).unwrap();
         let (t, set) = page_of(&["c", "e"]);
         lists.page("PL1", s.load, t, set, false, &[]).unwrap();
@@ -843,7 +905,7 @@ mod tests {
     #[test]
     fn stale_lists_drop_recent_removals_and_unlikes() {
         let mut edits = RecentEdits::default();
-        edits.remove("PL1", ["set-b".to_owned(), "set-c".to_owned()]);
+        edits.remove("PL1", &[("b".to_owned(), "set-b".to_owned()), ("c".to_owned(), "set-c".to_owned())]);
         edits.confirm_removal("PL1");
         let mut c = collection("PL1", &["a", "b", "c", "d"]);
         edits.correct_collection(&mut c);
@@ -879,7 +941,7 @@ mod tests {
         lists.added("PL1", &[track("c")]);
         assert_eq!(songs(&lists, "PL1"), ["a", "b", "c"]);
         assert_eq!(lists.get("PL1").unwrap().c.count, Some(3));
-        lists.edits.confirm_add("PL1");
+        lists.edits.confirm_add("PL1", &["c".to_owned()]);
 
         // A reload that doesn't list it yet still has it.
         load_whole(&mut lists, "PL1", &["a", "b"], &[]);
@@ -896,12 +958,96 @@ mod tests {
         lists.arrived(s.load, collection("PL2", &["a"]), true, &[]).unwrap();
         assert_eq!(songs(&lists, "PL2"), ["a"]);
         let (t, set) = page_of(&["b"]);
-        lists.page("PL2", s.load, t, set, false, &[]).unwrap();
+        let page = lists.page("PL2", s.load, t, set, false, &[]).unwrap();
         assert_eq!(songs(&lists, "PL2"), ["a", "b", "z"]);
+        // A queue filling from the load gets it too.
+        assert_eq!(page.tracks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["b", "z"]);
 
-        // One YouTube Music never answered stops showing after a while.
-        lists.edits.adds.get_mut("PL2").unwrap().1.made = Instant::now() - Duration::from_secs(61);
+        // One YouTube Music never answered stops showing after a while, and adding
+        // another later doesn't bring it back.
+        lists.edits.adds.get_mut("PL2").unwrap()[0].1.made = Instant::now() - Duration::from_secs(61);
+        lists.added("PL2", &[track("y")]);
         load_whole(&mut lists, "PL2", &["a", "b"], &[]);
-        assert_eq!(songs(&lists, "PL2"), ["a", "b"]);
+        assert_eq!(songs(&lists, "PL2"), ["a", "b", "y"]);
+    }
+
+    #[test]
+    fn a_song_youtube_music_didnt_take_goes_with_the_next_load() {
+        let mut lists = Lists::default();
+        load_whole(&mut lists, "PL1", &["a"], &[]);
+        lists.added("PL1", &[track("b")]);
+        lists.add_failed("PL1", &["b".to_owned()]);
+        assert!(!lists.edits.pending("PL1"));
+        // Out of the kept copy at once, and the next load doesn't bring it back.
+        assert_eq!(songs(&lists, "PL1"), ["a"]);
+        assert_eq!(lists.get("PL1").unwrap().c.count, Some(1));
+        load_whole(&mut lists, "PL1", &["a"], &[]);
+        assert_eq!(songs(&lists, "PL1"), ["a"]);
+
+        // Added again after it went in, a failure leaves the one that went in.
+        lists.added("PL1", &[track("c")]);
+        lists.edits.confirm_add("PL1", &["c".to_owned()]);
+        lists.added("PL1", &[track("c")]);
+        lists.add_failed("PL1", &["c".to_owned()]);
+        assert_eq!(songs(&lists, "PL1"), ["a", "c"]);
+
+        // Added twice before either is answered: the first failing leaves it to the second.
+        lists.added("PL1", &[track("d")]);
+        lists.added("PL1", &[track("d")]);
+        lists.add_failed("PL1", &["d".to_owned()]);
+        assert_eq!(songs(&lists, "PL1"), ["a", "c", "d"]);
+        lists.edits.confirm_add("PL1", &["d".to_owned()]);
+        load_whole(&mut lists, "PL1", &["a"], &[]);
+        assert_eq!(songs(&lists, "PL1"), ["a", "c", "d"]);
+    }
+
+    #[test]
+    fn a_later_add_failing_doesnt_take_an_earlier_one_with_it() {
+        let mut lists = Lists::default();
+        lists.added("PL1", &[track("a")]);
+        lists.edits.confirm_add("PL1", &["a".to_owned()]);
+        lists.edits.adds.get_mut("PL1").unwrap()[0].1.made = Instant::now() - Duration::from_secs(70);
+        // "b" is never answered: it goes after a minute, "a" stays its while.
+        lists.added("PL1", &[track("b")]);
+        assert!(lists.edits.pending("PL1"));
+        lists.edits.adds.get_mut("PL1").unwrap()[1].1.made = Instant::now() - Duration::from_secs(61);
+        load_whole(&mut lists, "PL1", &["x"], &[]);
+        assert_eq!(songs(&lists, "PL1"), ["x", "a"]);
+    }
+
+    #[test]
+    fn a_song_added_and_taken_out_again_stays_out() {
+        let mut lists = Lists::default();
+        lists.added("PL1", &[track("c")]);
+        lists.edits.confirm_add("PL1", &["c".to_owned()]);
+        load_whole(&mut lists, "PL1", &["a", "c"], &[]);
+        lists.edits.remove("PL1", &[("c".to_owned(), "set-c".to_owned())]);
+        load_whole(&mut lists, "PL1", &["a", "c"], &[]);
+        assert_eq!(songs(&lists, "PL1"), ["a"]);
+    }
+
+    #[test]
+    fn songs_added_count_on_top_of_ones_that_cant_play() {
+        let mut lists = Lists::default();
+        // The header counts one more than it lists (a song that can't play).
+        let s = lists.load("PL1", false, false).unwrap();
+        lists.arrived(s.load, Collection { count: Some(3), ..collection("PL1", &["a", "b"]) }, false, &[]).unwrap();
+        lists.added("PL1", &[track("c")]);
+        assert_eq!(lists.get("PL1").unwrap().c.count, Some(4));
+        // Added twice, it's there once.
+        lists.added("PL1", &[track("d")]);
+        lists.added("PL1", &[track("d")]);
+        load_whole(&mut lists, "PL1", &["a", "b"], &[]);
+        assert_eq!(songs(&lists, "PL1"), ["a", "b", "c", "d"]);
+    }
+
+    #[test]
+    fn a_list_without_a_count_gets_none_from_an_addition() {
+        let mut lists = Lists::default();
+        let s = lists.load("PL1", false, false).unwrap();
+        lists.arrived(s.load, Collection { count: None, ..collection("PL1", &["a"]) }, false, &[]).unwrap();
+        lists.added("PL1", &[track("b")]);
+        let o = lists.get("PL1").unwrap();
+        assert_eq!((o.c.tracks.len(), o.c.count), (2, None));
     }
 }

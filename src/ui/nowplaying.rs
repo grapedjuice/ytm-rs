@@ -4,7 +4,7 @@
 
 use egui::{Color32, Rect, Sense, Ui, Vec2, pos2, vec2};
 
-use super::widgets::{self, icon_button, named, text_at};
+use super::widgets::{self, icon_button, menu_divider, named, text_at};
 use super::{Action, App, NpTab, karaoke};
 use crate::lyrics::{Lyrics, Sync, SyncKind};
 use crate::shader::Params;
@@ -339,7 +339,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     if cover.clicked() { app.actions.push(Action::TogglePlay); }
     let w = side;
     let title_y = art.bottom() + 22.0;
-    text_at(ui, pos2(art.left(), title_y), &track.title, theme::bold(28.0), Color32::WHITE, w);
+    widgets::title_at(ui, pos2(art.left(), title_y), &track.title, track.explicit, theme::bold(28.0), Color32::WHITE, w);
     // Each artist opens their own page (features included).
     let line = track.artist_line();
     widgets::linked_text(ui, pos2(art.left(), title_y + 40.0), &line, &track.artists, theme::regular(17.0), theme::text_dim(), w, &mut app.actions);
@@ -403,7 +403,7 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
         app.actions.push(Action::TogglePlay);
     }
     let y = picture.bottom() + 12.0;
-    text_at(ui, pos2(picture.left(), y), &track.title, theme::bold(20.0), Color32::WHITE, fit.x);
+    widgets::title_at(ui, pos2(picture.left(), y), &track.title, track.explicit, theme::bold(20.0), Color32::WHITE, fit.x);
     let line = track.artist_line();
     widgets::linked_text(ui, pos2(picture.left(), y + 28.0), &line, &track.artists, theme::regular(14.0), theme::text_dim(), fit.x, &mut app.actions);
     if up_next {
@@ -677,9 +677,7 @@ fn options_menu(app: &mut App, ui: &mut Ui, track: &crate::model::Track, lyrics:
         ui.painter().circle_filled(rect.center() + vec2(dx, 0.0), 1.9, theme::with_alpha(Color32::WHITE, 0.75 + 0.25 * h));
     }
     egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-        ui.set_width(270.0);
-        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        ui.add_space(4.0);
+        widgets::menu_body(ui, 270.0);
         if lyrics {
             lyric_options(app, ui);
             menu_divider(ui);
@@ -692,7 +690,6 @@ fn options_menu(app: &mut App, ui: &mut Ui, track: &crate::model::Track, lyrics:
                 *a = Action::LikeHeard(*like);
             }
         }
-        ui.add_space(4.0);
     });
 }
 
@@ -741,20 +738,13 @@ fn menu_caption(ui: &mut Ui, text: &str) {
     ui.painter().text(pos2(r.left() + 12.0, r.center().y + 2.0), egui::Align2::LEFT_CENTER, text, theme::semibold(11.0), theme::text_faint());
 }
 
-fn menu_divider(ui: &mut Ui) {
-    ui.add_space(5.0);
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().rect_filled(r.shrink2(vec2(8.0, 0.0)), 0.0, theme::glass_panel(0.08));
-    ui.add_space(5.0);
-}
-
 /// A lyrics source: its sync type's dot, name and sync type, with a check on the one shown.
 fn source_row(ui: &mut Ui, name: &str, sync: SyncKind, current: bool) -> bool {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
     let resp = named(resp, &format!("Lyrics source {name}")).on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.12);
     if h > 0.0 || current {
-        ui.painter().rect_filled(rect, 8.0, theme::glass(0.05 * current as u8 as f32 + 0.08 * h));
+        ui.painter().rect_filled(rect, theme::menu_item_radius(), theme::glass(0.05 * current as u8 as f32 + 0.08 * h));
     }
     ui.painter().circle_filled(pos2(rect.left() + 19.0, rect.center().y), 3.5, sync_color(sync));
     let x = rect.left() + 40.0;
@@ -775,7 +765,7 @@ fn switch_row(ui: &mut Ui, label: &str, on: &mut bool) {
     }
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.12);
     if h > 0.0 {
-        ui.painter().rect_filled(rect, 8.0, theme::glass(0.08 * h));
+        ui.painter().rect_filled(rect, theme::menu_item_radius(), theme::glass(0.08 * h));
     }
     ui.painter().text(pos2(rect.left() + 12.0, rect.center().y), egui::Align2::LEFT_CENTER, label, theme::regular(14.0), theme::text());
     let t = theme::anim_bool(ui.ctx(), resp.id.with("t"), *on, 0.16);

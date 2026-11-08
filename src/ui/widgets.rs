@@ -88,6 +88,79 @@ pub fn text_at(ui: &Ui, pos: Pos2, text: &str, font: egui::FontId, color: Color3
     rect
 }
 
+/// A song's title, followed by the "E" YouTube Music marks explicit songs with: a square
+/// in the title's own `color` with the E cut out of it, so whatever's behind shows through.
+pub fn title_at(ui: &Ui, pos: Pos2, title: &str, explicit: bool, font: egui::FontId, color: Color32, width: f32) -> Rect {
+    if !explicit {
+        return text_at(ui, pos, title, font, color, width);
+    }
+    let ppp = ui.ctx().pixels_per_point();
+    let side = (font.size * 0.8 * ppp).round().max(9.0); // in physical pixels
+    let gap = (side * 0.4).round() / ppp;
+    let r = text_at(ui, pos, title, font, color, width - side / ppp - gap);
+    let snap = |v: f32| (v * ppp).round() / ppp;
+    let b = Rect::from_min_size(pos2(snap(r.right() + gap), snap(r.center().y - side / ppp / 2.0)), Vec2::splat(side / ppp));
+    // Drawn from a mask made once per size: one texel a screen pixel, so it stays sharp.
+    // Only the current scale's masks are kept; a new scale drops the old ones.
+    type Masks = (f32, std::collections::HashMap<usize, egui::TextureHandle>);
+    let side = side as usize;
+    let id = egui::Id::unique("explicit-badge");
+    let cached = ui.ctx().data_mut(|d| {
+        let (scale, masks) = d.get_temp_mut_or_default::<Masks>(id);
+        if *scale != ppp {
+            *scale = ppp;
+            masks.clear();
+        }
+        masks.get(&side).cloned()
+    });
+    let tex = cached.unwrap_or_else(|| {
+        let t = ui.ctx().load_texture("explicit-badge", badge_mask(side), egui::TextureOptions::LINEAR);
+        ui.ctx().data_mut(|d| d.get_temp_mut_or_default::<Masks>(id).1.insert(side, t.clone()));
+        t
+    });
+    ui.painter().image(tex.id(), b, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), color);
+    r.union(b)
+}
+
+/// A rounded square with an E cut out of it, `side` pixels across, as white coverage
+/// (8×8 samples a pixel) for tinting: smooth edges, and the E shows what's behind.
+fn badge_mask(side: usize) -> egui::ColorImage {
+    let s = side as f32;
+    let radius = s * 0.24;
+    // The E, in fractions of the side.
+    let (x0, x1, y0, y1, t, arm) = (0.34, 0.68, 0.22, 0.78, 0.12, 0.63);
+    let in_e = |x: f32, y: f32| {
+        (x0..x1).contains(&x)
+            && (y0..y1).contains(&y)
+            && (x < x0 + t || y < y0 + t || y > y1 - t || ((y - 0.5).abs() < t / 2.0 && x < arm))
+    };
+    let in_square = |x: f32, y: f32| {
+        let dx = (radius - x).max(x - (s - radius)).max(0.0);
+        let dy = (radius - y).max(y - (s - radius)).max(0.0);
+        dx * dx + dy * dy <= radius * radius
+    };
+    const N: usize = 8;
+    let pixels = (0..side * side)
+        .map(|i| {
+            let (px, py) = ((i % side) as f32, (i / side) as f32);
+            let hits = (0..N * N)
+                .filter(|j| {
+                    let x = px + ((j % N) as f32 + 0.5) / N as f32;
+                    let y = py + ((j / N) as f32 + 0.5) / N as f32;
+                    in_square(x, y) && !in_e(x / s, y / s)
+                })
+                .count();
+            Color32::from_white_alpha((hits * 255 / (N * N)) as u8)
+        })
+        .collect();
+    egui::ColorImage { size: [side, side], source_size: vec2(s, s), pixels }
+}
+
+/// What a screen reader calls a song: its title, and whether it's explicit.
+pub fn song_name(title: &str, explicit: bool) -> std::borrow::Cow<'_, str> {
+    if explicit { format!("{title}, Explicit").into() } else { title.into() }
+}
+
 /// Single-line text whose artist names are links: underlined on hover, and a click
 /// opens the artist's page. Names without a channel id stay plain text.
 #[allow(clippy::too_many_arguments)]
@@ -420,6 +493,9 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
     let more_rect = Rect::from_center_size(pos2(rect.right() - 16.0, sub_y + 8.0), Vec2::splat(30.0));
     let more = more_button(ui, more_rect, resp.id.with("more"), "Options");
     egui::Popup::menu(&more).show(|ui| card_menu_contents(ui, c, liked, acts));
+    // Right-click anywhere on the card opens the same menu, even on the play button,
+    // a linked name or ⋮, which take the click themselves.
+    resp.container_context_menu(|ui| card_menu_contents(ui, c, liked, acts));
 
     if play_hit {
         match &c.target {
@@ -432,12 +508,11 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
     }
 }
 
-fn card_menu_contents(ui: &mut Ui, c: &Card, liked: bool, acts: &mut Vec<Action>) {
+pub fn card_menu_contents(ui: &mut Ui, c: &Card, liked: bool, acts: &mut Vec<Action>) {
     match &c.target {
         Target::Song(t) => song_menu(ui, t, liked, None, acts),
         t => {
-            ui.set_width(226.0);
-            ui.add_space(3.0);
+            menu_body(ui, 260.0);
             if menu_action(ui, Some(icon::PLAY), "Play") {
                 acts.push(Action::PlayCollection(t.clone(), false));
             }
@@ -447,11 +522,10 @@ fn card_menu_contents(ui: &mut Ui, c: &Card, liked: bool, acts: &mut Vec<Action>
             if menu_action(ui, None, "Open") {
                 acts.push(Action::Open(t.clone()));
             }
-            ui.separator();
+            menu_divider(ui);
             if menu_action(ui, None, "Copy link") {
                 acts.push(Action::Share(t.clone()));
             }
-            ui.add_space(3.0);
         }
     }
 }
@@ -467,11 +541,27 @@ fn more_button(ui: &mut Ui, rect: Rect, id: egui::Id, label: &str) -> Response {
     response
 }
 
+/// Sets up a menu or dropdown: `width` wide, with a small gap between rows so two
+/// highlights (picked and hovered) never run together.
+pub fn menu_body(ui: &mut Ui, width: f32) {
+    ui.set_width(width);
+    ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
+}
+
+/// A thin line between groups of menu rows.
+pub fn menu_divider(ui: &mut Ui) {
+    ui.add_space(5.0);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().rect_filled(r.shrink2(vec2(8.0, 0.0)), 0.0, theme::glass_panel(0.08));
+    ui.add_space(5.0);
+}
+
 pub fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
-    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width() - 8.0, 32.0), Sense::click());
+    // Full width, so the highlight sits as far from the menu's right edge as its left.
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::click());
     let response = named(response, label).on_hover_cursor(egui::CursorIcon::PointingHand);
     if response.hovered() {
-        ui.painter().rect_filled(rect, 7.0, theme::glass(0.12));
+        ui.painter().rect_filled(rect, theme::menu_item_radius(), theme::glass(0.12));
     }
     let color = if response.hovered() { theme::text() } else { theme::text_dim() };
     if let Some(glyph) = glyph {
@@ -486,10 +576,8 @@ pub fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
 
 /// `remove`: the song's row in the open playlist, when it's yours and the song can come out.
 pub fn song_menu(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, acts: &mut Vec<Action>) {
-    ui.set_width(226.0);
-    ui.add_space(3.0);
+    menu_body(ui, 260.0);
     song_actions(ui, t, liked, remove, acts);
-    ui.add_space(3.0);
 }
 
 /// The song menu's items, for menus that add their own (now playing's options).
@@ -523,7 +611,7 @@ pub fn song_actions(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, 
             }
         }
     }
-    ui.separator();
+    menu_divider(ui);
     if menu_action(ui, Some(icon::SKIP_FORWARD), "Play next") {
         acts.push(Action::PlayNext(t.clone()));
     }
@@ -534,7 +622,7 @@ pub fn song_actions(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, 
         acts.push(Action::Radio(t.clone()));
     }
     if t.album.as_ref().and_then(|a| a.id.as_ref()).is_some() || t.first_artist_id().is_some() {
-        ui.separator();
+        menu_divider(ui);
     }
     if let Some(id) = t.album.as_ref().and_then(|a| a.id.clone())
         && menu_action(ui, Some(icon::DISC_3), "Go to album")
@@ -703,7 +791,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     // Picking: the cover (left 54 px) plays, the rest of the row picks.
     let hit_left = if o.pick && o.number.is_none() { rect.left() + 54.0 } else { rect.left() };
     let hit_rect = Rect::from_min_max(pos2(hit_left, rect.top()), pos2(rect.right() - 42.0, rect.bottom()));
-    let resp = named(ui.interact(hit_rect, base.id.with("play"), Sense::click()), &t.title).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let resp = named(ui.interact(hit_rect, base.id.with("play"), Sense::click()), &song_name(&t.title, t.explicit)).on_hover_cursor(egui::CursorIcon::PointingHand);
     // Not while something's being dragged over it: only the drop place should show.
     let hovered = base.contains_pointer() && ui.ctx().dragged_id().is_none();
     let h = theme::anim_bool(ui.ctx(), base.id.with("h"), hovered, 0.15);
@@ -784,7 +872,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         (sub, _) => sub,
     };
     let title_y = if sub.is_some() { cy - 18.0 } else { cy - 9.0 };
-    text_at(ui, pos2(x, title_y), &t.title, theme::semibold(14.5), title_col, title_w);
+    title_at(ui, pos2(x, title_y), &t.title, t.explicit, theme::semibold(14.5), title_col, title_w);
     if let Some(sub) = &sub {
         linked_text(ui, pos2(x, cy + 2.0), sub, &t.artists, theme::regular(13.0), theme::text_dim(), title_w, acts);
     }

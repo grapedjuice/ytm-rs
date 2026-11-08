@@ -219,7 +219,7 @@ mod tests {
     const HEIGHT: f32 = 600.0;
 
     fn song(i: usize) -> Track {
-        Track { id: format!("song{i}"), title: format!("Song {i}"), artists: vec![], album: None, duration: Some(200), thumbs: vec![], track_nr: None, plays: None, music_video: false }
+        Track { id: format!("song{i}"), title: format!("Song {i}"), artists: vec![], album: None, duration: Some(200), ..Default::default() }
     }
 
     /// A real list of real rows in a scroll area, run frame by frame on made-up pointer

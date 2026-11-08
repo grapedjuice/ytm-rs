@@ -50,6 +50,7 @@ impl App {
                     target => self.backend.request(Req::PlayCollection { target }),
                 }
             }
+            Action::Open(Target::Song(t)) | Action::Radio(t) if self.explicit_hidden(&t) => {}
             Action::Open(Target::Song(t)) | Action::Radio(t) => {
                 self.queue_source = None;
                 self.play_list(vec![t.clone()], 0);
@@ -61,6 +62,7 @@ impl App {
             Action::Open(Target::Album(id)) => self.go(Page::Album(id)),
             Action::Open(Target::Playlist(id)) => self.go(Page::Playlist(id)),
             Action::Open(Target::Artist(id)) => self.go(Page::Artist(id)),
+            Action::PlayNext(t) | Action::Enqueue(t) if self.explicit_hidden(&t) => {}
             Action::PlayNext(t) => {
                 let start = self.queue.play_next(t);
                 self.toast("Playing next");
@@ -81,6 +83,7 @@ impl App {
             Action::QueueJump(i) => {
                 self.play_pending = None;
                 self.queue.index = Some(i);
+                self.queue.drop_explicit();
                 self.play_current();
             }
             Action::QueueRemove(i) => self.queue.remove(i),
@@ -369,7 +372,7 @@ mod share_tests {
 
     #[test]
     fn shares_youtube_music_urls() {
-        let song = Track { id: "abc123".into(), title: String::new(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false };
+        let song = Track { id: "abc123".into(), title: String::new(), artists: vec![], ..Default::default() };
         assert_eq!(share_url(&Target::Song(song)), "https://music.youtube.com/watch?v=abc123");
         assert_eq!(share_url(&Target::Playlist("PL123".into())), "https://music.youtube.com/playlist?list=PL123");
         assert_eq!(share_url(&Target::Album("MPRE123".into())), "https://music.youtube.com/browse/MPRE123");

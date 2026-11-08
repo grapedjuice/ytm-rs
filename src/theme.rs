@@ -250,6 +250,15 @@ pub fn panel_radius() -> u8 {
     crate::preset::active().app.panel_radius.clamp(0.0, 32.0) as u8
 }
 
+/// How far a menu's content sits in from its edge.
+pub const MENU_INSET: i8 = 6;
+
+/// Corner radius of a row or field inside a menu: the menu's less the inset, so the two
+/// curves run parallel instead of the inner one bulging into the corner.
+pub fn menu_item_radius() -> f32 {
+    (panel_radius() as f32 - MENU_INSET as f32).max(0.0)
+}
+
 /// Strength of card hover zoom/lift.
 pub fn hover_k() -> f32 {
     crate::preset::active().app.hover.clamp(0.0, 2.5)
@@ -884,6 +893,7 @@ pub fn install_style(ctx: &egui::Context) {
     ctx.global_style_mut(|s| {
         s.spacing.item_spacing = egui::vec2(8.0, 6.0);
         s.spacing.button_padding = egui::vec2(14.0, 7.0);
+        s.spacing.menu_margin = egui::Margin::same(MENU_INSET);
         s.spacing.scroll = egui::style::ScrollStyle::floating();
         s.text_styles.insert(egui::TextStyle::Body, regular(14.0));
         s.text_styles.insert(egui::TextStyle::Button, semibold(14.0));

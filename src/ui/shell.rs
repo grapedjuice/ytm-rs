@@ -344,6 +344,8 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 if resp.clicked() {
                     app.actions.push(Action::Open(c.target.clone()));
                 }
+                // Right-click: the menu a playlist's card has.
+                resp.context_menu(|ui| widgets::card_menu_contents(ui, c, false, &mut app.actions));
             }
             match dropped {
                 Some((id, t)) if id == "LM" => {
@@ -768,9 +770,9 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         // Title, artists and the heart (about 48 px) end before the shuffle button.
         let room = row.center().x - half - 18.0 - 14.0 - 48.0 - x;
         let w = (row.width() * 0.3 - 110.0).max(80.0).min(room).max(40.0);
-        let tr = text_at(ui, pos2(x, cy - 19.0), &t.title, theme::semibold(15.0), theme::text(), w);
+        let tr = widgets::title_at(ui, pos2(x, cy - 19.0), &t.title, t.explicit, theme::semibold(15.0), theme::text(), w);
         let tresp = ui.interact(tr, ui.scope_id().with("np-title"), Sense::click());
-        if named(tresp, &t.title).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        if named(tresp, &widgets::song_name(&t.title, t.explicit)).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
             app.actions.push(Action::OpenNowPlaying(true));
         }
         let mut ax = x;

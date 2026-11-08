@@ -10,7 +10,7 @@ use crate::backend::{Req, Resp};
 use crate::model::{ShelfKind, Target, Track};
 use crate::ytm::HomePage;
 
-use super::{Action, App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, dev_var, shuffle};
+use super::{Action, App, Dialog, HomeState, LibTab, Page, PlayingAs, dev_var, shuffle};
 
 impl App {
     pub(super) fn pump(&mut self, now: f64) {
@@ -29,7 +29,7 @@ impl App {
             match ev {
                 AudioEvent::Finished { generation } if generation == self.generation && self.jam.guest() => {}
                 AudioEvent::Finished { generation } if generation == self.generation => {
-                    if self.queue.repeat == Repeat::One {
+                    if self.repeats_one() {
                         self.play_current();
                     } else {
                         self.next();
@@ -37,7 +37,7 @@ impl App {
                 }
                 AudioEvent::Finished { .. } => {}
                 // Crossfade into the next song; repeat-one and the end of the queue wait for the end.
-                AudioEvent::Ending { generation } if generation == self.generation && !self.jam.guest() && self.queue.repeat != Repeat::One => {
+                AudioEvent::Ending { generation } if generation == self.generation && !self.jam.guest() && !self.repeats_one() => {
                     self.handoff = true;
                     self.next();
                     self.handoff = false;

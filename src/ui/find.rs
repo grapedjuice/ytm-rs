@@ -1,5 +1,6 @@
 //! Find in a song list: the box above a list, narrowing it to the songs that match.
-//! Rows keep their numbers in the whole list, for selecting and removing.
+//! Rows keep their numbers in the whole list, for selecting and removing. Explicit songs,
+//! when hidden, are left out here too.
 
 use egui::{Rect, Sense, Ui, Vec2, pos2, vec2};
 
@@ -18,23 +19,29 @@ const BOX_H: f32 = 38.0;
 pub struct ListFind {
     page: Option<Page>,
     query: String,
+    pub hide_explicit: bool,
 }
 
 impl ListFind {
     /// The rows of `tracks` to show on `page`; `None` when it isn't narrowed.
     pub fn rows(&self, page: &Page, tracks: &[Track]) -> Option<Vec<usize>> {
-        let query = self.query.to_lowercase();
+        let query = if self.page.as_ref() == Some(page) { self.query.to_lowercase() } else { String::new() };
         let words: Vec<&str> = query.split_whitespace().collect();
-        if self.page.as_ref() != Some(page) || words.is_empty() {
+        if words.is_empty() && !(self.hide_explicit && tracks.iter().any(|t| t.explicit)) {
             return None;
         }
-        Some(tracks.iter().enumerate().filter(|(_, t)| matches(t, &words)).map(|(i, _)| i).collect())
+        Some(tracks.iter().enumerate().filter(|(_, t)| !(self.hide_explicit && t.explicit) && matches(t, &words)).map(|(i, _)| i).collect())
+    }
+
+    /// Something is looked for in `page`'s list.
+    pub fn searching(&self, page: &Page) -> bool {
+        self.page.as_ref() == Some(page) && !self.query.trim().is_empty()
     }
 
     /// The box, for a list of `tracks`, with how many match inside it: true when what's
     /// looked for changed.
     pub fn show(&mut self, ui: &mut Ui, page: &Page, tracks: &[Track]) -> bool {
-        let total = tracks.len();
+        let total = tracks.iter().filter(|t| !(self.hide_explicit && t.explicit)).count();
         if self.page.as_ref() != Some(page) {
             self.page = Some(page.clone());
             self.query.clear();
@@ -49,7 +56,7 @@ impl ListFind {
         icon_at(ui, pos2(rect.left() + 18.0, rect.center().y), icon::SEARCH, 15.0, theme::text_dim());
         let clearable = !self.query.is_empty();
         let end = rect.right() - if clearable { 36.0 } else { 12.0 };
-        let count = self.rows(page, tracks).map(|s| ui.painter().layout_no_wrap(format!("{} of {total}", s.len()), theme::regular(12.5), theme::text_faint()));
+        let count = self.searching(page).then(|| self.rows(page, tracks)).flatten().map(|s| ui.painter().layout_no_wrap(format!("{} of {total}", s.len()), theme::regular(12.5), theme::text_faint()));
         let count_w = count.as_ref().map_or(0.0, |g| g.size().x + 8.0);
         let inner = Rect::from_min_max(pos2(rect.left() + 34.0, rect.top() + 3.0), pos2((end - count_w).max(rect.left() + 60.0), rect.bottom() - 3.0));
         if let Some(g) = count {
@@ -105,7 +112,7 @@ mod tests {
     }
 
     fn track(title: &str, artist: &str, album: &str) -> Track {
-        Track { id: title.into(), title: title.into(), artists: vec![link(artist)], album: Some(link(album)), duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false }
+        Track { id: title.into(), title: title.into(), artists: vec![link(artist)], album: Some(link(album)), ..Default::default() }
     }
 
     fn songs() -> Vec<Track> {
@@ -113,7 +120,7 @@ mod tests {
     }
 
     fn find(query: &str) -> Option<Vec<usize>> {
-        let f = ListFind { page: Some(Page::Playlist("a".into())), query: query.into() };
+        let f = ListFind { page: Some(Page::Playlist("a".into())), query: query.into(), hide_explicit: false };
         f.rows(&Page::Playlist("a".into()), &songs())
     }
 
@@ -144,7 +151,21 @@ mod tests {
 
     #[test]
     fn it_belongs_to_one_list() {
-        let f = ListFind { page: Some(Page::Playlist("a".into())), query: "daft".into() };
+        let f = ListFind { page: Some(Page::Playlist("a".into())), query: "daft".into(), hide_explicit: false };
         assert_eq!(f.rows(&Page::Playlist("b".into()), &songs()), None);
+    }
+
+    #[test]
+    fn hidden_explicit_songs_are_left_out() {
+        let mut tracks = songs();
+        tracks[2].explicit = true;
+        let page = Page::Playlist("a".into());
+        let mut f = ListFind { page: Some(page.clone()), query: String::new(), hide_explicit: true };
+        assert_eq!(f.rows(&page, &tracks), Some(vec![0, 1, 3]));
+        f.query = "daft".into();
+        assert_eq!(f.rows(&page, &tracks), Some(vec![0]));
+        // Another list's search doesn't apply, but hiding still does.
+        assert_eq!(f.rows(&Page::Playlist("b".into()), &tracks), Some(vec![0, 1, 3]));
+        assert_eq!(f.rows(&page, &songs()[..2]), Some(vec![0]));
     }
 }

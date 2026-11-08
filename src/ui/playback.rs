@@ -137,10 +137,12 @@ impl App {
     /// `fill`: the queue is a playlist still coming in, and its other songs follow.
     pub(super) fn play_list_filling(&mut self, tracks: Vec<Track>, start: usize, fill: Option<QueueFill>) {
         // A song opened from a link, say: the next one that isn't explicit plays, if any.
-        if let Some(t) = tracks.get(start) {
-            self.explicit_hidden(t);
+        let hidden = tracks.get(start).is_some_and(|t| self.hide_explicit && t.explicit);
+        let played = self.queue.replace(tracks, start, fill);
+        if hidden {
+            self.toast(if played { "Skipped an explicit song" } else { "Nothing to play that isn't explicit" });
         }
-        if !self.queue.replace(tracks, start, fill) {
+        if !played {
             return;
         }
         // Whatever was about to play doesn't.
@@ -187,7 +189,8 @@ impl App {
         let Some(track) = q.tracks.get(q.index).cloned() else { return };
         let idle = !self.playing() && !self.buffering && !self.jam.active();
         // A minute's slack: this app's own plays reach that queue too.
-        if !idle || q.watched_at <= self.listened_at + 60 || self.current_id() == Some(track.id.as_str()) {
+        let hidden = self.hide_explicit && track.explicit;
+        if !idle || hidden || q.watched_at <= self.listened_at + 60 || self.current_id() == Some(track.id.as_str()) {
             return;
         }
         log::info!("picking up {} from another device ({} in its queue)", track.id, q.tracks.len());
@@ -346,12 +349,21 @@ impl App {
         hidden
     }
 
-    /// Explicit songs hidden or shown again: queued ones go (all but the one playing),
-    /// and YouTube's Restricted Mode applies to what loads from now on.
+    /// Repeat One replays the song, unless it's an explicit one left to finish when those
+    /// were hidden.
+    pub(super) fn repeats_one(&self) -> bool {
+        self.queue.repeat == Repeat::One && !self.current().is_some_and(|t| self.hide_explicit && t.explicit)
+    }
+
+    /// Explicit songs hidden or shown again: queued ones go (all but the one playing; a
+    /// jam guest's queue is the host's), and YouTube's Restricted Mode applies to what
+    /// loads from now on.
     pub(super) fn set_hide_explicit(&mut self) {
         self.queue.hide_explicit = self.hide_explicit;
         self.find.hide_explicit = self.hide_explicit;
-        self.queue.drop_explicit();
+        if !self.jam.guest() {
+            self.queue.drop_explicit();
+        }
         self.backend.set_hide_explicit(self.hide_explicit, self.restricted_mode);
     }
 
@@ -391,7 +403,7 @@ impl App {
         self.segment_skipped = now;
         log::info!("sponsorblock: skipping {:.1}–{:.1} s", seg.start, seg.end);
         if seg.end >= duration - 1.0 {
-            if self.queue.repeat == Repeat::One {
+            if self.repeats_one() {
                 self.play_current();
             } else {
                 self.next();

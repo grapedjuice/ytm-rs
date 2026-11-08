@@ -136,7 +136,9 @@ impl Queue {
         } else {
             return false;
         }
-        true
+        // An explicit song left to finish when those were hidden goes once it has.
+        self.drop_explicit();
+        !self.current().is_some_and(|t| self.hide_explicit && t.explicit)
     }
 
     /// Back to the song before: false at the first.
@@ -144,6 +146,7 @@ impl Queue {
         match self.index.filter(|&i| i > 0) {
             Some(i) => {
                 self.index = Some(i - 1);
+                self.drop_explicit();
                 true
             }
             None => false,
@@ -331,6 +334,14 @@ mod tests {
         q.hide_explicit = true;
         q.drop_explicit();
         assert_eq!((ids(&q), q.index), (vec!["b", "c"], Some(1)));
+        // It goes once playback moves on, and Repeat All doesn't come back to it.
+        q.repeat = Repeat::All;
+        assert!(q.advance());
+        assert_eq!((ids(&q), q.index), (vec!["b"], Some(0)));
+        let mut q = queue(&["a"], 0, Repeat::All);
+        q.tracks[0].explicit = true;
+        q.hide_explicit = true;
+        assert!(!q.advance());
     }
 
     fn track(id: &str) -> Track {

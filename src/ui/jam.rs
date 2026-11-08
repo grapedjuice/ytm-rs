@@ -141,6 +141,8 @@ pub fn leave(app: &mut App) {
         c.leave();
     }
     fresh(app, false);
+    // A guest's queue was the host's: hidden explicit songs leave it.
+    app.queue.drop_explicit();
 }
 
 /// Dev hooks: YTM_JAM_HOST=<code> starts a room with that code, YTM_JAM_JOIN=<code> joins one.
@@ -247,6 +249,8 @@ fn on_event(app: &mut App, e: Event) {
             s.members = members;
             if promoted {
                 s.sent_sig = 0;
+                // The queue is ours now: hidden explicit songs leave it.
+                app.queue.drop_explicit();
                 app.toast("You're the host now");
             }
         }
@@ -424,6 +428,7 @@ fn host_request(app: &mut App, from: String, name: String, cmd: Cmd) {
             let i = app.jam.sent_from + index;
             if i < app.queue.tracks.len() {
                 app.queue.index = Some(i);
+                app.queue.drop_explicit();
                 app.play_current();
             }
         }

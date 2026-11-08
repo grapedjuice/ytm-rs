@@ -83,6 +83,7 @@ impl App {
             Action::QueueJump(i) => {
                 self.play_pending = None;
                 self.queue.index = Some(i);
+                self.queue.drop_explicit();
                 self.play_current();
             }
             Action::QueueRemove(i) => self.queue.remove(i),

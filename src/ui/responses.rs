@@ -64,9 +64,12 @@ impl App {
                     }
                 }
                 // Seeks go the way the seek bar's do: to the host in a jam, to the start
-                // point of a song not loaded yet.
+                // point of a song not loaded yet, and none without a length to keep them in.
                 ev => {
-                    if let Some(at) = crate::media::seek_target(&ev, self.audio.status.position(), self.audio.status.duration()) {
+                    let len = self.audio.status.duration().or(self.current().and_then(|t| t.duration).map(|d| Duration::from_secs(d as u64)));
+                    if let Some(len) = len
+                        && let Some(at) = crate::media::seek_target(&ev, self.audio.status.position(), len)
+                    {
                         self.apply(Action::Seek(at.as_secs_f32()));
                     }
                 }

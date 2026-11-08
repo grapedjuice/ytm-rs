@@ -937,7 +937,9 @@ impl eframe::App for App {
         let playing = self.playing() || self.buffering;
         if let Some(m) = &mut self.media {
             m.sync(playing, self.buffering, self.audio.status.position());
-            m.sync_volume(self.audio.volume());
+            if let Some(wait) = m.sync_volume(self.audio.volume()) {
+                ctx.request_repaint_after(wait);
+            }
         }
         self.request_lyric_extras();
         // Upload: files from the picker, or dropped onto the window.

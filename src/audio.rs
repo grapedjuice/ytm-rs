@@ -651,6 +651,9 @@ fn run(
                     player.play();
                 }
                 offset = at;
+                // Paused, nothing else tells the UI (and the system media controls) where it is now.
+                status.set_position(at.as_millis() as u64);
+                wake();
             }
             Ok(AudioCmd::Pause) => {
                 log::debug!("audio: pause at {:?}", offset + player.get_pos());
@@ -739,6 +742,7 @@ fn run(
                     log::debug!("audio: seek to {pos:?} in place");
                     offset = Duration::ZERO;
                     status.set_position(pos.as_millis() as u64);
+                    wake();
                     continue;
                 }
                 // The playing decoder was opened non-seekable for a fast start. Build a

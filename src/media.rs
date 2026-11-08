@@ -13,12 +13,23 @@ use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, M
 /// How far a seek from the OS without an amount of its own goes (fast forward and rewind).
 const SEEK_STEP: Duration = Duration::from_secs(10);
 
-/// How far the position may wander from where the OS has it before it's sent again.
+/// How far the position may wander while playing from where the OS has it before it's
+/// sent again.
 const DRIFT: Duration = Duration::from_secs(1);
+
+/// The same where the OS keeps it still: there it falls behind as the song goes, and
+/// souvlaki's MPRIS only takes about one update a second.
+const STILL_DRIFT: Duration = Duration::from_secs(5);
+
+/// The least time between volume reports, so a slider drag doesn't queue one a frame.
+const VOLUME_EVERY: Duration = Duration::from_secs(2);
+
+/// Linux and the BSDs, where souvlaki goes through MPRIS.
+const MPRIS: bool = cfg!(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))));
 
 /// Whether the OS moves the position on by itself while playing. souvlaki's MPRIS answers
 /// a query with the position last sent, so there it's sent again as the song goes.
-const MOVES_ON: bool = !cfg!(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))));
+const MOVES_ON: bool = !MPRIS;
 
 pub struct Media {
     controls: MediaControls,
@@ -28,9 +39,8 @@ pub struct Media {
     resend: bool,
     /// The play state last shown on the taskbar buttons.
     playing: Option<bool>,
-    /// The volume last reported (only MPRIS shows the app's volume).
-    #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
-    volume: Option<f32>,
+    /// The volume last reported, and when (only MPRIS shows the app's volume).
+    volume: Option<(f32, Instant)>,
     #[cfg(windows)]
     thumbbar: Option<Box<std::cell::RefCell<Option<thumbbar::ThumbBar>>>>,
 }
@@ -63,7 +73,6 @@ impl Media {
             sent: None,
             resend: false,
             playing: None,
-            #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
             volume: None,
             #[cfg(windows)]
             thumbbar,
@@ -119,15 +128,21 @@ impl Media {
         }
     }
 
-    /// The app's volume (the slider's 0–1), where the OS shows it: only MPRIS does.
-    pub fn sync_volume(&mut self, volume: f32) {
-        #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
-        if self.volume != Some(volume) {
-            self.volume = Some(volume);
-            let _ = self.controls.set_volume(volume as f64);
+    /// The app's volume (the slider's 0–1), where the OS shows it: only MPRIS does. Gives
+    /// how soon to call again when a change has to wait its turn.
+    pub fn sync_volume(&mut self, volume: f32) -> Option<Duration> {
+        if !MPRIS {
+            return None;
         }
-        #[cfg(not(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))))]
-        let _ = volume;
+        let now = Instant::now();
+        let wait = volume_wait(self.volume, volume, now)?;
+        if !wait.is_zero() {
+            return Some(wait);
+        }
+        self.volume = Some((volume, now));
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+        let _ = self.controls.set_volume(volume as f64);
+        None
     }
 }
 
@@ -146,14 +161,31 @@ impl Sent {
 }
 
 /// Whether the OS needs telling: nothing sent yet, play or pause, or a position away
-/// from where the OS has it by now (a seek, a stall).
+/// from where the OS has it by now (a seek, a stall). Paused, any move is a seek.
 fn stale(sent: Option<&Sent>, playing: bool, pos: Duration, now: Instant, moves_on: bool) -> bool {
-    sent.is_none_or(|s| s.playing != playing || pos.abs_diff(s.shown(now, moves_on)) > DRIFT)
+    sent.is_none_or(|s| {
+        let slack = match (s.playing, moves_on) {
+            (false, _) => Duration::ZERO,
+            (true, true) => DRIFT,
+            (true, false) => STILL_DRIFT,
+        };
+        s.playing != playing || pos.abs_diff(s.shown(now, moves_on)) > slack
+    })
+}
+
+/// Whether `volume` is to be reported, given the last report: `None` if the OS has it
+/// already, else how long until it may go (zero: now).
+fn volume_wait(last: Option<(f32, Instant)>, volume: f32, now: Instant) -> Option<Duration> {
+    match last {
+        Some((v, _)) if v == volume => None,
+        Some((_, at)) => Some(VOLUME_EVERY.saturating_sub(now.saturating_duration_since(at))),
+        None => Some(Duration::ZERO),
+    }
 }
 
 /// Where a seek from the OS lands: at a position, or by an amount from `pos`, kept
 /// within the song's `len`. `None` for other events.
-pub fn seek_target(ev: &MediaControlEvent, pos: Duration, len: Option<Duration>) -> Option<Duration> {
+pub fn seek_target(ev: &MediaControlEvent, pos: Duration, len: Duration) -> Option<Duration> {
     let by = |dir, step| match dir {
         SeekDirection::Forward => pos.saturating_add(step),
         SeekDirection::Backward => pos.saturating_sub(step),
@@ -164,7 +196,7 @@ pub fn seek_target(ev: &MediaControlEvent, pos: Duration, len: Option<Duration>)
         MediaControlEvent::SeekBy(dir, step) => by(dir, step),
         _ => return None,
     };
-    Some(len.map_or(to, |l| to.min(l)))
+    Some(to.min(len))
 }
 
 /// The slider's volume for one the OS asked for, which can be anything.
@@ -182,15 +214,23 @@ mod tests {
 
     #[test]
     fn seeks_land_within_the_song() {
-        let to = |ev, pos| seek_target(&ev, s(pos), Some(s(200)));
+        let to = |ev, pos| seek_target(&ev, s(pos), s(200));
         assert_eq!(to(MediaControlEvent::SetPosition(MediaPosition(s(42))), 100), Some(s(42)));
         assert_eq!(to(MediaControlEvent::SetPosition(MediaPosition(s(500))), 100), Some(s(200)));
         assert_eq!(to(MediaControlEvent::Seek(SeekDirection::Forward), 100), Some(s(110)));
         assert_eq!(to(MediaControlEvent::Seek(SeekDirection::Backward), 5), Some(s(0)));
         assert_eq!(to(MediaControlEvent::SeekBy(SeekDirection::Forward, s(30)), 195), Some(s(200)));
         assert_eq!(to(MediaControlEvent::SeekBy(SeekDirection::Backward, s(30)), 100), Some(s(70)));
-        assert_eq!(seek_target(&MediaControlEvent::Seek(SeekDirection::Forward), s(100), None), Some(s(110)));
         assert_eq!(to(MediaControlEvent::Next, 100), None);
+    }
+
+    #[test]
+    fn volume_is_reported_at_most_every_so_often() {
+        let t = Instant::now();
+        assert_eq!(volume_wait(None, 0.5, t), Some(Duration::ZERO));
+        assert_eq!(volume_wait(Some((0.5, t)), 0.5, t + s(9)), None);
+        assert_eq!(volume_wait(Some((0.5, t)), 0.6, t + Duration::from_millis(500)), Some(Duration::from_millis(1_500)));
+        assert_eq!(volume_wait(Some((0.5, t)), 0.6, t + s(3)), Some(Duration::ZERO));
     }
 
     #[test]
@@ -213,9 +253,12 @@ mod tests {
         // A seek, or a stall the OS kept counting through.
         assert!(stale(Some(&playing), true, s(60), t + s(5), true));
         assert!(stale(Some(&playing), true, s(10), t + s(5), true));
-        // Paused stays put until it's moved.
+        // Paused stays put until it's moved, however little.
         assert!(!stale(Some(&paused), false, s(10), t + s(60), true));
         assert!(stale(Some(&paused), false, s(30), t + s(60), true));
+        assert!(stale(Some(&paused), false, s(11), t, true));
+        assert!(stale(Some(&paused), false, Duration::from_millis(9_500), t, true));
+        assert!(stale(Some(&paused), false, s(11), t, false));
         // Play and pause always go.
         assert!(stale(Some(&paused), true, s(10), t, true));
         assert!(stale(Some(&playing), false, s(10), t, true));
@@ -225,8 +268,10 @@ mod tests {
     fn position_is_sent_as_it_goes_where_the_os_keeps_it_still() {
         let t = Instant::now();
         let playing = Sent { playing: true, pos: s(10), at: t };
-        assert!(!stale(Some(&playing), true, Duration::from_millis(10_900), t + s(1), false));
-        assert!(stale(Some(&playing), true, s(15), t + s(5), false));
+        assert!(!stale(Some(&playing), true, s(15), t + s(5), false));
+        assert!(stale(Some(&playing), true, Duration::from_millis(15_100), t + s(5), false));
+        // A seek further than that still goes.
+        assert!(stale(Some(&playing), true, s(60), t + s(1), false));
         assert_eq!(playing.shown(t + s(5), false), s(10));
         assert_eq!(playing.shown(t + s(5), true), s(15));
     }

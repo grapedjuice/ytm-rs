@@ -28,7 +28,6 @@ fn picker(ui: &mut Ui, id: Id, c: &mut Color32) {
     let key = id.with("hsv");
     let mut hsv = ui.data(|d| d.get_temp::<(Color32, [f32; 3])>(key)).filter(|(was, _)| was == c).map_or_else(|| to_hsv(*c), |(_, hsv)| hsv);
     let mut changed = false;
-    ui.add_space(6.0);
 
     // Saturation across, brightness down.
     let (sv_rect, sv) = ui.allocate_exact_size(vec2(WIDTH, 150.0), Sense::click_and_drag());
@@ -67,7 +66,6 @@ fn picker(ui: &mut Ui, id: Id, c: &mut Color32) {
         changed = true;
     }
     ui.data_mut(|d| d.insert_temp(edit_id, text));
-    ui.add_space(6.0);
 
     if changed {
         *c = from_hsv(hsv);
@@ -79,12 +77,14 @@ fn picker(ui: &mut Ui, id: Id, c: &mut Color32) {
     egui::Image::from_texture(&sv_tex).corner_radius(theme::menu_item_radius()).paint_at(ui, sv_rect);
     let hue_tex = gradient(ui, id.with("hue-tex"), 0.0, [192, 1], |x, _| from_hsv([x, 1.0, 1.0]));
     egui::Image::from_texture(&hue_tex).corner_radius(7.0).paint_at(ui, hue_rect);
-    knob(ui, pos2(sv_rect.left() + s * sv_rect.width(), sv_rect.bottom() - v * sv_rect.height()), *c);
-    knob(ui, pos2(hue_rect.left() + h * hue_rect.width(), hue_rect.center().y), from_hsv([h, 1.0, 1.0]));
+    knob(ui, sv_rect, pos2(sv_rect.left() + s * sv_rect.width(), sv_rect.bottom() - v * sv_rect.height()), *c);
+    knob(ui, hue_rect, pos2(hue_rect.left() + h * hue_rect.width(), hue_rect.center().y), from_hsv([h, 1.0, 1.0]));
 }
 
-/// A white-ringed marker filled with the colour under it.
-fn knob(ui: &Ui, at: egui::Pos2, fill: Color32) {
+/// A white-ringed marker filled with the colour under it. Held a little inside `area`, so
+/// at an edge it stays within the menu's inset instead of poking past the menu.
+fn knob(ui: &Ui, area: egui::Rect, at: egui::Pos2, fill: Color32) {
+    let at = area.shrink(4.0).clamp(at);
     let p = ui.painter();
     p.circle_stroke(at, 9.5, Stroke::new(1.0, Color32::from_black_alpha(90)));
     p.circle(at, 8.0, fill, Stroke::new(2.0, Color32::WHITE));

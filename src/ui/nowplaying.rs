@@ -4,7 +4,7 @@
 
 use egui::{Color32, Rect, Sense, Ui, Vec2, pos2, vec2};
 
-use super::widgets::{self, icon_button, named, text_at};
+use super::widgets::{self, icon_button, menu_divider, named, text_at};
 use super::{Action, App, NpTab, karaoke};
 use crate::lyrics::{Lyrics, Sync, SyncKind};
 use crate::shader::Params;
@@ -679,7 +679,6 @@ fn options_menu(app: &mut App, ui: &mut Ui, track: &crate::model::Track, lyrics:
     egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         ui.set_width(270.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        ui.add_space(4.0);
         if lyrics {
             lyric_options(app, ui);
             menu_divider(ui);
@@ -692,7 +691,6 @@ fn options_menu(app: &mut App, ui: &mut Ui, track: &crate::model::Track, lyrics:
                 *a = Action::LikeHeard(*like);
             }
         }
-        ui.add_space(4.0);
     });
 }
 
@@ -739,13 +737,6 @@ fn lyric_options(app: &mut App, ui: &mut Ui) {
 fn menu_caption(ui: &mut Ui, text: &str) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
     ui.painter().text(pos2(r.left() + 12.0, r.center().y + 2.0), egui::Align2::LEFT_CENTER, text, theme::semibold(11.0), theme::text_faint());
-}
-
-fn menu_divider(ui: &mut Ui) {
-    ui.add_space(5.0);
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().rect_filled(r.shrink2(vec2(8.0, 0.0)), 0.0, theme::glass_panel(0.08));
-    ui.add_space(5.0);
 }
 
 /// A lyrics source: its sync type's dot, name and sync type, with a check on the one shown.

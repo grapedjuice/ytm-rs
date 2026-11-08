@@ -658,7 +658,6 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                     egui::Popup::menu(&more).show(|ui| {
                         ui.set_width(190.0);
                         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-                        ui.add_space(4.0);
                         if widgets::menu_action(ui, Some(icon::LINK), "Share") {
                             acts.push(Action::Share(target.clone()));
                         }
@@ -667,7 +666,6 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                             if widgets::menu_action(ui, Some(icon::USERS), "Collaborate") { acts.push(Action::Collaborate); }
                             if widgets::menu_action(ui, Some(icon::TRASH_2), "Delete") { acts.push(Action::DeletePlaylist); }
                         }
-                        ui.add_space(4.0);
                     });
                 });
                 if beside {
@@ -1275,14 +1273,12 @@ fn channel_picker(app: &mut App, ui: &mut Ui) {
         ui.set_width(300.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-            ui.add_space(4.0);
             for c in list {
                 if option_row(ui, &label(c), c.page_id == *current).clicked() {
                     pick = Some(c.clone());
                     ui.close();
                 }
             }
-            ui.add_space(4.0);
         });
     });
     if let Some(c) = pick.filter(|c| c.page_id != *current && !switching) {
@@ -1402,7 +1398,6 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
                 ui.set_width(200.0);
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-                    ui.add_space(4.0);
                     for (code, name) in super::lyric_prefs::LANGUAGES {
                         let on = app.lyric_prefs.target == *code;
                         let row = option_row(ui, name, on);
@@ -1414,7 +1409,6 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
                             ui.close();
                         }
                     }
-                    ui.add_space(4.0);
                 });
             });
         });
@@ -1526,14 +1520,12 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
                 egui::Popup::menu(&btn).show(|ui| {
                     ui.set_width(160.0);
                     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-                    ui.add_space(4.0);
                     for a in theme::Appearance::ALL {
                         if option_row(ui, a.label(), a == app.appearance).clicked() {
                             pick = Some(a);
                             ui.close();
                         }
                     }
-                    ui.add_space(4.0);
                 });
             });
         });
@@ -1561,7 +1553,6 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
                 egui::Popup::menu(&btn).show(|ui| {
                     ui.set_width(120.0);
                     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-                    ui.add_space(4.0);
                     let current = app.accent_source;
                     // Custom starts from the colour showing now (before light pages deepen
                     // it, or it would be deepened twice).
@@ -1573,7 +1564,6 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
                             ui.close();
                         }
                     }
-                    ui.add_space(4.0);
                 });
                 if let Some(p) = pick {
                     app.accent_source = p;
@@ -1644,14 +1634,12 @@ fn settings_zoom(ui: &mut Ui) {
         egui::Popup::menu(&btn).show(|ui| {
             ui.set_width(120.0);
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-            ui.add_space(4.0);
             for z in STEPS {
                 if option_row(ui, &pct(z), (z - zoom).abs() < 0.005).clicked() {
                     pick = Some(z);
                     ui.close();
                 }
             }
-            ui.add_space(4.0);
         });
     });
     if let Some(z) = pick {
@@ -1716,14 +1704,12 @@ fn settings_backdrop(app: &mut App, ui: &mut Ui) {
             egui::Popup::menu(&btn).show(|ui| {
                 ui.set_width(160.0);
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-                ui.add_space(4.0);
                 for b in Backdrop::ALL {
                     if option_row(ui, b.label(), b == saved).clicked() {
                         pick = Some(b);
                         ui.close();
                     }
                 }
-                ui.add_space(4.0);
             });
         });
     });
@@ -1952,14 +1938,12 @@ fn network(app: &mut App, ui: &mut Ui) {
         egui::Popup::menu(&btn).show(|ui| {
             ui.set_width(220.0);
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-            ui.add_space(4.0);
             for s in [Setting::System, Setting::Off, Setting::Custom(String::new())] {
                 if option_row(ui, s.label(), same(&s, &app.proxy_mode)).clicked() {
                     pick = Some(s);
                     ui.close();
                 }
             }
-            ui.add_space(4.0);
         });
     });
     if let Some(s) = pick {
@@ -2134,7 +2118,6 @@ fn font_picker(ui: &mut Ui) -> Option<String> {
         ui.set_width(220.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-            ui.add_space(4.0);
             let mut row = |ui: &mut Ui, label: &str, value: &str| {
                 let on = current.eq_ignore_ascii_case(value);
                 let r = option_row(ui, label, on);
@@ -2170,7 +2153,6 @@ fn font_picker(ui: &mut Ui) -> Option<String> {
                     });
                 }
             }
-            ui.add_space(4.0);
         });
     });
     picked.filter(|p| *p != current)
@@ -2197,7 +2179,6 @@ fn output_device_picker(app: &mut App, ui: &mut Ui) {
         ui.set_width(340.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-            ui.add_space(4.0);
             if option_row(ui, SYSTEM_DEFAULT, app.output_device.is_none()).clicked() {
                 pick = Some(None);
                 ui.close();
@@ -2208,7 +2189,6 @@ fn output_device_picker(app: &mut App, ui: &mut Ui) {
                     ui.close();
                 }
             }
-            ui.add_space(4.0);
         });
     });
     if let Some(pick) = pick {

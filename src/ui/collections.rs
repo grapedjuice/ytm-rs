@@ -7,6 +7,7 @@ use crate::backend::{Collection, Req};
 use crate::model::{ShelfKind, Target, Track};
 
 use super::lists::{Arrival, Done, LIKED_MUSIC, Opened, Start};
+use super::pages::thousands;
 use super::queue::QueueFill;
 use super::{App, shuffle};
 
@@ -53,6 +54,28 @@ impl App {
     pub(super) fn visit_list(&mut self, id: &str, album: bool) {
         if let Some(s) = self.lists.visit(id, album, std::time::Instant::now()) {
             self.start_load(s);
+        }
+    }
+
+    /// Add songs to one of the account's playlists. They show in it at once, even while
+    /// YouTube Music goes on listing it without them.
+    pub(super) fn add_to_playlist(&mut self, playlist_id: String, tracks: &[Track]) {
+        self.lists.added(&playlist_id, tracks);
+        self.sync_card_count(&playlist_id);
+        let video_ids = tracks.iter().map(|t| t.id.clone()).collect();
+        self.backend.request(Req::AddToPlaylist { playlist_id, video_ids });
+    }
+
+    /// The sidebar's and Library's playlist cards ("Suko • 4 tracks") count what YouTube
+    /// Music last listed, which lags behind edits. Once a playlist is in whole here, or
+    /// edited here, its cards count what it has, as its page does.
+    pub(super) fn sync_card_count(&mut self, id: &str) {
+        let Some(n) = self.lists.get(id).filter(|o| o.complete).and_then(|o| o.c.count) else { return };
+        let cards = self.library.as_mut().map(|l| &mut l.playlists).into_iter().chain(self.sidebar_cache.as_mut());
+        for c in cards.flatten().filter(|c| matches!(&c.target, Target::Playlist(p) if p == id)) {
+            if let Some(s) = with_count(&c.subtitle, n) {
+                c.subtitle = s;
+            }
         }
     }
 
@@ -132,6 +155,7 @@ impl App {
         if let Arrival::Done(done) = arrival {
             self.load_done(&id, done);
         }
+        self.sync_card_count(&id);
         // Its card's play button was pressed before it was here (in someone else's jam the host plays).
         if let Some((Target::Playlist(p), shuffled)) = &self.play_pending
             && *p == id
@@ -160,6 +184,7 @@ impl App {
         if let Some(done) = page.done {
             self.load_done(&id, done);
         }
+        self.sync_card_count(&id);
     }
 
     /// An album or playlist load ended. One that changed meanwhile loads again; one that
@@ -229,5 +254,45 @@ impl App {
             }
         }
         ids.into_iter().collect()
+    }
+}
+
+/// A card's subtitle ("Suko • 4 tracks") counting `n` instead, when it has a count and
+/// that's another one.
+fn with_count(subtitle: &str, n: u64) -> Option<String> {
+    let mut parts: Vec<&str> = subtitle.split(" • ").collect();
+    // The last one: an owner could be called "2 songs".
+    let (i, (old, noun)) = parts.iter().enumerate().rev().find_map(|(i, p)| Some((i, count_of(p)?)))?;
+    if old == n {
+        return None;
+    }
+    let count = format!("{} {noun}{}", thousands(n), if n == 1 { "" } else { "s" });
+    parts[i] = &count;
+    Some(parts.join(" • "))
+}
+
+/// "1,234 tracks" -> (1234, "track").
+fn count_of(part: &str) -> Option<(u64, &str)> {
+    let (n, noun) = part.split_once(' ')?;
+    let noun = noun.strip_suffix('s').unwrap_or(noun);
+    matches!(noun, "track" | "song").then_some(())?;
+    Some((n.replace(',', "").parse().ok()?, noun))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::with_count;
+
+    #[test]
+    fn a_card_counts_what_its_playlist_has() {
+        assert_eq!(with_count("Suko • 4 tracks", 5).as_deref(), Some("Suko • 5 tracks"));
+        assert_eq!(with_count("Playlist • Suko • 2 songs", 1).as_deref(), Some("Playlist • Suko • 1 song"));
+        assert_eq!(with_count("Suko • 1 track", 2).as_deref(), Some("Suko • 2 tracks"));
+        assert_eq!(with_count("Suko • 999 tracks", 1000).as_deref(), Some("Suko • 1,000 tracks"));
+        assert_eq!(with_count("2 songs • 4 tracks", 5).as_deref(), Some("2 songs • 5 tracks"));
+        // Already right, or nothing to count in it.
+        assert_eq!(with_count("Suko • 4 tracks", 4), None);
+        assert_eq!(with_count("Auto playlist", 4), None);
+        assert_eq!(with_count("Suko • 4 views", 5), None);
     }
 }

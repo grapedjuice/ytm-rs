@@ -2221,7 +2221,7 @@ fn option_row(ui: &mut Ui, label: &str, selected: bool) -> egui::Response {
 }
 
 /// 12345 -> "12,345".
-fn thousands(n: u64) -> String {
+pub(super) fn thousands(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {

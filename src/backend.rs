@@ -302,6 +302,7 @@ pub enum Resp {
     LikedMany { video_ids: Vec<String>, failed: Vec<String>, like: bool, others: Vec<String> },
     PlaylistCreated { id: String, songs: usize },
     PlaylistChanged { id: String, message: &'static str },
+    AddedToPlaylist { id: String, video_ids: Vec<String>, error: Option<String> },
     /// YouTube Music answered a song dragged to a new place.
     PlaylistMoved { id: String, move_id: u64, ok: bool },
     Collaboration(ytm::Collaboration),
@@ -334,6 +335,7 @@ impl Resp {
                 | Resp::Liked { .. }
                 | Resp::LikeProgress { .. }
                 | Resp::LikedMany { .. }
+                | Resp::AddedToPlaylist { .. }
         )
     }
 
@@ -853,8 +855,12 @@ impl Backend {
                     Resp::PlaylistChanged { id, message: "Playlist updated" }
                 }
                 Req::AddToPlaylist { playlist_id, video_ids } => {
-                    ytm::add_videos(api, &playlist_id, &video_ids).await?;
-                    Resp::PlaylistChanged { id: playlist_id, message: "Added to playlist" }
+                    // A failure says which songs too, so they stop showing in the playlist.
+                    let error = ytm::add_videos(api, &playlist_id, &video_ids).await.err().map(|e| {
+                        log::warn!("{what} failed: {e:#}");
+                        format!("{what} failed: {e}")
+                    });
+                    Resp::AddedToPlaylist { id: playlist_id, video_ids, error }
                 }
                 Req::RemoveFromPlaylist { playlist_id, items } => {
                     ytm::remove_videos(api, &playlist_id, &items).await?;

@@ -506,7 +506,7 @@ pub async fn playlist(api: &Api, id: &str, auth: bool, limit: Option<usize>) -> 
 }
 
 /// A playlist's first page (about 100 songs), the next page's token, and how many
-/// songs to stop at: `limit` (`None`: all), or fewer when the header says so.
+/// songs to stop at: `limit` (`None`: all), or fewer when a mix's header says so.
 pub async fn playlist_start(api: &Api, id: &str, auth: bool, limit: Option<usize>) -> anyhow::Result<(Collection, Option<String>, usize)> {
     let v = api.call("browse", json!({ "browseId": format!("VL{id}") }), auth).await?;
     let Some((mut pl, token, count)) = parse_playlist(&v, id) else {
@@ -515,7 +515,9 @@ pub async fn playlist_start(api: &Api, id: &str, auth: bool, limit: Option<usize
         anyhow::bail!("YouTube Music returned an empty playlist");
     };
     // Mixes (RD…) continue without end: stop at the length the header gives, or at 500.
-    let all = count.map_or(if id.starts_with("RD") { 500 } else { usize::MAX }, |c| c as usize);
+    // Other lists end, and their header lags behind an edit: it would cut off a song just
+    // added, or liked.
+    let all = if id.starts_with("RD") { count.map_or(500, |c| c as usize) } else { usize::MAX };
     let limit = limit.map_or(all, |l| l.min(all));
     pl.tracks.truncate(limit);
     pl.set_ids.truncate(limit);

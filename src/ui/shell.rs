@@ -4,7 +4,6 @@ use egui::{Align2, Color32, Pos2, Rect, Sense, Ui, Vec2, pos2, vec2};
 
 use super::widgets::{self, icon_at, icon_button, named, paint_cover, text_at};
 use super::{Action, App, LibTab, NpTab, Page, Repeat, fmt_time, row_drag};
-use crate::backend::Req;
 use crate::model::Target;
 use crate::shader::Params;
 use crate::theme::{self, icon};
@@ -351,7 +350,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                     app.actions.push(Action::Like(t, true));
                     app.toast("Added to Liked Music");
                 }
-                Some((playlist_id, t)) => app.backend.request(Req::AddToPlaylist { playlist_id, video_ids: vec![t.id] }),
+                Some((playlist_id, t)) => app.add_to_playlist(playlist_id, &[t]),
                 None => {}
             }
         });

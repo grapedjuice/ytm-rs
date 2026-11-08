@@ -7,7 +7,7 @@ use souvlaki::MediaControlEvent;
 
 use crate::audio::{AudioCmd, AudioEvent};
 use crate::backend::{Req, Resp};
-use crate::model::{ShelfKind, Track};
+use crate::model::{ShelfKind, Target, Track};
 use crate::ytm::HomePage;
 
 use super::{App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, dev_var, shuffle};
@@ -167,7 +167,15 @@ impl App {
                 if l.albums_failed {
                     l.albums = self.library.as_ref().map(|o| o.albums.clone()).unwrap_or_default();
                 }
+                // What it says of a playlist edited here lately can be from before that.
+                let edited: Vec<String> = l.playlists.iter().filter_map(|c| match &c.target {
+                    Target::Playlist(id) if self.lists.edits.pending(id) => Some(id.clone()),
+                    _ => None,
+                }).collect();
                 self.library = Some(l);
+                for id in edited {
+                    self.sync_card_count(&id);
+                }
                 self.loading = false;
             }
             Resp::History(h) => {
@@ -302,6 +310,19 @@ impl App {
                 self.go(Page::Playlist(id));
             }
             Resp::PlaylistChanged { id, message } => self.on_playlist_changed(id, message),
+            Resp::AddedToPlaylist { id, video_ids, error: None } => {
+                self.lists.edits.confirm_add(&id, &video_ids);
+                self.on_playlist_changed(id, "Added to playlist");
+            }
+            Resp::AddedToPlaylist { id, video_ids, error: Some(e) } => {
+                // Shown as added: out again, and a reload makes sure of the rest.
+                self.lists.add_failed(&id, &video_ids);
+                self.sync_card_count(&id);
+                if self.lists.get(&id).is_some() {
+                    self.load_list(&id, false, true);
+                }
+                self.on_error(e);
+            }
             Resp::PlaylistMoved { id, move_id, ok } => {
                 // Not for moves of an account or channel left since.
                 if !ok && self.lists.awaiting_move(&id, move_id) {

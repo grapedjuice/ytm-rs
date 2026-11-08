@@ -54,8 +54,7 @@ impl App {
                                 if let Target::Playlist(id) = card.target {
                                     if !id.starts_with("PL") { continue; }
                                     if dialog_row(ui, Some(&card.thumbs), None, &card.title) {
-                                        let video_ids = tracks.iter().map(|t| t.id.clone()).collect();
-                                        self.backend.request(Req::AddToPlaylist { playlist_id: id, video_ids });
+                                        self.add_to_playlist(id, tracks);
                                         done = true;
                                     }
                                 }

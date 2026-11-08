@@ -15,8 +15,9 @@ static SHOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(
 /// What a plain later launch sends instead of a code.
 #[cfg_attr(not(windows), allow(dead_code))]
 const SHOW_MSG: &str = "show";
-/// The updater's relaunch passes this: the old copy may still be exiting, so don't hand over to it.
-pub const RELAUNCH_FLAG: &str = "--relaunch";
+/// Older versions' updater relaunches with this: the old copy may still be exiting, so
+/// don't hand over to it. (Relaunches now wait for it to exit: see `update::wait_for_predecessor`.)
+const RELAUNCH_FLAG: &str = "--relaunch";
 
 /// The room code in a launch argument, if it is a jam link:
 /// `ytm-rs://jam/CODE[/]` (any case) or the https share link with `?c=CODE`.

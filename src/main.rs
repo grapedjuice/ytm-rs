@@ -49,6 +49,12 @@ pub const DEFAULT_SIZE: [f32; 2] = [1200.0, 780.0];
 pub const MIN_SIZE: [f32; 2] = [760.0, 480.0];
 
 fn main() -> eframe::Result {
+    // The updater's helper, run from its copy in the updates folder.
+    if update::apply_main() {
+        return Ok(());
+    }
+    // A relaunch: let the copy that started this one finish exiting.
+    update::wait_for_predecessor();
     // Child-process modes for the webview windows (see login.rs / turnstile.rs).
     let mut args = std::env::args_os().skip(1);
     if let (Some(flag), Some(dir)) = (args.next(), args.next()) {

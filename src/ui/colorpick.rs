@@ -47,7 +47,7 @@ fn picker(ui: &mut Ui, id: Id, c: &mut Color32) {
 
     // Hex: shows the colour, and takes a typed or pasted one as soon as it's whole.
     let (field, _) = ui.allocate_exact_size(vec2(WIDTH, 36.0), Sense::hover());
-    ui.painter().rect_filled(field, 10.0, theme::glass(0.08));
+    ui.painter().rect_filled(field, theme::menu_item_radius(), theme::glass(0.08));
     let edit_id = id.with("hex");
     let mut text = if ui.memory(|m| m.has_focus(edit_id)) { ui.data(|d| d.get_temp::<String>(edit_id)).unwrap_or_default() } else { hex(*c) };
     let inner = field.shrink2(vec2(12.0, 4.0));
@@ -76,7 +76,7 @@ fn picker(ui: &mut Ui, id: Id, c: &mut Color32) {
 
     let [h, s, v] = hsv;
     let sv_tex = gradient(ui, id.with("sv-tex"), h, [48, 48], |x, y| from_hsv([h, x, 1.0 - y]));
-    egui::Image::from_texture(&sv_tex).corner_radius(10.0).paint_at(ui, sv_rect);
+    egui::Image::from_texture(&sv_tex).corner_radius(theme::menu_item_radius()).paint_at(ui, sv_rect);
     let hue_tex = gradient(ui, id.with("hue-tex"), 0.0, [192, 1], |x, _| from_hsv([x, 1.0, 1.0]));
     egui::Image::from_texture(&hue_tex).corner_radius(7.0).paint_at(ui, hue_rect);
     knob(ui, pos2(sv_rect.left() + s * sv_rect.width(), sv_rect.bottom() - v * sv_rect.height()), *c);

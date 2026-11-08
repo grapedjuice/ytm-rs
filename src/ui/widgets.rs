@@ -471,10 +471,11 @@ fn more_button(ui: &mut Ui, rect: Rect, id: egui::Id, label: &str) -> Response {
 }
 
 pub fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
-    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width() - 8.0, 32.0), Sense::click());
+    // Full width, so the highlight sits as far from the menu's right edge as its left.
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
     let response = named(response, label).on_hover_cursor(egui::CursorIcon::PointingHand);
     if response.hovered() {
-        ui.painter().rect_filled(rect, 7.0, theme::glass(0.12));
+        ui.painter().rect_filled(rect, theme::menu_item_radius(), theme::glass(0.12));
     }
     let color = if response.hovered() { theme::text() } else { theme::text_dim() };
     if let Some(glyph) = glyph {

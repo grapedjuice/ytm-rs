@@ -236,6 +236,8 @@ pub struct App {
     was_focused: bool,
     /// Album / playlist / artist the queue was started from, so its card shows pause.
     queue_source: Option<Target>,
+    /// The name of a source played straight from its card, which isn't kept (see `playing_from`).
+    played_title: Option<(Target, String)>,
     /// Asked to play (shuffled?) before its songs are here: a playlist's first page, or
     /// an album's or artist's songs (`Req::PlayCollection`).
     play_pending: Option<(Target, bool)>,
@@ -514,6 +516,7 @@ impl App {
             queue_checked: None,
             was_focused: false,
             queue_source: None,
+            played_title: None,
             play_pending: None,
             bg,
             page: Page::Home,

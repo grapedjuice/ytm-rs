@@ -16,16 +16,25 @@ impl App {
     pub(super) fn playing_from(&self) -> Option<(&'static str, String, Target)> {
         let source = self.queue_source.as_ref().filter(|_| !self.queue.plays_elsewhere())?;
         let current = self.current();
+        // Played straight from its card: the name came with its songs.
+        let played = || self.played_title.as_ref().filter(|(t, _)| t == source).map(|(_, n)| n.clone());
         let (kind, name) = match source {
             Target::Playlist(id) if id == LIKED_MUSIC => ("playlist", "Liked Music".to_owned()),
-            Target::Playlist(id) => ("playlist", self.opened(id)?.c.title.clone()),
+            Target::Playlist(id) => {
+                // Kept while it plays; the sidebar's list has the name if it went anyway.
+                let sidebar = || {
+                    let list = self.library.as_ref().map(|l| l.playlists.as_slice()).or(self.sidebar_cache.as_deref()).unwrap_or_default();
+                    list.iter().find(|c| matches!(&c.target, Target::Playlist(p) if p == id)).map(|c| c.title.clone())
+                };
+                ("playlist", self.opened(id).map(|o| o.c.title.clone()).or_else(played).or_else(sidebar)?)
+            }
             Target::Album(id) => {
                 let from_song = || current?.album.as_ref().filter(|a| a.id.as_deref() == Some(id.as_str())).map(|a| a.name.clone());
-                ("album", self.opened(id).map(|o| o.c.title.clone()).or_else(from_song)?)
+                ("album", self.opened(id).map(|o| o.c.title.clone()).or_else(played).or_else(from_song)?)
             }
             Target::Artist(id) => {
                 let from_song = || current?.artists.iter().find(|a| a.id.as_deref() == Some(id.as_str())).map(|a| a.name.clone());
-                ("artist", self.artist.as_ref().filter(|a| &a.id == id).map(|a| a.name.clone()).or_else(from_song)?)
+                ("artist", self.artist.as_ref().filter(|a| &a.id == id).map(|a| a.name.clone()).or_else(played).or_else(from_song)?)
             }
             Target::Song(_) => return None,
         };

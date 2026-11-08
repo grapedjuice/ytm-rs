@@ -292,8 +292,8 @@ pub enum Resp {
     LyricsExtras { video_id: String, source: String, target: String, extras: crate::translate::Extras },
     Art { key: String, art: Art },
     Radio { seed: String, tracks: Vec<Track> },
-    /// What was asked to play (a `Req::PlayCollection`), and its songs.
-    PlayQueue { target: Target, tracks: Vec<Track> },
+    /// What was asked to play (a `Req::PlayCollection`), its name, and its songs.
+    PlayQueue { target: Target, title: String, tracks: Vec<Track> },
     /// `other`: its other version, whose like went with this one.
     Liked { video_id: String, like: bool, other: Option<String> },
     /// A run of likes or unlikes: `taken` just went through, `done` of `total` tried.
@@ -775,13 +775,13 @@ impl Backend {
                     Resp::Radio { seed, tracks }
                 }
                 Req::PlayCollection { target } => {
-                    let tracks = match &target {
-                        Target::Album(id) => ytm::album(api, id).await?.tracks,
-                        Target::Playlist(id) => ytm::playlist(api, id, me, None).await?.tracks,
-                        Target::Artist(id) => ytm::artist(api, id).await?.top,
-                        Target::Song(t) => vec![t.clone()],
+                    let (title, tracks) = match &target {
+                        Target::Album(id) => ytm::album(api, id).await.map(|c| (c.title, c.tracks))?,
+                        Target::Playlist(id) => ytm::playlist(api, id, me, None).await.map(|c| (c.title, c.tracks))?,
+                        Target::Artist(id) => ytm::artist(api, id).await.map(|a| (a.name, a.top))?,
+                        Target::Song(t) => (t.title.clone(), vec![t.clone()]),
                     };
-                    Resp::PlayQueue { target, tracks }
+                    Resp::PlayQueue { target, title, tracks }
                 }
                 Req::Download { track: t, for_video } => {
                     let path = self.download(&t, for_video).await?;

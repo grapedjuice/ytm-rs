@@ -243,13 +243,14 @@ impl App {
                 }
             }
             // Unless something else was asked to play meanwhile; shuffled as last asked.
-            Resp::PlayQueue { target, mut tracks } => {
+            Resp::PlayQueue { target, title, mut tracks } => {
                 if let Some((p, shuffled)) = &self.play_pending
                     && *p == target
                 {
                     if *shuffled {
                         shuffle(&mut tracks);
                     }
+                    self.played_title = Some((target.clone(), title));
                     self.queue_source = Some(target);
                     self.play_list(tracks, 0);
                 }

@@ -115,8 +115,12 @@ fn main() -> eframe::Result {
         multisampling: 0,
         depth_buffer: 0,
         stencil_buffer: 0,
-        // Dev hook: YTM_FPS paces frames itself (see `dev_pace`), so vsync is off.
-        glow_options: eframe::egui_glow::GlowConfiguration { vsync: std::env::var_os("YTM_FPS").is_none(), ..Default::default() },
+        // Dev hooks: YTM_FPS paces frames itself (see `ui::pace`), so vsync is off;
+        // YTM_NO_VSYNC turns it off as a driver forcing it off would.
+        glow_options: eframe::egui_glow::GlowConfiguration {
+            vsync: std::env::var_os("YTM_FPS").is_none() && std::env::var_os("YTM_NO_VSYNC").is_none(),
+            ..Default::default()
+        },
         wgpu_options: renderer::wgpu_options(),
         ..Default::default()
     };

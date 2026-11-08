@@ -344,6 +344,8 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 if resp.clicked() {
                     app.actions.push(Action::Open(c.target.clone()));
                 }
+                // Right-click: the menu a playlist's card has.
+                resp.context_menu(|ui| widgets::card_menu_contents(ui, c, false, &mut app.actions));
             }
             match dropped {
                 Some((id, t)) if id == "LM" => {

@@ -285,7 +285,7 @@ impl App {
         self.backend.request(Req::Play { video_id: track.id.clone(), generation: self.generation, at, report, song_of, song: carried });
         self.show_in_media(&shown);
         if let Some(m) = &mut self.media {
-            m.set_playing(true);
+            m.start(at);
         }
         // Background art follows the track; lyrics and segments, what plays.
         self.request_art();

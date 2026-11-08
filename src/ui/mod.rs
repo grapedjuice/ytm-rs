@@ -936,7 +936,8 @@ impl eframe::App for App {
         // System media controls and taskbar buttons follow the player however it changed.
         let playing = self.playing() || self.buffering;
         if let Some(m) = &mut self.media {
-            m.set_playing(playing);
+            m.sync(playing, self.buffering, self.audio.status.position());
+            m.sync_volume(self.audio.volume());
         }
         self.request_lyric_extras();
         // Upload: files from the picker, or dropped onto the window.

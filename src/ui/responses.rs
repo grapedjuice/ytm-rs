@@ -10,7 +10,7 @@ use crate::backend::{Req, Resp};
 use crate::model::{ShelfKind, Target, Track};
 use crate::ytm::HomePage;
 
-use super::{App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, dev_var, shuffle};
+use super::{Action, App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, dev_var, shuffle};
 
 impl App {
     pub(super) fn pump(&mut self, now: f64) {
@@ -58,7 +58,18 @@ impl App {
                 MediaControlEvent::Toggle => self.toggle(),
                 MediaControlEvent::Next => self.next(),
                 MediaControlEvent::Previous => self.prev(),
-                _ => {}
+                MediaControlEvent::SetVolume(v) => {
+                    if let Some(v) = crate::media::volume_from_os(v) {
+                        self.audio.set_volume(v);
+                    }
+                }
+                // Seeks go the way the seek bar's do: to the host in a jam, to the start
+                // point of a song not loaded yet.
+                ev => {
+                    if let Some(at) = crate::media::seek_target(&ev, self.audio.status.position(), self.audio.status.duration()) {
+                        self.apply(Action::Seek(at.as_secs_f32()));
+                    }
+                }
             }
         }
         if self.buffering && self.playing() {

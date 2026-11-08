@@ -116,7 +116,7 @@ impl App {
         self.scrobble = None;
     }
 
-    /// Switch the window, tray-to-be and shortcuts to another icon.
+    /// Switch the window, tray and shortcuts to another icon.
     pub(crate) fn set_app_icon(&mut self, ctx: &egui::Context, id: &'static str) {
         if id == self.app_icon {
             return;
@@ -130,6 +130,8 @@ impl App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Icon(Some(Arc::new(icon))));
         }
         crate::appicon::sync_shortcuts(id, self.backend.data_dir());
+        // `tray_window` makes it again with the new icon.
+        self.tray = None;
         log::info!("app icon: {id}");
     }
 
@@ -180,38 +182,58 @@ impl App {
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
 
-    /// "Close to tray": × hides the window behind a tray icon; the icon brings it
-    /// back or quits. eframe keeps running `logic` while the window is hidden.
+    /// "Close to tray": while it's on there's a tray icon, and × hides the window
+    /// behind it. The icon brings the window back or quits. eframe keeps running
+    /// `logic` while the window is hidden.
     pub(super) fn tray_window(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| i.viewport().close_requested()) && self.close_to_tray && !self.exiting {
+        // Turning the setting off and on again tries again after a failure.
+        self.tray_failed &= self.close_to_tray;
+        let want = self.close_to_tray && !self.exiting && !self.tray_failed;
+        if want && self.tray.is_none() {
             let c = ctx.clone();
             match crate::tray::Tray::new(crate::appicon::get(self.app_icon), move || c.request_repaint()) {
-                Ok(t) => {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-                    self.tray = Some(t);
+                Ok(t) => self.tray = Some(t),
+                // Without an icon there'd be no way back: × just closes.
+                Err(e) => {
+                    log::warn!("tray icon unavailable: {e:#}");
+                    self.tray_failed = true;
                 }
-                // Without an icon there'd be no way back: just close.
-                Err(e) => log::warn!("tray icon unavailable: {e:#}"),
+            }
+        } else if !want && self.tray.is_some() {
+            self.tray = None;
+            if self.in_tray && !self.exiting {
+                self.show_window(ctx);
             }
         }
         if self.tray.is_none() {
             return;
         }
-        // The first click decides; the icon goes away with it.
+        let hide = |app: &mut Self| {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            app.in_tray = true;
+        };
+        if ctx.input(|i| i.viewport().close_requested()) && !self.exiting {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            hide(self);
+        }
+        // Minimized counts as hidden: "Show" is what brings it back.
+        let shown = |app: &Self| !app.in_tray && ctx.input(|i| i.viewport().minimized) != Some(true);
         match crate::tray::take().into_iter().next() {
             Some(crate::tray::Cmd::Show) => self.show_window(ctx),
-            Some(crate::tray::Cmd::Quit) => {
-                self.tray = None;
-                self.quit(ctx);
-            }
+            Some(crate::tray::Cmd::Toggle) if shown(self) => hide(self),
+            Some(crate::tray::Cmd::Toggle) => self.show_window(ctx),
+            Some(crate::tray::Cmd::Quit) => self.quit(ctx),
             None => {}
+        }
+        let shown = shown(self);
+        if let Some(t) = &mut self.tray {
+            t.set_shown(shown);
         }
     }
 
     /// Bring the window back (from the tray, or minimized) and to the front.
     pub(super) fn show_window(&mut self, ctx: &egui::Context) {
-        self.tray = None;
+        self.in_tray = false;
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);

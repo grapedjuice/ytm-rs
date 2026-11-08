@@ -443,8 +443,12 @@ pub struct App {
     pub(super) wgpu_renderer: bool,
     /// Settings › App icon (`appicon::ALL` id).
     app_icon: &'static str,
-    /// The tray icon, while the window is hidden.
+    /// The tray icon, while "Close to tray" is on.
     tray: Option<crate::tray::Tray>,
+    /// The tray icon couldn't be made (e.g. no GTK): don't try again, × quits.
+    tray_failed: bool,
+    /// × has hidden the window behind the tray icon.
+    in_tray: bool,
     /// Closing for real (Quit from the tray, restart to update): don't hide.
     exiting: bool,
     /// Minimized, or hidden in the tray: the window's geometry isn't worth saving.
@@ -579,6 +583,8 @@ impl App {
             wgpu_renderer,
             app_icon,
             tray: None,
+            tray_failed: false,
+            in_tray: false,
             exiting: false,
             window_hidden: false,
             good_window: get("window"),
@@ -987,7 +993,7 @@ impl eframe::App for App {
         }
         self.mini.tick(ctx, now);
         self.tray_window(ctx);
-        self.window_hidden = self.tray.is_some() || ctx.input(|i| i.viewport().minimized == Some(true));
+        self.window_hidden = self.in_tray || ctx.input(|i| i.viewport().minimized == Some(true));
         self.sync_discord();
         self.sync_lastfm();
         self.sync_server_queue(ctx, now);

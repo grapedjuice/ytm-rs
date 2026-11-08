@@ -425,7 +425,11 @@ impl RecentEdits {
         // Ones that have run out don't come back with these.
         self.prune();
         let added = self.adds.entry(playlist.to_owned()).or_default();
-        for t in tracks {
+        for (i, t) in tracks.iter().enumerate() {
+            // A song twice in one add is one answer.
+            if tracks[..i].iter().any(|x| x.id == t.id) {
+                continue;
+            }
             // One added already keeps its age, and its answer.
             match added.iter_mut().find(|(x, ..)| x.id == t.id) {
                 Some((.., unanswered)) => *unanswered += 1,
@@ -1025,6 +1029,14 @@ mod tests {
         lists.edits.adds.get_mut("PL1").unwrap()[1].1.made = Instant::now() - Duration::from_secs(61);
         load_whole(&mut lists, "PL1", &["x"], &[]);
         assert_eq!(songs(&lists, "PL1"), ["x", "a"]);
+    }
+
+    #[test]
+    fn a_song_twice_in_one_failed_add_goes() {
+        let mut lists = Lists::default();
+        lists.added("PL1", &[track("a"), track("a")]);
+        lists.add_failed("PL1", &["a".to_owned(), "a".to_owned()]);
+        assert!(!lists.edits.pending("PL1"));
     }
 
     #[test]

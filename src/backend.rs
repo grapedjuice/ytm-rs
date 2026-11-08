@@ -335,6 +335,7 @@ impl Resp {
                 | Resp::Liked { .. }
                 | Resp::LikeProgress { .. }
                 | Resp::LikedMany { .. }
+                | Resp::AddedToPlaylist { .. }
         )
     }
 

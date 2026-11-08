@@ -198,32 +198,3 @@ pub(super) fn dev_var(name: &str) -> Option<&'static str> {
     .get(name)
     .map(String::as_str)
 }
-
-/// Dev hook: YTM_FPS=<hz> holds each frame to 1/<hz> s, as vsync does on a visible window
-/// of that refresh rate (test windows sit off-screen, where Windows gives them ~21 fps);
-/// YTM_FPS_LOG logs the rate reached every 5 s.
-pub(super) fn dev_pace() {
-    use std::sync::Mutex;
-    use std::time::Instant;
-    static HZ: std::sync::OnceLock<Option<f64>> = std::sync::OnceLock::new();
-    static STATE: Mutex<Option<(Instant, Instant, u32)>> = Mutex::new(None);
-    let Some(hz) = *HZ.get_or_init(|| std::env::var("YTM_FPS").ok().and_then(|v| v.parse().ok())) else { return };
-    let period = std::time::Duration::from_secs_f64(1.0 / hz);
-    let mut st = STATE.lock().unwrap();
-    let now = Instant::now();
-    let (last, window, frames) = st.get_or_insert((now, now, 0));
-    let next = *last + period;
-    if next > now {
-        std::thread::sleep(next - now);
-    }
-    *last = Instant::now();
-    *frames += 1;
-    let span = last.duration_since(*window).as_secs_f64();
-    if span >= 5.0 {
-        if std::env::var_os("YTM_FPS_LOG").is_some() {
-            log::info!("fps {:.1}", *frames as f64 / span);
-        }
-        *window = *last;
-        *frames = 0;
-    }
-}

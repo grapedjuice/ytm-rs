@@ -1580,7 +1580,7 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
                 }
                 if let AccentSource::Custom(c) = &mut app.accent_source {
                     ui.add_space(8.0);
-                    ui.color_edit_button_srgba(c);
+                    super::colorpick::button(ui, c, "Custom accent colour");
                 }
             });
         });

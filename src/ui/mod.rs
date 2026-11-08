@@ -6,6 +6,7 @@
 mod account;
 mod actions;
 mod collections;
+mod colorpick;
 mod dev;
 mod dialogs;
 mod find;

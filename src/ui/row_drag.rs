@@ -1,6 +1,7 @@
-//! Dragging a song row to a new place in its list. Rows off screen aren't built, so the
-//! drag is kept here rather than in a row's own widget state, and the place it's going
-//! comes from the pointer and the rows' fixed height.
+//! Dragging a song row to a new place in its list, or out of it onto a place that takes
+//! songs (a playlist in the sidebar). Rows off screen aren't built, so the drag is kept
+//! here rather than in a row's own widget state, and the place it's going comes from the
+//! pointer and the rows' fixed height.
 
 use egui::{Id, Pos2, Rect, Sense, Ui, Vec2, pos2, vec2};
 
@@ -13,7 +14,7 @@ const SCROLL_EDGE: f32 = 56.0;
 /// Scrolling speed at the very edge, in points a second.
 const SCROLL_SPEED: f32 = 900.0;
 /// How far left or right of the list a drop still counts.
-const SIDE_MARGIN: f32 = 48.0;
+const SIDE_MARGIN: f32 = 40.0;
 
 pub struct RowDrag {
     list: Id,
@@ -53,7 +54,7 @@ pub fn grip(ui: &mut Ui, drag: &mut Option<RowDrag>, list: Id, i: usize, t: &Tra
         // egui counts a drag-only widget as dragged from the press itself: wait until the
         // pointer has moved too far (or held too long) for a click. A drag some other list
         // left behind gives way.
-        let grip = ui.interact(rect, ui.scope_id().with("grip"), Sense::DRAG);
+        let grip = ui.interact(rect, list.with(("grip", i)), Sense::DRAG);
         let held = drag.as_ref().is_some_and(|d| d.list == list && d.from == i);
         if grip.dragged_by(egui::PointerButton::Primary) && !held && ui.input(|input| input.pointer.is_decidedly_dragging()) {
             *drag = Some(RowDrag { list, from: i, track: t.clone(), seen: ui.ctx().cumulative_frame_nr() });
@@ -69,14 +70,7 @@ pub fn grip(ui: &mut Ui, drag: &mut Option<RowDrag>, list: Id, i: usize, t: &Tra
 /// land, scrolls near the edges, and ends it when let go.
 pub fn feedback(ui: &mut Ui, drag: &mut Option<RowDrag>, list: Id, rows: Rows) -> Option<Dropped> {
     let Rows { top, first, lowest, end, accent } = rows;
-    let frame = ui.ctx().cumulative_frame_nr();
-    let d = drag.as_mut().filter(|d| d.list == list)?;
-    if d.seen + 1 < frame {
-        *drag = None;
-        return None;
-    }
-    d.seen = frame;
-    let (from, id) = (d.from, d.track.id.clone());
+    let (from, id) = keep(ui, drag, list)?;
     let (pos, down, dt) = ui.input(|i| (i.pointer.latest_pos(), i.pointer.primary_down(), i.stable_dt));
     let clip = ui.clip_rect();
     let h = row_height(ui);
@@ -103,15 +97,89 @@ pub fn feedback(ui: &mut Ui, drag: &mut Option<RowDrag>, list: Id, rows: Rows) -
             ui.scroll_with_delta(Vec2::new(0.0, speed * dt));
         }
     }
-    if let Some(p) = pos {
-        let width = width.span().min(320.0);
-        if let Some(d) = drag.as_ref() {
-            ghost(ui, d, p, width);
-        }
+    follow(ui, drag, pos, width.span());
+    None
+}
+
+/// Call after the rows of a list whose order can't change (an album, search results):
+/// the song picked up follows the pointer to a place that takes it, and the drag ends
+/// when let go anywhere else.
+pub fn carry(ui: &Ui, drag: &mut Option<RowDrag>, list: Id) {
+    if keep(ui, drag, list).is_none() {
+        return;
+    }
+    let (pos, down) = ui.input(|i| (i.pointer.latest_pos(), i.pointer.primary_down()));
+    if !down {
+        *drag = None;
+        return;
+    }
+    follow(ui, drag, pos, ui.max_rect().width());
+}
+
+/// What a place that takes dragged songs sees of the drag.
+pub enum Over {
+    /// A song is held over it.
+    Held,
+    /// This song was let go on it.
+    Dropped(Track),
+}
+
+/// For a place that takes dragged songs, such as a playlist in the sidebar: whether a song
+/// is held over `rect`, or was let go there. Call it before building the list the drag came
+/// from, which would otherwise end the drag first.
+pub fn target(ui: &Ui, drag: &mut Option<RowDrag>, rect: Rect) -> Option<Over> {
+    if !live(ui, drag) {
+        return None;
+    }
+    let (pos, down) = ui.input(|i| (i.pointer.latest_pos(), i.pointer.primary_down()));
+    if !pos.is_some_and(|p| rect.intersect(ui.clip_rect()).contains(p)) {
+        return None;
+    }
+    if down {
+        return Some(Over::Held);
+    }
+    drag.take().map(|d| Over::Dropped(d.track))
+}
+
+/// Inside a scroll area of drop targets: scrolls it while a song is held near its top or
+/// bottom edge, to reach the targets out of view.
+pub fn scroll_targets(ui: &Ui, drag: &Option<RowDrag>) {
+    if !live(ui, drag) {
+        return;
+    }
+    let clip = ui.clip_rect();
+    let Some(p) = ui.input(|i| i.pointer.latest_pos()).filter(|p| clip.contains(*p)) else { return };
+    let speed = edge_speed(p.y, clip.top(), clip.bottom());
+    if speed != 0.0 {
+        ui.scroll_with_delta(Vec2::new(0.0, speed * ui.input(|i| i.stable_dt)));
+    }
+}
+
+/// Whether a drag is going on: its list was shown last frame, or this one.
+fn live(ui: &Ui, drag: &Option<RowDrag>) -> bool {
+    drag.as_ref().is_some_and(|d| d.seen + 1 >= ui.ctx().cumulative_frame_nr())
+}
+
+/// The row and song of the drag in `list`, marked as seen this frame. A drag whose list
+/// wasn't shown last frame is over.
+fn keep(ui: &Ui, drag: &mut Option<RowDrag>, list: Id) -> Option<(usize, String)> {
+    let frame = ui.ctx().cumulative_frame_nr();
+    let d = drag.as_mut().filter(|d| d.list == list)?;
+    if d.seen + 1 < frame {
+        *drag = None;
+        return None;
+    }
+    d.seen = frame;
+    Some((d.from, d.track.id.clone()))
+}
+
+/// The song held follows the pointer, as wide as the list up to a point.
+fn follow(ui: &Ui, drag: &Option<RowDrag>, pos: Option<Pos2>, width: f32) {
+    if let (Some(p), Some(d)) = (pos, drag) {
+        ghost(ui, d, p, width.min(320.0));
     }
     ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     ui.ctx().request_repaint();
-    None
 }
 
 /// The song following the pointer.
@@ -142,7 +210,7 @@ fn edge_speed(y: f32, top: f32, bottom: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{SCROLL_EDGE, SCROLL_SPEED, edge_speed, gap_at};
-    use super::{Dropped, RowDrag, Rows, feedback, grip};
+    use super::{Dropped, Over, RowDrag, Rows, carry, feedback, grip, target};
     use crate::model::Track;
     use crate::ui::widgets::{RowOpts, row_height, track_row, visible_rows};
     use egui::{Event, Modifiers, PointerButton, Pos2, Rect, RawInput, pos2, vec2};
@@ -169,13 +237,19 @@ mod tests {
         offset: f32,
         clicked: Vec<usize>,
         dropped: Vec<Dropped>,
+        /// Rows can change order; otherwise they're only carried out of the list.
+        reorder: bool,
+        /// A place that takes songs, built before the list as the sidebar is.
+        target: Option<Rect>,
+        held: bool,
+        landed: Vec<String>,
     }
 
     impl List {
         fn new(n: usize) -> Self {
             let ctx = egui::Context::default();
             crate::theme::install_fonts(&ctx, "");
-            let mut list = Self { ctx, songs: (0..n).map(song).collect(), drag: None, lowest: 0, shown: true, time: 0.0, at: Pos2::ZERO, top: 0.0, row: 0.0, offset: 0.0, clicked: vec![], dropped: vec![] };
+            let mut list = Self { ctx, songs: (0..n).map(song).collect(), drag: None, lowest: 0, shown: true, time: 0.0, at: Pos2::ZERO, top: 0.0, row: 0.0, offset: 0.0, clicked: vec![], dropped: vec![], reorder: true, target: None, held: false, landed: vec![] };
             list.frame(vec![]);
             list.frame(vec![]);
             list
@@ -187,6 +261,14 @@ mod tests {
             let ctx = self.ctx.clone();
             let id = egui::Id::unique("test-list");
             let mut output = ctx.run_ui(raw, |ui| {
+                self.held = false;
+                if let Some(rect) = self.target {
+                    match target(ui, &mut self.drag, rect) {
+                        Some(Over::Held) => self.held = true,
+                        Some(Over::Dropped(t)) => self.landed.push(t.id),
+                        None => {}
+                    }
+                }
                 if !self.shown {
                     return;
                 }
@@ -203,6 +285,10 @@ mod tests {
                             clicked.push(i);
                         }
                     });
+                    if !self.reorder {
+                        carry(ui, drag, id);
+                        return None;
+                    }
                     let rows = Rows { top, first: 0, lowest: self.lowest, end: songs.len(), accent: egui::Color32::RED };
                     feedback(ui, drag, id, rows)
                 });
@@ -429,6 +515,68 @@ mod tests {
         l.frame(vec![]);
         assert!(l.dropped.is_empty());
         assert!(l.drag.is_none());
+    }
+
+    /// A target down the window's left side, over the list as the sidebar is beside it.
+    fn side_target() -> Rect {
+        Rect::from_min_max(pos2(0.0, 0.0), pos2(120.0, HEIGHT))
+    }
+
+    #[test]
+    fn a_song_let_go_on_a_target_lands_there_and_not_in_the_list() {
+        let mut l = List::new(40);
+        l.target = Some(side_target());
+        l.pick_up(1, 300.0);
+        l.glide_to(pos2(60.0, l.on_row(5, 0.0).y));
+        assert!(l.held);
+        l.button(false);
+        l.frame(vec![]);
+        assert_eq!(l.landed, ["song1"]);
+        assert!(l.dropped.is_empty());
+        assert!(l.clicked.is_empty());
+        assert!(l.drag.is_none());
+    }
+
+    #[test]
+    fn a_list_that_cant_change_order_still_carries_its_songs_out() {
+        let mut l = List::new(40);
+        l.reorder = false;
+        l.target = Some(side_target());
+        l.pick_up(2, 300.0);
+        l.glide_to(l.on_row(6, 300.0));
+        assert!(l.drag.is_some() && !l.held);
+        l.glide_to(pos2(60.0, 200.0));
+        l.button(false);
+        l.frame(vec![]);
+        assert_eq!(l.landed, ["song2"]);
+        assert!(l.dropped.is_empty());
+    }
+
+    #[test]
+    fn let_go_in_a_list_that_cant_change_order_nothing_happens() {
+        let mut l = List::new(40);
+        l.reorder = false;
+        l.target = Some(side_target());
+        l.pick_up(2, 300.0);
+        l.glide_to(l.on_row(6, 300.0));
+        l.button(false);
+        l.frame(vec![]);
+        assert!(l.dropped.is_empty() && l.landed.is_empty() && l.clicked.is_empty());
+        assert!(l.drag.is_none());
+    }
+
+    #[test]
+    fn a_target_ignores_a_drag_whose_list_went_away() {
+        let mut l = List::new(40);
+        l.target = Some(side_target());
+        l.pick_up(2, 300.0);
+        l.glide_to(pos2(60.0, 200.0));
+        l.shown = false;
+        l.frame(vec![]);
+        l.frame(vec![]);
+        l.button(false);
+        l.frame(vec![]);
+        assert!(l.landed.is_empty());
     }
 
     #[test]

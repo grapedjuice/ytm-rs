@@ -208,9 +208,8 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
     widgets::visible_rows(ui, shown.as_ref().map_or(tracks.len(), Vec::len), |ui, k| {
         let i = shown.as_ref().map_or(k, |s| s[k]);
         let t = &tracks[i];
-        if movable {
-            row_drag::grip(ui, drag, drag_list, i, t);
-        }
+        // Any song can be dragged onto a playlist in the sidebar.
+        row_drag::grip(ui, drag, drag_list, i, t);
         let o = RowOpts {
             selected: selecting.then(|| sel.rows.contains(&i)),
             remove: own.then_some(i),
@@ -232,7 +231,9 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
             }
         }
     });
-    if movable && let Some(d) = row_drag::feedback(ui, drag, drag_list, row_drag::Rows { top, first: 0, lowest: 0, end: tracks.len(), accent: rows.accent }) {
+    if !movable {
+        row_drag::carry(ui, drag, drag_list);
+    } else if let Some(d) = row_drag::feedback(ui, drag, drag_list, row_drag::Rows { top, first: 0, lowest: 0, end: tracks.len(), accent: rows.accent }) {
         acts.push(Action::PlaylistMove { from: d.from, gap: d.gap, id: d.id });
     }
 }
@@ -453,6 +454,9 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     let Some(r) = &app.search else { return };
     let acts = &mut app.actions;
     let liked = &app.liked;
+    // Songs here can be dragged onto a playlist in the sidebar, but not into another order.
+    let drag = &mut app.row_drag;
+    let ids = |section: &str| egui::Id::unique(("search", section));
     if r.tracks.is_empty() && r.videos.is_empty() && r.artists.is_empty() && r.albums.is_empty() && r.playlists.is_empty() {
         page_title(ui, "No results");
         return;
@@ -478,12 +482,17 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
             ui.label(RichText::new("Songs").font(theme::bold(24.0)));
             ui.add_space(8.0);
             let plays_col = r.tracks.iter().take(4).any(|t| t.plays.is_some());
-            for t in r.tracks.iter().take(4) {
-                let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, false) };
-                if track_row(ui, t, &o, acts).clicked() {
-                    acts.push(play(t));
-                }
+            for (i, t) in r.tracks.iter().take(4).enumerate() {
+                // Its own scope, so a picked-up row dims alone.
+                ui.push_id(i, |ui| {
+                    row_drag::grip(ui, drag, ids("songs"), i, t);
+                    let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, false) };
+                    if track_row(ui, t, &o, acts).clicked() {
+                        acts.push(play(t));
+                    }
+                });
             }
+            row_drag::carry(ui, drag, ids("songs"));
         });
     });
     card_row(ui, "s-artists", "Artists", &r.artists, acts);
@@ -493,24 +502,32 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
         ui.label(RichText::new("Videos").font(theme::bold(24.0)));
         ui.add_space(10.0);
         let plays_col = r.videos.iter().take(6).any(|t| t.plays.is_some());
-        for t in r.videos.iter().take(6) {
-            let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, false) };
-            if track_row(ui, t, &o, acts).clicked() {
-                acts.push(play(t));
-            }
+        for (i, t) in r.videos.iter().take(6).enumerate() {
+            ui.push_id(("videos", i), |ui| {
+                row_drag::grip(ui, drag, ids("videos"), i, t);
+                let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, false) };
+                if track_row(ui, t, &o, acts).clicked() {
+                    acts.push(play(t));
+                }
+            });
         }
+        row_drag::carry(ui, drag, ids("videos"));
     }
     if r.tracks.len() > 4 {
         ui.add_space(26.0);
         ui.label(RichText::new("More songs").font(theme::bold(24.0)));
         ui.add_space(10.0);
         let plays_col = r.tracks.iter().skip(4).any(|t| t.plays.is_some());
-        for t in r.tracks.iter().skip(4) {
-            let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, true) };
-            if track_row(ui, t, &o, acts).clicked() {
-                acts.push(play(t));
-            }
+        for (i, t) in r.tracks.iter().skip(4).enumerate() {
+            ui.push_id(("more", i), |ui| {
+                row_drag::grip(ui, drag, ids("more"), i, t);
+                let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, true) };
+                if track_row(ui, t, &o, acts).clicked() {
+                    acts.push(play(t));
+                }
+            });
         }
+        row_drag::carry(ui, drag, ids("more"));
     }
     card_row(ui, "s-pl", "Playlists", &r.playlists, acts);
 }
@@ -685,6 +702,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let accent = app.accent_color();
     let Some(a) = &app.artist else { return };
     let acts = &mut app.actions;
+    let drag = &mut app.row_drag;
     let top = &a.top;
     // Hero banner fading into the page.
     let w = ui.available_width();
@@ -734,12 +752,19 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         });
         ui.add_space(12.0);
         let plays_col = top.iter().take(5).any(|t| t.plays.is_some());
+        // They can be dragged onto a playlist in the sidebar.
+        let list = egui::Id::unique(("artist-top", id));
         for (i, t) in top.iter().enumerate().take(5) {
-            let o = RowOpts { plays_col, ..rows.opts(&app.liked, t, None, true) };
-            if track_row(ui, t, &o, acts).clicked() {
-                acts.push(Action::Play(top.clone(), i));
-            }
+            // Its own scope, so a picked-up row dims alone.
+            ui.push_id(i, |ui| {
+                row_drag::grip(ui, drag, list, i, t);
+                let o = RowOpts { plays_col, ..rows.opts(&app.liked, t, None, true) };
+                if track_row(ui, t, &o, acts).clicked() {
+                    acts.push(Action::Play(top.clone(), i));
+                }
+            });
         }
+        row_drag::carry(ui, drag, list);
     }
     card_row(ui, "a-albums", "Albums & singles", &a.albums, acts);
     card_row(ui, "a-pl", "Featured on", &a.playlists, acts);

@@ -1272,7 +1272,7 @@ fn channel_picker(app: &mut App, ui: &mut Ui) {
     egui::Popup::menu(&btn).show(|ui| {
         ui.set_width(300.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+        dropdown_list(ui, 320.0, |ui| {
             for c in list {
                 if option_row(ui, &label(c), c.page_id == *current).clicked() {
                     pick = Some(c.clone());
@@ -1397,7 +1397,7 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
             egui::Popup::menu(&btn).show(|ui| {
                 ui.set_width(200.0);
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                dropdown_list(ui, 320.0, |ui| {
                     for (code, name) in super::lyric_prefs::LANGUAGES {
                         let on = app.lyric_prefs.target == *code;
                         let row = option_row(ui, name, on);
@@ -2117,7 +2117,7 @@ fn font_picker(ui: &mut Ui) -> Option<String> {
     egui::Popup::menu(&btn).show(|ui| {
         ui.set_width(220.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+        dropdown_list(ui, 360.0, |ui| {
             let mut row = |ui: &mut Ui, label: &str, value: &str| {
                 let on = current.eq_ignore_ascii_case(value);
                 let r = option_row(ui, label, on);
@@ -2178,7 +2178,7 @@ fn output_device_picker(app: &mut App, ui: &mut Ui) {
     egui::Popup::menu(&btn).show(|ui| {
         ui.set_width(340.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+        dropdown_list(ui, 320.0, |ui| {
             if option_row(ui, SYSTEM_DEFAULT, app.output_device.is_none()).clicked() {
                 pick = Some(None);
                 ui.close();
@@ -2211,6 +2211,21 @@ fn dropdown_button(ui: &mut Ui, value: &str, width: f32, name: &str) -> egui::Re
 }
 
 /// A dropdown option: hover glass, and a check on the chosen one.
+/// A dropdown list that scrolls past `max_height`. While it does, rows stop short of the
+/// scrollbar instead of running under it.
+fn dropdown_list(ui: &mut Ui, max_height: f32, add: impl FnOnce(&mut Ui)) {
+    let key = ui.scope_id().with("overflows");
+    let overflows = ui.data(|d| d.get_temp::<bool>(key)).unwrap_or(false);
+    let gutter = ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_outer_margin;
+    let out = egui::ScrollArea::vertical().max_height(max_height).auto_shrink([false, true]).show(ui, |ui| {
+        if overflows {
+            ui.set_max_width(ui.available_width() - gutter);
+        }
+        add(ui);
+    });
+    ui.data_mut(|d| d.insert_temp(key, out.content_size.y > out.inner_rect.height() + 0.5));
+}
+
 fn option_row(ui: &mut Ui, label: &str, selected: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
     let resp = widgets::named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);

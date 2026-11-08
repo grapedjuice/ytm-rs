@@ -88,20 +88,72 @@ pub fn text_at(ui: &Ui, pos: Pos2, text: &str, font: egui::FontId, color: Color3
     rect
 }
 
-/// A song's title, followed by the "E" YouTube Music marks explicit songs with, outlined
-/// in the title's own `color` so it reads on any theme or cover.
+/// A song's title, followed by the "E" YouTube Music marks explicit songs with: a square
+/// in the title's own `color` with the E cut out of it, so whatever's behind shows through.
 pub fn title_at(ui: &Ui, pos: Pos2, title: &str, explicit: bool, font: egui::FontId, color: Color32, width: f32) -> Rect {
     if !explicit {
         return text_at(ui, pos, title, font, color, width);
     }
-    let side = (font.size * 0.85).round();
-    let gap = (side * 0.4).round();
-    let r = text_at(ui, pos, title, font, color, width - side - gap);
-    let b = Rect::from_center_size(pos2(r.right() + gap + side / 2.0, r.center().y), Vec2::splat(side));
-    let c = theme::with_alpha(color, 0.75);
-    ui.painter().rect_stroke(b, 2.5, egui::Stroke::new(1.2, c), egui::StrokeKind::Inside);
-    ui.painter().text(b.center(), Align2::CENTER_CENTER, "E", theme::bold(side * 0.66), c);
+    let ppp = ui.ctx().pixels_per_point();
+    let side = (font.size * 0.8 * ppp).round().max(9.0); // in physical pixels
+    let gap = (side * 0.4).round() / ppp;
+    let r = text_at(ui, pos, title, font, color, width - side / ppp - gap);
+    let snap = |v: f32| (v * ppp).round() / ppp;
+    let b = Rect::from_min_size(pos2(snap(r.right() + gap), snap(r.center().y - side / ppp / 2.0)), Vec2::splat(side / ppp));
+    // Drawn from a mask made once per size: one texel a screen pixel, so it stays sharp.
+    // Only the current scale's masks are kept; a new scale drops the old ones.
+    type Masks = (f32, std::collections::HashMap<usize, egui::TextureHandle>);
+    let side = side as usize;
+    let id = egui::Id::unique("explicit-badge");
+    let cached = ui.ctx().data_mut(|d| {
+        let (scale, masks) = d.get_temp_mut_or_default::<Masks>(id);
+        if *scale != ppp {
+            *scale = ppp;
+            masks.clear();
+        }
+        masks.get(&side).cloned()
+    });
+    let tex = cached.unwrap_or_else(|| {
+        let t = ui.ctx().load_texture("explicit-badge", badge_mask(side), egui::TextureOptions::LINEAR);
+        ui.ctx().data_mut(|d| d.get_temp_mut_or_default::<Masks>(id).1.insert(side, t.clone()));
+        t
+    });
+    ui.painter().image(tex.id(), b, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), color);
     r.union(b)
+}
+
+/// A rounded square with an E cut out of it, `side` pixels across, as white coverage
+/// (8×8 samples a pixel) for tinting: smooth edges, and the E shows what's behind.
+fn badge_mask(side: usize) -> egui::ColorImage {
+    let s = side as f32;
+    let radius = s * 0.24;
+    // The E, in fractions of the side.
+    let (x0, x1, y0, y1, t, arm) = (0.34, 0.68, 0.22, 0.78, 0.12, 0.63);
+    let in_e = |x: f32, y: f32| {
+        (x0..x1).contains(&x)
+            && (y0..y1).contains(&y)
+            && (x < x0 + t || y < y0 + t || y > y1 - t || ((y - 0.5).abs() < t / 2.0 && x < arm))
+    };
+    let in_square = |x: f32, y: f32| {
+        let dx = (radius - x).max(x - (s - radius)).max(0.0);
+        let dy = (radius - y).max(y - (s - radius)).max(0.0);
+        dx * dx + dy * dy <= radius * radius
+    };
+    const N: usize = 8;
+    let pixels = (0..side * side)
+        .map(|i| {
+            let (px, py) = ((i % side) as f32, (i / side) as f32);
+            let hits = (0..N * N)
+                .filter(|j| {
+                    let x = px + ((j % N) as f32 + 0.5) / N as f32;
+                    let y = py + ((j / N) as f32 + 0.5) / N as f32;
+                    in_square(x, y) && !in_e(x / s, y / s)
+                })
+                .count();
+            Color32::from_white_alpha((hits * 255 / (N * N)) as u8)
+        })
+        .collect();
+    egui::ColorImage { size: [side, side], source_size: vec2(s, s), pixels }
 }
 
 /// What a screen reader calls a song: its title, and whether it's explicit.

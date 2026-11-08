@@ -210,14 +210,17 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
     let selecting = sel.on(page);
     let mods = ui.input(|i| i.modifiers);
     let plays_col = tracks.iter().any(|t| t.plays.is_some());
-    // Only the whole list has an order to change.
-    let movable = movable && !selecting && shown.is_none();
-    let (drag_list, top) = (egui::Id::unique(("list", page)), ui.cursor().top());
-    widgets::visible_rows(ui, shown.as_ref().map_or(tracks.len(), Vec::len), |ui, k| {
+    // Only the whole list has an order to change. Hidden explicit songs aside: rows are
+    // dragged among the ones on show, then counted back in the whole list.
+    let movable = movable && !selecting && !find.searching(page);
+    let n = shown.as_ref().map_or(tracks.len(), Vec::len);
+    // Rows on show changing mid-drag (find typed into) make it another list: the drag ends.
+    let (drag_list, top) = (egui::Id::unique(("list", page)).with(&shown), ui.cursor().top());
+    widgets::visible_rows(ui, n, |ui, k| {
         let i = shown.as_ref().map_or(k, |s| s[k]);
         let t = &tracks[i];
         // Any song can be dragged onto a playlist in the sidebar.
-        row_drag::grip(ui, drag, drag_list, i, t);
+        row_drag::grip(ui, drag, drag_list, k, t);
         let o = RowOpts {
             selected: selecting.then(|| sel.rows.contains(&i)),
             remove: own.then_some(i),
@@ -241,8 +244,10 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
     });
     if !movable {
         row_drag::carry(ui, drag, drag_list);
-    } else if let Some(d) = row_drag::feedback(ui, drag, drag_list, row_drag::Rows { top, first: 0, lowest: 0, end: tracks.len(), accent: rows.accent }) {
-        acts.push(Action::PlaylistMove { from: d.from, gap: d.gap, id: d.id });
+    } else if let Some(d) = row_drag::feedback(ui, drag, drag_list, row_drag::Rows { top, first: 0, lowest: 0, end: n, accent: rows.accent }) {
+        // Past the last row on show is the end of the whole list.
+        let whole = |r: usize| shown.as_ref().map_or(r, |s| s.get(r).copied().unwrap_or(tracks.len()));
+        acts.push(Action::PlaylistMove { from: whole(d.from), gap: whole(d.gap), id: d.id });
     }
 }
 
@@ -1336,14 +1341,17 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
                 app.set_hide_explicit();
             }
         });
-        if app.hide_explicit {
-            divider(ui);
+        divider(ui);
+        // Only with hiding on: it's off (and shown off) until then.
+        ui.add_enabled_ui(app.hide_explicit, |ui| {
             setting_row(ui, "Use YouTube's Restricted Mode", Some("Stricter: YouTube also leaves out whatever else it finds mature, not just explicit songs. Applies to pages loaded from now on."), |ui| {
-                if toggle(ui, &mut app.restricted_mode, "Use YouTube's Restricted Mode").changed() {
+                let mut on = app.hide_explicit && app.restricted_mode;
+                if toggle(ui, &mut on, "Use YouTube's Restricted Mode").changed() {
+                    app.restricted_mode = on;
                     app.set_hide_explicit();
                 }
             });
-        }
+        });
     });
     settings_section(ui, "Sound", None, None, |ui| {
         setting_row(ui, "Volume normalization", Some("Turn loud songs down to the same level, like YouTube Music does."), |ui| {

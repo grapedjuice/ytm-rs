@@ -157,6 +157,7 @@ impl App {
         self.resume_at = Some(Duration::from_millis(s.position_ms));
         self.listened_at = s.listened_at;
         self.request_art();
+        self.show_in_media(&shown);
         self.backend.request(Req::Lyrics(shown));
     }
 
@@ -198,6 +199,7 @@ impl App {
         self.resume_at = Some(Duration::ZERO);
         self.resume_counts = true;
         self.request_art();
+        self.show_in_media(&track);
         self.backend.request(Req::Lyrics(track.clone()));
         self.toast(format!("Picked up \"{}\" from your other device. Press play to carry on.", track.title));
     }

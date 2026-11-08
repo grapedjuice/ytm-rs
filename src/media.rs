@@ -21,8 +21,10 @@ const DRIFT: Duration = Duration::from_secs(1);
 /// souvlaki's MPRIS only takes about one update a second.
 const STILL_DRIFT: Duration = Duration::from_secs(5);
 
-/// The least time between volume reports, so a slider drag doesn't queue one a frame.
-const VOLUME_EVERY: Duration = Duration::from_secs(2);
+/// How long the volume has to stay put before it's reported, so a slider drag, here or
+/// in the OS's own, sends only where it ends: souvlaki's MPRIS takes about one update a
+/// second, and the OS's slider would jump back to a value from mid-drag.
+const VOLUME_SETTLE: Duration = Duration::from_millis(500);
 
 /// Linux and the BSDs, where souvlaki goes through MPRIS.
 const MPRIS: bool = cfg!(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))));
@@ -39,8 +41,12 @@ pub struct Media {
     resend: bool,
     /// The play state last shown on the taskbar buttons.
     playing: Option<bool>,
-    /// The volume last reported, and when (only MPRIS shows the app's volume).
+    /// The app's volume, and since when (only MPRIS shows it).
     volume: Option<(f32, Instant)>,
+    /// The volume last reported.
+    reported: Option<f32>,
+    /// The song the OS was last told about.
+    track: Option<Track>,
     #[cfg(windows)]
     thumbbar: Option<Box<std::cell::RefCell<Option<thumbbar::ThumbBar>>>>,
 }
@@ -74,19 +80,54 @@ impl Media {
             resend: false,
             playing: None,
             volume: None,
+            reported: None,
+            track: None,
             #[cfg(windows)]
             thumbbar,
         })
     }
 
     pub fn set_track(&mut self, title: &str, artist: &str, album: Option<&str>, cover: Option<&str>, secs: Option<u32>) {
-        let _ = self.controls.set_metadata(MediaMetadata {
-            title: Some(title),
-            artist: Some(artist),
-            album,
-            cover_url: cover,
-            duration: secs.map(|s| Duration::from_secs(s as u64)),
+        self.track = Some(Track {
+            title: title.into(),
+            artist: artist.into(),
+            album: album.map(Into::into),
+            cover: cover.map(Into::into),
+            listed: secs.is_some(),
+            len: secs.map(|s| Duration::from_secs(s as u64)),
         });
+        self.show();
+    }
+
+    /// The song's cover as a local file, once downloaded (where the OS can't fetch it).
+    pub fn set_cover(&mut self, file: &str) {
+        if let Some(t) = &mut self.track {
+            t.cover = Some(file.into());
+            self.show();
+        }
+    }
+
+    /// The stream's length for the song, for one listed without a length. A length the
+    /// player only falls back to (a music video's, standing in) isn't the song's.
+    pub fn sync_length(&mut self, len: Option<Duration>) {
+        if let Some(t) = &mut self.track
+            && takes_length(t.listed, t.len, len)
+        {
+            t.len = len;
+            self.show();
+        }
+    }
+
+    fn show(&mut self) {
+        if let Some(t) = &self.track {
+            let _ = self.controls.set_metadata(MediaMetadata {
+                title: Some(&t.title),
+                artist: Some(&t.artist),
+                album: t.album.as_deref(),
+                cover_url: t.cover.as_deref(),
+                duration: t.len,
+            });
+        }
         // Windows puts back the position it had before and macOS drops it: send it again.
         self.resend = true;
     }
@@ -103,12 +144,7 @@ impl Media {
     /// player's position is still the last one's.
     pub fn sync(&mut self, playing: bool, loading: bool, pos: Duration) {
         let now = Instant::now();
-        // Until the song plays, the OS keeps the position `start` gave it.
-        let pos = match &self.sent {
-            Some(s) if loading => s.shown(now, MOVES_ON),
-            _ => pos,
-        };
-        if self.resend || stale(self.sent.as_ref(), playing, pos, now, MOVES_ON) {
+        if let Some(pos) = due(self.sent.as_ref(), self.resend, playing, loading, pos, now, MOVES_ON) {
             self.send(playing, pos, now);
         }
     }
@@ -129,21 +165,43 @@ impl Media {
     }
 
     /// The app's volume (the slider's 0–1), where the OS shows it: only MPRIS does. Gives
-    /// how soon to call again when a change has to wait its turn.
+    /// how soon to call again while a change settles.
     pub fn sync_volume(&mut self, volume: f32) -> Option<Duration> {
         if !MPRIS {
             return None;
         }
         let now = Instant::now();
-        let wait = volume_wait(self.volume, volume, now)?;
+        let since = match self.volume {
+            Some((v, at)) if v == volume => at,
+            _ => self.volume.insert((volume, now)).1,
+        };
+        let wait = volume_wait(self.reported, volume, since, now)?;
         if !wait.is_zero() {
             return Some(wait);
         }
-        self.volume = Some((volume, now));
+        self.reported = Some(volume);
         #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
         let _ = self.controls.set_volume(volume as f64);
         None
     }
+}
+
+/// The song as the OS was told it.
+struct Track {
+    title: String,
+    artist: String,
+    album: Option<String>,
+    cover: Option<String>,
+    /// The song came with a length, which the OS keeps: the player's can still be the
+    /// last song's or a music video's when its stream doesn't say.
+    listed: bool,
+    len: Option<Duration>,
+}
+
+/// Whether the OS is to take the stream's `len` for a song: only one not `listed` with a
+/// length, and when it differs (to the second) from what the OS has.
+fn takes_length(listed: bool, shown: Option<Duration>, len: Option<Duration>) -> bool {
+    !listed && len.is_some_and(|l| shown.is_none_or(|s| s.as_secs() != l.as_secs()))
 }
 
 /// What the OS was told: playing or paused, at `pos`, at `at`.
@@ -160,6 +218,16 @@ impl Sent {
     }
 }
 
+/// The position to send, if the OS needs telling. `resend`: new metadata went out.
+fn due(sent: Option<&Sent>, resend: bool, playing: bool, loading: bool, pos: Duration, now: Instant, moves_on: bool) -> Option<Duration> {
+    // Until the song plays, the OS keeps the position `start` gave it.
+    let pos = match sent {
+        Some(s) if loading => s.shown(now, moves_on),
+        _ => pos,
+    };
+    (resend || stale(sent, playing, pos, now, moves_on)).then_some(pos)
+}
+
 /// Whether the OS needs telling: nothing sent yet, play or pause, or a position away
 /// from where the OS has it by now (a seek, a stall). Paused, any move is a seek.
 fn stale(sent: Option<&Sent>, playing: bool, pos: Duration, now: Instant, moves_on: bool) -> bool {
@@ -173,14 +241,10 @@ fn stale(sent: Option<&Sent>, playing: bool, pos: Duration, now: Instant, moves_
     })
 }
 
-/// Whether `volume` is to be reported, given the last report: `None` if the OS has it
-/// already, else how long until it may go (zero: now).
-fn volume_wait(last: Option<(f32, Instant)>, volume: f32, now: Instant) -> Option<Duration> {
-    match last {
-        Some((v, _)) if v == volume => None,
-        Some((_, at)) => Some(VOLUME_EVERY.saturating_sub(now.saturating_duration_since(at))),
-        None => Some(Duration::ZERO),
-    }
+/// How long until `volume`, unchanged `since`, is to be reported (zero: now). `None` if
+/// the OS has it already.
+fn volume_wait(reported: Option<f32>, volume: f32, since: Instant, now: Instant) -> Option<Duration> {
+    (reported != Some(volume)).then(|| VOLUME_SETTLE.saturating_sub(now.saturating_duration_since(since)))
 }
 
 /// Where a seek from the OS lands: at a position, or by an amount from `pos`, kept
@@ -225,12 +289,39 @@ mod tests {
     }
 
     #[test]
-    fn volume_is_reported_at_most_every_so_often() {
+    fn volume_is_reported_once_it_settles() {
         let t = Instant::now();
-        assert_eq!(volume_wait(None, 0.5, t), Some(Duration::ZERO));
-        assert_eq!(volume_wait(Some((0.5, t)), 0.5, t + s(9)), None);
-        assert_eq!(volume_wait(Some((0.5, t)), 0.6, t + Duration::from_millis(500)), Some(Duration::from_millis(1_500)));
-        assert_eq!(volume_wait(Some((0.5, t)), 0.6, t + s(3)), Some(Duration::ZERO));
+        let ms = Duration::from_millis;
+        assert_eq!(volume_wait(None, 0.5, t, t), Some(ms(500)));
+        assert_eq!(volume_wait(Some(0.4), 0.5, t, t + ms(200)), Some(ms(300)));
+        assert_eq!(volume_wait(Some(0.4), 0.5, t, t + s(1)), Some(Duration::ZERO));
+        assert_eq!(volume_wait(Some(0.5), 0.5, t, t), None);
+    }
+
+    #[test]
+    fn the_streams_length_fills_in_for_a_song_listed_without_one() {
+        let ms = Duration::from_millis;
+        assert!(takes_length(false, None, Some(ms(160_400))));
+        assert!(takes_length(false, Some(s(158)), Some(ms(160_400))));
+        assert!(!takes_length(false, Some(s(160)), Some(ms(160_400))));
+        assert!(!takes_length(false, None, None));
+        // A listed length stays, whatever the stream says.
+        assert!(!takes_length(true, Some(s(181)), Some(s(300))));
+    }
+
+    #[test]
+    fn a_loading_song_keeps_its_start_and_new_metadata_resends() {
+        let t = Instant::now();
+        let started = Sent { playing: true, pos: s(0), at: t };
+        // Loading, the player still has the last song's 3:00: the OS keeps the start.
+        assert_eq!(due(Some(&started), false, true, true, s(180), t + s(2), true), None);
+        assert_eq!(due(Some(&started), false, true, true, s(180), t + s(2), false), None);
+        // New metadata mid-load: the start point again, not the last song's position.
+        assert_eq!(due(Some(&started), true, true, true, s(180), t + s(2), true), Some(s(2)));
+        assert_eq!(due(Some(&started), true, true, true, s(180), t + s(2), false), Some(s(0)));
+        // Playing, it goes by the player.
+        assert_eq!(due(Some(&started), true, true, false, s(1), t + s(2), true), Some(s(1)));
+        assert_eq!(due(None, false, false, false, s(30), t, true), Some(s(30)));
     }
 
     #[test]

@@ -15,13 +15,12 @@ use super::{Action, App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, dev
 impl App {
     pub(super) fn pump(&mut self, now: f64) {
         let cover = self.media_cover.lock().unwrap().take();
-        // The listed track's art, with what plays's title, artists and length.
+        // The listed track's art.
         if let Some((id, file)) = cover
             && self.current().is_some_and(|t| t.id == id)
-            && let Some(track) = self.playing_track().cloned()
             && let Some(m) = &mut self.media
         {
-            m.set_track(&track.title, &track.artist_line(), track.album.as_ref().map(|a| a.name.as_str()), Some(&file), track.duration);
+            m.set_cover(&file);
         }
         while let Ok(r) = self.ch.resp_rx.try_recv() {
             self.on_resp(r, now);
@@ -75,7 +74,7 @@ impl App {
                 }
             }
         }
-        if self.buffering && self.playing() {
+        if self.buffering && self.audio.status.started(self.generation) {
             self.buffering = false;
             self.skip_streak = 0;
             self.prefetch_next();

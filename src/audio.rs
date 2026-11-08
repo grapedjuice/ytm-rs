@@ -66,6 +66,10 @@ pub struct AudioStatus {
     pub playing: AtomicBool,
     /// Generation the UI most recently asked for; the engine ignores older decoders.
     pub wanted_gen: AtomicU64,
+    /// Generation the engine last started, set once its length is in.
+    started_gen: AtomicU64,
+    /// The length its stream gave, 0 when it gave none (`duration_ms` then keeps the UI's).
+    stream_ms: AtomicU64,
     /// f32 bits
     volume: AtomicU32,
     /// Turn loud tracks down to YouTube's loudness target.
@@ -98,6 +102,22 @@ impl AudioStatus {
 
     pub fn duration(&self) -> Option<Duration> {
         let d = self.duration_ms.load(Ordering::Relaxed);
+        (d > 0).then(|| Duration::from_millis(d))
+    }
+
+    /// Whether the song asked for as `generation` is playing, not the one before it still
+    /// going until the engine gets to the new one.
+    pub fn started(&self, generation: u64) -> bool {
+        self.started_gen.load(Ordering::Acquire) == generation && self.playing.load(Ordering::Relaxed)
+    }
+
+    /// The length the song asked for as `generation` has by its stream, once started.
+    pub fn stream_duration(&self, generation: u64) -> Option<Duration> {
+        // Read after `started`, so the length is that song's, not the one before.
+        if !self.started(generation) {
+            return None;
+        }
+        let d = self.stream_ms.load(Ordering::Relaxed);
         (d > 0).then(|| Duration::from_millis(d))
     }
 
@@ -635,6 +655,8 @@ fn run(
                 offset = at;
                 seekable = !at.is_zero();
                 ending_sent = false;
+                status.stream_ms.store(s.duration_ms, Ordering::Relaxed);
+                status.started_gen.store(generation, Ordering::Release);
                 status.playing.store(true, Ordering::Relaxed);
             }
             Ok(AudioCmd::Replace { generation, seek, decoder, at, seekable: s }) => {
@@ -868,6 +890,36 @@ fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_song_counts_as_started_only_once_the_engine_starts_it() {
+        let status = AudioStatus::default();
+        status.started_gen.store(1, Ordering::Release);
+        status.playing.store(true, Ordering::Relaxed);
+        // The UI asked for 2, but the engine hasn't stopped 1 yet.
+        assert!(!status.started(2));
+        status.started_gen.store(2, Ordering::Release);
+        assert!(status.started(2));
+        status.playing.store(false, Ordering::Relaxed);
+        assert!(!status.started(2));
+    }
+
+    #[test]
+    fn only_a_length_the_stream_gave_counts_as_its_own() {
+        let status = AudioStatus::default();
+        // A music video's 5:00 the UI put in, for a song whose stream gives no length.
+        status.duration_ms.store(300_000, Ordering::Relaxed);
+        status.started_gen.store(2, Ordering::Release);
+        status.playing.store(true, Ordering::Relaxed);
+        assert_eq!(status.stream_duration(2), None);
+        status.stream_ms.store(181_000, Ordering::Relaxed);
+        assert_eq!(status.stream_duration(2), Some(Duration::from_secs(181)));
+        // Not for the next song, until the engine starts it, with its own (here none).
+        assert_eq!(status.stream_duration(3), None);
+        status.stream_ms.store(0, Ordering::Relaxed);
+        status.started_gen.store(3, Ordering::Release);
+        assert_eq!(status.stream_duration(3), None);
+    }
 
     #[test]
     fn crossfade_ramps_mirror_each_other_and_end_the_fading_song() {

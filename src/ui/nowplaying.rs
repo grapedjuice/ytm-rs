@@ -677,8 +677,7 @@ fn options_menu(app: &mut App, ui: &mut Ui, track: &crate::model::Track, lyrics:
         ui.painter().circle_filled(rect.center() + vec2(dx, 0.0), 1.9, theme::with_alpha(Color32::WHITE, 0.75 + 0.25 * h));
     }
     egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-        ui.set_width(270.0);
-        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        widgets::menu_body(ui, 270.0);
         if lyrics {
             lyric_options(app, ui);
             menu_divider(ui);

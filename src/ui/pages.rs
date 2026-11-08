@@ -656,8 +656,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                     let own = app.logged_in && !auto && !is_album && c.owned;
                     let more = widgets::more_pill(ui, "More options");
                     egui::Popup::menu(&more).show(|ui| {
-                        ui.set_width(190.0);
-                        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                        widgets::menu_body(ui, 190.0);
                         if widgets::menu_action(ui, Some(icon::LINK), "Share") {
                             acts.push(Action::Share(target.clone()));
                         }
@@ -1270,8 +1269,7 @@ fn channel_picker(app: &mut App, ui: &mut Ui) {
     let btn = dropdown_button(ui, if switching { "Switching…" } else { &shown }, 220.0, "Channel");
     let mut pick = None;
     egui::Popup::menu(&btn).show(|ui| {
-        ui.set_width(300.0);
-        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        widgets::menu_body(ui, 300.0);
         dropdown_list(ui, 320.0, |ui| {
             for c in list {
                 if option_row(ui, &label(c), c.page_id == *current).clicked() {
@@ -1395,8 +1393,7 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
             let btn = dropdown_button(ui, current, 200.0, "Translate into");
             let just_opened = btn.clicked();
             egui::Popup::menu(&btn).show(|ui| {
-                ui.set_width(200.0);
-                ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                widgets::menu_body(ui, 200.0);
                 dropdown_list(ui, 320.0, |ui| {
                     for (code, name) in super::lyric_prefs::LANGUAGES {
                         let on = app.lyric_prefs.target == *code;
@@ -1518,8 +1515,7 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
             setting_row(ui, "Mode", Some(desc), |ui| {
                 let btn = dropdown_button(ui, app.appearance.label(), 160.0, "Mode");
                 egui::Popup::menu(&btn).show(|ui| {
-                    ui.set_width(160.0);
-                    ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                    widgets::menu_body(ui, 160.0);
                     for a in theme::Appearance::ALL {
                         if option_row(ui, a.label(), a == app.appearance).clicked() {
                             pick = Some(a);
@@ -1551,8 +1547,7 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
                 let btn = dropdown_button(ui, app.accent_source.label(), 120.0, "Accent colour");
                 let mut pick = None;
                 egui::Popup::menu(&btn).show(|ui| {
-                    ui.set_width(120.0);
-                    ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                    widgets::menu_body(ui, 120.0);
                     let current = app.accent_source;
                     // Custom starts from the colour showing now (before light pages deepen
                     // it, or it would be deepened twice).
@@ -1632,8 +1627,7 @@ fn settings_zoom(ui: &mut Ui) {
     setting_row(ui, "Zoom", Some("Makes everything bigger or smaller. Ctrl + plus and Ctrl + minus do the same, and Ctrl + 0 goes back to 100%."), |ui| {
         let btn = dropdown_button(ui, &pct(zoom), 120.0, "Zoom");
         egui::Popup::menu(&btn).show(|ui| {
-            ui.set_width(120.0);
-            ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+            widgets::menu_body(ui, 120.0);
             for z in STEPS {
                 if option_row(ui, &pct(z), (z - zoom).abs() < 0.005).clicked() {
                     pick = Some(z);
@@ -1702,8 +1696,7 @@ fn settings_backdrop(app: &mut App, ui: &mut Ui) {
         setting_row(ui, "Window material", Some(desc), |ui| {
             let btn = dropdown_button(ui, saved.label(), 160.0, "Window material");
             egui::Popup::menu(&btn).show(|ui| {
-                ui.set_width(160.0);
-                ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                widgets::menu_body(ui, 160.0);
                 for b in Backdrop::ALL {
                     if option_row(ui, b.label(), b == saved).clicked() {
                         pick = Some(b);
@@ -1936,8 +1929,7 @@ fn network(app: &mut App, ui: &mut Ui) {
     setting_row(ui, "Proxy", Some("Send everything ytm-rs fetches through a proxy: songs, lyrics, sign-in and Listen together."), |ui| {
         let btn = dropdown_button(ui, app.proxy_mode.label(), 220.0, "Proxy");
         egui::Popup::menu(&btn).show(|ui| {
-            ui.set_width(220.0);
-            ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+            widgets::menu_body(ui, 220.0);
             for s in [Setting::System, Setting::Off, Setting::Custom(String::new())] {
                 if option_row(ui, s.label(), same(&s, &app.proxy_mode)).clicked() {
                     pick = Some(s);
@@ -2115,8 +2107,7 @@ fn font_picker(ui: &mut Ui) -> Option<String> {
     let just_opened = btn.clicked();
     let mut picked = None;
     egui::Popup::menu(&btn).show(|ui| {
-        ui.set_width(220.0);
-        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        widgets::menu_body(ui, 220.0);
         dropdown_list(ui, 360.0, |ui| {
             let mut row = |ui: &mut Ui, label: &str, value: &str| {
                 let on = current.eq_ignore_ascii_case(value);
@@ -2176,8 +2167,7 @@ fn output_device_picker(app: &mut App, ui: &mut Ui) {
     }
     let mut pick: Option<Option<(String, String)>> = None;
     egui::Popup::menu(&btn).show(|ui| {
-        ui.set_width(340.0);
-        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        widgets::menu_body(ui, 340.0);
         dropdown_list(ui, 320.0, |ui| {
             if option_row(ui, SYSTEM_DEFAULT, app.output_device.is_none()).clicked() {
                 pick = Some(None);
@@ -2210,13 +2200,14 @@ fn dropdown_button(ui: &mut Ui, value: &str, width: f32, name: &str) -> egui::Re
     resp
 }
 
-/// A dropdown option: hover glass, and a check on the chosen one.
-/// A dropdown list that scrolls past `max_height`. While it does, rows stop short of the
-/// scrollbar instead of running under it.
+/// A dropdown list that scrolls past `max_height`. While it does, rows stop short of a
+/// thin scrollbar instead of running under it.
 fn dropdown_list(ui: &mut Ui, max_height: f32, add: impl FnOnce(&mut Ui)) {
     let key = ui.scope_id().with("overflows");
     let overflows = ui.data(|d| d.get_temp::<bool>(key)).unwrap_or(false);
-    let gutter = ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_outer_margin;
+    let scroll = &mut ui.spacing_mut().scroll;
+    scroll.bar_width = 6.0;
+    let gutter = scroll.bar_width + scroll.bar_outer_margin + 2.0;
     let out = egui::ScrollArea::vertical().max_height(max_height).auto_shrink([false, true]).show(ui, |ui| {
         if overflows {
             ui.set_max_width(ui.available_width() - gutter);
@@ -2226,6 +2217,7 @@ fn dropdown_list(ui: &mut Ui, max_height: f32, add: impl FnOnce(&mut Ui)) {
     ui.data_mut(|d| d.insert_temp(key, out.content_size.y > out.inner_rect.height() + 0.5));
 }
 
+/// A dropdown option: hover glass, and a check on the chosen one.
 fn option_row(ui: &mut Ui, label: &str, selected: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
     let resp = widgets::named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);

@@ -439,7 +439,7 @@ pub fn card_menu_contents(ui: &mut Ui, c: &Card, liked: bool, acts: &mut Vec<Act
     match &c.target {
         Target::Song(t) => song_menu(ui, t, liked, None, acts),
         t => {
-            menu_body(ui);
+            menu_body(ui, 260.0);
             if menu_action(ui, Some(icon::PLAY), "Play") {
                 acts.push(Action::PlayCollection(t.clone(), false));
             }
@@ -468,10 +468,11 @@ fn more_button(ui: &mut Ui, rect: Rect, id: egui::Id, label: &str) -> Response {
     response
 }
 
-/// A card or song menu: rows touch, so the menu's inset is the only gap at every edge.
-fn menu_body(ui: &mut Ui) {
-    ui.set_width(260.0);
-    ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+/// Sets up a menu or dropdown: `width` wide, with a small gap between rows so two
+/// highlights (picked and hovered) never run together.
+pub fn menu_body(ui: &mut Ui, width: f32) {
+    ui.set_width(width);
+    ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
 }
 
 /// A thin line between groups of menu rows.
@@ -502,7 +503,7 @@ pub fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
 
 /// `remove`: the song's row in the open playlist, when it's yours and the song can come out.
 pub fn song_menu(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, acts: &mut Vec<Action>) {
-    menu_body(ui);
+    menu_body(ui, 260.0);
     song_actions(ui, t, liked, remove, acts);
 }
 

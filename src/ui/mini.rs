@@ -495,9 +495,10 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
         Some(t) => (t.title.clone(), t.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", ")),
         None => ("Nothing playing".to_owned(), String::new()),
     };
-    let tr = text_at(ui, pos2(x0, art.top() + 1.0), &title, theme::semibold(14.5), theme::text(), text_w);
+    let explicit = track.as_ref().is_some_and(|t| t.explicit);
+    let tr = super::widgets::title_at(ui, pos2(x0, art.top() + 1.0), &title, explicit, theme::semibold(14.5), theme::text(), text_w);
     if let Some(t) = &track {
-        named(ui.interact(tr, ui.scope_id().with("mini-title"), Sense::hover()), &t.title).on_hover_text(&t.title);
+        named(ui.interact(tr, ui.scope_id().with("mini-title"), Sense::hover()), &super::widgets::song_name(&t.title, t.explicit)).on_hover_text(&t.title);
     }
     text_at(ui, pos2(x0, art.top() + 22.0), &artists, theme::regular(12.5), theme::text_dim(), text_w);
 

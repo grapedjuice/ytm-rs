@@ -88,6 +88,27 @@ pub fn text_at(ui: &Ui, pos: Pos2, text: &str, font: egui::FontId, color: Color3
     rect
 }
 
+/// A song's title, followed by the "E" YouTube Music marks explicit songs with, outlined
+/// in the title's own `color` so it reads on any theme or cover.
+pub fn title_at(ui: &Ui, pos: Pos2, title: &str, explicit: bool, font: egui::FontId, color: Color32, width: f32) -> Rect {
+    if !explicit {
+        return text_at(ui, pos, title, font, color, width);
+    }
+    let side = (font.size * 0.85).round();
+    let gap = (side * 0.4).round();
+    let r = text_at(ui, pos, title, font, color, width - side - gap);
+    let b = Rect::from_center_size(pos2(r.right() + gap + side / 2.0, r.center().y), Vec2::splat(side));
+    let c = theme::with_alpha(color, 0.75);
+    ui.painter().rect_stroke(b, 2.5, egui::Stroke::new(1.2, c), egui::StrokeKind::Inside);
+    ui.painter().text(b.center(), Align2::CENTER_CENTER, "E", theme::bold(side * 0.66), c);
+    r.union(b)
+}
+
+/// What a screen reader calls a song: its title, and whether it's explicit.
+pub fn song_name(title: &str, explicit: bool) -> std::borrow::Cow<'_, str> {
+    if explicit { format!("{title}, Explicit").into() } else { title.into() }
+}
+
 /// Single-line text whose artist names are links: underlined on hover, and a click
 /// opens the artist's page. Names without a channel id stay plain text.
 #[allow(clippy::too_many_arguments)]
@@ -703,7 +724,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     // Picking: the cover (left 54 px) plays, the rest of the row picks.
     let hit_left = if o.pick && o.number.is_none() { rect.left() + 54.0 } else { rect.left() };
     let hit_rect = Rect::from_min_max(pos2(hit_left, rect.top()), pos2(rect.right() - 42.0, rect.bottom()));
-    let resp = named(ui.interact(hit_rect, base.id.with("play"), Sense::click()), &t.title).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let resp = named(ui.interact(hit_rect, base.id.with("play"), Sense::click()), &song_name(&t.title, t.explicit)).on_hover_cursor(egui::CursorIcon::PointingHand);
     // Not while something's being dragged over it: only the drop place should show.
     let hovered = base.contains_pointer() && ui.ctx().dragged_id().is_none();
     let h = theme::anim_bool(ui.ctx(), base.id.with("h"), hovered, 0.15);
@@ -784,7 +805,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         (sub, _) => sub,
     };
     let title_y = if sub.is_some() { cy - 18.0 } else { cy - 9.0 };
-    text_at(ui, pos2(x, title_y), &t.title, theme::semibold(14.5), title_col, title_w);
+    title_at(ui, pos2(x, title_y), &t.title, t.explicit, theme::semibold(14.5), title_col, title_w);
     if let Some(sub) = &sub {
         linked_text(ui, pos2(x, cy + 2.0), sub, &t.artists, theme::regular(13.0), theme::text_dim(), title_w, acts);
     }

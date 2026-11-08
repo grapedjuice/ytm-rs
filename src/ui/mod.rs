@@ -321,6 +321,10 @@ pub struct App {
     ambient_light: bool,
     glow: Option<nowplaying::Glow>,
     hide_search_videos: bool,
+    /// Leave explicit songs out of lists and the queue.
+    hide_explicit: bool,
+    /// With them, ask YouTube for its Restricted Mode too.
+    restricted_mode: bool,
     /// The song version playing in place of the current music video.
     playing_as: Option<PlayingAs>,
     /// The output device picked in settings (cpal's id and its name, for when it's not
@@ -492,6 +496,9 @@ impl App {
         let logged_in = backend.is_logged_in();
         // Before any request: a song started at launch (dev hooks) must see this setting.
         backend.set_high_quality(get("high_quality").is_none_or(|v| v == "1"));
+        let hide_explicit = get("hide_explicit").is_some_and(|v| v == "1");
+        let restricted_mode = get("restricted_mode").is_some_and(|v| v == "1");
+        backend.set_hide_explicit(hide_explicit, restricted_mode);
         backend.request(Req::Home(None));
         if logged_in {
             backend.request(Req::Library);
@@ -577,6 +584,8 @@ impl App {
             ambient_light: get("ambient_light").is_none_or(|v| v == "1"),
             glow: None,
             hide_search_videos: get("hide_search_videos").is_some_and(|v| v == "1"),
+            hide_explicit,
+            restricted_mode,
             playing_as: None,
             output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
             output_devices: Vec::new(),
@@ -672,6 +681,8 @@ impl App {
             share_pending: None,
             smoke: None,
         };
+        app.queue.hide_explicit = hide_explicit;
+        app.find.hide_explicit = hide_explicit;
         app.request_liked(false);
         // Dev hooks: YTM_SMOKE="query" searches and plays the first song ("id:<videoId>[,<videoId>…]"
         // plays that video; with YTM_VIDEO, shown as a video); YTM_SEARCH
@@ -682,7 +693,7 @@ impl App {
         let smoke = std::env::var("YTM_SMOKE").ok().filter(|q| !q.is_empty());
         if let Some(ids) = smoke.as_deref().and_then(|q| q.strip_prefix("id:")) {
             // "id:a,b,c" queues several.
-            let track = |id: &str| Track { id: id.to_owned(), title: id.to_owned(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: dev_var("YTM_VIDEO").is_some() };
+            let track = |id: &str| Track { id: id.to_owned(), title: id.to_owned(), music_video: dev_var("YTM_VIDEO").is_some(), ..Default::default() };
             app.play_list(ids.split(',').map(track).collect(), 0);
         } else if let Some(q) = smoke {
             app.go(Page::Search(q.clone()));
@@ -1236,6 +1247,8 @@ impl eframe::App for App {
         storage.set_string("show_video", b(self.show_video));
         storage.set_string("ambient_light", b(self.ambient_light));
         storage.set_string("hide_search_videos", b(self.hide_search_videos));
+        storage.set_string("hide_explicit", b(self.hide_explicit));
+        storage.set_string("restricted_mode", b(self.restricted_mode));
         let folder = crate::downloads::folder();
         storage.set_string("download_dir", if folder == crate::downloads::default_folder() { String::new() } else { folder.display().to_string() });
         let (device, device_name) = self.output_device.clone().unzip();
@@ -1470,13 +1483,13 @@ mod session_tests {
     fn sessions_saved_before_song_versions_still_load() {
         let old = r#"{"queue":[{"id":"a","title":"A","artists":[],"album":null,"duration":null,"thumbs":[],"track_nr":null,"plays":null}],"index":0,"position_ms":5000,"duration_ms":0}"#;
         let s: Session = serde_json::from_str(old).unwrap();
-        assert!(!s.queue[0].music_video && s.playing_as.is_none());
+        assert!(!s.queue[0].music_video && !s.queue[0].explicit && s.playing_as.is_none());
         // A song (or a session without a song version) saves as before, so an older
         // version, or a jam guest on one, reads it too.
         let saved = serde_json::to_string(&s).unwrap();
-        assert!(!saved.contains("music_video") && !saved.contains("playing_as"), "{saved}");
-        let video = Track { music_video: true, ..s.queue[0].clone() };
+        assert!(!saved.contains("music_video") && !saved.contains("explicit") && !saved.contains("playing_as"), "{saved}");
+        let video = Track { music_video: true, explicit: true, ..s.queue[0].clone() };
         let back: Track = serde_json::from_str(&serde_json::to_string(&video).unwrap()).unwrap();
-        assert!(back.music_video);
+        assert!(back.music_video && back.explicit);
     }
 }

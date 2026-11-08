@@ -136,6 +136,10 @@ impl App {
 
     /// `fill`: the queue is a playlist still coming in, and its other songs follow.
     pub(super) fn play_list_filling(&mut self, tracks: Vec<Track>, start: usize, fill: Option<QueueFill>) {
+        // A song opened from a link, say: the next one that isn't explicit plays, if any.
+        if let Some(t) = tracks.get(start) {
+            self.explicit_hidden(t);
+        }
         if !self.queue.replace(tracks, start, fill) {
             return;
         }
@@ -331,6 +335,24 @@ impl App {
 
     pub(crate) fn set_crossfade(&self) {
         self.audio.set_crossfade(if self.crossfade { self.crossfade_secs } else { 0 });
+    }
+
+    /// `t` is explicit while those are hidden: it won't play, and the toast says why.
+    pub(super) fn explicit_hidden(&mut self, t: &Track) -> bool {
+        let hidden = self.hide_explicit && t.explicit;
+        if hidden {
+            self.toast("Skipped an explicit song");
+        }
+        hidden
+    }
+
+    /// Explicit songs hidden or shown again: queued ones go (all but the one playing),
+    /// and YouTube's Restricted Mode applies to what loads from now on.
+    pub(super) fn set_hide_explicit(&mut self) {
+        self.queue.hide_explicit = self.hide_explicit;
+        self.find.hide_explicit = self.hide_explicit;
+        self.queue.drop_explicit();
+        self.backend.set_hide_explicit(self.hide_explicit, self.restricted_mode);
     }
 
     /// Ask SponsorBlock about the playing song, when that's switched on.

@@ -503,6 +503,8 @@ pub struct Backend {
     /// High quality: with Premium, every song goes through the signed-in web player
     /// for its 256 kbps stream instead of the anonymous 128 kbps one.
     hq: Arc<std::sync::atomic::AtomicBool>,
+    /// Explicit songs are hidden: a music video's song version has to be clean.
+    clean: Arc<std::sync::atomic::AtomicBool>,
     /// Song versions of music videos looked up this session (`None`: there's none), by
     /// video and whether the account has Premium (which gets YouTube's own pairs). One
     /// cell each, so a prefetch and the play of the same video share a lookup.
@@ -533,7 +535,7 @@ impl Backend {
         {
             log::warn!("proxy relay: {e:#}");
         }
-        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), songs: Default::default() };
+        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), clean: Default::default(), songs: Default::default() };
         backend.keep_signed_in();
         Ok(backend)
     }
@@ -1303,7 +1305,8 @@ impl Backend {
             return None;
         }
         // Its song version downloaded from Now playing: from the file, no lookup (offline too).
-        if let Some(song) = crate::downloads::song_for(listed) {
+        let clean = self.clean.load(Ordering::Relaxed);
+        if let Some(song) = crate::downloads::song_for(listed).filter(|s| !(clean && s.explicit)) {
             return Some(song);
         }
         let start = std::time::Instant::now();
@@ -1323,7 +1326,7 @@ impl Backend {
         }
         let cell = {
             let mut songs = self.songs.lock().unwrap();
-            let key = format!("{listed} {premium}");
+            let key = format!("{listed} {premium} {clean}");
             match songs.get(&key) {
                 Some(cell) => cell.clone(),
                 None => {
@@ -1340,7 +1343,7 @@ impl Backend {
         let (this, video) = (self.clone(), video.clone());
         let lookup = tokio::spawn(async move {
             cell.get_or_try_init(|| async {
-                let found = this.look_up_song(&video, premium).await?;
+                let found = this.look_up_song(&video, premium, clean).await?;
                 match &found {
                     Some(s) => log::info!("song version of {} \"{}\": {} \"{}\"", video.id, video.title, s.id, s.title),
                     None => log::info!("song version of {} \"{}\": none found", video.id, video.title),
@@ -1367,15 +1370,18 @@ impl Backend {
         }
     }
 
-    async fn look_up_song(&self, video: &Track, premium: bool) -> anyhow::Result<Option<Track>> {
+    /// clean: only a song that isn't explicit.
+    async fn look_up_song(&self, video: &Track, premium: bool, clean: bool) -> anyhow::Result<Option<Track>> {
         if premium {
             match ytm::paired_song(&self.api, &video.id).await {
                 // YouTube pairs every music video that has a song; trust it when it says none.
-                Ok(found) => return Ok(found),
+                Ok(found) if !(clean && found.as_ref().is_some_and(|s| s.explicit)) => return Ok(found),
+                // Paired with its explicit version: a search may find the clean one.
+                Ok(_) => {}
                 Err(e) => log::debug!("song pair of {}: {e:#}; searching instead", video.id),
             }
         }
-        ytm::searched_song(&self.api, video).await
+        ytm::searched_song(&self.api, video, clean).await
     }
 
     async fn open_stream(&self, video_id: &str, prefetch: bool) -> anyhow::Result<Arc<Shared>> {
@@ -1581,6 +1587,12 @@ impl Backend {
 
     pub fn set_high_quality(&self, on: bool) {
         self.hq.store(on, Ordering::Relaxed);
+    }
+
+    /// Explicit songs hidden, and whether YouTube's Restricted Mode is asked for as well.
+    pub fn set_hide_explicit(&self, on: bool, restricted: bool) {
+        self.clean.store(on, Ordering::Relaxed);
+        self.api.set_restricted(on && restricted);
     }
 
     /// Like or unlike a selection, one at a time, then check Liked Music and try again

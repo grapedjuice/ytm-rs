@@ -181,7 +181,7 @@ pub fn dev_script(app: &mut App, ctx: &egui::Context, now: f64) {
             "queue=on" => set_control(app, app.jam.control, true),
             "queue=off" => set_control(app, app.jam.control, false),
             a if a.starts_with("add=") => {
-                let track = crate::model::Track { id: a[4..].to_owned(), title: "Test song".into(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false };
+                let track = crate::model::Track { id: a[4..].to_owned(), title: "Test song".into(), artists: vec![], ..Default::default() };
                 app.apply(Action::Enqueue(track));
             }
             a if a.starts_with("seek=") => {
@@ -372,6 +372,11 @@ fn host_request(app: &mut App, from: String, name: String, cmd: Cmd) {
         return;
     }
     if let Cmd::Add { track } | Cmd::Next { track } = &cmd {
+        // The host's setting decides what the jam plays.
+        if app.hide_explicit && track.explicit {
+            app.toast(format!("Skipped an explicit song {name} added"));
+            return;
+        }
         // Their app checks this too; two adds can cross the latest state, though.
         if waiting(app, &from) >= GUEST_WAITING && from != app.jam.you {
             log::info!("jam: {name} already has {GUEST_WAITING} songs waiting");
@@ -533,6 +538,11 @@ pub fn request(app: &mut App, cmd: Cmd) {
     }
     if !cmd.is_control() && !app.jam.queue {
         app.toast("The host turned off adding songs");
+        return;
+    }
+    if let Cmd::Add { track } | Cmd::Next { track } = &cmd
+        && app.explicit_hidden(track)
+    {
         return;
     }
     if !cmd.is_control() && waiting(app, &app.jam.you) >= GUEST_WAITING {

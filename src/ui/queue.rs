@@ -40,6 +40,8 @@ pub struct Queue {
     /// The queue is a playlist played while its songs were still coming in: the rest
     /// join the queue as they arrive.
     pub fill: Option<QueueFill>,
+    /// Explicit songs are hidden: none join, and a queue started with some leaves them out.
+    pub hide_explicit: bool,
 }
 
 /// How many songs before and after the current one a saved session keeps: liked-songs
@@ -49,7 +51,7 @@ const SAVED_AFTER: usize = 150;
 
 impl Queue {
     pub fn new(repeat: Repeat) -> Self {
-        Self { tracks: Vec::new(), elsewhere: Default::default(), index: None, repeat, fill: None }
+        Self { tracks: Vec::new(), elsewhere: Default::default(), index: None, repeat, fill: None, hide_explicit: false }
     }
 
     pub fn current(&self) -> Option<&Track> {
@@ -74,8 +76,13 @@ impl Queue {
     }
 
     /// Play `tracks` from `start`; `fill`: a playlist still coming in, whose other songs
-    /// follow. False (and nothing changes) when there are none.
-    pub fn replace(&mut self, tracks: Vec<Track>, start: usize, fill: Option<QueueFill>) -> bool {
+    /// follow. False (and nothing changes) when there are none. With explicit songs hidden
+    /// they're left out, and an explicit `start` plays the next song that isn't.
+    pub fn replace(&mut self, mut tracks: Vec<Track>, mut start: usize, fill: Option<QueueFill>) -> bool {
+        if self.hide_explicit {
+            start = tracks.iter().take(start).filter(|t| !t.explicit).count();
+            tracks.retain(|t| !t.explicit);
+        }
         if tracks.is_empty() {
             return false;
         }
@@ -93,6 +100,25 @@ impl Queue {
         self.elsewhere.clear();
         self.index = Some(index);
         self.fill = None;
+        self.drop_explicit();
+    }
+
+    /// With explicit songs hidden, take them out, all but the one playing.
+    pub fn drop_explicit(&mut self) {
+        if !self.hide_explicit {
+            return;
+        }
+        let mut i = 0;
+        let (cur, mut index) = (self.index, self.index);
+        self.tracks.retain(|t| {
+            let keep = !t.explicit || Some(i) == cur;
+            if !keep && cur.is_some_and(|c| i < c) {
+                index = index.map(|c| c - 1);
+            }
+            i += 1;
+            keep
+        });
+        self.index = index;
     }
 
     /// Next, or the end of a song: true when there's a song to play. At the end of a
@@ -206,7 +232,7 @@ impl Queue {
     pub fn add_radio(&mut self, seed: &str, tracks: Vec<Track>) -> bool {
         let have: std::collections::HashSet<String> = self.tracks.iter().map(|t| t.id.clone()).collect();
         let was_at_end = self.at_end();
-        let added: Vec<Track> = tracks.into_iter().filter(|t| t.id != seed && !have.contains(&t.id)).collect();
+        let added: Vec<Track> = tracks.into_iter().filter(|t| t.id != seed && !have.contains(&t.id) && !(self.hide_explicit && t.explicit)).collect();
         self.elsewhere.extend(added.iter().map(|t| t.id.clone()));
         self.tracks.extend(added);
         was_at_end
@@ -226,7 +252,8 @@ impl Queue {
             return None;
         }
         let was_at_end = self.at_end();
-        self.tracks.extend(tracks);
+        let hide = self.hide_explicit;
+        self.tracks.extend(tracks.into_iter().filter(|t| !(hide && t.explicit)));
         if shuffled {
             // Mixed into what's still to come, past the next song (it may be loading already).
             let from = self.index.map_or(0, |i| i + if was_at_end { 1 } else { 2 }).min(self.tracks.len());
@@ -278,8 +305,36 @@ mod tests {
         assert!(!q.plays_elsewhere());
     }
 
+    #[test]
+    fn hidden_explicit_songs_stay_out_of_the_queue() {
+        let e = |id: &str| Track { explicit: true, ..track(id) };
+        let mut q = Queue::new(Repeat::Off);
+        q.hide_explicit = true;
+        // Started at an explicit song: the next clean one plays, or else the last.
+        assert!(q.replace(vec![e("a"), track("b"), e("c"), track("d"), e("f")], 2, None));
+        assert_eq!((ids(&q), q.current().unwrap().id.as_str()), (vec!["b", "d"], "d"));
+        assert!(q.replace(vec![track("b"), e("c")], 1, None));
+        assert_eq!(q.current().unwrap().id, "b");
+        assert!(!q.replace(vec![e("c")], 0, None));
+        // Radio and a playlist's next pages leave them out too.
+        q.add_radio("b", vec![e("r1"), track("r2")]);
+        q.fill = filling("PL1", 1, false);
+        q.fill_from("PL1", 1, vec![e("p1"), track("p2")], false, true);
+        assert_eq!(ids(&q), ["b", "r2", "p2"]);
+        // Turned on with some queued: all go but the one playing.
+        let mut q = queue(&["a", "b", "c", "d"], 2, Repeat::Off);
+        for i in [0, 2, 3] {
+            q.tracks[i].explicit = true;
+        }
+        q.drop_explicit();
+        assert_eq!(ids(&q).len(), 4);
+        q.hide_explicit = true;
+        q.drop_explicit();
+        assert_eq!((ids(&q), q.index), (vec!["b", "c"], Some(1)));
+    }
+
     fn track(id: &str) -> Track {
-        Track { id: id.into(), title: id.into(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false }
+        Track { id: id.into(), title: id.into(), artists: vec![], ..Default::default() }
     }
 
     fn queue(songs: &[&str], index: usize, repeat: Repeat) -> Queue {

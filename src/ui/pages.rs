@@ -1611,7 +1611,13 @@ fn settings_zoom(ui: &mut Ui) {
 /// Settings › Window.
 fn settings_window(app: &mut App, ui: &mut Ui) {
     settings_section(ui, "Window", None, None, |ui| {
-        setting_row(ui, "Close to tray", Some("Clicking × hides the window and keeps the music playing. Click the tray icon to bring it back, or right-click it to quit."), |ui| {
+        // Linux tray icons only open their menu on click.
+        let how = if cfg!(target_os = "linux") {
+            "Keeps an icon in the tray. Clicking × hides the window there and keeps the music playing. The icon's menu brings it back, hides it or quits."
+        } else {
+            "Keeps an icon in the tray. Clicking × hides the window there and keeps the music playing. Click the icon to bring it back, or right-click it to hide, show or quit."
+        };
+        setting_row(ui, "Close to tray", Some(how), |ui| {
             toggle(ui, &mut app.close_to_tray, "Close to tray");
         });
         divider(ui);

@@ -4,6 +4,7 @@ use egui::{Align2, Color32, Pos2, Rect, Sense, Ui, Vec2, pos2, vec2};
 
 use super::widgets::{self, icon_at, icon_button, named, paint_cover, text_at};
 use super::{Action, App, LibTab, NpTab, Page, Repeat, fmt_time, row_drag};
+use crate::backend::Req;
 use crate::model::Target;
 use crate::shader::Params;
 use crate::theme::{self, icon};
@@ -195,6 +196,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     const ICON_X: f32 = 24.0;
     let t = sidebar_collapse(app, ui.ctx());
     let collapsed = app.sidebar_collapsed;
+    let accent = app.accent_color();
     // Labels fade out over the first two thirds of collapsing (and back in late).
     let a = ((1.0 - t) * 1.5 - 0.5).clamp(0.0, 1.0);
     // Content width when expanded: text keeps its truncation while the panel narrows.
@@ -308,10 +310,19 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 }
                 return;
             };
+            // A song dragged out of a list goes into the playlist it's let go on: your own
+            // playlists (the ones "Add to playlist" offers) and Liked Music.
+            row_drag::scroll_targets(ui, &app.row_drag);
+            let mut dropped = None;
             for c in playlists {
                 let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
                 if !ui.is_rect_visible(rect) {
                     continue;
+                }
+                let takes = matches!(&c.target, Target::Playlist(id) if id.starts_with("PL") || id == "LM");
+                let over = if takes { row_drag::target(ui, &mut app.row_drag, rect) } else { None };
+                if let (Some(row_drag::Over::Dropped(t)), Target::Playlist(id)) = (&over, &c.target) {
+                    dropped = Some((id.clone(), t.clone()));
                 }
                 let mut resp = named(resp, &c.title).on_hover_cursor(egui::CursorIcon::PointingHand);
                 if collapsed {
@@ -320,6 +331,10 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
                 let selected = matches!(&c.target, Target::Playlist(id) if app.page == Page::Playlist(id.clone()));
                 ui.painter().rect_filled(rect, 8.0, theme::glass(0.05 * h + if selected { 0.08 } else { 0.0 }));
+                if matches!(over, Some(row_drag::Over::Held)) {
+                    ui.painter().rect_filled(rect, 8.0, theme::with_alpha(accent, 0.18));
+                    ui.painter().rect_stroke(rect, 8.0, egui::Stroke::new(1.5, accent), egui::StrokeKind::Inside);
+                }
                 let img = Rect::from_center_size(pos2(rect.left() + ICON_X, rect.center().y), Vec2::splat(36.0));
                 paint_cover(ui, img, &c.thumbs, theme::thumb_radius(), 1.0);
                 if a > 0.0 {
@@ -330,6 +345,14 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 if resp.clicked() {
                     app.actions.push(Action::Open(c.target.clone()));
                 }
+            }
+            match dropped {
+                Some((id, t)) if id == "LM" => {
+                    app.actions.push(Action::Like(t, true));
+                    app.toast("Added to Liked Music");
+                }
+                Some((playlist_id, t)) => app.backend.request(Req::AddToPlaylist { playlist_id, video_ids: vec![t.id] }),
+                None => {}
             }
         });
     });

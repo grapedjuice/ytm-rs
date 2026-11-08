@@ -455,8 +455,10 @@ impl App {
             self.forward.retain(|p| *p != gone);
             self.forward.dedup();
         } else {
-            if message == "Removed from playlist" {
-                self.lists.edits.confirm_removal(&id);
+            match message {
+                "Removed from playlist" => self.lists.edits.confirm_removal(&id),
+                "Added to playlist" => self.lists.edits.confirm_add(&id),
+                _ => {}
             }
             // Kept for going back (or playing): reload it. What YouTube Music still
             // lists after a removal is dropped as it arrives.

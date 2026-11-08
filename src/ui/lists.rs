@@ -102,7 +102,7 @@ pub struct Lists {
     moves: HashMap<String, Moves>,
     /// Numbers the moves. Never reset, so an answer to an old one can't pass for a new one's.
     move_ids: u64,
-    /// Likes and playlist removals made here lately. YouTube Music goes on listing the
+    /// Likes and playlist additions and removals made here lately. YouTube Music goes on listing the
     /// old state for a while after it takes an edit, so lists that arrive are corrected with these.
     pub edits: RecentEdits,
 }
@@ -208,6 +208,9 @@ impl Lists {
         }
         let sent = c.tracks.len();
         self.edits.correct_collection(&mut c);
+        if !more {
+            self.edits.complete(&mut c);
+        }
         let id = c.id.clone();
         log::debug!("list {id}: load {load} in, {sent} songs sent, {} after local edits, more={more}", c.tracks.len());
         let at = Instant::now();
@@ -242,6 +245,9 @@ impl Lists {
                 o.c.tracks.extend(tracks.iter().cloned());
                 o.c.set_ids.extend(set_ids);
                 o.complete = !more;
+                if !more {
+                    edits.complete(&mut o.c);
+                }
                 log::debug!("list {id}: load {load} page, {sent} sent, {} added, {} total, more={more}", tracks.len(), o.c.tracks.len());
                 true
             }
@@ -305,6 +311,15 @@ impl Lists {
         }
     }
 
+    /// Songs added here show at once at the end of the playlist as kept, and in loads that
+    /// don't list them yet.
+    pub fn added(&mut self, playlist: &str, tracks: &[Track]) {
+        self.edits.add(playlist, tracks);
+        if let Some(o) = self.opened.iter_mut().find(|o| o.c.id == playlist && o.complete) {
+            self.edits.complete(&mut o.c);
+        }
+    }
+
     /// Kept, or loading.
     pub fn known(&self, id: &str) -> bool {
         self.get(id).is_some() || self.loading(id)
@@ -327,8 +342,8 @@ impl Lists {
 
 /// How long YouTube Music may go on listing the old state after taking an edit.
 const EDIT_LAG: Duration = Duration::from_secs(180);
-/// How long a removal counts while YouTube Music hasn't answered (one it refused shows only
-/// as an error), and likes, which a few hundred at a time take a while.
+/// How long a removal or an addition counts while YouTube Music hasn't answered (one it
+/// refused shows only as an error), and likes, which a few hundred at a time take a while.
 const REMOVAL_UNANSWERED: Duration = Duration::from_secs(60);
 const LIKE_UNANSWERED: Duration = Duration::from_secs(600);
 
@@ -338,6 +353,8 @@ pub struct RecentEdits {
     likes: HashMap<String, (bool, Option<Track>, EditAge)>,
     /// Playlist: the entries (`setVideoId`s) taken out of it, and when.
     removals: HashMap<String, (HashSet<String>, EditAge)>,
+    /// Playlist: the songs added to it, and when.
+    adds: HashMap<String, (Vec<Track>, EditAge)>,
 }
 
 #[derive(Clone, Copy)]
@@ -387,9 +404,34 @@ impl RecentEdits {
         }
     }
 
+    fn add(&mut self, playlist: &str, tracks: &[Track]) {
+        let (added, age) = self.adds.entry(playlist.to_owned()).or_insert_with(|| (Vec::new(), EditAge::new()));
+        added.extend(tracks.iter().cloned());
+        *age = EditAge::new();
+    }
+
+    pub fn confirm_add(&mut self, playlist: &str) {
+        if let Some((_, age)) = self.adds.get_mut(playlist) {
+            age.confirmed = Some(Instant::now());
+        }
+    }
+
     fn prune(&mut self) {
         self.likes.retain(|_, (_, _, age)| age.live(LIKE_UNANSWERED));
         self.removals.retain(|_, (_, age)| age.live(REMOVAL_UNANSWERED));
+        self.adds.retain(|_, (_, age)| age.live(REMOVAL_UNANSWERED));
+    }
+
+    /// All of a playlist: the songs added here that it doesn't list yet go at its end, and
+    /// it counts at least the songs it has (YouTube Music's header can lag behind its list).
+    fn complete(&self, c: &mut Collection) {
+        for t in self.adds.get(&c.id).map_or(&[][..], |(added, _)| added) {
+            if !c.tracks.iter().any(|x| x.id == t.id) {
+                c.tracks.push(t.clone());
+                c.set_ids.push(None);
+            }
+        }
+        c.count = c.count.max(Some(c.tracks.len() as u64));
     }
 
     /// Whether a song row YouTube Music sent still stands: not taken out of that
@@ -827,5 +869,39 @@ mod tests {
         // A later page drops an unliked song too.
         assert!(!edits.keeps("LM", &track("x"), Some("set-x")));
         assert!(edits.keeps("PL9", &track("x"), Some("set-x")));
+    }
+
+    #[test]
+    fn songs_added_here_show_until_the_playlist_lists_them() {
+        let mut lists = Lists::default();
+        load_whole(&mut lists, "PL1", &["a", "b"], &[]);
+        // At the end of the kept copy at once.
+        lists.added("PL1", &[track("c")]);
+        assert_eq!(songs(&lists, "PL1"), ["a", "b", "c"]);
+        assert_eq!(lists.get("PL1").unwrap().c.count, Some(3));
+        lists.edits.confirm_add("PL1");
+
+        // A reload that doesn't list it yet still has it.
+        load_whole(&mut lists, "PL1", &["a", "b"], &[]);
+        assert_eq!(songs(&lists, "PL1"), ["a", "b", "c"]);
+        // Once it does, it's there once, and a header that lags counts what's listed.
+        let s = lists.load("PL1", false, false).unwrap();
+        lists.arrived(s.load, Collection { count: Some(2), ..collection("PL1", &["a", "b", "c"]) }, false, &[]).unwrap();
+        assert_eq!(songs(&lists, "PL1"), ["a", "b", "c"]);
+        assert_eq!(lists.get("PL1").unwrap().c.count, Some(3));
+
+        // A playlist coming page by page gets it after its last page, not in the middle.
+        lists.added("PL2", &[track("z")]);
+        let s = lists.load("PL2", false, false).unwrap();
+        lists.arrived(s.load, collection("PL2", &["a"]), true, &[]).unwrap();
+        assert_eq!(songs(&lists, "PL2"), ["a"]);
+        let (t, set) = page_of(&["b"]);
+        lists.page("PL2", s.load, t, set, false, &[]).unwrap();
+        assert_eq!(songs(&lists, "PL2"), ["a", "b", "z"]);
+
+        // One YouTube Music never answered stops showing after a while.
+        lists.edits.adds.get_mut("PL2").unwrap().1.made = Instant::now() - Duration::from_secs(61);
+        load_whole(&mut lists, "PL2", &["a", "b"], &[]);
+        assert_eq!(songs(&lists, "PL2"), ["a", "b"]);
     }
 }

@@ -56,6 +56,14 @@ impl App {
         }
     }
 
+    /// Add songs to one of the account's playlists. They show in it at once, even while
+    /// YouTube Music goes on listing it without them.
+    pub(super) fn add_to_playlist(&mut self, playlist_id: String, tracks: &[Track]) {
+        self.lists.added(&playlist_id, tracks);
+        let video_ids = tracks.iter().map(|t| t.id.clone()).collect();
+        self.backend.request(Req::AddToPlaylist { playlist_id, video_ids });
+    }
+
     pub(super) fn start_load(&self, s: Start) {
         self.backend.request(match s.album {
             true => Req::Album { id: s.id, load: s.load },

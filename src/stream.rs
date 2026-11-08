@@ -76,6 +76,15 @@ enum Claim {
     Done,
 }
 
+/// Stream buffers alive, for the `YTM_MEM` dev log.
+pub static LIVE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+impl Drop for Shared {
+    fn drop(&mut self) {
+        LIVE.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 pub struct Shared {
     inner: Mutex<Inner>,
     ready: Condvar,
@@ -98,6 +107,7 @@ impl Shared {
     pub fn new(total: u64, duration_ms: u64, loudness_db: Option<f32>, opus: bool, head_only: bool) -> Arc<Self> {
         let n = total.div_ceil(BLOCK) as usize;
         let limit = if head_only { HEAD_BLOCKS.min(n) } else { n };
+        LIVE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Arc::new(Self {
             inner: Mutex::new(Inner {
                 blocks: vec![None; n],

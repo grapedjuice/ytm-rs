@@ -370,6 +370,37 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
 
 // ------------------------------------------------------------------ top bar
 
+/// Round button with a clockwise arrow, drawn like the icon font's (Lucide's rotate-cw),
+/// which the bundled subset doesn't have.
+fn refresh_button(ui: &mut Ui) -> egui::Response {
+    const SIZE: f32 = 18.0;
+    let d = SIZE + 18.0;
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(d), Sense::click());
+    let resp = named(resp, "Refresh").on_hover_text("Refresh (F5)").on_hover_cursor(egui::CursorIcon::PointingHand);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
+    if h > 0.0 {
+        ui.painter().circle_filled(rect.center(), d / 2.0, theme::glass(0.10 * h));
+    }
+    let color = theme::lerp_color(theme::text_dim(), theme::text(), h);
+    let press = if resp.is_pointer_button_down_on() { 0.9 } else { 1.0 };
+    // On Lucide's 24-unit grid, centred on (12, 12).
+    let unit = SIZE * press / 24.0;
+    let at = |x: f32, y: f32| rect.center() + vec2(x - 12.0, y - 12.0) * unit;
+    let stroke = egui::Stroke::new(2.0 * unit, color);
+    // A circle of radius 9 from three o'clock round to the top right, then on to the arrow.
+    let mut arc: Vec<Pos2> = (0..=40)
+        .map(|i| {
+            let a = (i as f32 / 40.0) * 315.0_f32.to_radians();
+            at(12.0 + 9.0 * a.cos(), 12.0 + 9.0 * a.sin())
+        })
+        .collect();
+    arc.push(at(21.0, 8.0));
+    let painter = ui.painter();
+    painter.add(egui::Shape::line(arc, stroke));
+    painter.add(egui::Shape::line(vec![at(21.0, 3.0), at(21.0, 8.0), at(16.0, 8.0)], stroke));
+    resp
+}
+
 pub fn top_bar(app: &mut App, ui: &mut Ui) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
@@ -378,6 +409,9 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         }
         if icon_button(ui, icon::CHEVRON_RIGHT, 20.0, "Forward", false).clicked() {
             app.nav_forward();
+        }
+        if refresh_button(ui).clicked() {
+            app.refresh();
         }
         ui.add_space(12.0);
 
@@ -640,10 +674,14 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let h = theme::anim_bool(ui.ctx(), "progress-h", resp.hovered() || resp.dragged(), 0.15);
     let thick = 3.0 + 2.0 * h;
     let line = Rect::from_min_size(track_rect.min, vec2(track_rect.width(), thick));
-    ui.painter().rect_filled(line, 0.0, theme::glass(0.12));
+    // Rounded ends, on the line and on what's played of it.
+    let round = thick / 2.0;
+    ui.painter().rect_filled(line, round, theme::glass(0.12));
     let frac = if total > 0.0 { pos / total } else { 0.0 };
     let filled = Rect::from_min_size(line.min, vec2(line.width() * frac, thick));
-    ui.painter().rect_filled(filled, 0.0, app.accent_color());
+    if frac > 0.0 {
+        ui.painter().rect_filled(filled, round, app.accent_color());
+    }
     if h > 0.0 && total > 0.0 {
         // The knob and the time tip stick out above the bar, over now playing (a higher
         // layer than the bar), so they go on a layer above both and outside the bar's clip.
@@ -792,9 +830,14 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let presp = named(presp, if playing { "Pause" } else { "Play" }).on_hover_cursor(egui::CursorIcon::PointingHand);
     let ph = theme::anim_bool(ui.ctx(), presp.id.with("h"), presp.hovered(), 0.15);
     let scale = if presp.is_pointer_button_down_on() { 0.92 } else { 1.0 + 0.05 * ph };
-    ui.painter().circle_filled(center, 23.0 * scale, if theme::light() { theme::text() } else { Color32::WHITE });
+    let (fill, glyph) = if app.accent_controls {
+        let a = theme::lerp_color(accent, if theme::light() { Color32::BLACK } else { Color32::WHITE }, 0.12 * ph);
+        (a, widgets::contrast(a))
+    } else {
+        (if theme::light() { theme::text() } else { Color32::WHITE }, theme::on_text())
+    };
+    ui.painter().circle_filled(center, 23.0 * scale, fill);
     let morph = theme::anim_bool(ui.ctx(), "play-morph", playing || app.buffering, 0.18);
-    let glyph = theme::on_text();
     if app.buffering {
         let a = now as f32 * 6.0;
         ui.painter().add(egui::Shape::Path(egui::epaint::PathShape::line(
@@ -920,8 +963,14 @@ fn volume_slider(app: &mut App, ui: &mut Ui, slider: Rect, salt: &str) {
     let track_r = Rect::from_center_size(slider.center(), vec2(slider.width(), 4.0));
     ui.painter().rect_filled(track_r, 2.0, theme::glass(0.15));
     let fill = Rect::from_min_size(track_r.min, vec2(track_r.width() * vol, 4.0));
-    ui.painter().rect_filled(fill, 2.0, theme::lerp_color(theme::text_dim(), theme::text(), vh));
-    ui.painter().circle_filled(pos2(fill.right(), track_r.center().y), 2.0 + 4.5 * vh, theme::text());
+    let (bar, knob) = if app.accent_controls {
+        let a = app.accent_color();
+        (a, a)
+    } else {
+        (theme::lerp_color(theme::text_dim(), theme::text(), vh), theme::text())
+    };
+    ui.painter().rect_filled(fill, 2.0, bar);
+    ui.painter().circle_filled(pos2(fill.right(), track_r.center().y), 2.0 + 4.5 * vh, knob);
     if let Some(p) = vresp.interact_pointer_pos()
         && (vresp.dragged() || vresp.clicked())
     {
@@ -952,6 +1001,25 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
     queue_list(app, ui, "drawer");
 }
 
+/// "Playing from playlist", and its name, which opens it.
+fn playing_from(app: &mut App, ui: &mut Ui) {
+    let Some((kind, name, target)) = app.playing_from() else { return };
+    ui.label(egui::RichText::new(format!("Playing from {kind}")).font(theme::regular(12.5)).color(theme::text_dim()));
+    let w = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(vec2(w, 22.0), Sense::hover());
+    let r = text_at(ui, pos2(rect.left(), rect.top() + 1.0), &name, theme::semibold(15.0), theme::text(), w);
+    let resp = named(ui.interact(r, ui.scope_id().with("playing-from"), Sense::click()), &name).on_hover_cursor(egui::CursorIcon::PointingHand);
+    if resp.hovered() {
+        ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, theme::text()));
+    }
+    if resp.clicked() {
+        // Liked Music is Library › Songs, where it was played from.
+        let liked = matches!(&target, Target::Playlist(id) if id == super::lists::LIKED_MUSIC);
+        app.actions.push(if liked { Action::Go(Page::Library(LibTab::Songs)) } else { Action::Open(target) });
+    }
+    ui.add_space(8.0);
+}
+
 /// Current track plus everything after it. Shared by the drawer and now playing.
 pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
     let rows = super::pages::Rows::new(app, ui.input(|i| i.time));
@@ -961,6 +1029,7 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
             return;
         }
         let start = app.queue.index.unwrap_or(0);
+        playing_from(app, ui);
         ui.checkbox(&mut app.autoplay, egui::RichText::new("Autoplay similar songs").color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
         ui.add_space(6.0);
         let accent = app.accent_color();

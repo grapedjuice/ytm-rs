@@ -227,3 +227,45 @@ pub(super) fn dev_pace() {
         *frames = 0;
     }
 }
+
+/// Dev hook: `YTM_MEM=<secs>` logs, that often, what the app's own caches hold: GPU
+/// textures (thumbnails and the rest), the font atlas, and the image loaders' bytes. The
+/// process's own figures come from outside (Task Manager, `Get-Process`).
+pub(super) fn dev_memory(ctx: &egui::Context, now: f64) {
+    use std::sync::Mutex;
+    let Some(every) = dev_var("YTM_MEM").and_then(|v| v.parse::<f64>().ok()) else { return };
+    static LAST: Mutex<f64> = Mutex::new(f64::NEG_INFINITY);
+    {
+        let mut last = LAST.lock().unwrap();
+        if now - *last < every {
+            ctx.request_repaint_after(Duration::from_secs_f64(every - (now - *last)));
+            return;
+        }
+        *last = now;
+    }
+    let mb = |b: usize| b as f64 / (1024.0 * 1024.0);
+    let (count, textures, biggest) = {
+        let tm = ctx.tex_manager();
+        let tm = tm.read();
+        let mut all: Vec<(usize, String)> = tm.allocated().map(|(_, m)| (m.bytes_used(), m.name.clone())).collect();
+        all.sort_unstable_by_key(|a| std::cmp::Reverse(a.0));
+        let total = all.iter().map(|a| a.0).sum::<usize>();
+        let top: Vec<String> = all.iter().take(3).map(|(b, n)| format!("{} {:.1}", n.chars().take(48).collect::<String>(), mb(*b))).collect();
+        (all.len(), total, top.join(", "))
+    };
+    let atlas = ctx.fonts(|f| f.font_image_size());
+    let loaders = ctx.loaders();
+    let bytes: usize = loaders.bytes.lock().iter().map(|l| l.byte_size()).sum();
+    let images: usize = loaders.image.lock().iter().map(|l| l.byte_size()).sum();
+    let tex_loaders: usize = loaders.texture.lock().iter().map(|l| l.byte_size()).sum();
+    log::info!(
+        "mem: {count} textures {:.1} MB (loader {:.1}); font atlas {}x{}; bytes {:.1} MB, decoded {:.1} MB; {} audio buffers [{biggest}]",
+        mb(textures),
+        mb(tex_loaders),
+        atlas[0],
+        atlas[1],
+        mb(bytes),
+        mb(images),
+        crate::stream::LIVE.load(std::sync::atomic::Ordering::Relaxed)
+    );
+}

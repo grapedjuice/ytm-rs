@@ -11,6 +11,27 @@ use super::queue::QueueFill;
 use super::{App, shuffle};
 
 impl App {
+    /// What the queue was started from, while the song playing is one of it: what kind
+    /// of thing it is ("playlist", "album", "artist"), its name, and where it opens.
+    pub(super) fn playing_from(&self) -> Option<(&'static str, String, Target)> {
+        let source = self.queue_source.as_ref().filter(|_| !self.queue.plays_elsewhere())?;
+        let current = self.current();
+        let (kind, name) = match source {
+            Target::Playlist(id) if id == LIKED_MUSIC => ("playlist", "Liked Music".to_owned()),
+            Target::Playlist(id) => ("playlist", self.opened(id)?.c.title.clone()),
+            Target::Album(id) => {
+                let from_song = || current?.album.as_ref().filter(|a| a.id.as_deref() == Some(id.as_str())).map(|a| a.name.clone());
+                ("album", self.opened(id).map(|o| o.c.title.clone()).or_else(from_song)?)
+            }
+            Target::Artist(id) => {
+                let from_song = || current?.artists.iter().find(|a| a.id.as_deref() == Some(id.as_str())).map(|a| a.name.clone());
+                ("artist", self.artist.as_ref().filter(|a| &a.id == id).map(|a| a.name.clone()).or_else(from_song)?)
+            }
+            Target::Song(_) => return None,
+        };
+        (!name.trim().is_empty()).then(|| (kind, name, source.clone()))
+    }
+
     /// Load an album or playlist, unless a load of it is under way. `changed`: if one is,
     /// it's loaded once more afterwards.
     pub(super) fn load_list(&mut self, id: &str, album: bool, changed: bool) {

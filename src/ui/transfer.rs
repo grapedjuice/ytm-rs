@@ -120,15 +120,9 @@ fn big_button(ui: &mut Ui, label: &str, accent: Color32, enabled: bool, width: f
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered() && enabled, 0.15);
     let fill = if enabled { theme::lerp_color(accent, Color32::WHITE, 0.12 * h) } else { theme::glass(0.10) };
     ui.painter().rect_filled(rect, 25.0, fill);
-    let fg = if enabled { contrast(accent) } else { theme::text_faint() };
+    let fg = if enabled { widgets::contrast(accent) } else { theme::text_faint() };
     ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, theme::bold(16.0), fg);
     enabled && resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
-}
-
-/// Dark or light text, whichever reads on `bg`.
-fn contrast(bg: Color32) -> Color32 {
-    let l = 0.299 * bg.r() as f32 + 0.587 * bg.g() as f32 + 0.114 * bg.b() as f32;
-    if l > 150.0 { Color32::from_gray(20) } else { Color32::WHITE }
 }
 
 fn breadcrumb(app: &mut App, ui: &mut Ui) {

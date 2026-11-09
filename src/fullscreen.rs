@@ -44,6 +44,17 @@ pub fn refresh_rate() -> Option<f64> {
     None
 }
 
+/// Clip the window to a rounded rectangle along its top (left, right and bottom edges and
+/// corner diameter, in pixels from the window's corner), or back to all of it. Outside the
+/// shape Windows neither draws its frame nor gives the window the mouse. Nothing where
+/// windows have no such frame.
+pub fn set_window_shape(shape: Option<(i32, i32, i32, i32)>) {
+    #[cfg(windows)]
+    imp::set_window_shape(shape);
+    #[cfg(not(windows))]
+    let _ = shape;
+}
+
 /// Whether some of `rect` (physical pixels) is on a connected monitor. True where the
 /// app can't ask.
 pub fn on_a_monitor(rect: egui::Rect) -> bool {
@@ -106,6 +117,16 @@ mod imp {
             let r = info.rcWork;
             egui::Rect::from_min_max(egui::pos2(r.left as f32, r.top as f32), egui::pos2(r.right as f32, r.bottom as f32))
         })
+    }
+
+    pub fn set_window_shape(shape: Option<(i32, i32, i32, i32)>) {
+        use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
+        let Some(&h) = WINDOW.get() else { return };
+        // SAFETY: the app's own window; once set, the system owns the region.
+        unsafe {
+            let region = shape.map(|(left, right, bottom, d)| CreateRoundRectRgn(left, 0, right + 1, bottom + 1, d, d));
+            SetWindowRgn(HWND(h as *mut _), region, true);
+        }
     }
 
     pub fn refresh_rate() -> Option<f64> {

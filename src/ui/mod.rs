@@ -87,6 +87,8 @@ pub enum NpTab {
     Art,
 }
 
+pub use mini::init_pill;
+
 /// Where the accent colour comes from (Settings › Appearance › Accent colour).
 #[derive(Clone, Copy, PartialEq)]
 pub enum AccentSource {
@@ -94,14 +96,18 @@ pub enum AccentSource {
     Theme,
     /// The system accent colour, whatever the theme.
     System,
+    /// `accent.txt` in the data folder, for wallust, pywal and the like to write.
+    File,
     Custom(Color32),
 }
 
 impl AccentSource {
-    /// Saved as "" (theme), "system" or "#rrggbb"; older versions read "system" as the theme's.
+    /// Saved as "" (theme), "system", "file" or "#rrggbb"; older versions read "system"
+    /// and "file" as the theme's.
     fn from_key(v: &str) -> Self {
         match v {
             "system" => Self::System,
+            "file" => Self::File,
             v => crate::preset::hex(v).map_or(Self::Theme, Self::Custom),
         }
     }
@@ -110,6 +116,7 @@ impl AccentSource {
         match self {
             Self::Theme => String::new(),
             Self::System => "system".into(),
+            Self::File => "file".into(),
             Self::Custom(c) => format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()),
         }
     }
@@ -118,6 +125,7 @@ impl AccentSource {
         match self {
             Self::Theme => "Theme",
             Self::System => "System",
+            Self::File => "From file",
             Self::Custom(_) => "Custom",
         }
     }
@@ -919,12 +927,18 @@ impl App {
         }
     }
 
+    /// Where the "From file" accent colour is read from.
+    fn accent_file(&self) -> std::path::PathBuf {
+        self.backend.data_dir().join("accent.txt")
+    }
+
     /// The accent before `accent_color` deepens it for light pages.
     fn base_accent(&self) -> Color32 {
         match self.accent_source {
             _ if self.default_theme => theme::RED,
             AccentSource::Custom(c) => c,
             AccentSource::System => theme::system_accent().unwrap_or_else(|| self.look().accent(self.accent)),
+            AccentSource::File => theme::file_accent(&self.accent_file()).unwrap_or_else(|| self.look().accent(self.accent)),
             AccentSource::Theme => self.look().accent(self.accent),
         }
     }
@@ -977,7 +991,12 @@ impl App {
 impl eframe::App for App {
     /// With a window material, nothing under the pages but what they paint.
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        if crate::backdrop::active() == crate::backdrop::Backdrop::None { Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32() } else { [0.0; 4] }
+        if self.mini.pill_showing() || crate::backdrop::active() != crate::backdrop::Backdrop::None {
+            return [0.0; 4];
+        }
+        // Opaque: a see-through window (made for the pill) mustn't show the desktop here.
+        let [r, g, b, _] = Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32();
+        [r, g, b, 1.0]
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -1112,7 +1131,7 @@ impl eframe::App for App {
         let np = theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), 0.42);
         let light = self.light_pages(&ctx) && np < 0.5 && !self.fullscreen;
         theme::set_mode(&ctx, light);
-        crate::backdrop::follow(!self.default_theme && crate::backdrop::shows(look), light);
+        crate::backdrop::follow(!self.default_theme && crate::backdrop::shows(look) && !self.mini.pill_showing(), light);
         if self.chrome_applied.as_deref() != Some(look.id.as_str()) {
             if self.chrome_applied.is_none() {
                 ctx.add_texture_loader(Arc::new(crate::images::Textures::default()));
@@ -1122,6 +1141,10 @@ impl eframe::App for App {
         }
         let accent = self.accent_color();
         ctx.data_mut(|d| d.insert_temp(egui::Id::unique("accent"), accent));
+        // The file can change with nothing else going on here.
+        if self.accent_source == AccentSource::File && !self.default_theme {
+            ctx.request_repaint_after(Duration::from_secs(2));
+        }
         let app_style = &look.app;
         // Once now playing has slid all the way up it hides everything but the player
         // bar, so the pages and the full-screen background under it aren't drawn.
@@ -1131,6 +1154,11 @@ impl eframe::App for App {
         // The mini player, or nothing but the background while the window changes size.
         dev::dev_memory(&ctx, now);
         let layout = self.mini.layout(&ctx);
+        if layout == mini::Layout::Mini && mini::pill_active() {
+            mini::pill(self, ui, now);
+            dev_screenshot(&ctx, now);
+            return;
+        }
         if layout != mini::Layout::Full {
             shell::background(self, ui, screen, now, None);
             if layout == mini::Layout::Mini {

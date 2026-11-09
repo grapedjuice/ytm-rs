@@ -1123,6 +1123,7 @@ fn settings_tab(app: &mut App, ui: &mut Ui, tab: SettingsTab) {
         SettingsTab::Lyrics => settings_lyrics(app, ui),
         SettingsTab::Appearance => {
             settings_appearance(app, ui);
+            settings_mini(app, ui);
             settings_app_icon(app, ui);
         }
         SettingsTab::Account => {
@@ -1575,12 +1576,14 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
             use super::AccentSource;
             // System is offered where there's a system accent to follow (Windows).
             let has_system = theme::system_accent().is_some();
-            let desc = if has_system {
-                "The theme's colour, your Windows accent colour, or one you pick."
+            let desc = if app.accent_source == AccentSource::File {
+                format!("Follows the #rrggbb colour in {}. Have wallust or pywal write it there.", app.accent_file().display())
+            } else if has_system {
+                "The theme's colour, your Windows accent colour, a colour file, or one you pick.".to_owned()
             } else {
-                "The theme's colour, or one you pick."
+                "The theme's colour, a colour file, or one you pick.".to_owned()
             };
-            setting_row(ui, "Accent colour", Some(desc), |ui| {
+            setting_row(ui, "Accent colour", Some(&desc), |ui| {
                 let btn = dropdown_button(ui, app.accent_source.label(), 120.0, "Accent colour");
                 let mut pick = None;
                 egui::Popup::menu(&btn).show(|ui| {
@@ -1588,7 +1591,7 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
                     let current = app.accent_source;
                     // Custom starts from the colour showing now (before light pages deepen
                     // it, or it would be deepened twice).
-                    let options = [AccentSource::Theme, AccentSource::System, AccentSource::Custom(app.base_accent())];
+                    let options = [AccentSource::Theme, AccentSource::System, AccentSource::File, AccentSource::Custom(app.base_accent())];
                     for o in options.into_iter().filter(|o| has_system || *o != AccentSource::System) {
                         let selected = std::mem::discriminant(&o) == std::mem::discriminant(&current);
                         if option_row(ui, o.label(), selected).clicked() {
@@ -1723,6 +1726,46 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
 }
 
 /// Settings › Appearance › Window material: Windows 11's Mica, Mica Alt or Acrylic.
+fn settings_mini(app: &mut App, ui: &mut Ui) {
+    use super::mini;
+    let dir = app.backend.data_dir().to_owned();
+    let opengl = crate::renderer::active() == crate::renderer::Renderer::OpenGl;
+    let desc = if opengl {
+        "Experimental. A small pill that shows its controls when you point at it. Double-click it for the full window."
+    } else {
+        "Experimental. A small pill that shows its controls when you point at it. Needs OpenGL, not Vulkan."
+    };
+    settings_section(ui, "Mini player", None, None, |ui| {
+        ui.add_enabled_ui(opengl, |ui| {
+            setting_row(ui, "Pill mini player", Some(desc), |ui| {
+                let mut on = opengl && mini::pill_saved(&dir);
+                if toggle(ui, &mut on, "Pill mini player").changed()
+                    && let Err(e) = mini::save_pill(&dir, on)
+                {
+                    log::warn!("mini player: couldn't save the style: {e}");
+                }
+            });
+        });
+        divider(ui);
+        setting_row(ui, "Keep on top", Some("The mini player stays above other windows."), |ui| {
+            let mut on = app.mini.pinned;
+            if toggle(ui, &mut on, "Keep on top").changed() {
+                app.mini.set_pinned(ui.ctx(), on);
+            }
+        });
+        if opengl && mini::pill_saved(&dir) != mini::pill_active() {
+            divider(ui);
+            let mut restart = false;
+            setting_row(ui, "Restart to apply", Some("The mini player changes style from the next start."), |ui| {
+                restart = pill(ui, "Restart now", None, true).clicked();
+            });
+            if restart {
+                app.restart(ui.ctx());
+            }
+        }
+    });
+}
+
 fn settings_backdrop(app: &mut App, ui: &mut Ui) {
     use crate::backdrop::{self, Backdrop};
     let saved = backdrop::load(app.backend.data_dir());

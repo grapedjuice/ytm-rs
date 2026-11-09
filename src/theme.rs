@@ -207,6 +207,47 @@ pub fn system_accent() -> Option<Color32> {
     shades.map(|[dark, light_shade]| if light() { light_shade } else { dark })
 }
 
+/// The colour in the accent file, looked at every couple of seconds so it follows a tool
+/// rewriting the file. None while it's missing or doesn't hold a colour.
+pub fn file_accent(path: &std::path::Path) -> Option<Color32> {
+    use std::time::{Duration, Instant};
+    static ACCENT: std::sync::Mutex<Option<(Instant, Option<Color32>)>> = std::sync::Mutex::new(None);
+    let mut cached = ACCENT.lock().unwrap();
+    match *cached {
+        Some((at, c)) if at.elapsed() < Duration::from_secs(2) => c,
+        _ => {
+            let c = std::fs::read(path).ok().and_then(|b| parse_accent(&decode_text(&b)));
+            *cached = Some((Instant::now(), c));
+            c
+        }
+    }
+}
+
+/// UTF-8, or the UTF-16 Windows PowerShell's `>` writes.
+fn decode_text(bytes: &[u8]) -> String {
+    match bytes {
+        [0xff, 0xfe, rest @ ..] => String::from_utf16_lossy(&rest.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect::<Vec<_>>()),
+        _ => String::from_utf8_lossy(bytes).into_owned(),
+    }
+}
+
+/// `#rrggbb` or `rrggbb`, with any whitespace or byte-order mark around it.
+fn parse_accent(s: &str) -> Option<Color32> {
+    crate::preset::hex(&format!("#{}", s.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}').trim_start_matches('#')))
+}
+
+#[test]
+fn accent_files_hold_one_colour() {
+    let pink = Some(Color32::from_rgb(0xff, 0x00, 0xaa));
+    assert_eq!(parse_accent("#ff00aa\n"), pink);
+    assert_eq!(parse_accent("  ff00aa "), pink);
+    assert_eq!(parse_accent(&decode_text(b"\xef\xbb\xbf#ff00aa\r\n")), pink);
+    let utf16: Vec<u8> = [0xfeffu16].into_iter().chain("#ff00aa\r\n".encode_utf16()).flat_map(u16::to_le_bytes).collect();
+    assert_eq!(parse_accent(&decode_text(&utf16)), pink);
+    assert_eq!(parse_accent("#ff00"), None);
+    assert_eq!(parse_accent("not a colour"), None);
+}
+
 /// The accent's shades for dark and light surfaces.
 #[cfg(windows)]
 fn read_system_accent() -> Option<[Color32; 2]> {

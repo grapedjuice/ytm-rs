@@ -104,7 +104,8 @@ fn main() -> eframe::Result {
         viewport = viewport.with_position([-4000.0, 0.0]).with_inner_size([1920.0, 1057.0]).with_active(false).with_taskbar(false);
     }
     let renderer = renderer::init(&data_dir());
-    if backdrop::init(&data_dir(), renderer) {
+    // Both, so each settles this run's choice.
+    if backdrop::init(&data_dir(), renderer) | ui::init_pill(&data_dir(), renderer) {
         viewport = viewport.with_transparent(true);
     }
     let options = eframe::NativeOptions {

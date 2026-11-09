@@ -12,6 +12,7 @@ mod bidi;
 mod deeplink;
 mod discord;
 mod downloads;
+mod hotkeys;
 mod images;
 mod jam;
 mod innertube;

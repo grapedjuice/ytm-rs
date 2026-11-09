@@ -1136,7 +1136,10 @@ fn settings_tab(app: &mut App, ui: &mut Ui, tab: SettingsTab) {
             settings_section(ui, "Network", None, None, |ui| network(app, ui));
             super::transfer::settings_section(app, ui);
         }
-        SettingsTab::Shortcuts => settings_shortcuts(ui),
+        SettingsTab::Shortcuts => {
+            super::hotkeys::settings_section(app, ui);
+            settings_shortcuts(ui);
+        }
         SettingsTab::About => {
             settings_updates(app, ui);
             settings_about(ui);
@@ -2492,7 +2495,7 @@ fn seconds_slider(ui: &mut Ui, v: &mut u32, range: std::ops::RangeInclusive<u32>
 }
 
 /// Draw a key cap whose right edge is at `right`; returns its left edge.
-fn keycap(ui: &Ui, right: egui::Pos2, key: &str) -> f32 {
+pub(super) fn keycap(ui: &Ui, right: egui::Pos2, key: &str) -> f32 {
     let g = widgets::galley(ui, key, theme::semibold(12.5), theme::text(), 200.0);
     let size = vec2((g.size().x + 18.0).max(30.0), 26.0);
     let rect = Rect::from_min_size(pos2(right.x - size.x, right.y - size.y / 2.0), size);

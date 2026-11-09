@@ -10,6 +10,7 @@ mod colorpick;
 mod dev;
 mod dialogs;
 mod find;
+mod hotkeys;
 mod integrations;
 mod jam;
 mod karaoke;
@@ -408,6 +409,8 @@ pub struct App {
     /// SponsorBlock segments for a video, and when one was last skipped.
     segments: Option<(String, Vec<crate::sponsorblock::Segment>)>,
     segment_skipped: f64,
+    /// The system-wide media shortcuts.
+    hotkeys: hotkeys::State,
     /// Background animation clock: advances only while music plays, so pausing
     /// freezes the motion instead of jumping when resumed.
     bg_time: f64,
@@ -556,6 +559,7 @@ impl App {
             let b = backend.clone();
             crate::transfer::Transfer::new(backend.data_dir(), Arc::new(move || b.wake()))
         };
+        let hotkeys = hotkeys::State::new(backend.data_dir());
         let mut app = Self {
             backend,
             audio,
@@ -692,6 +696,7 @@ impl App {
             crossfade_secs: get("crossfade_secs").and_then(|v| v.parse().ok()).unwrap_or(5).clamp(1, CROSSFADE_MAX),
             segments: None,
             segment_skipped: f64::NEG_INFINITY,
+            hotkeys,
             bg_time: 0.0,
             last_frame: 0.0,
             search_rect: None,
@@ -1009,6 +1014,7 @@ impl eframe::App for App {
         self.sync_look();
         self.pump(now);
         self.skip_segments(ctx, now);
+        hotkeys::poll(self, ctx, frame);
         // System media controls and taskbar buttons follow the player however it changed.
         let playing = self.playing() || self.buffering;
         if let Some(m) = &mut self.media {
@@ -1251,6 +1257,7 @@ impl eframe::App for App {
             theme::set_mode(&ctx, pages);
         }
         self.draw_dialog(&ctx);
+        hotkeys::capture_dialog(self, &ctx);
         notes::card(self, &ctx);
         notes::dialog(self, &ctx);
         if let Some(url) = self.share_pending.take() { ctx.copy_text(url); }

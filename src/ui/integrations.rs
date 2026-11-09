@@ -281,7 +281,7 @@ impl App {
     }
 }
 
-fn is_wayland(frame: &eframe::Frame) -> bool {
+pub(super) fn is_wayland(frame: &eframe::Frame) -> bool {
     use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
     frame.display_handle().is_ok_and(|h| matches!(h.as_raw(), RawDisplayHandle::Wayland(_)))
 }

@@ -51,6 +51,8 @@ unicode-normalization = "0.1.26"
 symphonia = { version = "0.5.5", default-features = false, features = ["mkv"] }
 rusty-opus = "1.0.2"
 unicode-bidi = "0.3"
+# System-wide media shortcuts (hotkeys.rs).
+global-hotkey = "0.9"
 
 [target.'cfg(windows)'.dependencies]
 # Windows Credential Manager, for the Google and Spotify sign-ins.

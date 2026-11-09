@@ -256,6 +256,10 @@ impl App {
     }
 
     pub(super) fn shortcuts(&mut self, ctx: &egui::Context) {
+        // Space or the arrows are being picked as a shortcut, not pressed.
+        if self.hotkeys.capturing() {
+            return;
+        }
         let typing = ctx.egui_wants_keyboard_input();
         // In a text box, Ctrl+arrows move the cursor by words (and lines) instead; on a
         // focused button or slider they still skip and change the volume.
@@ -329,9 +333,13 @@ impl App {
             }
         }
         if vol_up || vol_down {
-            let v = (self.audio.volume() + if vol_up { 0.05 } else { -0.05 }).clamp(0.0, 1.0);
-            self.audio.set_volume(v);
+            self.nudge_volume(vol_up);
         }
+    }
+
+    pub(super) fn nudge_volume(&self, up: bool) {
+        let v = (self.audio.volume() + if up { 0.05 } else { -0.05 }).clamp(0.0, 1.0);
+        self.audio.set_volume(v);
     }
 
     /// Into the mini player or back. Full screen ends first, a frame ahead.

@@ -1130,14 +1130,11 @@ impl View {
                 let k = theme::anim_bool(&ctx, ("lyr-hover", f.key, i), hovered, 0.3);
                 scale = lerp(cfg.scale, h, EASE.at(k));
             }
-            if st.selected && t >= b.start && t < b.start + SCALE_DURATION {
-                animating = true;
-            }
             let origin = transform_origin(block_rect, b.align, content.x);
             let xf = Xf { origin, scale, content };
 
             if b.instrumental {
-                animating |= paint_instrumental(&painter, &mut self.glow, &ctx, &cfg, b, &xf, t, f.now, st, dim * opacity, line_w - cfg.size * 0.5);
+                paint_instrumental(&painter, &mut self.glow, &ctx, &cfg, b, &xf, t, f.now, st, dim * opacity, line_w - cfg.size * 0.5);
             } else if blur > 0.05 {
                 // `filter: blur()` on the whole line: its text, romanization and translation.
                 let r = (blur * 4.0).round() / 4.0;
@@ -1208,7 +1205,6 @@ impl View {
                         }
                     }
                 }
-                animating |= lit.animating(b, t);
             }
 
             // Click a line to seek to it (the extension seeks to the line's time).
@@ -1227,6 +1223,9 @@ impl View {
         // the lit text they belong to by inserting at the recorded positions.
         self.glow.finish(&ctx, &painter, glow_work, atlas, ppp);
         fade_edges(&ctx, painter.layer_id(), first_shape, rect, cfg.size);
+        // Everything that follows the song's time (the sweep, glows, letter waves, a line's
+        // scale-in, the instrumental note) only moves while it plays; paused, the frame is
+        // the same until a wall-clock transition (exits, scrolls, fades) or input.
         if f.playing {
             animating = true;
         }
@@ -1497,13 +1496,6 @@ struct LitState {
 impl LitState {
     fn new(cfg: &Cfg, st: LineState, t: f64, now: f64, live: bool) -> Self {
         Self { live: live && st.exit.is_none(), exit: st.exit.map(|e| ((now - e) as f32, st.exit_t)), t, fill: cfg.fill }
-    }
-
-    fn animating(&self, b: &Block, t: f64) -> bool {
-        if self.exit.is_some() {
-            return true;
-        }
-        self.live && b.words.iter().any(|w| t >= w.start - 0.5 && t < w.start + w.dur.max(0.0) * SWIPE_DURATION + GLOW_MIN.max(w.dur * GLOW_RATIO) + 1.0)
     }
 }
 
@@ -2390,7 +2382,7 @@ fn wave_y(x: f32, m: f32, flatten: f32) -> f32 {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn paint_instrumental(painter: &egui::Painter, glow: &mut Glow, ctx: &egui::Context, cfg: &Cfg, b: &Block, xf: &Xf, t: f64, now: f64, st: LineState, dim: f32, content_w: f32) -> bool {
+fn paint_instrumental(painter: &egui::Painter, glow: &mut Glow, ctx: &egui::Context, cfg: &Cfg, b: &Block, xf: &Xf, t: f64, now: f64, st: LineState, dim: f32, content_w: f32) {
     let em = cfg.size;
     // The icon: one em tall, 4/3 em wide, pulled 1/3 em toward the edge; viewBox 24 centred in it.
     let box_x = match b.align {
@@ -2456,7 +2448,6 @@ fn paint_instrumental(painter: &egui::Painter, glow: &mut Glow, ctx: &egui::Cont
         let (ft, fuv) = glow.set_tex(ctx, 2, mask_image(&fill, sz, 1.0));
         painter.image(ft, rect, fuv, theme::with_alpha(cfg.active, fill_a));
     }
-    (st.selected && e >= 0.0 && e <= d) || st.exit.is_some()
 }
 
 fn mask_image(v: &[f32], w: usize, a: f32) -> ColorImage {
@@ -2618,6 +2609,48 @@ mod tests {
             let (before, after) = ctx.fonts_mut(|f| (f.layout_no_wrap(text.clone(), font.clone(), Color32::WHITE), f.layout_job(crate::bidi::job(&text, font.clone(), Color32::WHITE))));
             println!("{text}: before first word x {:.0}, second {:.0} | after first {:.0}, second {:.0}", mean(&before, a), mean(&before, b), mean(&after, a), mean(&after, b));
             assert!(mean(&after, a) > mean(&after, b), "{text}: the first word should be on the right");
+        }
+    }
+
+    /// Paused, the view settles and then asks for no frames, however long the gaps
+    /// between the frames something else wakes it for.
+    #[test]
+    fn paused_lyrics_stop_asking_for_frames() {
+        let ctx = shot_ctx();
+        let words = |at: i32| (0..4).map(|k| Part { start: at + k * 1000, dur: 900, text: format!("word{k} "), bg: false }).collect::<Vec<_>>();
+        let lines: Vec<Line> = (0..6).map(|i| Line { start: i * 4000, dur: 3900, text: "word0 word1 word2 word3".into(), parts: words(i * 4000), ..Default::default() }).collect();
+        let lyrics = Lyrics { lines, sync: Sync::Word, provider: crate::lyrics::Provider::BLyricsRich, language: None, songwriters: vec![] };
+        let style = LyricStyle::default();
+        let mut view = View::default();
+        // (frame time, song time, playing) → whether it asked for another frame soon.
+        let mut frame = |now: f64, t: f64, playing: bool| {
+            let input = egui::RawInput { time: Some(now), screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))), ..Default::default() };
+            let mut animating = false;
+            let mut out = ctx.run_ui(input, |ui| {
+                let n = lyrics.lines.len();
+                let f = Frame { lyrics: &lyrics, key: 1, roman: (0..n).map(|_| None).collect(), trans: vec![None; n], t, playing, now, rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 500.0)), style: &style, accent: Color32::RED, centered: false, scale: 1.0 };
+                animating = view.show(ui, f).animating;
+            });
+            out.textures_delta.clear();
+            let delay = out.viewport_output.get(&egui::ViewportId::ROOT).map_or(std::time::Duration::MAX, |v| v.repaint_delay);
+            animating || delay < std::time::Duration::from_millis(500)
+        };
+        // Playing into the middle of a word, then paused there.
+        let (mut now, t) = (100.0, 5.45);
+        for k in 0..90 {
+            frame(now, 4.0 + k as f64 / 60.0, true);
+            now += 1.0 / 60.0;
+        }
+        let mut busy = true;
+        for _ in 0..240 {
+            busy = frame(now, t, false);
+            now += 1.0 / 60.0;
+        }
+        assert!(!busy, "still asking for frames 4 s after pausing");
+        // Woken now and then (a timer elsewhere, the pointer): each time, nothing to animate.
+        for gap in [0.7, 2.0, 2.0, 5.0, 0.3, 2.0] {
+            now += gap;
+            assert!(!frame(now, t, false), "a frame {gap} s after the last one started animating again");
         }
     }
 

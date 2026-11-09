@@ -2,6 +2,7 @@
 
 mod appicon;
 mod fullscreen;
+mod hls;
 mod proxy;
 mod renderer;
 mod art;

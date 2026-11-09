@@ -8,7 +8,7 @@ use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId};
 
 /// Base surface under the animated background (seen while it fades in).
 const BG: Color32 = Color32::from_rgb(12, 10, 14);
-const TEXT: Color32 = Color32::from_rgb(242, 240, 245);
+pub const TEXT: Color32 = Color32::from_rgb(242, 240, 245);
 const TEXT_DIM: Color32 = Color32::from_rgb(178, 172, 186);
 const TEXT_FAINT: Color32 = Color32::from_rgb(130, 124, 140);
 /// Light mode's counterparts.
@@ -84,6 +84,17 @@ pub fn menu_fill() -> Color32 {
     let alpha = if look.glass.menu.is_some() && crate::shader::glass_ready() { look.menu_look.alpha } else { look.menu_look.alpha.max(0.85) };
     let color = crate::preset::hex(&look.menu_color).filter(|c| alpha >= look.menu_look.alpha.max(0.6) || c.r() as u32 + c.g() as u32 + c.b() as u32 <= 380).unwrap_or(Color32::from_rgb(38, 34, 42));
     with_alpha(color, alpha)
+}
+
+/// Menu colour for what has no frost behind it (toasts, the selection bar, the volume
+/// popup): never so see-through that it needs the blur to stay readable.
+pub fn menu_fill_solid() -> Color32 {
+    if light() {
+        return Color32::WHITE;
+    }
+    let look = &crate::preset::active().app;
+    let color = crate::preset::hex(&look.menu_color).unwrap_or(Color32::from_rgb(38, 34, 42));
+    with_alpha(color, look.menu_look.alpha.max(0.85))
 }
 
 /// What popups and menus are drawn on.
@@ -285,6 +296,51 @@ pub fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     let t = t.clamp(0.0, 1.0);
     let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
     Color32::from_rgba_premultiplied(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()), l(a.a(), b.a()))
+}
+
+/// `fg` drawn over an opaque `bg`.
+pub fn over(fg: Color32, bg: Color32) -> Color32 {
+    let k = 1.0 - fg.a() as f32 / 255.0;
+    let c = |f: u8, b: u8| (f as f32 + b as f32 * k).round().min(255.0) as u8;
+    Color32::from_rgb(c(fg.r(), bg.r()), c(fg.g(), bg.g()), c(fg.b(), bg.b()))
+}
+
+/// WCAG relative luminance.
+fn luminance(c: Color32) -> f32 {
+    let lin = |v: u8| {
+        let s = v as f32 / 255.0;
+        if s <= 0.03928 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
+    };
+    0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+}
+
+/// WCAG contrast between two opaque colours.
+fn contrast(a: Color32, b: Color32) -> f32 {
+    let (a, b) = (luminance(a), luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+/// Text and icons on a fill of this colour: dark or white, whichever reads better.
+pub fn on_fill(fill: Color32) -> Color32 {
+    let dark = Color32::from_gray(15);
+    if contrast(dark, fill) > contrast(Color32::WHITE, fill) { dark } else { Color32::WHITE }
+}
+
+/// `c`, with only as much black mixed in as it takes to reach this contrast on a light `bg`.
+pub fn deepen(c: Color32, bg: Color32, ratio: f32) -> Color32 {
+    if contrast(c, bg) >= ratio {
+        return c;
+    }
+    let (mut lo, mut hi) = (0.0, 1.0);
+    for _ in 0..8 {
+        let mid = (lo + hi) / 2.0;
+        if contrast(lerp_color(c, Color32::BLACK, mid), bg) >= ratio {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    lerp_color(c, Color32::BLACK, hi)
 }
 
 // ------------------------------------------------------------------ motion
@@ -493,6 +549,18 @@ static FONT_CHOICE: std::sync::RwLock<String> = std::sync::RwLock::new(String::n
 /// a frame laid out before egui swaps fonts in never names a missing family.
 static CHOICE: std::sync::RwLock<Option<Chosen>> = std::sync::RwLock::new(None);
 
+/// Other installed fonts the theme names (its lyrics, romanization, translation), through
+/// the same always-there families as the one above, "extra0-<weight>" and on.
+static EXTRAS: std::sync::RwLock<Vec<Chosen>> = std::sync::RwLock::new(Vec::new());
+const EXTRA_KEYS: [&str; 3] = ["extra0", "extra1", "extra2"];
+
+/// Counts what `install_fonts` really changed: the same name can draw differently after.
+static FONTS_GENERATION: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn fonts_generation() -> u32 {
+    FONTS_GENERATION.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 struct Chosen {
     name: String,
     faces: [Face; 5],
@@ -538,7 +606,11 @@ fn font_key(name: &str) -> &'static str {
     if let Some(k) = lyric_key(&name) {
         return k;
     }
-    if CHOICE.read().unwrap().as_ref().is_some_and(|c| c.name.eq_ignore_ascii_case(&name)) { "choice" } else { "inter" }
+    let named = |c: &Chosen| c.name.eq_ignore_ascii_case(&name);
+    if CHOICE.read().unwrap().as_ref().is_some_and(named) {
+        return "choice";
+    }
+    EXTRAS.read().unwrap().iter().position(named).map_or("inter", |i| EXTRA_KEYS[i])
 }
 
 fn family(key: &str, weight: crate::preset::Weight, size: f32) -> FontId {
@@ -575,6 +647,10 @@ fn lacks_letters(key: &str, text: &str) -> bool {
             Some(c) => c.faces[0],
             None => return false,
         },
+        k if EXTRA_KEYS.contains(&k) => match EXTRA_KEYS.iter().position(|e| *e == k).and_then(|i| EXTRAS.read().unwrap().get(i).map(|c| c.faces[0])) {
+            Some(f) => f,
+            None => return false,
+        },
         k => match LYRIC_FONTS.iter().find(|(n, _)| *n == k) {
             Some((_, w)) => Face::of(w[0]),
             None => return false,
@@ -605,6 +681,18 @@ struct SysFace {
 
 static INSTALLED_FONTS: std::sync::OnceLock<Vec<SysFamily>> = std::sync::OnceLock::new();
 static SCANNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SCANNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Start looking for installed fonts, so nothing on the UI thread has to wait for it.
+pub fn warm_fonts(ctx: &egui::Context) {
+    let ctx = ctx.clone();
+    let _ = installed_fonts(move || ctx.request_repaint());
+}
+
+/// Whether the scan has finished since this was last asked.
+pub fn fonts_became_ready() -> bool {
+    SCANNED.swap(false, std::sync::atomic::Ordering::Relaxed)
+}
 
 /// Text fonts installed on this PC, sorted by name, without the bundled ones. `None`
 /// while a background scan (started by the first call) runs; `done` runs after it.
@@ -615,6 +703,7 @@ pub fn installed_fonts(done: impl FnOnce() + Send + 'static) -> Option<&'static 
     if !SCANNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
         std::thread::spawn(move || {
             let _ = INSTALLED_FONTS.set(scan_fonts());
+            SCANNED.store(true, std::sync::atomic::Ordering::Relaxed);
             done();
         });
     }
@@ -716,25 +805,42 @@ fn face_near(family: &SysFamily, target: f32) -> Option<Face> {
     Some(Face { bytes, index: best.index, wght: best.wght.map(|(lo, hi)| target.clamp(lo, hi)), opsz: best.opsz.map(|(lo, hi)| 14.0f32.clamp(lo, hi)) })
 }
 
-/// Load the faces of the installed font in use, if that's what it is: the listener's
-/// pick, else one the theme names for its interface (Fluent's Segoe UI Variable). A
-/// name can list fallbacks, "Segoe UI Variable, Segoe UI", tried in order.
-fn load_choice(ui_font: &str) {
-    let name = effective_font(ui_font);
-    if name.is_empty() || lyric_key(&name).is_some() || name.eq_ignore_ascii_case("inter") {
+/// Load the faces of the installed fonts in use, if that's what they are: the listener's
+/// pick, else what the theme names for its interface (Fluent's Segoe UI Variable) and,
+/// in `others`, for the rest. A name can list fallbacks, "Segoe UI Variable, Segoe UI",
+/// tried in order. Until the scan has finished they're all Inter; `fonts_became_ready`
+/// says when to come back.
+fn load_choice(ui_font: &str, others: &[&str]) {
+    let wanted = |n: &str| !n.is_empty() && lyric_key(n).is_none() && !n.eq_ignore_ascii_case("inter");
+    let ui_name = effective_font(ui_font);
+    let mut extras: Vec<String> = Vec::new();
+    for other in others {
+        let n = effective_font(other);
+        if wanted(&n) && !n.eq_ignore_ascii_case(&ui_name) && !extras.iter().any(|e| e.eq_ignore_ascii_case(&n)) {
+            extras.push(n);
+        }
+    }
+    extras.truncate(EXTRA_KEYS.len());
+    let name = wanted(&ui_name).then_some(ui_name);
+    if CHOICE.read().unwrap().as_ref().map(|c| &c.name) == name.as_ref() && EXTRAS.read().unwrap().iter().map(|c| &c.name).eq(extras.iter()) {
+        return;
+    }
+    let scan = if name.is_some() || !extras.is_empty() { installed_fonts(|| {}) } else { None };
+    let Some(all) = scan else {
         *CHOICE.write().unwrap() = None;
+        EXTRAS.write().unwrap().clear();
         return;
-    }
-    if CHOICE.read().unwrap().as_ref().is_some_and(|c| c.name == name) {
-        return;
-    }
-    // Only when an installed font is set: a one-off scan, the first time.
-    let all = INSTALLED_FONTS.get_or_init(scan_fonts);
+    };
+    *CHOICE.write().unwrap() = name.and_then(|n| load_installed(all, n));
+    *EXTRAS.write().unwrap() = extras.into_iter().filter_map(|n| load_installed(all, n)).collect();
+}
+
+fn load_installed(all: &[SysFamily], name: String) -> Option<Chosen> {
     let faces = name.split(',').map(str::trim).find_map(|n| all.iter().find(|f| f.name.eq_ignore_ascii_case(n)).and_then(|f| Some((choose_faces(f)?, face_near(f, 800.0)?))));
     if faces.is_none() {
         log::warn!("font {name:?} isn't installed; using Inter");
     }
-    *CHOICE.write().unwrap() = faces.map(|(faces, extra_bold)| Chosen { name, faces, extra_bold });
+    faces.map(|(faces, extra_bold)| Chosen { name, faces, extra_bold })
 }
 
 // System fallbacks: egui's fonts cover Latin only, so CJK, Arabic, Indic, Thai,
@@ -822,13 +928,16 @@ fn font_data(face: Face, y_offset_factor: f32) -> FontData {
 /// font's, not by sharing a baseline, so CJK glyphs (Yu Gothic, Microsoft YaHei, …)
 /// sit visibly higher than Latin ones in the same line. Each fallback therefore gets a
 /// y offset computed from both fonts' metrics, once per primary font it backs.
-pub fn install_fonts(ctx: &egui::Context, ui_font: &str) {
-    load_choice(ui_font);
+///
+/// `others`: what else the theme names, beyond what's bundled and `ui_font`.
+pub fn install_fonts(ctx: &egui::Context, ui_font: &str, others: &[&str]) {
+    load_choice(ui_font, others);
     let ui_key = font_key(ui_font);
     // Installing rebuilds the font atlas; most themes share a UI font, so skip repeats.
-    static INSTALLED: std::sync::Mutex<Option<(&'static str, String)>> = std::sync::Mutex::new(None);
+    static INSTALLED: std::sync::Mutex<Option<(&'static str, String, Vec<String>)>> = std::sync::Mutex::new(None);
     let loaded = CHOICE.read().unwrap().as_ref().map(|c| c.name.clone()).unwrap_or_default();
-    let state = Some((ui_key, loaded));
+    let extras = EXTRAS.read().unwrap().iter().map(|c| c.name.clone()).collect();
+    let state = Some((ui_key, loaded, extras));
     {
         let mut installed = INSTALLED.lock().unwrap();
         if *installed == state {
@@ -836,6 +945,7 @@ pub fn install_fonts(ctx: &egui::Context, ui_font: &str) {
         }
         *installed = state;
     }
+    FONTS_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut defs = FontDefinitions::default();
     let egui_default = defs.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
     defs.font_data.insert("lucide".into(), Arc::new(FontData::from_static(LUCIDE).tweak(egui::FontTweak { y_offset_factor: 0.0, ..Default::default() })));
@@ -859,12 +969,13 @@ pub fn install_fonts(ctx: &egui::Context, ui_font: &str) {
                 .collect()
         })
     });
-    // Primary fonts: Inter, each lyric font, and the installed font picked in Settings.
-    let choice = CHOICE.read().unwrap().as_ref().map(|c| c.faces);
-    let mut groups: Vec<(&str, [Face; 5])> = vec![("inter", INTER.map(Face::of))];
-    groups.extend(LYRIC_FONTS.iter().map(|(k, w)| (*k, w.map(Face::of))));
-    groups.extend(choice.map(|faces| ("choice", faces)));
-    for (key, faces) in &groups {
+    // Primary fonts: Inter, each lyric font, and the installed fonts in use, these with
+    // their own 800.
+    let mut groups: Vec<(&str, [Face; 5], Option<Face>)> = vec![("inter", INTER.map(Face::of), None)];
+    groups.extend(LYRIC_FONTS.iter().map(|(k, w)| (*k, w.map(Face::of), None)));
+    groups.extend(CHOICE.read().unwrap().as_ref().map(|c| ("choice", c.faces, Some(c.extra_bold))));
+    groups.extend(EXTRAS.read().unwrap().iter().zip(EXTRA_KEYS).map(|(c, key)| (key, c.faces, Some(c.extra_bold))));
+    for (key, faces, _) in &groups {
         let (asc_p, h_p) = em_metrics(faces[0].bytes, faces[0].index).unwrap_or((0.97, 1.21));
         for (w, face) in faces.iter().enumerate() {
             let name = format!("{key}-{w}");
@@ -902,26 +1013,26 @@ pub fn install_fonts(ctx: &egui::Context, ui_font: &str) {
     }
     // 800: a bundled font's bold chain under another name, so nothing more is loaded; only
     // an installed font has a face of its own for it, on the same fallbacks.
-    let extra_bold = CHOICE.read().unwrap().as_ref().map(|c| c.extra_bold);
-    for (key, _) in &groups {
+    for (key, _, extra_bold) in &groups {
         let mut chain = defs.families[&FontFamily::Name(format!("{key}-2").into())].clone();
-        if *key == "choice"
-            && let Some(face) = extra_bold
-        {
-            defs.font_data.insert("choice-5".to_owned(), Arc::new(font_data(face, 0.0)));
-            chain[0] = "choice-5".to_owned();
+        if let Some(face) = extra_bold {
+            defs.font_data.insert(format!("{key}-5"), Arc::new(font_data(*face, 0.0)));
+            chain[0] = format!("{key}-5");
         }
         if *key == ui_key {
             defs.families.insert(FontFamily::Name("extrabold".into()), chain.clone());
         }
         defs.families.insert(FontFamily::Name(format!("{key}-5").into()), chain);
     }
-    // With no installed font picked, the "choice" families are Inter's, so they always
-    // exist without a second copy of Inter and its fallbacks.
-    if choice.is_none() {
+    // With no installed font there, its families are Inter's, so they always exist
+    // without a second copy of Inter and its fallbacks.
+    for slot in std::iter::once("choice").chain(EXTRA_KEYS) {
+        if groups.iter().any(|(key, ..)| *key == slot) {
+            continue;
+        }
         for w in 0..6 {
             let inter = defs.families[&FontFamily::Name(format!("inter-{w}").into())].clone();
-            defs.families.insert(FontFamily::Name(format!("choice-{w}").into()), inter);
+            defs.families.insert(FontFamily::Name(format!("{slot}-{w}").into()), inter);
         }
     }
     // The same bytes get the same `Arc` on every install, so comparing these definitions
@@ -976,7 +1087,7 @@ pub fn apply_chrome(ctx: &egui::Context, p: &crate::preset::Preset) {
     TEXT_OVER.store(crate::preset::hex(&p.app.text_color).map_or(0, |c| u32::from_le_bytes(c.to_array())), std::sync::atomic::Ordering::Relaxed);
     FADE.store(p.app.ui_fade_secs.map_or(1.0, |s| (s / 0.18).clamp(0.3, 3.0)).to_bits(), std::sync::atomic::Ordering::Relaxed);
     install_style(ctx);
-    install_fonts(ctx, &p.app.font);
+    install_fonts(ctx, &p.app.font, &[&p.lyrics.font, &p.lyrics.romanization_font, &p.lyrics.translation_font]);
 }
 
 pub fn install_style(ctx: &egui::Context) {
@@ -1050,11 +1161,8 @@ fn visuals() -> egui::Visuals {
         v.text_edit_bg_color = Some(glass(i.fill));
         v.widgets.inactive.corner_radius = egui::CornerRadius::same(i.radius.clamp(0.0, 28.0) as u8);
         if i.focus_px > 0.0 {
-            v.selection.stroke = egui::Stroke::new(i.focus_px, i.focus_white.map_or(p.accent(RED), |a| with_alpha(Color32::WHITE, a)));
+            v.selection.stroke = egui::Stroke::new(i.focus_px, i.focus_white.filter(|_| !light()).map_or(p.accent(RED), |a| with_alpha(Color32::WHITE, a)));
         }
-    }
-    if p.app.dialog_bottom_line {
-        v.window_stroke = egui::Stroke::NONE;
     }
     v
 }
@@ -1062,6 +1170,25 @@ fn visuals() -> egui::Visuals {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn glyphs_on_accents_take_the_better_contrast() {
+        let dark = Color32::from_gray(15);
+        assert_eq!(on_fill(Color32::from_rgb(0xff, 0xb0, 0x00)), dark);
+        assert_eq!(on_fill(Color32::from_rgb(0x1d, 0xb9, 0x54)), dark);
+        assert_eq!(on_fill(Color32::from_rgb(0x20, 0x20, 0x60)), Color32::WHITE);
+    }
+
+    #[test]
+    fn deepening_reaches_the_contrast_and_leaves_what_has_it() {
+        let cyan = Color32::from_rgb(0x67, 0xd9, 0xff);
+        let deep = deepen(cyan, BG_LIGHT, 3.0);
+        assert!(contrast(deep, BG_LIGHT) >= 3.0);
+        // No darker than it takes.
+        assert!(contrast(deep, BG_LIGHT) < 3.3);
+        let dark = Color32::from_rgb(0x20, 0x20, 0x60);
+        assert_eq!(deepen(dark, BG_LIGHT, 3.0), dark);
+    }
 
     fn fixed(weight: f32) -> SysFace {
         SysFace { path: std::path::PathBuf::new(), index: 0, weight, wght: None, opsz: None }

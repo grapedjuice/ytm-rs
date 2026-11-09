@@ -380,7 +380,10 @@ fn run(stream: &VideoStream, http: &reqwest::Client, status: &AudioStatus, share
     let mut decoded_to = fragments[next].start;
     'play: while !shared.stop.load(Ordering::Relaxed) {
         let clock = status.position_smooth().as_secs_f64();
-        if clock < decoded_to - seek_margin(&shared.frames) || clock > decoded_to + SEEK_AHEAD {
+        // Audio running on past the last fragment isn't a seek: that fragment would be
+        // fetched and decoded again and again. The wait below is all there is left to do.
+        let past_end = next >= fragments.len();
+        if clock < decoded_to - seek_margin(&shared.frames) || (clock > decoded_to + SEEK_AHEAD && !past_end) {
             next = fragment_at(&fragments, clock);
             decoded_to = fragments[next].start;
             decoder = new_decoder(&track)?;

@@ -36,6 +36,7 @@
   },
   "cover": {
     "radius": 7.5,
+    "size": 1.04,
     "max_frac": 0.85,
     "fullscreen": {
       "width_frac": 1.0

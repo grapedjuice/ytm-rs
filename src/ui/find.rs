@@ -1,6 +1,10 @@
 //! Find in a song list: the box above a list, narrowing it to the songs that match.
 //! Rows keep their numbers in the whole list, for selecting and removing.
 
+use std::cell::RefCell;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use egui::{Rect, Sense, Ui, Vec2, pos2, vec2};
 
 use super::Page;
@@ -18,17 +22,44 @@ const BOX_H: f32 = 38.0;
 pub struct ListFind {
     page: Option<Page>,
     query: String,
+    /// The last answer: looking through thousands of songs every frame shows.
+    memo: RefCell<Option<Memo>>,
+}
+
+struct Memo {
+    query: String,
+    list: ListKey,
+    rows: Vec<usize>,
+}
+
+/// Which songs, in which order: where they're kept, how many, and their ids (a row moved
+/// in place keeps the first two, and rows go by number).
+type ListKey = (usize, usize, u64);
+
+fn list_key(tracks: &[Track]) -> ListKey {
+    let mut ids = DefaultHasher::new();
+    for t in tracks {
+        t.id.hash(&mut ids);
+    }
+    (tracks.as_ptr() as usize, tracks.len(), ids.finish())
 }
 
 impl ListFind {
     /// The rows of `tracks` to show on `page`; `None` when it isn't narrowed.
     pub fn rows(&self, page: &Page, tracks: &[Track]) -> Option<Vec<usize>> {
-        let query = self.query.to_lowercase();
-        let words: Vec<&str> = query.split_whitespace().collect();
-        if self.page.as_ref() != Some(page) || words.is_empty() {
+        if self.page.as_ref() != Some(page) || self.query.trim().is_empty() {
             return None;
         }
-        Some(tracks.iter().enumerate().filter(|(_, t)| matches(t, &words)).map(|(i, _)| i).collect())
+        let list = list_key(tracks);
+        let mut memo = self.memo.borrow_mut();
+        if let Some(m) = memo.as_ref().filter(|m| m.query == self.query && m.list == list) {
+            return Some(m.rows.clone());
+        }
+        let query = self.query.to_lowercase();
+        let words: Vec<&str> = query.split_whitespace().collect();
+        let rows: Vec<usize> = tracks.iter().enumerate().filter(|(_, t)| matches(t, &words)).map(|(i, _)| i).collect();
+        *memo = Some(Memo { query: self.query.clone(), list, rows: rows.clone() });
+        Some(rows)
     }
 
     /// The box, for a list of `tracks`, with how many match inside it: true when what's
@@ -113,7 +144,7 @@ mod tests {
     }
 
     fn find(query: &str) -> Option<Vec<usize>> {
-        let f = ListFind { page: Some(Page::Playlist("a".into())), query: query.into() };
+        let f = ListFind { page: Some(Page::Playlist("a".into())), query: query.into(), ..Default::default() };
         f.rows(&Page::Playlist("a".into()), &songs())
     }
 
@@ -144,7 +175,7 @@ mod tests {
 
     #[test]
     fn it_belongs_to_one_list() {
-        let f = ListFind { page: Some(Page::Playlist("a".into())), query: "daft".into() };
+        let f = ListFind { page: Some(Page::Playlist("a".into())), query: "daft".into(), ..Default::default() };
         assert_eq!(f.rows(&Page::Playlist("b".into()), &songs()), None);
     }
 }

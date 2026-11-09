@@ -45,7 +45,7 @@
     "translation_rem": 2,
     "translation_alpha": 0.82,
     "fill": "word",
-    "dim_alpha": 0,
+    "dim_alpha": 0.3,
     "sung_fade": [
       0.7,
       0.2
@@ -60,13 +60,13 @@
     },
     "past": [
       [
-        0,
+        0.3,
         0
       ]
     ],
     "upcoming": [
       [
-        0,
+        0.3,
         0
       ]
     ],
@@ -127,7 +127,7 @@
     "progress_track": 0.1,
     "time_alpha": 0.87,
     "time_weight": "light",
-    "icon_alpha": 0.7,
+    "icon_alpha": 0.9,
     "bar_cover_alpha": 0.22,
     "tip_fill": "#ffffff",
     "tip_text": "#000000"
@@ -146,7 +146,7 @@
     "menu_radius": 13.92,
     "text_dim": "#a3a3a3",
     "controls": {
-      "idle_alpha": 0.7,
+      "idle_alpha": 0.9,
       "ghost_outline": 0.12
     },
     "nav_item": {
@@ -185,6 +185,9 @@
     "immersive_header": 0.6
   },
   "now_playing": {
+    "tabs": "strip",
+    "tab_pill": 0.1,
+    "tab_ring": 0.1,
     "tab_idle_alpha": 0.7,
     "switch": {
       "back": 0.1,

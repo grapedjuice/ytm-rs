@@ -45,23 +45,21 @@
     "spin_when_paused": true,
     "record_details": false,
     "brightness": 0.6,
-    "size_vh": 0.975,
-    "offset_vh": [
-      -0.1,
-      -0.05
-    ],
+    "size_vh": 0.92, "max_frac": 0.98,
+    "offset_vh": [0, -0.015],
     "shadow": 0.4,
-    "shadow_blur": 35,
+    "shadow_blur": 52,
     "fullscreen": {
       "plain_shape": true,
       "width_frac": 0.82,
-      "padding": [108, 54],
+      "padding": [0, 16],
       "shadow": 0,
       "brightness": 1
     }
   },
-  "now_playing": {
+  "now_playing": { "panel_frac": [0.5, 0.42],
     "show_title": false,
+    "fullscreen_show_title": true,
     "show_video_switch": false
   },
   "chrome": {

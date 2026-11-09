@@ -10,6 +10,8 @@
   "background": {
     "mode": "kawarp",
     "np_dim": 0.75,
+    "auto_dim": 0.55,
+    "auto_dim_from": 0.5,
     "intensity": 1.0,
     "speed": 3.33,
     "saturation": 2.0,

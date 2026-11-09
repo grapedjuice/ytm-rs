@@ -41,7 +41,7 @@
     "translation_alpha": 0.82,
     "fill": "sweep",
     "dim_alpha": 1,
-    "sung_color": "#240205",
+    "sung_color": "#d9485f",
     "sweep_band": [
       "#fff2a3",
       "#ffd23f",
@@ -54,7 +54,7 @@
     "stroke_color": "#f64258",
     "past": [
       [
-        0,
+        0.6,
         0
       ]
     ],
@@ -82,6 +82,7 @@
       "delay": 0
     },
     "scroll_opacity": 0.5,
+    "panel_reveal": true,
     "scroll_secs": 0.7,
     "scroll_ease": [
       0.165,
@@ -131,7 +132,7 @@
     "time_alpha": 0.87,
     "time_weight": "light",
     "thumb_radius": 3.2,
-    "icon_alpha": 0.7,
+    "icon_alpha": 0.9,
     "bar_cover_alpha": 0.22,
     "tip_fill": "#ffffff",
     "tip_text": "#000000"
@@ -151,7 +152,7 @@
     "queue_card": true,
     "np_open_secs": 0.4,
     "controls": {
-      "idle_alpha": 0.7,
+      "idle_alpha": 0.9,
       "ghost_outline": 0.12
     },
     "nav_item": {

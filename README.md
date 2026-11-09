@@ -49,7 +49,7 @@
 **Lyrics and looks**
 - **Karaoke lyrics:** word-by-word lyrics drawn the way the Better Lyrics extension draws them, from every Better Lyrics source, with automatic fallback, romanization, translations and per-song timing offsets.
 - **Animated background:** the album art drifts and pulses with the music behind everything. Go full-screen, or hide the lyrics to see just the artwork.
-- **27 themes:** 26 rebuilt from the [Better Lyrics community themes](https://github.com/better-lyrics/themes), such as Apple Music, Spicy, Spinning Record and reCover, plus Fluent, in the style of Windows 11 with your Windows accent colour. Each one restyles the whole app. Use any bundled or installed font.
+- **30 themes:** 27 rebuilt from the [Better Lyrics community themes](https://github.com/better-lyrics/themes), such as Apple Music, Spicy, Spinning Record and reCover, plus the app's own two and Fluent, in the style of Windows 11 with your Windows accent colour. Each one restyles the whole app. Use any bundled or installed font.
 
 **Together and across services**
 - **Listen together:** start a jam, share the code or link, and up to 16 people hear the same song at the same moment. The host decides whether guests can add songs or control playback.

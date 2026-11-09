@@ -54,11 +54,28 @@ pub fn default_folder() -> PathBuf {
 /// Load the index; `folder` is the saved setting (empty for the default).
 pub fn init(data_dir: &Path, folder: &str) {
     let file = data_dir.join("downloads.json");
-    let index = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    let index = match std::fs::read(&file) {
+        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+            // Kept aside: the next save would overwrite the only record of these songs.
+            log::warn!("downloads index unreadable, starting a new one: {e}");
+            let _ = std::fs::rename(&file, file.with_extension("json.bad"));
+            HashMap::new()
+        }),
+        Err(_) => HashMap::new(),
+    };
     let mut st = STATE.write().unwrap();
     st.index = index;
     st.file = file;
     st.folder = if folder.is_empty() { default_folder() } else { PathBuf::from(folder) };
+}
+
+/// Save the index whole or not at all: a crash mid-write doesn't lose it.
+fn write_index(st: &State) {
+    let Ok(json) = serde_json::to_vec(&st.index) else { return };
+    let tmp = st.file.with_extension("json.tmp");
+    if let Err(e) = std::fs::write(&tmp, json).and_then(|_| std::fs::rename(&tmp, &st.file)) {
+        log::warn!("couldn't save the downloads index: {e}");
+    }
 }
 
 pub fn folder() -> PathBuf {
@@ -179,9 +196,7 @@ pub fn set_plays(video_id: &str, plays: u64) {
     let mut st = STATE.write().unwrap();
     let Some(t) = st.index.get_mut(video_id).and_then(|e| e.track.as_mut()) else { return };
     t.plays = Some(plays);
-    if let Ok(json) = serde_json::to_vec(&st.index) {
-        let _ = std::fs::write(&st.file, json);
-    }
+    write_index(&st);
 }
 
 /// A downloaded song's length in seconds, as its file has it.
@@ -280,9 +295,7 @@ pub fn save(t: &Track, audio: &[u8], duration_ms: u64, loudness_db: Option<f32>,
     let song = stands_for.is_some().then(|| t.clone());
     let track = Some(t.clone());
     st.index.insert(t.id.clone(), Entry { path: path.clone(), duration_ms, loudness_db, stands_for, song, track });
-    if let Ok(json) = serde_json::to_vec(&st.index) {
-        let _ = std::fs::write(&st.file, json);
-    }
+    write_index(&st);
     Ok(path)
 }
 

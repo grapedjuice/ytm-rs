@@ -91,7 +91,7 @@
     "menu_color": "#101010",
     "menu_look": { "hover": 0.1, "shadow": [3, 15, 0.5], "row_radius": 6, "pop": [0.85, 0.3], "min_px": 305, "row_slide": 4, "item_slide": 0 },
     "search_look": { "drop_radius": 6, "attached": true, "drop_grow": true },
-    "nav_item": { "radius": 6, "hover": 0.1, "slide": 4, "press": 0.3, "cover_tint": [0.7, 800] },
+    "nav_item": { "radius": 6, "hover": 0.1, "slide": 4, "press": 0.3, "cover_tint": [0.18, 800] },
     "row_look": { "height": 64, "radius": 6, "hover": 0.1, "current": 0.1, "current_bar": 4, "hover_scale": 1.02 },
     "card_look": { "image_zoom": 0.04, "image_dim": 0.5, "play_color": "#ffffff", "play_glyph_color": "#000000" },
     "controls": { "button_fill": 0.05, "button_hover": 0.05, "press_fill": 0.3, "shadow": [3, 7, 0.1], "play_hover_scale": 1.1, "spring": true },

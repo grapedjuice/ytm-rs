@@ -169,7 +169,7 @@ mod tests {
     impl List {
         fn new(n: usize) -> Self {
             let ctx = egui::Context::default();
-            crate::theme::install_fonts(&ctx, "");
+            crate::theme::install_fonts(&ctx, "", &[]);
             let mut list = Self { ctx, songs: (0..n).map(song).collect(), drag: None, lowest: 0, shown: true, time: 0.0, at: Pos2::ZERO, top: 0.0, row: 0.0, offset: 0.0, clicked: vec![], dropped: vec![] };
             list.frame(vec![]);
             list.frame(vec![]);

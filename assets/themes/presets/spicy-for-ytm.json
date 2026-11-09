@@ -187,8 +187,7 @@
     "background_lit_alpha": 0.7
   },
   "cover": {
-    "radius_pct": 0.02,
-    "size_vh": 0.572,
+    "fullscreen": { "size_vh": 0.572, "radius_pct": 0.02 },
     "shadow": 0.271,
     "shadow_blur": 20,
     "shadow_offset": 9,

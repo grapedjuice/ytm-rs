@@ -95,7 +95,7 @@
     "progress_track": 0.1,
     "time_alpha": 0.87,
     "time_weight": "light",
-    "icon_alpha": 0.7,
+    "icon_alpha": 0.9,
     "bar_cover_alpha": 0.22,
     "tip_fill": "#ffffff",
     "tip_text": "#000000"
@@ -111,7 +111,7 @@
     "menu_radius": 13.92,
     "text_dim": "#a3a3a3",
     "controls": {
-      "idle_alpha": 0.7,
+      "idle_alpha": 0.9,
       "ghost_outline": 0.12
     },
     "nav_item": {

@@ -34,6 +34,11 @@ impl App {
                         self.play_current();
                     } else {
                         self.next();
+                        // The last song ran out: radio's next songs carry on when they come.
+                        self.ended = self.queue.at_end() && !self.buffering;
+                        if self.ended {
+                            self.top_up();
+                        }
                     }
                 }
                 AudioEvent::Finished { .. } => {}
@@ -139,7 +144,16 @@ impl App {
                     self.suggest_sel = None;
                 }
             }
-            Resp::Collection { load, c, more } => self.collection_in(load, c, more),
+            Resp::Collection { load, c, more } => {
+                // Picked rows go by number: they only stand while the rows stay where they are.
+                let id = c.id.clone();
+                let rows = |app: &Self| app.opened(&id).map(|o| o.c.tracks.iter().map(|t| t.id.clone()).collect::<Vec<_>>());
+                let before = rows(&*self);
+                self.collection_in(load, c, more);
+                if self.page_list() == Some(id.as_str()) && rows(&*self) != before {
+                    self.selection.clear();
+                }
+            }
             Resp::CollectionMore { id, load, tracks, set_ids, more, failed } => {
                 let failed = failed.then(|| id.clone());
                 self.collection_more(id, load, tracks, set_ids, more);
@@ -237,8 +251,15 @@ impl App {
             }
             Resp::Radio { seed, tracks } => {
                 self.radio_pending = false;
-                let was_at_end = self.queue.add_radio(&seed, tracks);
-                if was_at_end && self.queue.index.is_some() && !self.buffering && !self.playing() {
+                // For a queue since replaced: the one playing now gets its own.
+                if !self.queue.tracks.iter().any(|t| t.id == seed) {
+                    self.top_up();
+                    return;
+                }
+                let had = self.queue.tracks.len();
+                self.queue.add_radio(&seed, tracks);
+                let grew = self.queue.tracks.len() > had;
+                if std::mem::take(&mut self.ended) && grew {
                     // The track ended while radio was loading: continue now.
                     self.next();
                 } else if !self.buffering {
@@ -304,6 +325,14 @@ impl App {
                 self.go(Page::Playlist(id));
             }
             Resp::PlaylistChanged { id, message } => self.on_playlist_changed(id, message),
+            Resp::RemoveFailed { id, error } => {
+                // Its songs are still there: they come back with a reload.
+                self.lists.edits.removal_failed(&id);
+                if self.lists.known(&id) {
+                    self.load_list(&id, false, true);
+                }
+                self.toast(error);
+            }
             Resp::PlaylistMoved { id, move_id, ok } => {
                 // Not for moves of an account or channel left since.
                 if !ok && self.lists.awaiting_move(&id, move_id) {
@@ -430,7 +459,9 @@ impl App {
         }
         let count = video_ids.len();
         let mut msg = format!("{} {count} {}", if like { "Liked" } else { "Removed like from" }, if count == 1 { "song" } else { "songs" });
-        if count == 0 {
+        if count == 0 && failed.len() == 1 {
+            msg = "YouTube Music didn't take that; try again in a while".to_owned();
+        } else if count == 0 {
             msg = format!("YouTube Music refused all {} songs; try again in a while", failed.len());
         } else if !failed.is_empty() {
             msg += &format!("; YouTube Music refused {}", failed.len());
@@ -485,13 +516,15 @@ impl App {
             if let Some(why) = account_block(&reason, self.logged_in) {
                 self.skip_streak = 0;
                 self.toast(why.replace("{title}", &title));
-            } else if has_next && self.skip_streak < MAX_SKIPS {
+            } else if has_next && !self.jam.guest() && self.skip_streak < MAX_SKIPS {
                 // Don't stall the queue on one unplayable song.
                 self.skip_streak += 1;
                 self.toast(format!("Skipped \"{title}\": {reason}"));
                 self.next();
             } else {
                 self.skip_streak = 0;
+                // The last song: radio's next songs, when they come, go on from it.
+                self.ended = !has_next;
                 self.toast(format!("Can't play \"{title}\": {reason}"));
             }
         }

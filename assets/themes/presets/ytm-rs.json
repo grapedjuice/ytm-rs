@@ -5,7 +5,7 @@
   "blurb": "The app's own look: animated album-art background, left-aligned karaoke lyrics.",
   "source": "ytm-rs",
   "accent": "cover",
-  "background": { "mode": "kawarp", "solid": "#0c0a0e", "scrim": 0.3 },
+  "background": { "mode": "kawarp", "solid": "#0c0a0e", "np_dim": 0.85, "scrim": 0.3 },
   "lyrics": {
     "rem": 16,
     "opacity_transition": { "secs": 0.195 },

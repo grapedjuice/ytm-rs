@@ -84,7 +84,7 @@
   },
   "cover": {
     "radius": 20,
-    "top_only": true,
+    "fullscreen": { "top_only": true, "max_px": 640 },
     "shadow": 0.2,
     "shadow_blur": 48,
     "shadow_offset": 24,
@@ -99,6 +99,7 @@
     ]
   },
   "now_playing": {
+    "panel_frac": [0.42, 0.5],
     "tabs": "strip",
     "title_align": "left",
     "title_px": 25,
@@ -108,13 +109,14 @@
     "tab_label_px": 14,
     "tab_edge": 0.06,
     "tab_width_frac": 1.0,
-    "artist_alpha": 0.45,
-    "title_card": {
+    "artist_alpha": 0.82,
+    "fullscreen_title_card": {
       "fill": 0.04,
       "stroke": 0.08,
       "radius": 20,
       "shadow": [16, 32, 0.15],
-      "attached": true
+      "attached": true,
+      "pad": 24
     }
   },
   "chrome": {
@@ -140,7 +142,7 @@
     "thumb_px": 40,
     "thumb_radius": 10,
     "bar_title_px": 14,
-    "bar_byline_alpha": 0.55,
+    "bar_byline_alpha": 1.0,
     "bar_shadow": [
       8,
       32,
@@ -148,7 +150,7 @@
     ],
     "bar_border_alpha": 0.08,
     "icon_scale": 0.75,
-    "icon_alpha": 0.5
+    "icon_alpha": 0.75
   },
   "app": {
     "font": "SF Pro Display",
@@ -165,7 +167,7 @@
     "menu_border": 0.08,
     "text_dim": "#8c8c8c",
     "search_radius": 100,
-    "search_border": 0.08,
+    "search_border": 0,
     "hide_scrollbars": true,
     "tabular_digits": true,
     "queue_upper": true,
@@ -219,7 +221,7 @@
       ],
       "title_px": 14,
       "title_weight": "semibold",
-      "subtitle_alpha": 0.55,
+      "subtitle_alpha": 0.7,
       "image_outline": 0.12
     },
     "row_look": {
@@ -231,7 +233,7 @@
       "separator": 0.04,
       "hover_menu": true,
       "pad": 8,
-      "byline_alpha": 0.55,
+      "byline_alpha": 1.0,
       "thumb_radius": 10
     },
     "menu_look": {

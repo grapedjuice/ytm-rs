@@ -18,8 +18,8 @@ pub(super) struct Glow {
 }
 
 pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
-    use crate::preset::BgMode;
-    let t = theme::anim_bool(ctx, "np-open", app.np_open && app.current().is_some(), app.look().app.np_open_secs);
+    // A spring's overshoot isn't for this: past its place it would leave a gap over the bar.
+    let t = theme::anim_bool(ctx, "np-open", app.np_open && app.current().is_some(), app.look().app.np_open_secs).min(1.0);
     if t <= 0.001 {
         // Closed: nothing to decode for. It picks up from the music's place when opened.
         if app.video.take().is_some() {
@@ -33,7 +33,6 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
     let full = if app.fullscreen { screen } else { Rect::from_min_max(screen.min, pos2(screen.right(), screen.bottom() - app.bar_height())) };
     let rect = full.translate(vec2(0.0, full.height() * (1.0 - t)));
     let look = app.look();
-    let b = &look.background;
     egui::Area::new(egui::Id::unique("now-playing"))
         .order(egui::Order::Middle)
         .fixed_pos(rect.min)
@@ -44,98 +43,142 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
             if !app.fullscreen {
                 super::titlebar::drag_area(ui, Rect::from_min_size(rect.min, vec2(rect.width(), super::titlebar::HEIGHT)), "now-playing");
             }
-            let painter = ui.painter_at(rect);
-            let art = matches!(b.mode, BgMode::Kawarp | BgMode::CoverStatic);
-            if let (Some(layer), Some(bg)) = (b.layer, app.bg.as_ref()) {
-                // The theme's still cover under everything, pulsing if it does.
-                let pulse = if layer.pulse_secs > 0.0 { (now as f32 * std::f32::consts::TAU / layer.pulse_secs).sin() * layer.pulse } else { 0.0 };
-                let rotate = if layer.rotate_secs > 0.0 { (now / layer.rotate_secs as f64 % 1.0) as f32 * std::f32::consts::TAU } else { 0.0 };
-                // Turning, it needs room for its corners.
-                let room = if layer.rotate_secs > 0.0 { 1.45 } else { 1.0 };
-                bg.paint(&painter, rect, Params { time: 0.0, blend: 1.0, intensity: 0.0, saturation: layer.saturate.unwrap_or(b.saturation), dim: layer.opacity * layer.brightness.unwrap_or(1.0), scale: (b.scale * room) + pulse, contrast: 1.0, dither: b.dither, rotate });
-                if layer.pulse_secs > 0.0 || layer.rotate_secs > 0.0 {
-                    ctx.request_repaint_after(std::time::Duration::from_millis(33));
-                }
-            }
-            if b.mode == BgMode::CoverFullbleed {
-                // The cover itself fills the screen behind a scrim. With the lyrics-only
-                // layout on a wide window it fills the height on the left instead and
-                // fades out toward the lyrics (reCover).
-                let solid = look.solid();
-                painter.rect_filled(rect, 0.0, solid);
-                if let Some(track) = app.current() {
-                    let side_by_side = look.cover.layout == crate::preset::Layout::LyricsOnly && rect.width() >= 900.0;
-                    let area = if side_by_side { Rect::from_min_size(rect.min, Vec2::splat(rect.height())) } else { rect };
-                    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area));
-                    child.set_clip_rect(area);
-                    let tint = Color32::from_gray((b.np_dim.clamp(0.0, 1.0) * 255.0) as u8);
-                    let fading = b.fullbleed_fade.then(|| fullbleed_fade(&child, &track.id, &track.thumbs, now, b.crossfade_delay as f64, b.crossfade_secs as f64)).flatten();
-                    match fading {
-                        Some((old, k)) => {
-                            widgets::paint_cover_fill(&child, area, &old, tint);
-                            widgets::paint_cover_fill(&child, area, &track.thumbs, tint.gamma_multiply(k));
-                        }
-                        None => widgets::paint_cover_fill(&child, area, &track.thumbs, tint),
-                    }
-                    if side_by_side {
-                        let fade = Rect::from_min_max(pos2(area.left() + area.width() * b.fade[0], area.top()), pos2(area.left() + area.width() * b.fade[1], area.bottom()));
-                        super::shell::hgradient(&painter, fade, Color32::TRANSPARENT, solid);
-                        painter.rect_filled(Rect::from_min_max(pos2(fade.right(), area.top()), area.max), 0.0, solid);
-                    }
-                }
-            } else if let Some(bg) = app.bg.as_ref().filter(|_| art) {
-                let blend = theme::ease_in_out(((now - app.art_changed - b.crossfade_delay as f64) / b.crossfade_secs.max(0.05) as f64) as f32);
-                let level = if app.reactive_bg && app.playing() { (app.audio.status.level() - b.beat_threshold).max(0.0) * b.reactive } else { 0.0 };
-                // A video has the background.
-                let on_video = (b.video_backdrop && app.video.as_ref().is_some_and(|(_, player)| player.is_some())).then_some(());
-                bg.paint(
-                    &painter,
-                    rect,
-                    Params {
-                        time: app.bg_time as f32,
-                        blend,
-                        intensity: if b.mode == BgMode::CoverStatic { 0.0 } else { b.intensity },
-                        saturation: on_video.and(b.video.saturation).unwrap_or(b.saturation),
-                        dim: b.np_dim * (1.0 - on_video.and(b.video.auto_dim).unwrap_or(b.auto_dim) * app.art_brightness),
-                        scale: b.scale + level.min(0.5) * 0.12,
-                        contrast: b.np_contrast,
-                        dither: on_video.and(b.video.dither).unwrap_or(b.dither),
-                        rotate: 0.0,
-                    },
-                );
-            } else if b.mode == BgMode::Solid {
-                painter.rect_filled(rect, 0.0, crate::preset::hex(&look.app.np_solid).unwrap_or(look.solid()));
-            } else {
-                painter.rect_filled(rect, 0.0, theme::lerp_color(theme::bg(), app.accent_color(), 0.25));
-            }
-            let k = b.scrim / 0.3;
-            if let Some([from, to]) = b.scrim_gradient {
-                if b.scrim_across {
-                    super::shell::hgradient(ui.painter(), rect, theme::shade(from), theme::shade(to));
-                } else {
-                    super::shell::vgradient(ui.painter(), rect, theme::shade(from), theme::shade(to));
-                }
-            } else if k > 0.0 {
-                super::shell::vgradient(ui.painter(), rect, theme::shade((0.18 * k).min(0.95)), theme::shade((0.42 * k).min(0.95)));
-            }
-            for o in &b.overlays {
-                super::shell::overlay_light(ui.painter(), rect, o, app.accent_color());
-            }
-            if app.ambient_light && app.current().cloned().is_some_and(|track| app.video_mode(&track)) {
-                paint_glow(app, ui, rect);
-            }
+            // Laid out as if it ran under the player bar, which shows the rest of it.
+            let under_bar = Rect::from_min_max(rect.min, rect.max + vec2(0.0, screen.bottom() - full.bottom()));
+            backdrop(app, ui, under_bar, rect, now, true);
             let [pad_x, pad_y] = look.now_playing.fullscreen_padding.filter(|_| app.fullscreen).unwrap_or([32.0, 20.0]);
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(pad_x, pad_y))));
             body(app, &mut child, now);
         });
 }
 
+/// Now playing's background laid out over `rect`, drawn only inside `clip`. `step_glow`:
+/// this is the frame's main drawing, which moves the video's glow along.
+pub(super) fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, step_glow: bool) {
+    use crate::preset::BgMode;
+    let look = app.look();
+    let b = &look.background;
+    let ctx = ui.ctx().clone();
+    let painter = ui.painter_at(clip);
+    let art = matches!(b.mode, BgMode::Kawarp | BgMode::CoverStatic);
+    // A video has the background.
+    let on_video = (b.video_backdrop && app.video.as_ref().is_some_and(|(_, player)| player.is_some())).then_some(());
+    let over = ((app.art_brightness - b.auto_dim_from) / (1.0 - b.auto_dim_from).max(0.01)).max(0.0);
+    let auto_dim = 1.0 - on_video.and(b.video.auto_dim).unwrap_or(b.auto_dim) * over;
+    if let (Some(layer), Some(bg)) = (b.layer, app.bg.as_ref()) {
+        // The theme's still cover under everything, pulsing if it does.
+        let pulse = if layer.pulse_secs > 0.0 { (now as f32 * std::f32::consts::TAU / layer.pulse_secs).sin() * layer.pulse } else { 0.0 };
+        let rotate = if layer.rotate_secs > 0.0 { (now / layer.rotate_secs as f64 % 1.0) as f32 * std::f32::consts::TAU } else { 0.0 };
+        // Turning, it needs room for its corners.
+        let room = if layer.rotate_secs > 0.0 { 1.45 } else { 1.0 };
+        bg.paint(&painter, rect, Params { time: 0.0, blend: 1.0, intensity: 0.0, saturation: layer.saturate.unwrap_or(b.saturation), dim: layer.opacity * layer.brightness.unwrap_or(1.0) * auto_dim, scale: (b.scale * room) + pulse, contrast: 1.0, dither: b.dither, rotate, alpha: 1.0 });
+        if (layer.pulse_secs > 0.0 || layer.rotate_secs > 0.0) && app.playing() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        }
+    }
+    if b.mode == BgMode::CoverFullbleed {
+        painter.rect_filled(rect, 0.0, look.solid());
+    } else if let Some(bg) = app.bg.as_ref().filter(|_| art) {
+        let blend = theme::ease_in_out(((now - app.art_changed - b.crossfade_delay as f64) / b.crossfade_secs.max(0.05) as f64) as f32);
+        let level = if app.reactive_bg && app.playing() && b.mode != BgMode::CoverStatic { (app.audio.status.level() - b.beat_threshold).max(0.0) * b.reactive } else { 0.0 };
+        // Over a layer the dim is the canvas's opacity (the theme's `opacity`): the
+        // layer shows through instead of black, so only `auto_dim` darkens it.
+        let (dim, alpha) = if b.layer.is_some() { (auto_dim, b.np_dim) } else { (b.np_dim * auto_dim, 1.0) };
+        bg.paint(
+            &painter,
+            rect,
+            Params {
+                time: app.bg_time as f32,
+                blend,
+                intensity: if b.mode == BgMode::CoverStatic { 0.0 } else { b.intensity },
+                saturation: on_video.and(b.video.saturation).unwrap_or(b.saturation),
+                dim,
+                scale: b.scale + level.min(0.5) * 0.12,
+                contrast: b.np_contrast,
+                dither: on_video.and(b.video.dither).unwrap_or(b.dither),
+                rotate: 0.0,
+                alpha,
+            },
+        );
+    } else if b.mode == BgMode::Solid {
+        painter.rect_filled(rect, 0.0, crate::preset::hex(&look.app.np_solid).unwrap_or(look.solid()));
+    } else {
+        painter.rect_filled(rect, 0.0, theme::lerp_color(theme::bg(), app.accent_color(), 0.25));
+    }
+    if b.fullbleed(app.fullscreen) {
+        // The cover itself fills the screen behind a scrim. With the lyrics-only
+        // layout on a wide window it fills the height on the left instead and
+        // fades out toward the lyrics (reCover).
+        if let Some(track) = app.current() {
+            let side_by_side = look.cover.layout_in(app.fullscreen) == crate::preset::Layout::LyricsOnly && rect.width() >= 900.0;
+            let area = if side_by_side { Rect::from_min_size(rect.min, Vec2::splat(rect.height())) } else { rect };
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area));
+            child.set_clip_rect(area.intersect(clip));
+            let tint = Color32::from_gray((b.fullscreen_fullbleed.filter(|_| app.fullscreen).unwrap_or(b.np_dim).clamp(0.0, 1.0) * 255.0) as u8);
+            // Over the theme's own background it fades away to show that; alone, into its flat colour.
+            let mask = (side_by_side && b.mode != BgMode::CoverFullbleed).then_some(b.fade);
+            let fading = b.fullbleed_fade.then(|| fullbleed_fade(&child, &track.id, &track.thumbs, now, b.crossfade_delay as f64, b.crossfade_secs as f64)).flatten();
+            match fading {
+                Some((old, k)) => {
+                    paint_fullbleed(&child, area, &old, tint, mask);
+                    paint_fullbleed(&child, area, &track.thumbs, tint.gamma_multiply(k), mask);
+                }
+                None => paint_fullbleed(&child, area, &track.thumbs, tint, mask),
+            }
+            if side_by_side && mask.is_none() {
+                let solid = look.solid();
+                let fade = Rect::from_min_max(pos2(area.left() + area.width() * b.fade[0], area.top()), pos2(area.left() + area.width() * b.fade[1], area.bottom()));
+                super::shell::hgradient(&painter, fade, Color32::TRANSPARENT, solid);
+                painter.rect_filled(Rect::from_min_max(pos2(fade.right(), area.top()), area.max), 0.0, solid);
+            }
+        }
+    }
+    let k = b.scrim / 0.3;
+    if let Some([from, to]) = b.scrim_gradient {
+        if b.scrim_across {
+            super::shell::hgradient(&painter, rect, theme::shade(from), theme::shade(to));
+        } else {
+            super::shell::vgradient(&painter, rect, theme::shade(from), theme::shade(to));
+        }
+    } else if k > 0.0 {
+        super::shell::vgradient(&painter, rect, theme::shade((0.18 * k).min(0.95)), theme::shade((0.42 * k).min(0.95)));
+    }
+    for o in &b.overlays {
+        super::shell::overlay_light(&painter, rect, o, app.accent_color());
+    }
+    if app.ambient_light && app.current().cloned().is_some_and(|track| app.video_mode(&track)) {
+        paint_glow(app, ui, rect, clip, step_glow);
+    }
+}
+
+/// A cover filling `area`. `mask`: it's whole up to the first fraction across and gone by
+/// the second (`mask-image`), for what's under it to show through; `area` is then square.
+fn paint_fullbleed(ui: &Ui, area: Rect, thumbs: &[crate::model::Thumb], tint: Color32, mask: Option<[f32; 2]>) {
+    let Some([from, to]) = mask else { return widgets::paint_cover_fill(ui, area, thumbs, tint) };
+    let want = (area.width() * ui.ctx().pixels_per_point()) as u32;
+    let px = [360u32, 544, 720, 960, 1200].into_iter().find(|&s| s >= want).unwrap_or(1200);
+    let Some(t) = crate::model::pick_thumb(thumbs, px) else { return };
+    let url = crate::model::sized(&t.url, px);
+    let Ok(egui::load::TexturePoll::Ready { texture }) = egui::Image::new(url).load_for_size(ui.ctx(), area.size()) else { return };
+    let uv = t.square_uv();
+    let mut mesh = egui::Mesh::with_texture(texture.id);
+    for (i, (f, a)) in [(0.0f32, 1.0f32), (from, 1.0), (to, 0.0), (1.0, 0.0)].into_iter().enumerate() {
+        let color = tint.gamma_multiply(a);
+        let (x, u) = (area.left() + area.width() * f, uv.left() + uv.width() * f);
+        mesh.vertices.push(egui::epaint::Vertex { pos: pos2(x, area.top()), uv: pos2(u, uv.top()), color });
+        mesh.vertices.push(egui::epaint::Vertex { pos: pos2(x, area.bottom()), uv: pos2(u, uv.bottom()), color });
+        if i > 0 {
+            let n = i as u32 * 2;
+            mesh.add_triangle(n - 2, n - 1, n);
+            mesh.add_triangle(n - 1, n + 1, n);
+        }
+    }
+    ui.painter().add(mesh);
+}
+
 fn body(app: &mut App, ui: &mut Ui, now: f64) {
-    use crate::preset::{Layout, Side, TabStyle};
     let Some(track) = app.current().cloned() else { return };
     let look = app.look();
-    let cs = &look.cover;
-    let tabs = look.now_playing.tabs;
     let area = ui.max_rect();
     let video_mode = app.video_mode(&track);
     let video_lyrics = video_mode && look.now_playing.video_lyrics && !app.no_lyrics() && content_wide(area);
@@ -207,27 +250,25 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         }
         ui.add_space(8.0);
         let mut focused = fs_btn.has_focus();
-        // Themes with their own tabs show them elsewhere.
-        if tabs == TabStyle::Hover {
-            // Clicking the active chip again turns it off, leaving just the artwork.
-            let up = widgets::chip(ui, "Up next", app.np_tab == NpTab::UpNext);
-            if up.clicked() {
-                app.np_tab = if app.np_tab == NpTab::UpNext { NpTab::Art } else { NpTab::UpNext };
-            }
-            // A song without lyrics: the chip is off and does nothing, but the choice stays
-            // Lyrics so the next song that has them shows them.
-            let lyr = ui.scope(|ui| {
-                if no_lyrics {
-                    ui.disable();
-                    ui.multiply_opacity(0.45);
-                }
-                widgets::chip(ui, "Lyrics", app.np_tab == NpTab::Lyrics && !no_lyrics).on_disabled_hover_text(if video_mode { "Lyrics are timed to the song: switch to Song" } else { "No lyrics for this song" })
-            });
-            if lyr.inner.clicked() {
-                app.np_tab = if app.np_tab == NpTab::Lyrics { NpTab::Art } else { NpTab::Lyrics };
-            }
-            focused |= up.has_focus() || lyr.inner.has_focus();
+        // Clicking the active chip again turns it off, leaving just the artwork. These look
+        // the same in every theme.
+        let up = widgets::default_chip(ui, "Up next", app.np_tab == NpTab::UpNext);
+        if up.clicked() {
+            app.np_tab = if app.np_tab == NpTab::UpNext { NpTab::Art } else { NpTab::UpNext };
         }
+        // A song without lyrics: the chip is off and does nothing, but the choice stays
+        // Lyrics so the next song that has them shows them.
+        let lyr = ui.scope(|ui| {
+            if no_lyrics {
+                ui.disable();
+                ui.multiply_opacity(0.45);
+            }
+            widgets::default_chip(ui, "Lyrics", app.np_tab == NpTab::Lyrics && !no_lyrics).on_disabled_hover_text(if video_mode { "Lyrics are timed to the song: switch to Song" } else { "No lyrics for this song" })
+        });
+        if lyr.inner.clicked() {
+            app.np_tab = if app.np_tab == NpTab::Lyrics { NpTab::Art } else { NpTab::Lyrics };
+        }
+        focused |= up.has_focus() || lyr.inner.has_focus();
         let full_w = ui.min_rect().width();
         ui.ctx().data_mut(|d| d.insert_temp(id, (full_w, focused)));
     });
@@ -236,21 +277,29 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     if app.fullscreen && look.now_playing.fullscreen_progress_px > 0.0 {
         fullscreen_progress(app, ui, ui.ctx().content_rect(), look.now_playing.fullscreen_progress_px);
     }
-    if tabs != TabStyle::Hover {
-        np_tabs(app, ui, content, tabs, no_lyrics);
-    }
+    np_content(app, ui, content, &track, video_mode, video_lyrics, no_lyrics, now);
+}
+
+/// What's under the header: the video, or the cover and the panel beside it.
+#[allow(clippy::too_many_arguments)]
+fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::Track, video_mode: bool, video_lyrics: bool, no_lyrics: bool, now: f64) {
+    use crate::preset::{Layout, Side};
+    let look = app.look();
+    let cs = &look.cover;
+    let layout = cs.layout_in(app.fullscreen);
+    let cover_side = cs.fullscreen.filter(|_| app.fullscreen).and_then(|f| f.side).unwrap_or(cs.side);
     if video_mode {
         // Lyrics beside the video, with the video keeping the rest of the view.
         if video_lyrics && app.np_tab == NpTab::Lyrics {
             let share = look.now_playing.video_panel_frac.map_or(0.63, |[win, full]| if app.fullscreen { full } else { win });
             let split = content.left() + content.width() * share;
-            video_stage(app, ui, Rect::from_min_max(content.min, pos2(split - 24.0, content.bottom())), &track);
+            video_stage(app, ui, Rect::from_min_max(content.min, pos2(split - 24.0, content.bottom())), track);
             let r = Rect::from_min_max(pos2(split, content.top()), content.max);
             let mut rui = ui.new_child(egui::UiBuilder::new().max_rect(r));
             rui.set_clip_rect(r.intersect(ui.clip_rect()));
             lyrics_panel(app, &mut rui, r, now, false);
         } else {
-            video_stage(app, ui, content, &track);
+            video_stage(app, ui, content, track);
         }
         return;
     }
@@ -302,11 +351,11 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     // The cover gliding between its two places (wide layouts): a gentle S-curve.
     let glide = p * p * (3.0 - 2.0 * p);
     let narrow = content.width() < 860.0;
-    let corner = !narrow && cs.layout == Layout::Corner;
+    let corner = !narrow && layout == Layout::Corner;
     let fs_corner = !narrow && app.fullscreen && cs.fullscreen.is_some_and(|f| f.corner_layout);
-    let lyrics_only = narrow || corner || fs_corner || cs.layout == Layout::LyricsOnly;
+    let lyrics_only = narrow || corner || fs_corner || layout == Layout::LyricsOnly;
     // reCover: the backdrop cover sits on the left, so the lyrics take the right side.
-    let beside_cover = !narrow && cs.layout == Layout::LyricsOnly && look.background.mode == crate::preset::BgMode::CoverFullbleed;
+    let beside_cover = !narrow && layout == Layout::LyricsOnly && look.background.fullbleed(app.fullscreen);
     let centered = lyrics_only && !beside_cover;
     // Artwork alone: centered.
     let col_art = Rect::from_center_size(content.center(), vec2(content.width().min(content.height() * 0.9), content.height()));
@@ -316,11 +365,22 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         // A small cover at the bottom left with the title beside it, the lyrics on the right.
         let share = look.now_playing.fullscreen_panel_frac.unwrap_or(0.5);
         let split = content.right() - content.width() * share;
-        corner_block(app, ui, Rect::from_min_max(pos2(content.left(), content.bottom() - corner_h), pos2(split - 24.0, content.bottom())), &track);
+        // Nothing to go beside (the Art tab, no lyrics): the cover on its own, in the middle.
+        if art_vis > 0.001 {
+            let px = (art_side(cs, col_art, app.fullscreen, window_w) * ppp) as u32;
+            let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(content));
+            cui.multiply_opacity(art_vis);
+            cover_column(app, &mut cui, col_art.translate(vec2(-slide * (1.0 - art_vis), 0.0)), track, no_lyrics, now, px);
+        }
+        if art_vis < 0.999 {
+            let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(content));
+            cui.multiply_opacity(1.0 - art_vis);
+            corner_block(app, &mut cui, Rect::from_min_max(pos2(content.left(), content.bottom() - corner_h), pos2(split - 24.0, content.bottom())), track);
+        }
         Rect::from_min_max(pos2(split, content.top()), content.max)
     } else if corner {
         // A small cover in the corner, the title beside it, the lyrics over them.
-        corner_block(app, ui, Rect::from_min_max(pos2(content.left(), content.bottom() - corner_h), content.max), &track);
+        corner_block(app, ui, Rect::from_min_max(pos2(content.left(), content.bottom() - corner_h), content.max), track);
         Rect::from_min_max(content.min, pos2(content.right(), content.bottom() - corner_h - 12.0))
     } else if lyrics_only {
         // No cover column next to the panel: the artwork fades in from the left as the panel leaves.
@@ -328,7 +388,7 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         if art_vis > 0.001 {
             let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(content));
             cui.multiply_opacity(art_vis);
-            cover_column(app, &mut cui, col_art.translate(vec2(-slide * (1.0 - art_vis), 0.0)), &track, no_lyrics, now, px);
+            cover_column(app, &mut cui, col_art.translate(vec2(-slide * (1.0 - art_vis), 0.0)), track, no_lyrics, now, px);
         } else {
             // Hidden behind the lyrics: have it loaded for when they're turned off.
             widgets::preload_cover(ui.ctx(), &track.thumbs, px);
@@ -337,23 +397,23 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         if beside_cover && look.now_playing.info_card_text_only && app.fullscreen && art_vis < 1.0 {
             let mut card = ui.new_child(egui::UiBuilder::new().max_rect(content));
             card.multiply_opacity(1.0 - art_vis);
-            info_card(app, &mut card, content, &track);
+            info_card(app, &mut card, content, track);
         }
         let full_panel = look.now_playing.fullscreen_panel_frac.filter(|_| app.fullscreen);
         if let Some(f) = full_panel {
             let side = content.width() * (1.0 - f);
-            if cs.side == Side::Right { Rect::from_min_max(content.min, pos2(content.right() - side, content.bottom())) } else { Rect::from_min_max(pos2(content.left() + side, content.top()), content.max) }
+            if cover_side == Side::Right { Rect::from_min_max(content.min, pos2(content.right() - side, content.bottom())) } else { Rect::from_min_max(pos2(content.left() + side, content.top()), content.max) }
         } else if beside_cover { Rect::from_min_max(pos2(content.left() + content.width() * 0.46, content.top()), content.max) } else { content }
     } else {
         // Cover column, on the preset's side; it glides to the center as the panel leaves.
         let frac = match look.now_playing.panel_frac {
             Some([win, full]) => if app.fullscreen { full } else { win },
-            None if cs.layout == Layout::CoverHero => 0.5,
+            None if layout == Layout::CoverHero => 0.5,
             None => 0.42,
         };
         // Tabs in a strip sit over the panel, so it starts below them.
         let col_w = content.width() * frac;
-        let col_panel = if cs.side == Side::Right {
+        let col_panel = if cover_side == Side::Right {
             Rect::from_min_size(pos2(content.right() - col_w, content.top()), vec2(col_w, content.height()))
         } else {
             Rect::from_min_size(content.min, vec2(col_w, content.height()))
@@ -361,8 +421,8 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         let col = Rect::from_min_max(col_art.min.lerp(col_panel.min, glide), col_art.max.lerp(col_panel.max, glide));
         // One image size for the whole glide, the bigger of its two ends.
         let px = (art_side(cs, col_art, app.fullscreen, window_w).max(art_side(cs, col_panel, app.fullscreen, window_w)) * ppp) as u32;
-        cover_column(app, ui, col, &track, no_lyrics, now, px);
-        if cs.side == Side::Right {
+        cover_column(app, ui, col, track, no_lyrics, now, px);
+        if cover_side == Side::Right {
             Rect::from_min_max(content.min, pos2(col_panel.left() - 28.0, content.bottom()))
         } else {
             Rect::from_min_max(pos2(col_panel.right() + 28.0, content.top()), content.max)
@@ -371,7 +431,7 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     if panel_vis <= 0.001 {
         return;
     }
-    let toward = if !lyrics_only && cs.side == Side::Right { -slide } else { slide };
+    let toward = if !lyrics_only && cover_side == Side::Right { -slide } else { slide };
     let rect = right.translate(vec2(toward * (1.0 - panel_vis), 0.0));
     let inset = look.now_playing.fullscreen_panel_inset.filter(|_| app.fullscreen);
     let rect = inset.map_or(rect, |[top, bottom]| Rect::from_min_max(pos2(rect.left(), rect.top() + top), pos2(rect.right(), rect.bottom() - bottom)));
@@ -477,120 +537,6 @@ fn art_side(cs: &crate::preset::CoverStyle, col: Rect, fullscreen: bool, window_
     // By the window's width, when it has steps.
     let stepped = cs.size_steps.iter().rev().find(|s| window_w >= s[0]).map(|s| s[1]);
     side.min(fs.max_px.or(stepped).or(if fullscreen && cs.fullscreen.is_some() { None } else { cs.max_px }).unwrap_or(f32::INFINITY))
-}
-
-/// Lyrics and Up next as the theme has them, always in view.
-fn np_tabs(app: &mut App, ui: &mut Ui, content: Rect, style: crate::preset::TabStyle, no_lyrics: bool) {
-    use crate::preset::TabStyle;
-    let lyrics_on = app.np_tab == NpTab::Lyrics && !no_lyrics;
-    let up_on = app.np_tab == NpTab::UpNext;
-    let mut pick = None;
-    let np = app.look().now_playing.clone();
-    // Faint at rest in some themes, but always findable.
-    let idle = np.tab_idle_alpha.clamp(0.35, 1.0);
-    use crate::preset::TabContent;
-    match style {
-        TabStyle::Hover => {}
-        TabStyle::Strip => {
-            // In the header row, between the Song and Video switch and the window's buttons.
-            let right = content.right() - 165.0;
-            let w = ((right - content.center().x - 70.0) / 2.0).clamp(64.0, 110.0);
-            let w = if np.tab_content == TabContent::Icons { w.min(56.0) } else { w };
-            let w = np.tab_width_frac.map_or(w, |f| (content.width() * f / 2.0).clamp(56.0, 220.0));
-            let sel_color = if np.tab_selected_color.is_empty() { Color32::WHITE } else { crate::preset::paint(&np.tab_selected_color, app.accent_color()) };
-            let tab_h = np.tab_px.clamp(26.0, 56.0);
-            let r = Rect::from_min_size(pos2(right - w * 2.0, content.top() - 44.0 + (34.0 - tab_h) / 2.0), vec2(w * 2.0, tab_h));
-            // Under the cover, once it has said where that is.
-            let under = ui.ctx().data(|d| d.get_temp::<egui::Pos2>(egui::Id::unique("np-under-cover"))).filter(|_| np.tab_under_cover);
-            let r = under.map_or(r, |p| Rect::from_center_size(p + vec2(0.0, tab_h / 2.0), r.size()));
-            let w = r.width() / 2.0;
-            if let Some([a, radius]) = np.tab_back {
-                if let Some(g) = app.look().app.glass.tabs {
-                    crate::shader::frost_bright(ui.painter(), r, crate::shader::Frost { look: g, radius: radius.min(tab_h / 2.0), opacity: 1.0, fade: 0.0 }, app.look().app.glass.tabs_bright.unwrap_or(1.0));
-                }
-                ui.painter().rect_filled(r, radius.min(tab_h / 2.0), theme::with_alpha(if np.tab_back_black { Color32::BLACK } else { Color32::WHITE }, a));
-                if let Some(b) = np.tab_bevel {
-                    widgets::bevel(ui.painter(), r, radius.min(tab_h / 2.0), b);
-                }
-            }
-            if np.tab_edge > 0.0 {
-                ui.painter().hline(r.x_range(), r.bottom() - 0.5, egui::Stroke::new(1.0, theme::with_alpha(Color32::WHITE, np.tab_edge)));
-            }
-            if let Some(a) = np.tab_pill
-                && (up_on || lyrics_on)
-            {
-                // Slides from one tab to the other.
-                let at = theme::anim(ui.ctx(), "np-tab-pill", if lyrics_on { 1.0 } else { 0.0 }, 0.25);
-                let cell = Rect::from_min_size(r.min + vec2(w * at, 0.0), vec2(w, r.height())).shrink(3.0);
-                let cell_r = np.tab_back.map_or(8.0, |b| (b[1] - 3.0).max(2.0)).min(cell.height() / 2.0);
-                ui.painter().rect_filled(cell, cell_r, theme::with_alpha(Color32::WHITE, a));
-                if np.tab_ring > 0.0 {
-                    ui.painter().rect_stroke(cell, cell_r, egui::Stroke::new(1.0, theme::with_alpha(Color32::WHITE, np.tab_ring)), egui::StrokeKind::Inside);
-                }
-            }
-            for (i, (label, glyph, on, tab)) in [("UP NEXT", icon::LIST_MUSIC, up_on, NpTab::UpNext), ("LYRICS", icon::MIC_VOCAL, lyrics_on, NpTab::Lyrics)].into_iter().enumerate() {
-                let cell = Rect::from_min_size(r.min + vec2(w * i as f32, 0.0), vec2(w, r.height()));
-                let resp = named(ui.interact(cell, ui.scope_id().with(("np-tab", i)), Sense::click()), label).on_hover_text(label).on_hover_cursor(egui::CursorIcon::PointingHand);
-                let c = if on { crate::preset::hex(&np.tab_label_selected).unwrap_or(sel_color) } else if resp.hovered() { Color32::WHITE } else { theme::with_alpha(theme::text_dim(), idle) };
-                if on && np.tab_glow > 0.0 {
-                    let g = egui::epaint::Shadow { offset: [0, 0], blur: 18, spread: 0, color: theme::with_alpha(sel_color, np.tab_glow) };
-                    ui.painter().add(g.as_shape(cell.shrink(10.0), egui::CornerRadius::same(8)));
-                }
-                widgets::focus_ring(ui, &resp, cell, 6.0);
-                match np.tab_content {
-                    TabContent::Labels => {
-                        ui.painter().text(cell.center(), egui::Align2::CENTER_CENTER, label, theme::weighted(np.tab_label_weight, np.tab_label_px), c);
-                    }
-                    TabContent::Icons => widgets::icon_at(ui, cell.center(), glyph, np.tab_icon_px, c),
-                    TabContent::Both => {
-                        widgets::icon_at(ui, cell.center() - vec2(30.0, 0.0), glyph, 15.0, c);
-                        ui.painter().text(cell.center() + vec2(9.0, 0.0), egui::Align2::CENTER_CENTER, label, theme::weighted(np.tab_label_weight, np.tab_label_px - 1.0), c);
-                    }
-                }
-                if on && np.tab_pill.is_none() {
-                    ui.painter().hline(cell.x_range(), cell.bottom() - np.tab_line_px * 0.67, egui::Stroke::new(np.tab_line_px, sel_color));
-                }
-                if resp.clicked() {
-                    pick = Some(if on { NpTab::Art } else { tab });
-                }
-            }
-        }
-        TabStyle::Pill => {
-            // Its height and fill are the theme's, when it sets them.
-            let pill_h = if np.tab_px == 34.0 { 40.0 } else { np.tab_px.clamp(28.0, 44.0) };
-            let cell_w = pill_h * 1.1;
-            let size = vec2(cell_w * 2.0, pill_h);
-            let r = Rect::from_min_size(content.max - size - vec2(8.0, 8.0), size);
-            let [pill_a, pill_r] = np.tab_back.unwrap_or([0.12, pill_h / 2.0]);
-            let pill_r = pill_r.min(pill_h / 2.0);
-            if let Some(g) = app.look().app.glass.tabs {
-                crate::shader::frost_bright(ui.painter(), r, crate::shader::Frost { look: g, radius: pill_r, opacity: 1.0, fade: 0.0 }, app.look().app.glass.tabs_bright.unwrap_or(1.0));
-            }
-            ui.painter().rect_filled(r, pill_r, theme::with_alpha(if np.tab_back_black { Color32::BLACK } else { Color32::WHITE }, pill_a));
-            if let Some(b) = np.tab_bevel {
-                widgets::bevel(ui.painter(), r, pill_r, b);
-            }
-            for (i, (glyph, label, on, tab)) in [(icon::MIC_VOCAL, "Lyrics", lyrics_on, NpTab::Lyrics), (icon::LIST_MUSIC, "Up next", up_on, NpTab::UpNext)].into_iter().enumerate() {
-                let cell = Rect::from_min_size(r.min + vec2(cell_w * i as f32, 0.0), vec2(cell_w, pill_h));
-                let resp = named(ui.interact(cell, ui.scope_id().with(("np-pill", i)), Sense::click()), label).on_hover_text(label).on_hover_cursor(egui::CursorIcon::PointingHand);
-                if on {
-                    let picked = cell.shrink(3.0);
-                    let picked_r = (pill_r - 3.0).max(2.0);
-                    ui.painter().rect_filled(picked, picked_r, theme::with_alpha(Color32::WHITE, np.tab_pill.unwrap_or(0.2)));
-                    if np.tab_ring > 0.0 {
-                        ui.painter().rect_stroke(picked, picked_r, egui::Stroke::new(1.0, theme::with_alpha(Color32::WHITE, np.tab_ring)), egui::StrokeKind::Inside);
-                    }
-                }
-                widgets::icon_at(ui, cell.center(), glyph, 18.0, if on { Color32::WHITE } else { theme::with_alpha(theme::text_dim(), idle) });
-                if resp.clicked() {
-                    pick = Some(if on { NpTab::Art } else { tab });
-                }
-            }
-        }
-    }
-    if let Some(tab) = pick {
-        app.np_tab = tab;
-    }
 }
 
 /// The corner layout's cover and title.
@@ -700,18 +646,27 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         ui.multiply_opacity(settle_fade);
     }
     let round = cs.shape != Shape::Rounded && !fs.plain_shape;
-    let radius = if round { side / 2.0 } else { fs.radius.unwrap_or(cs.radius_pct.map_or(cs.radius, |p| p * side)).clamp(0.0, side / 2.0) };
-    let cr = if cs.top_only && !round { egui::CornerRadius { nw: radius.min(255.0) as u8, ne: radius.min(255.0) as u8, sw: 0, se: 0 } } else { egui::CornerRadius::same(radius.min(255.0) as u8) };
+    let radius = if round { side / 2.0 } else { fs.radius.or(fs.radius_pct.map(|p| p * side)).unwrap_or(cs.radius_pct.map_or(cs.radius, |p| p * side)).clamp(0.0, side / 2.0) };
+    let top_only = cs.top_only || fs.top_only;
+    let cr = if top_only && !round { egui::CornerRadius { nw: radius.min(255.0) as u8, ne: radius.min(255.0) as u8, sw: 0, se: 0 } } else { egui::CornerRadius::same(radius.min(255.0) as u8) };
     if cs.glow > 0.0 {
         let s = egui::epaint::Shadow { offset: [0, 16], blur: 90, spread: 6, color: theme::with_alpha(app.accent_color(), cs.glow.min(1.0) * 0.7) };
         ui.painter().add(s.as_shape(art, cr));
     }
     let shadow_a = fs.shadow.unwrap_or(cs.shadow);
     if shadow_a > 0.0 {
-        widgets::soft_shadow(ui, art.translate(vec2(0.0, cs.shadow_offset)), radius.min(255.0), cs.shadow_blur, shadow_a.min(1.0));
+        // Corner radii stop at 255: a bigger disc's rounded-rectangle shadow shows as a square.
+        // A theme with an offset has said where it goes; with none, the usual drop.
+        if round && art.width() / 2.0 > 255.0 {
+            widgets::disc_shadow(ui, art.center(), art.width() / 2.0, cs.shadow_blur, shadow_a.min(1.0));
+        } else if cs.shadow_offset != 0.0 {
+            widgets::soft_shadow_placed(ui, art.translate(vec2(0.0, cs.shadow_offset)), radius.min(255.0), cs.shadow_blur, shadow_a.min(1.0));
+        } else {
+            widgets::soft_shadow(ui, art, radius.min(255.0), cs.shadow_blur, shadow_a.min(1.0));
+        }
     }
     for [y, blur, a] in [cs.shadow2, cs.shadow3, cs.shadow4, cs.shadow5].into_iter().flatten() {
-        widgets::soft_shadow(ui, art.translate(vec2(0.0, y)), radius.min(255.0), blur, a);
+        widgets::soft_shadow_placed(ui, art.translate(vec2(0.0, y)), radius.min(255.0), blur, a);
     }
     if cs.opacity < 1.0 {
         ui.multiply_opacity(cs.opacity);
@@ -720,8 +675,15 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     let tint = Color32::from_gray((brightness.clamp(0.1, 1.0) * 255.0) as u8);
     if round {
         if cs.shape == Shape::Record && (app.playing() || cs.spin_when_paused) {
-            let dt = ui.input(|i| i.stable_dt).min(0.1) as f64;
+            // Real time since the last frame: egui's smoothed estimate makes uneven frames step.
+            let last_id = egui::Id::unique("record-last-frame");
+            let dt = (now - ui.ctx().data(|d| d.get_temp::<f64>(last_id)).unwrap_or(now)).clamp(0.0, 0.1);
+            ui.ctx().data_mut(|d| d.insert_temp(last_id, now));
             app.record_angle = (app.record_angle + dt * std::f64::consts::TAU / cs.spin_secs.max(4.0) as f64) % std::f64::consts::TAU;
+            // At the usual 30 fps a huge disc's edge visibly steps, and paused nothing would draw it at all.
+            if !app.window_hidden {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+            }
         }
         let angle = if cs.shape == Shape::Record { app.record_angle as f32 } else { 0.0 };
         widgets::paint_disc(ui, art.center(), side / 2.0, &track.thumbs, angle, tint, px);
@@ -735,7 +697,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
             p.circle_filled(art.center(), side * 0.022, Color32::from_rgb(10, 10, 12));
         }
     } else {
-        if cs.top_only {
+        if top_only {
             widgets::paint_cover_corners(ui, art, &track.thumbs, cr, px);
         } else {
             widgets::paint_cover_px(ui, art, &track.thumbs, radius, 1.0, px);
@@ -751,20 +713,32 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         ui.multiply_opacity(1.0 / cs.opacity.max(0.01));
     }
     if cs.outline[0] > 0.0 && !fs.no_outline {
-        ui.painter().rect_stroke(art, cr, egui::Stroke::new(cs.outline[0], theme::with_alpha(Color32::WHITE, cs.outline[1])), egui::StrokeKind::Inside);
+        if round {
+            ui.painter().circle_stroke(art.center(), art.width() / 2.0 - cs.outline[0] / 2.0, egui::Stroke::new(cs.outline[0], theme::with_alpha(Color32::WHITE, cs.outline[1])));
+        } else {
+            ui.painter().rect_stroke(art, cr, egui::Stroke::new(cs.outline[0], theme::with_alpha(Color32::WHITE, cs.outline[1])), egui::StrokeKind::Inside);
+        }
     }
-    let cover = named(ui.interact(art, ui.scope_id().with(("cover-playback", &track.id)), Sense::click()), if app.playing() { "Pause" } else { "Play" })
-        .on_hover_cursor(egui::CursorIcon::PointingHand);
-    let hover = theme::anim_bool(ui.ctx(), ("cover-playback-hover", &track.id), cover.hovered(), 0.16);
+    // Below the header, whose buttons a tall cover would otherwise sit on top of; a disc only
+    // answers on the disc, not in the corners of its square.
+    let hit = art.with_min_y(art.top().max(col.top()));
+    let cover = named(ui.interact(hit, ui.scope_id().with(("cover-playback", &track.id)), Sense::click()), if app.playing() { "Pause" } else { "Play" });
+    let on_art = !round || ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| p.distance(art.center()) <= art.width() / 2.0);
+    let cover = if on_art { cover.on_hover_cursor(egui::CursorIcon::PointingHand) } else { cover };
+    let hover = theme::anim_bool(ui.ctx(), ("cover-playback-hover", &track.id), cover.hovered() && on_art, 0.16);
     if hover > 0.0 {
-        ui.painter().rect_filled(art, cr, theme::shade(cs.hover_dim * hover));
+        if round {
+            ui.painter().circle_filled(art.center(), art.width() / 2.0, theme::shade(cs.hover_dim * hover));
+        } else {
+            ui.painter().rect_filled(art, cr, theme::shade(cs.hover_dim * hover));
+        }
         if !np.cover_play_bare {
             ui.painter().circle_filled(art.center(), np.cover_play_px / 2.0, theme::shade(0.58 * hover));
         }
         let grown = if np.cover_play_hover != 1.0 && ui.rect_contains_pointer(Rect::from_center_size(art.center(), Vec2::splat(np.cover_play_px))) { np.cover_play_hover } else { 1.0 };
         widgets::icon_at(ui, art.center(), if app.playing() || app.buffering { icon::PAUSE } else { icon::PLAY }, np.cover_play_px * 0.49 * grown, theme::with_alpha(Color32::WHITE, hover));
     }
-    if cover.clicked() { app.actions.push(Action::TogglePlay); }
+    if cover.clicked() && on_art { app.actions.push(Action::TogglePlay); }
     // Previous and next on the cover too, for themes that put the transport there. The bar still has them.
     let near_cover = ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| art.contains(p));
     if np.cover_progress && near_cover {
@@ -809,25 +783,24 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
             }
         }
     }
-    let w = side.min(col.width()).min(np.title_max_px.unwrap_or(f32::INFINITY));
-    let joined = np.title_card.is_some_and(|c| c.attached);
-    let title_y = art.bottom().min(col.bottom() - np.title_px - np.artist_px - 24.0) + if joined { 12.0 } else { 22.0 };
-    if np.tab_under_cover {
-        let y = (title_y + np.title_px * 1.4 + np.artist_px * 1.5 + 16.0).min(col.bottom() - np.tab_px);
-        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique("np-under-cover"), pos2(art.center().x, y)));
-    }
+    let [title_px, artist_px] = np.fullscreen_text_px.filter(|_| app.fullscreen).unwrap_or([np.title_px, np.artist_px]);
+    let title_card = np.fullscreen_title_card.filter(|_| app.fullscreen).or(np.title_card);
+    let pad = title_card.map_or(0.0, |c| c.pad);
+    let w = side.min(col.width()).min(np.title_max_px.unwrap_or(f32::INFINITY)) - pad * 2.0;
+    let joined = title_card.is_some_and(|c| c.attached);
+    let title_y = art.bottom().min(col.bottom() - title_px - artist_px - 24.0) + if joined { pad.max(12.0) } else { 22.0 };
     let line = track.artist_line();
-    if np.info_card {
+    if np.info_card && (app.fullscreen || !np.info_card_fullscreen_only) {
         info_card(app, ui, col, track);
-    } else if np.show_title {
+    } else if np.shows_title(app.fullscreen) {
         let (title_font, artist_font) = if np.title_lyric_font {
-            (theme::lyric_font(&look.lyrics.font, np.title_weight, np.title_px), theme::lyric_font(&look.lyrics.font, np.artist_weight, np.artist_px))
+            (theme::lyric_font(&look.lyrics.font, np.title_weight, title_px), theme::lyric_font(&look.lyrics.font, np.artist_weight, artist_px))
         } else {
-            (theme::weighted(np.fullscreen_title_weight.filter(|_| app.fullscreen).unwrap_or(np.title_weight), np.title_px), theme::weighted(np.artist_weight, np.artist_px))
+            (theme::weighted(np.fullscreen_title_weight.filter(|_| app.fullscreen).unwrap_or(np.title_weight), title_px), theme::weighted(np.artist_weight, artist_px))
         };
         // A card around the block, joined to the cover.
-        if let Some(card) = np.title_card {
-            let box_h = np.title_px * 1.4 + np.artist_px * 1.5 + 22.0;
+        if let Some(card) = title_card {
+            let box_h = title_px * 1.4 + artist_px * 1.5 + (pad * 2.0).max(22.0);
             let r = Rect::from_min_size(pos2(art.left(), if card.attached { art.bottom() } else { title_y - 11.0 }), vec2(art.width(), box_h));
             let corners = if card.attached { egui::CornerRadius { nw: 0, ne: 0, sw: card.radius as u8, se: card.radius as u8 } } else { egui::CornerRadius::same(card.radius as u8) };
             if let Some([y, blur, a]) = card.shadow {
@@ -852,9 +825,9 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         let at = |text: &str, font: egui::FontId, ui: &Ui| {
             let g = widgets::galley(ui, text, font, Color32::WHITE, w);
             match np.title_align {
-                crate::preset::Align::Left => art.left(),
+                crate::preset::Align::Left => art.left() + pad,
                 crate::preset::Align::Center => col.center().x - g.size().x / 2.0,
-                crate::preset::Align::Right => art.right() - g.size().x,
+                crate::preset::Align::Right => art.right() - pad - g.size().x,
             }
         };
         let title_x = at(&track.title, title_font.clone(), ui);
@@ -868,7 +841,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
             text_at(ui, pos2(title_x, title_y), &track.title, title_font, theme::with_alpha(Color32::WHITE, np.title_alpha), w);
         }
         // Each artist opens their own page (features included).
-        widgets::linked_text(ui, pos2(artist_x, title_y + np.title_px * 1.4), &line, &track.artists, artist_font, theme::with_alpha(theme::text_dim(), np.artist_alpha), w, &mut app.actions);
+        widgets::linked_text(ui, pos2(artist_x, title_y + title_px * 1.4), &line, &track.artists, artist_font, theme::with_alpha(theme::text_dim(), np.artist_alpha), w, &mut app.actions);
     }
     if no_lyrics && app.np_tab == NpTab::Lyrics {
         // A brief note, faded out after a few seconds.
@@ -877,7 +850,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         let a = if nl.stays { 1.0 } else { (1.0 - ((now - since - 3.0) / 1.0) as f32).clamp(0.0, 1.0) };
         if a > 0.0 {
             let c = theme::with_alpha(theme::text_dim(), a * 0.8);
-            let y = title_y + np.title_px * 1.4 + np.artist_px * 1.6;
+            let y = title_y + title_px * 1.4 + artist_px * 1.6;
             let message = if np.no_lyrics_text.is_empty() { "No lyrics for this song" } else { &np.no_lyrics_text };
             let y = if nl.icon {
                 widgets::icon_at(ui, pos2(art.center().x, y + nl.rem * 14.0), icon::MUSIC, nl.rem * 24.0, c);
@@ -990,7 +963,7 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
     let np = &look.now_playing;
     let (title_px, artist_px) = (np.title_px.min(22.0), np.artist_px.min(15.0));
     let line = track.artist_line();
-    if np.show_title {
+    if np.shows_title(app.fullscreen) {
         let x_of = |text: &str, font: egui::FontId, ui: &Ui| match np.title_align {
             crate::preset::Align::Left => picture.left(),
             crate::preset::Align::Center => picture.center().x - widgets::galley(ui, text, font, Color32::WHITE, fit.x).size().x / 2.0,
@@ -1016,7 +989,9 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
 fn video_line_pill(app: &App, ui: &Ui, picture: Rect) {
     let Some((id, set)) = app.lyrics.as_ref() else { return };
     let Some(lyrics) = app.lyric_prefs.choose(id, set).and_then(|p| set.get(p)) else { return };
-    let t = (app.audio.status.position_smooth().as_secs_f64() * 1000.0) as i32;
+    // As the lyrics panel has it: what's audible, on the listener's timing.
+    let pos = app.audio.status.position_smooth().as_secs_f64() - app.audio.status.latency().as_secs_f64();
+    let t = ((pos - app.lyric_prefs.offset(id, lyrics.provider, lyrics.sync == Sync::Word)) * 1000.0) as i32;
     let Some(line) = lyrics.lines.iter().find(|l| !l.instrumental && l.start <= t && t < l.start + l.dur) else { return };
     let g = widgets::galley(ui, &line.text, theme::semibold(15.0), Color32::WHITE, picture.width() - 64.0);
     let r = Rect::from_center_size(pos2(picture.center().x, picture.bottom() - 34.0), g.size() + vec2(24.0, 12.0));
@@ -1028,21 +1003,23 @@ fn video_line_pill(app: &App, ui: &Ui, picture: Rect) {
 }
 
 /// The video's colours, eased toward the latest frame's, across all of Now playing.
-fn paint_glow(app: &mut App, ui: &mut Ui, rect: Rect) {
+fn paint_glow(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, step: bool) {
     let Some(Glow { current, target, tex }) = &mut app.glow else { return };
-    let k = (ui.input(|i| i.stable_dt) * 2.5).clamp(0.0, 1.0);
-    for (c, t) in current.iter_mut().zip(target.iter()) {
-        for i in 0..3 {
-            c[i] += (t[i] - c[i]) * k;
+    if step {
+        let k = (ui.input(|i| i.stable_dt) * 2.5).clamp(0.0, 1.0);
+        for (c, t) in current.iter_mut().zip(target.iter()) {
+            for i in 0..3 {
+                c[i] += (t[i] - c[i]) * k;
+            }
         }
+        let [w, h] = crate::video::GLOW_SIZE;
+        let pixels = current.iter().map(|c| Color32::from_rgb(c[0] as u8, c[1] as u8, c[2] as u8)).collect();
+        tex.set(egui::ColorImage { size: [w, h], source_size: vec2(w as f32, h as f32), pixels }, egui::TextureOptions::LINEAR);
     }
-    let [w, h] = crate::video::GLOW_SIZE;
-    let pixels = current.iter().map(|c| Color32::from_rgb(c[0] as u8, c[1] as u8, c[2] as u8)).collect();
-    tex.set(egui::ColorImage { size: [w, h], source_size: vec2(w as f32, h as f32), pixels }, egui::TextureOptions::LINEAR);
     // Bigger than the view, so its coarse edges stay out of sight.
     let full = rect.expand2(rect.size() * 0.08);
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
-    let painter = ui.painter_at(rect);
+    let painter = ui.painter_at(clip);
     painter.image(tex.id(), full, uv, Color32::from_gray(150));
     painter.rect_filled(rect, 0.0, theme::shade(0.25));
 }
@@ -1050,6 +1027,10 @@ fn paint_glow(app: &mut App, ui: &mut Ui, rect: Rect) {
 /// The video's latest frame in a texture. Keeps the player, and the glow's colours, in
 /// step with what's playing.
 fn video_frame(app: &mut App, ctx: &egui::Context, track: &crate::model::Track) -> Option<egui::TextureHandle> {
+    // Nothing to show it on: `logic` has stopped the decoder and it stays stopped.
+    if app.window_hidden || app.mini.busy() {
+        return None;
+    }
     if app.video.as_ref().is_none_or(|(id, _)| *id != track.id) {
         app.video = Some((track.id.clone(), None));
         app.video_frame = None;
@@ -1205,10 +1186,13 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
     let out = if karaoke::dev_off("view") { karaoke::Out { seek: None, animating: true, user_scrolling: false } } else { view.show(ui, frame) };
     app.lyric_view = view;
     if let Some(s) = out.seek {
-        app.actions.push(Action::Seek(s as f32));
+        // The line's time on the player's clock: `t` above, the other way round.
+        let at = s + app.lyric_prefs.offset(id, lyrics.provider, lyrics.sync == Sync::Word) + app.audio.status.latency().as_secs_f64();
+        app.actions.push(Action::Seek(at.max(0.0) as f32));
     }
     if out.animating {
-        ui.ctx().request_repaint();
+        // Smooth, without following a fast monitor: frame rate is the main CPU and GPU cost.
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
     }
     // The extension's `.autoscroll-resume-button` (YouTube Music's rem is 10 px): a frosted
     // pill under the top edge in the lyrics font at 600, 1.75rem; padding .5rem 1rem;

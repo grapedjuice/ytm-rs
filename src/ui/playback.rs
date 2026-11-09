@@ -184,6 +184,7 @@ impl App {
         }
         log::info!("picking up {} from another device ({} in its queue)", track.id, q.tracks.len());
         self.queue.adopt(q.tracks, q.index);
+        self.ended = false;
         // Not a new play: an old song version mustn't come back with its video.
         self.playing_as = None;
         self.queue_source = None;
@@ -266,7 +267,17 @@ impl App {
         self.queue.started();
         self.resume_at = None;
         self.resume_counts = false;
+        self.ended = false;
+        let before = self.generation;
         self.generation += 1;
+        // The same play going on (a download that broke off, a video swapped for its song):
+        // Last.fm has heard of it, and it may have been scrobbled.
+        if !report
+            && let Some((g, _)) = &mut self.scrobble
+            && *g == before
+        {
+            *g = self.generation;
+        }
         self.audio.status.wanted_gen.store(self.generation, Ordering::Relaxed);
         let shown = carried.clone().unwrap_or_else(|| track.clone());
         self.audio.status.duration_ms.store(shown.duration.map_or(0, |d| d as u64 * 1000), Ordering::Relaxed);
@@ -317,7 +328,7 @@ impl App {
     /// Keep the queue topped up so autoplay never stalls at the end; a playlist still
     /// coming in goes first.
     pub(super) fn top_up(&mut self) {
-        if self.autoplay && !self.radio_pending && !self.jam.guest() && self.queue.fill.is_none() && self.queue.at_end()
+        if self.autoplay && !self.radio_pending && !self.jam.guest() && self.queue.fill.is_none() && self.queue.at_end() && self.queue.repeat != Repeat::All
             && let Some(t) = self.current().cloned()
         {
             self.radio_pending = true;

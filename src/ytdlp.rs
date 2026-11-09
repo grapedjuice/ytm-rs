@@ -59,6 +59,18 @@ async fn ensure(http: &reqwest::Client, data_dir: &Path) -> anyhow::Result<PathB
     Ok(bin)
 }
 
+/// Cookie files a crash left behind, with the session in them: nothing's using them at launch.
+pub fn remove_leftover_cookies(data_dir: &Path) {
+    let Ok(files) = std::fs::read_dir(data_dir) else { return };
+    for f in files.flatten() {
+        let name = f.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("cookies-") && name.ends_with(".txt") {
+            let _ = std::fs::remove_file(f.path());
+        }
+    }
+}
+
 pub async fn resolve(http: &reqwest::Client, data_dir: &Path, cookie: &str, video_id: &str) -> anyhow::Result<Stream> {
     let bin = ensure(http, data_dir).await?;
     let data_dir = data_dir.to_owned();
@@ -98,6 +110,7 @@ fn run(bin: &Path, data_dir: &Path, video_id: &str, cookie: &str) -> anyhow::Res
         .arg(&jar)
         .args(crate::proxy::ytdlp_args())
         .arg(format!("https://music.youtube.com/watch?v={video_id}"));
+    crate::proxy::ytdlp_env(&mut cmd);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

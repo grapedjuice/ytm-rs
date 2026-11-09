@@ -311,8 +311,8 @@ fn selection_bar(app: &mut App, ctx: &egui::Context, page: &Page, area: Rect) {
         .fixed_pos(pos2(area.center().x, area.bottom() - 18.0))
         .show(ctx, |ui| {
             egui::Frame::new()
-                .fill(theme::menu_fill())
-                .corner_radius(14)
+                .fill(theme::menu_fill_solid())
+                .corner_radius(ui.visuals().menu_corner_radius)
                 .inner_margin(egui::Margin { left: 20, right: 10, top: 8, bottom: 8 })
                 .shadow(egui::epaint::Shadow { offset: [0, 8], blur: 24, spread: 0, color: theme::shade(0.45) })
                 .show(ui, |ui| {
@@ -626,6 +626,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() && !tracks.is_empty() {
                         let mut t = tracks.clone();
                         super::shuffle(&mut t);
+                        super::actions::not_current_first(&mut t, app.queue.current());
                         acts.push(Action::Play(t, 0));
                     }
                     if let Some(first) = tracks.first()
@@ -729,6 +730,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() && !top.is_empty() {
             let mut t = top.clone();
             super::shuffle(&mut t);
+            super::actions::not_current_first(&mut t, app.queue.current());
             acts.push(Action::Play(t, 0));
         }
         if let Some(first) = top.first()
@@ -848,6 +850,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 if app.uploads.as_ref().is_some_and(|u| !u.is_empty()) && pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() {
                     let mut t = app.uploads.clone().unwrap_or_default();
                     super::shuffle(&mut t);
+                    super::actions::not_current_first(&mut t, app.queue.current());
                     app.actions.push(Action::Play(t, 0));
                 }
                 if let Some(up) = &app.uploads {
@@ -878,6 +881,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() {
                         let mut t = songs.clone();
                         super::shuffle(&mut t);
+                        super::actions::not_current_first(&mut t, app.queue.current());
                         app.actions.push(Action::Play(t, 0));
                     }
                 }
@@ -920,6 +924,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() {
                         let mut t = liked.clone();
                         super::shuffle(&mut t);
+                        super::actions::not_current_first(&mut t, app.queue.current());
                         app.actions.push(Action::Play(t, 0));
                     }
                     select_pill(ui, &mut app.selection, &app.page);
@@ -1343,7 +1348,8 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         setting_row(ui, "Font", Some("For the whole app and the lyrics. Any font installed on this PC works, e.g. one made for your language."), |ui| {
             if let Some(name) = font_picker(ui) {
                 theme::set_font_choice(&name);
-                app.chrome_applied = None;
+                // Applied again next frame. Not None: that's the first frame, which adds a texture loader.
+                app.chrome_applied = Some(String::new());
             }
         });
     });
@@ -1358,6 +1364,8 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
     ui.add_space(12.0);
     themes(app, ui);
     if was_theme != app.theme_id {
+        // The blur is baked into the art when it arrives: the same song needs it again.
+        app.art_key = None;
         app.request_art();
     }
 }
@@ -1371,7 +1379,11 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
         });
         divider(ui);
         setting_row(ui, "Collapse sidebar", Some("Show only icons in the sidebar, for narrow windows. The menu button at its top does the same."), |ui| {
-            toggle(ui, &mut app.sidebar_collapsed, "Collapse sidebar");
+            // What shows: a theme that starts as a rail turns the setting around.
+            let mut collapsed = super::shell::is_rail(app);
+            if toggle(ui, &mut collapsed, "Collapse sidebar").changed() {
+                app.sidebar_collapsed = !app.sidebar_collapsed;
+            }
         });
         divider(ui);
         let api = crate::renderer::api_name();
@@ -1678,9 +1690,20 @@ fn network(app: &mut App, ui: &mut Ui) {
     match &app.proxy_mode {
         Setting::System => {
             divider(ui);
-            let desc = match proxy::system() {
-                Some(p) => format!("Windows is set to use {}.", proxy::redact(&p)),
-                None => "Windows isn't set to use a proxy, so ytm-rs connects directly.".to_owned(),
+            // Read from the registry: every couple of seconds, not every frame.
+            let now = ui.input(|i| i.time);
+            let id = egui::Id::unique("windows-proxy-desc");
+            let cached = ui.data(|d| d.get_temp::<(f64, String)>(id)).filter(|(at, _)| now - at < 2.0);
+            let desc = match cached {
+                Some((_, desc)) => desc,
+                None => {
+                    let desc = match proxy::system() {
+                        Some(p) => format!("Windows is set to use {}.", proxy::redact(&p)),
+                        None => "Windows isn't set to use a proxy, so ytm-rs connects directly.".to_owned(),
+                    };
+                    ui.data_mut(|d| d.insert_temp(id, (now, desc.clone())));
+                    desc
+                }
             };
             setting_row(ui, "Windows proxy", Some(&desc), |_| {});
         }
@@ -2028,7 +2051,7 @@ pub(super) fn toggle(ui: &mut Ui, on: &mut bool, name: &str) -> egui::Response {
     ui.painter().rect_filled(rect, th / 2.0, theme::with_alpha(theme::lerp_color(off, accent, t), fade));
     if tl.outline && t < 1.0 {
         let line = match tl.off_outline {
-            Some([px, a]) => egui::Stroke::new(px, theme::with_alpha(Color32::WHITE, a * (1.0 - t) * fade)),
+            Some([px, a]) => egui::Stroke::new(px, theme::with_alpha(if theme::light() { Color32::BLACK } else { Color32::WHITE }, a * (1.0 - t) * fade)),
             None => egui::Stroke::new(1.5, theme::with_alpha(theme::text_dim(), (1.0 - t) * fade)),
         };
         ui.painter().rect_stroke(rect, th / 2.0, line, egui::StrokeKind::Inside);
@@ -2166,5 +2189,8 @@ fn theme_card(ui: &mut Ui, p: &crate::preset::Preset, w: f32, selected: bool, ac
     widgets::text_at(ui, pos2(rect.left() + 2.0, name_y), &p.name, theme::semibold(14.5), theme::text(), w - 4.0);
     let by = if p.creators.is_empty() { "Built in".to_owned() } else { format!("by {}", p.creators.join(", ")) };
     widgets::text_at(ui, pos2(rect.left() + 2.0, name_y + 20.0), &by, theme::regular(12.0), theme::text_faint(), w - 4.0);
-    resp.on_hover_text(format!("{}\n\nFrom: {}", p.blurb, p.source))
+    // Just where it comes from, on one small line: the card already has its name and maker.
+    resp.on_hover_ui(|ui| {
+        ui.add(egui::Label::new(egui::RichText::new(format!("From {}", p.source)).font(theme::regular(12.0)).color(theme::text_dim())).extend());
+    })
 }

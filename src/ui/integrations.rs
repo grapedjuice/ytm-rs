@@ -149,7 +149,7 @@ impl App {
         if enabled && due {
             self.update_checked = Some(now);
             u.check();
-        } else if enabled {
+        } else if enabled && !matches!(u.state(), State::Ready { .. }) {
             // An idle app doesn't repaint on its own: wake up when the next check is due.
             let next = self.update_checked.map_or(8.0, |t| t + 6.0 * 3600.0);
             ctx.request_repaint_after(Duration::from_secs_f64((next - now).max(0.5) + 0.1));

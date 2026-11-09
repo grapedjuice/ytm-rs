@@ -98,6 +98,8 @@ pub struct Background {
     pub beat_threshold: f32,
     /// Bright art is darkened by up to this much (`autoDimBrightArtwork`).
     pub auto_dim: f32,
+    /// Art this bright or darker isn't dimmed; `auto_dim` is reached at pure white.
+    pub auto_dim_from: f32,
     /// Noise that hides banding, in fractions of full brightness (`dithering`).
     pub dither: f32,
     /// How many times the art is blurred (`blurPasses`). The app's own art is about 6.
@@ -113,6 +115,16 @@ pub struct Background {
     pub fullbleed_fade: bool,
     /// The background's own values while a video drives it, where they differ from the art's.
     pub video: VideoBackdrop,
+    /// In full screen only, the cover fills the screen as `cover_fullbleed` does, at this
+    /// brightness, over this background.
+    pub fullscreen_fullbleed: Option<f32>,
+}
+
+impl Background {
+    /// Now playing's cover fills the screen behind it.
+    pub fn fullbleed(&self, fullscreen: bool) -> bool {
+        self.mode == BgMode::CoverFullbleed || (fullscreen && self.fullscreen_fullbleed.is_some())
+    }
 }
 
 /// What `video_backdrop` draws with, each falling back to the same setting for the art.
@@ -152,6 +164,7 @@ impl Default for Background {
             crossfade_delay: 0.0,
             beat_threshold: 0.0,
             auto_dim: 0.0,
+            auto_dim_from: 0.0,
             dither: 0.006,
             blur_passes: 6,
             video_backdrop: false,
@@ -159,6 +172,7 @@ impl Default for Background {
             np_contrast: 1.0,
             fullbleed_fade: false,
             video: VideoBackdrop::default(),
+            fullscreen_fullbleed: None,
         }
     }
 }
@@ -871,6 +885,20 @@ pub struct CoverFullscreen {
     pub brightness: Option<f32>,
     /// The cover small at the bottom left with the title beside it, the lyrics on the right.
     pub corner_layout: bool,
+    /// The cover's side and the layout here, in place of the usual.
+    pub side: Option<Side>,
+    pub layout: Option<Layout>,
+    /// Its radius as a fraction of its side, when `radius` isn't set.
+    pub radius_pct: Option<f32>,
+    /// Only the top corners are round here.
+    pub top_only: bool,
+}
+
+impl CoverStyle {
+    /// The layout, with what full screen changes.
+    pub fn layout_in(&self, fullscreen: bool) -> Layout {
+        self.fullscreen.filter(|_| fullscreen).and_then(|f| f.layout).unwrap_or(self.layout)
+    }
 }
 
 impl Default for CoverStyle {
@@ -1041,6 +1069,20 @@ pub struct NowPlayingStyle {
     pub fullscreen_progress_radius: f32,
     /// A cover's play button grows this much under the pointer.
     pub cover_play_hover: f32,
+    /// `info_card` only in full screen: elsewhere the usual title block.
+    pub info_card_fullscreen_only: bool,
+    /// `show_title` in full screen, when it differs.
+    pub fullscreen_show_title: Option<bool>,
+    /// `[title_px, artist_px]` under the cover in full screen, when they differ.
+    pub fullscreen_text_px: Option<[f32; 2]>,
+    /// `title_card` in full screen, in place of the usual.
+    pub fullscreen_title_card: Option<TitleCard>,
+}
+
+impl NowPlayingStyle {
+    pub fn shows_title(&self, fullscreen: bool) -> bool {
+        self.fullscreen_show_title.filter(|_| fullscreen).unwrap_or(self.show_title)
+    }
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -1107,11 +1149,13 @@ pub struct TitleCard {
     pub shadow: Option<[f32; 3]>,
     /// Joined to the cover above it: no gap, and square top corners.
     pub attached: bool,
+    /// Space between its edges and the text, px.
+    pub pad: f32,
 }
 
 impl Default for NowPlayingStyle {
     fn default() -> Self {
-        Self { tabs: TabStyle::Hover, title_align: Align::Center, title_px: 24.0, artist_px: 16.0, title_lyric_font: false, show_title: true, info_card: false, info_card_text_only: false, show_video_switch: true, video_radius: None, tab_content: TabContent::Labels, tab_idle_alpha: 1.0, tab_px: 34.0, tab_back: None, switch: SwitchLook::default(), title_alpha: 1.0, artist_alpha: 1.0, title_weight: Weight::Bold, artist_weight: Weight::Regular, title_card: None, info_card_look: [0.45, 14.0], panel_frac: None, cover_controls: false, video_lyrics: false, video_max_frac: None, no_lyrics_text: String::new(), no_lyrics: NoLyrics::default(), tab_label_px: 12.5, tab_edge: 0.0, tab_selected_color: String::new(), tab_glow: 0.0, tab_pill: None, tab_width_frac: None, video_panel_frac: None, video_pill: false, title_max_px: None, title_shadow: None, cover_buttons: [44.0, 0.5, 1.0], fullscreen_cover_buttons: None, tab_icon_px: 18.0, tab_bevel: None, fullscreen_panel_frac: None, fullscreen_padding: None, header_autohide: false, cover_play_px: 76.0, cover_play_bare: false, cover_progress: false, fullscreen_progress_px: 0.0, title_edge_fade: 0.0, tab_line_px: 1.5, tab_label_weight: Weight::Semibold, tab_label_selected: String::new(), tab_back_black: false, tab_ring: 0.0, tab_under_cover: false, info_card_top: false, info_card_margin: 0.0, info_card_weights: None, fullscreen_title_weight: None, fullscreen_panel_inset: None, fullscreen_progress_radius: 0.0, cover_play_hover: 1.0 }
+        Self { tabs: TabStyle::Hover, title_align: Align::Center, title_px: 24.0, artist_px: 16.0, title_lyric_font: false, show_title: true, info_card: false, info_card_text_only: false, show_video_switch: true, video_radius: None, tab_content: TabContent::Labels, tab_idle_alpha: 1.0, tab_px: 34.0, tab_back: None, switch: SwitchLook::default(), title_alpha: 1.0, artist_alpha: 1.0, title_weight: Weight::Bold, artist_weight: Weight::Regular, title_card: None, info_card_look: [0.45, 14.0], panel_frac: None, cover_controls: false, video_lyrics: false, video_max_frac: None, no_lyrics_text: String::new(), no_lyrics: NoLyrics::default(), tab_label_px: 12.5, tab_edge: 0.0, tab_selected_color: String::new(), tab_glow: 0.0, tab_pill: None, tab_width_frac: None, video_panel_frac: None, video_pill: false, title_max_px: None, title_shadow: None, cover_buttons: [44.0, 0.5, 1.0], fullscreen_cover_buttons: None, tab_icon_px: 18.0, tab_bevel: None, fullscreen_panel_frac: None, fullscreen_padding: None, header_autohide: false, cover_play_px: 76.0, cover_play_bare: false, cover_progress: false, fullscreen_progress_px: 0.0, title_edge_fade: 0.0, tab_line_px: 1.5, tab_label_weight: Weight::Semibold, tab_label_selected: String::new(), tab_back_black: false, tab_ring: 0.0, tab_under_cover: false, info_card_top: false, info_card_margin: 0.0, info_card_weights: None, fullscreen_title_weight: None, fullscreen_panel_inset: None, fullscreen_progress_radius: 0.0, cover_play_hover: 1.0, info_card_fullscreen_only: false, fullscreen_show_title: None, fullscreen_text_px: None, fullscreen_title_card: None }
     }
 }
 

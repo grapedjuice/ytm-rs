@@ -341,30 +341,6 @@ fn icon_turned(ui: &Ui, center: Pos2, glyph: char, size: f32, color: Color32, de
     ui.painter().add(egui::epaint::TextShape::new(pos, g, color).with_angle(angle));
 }
 
-/// A capsule catching the light, inset 1 px as `box-shadow: inset` is: `[top edge, ring, bottom edge]`
-/// in white alpha, the edges fading out toward the middle.
-pub fn bevel(painter: &egui::Painter, rect: Rect, radius: f32, [top, ring, bottom]: [f32; 3]) {
-    if ring > 0.0 {
-        painter.rect_stroke(rect, radius, egui::Stroke::new(1.0, theme::with_alpha(Color32::WHITE, ring)), egui::StrokeKind::Inside);
-    }
-    let r = rect.shrink(0.5);
-    let round = radius.min(r.height() / 2.0).min(r.width() / 2.0);
-    const CORNER: usize = 12;
-    let mut points = Vec::with_capacity(4 * (CORNER + 1));
-    for (i, c) in [pos2(r.right() - round, r.top() + round), pos2(r.right() - round, r.bottom() - round), pos2(r.left() + round, r.bottom() - round), pos2(r.left() + round, r.top() + round)].into_iter().enumerate() {
-        for k in 0..=CORNER {
-            let a = (i as f32 - 1.0 + k as f32 / CORNER as f32) * std::f32::consts::FRAC_PI_2;
-            points.push(c + vec2(a.cos(), a.sin()) * round);
-        }
-    }
-    let stroke = egui::epaint::PathStroke::new_uv(1.0, move |b: Rect, p: Pos2| {
-        let t = ((p.y - b.top()) / b.height().max(1.0)).clamp(0.0, 1.0);
-        let a = top * (1.0 - t / 0.4).max(0.0) + bottom * ((t - 0.6) / 0.4).max(0.0);
-        theme::with_alpha(Color32::WHITE, a)
-    });
-    painter.add(egui::epaint::PathShape { points, closed: true, fill: Color32::TRANSPARENT, stroke });
-}
-
 /// Rounded pill button. `primary` = white with dark text (YouTube Music's Play button).
 pub fn pill(ui: &mut Ui, label: &str, glyph: Option<char>, primary: bool) -> Response {
     // Laid out once; the colour is given when it's painted.
@@ -376,7 +352,7 @@ pub fn pill(ui: &mut Ui, label: &str, glyph: Option<char>, primary: bool) -> Res
     let c = &crate::preset::active().app.controls;
     let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
     let (fill, fg) = if primary && c.accent_primary {
-        (theme::lerp_color(accent, Color32::WHITE, 0.12 * h), if accent.r() as u32 + accent.g() as u32 + accent.b() as u32 > 480 { Color32::from_gray(15) } else { Color32::WHITE })
+        (theme::lerp_color(accent, Color32::WHITE, 0.12 * h), theme::on_fill(accent))
     } else if primary {
         if theme::light() { (theme::lerp_color(theme::text(), Color32::BLACK, h), Color32::WHITE) } else { (theme::lerp_color(Color32::from_gray(240), Color32::WHITE, h), Color32::from_gray(12)) }
     } else {
@@ -430,13 +406,14 @@ pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
     let radius = look.app.chip_radius.unwrap_or((look.chrome.radius * 0.55).clamp(4.0, 17.0));
     let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
     let (on_fill, on_fg) = match style {
-        ChipStyle::Accent => (accent, if accent.r() as u32 + accent.g() as u32 + accent.b() as u32 > 480 { Color32::from_gray(15) } else { Color32::WHITE }),
+        ChipStyle::Accent => (accent, theme::on_fill(accent)),
         ChipStyle::Tonal => (theme::glass(0.2), accent),
         ChipStyle::Ghost => (theme::glass(0.2), theme::text()),
         _ => (theme::text(), theme::on_text()),
     };
-    let on_fill = if chips.selected_fill.is_empty() { on_fill } else { theme::with_alpha(crate::preset::paint(&chips.selected_fill, accent), chips.selected_alpha) };
-    let on_fg = if chips.selected_text.is_empty() { on_fg } else { crate::preset::paint(&chips.selected_text, accent) };
+    // A theme's own selected colours are for dark pages, and go as a pair.
+    let on_fill = if chips.selected_fill.is_empty() || theme::light() { on_fill } else { theme::with_alpha(crate::preset::paint(&chips.selected_fill, accent), chips.selected_alpha) };
+    let on_fg = if chips.selected_text.is_empty() || theme::light() { on_fg } else { crate::preset::paint(&chips.selected_text, accent) };
     let (rest, more) = match style {
         ChipStyle::Outline => (0.0, 0.04),
         ChipStyle::Ghost => (0.1, 0.05),
@@ -463,7 +440,26 @@ pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
         }
         _ => {}
     }
-    let fg = theme::lerp_color(theme::text(), on_fg, s);
+    let off_fg = if chips.text_color.is_empty() || theme::light() { theme::text() } else { crate::preset::paint(&chips.text_color, accent) };
+    let fg = theme::lerp_color(off_fg, on_fg, s);
+    ui.painter().galley(rect.center() - text.size() / 2.0, text, fg);
+    resp
+}
+
+/// A selectable chip in the app's own look, whatever the theme. Now playing's tabs, always
+/// drawn dark.
+pub fn default_chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
+    let look = crate::preset::get(crate::preset::DEFAULT_ID);
+    let text = ui.painter().layout_no_wrap(label.to_owned(), theme::semibold(13.5), Color32::PLACEHOLDER);
+    let (rect, resp) = ui.allocate_exact_size(vec2(text.size().x + 28.0, 34.0), Sense::click());
+    let resp = named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
+    let s = theme::anim_bool(ui.ctx(), resp.id.with("s"), selected, 0.2);
+    let radius = (look.chrome.radius * 0.55).clamp(4.0, 17.0);
+    let off_fill = Color32::from_white_alpha(((0.09 + 0.06 * h) * 255.0) as u8);
+    ui.painter().rect_filled(rect, radius, theme::lerp_color(off_fill, theme::TEXT, s));
+    focus_ring(ui, &resp, rect, radius);
+    let fg = theme::lerp_color(theme::TEXT, Color32::from_gray(15), s);
     ui.painter().galley(rect.center() - text.size() / 2.0, text, fg);
     resp
 }
@@ -569,14 +565,24 @@ pub fn paint_disc(ui: &Ui, center: Pos2, r: f32, thumbs: &[Thumb], angle: f32, t
     let (uc, uh) = (uv.center(), uv.width() / 2.0);
     let mut mesh = egui::Mesh::with_texture(texture.id);
     mesh.vertices.push(egui::epaint::Vertex { pos: center, uv: uc, color: tint });
-    let n = 96;
+    let ppp = ui.ctx().pixels_per_point();
+    // Enough sides that a big disc doesn't show them, and an edge that fades over about
+    // a pixel: a mesh isn't antialiased, so a hard edge shows as steps.
+    let n = ((r * ppp * 0.75) as u32).clamp(96, 480);
+    let feather = 1.0 / ppp;
+    let (inner, outer) = (|i: u32| 1 + 2 * i, |i: u32| 2 + 2 * i);
     for i in 0..=n {
         let a = i as f32 / n as f32 * std::f32::consts::TAU;
         let (s, c) = a.sin_cos();
         let (sr, cr) = (a - angle).sin_cos();
-        mesh.vertices.push(egui::epaint::Vertex { pos: center + vec2(c, s) * r, uv: uc + vec2(cr * uh, sr * uv.height() / 2.0), color: tint });
+        let rim = uc + vec2(cr * uh, sr * uv.height() / 2.0);
+        mesh.vertices.push(egui::epaint::Vertex { pos: center + vec2(c, s) * (r - feather / 2.0), uv: rim, color: tint });
+        mesh.vertices.push(egui::epaint::Vertex { pos: center + vec2(c, s) * (r + feather / 2.0), uv: rim, color: Color32::TRANSPARENT });
         if i > 0 {
-            mesh.add_triangle(0, i, i + 1);
+            let p = i - 1;
+            mesh.add_triangle(0, inner(p), inner(i));
+            mesh.add_triangle(inner(p), outer(p), inner(i));
+            mesh.add_triangle(outer(p), outer(i), inner(i));
         }
     }
     ui.painter().add(egui::Shape::mesh(mesh));
@@ -873,7 +879,39 @@ pub fn song_actions(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, 
 
 /// Soft drop shadow under a rounded rect (e.g. artwork).
 pub fn soft_shadow(ui: &Ui, rect: Rect, radius: f32, blur: f32, alpha: f32) {
-    let s = egui::epaint::Shadow { offset: [0, (blur * 0.35) as i8], blur: blur as u8, spread: 0, color: theme::shade(alpha) };
+    shadow_dropped(ui, rect, radius, blur, alpha, (blur * 0.35) as i8);
+}
+
+/// [`soft_shadow`] exactly where `rect` is, for a caller that already moved it by the theme's own offset.
+pub fn soft_shadow_placed(ui: &Ui, rect: Rect, radius: f32, blur: f32, alpha: f32) {
+    shadow_dropped(ui, rect, radius, blur, alpha, 0);
+}
+
+/// A soft round shadow for a disc of any size, fading out over `blur` past its edge.
+pub fn disc_shadow(ui: &Ui, center: Pos2, r: f32, blur: f32, alpha: f32) {
+    const RINGS: usize = 8;
+    const STEPS: usize = 120;
+    let mut mesh = egui::Mesh::default();
+    for ring in 0..=RINGS {
+        let t = ring as f32 / RINGS as f32;
+        let fade = (1.0 - t) * (1.0 - t);
+        for i in 0..STEPS {
+            let (s, c) = (i as f32 / STEPS as f32 * std::f32::consts::TAU).sin_cos();
+            mesh.colored_vertex(center + vec2(c, s) * (r - 4.0 + (blur + 4.0) * t), theme::shade(alpha * fade));
+        }
+    }
+    let at = |ring: usize, i: usize| (ring * STEPS + i % STEPS) as u32;
+    for ring in 0..RINGS {
+        for i in 0..STEPS {
+            mesh.add_triangle(at(ring, i), at(ring, i + 1), at(ring + 1, i));
+            mesh.add_triangle(at(ring, i + 1), at(ring + 1, i + 1), at(ring + 1, i));
+        }
+    }
+    ui.painter().add(egui::Shape::mesh(mesh));
+}
+
+fn shadow_dropped(ui: &Ui, rect: Rect, radius: f32, blur: f32, alpha: f32, drop: i8) {
+    let s = egui::epaint::Shadow { offset: [0, drop], blur: blur as u8, spread: 0, color: theme::shade(alpha) };
     ui.painter().add(s.as_shape(rect, CornerRadius::same(radius as u8)));
 }
 
@@ -1054,10 +1092,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     let rect = rect.translate(vec2(0.0, -rl.hover_lift * h));
     if h > 0.0 || o.current {
         let a = if o.current { rl.current + 0.05 * h } else { rl.hover * h };
-        let fill = match crate::preset::hex(&rl.current_color).filter(|_| o.current) {
-            Some(c) => theme::with_alpha(c, a),
-            None => theme::glass(a),
-        };
+        let fill = if o.current && !rl.current_color.is_empty() { theme::with_alpha(crate::preset::paint(&rl.current_color, o.accent), a) } else { theme::glass(a) };
         fill_rounded(ui, rect, rl.radius, fill);
         let outline = crate::preset::active().app.controls.ghost_outline.max(rl.hover_border);
         if outline > 0.0 && h > 0.0 {

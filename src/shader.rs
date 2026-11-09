@@ -24,6 +24,7 @@ uniform float u_dim;
 uniform float u_contrast;
 uniform float u_dither;
 uniform float u_rotate;
+uniform float u_alpha;
 uniform vec2 u_resolution;
 IN vec2 v_uv;
 #if NEW_SHADER_INTERFACE
@@ -72,14 +73,18 @@ void main() {
     float s = sin(u_rotate), k = cos(u_rotate);
     uv = mat2(k, s, -s, k) * (uv - 0.5) + 0.5;
   }
-  float t = u_time * 0.05;
-  float centerWeight = 1.0 - smoothstep(0.0, 0.7, length(uv - 0.5));
-  float n1 = snoise(uv * 0.35 + vec2(t, t * 0.7));
-  float n2 = snoise(uv * 0.35 + vec2(-t * 0.8, t * 0.5) + vec2(50.0, 50.0));
-  float n3 = snoise(uv * 0.9 + vec2(t * 1.2, -t) + vec2(100.0, 0.0));
-  float n4 = snoise(uv * 0.9 + vec2(-t, t * 1.1) + vec2(0.0, 100.0));
-  vec2 warp = vec2(n1 * 0.65 + n3 * 0.35, n2 * 0.65 + n4 * 0.35) * centerWeight;
-  vec2 w = clamp(uv + warp * u_intensity, 0.0, 1.0);
+  // A still background (intensity 0) skips the noise: that's most of this shader's cost.
+  vec2 w = clamp(uv, 0.0, 1.0);
+  if (u_intensity != 0.0) {
+    float t = u_time * 0.05;
+    float centerWeight = 1.0 - smoothstep(0.0, 0.7, length(uv - 0.5));
+    float n1 = snoise(uv * 0.35 + vec2(t, t * 0.7));
+    float n2 = snoise(uv * 0.35 + vec2(-t * 0.8, t * 0.5) + vec2(50.0, 50.0));
+    float n3 = snoise(uv * 0.9 + vec2(t * 1.2, -t) + vec2(100.0, 0.0));
+    float n4 = snoise(uv * 0.9 + vec2(-t, t * 1.1) + vec2(0.0, 100.0));
+    vec2 warp = vec2(n1 * 0.65 + n3 * 0.35, n2 * 0.65 + n4 * 0.35) * centerWeight;
+    w = clamp(uv + warp * u_intensity, 0.0, 1.0);
+  }
 
   vec3 color = mix(TEX(u_b, w).rgb, TEX(u_a, w).rgb, u_blend);
 
@@ -91,7 +96,8 @@ void main() {
   color *= u_dim;
   // Dither to hide banding in the smooth gradients.
   color += (hash(vec3(floor(v_uv * u_resolution), floor(u_time * 30.0))) - 0.5) * u_dither;
-  FRAG = vec4(color, 1.0);
+  // Premultiplied, as egui blends: under 1 it shows what was painted before it.
+  FRAG = vec4(color * u_alpha, u_alpha);
 }
 "#;
 
@@ -119,7 +125,7 @@ struct U {
   contrast: f32,
   dither: f32,
   rotate: f32,
-  pad: f32,
+  alpha: f32,
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var tex_a: texture_2d<f32>;
@@ -179,14 +185,17 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let k = cos(u.rotate);
     uv = mat2x2<f32>(k, s, -s, k) * (uv - 0.5) + 0.5;
   }
-  let t = u.time * 0.05;
-  let centerWeight = 1.0 - smoothstep(0.0, 0.7, length(uv - 0.5));
-  let n1 = snoise(uv * 0.35 + vec2<f32>(t, t * 0.7));
-  let n2 = snoise(uv * 0.35 + vec2<f32>(-t * 0.8, t * 0.5) + vec2<f32>(50.0, 50.0));
-  let n3 = snoise(uv * 0.9 + vec2<f32>(t * 1.2, -t) + vec2<f32>(100.0, 0.0));
-  let n4 = snoise(uv * 0.9 + vec2<f32>(-t, t * 1.1) + vec2<f32>(0.0, 100.0));
-  let warp = vec2<f32>(n1 * 0.65 + n3 * 0.35, n2 * 0.65 + n4 * 0.35) * centerWeight;
-  let w = clamp(uv + warp * u.intensity, vec2<f32>(0.0), vec2<f32>(1.0));
+  var w = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+  if (u.intensity != 0.0) {
+    let t = u.time * 0.05;
+    let centerWeight = 1.0 - smoothstep(0.0, 0.7, length(uv - 0.5));
+    let n1 = snoise(uv * 0.35 + vec2<f32>(t, t * 0.7));
+    let n2 = snoise(uv * 0.35 + vec2<f32>(-t * 0.8, t * 0.5) + vec2<f32>(50.0, 50.0));
+    let n3 = snoise(uv * 0.9 + vec2<f32>(t * 1.2, -t) + vec2<f32>(100.0, 0.0));
+    let n4 = snoise(uv * 0.9 + vec2<f32>(-t, t * 1.1) + vec2<f32>(0.0, 100.0));
+    let warp = vec2<f32>(n1 * 0.65 + n3 * 0.35, n2 * 0.65 + n4 * 0.35) * centerWeight;
+    w = clamp(uv + warp * u.intensity, vec2<f32>(0.0), vec2<f32>(1.0));
+  }
 
   var color = mix(textureSample(tex_b, samp, w).rgb, textureSample(tex_a, samp, w).rgb, u.blend);
 
@@ -197,7 +206,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   color = (color - 0.5) * u.contrast + 0.5;
   color = color * u.dim;
   color = color + (hash(vec3<f32>(floor(in.uv * u.resolution), floor(u.time * 30.0))) - 0.5) * u.dither;
-  return vec4<f32>(color, 1.0);
+  return vec4<f32>(color * u.alpha, u.alpha);
 }
 "#;
 
@@ -216,6 +225,8 @@ pub struct Params {
     pub dither: f32,
     /// Radians.
     pub rotate: f32,
+    /// Under 1, what was painted before shows through (1 replaces it).
+    pub alpha: f32,
 }
 
 struct Gl {
@@ -225,11 +236,11 @@ struct Gl {
     /// Index of the texture holding the current art.
     cur: usize,
     /// Uniform locations, looked up once: u_a, u_b, u_blend, u_time, u_intensity,
-    /// u_scale, u_saturation, u_dim, u_resolution, u_contrast, u_dither, u_rotate.
-    loc: [Option<glow::UniformLocation>; 12],
+    /// u_scale, u_saturation, u_dim, u_resolution, u_contrast, u_dither, u_rotate, u_alpha.
+    loc: [Option<glow::UniformLocation>; 13],
 }
 
-const UNIFORMS: [&str; 12] = ["u_a", "u_b", "u_blend", "u_time", "u_intensity", "u_scale", "u_saturation", "u_dim", "u_resolution", "u_contrast", "u_dither", "u_rotate"];
+const UNIFORMS: [&str; 13] = ["u_a", "u_b", "u_blend", "u_time", "u_intensity", "u_scale", "u_saturation", "u_dim", "u_resolution", "u_contrast", "u_dither", "u_rotate", "u_alpha"];
 
 /// The wgpu side, kept in egui-wgpu's callback resources.
 struct Wgpu {
@@ -296,7 +307,7 @@ impl Background {
             fragment: Some(wgpu::FragmentState {
                 module: &module,
                 entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState { format: rs.target_format, blend: Some(wgpu::BlendState::REPLACE), write_mask: wgpu::ColorWrites::ALL })],
+                targets: &[Some(wgpu::ColorTargetState { format: rs.target_format, blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })],
                 compilation_options: Default::default(),
             }),
             multiview_mask: None,
@@ -433,7 +444,7 @@ impl Background {
                 }
                 gl.use_program(Some(s.program));
                 gl.bind_vertex_array(Some(s.vao));
-                let [a, b, blend, time, intensity, scale, saturation, dim, resolution, contrast, dither, rotate] = s.loc.each_ref();
+                let [a, b, blend, time, intensity, scale, saturation, dim, resolution, contrast, dither, rotate, alpha] = s.loc.each_ref();
                 gl.active_texture(glow::TEXTURE0);
                 gl.bind_texture(glow::TEXTURE_2D, Some(s.tex[s.cur]));
                 gl.uniform_1_i32(a.as_ref(), 0);
@@ -450,6 +461,7 @@ impl Background {
                 gl.uniform_1_f32(contrast.as_ref(), p.contrast);
                 gl.uniform_1_f32(dither.as_ref(), p.dither);
                 gl.uniform_1_f32(rotate.as_ref(), p.rotate);
+                gl.uniform_1_f32(alpha.as_ref(), p.alpha);
                 let vp = info.viewport_in_pixels();
                 gl.uniform_2_f32(resolution.as_ref(), vp.width_px as f32, vp.height_px as f32);
                 gl.draw_arrays(glow::TRIANGLES, 0, 3);
@@ -498,7 +510,7 @@ impl eframe::egui_wgpu::CallbackTrait for WgpuPaint {
         }
         let p = &self.p;
         let px = self.rect.size() * screen.pixels_per_point;
-        let u = [p.blend, p.time, p.intensity, p.scale, p.saturation, p.dim, px.x, px.y, p.contrast, p.dither, p.rotate, 0.0];
+        let u = [p.blend, p.time, p.intensity, p.scale, p.saturation, p.dim, px.x, px.y, p.contrast, p.dither, p.rotate, p.alpha];
         queue.write_buffer(&s.uniforms, 0, &u.iter().flat_map(|f| f.to_ne_bytes()).collect::<Vec<u8>>());
         Vec::new()
     }

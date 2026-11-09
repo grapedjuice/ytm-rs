@@ -7,21 +7,10 @@
   "blurb": "The album cover fills the screen's height on the left and fades toward the lyrics, with a small card for the song in the corner and sung lines blurred away.",
   "source": "Better Lyrics: mukeenanyafiq/recover-theme 1.3.8",
   "background": {
-    "mode": "cover_fullbleed",
-    "np_dim": 1,
+    "fullscreen_fullbleed": 1,
     "fade": [
       0,
       1
-    ],
-    "overlays": [
-      {
-        "color": "cover",
-        "alpha": 0.18,
-        "x": 0.8,
-        "y": 0.5,
-        "rx": 0.5,
-        "ry": 0.7
-      }
     ]
   },
   "lyrics": {
@@ -60,14 +49,16 @@
     "instrumental_rem": 4
   },
   "cover": {
-    "layout": "lyrics_only",
     "radius": 10,
+    "max_frac": 0.8,
     "fullscreen": {
-      "radius": 0
+      "radius": 0,
+      "layout": "lyrics_only"
     }
   },
   "now_playing": {
     "info_card": true,
+    "info_card_fullscreen_only": true,
     "info_card_text_only": true,
     "info_card_look": [
       0.5,

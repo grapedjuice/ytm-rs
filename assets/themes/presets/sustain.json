@@ -9,6 +9,8 @@
   "background": {
     "mode": "kawarp",
     "np_dim": 0.75,
+    "auto_dim": 0.55,
+    "auto_dim_from": 0.5,
     "intensity": 1,
     "speed": 3.33,
     "saturation": 2,
@@ -136,7 +138,7 @@
     ]
   },
   "cover": {
-    "side": "right",
+    "fullscreen": { "side": "right", "max_px": 576 },
     "radius": 20,
     "max_px": 576,
     "shadow": 0.1,
@@ -158,7 +160,7 @@
   "now_playing": {
     "title_align": "left",
     "title_px": 25,
-    "artist_alpha": 0.5,
+    "artist_alpha": 0.75,
     "panel_frac": [
       0.5,
       0.45
@@ -177,7 +179,7 @@
     "byline_marquee": true,
     "marquee_fade": 18,
     "transport_shift": 0,
-    "transport_shift_frac": 0.028
+    "transport_shift_frac": 0
   },
   "app": {
     "font": "DM Sans",
@@ -190,7 +192,6 @@
       "segmented": [10, 3.75, 3]
     },
     "nav_item": {
-      "rail": true,
       "radius": 15,
       "hover": 0.085,
       "selected": 0.085,

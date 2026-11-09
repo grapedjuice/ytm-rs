@@ -99,7 +99,7 @@
     "long_glow_alpha": 1.0,
     "glow_rem": 1.0,
     "background_em": 0.65,
-    "romanization_rem": 1.6,
+    "romanization_rem": 2.0,
     "romanization_alpha": 0.2,
     "romanization_pill": false,
     "translation_rem": 2.0,
@@ -164,7 +164,6 @@
     "progress_px": 3,
     "progress_radius": 100,
     "bar_layout": "song_middle",
-    "time_at": "under_transport",
     "track_block": [0.1, 4],
     "side_alpha": 0.75,
     "transport_scale": 0.8,
@@ -198,7 +197,6 @@
     "nav_item": {
       "radius": 6,
       "hover": 0.0,
-      "title_rows": 24,
       "hide_divider": true,
       "playlists_label": "Playlists",
       "playlists_plus": true

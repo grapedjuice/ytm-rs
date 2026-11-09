@@ -237,7 +237,8 @@ impl Lists {
             Some(o) => {
                 // Liked Music has each song once; one liked here meanwhile is at its top already.
                 if id == LIKED_MUSIC {
-                    (tracks, set_ids) = tracks.into_iter().zip(set_ids).filter(|(t, _)| !o.c.tracks.iter().any(|x| x.id == t.id)).unzip();
+                    let have: HashSet<&str> = o.c.tracks.iter().map(|x| x.id.as_str()).collect();
+                    (tracks, set_ids) = tracks.into_iter().zip(set_ids).filter(|(t, _)| !have.contains(t.id.as_str())).unzip();
                 }
                 o.c.tracks.extend(tracks.iter().cloned());
                 o.c.set_ids.extend(set_ids);
@@ -385,6 +386,11 @@ impl RecentEdits {
         if let Some((_, age)) = self.removals.get_mut(playlist) {
             age.confirmed = Some(Instant::now());
         }
+    }
+
+    /// YouTube Music refused a removal from this playlist: what it lists stands.
+    pub fn removal_failed(&mut self, playlist: &str) {
+        self.removals.remove(playlist);
     }
 
     fn prune(&mut self) {

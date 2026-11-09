@@ -333,6 +333,8 @@ pub struct App {
     output_device: Option<(String, String)>,
     output_devices: Vec<crate::audio::OutputDevice>,
     radio_pending: bool,
+    /// The last song ended with nothing after it: radio carries on from there.
+    ended: bool,
     seek_drag: Option<f32>,
 
     // visuals
@@ -613,6 +615,7 @@ impl App {
             restart_app: false,
             media_cover: Default::default(),
             radio_pending: false,
+            ended: false,
             seek_drag: None,
             art_key: None,
             art_changed: -10.0,
@@ -860,14 +863,8 @@ impl App {
             Some(custom) => custom,
             None => self.look().accent(self.accent),
         };
-        if theme::light() {
-            // A pale cover colour would barely show on light pages: deepen it.
-            let luma = 0.299 * c.r() as f32 + 0.587 * c.g() as f32 + 0.114 * c.b() as f32;
-            if luma > 150.0 {
-                return theme::lerp_color(c, Color32::BLACK, ((luma - 150.0) / 105.0 * 0.45).min(0.45));
-            }
-        }
-        c
+        // A pale cover colour would barely show on light pages: deepen it.
+        if theme::light() { theme::deepen(c, theme::bg(), 3.0) } else { c }
     }
 
     /// Whether pages draw light: Settings › Appearance › Mode, in any theme.
@@ -992,6 +989,12 @@ impl eframe::App for App {
         self.mini.tick(ctx, now);
         self.tray_window(ctx);
         self.window_hidden = self.tray.is_some() || ctx.input(|i| i.viewport().minimized == Some(true));
+        // Nothing takes a video's frames now, while its decoder would go on working in bursts.
+        if (self.window_hidden || self.mini.busy()) && self.video.take().is_some() {
+            self.video_frame = None;
+            self.glow = None;
+            self.restore_art();
+        }
         self.sync_discord();
         self.sync_lastfm();
         self.sync_server_queue(ctx, now);
@@ -1011,10 +1014,9 @@ impl eframe::App for App {
             }
         }
         // Frame pacing: idle costs nothing. The background drifts slowly, so ~15 fps
-        // reads as smooth on pages; the now-playing view runs at 30 fps (25 on a page
-        // showing the playing row's bars), and the synced
-        // lyrics ask for every frame while they animate (the karaoke sweep must be
-        // smooth). Each egui frame re-lays-out the UI, so frame rate is the main CPU cost.
+        // reads as smooth on pages; the now-playing view and a page showing the playing
+        // row's bars run at 30 fps, and the synced lyrics ask for 60 while they animate
+        // (the karaoke sweep must be smooth). Each egui frame re-lays-out the UI, so frame rate is the main CPU cost.
         let playing = self.playing();
         if self.window_hidden {
             // In the tray or minimized: nothing to draw, only the player bookkeeping.
@@ -1024,8 +1026,7 @@ impl eframe::App for App {
         } else if self.np_open && playing && !self.mini.busy() {
             ctx.request_repaint_after(Duration::from_millis(33));
         } else if playing && widgets::equalizer_shown(ctx) {
-            // The playing row's bars need a steady, full rate to read as smooth.
-            ctx.request_repaint_after(Duration::from_millis(16));
+            ctx.request_repaint_after(Duration::from_millis(33));
         } else if playing && self.anim_bg && shell::pages_bg_moves(self.look()) {
             ctx.request_repaint_after(Duration::from_millis(66));
         } else if playing || self.buffering {
@@ -1042,11 +1043,22 @@ impl eframe::App for App {
 
         self.sync_look();
         let look = self.look();
-        // Now playing is dark; once it's most of the way up, so is the player bar under it.
-        let np = theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), look.app.np_open_secs);
-        let light = self.light_pages(&ctx) && np < 0.5 && !self.fullscreen;
+        // A spring's overshoot isn't for this: it would say "covered" before it is.
+        let np = theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), look.app.np_open_secs).min(1.0);
+        // The pages keep their mode while now playing slides over them. Now playing is dark;
+        // once it's most of the way up, so are the player bar and what opens over it.
+        let light = self.light_pages(&ctx) && !self.fullscreen;
+        let bar_light = light && np < 0.5;
         theme::set_mode(&ctx, light);
-        crate::backdrop::follow(crate::backdrop::shows(), light);
+        // The mini player, or nothing but the background while the window changes size.
+        let layout = self.mini.layout(&ctx);
+        // Only the player bar shows the window's material once the pages are covered.
+        crate::backdrop::follow(crate::backdrop::shows(), light && (np < 1.0 || layout != mini::Layout::Full));
+        // The installed fonts arrived: the theme's can be loaded now. Not the first frame,
+        // which is applying anyway and adds a texture loader.
+        if self.chrome_applied.is_some() && theme::fonts_became_ready() {
+            self.chrome_applied = Some(String::new());
+        }
         if self.chrome_applied.as_deref() != Some(look.id.as_str()) {
             if self.chrome_applied.is_none() {
                 ctx.add_texture_loader(Arc::new(crate::images::Textures::default()));
@@ -1062,8 +1074,6 @@ impl eframe::App for App {
         let covered = !self.fullscreen && np >= 1.0;
         let bar_strip = egui::Rect::from_min_max(egui::pos2(screen.left(), screen.bottom() - self.bar_height()), screen.max);
         titlebar::set_fullscreen(&ctx, self.fullscreen);
-        // The mini player, or nothing but the background while the window changes size.
-        let layout = self.mini.layout(&ctx);
         if layout != mini::Layout::Full {
             shell::background(self, ui, screen, now, None);
             if layout == mini::Layout::Mini {
@@ -1076,13 +1086,23 @@ impl eframe::App for App {
             dev_screenshot(&ctx, now);
             return;
         }
-        shell::background(self, ui, screen, now, covered.then_some(bar_strip));
+        // Full-screen now playing paints over all of it.
+        if !(self.fullscreen && np >= 1.0) {
+            shell::background(self, ui, screen, now, covered.then_some(bar_strip));
+        }
+        if !self.fullscreen && np > 0.001 {
+            // What shows around and through the player bar carries on from now playing above it.
+            let pages = theme::set_mode(&ctx, false);
+            nowplaying::backdrop(self, ui, screen, bar_strip, now, false);
+            theme::set_mode(&ctx, pages);
+        }
         if !self.fullscreen && !covered {
             // The top of the window, down to the search box's row: what's on it comes after.
             titlebar::drag_area(ui, egui::Rect::from_min_size(screen.min, egui::vec2(screen.width(), titlebar::HEIGHT)), "main");
         }
         let mut floating_slot = None;
         if !self.fullscreen {
+            let pages = theme::set_mode(&ctx, bar_light);
             let floating = look.chrome.player_bar == crate::preset::PlayerBar::Floating;
             let bar_alpha = app_style.bar_alpha.clamp(0.0, 1.0);
             let frame = if floating {
@@ -1104,6 +1124,9 @@ impl eframe::App for App {
                 .frame(frame)
                 .show_separator_line(false)
                 .show(ui, |ui| {
+                    if bar_light != light {
+                        ui.style_mut().visuals = ctx.global_style().visuals.clone();
+                    }
                     if floating {
                         // Drawn over the page once that's down, for it to frost.
                         floating_slot = Some(ui.max_rect());
@@ -1111,6 +1134,7 @@ impl eframe::App for App {
                     }
                     shell::player_bar(self, ui, now)
                 });
+            theme::set_mode(&ctx, pages);
         }
         if !self.fullscreen && !covered {
             use crate::preset::SidebarStyle;
@@ -1141,13 +1165,23 @@ impl eframe::App for App {
                         let r = ui.max_rect().expand2(egui::vec2(14.0, 0.0));
                         let band = egui::Rect::from_min_size(egui::pos2(r.left(), screen.top()), egui::vec2(r.width(), px));
                         let b = &look.background;
-                        bg.paint(&ui.painter().with_clip_rect(band), screen, crate::shader::Params { time: 0.0, blend: 1.0, intensity: 0.0, saturation: b.saturation, dim: a, scale: b.scale, contrast: 1.0, dither: b.dither, rotate: 0.0 });
+                        bg.paint(&ui.painter().with_clip_rect(band), screen, crate::shader::Params { time: 0.0, blend: 1.0, intensity: 0.0, saturation: b.saturation, dim: a, scale: b.scale, contrast: 1.0, dither: b.dither, rotate: 0.0, alpha: 1.0 });
                         shell::vgradient(ui.painter(), band, Color32::TRANSPARENT, shell::base_color(self));
                     }
                     shell::sidebar(self, ui)
                 });
-            let q = theme::anim_bool(&ctx, "queue-drawer", self.queue_open && !self.np_open, 0.25);
-            if q > 0.01 {
+            let q = theme::anim_bool(&ctx, "queue-drawer", self.queue_open && !self.np_open, 0.25).min(1.0);
+            if q > 0.01 && screen.width() < 1000.0 {
+                // No room to give it without crushing the page: it floats over that instead.
+                let r = egui::Rect::from_min_size(egui::pos2(screen.right() - 340.0 * q, screen.top()), egui::vec2(340.0, screen.height() - self.bar_height()));
+                egui::Area::new(egui::Id::unique("queue-float")).order(egui::Order::Middle).fixed_pos(r.min).show(&ctx, |ui| {
+                    ui.allocate_rect(r, egui::Sense::click_and_drag());
+                    ui.painter().rect_filled(r, 0.0, theme::panel(0.94));
+                    let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(egui::vec2(14.0, 16.0))));
+                    inner.set_clip_rect(r);
+                    shell::queue_drawer(self, &mut inner);
+                });
+            } else if q > 0.01 {
                 egui::Panel::right("queue").resizable(false)
                     .exact_size(340.0 * q)
                     .frame(egui::Frame::new().fill(theme::panel(0.42)).inner_margin(egui::Margin::symmetric(14, 16)))
@@ -1190,13 +1224,23 @@ impl eframe::App for App {
         if let Some(r) = floating_slot {
             let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(r));
             bar.set_clip_rect(screen);
+            let pages = theme::set_mode(&ctx, bar_light);
+            if bar_light != light {
+                bar.style_mut().visuals = ctx.global_style().visuals.clone();
+            }
             shell::floating_bar(self, &mut bar, r, now);
-        }
-        if np > 0.001 {
-            let pages = theme::set_mode(&ctx, false);
-            nowplaying::overlay(self, &ctx, now);
             theme::set_mode(&ctx, pages);
         }
+        if np > 0.001 {
+            theme::set_mode(&ctx, false);
+            nowplaying::overlay(self, &ctx, now);
+        } else if self.video.take().is_some() {
+            // Now playing's closed, and its own cleanup only runs while it's drawn.
+            self.video_frame = None;
+            self.glow = None;
+            self.restore_art();
+        }
+        theme::set_mode(&ctx, bar_light);
         self.draw_dialog(&ctx);
         notes::card(self, &ctx);
         notes::dialog(self, &ctx);
@@ -1214,6 +1258,8 @@ impl eframe::App for App {
         } else {
             dev_screenshot(&ctx, now);
         }
+        // Next frame's root starts from the pages' mode.
+        theme::set_mode(&ctx, light);
     }
 
     /// Dev hook: `YTM_FAKE_POINTER=x,y` parks a synthetic pointer there, for testing
@@ -1241,6 +1287,7 @@ impl eframe::App for App {
             }
         }
         smooth_wheel(self, ctx, raw);
+        frame_pace(raw);
         if let Some((x, y)) = dev_var("YTM_FAKE_POINTER").and_then(|v| {
             let (x, y) = v.split_once(',')?;
             Some((x.trim().parse::<f32>().ok()?, y.trim().parse::<f32>().ok()?))
@@ -1356,6 +1403,20 @@ impl eframe::App for App {
 }
 
 const SESSION_KEY: &str = "session";
+
+/// The pointer moving wakes a frame per event, up to the monitor's rate, and each of those
+/// asks for more: frames wait for 60 fps unless the listener is doing something that wants
+/// every frame (clicking, typing, scrolling).
+fn frame_pace(raw: &egui::RawInput) {
+    use egui::Event as E;
+    static LAST: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+    let mut last = LAST.lock().unwrap();
+    let acting = raw.events.iter().any(|e| matches!(e, E::PointerButton { .. } | E::MouseWheel { .. } | E::Key { .. } | E::Text(_) | E::Ime(_) | E::Zoom(_) | E::Touch { .. }));
+    if !acting && let Some(wait) = last.and_then(|l| Duration::from_millis(16).checked_sub(l.elapsed())) {
+        std::thread::sleep(wait);
+    }
+    *last = Some(std::time::Instant::now());
+}
 
 /// Start this exe again once this process has saved and exited.
 fn relaunch() {

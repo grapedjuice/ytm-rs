@@ -302,6 +302,8 @@ pub enum Resp {
     LikedMany { video_ids: Vec<String>, failed: Vec<String>, like: bool, others: Vec<String> },
     PlaylistCreated { id: String, songs: usize },
     PlaylistChanged { id: String, message: &'static str },
+    /// Songs weren't taken out of this playlist, though they've left it here already.
+    RemoveFailed { id: String, error: String },
     /// YouTube Music answered a song dragged to a new place.
     PlaylistMoved { id: String, move_id: u64, ok: bool },
     Collaboration(ytm::Collaboration),
@@ -521,6 +523,7 @@ impl Backend {
             .build()?;
         std::fs::create_dir_all(&storage)?;
         let data_dir = storage;
+        ytdlp::remove_leftover_cookies(&data_dir);
         let http = crate::proxy::http();
         let lyrics = Arc::new(lyrics::Client::new(http.clone(), &data_dir));
         let translate = Arc::new(crate::translate::Client::new(http, &data_dir));
@@ -562,7 +565,7 @@ impl Backend {
     async fn check_session(&self) {
         // Several requests answered at once ask together; one check is enough.
         static CHECKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-        let _one = CHECKING.lock().await;
+        let Ok(_one) = CHECKING.try_lock() else { return };
         if self.api.account().is_none() {
             return;
         }
@@ -810,9 +813,17 @@ impl Backend {
                 }
                 Req::Like { video_id, like } => {
                     let epoch = api.epoch();
-                    ytm::set_like(api, &video_id, like).await?;
-                    let other = if like { None } else { ytm::remove_other_half_like(api, &video_id, epoch).await? };
-                    Resp::Liked { video_id, like, other }
+                    match ytm::set_like(api, &video_id, like).await {
+                        Ok(_) => {
+                            let other = if like { None } else { ytm::remove_other_half_like(api, &video_id, epoch).await? };
+                            Resp::Liked { video_id, like, other }
+                        }
+                        // Shown as done already: told apart, so it comes back as it was.
+                        Err(e) => {
+                            log::warn!("like={like} of {video_id}: {e:#}");
+                            Resp::LikedMany { video_ids: Vec::new(), failed: vec![video_id], like, others: Vec::new() }
+                        }
+                    }
                 }
                 Req::UnlikeBoth { song, video } => {
                     let epoch = api.epoch();
@@ -837,8 +848,13 @@ impl Backend {
                 }
                 Req::LikeMany { video_ids, like } => self.like_many(video_ids, like).await?,
                 Req::Dislike(video_id) => {
-                    ytm::dislike(api, &video_id).await?;
-                    Resp::Liked { video_id, like: false, other: None }
+                    match ytm::dislike(api, &video_id).await {
+                        Ok(_) => Resp::Liked { video_id, like: false, other: None },
+                        Err(e) => {
+                            log::warn!("disliking {video_id}: {e:#}");
+                            Resp::LikedMany { video_ids: Vec::new(), failed: vec![video_id], like: false, others: Vec::new() }
+                        }
+                    }
                 }
                 Req::CreatePlaylist { title, video_ids } => {
                     let id = match video_ids.as_slice() {
@@ -857,8 +873,13 @@ impl Backend {
                     Resp::PlaylistChanged { id: playlist_id, message: "Added to playlist" }
                 }
                 Req::RemoveFromPlaylist { playlist_id, items } => {
-                    ytm::remove_videos(api, &playlist_id, &items).await?;
-                    Resp::PlaylistChanged { id: playlist_id, message: "Removed from playlist" }
+                    match ytm::remove_videos(api, &playlist_id, &items).await {
+                        Ok(_) => Resp::PlaylistChanged { id: playlist_id, message: "Removed from playlist" },
+                        Err(e) => {
+                            log::warn!("removing from playlist {playlist_id}: {e:#}");
+                            Resp::RemoveFailed { id: playlist_id, error: format!("Couldn't remove from the playlist: {e}") }
+                        }
+                    }
                 }
                 Req::MoveInPlaylist { playlist_id, move_id, set_id, before } => {
                     let epoch = api.epoch();

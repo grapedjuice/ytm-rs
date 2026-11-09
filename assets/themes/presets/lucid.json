@@ -177,6 +177,7 @@
   },
   "app": {
     "font": "SF Pro Display",
+    "all_bold": true,
     "page_bg": "same",
     "page_dim": 0.68,
     "sidebar": "glass",

@@ -10,6 +10,8 @@
   "background": {
     "mode": "kawarp",
     "np_dim": 0.57,
+    "auto_dim": 0.55,
+    "auto_dim_from": 0.5,
     "intensity": 1.0,
     "speed": 1.0,
     "saturation": 2.0,
@@ -171,7 +173,8 @@
     "progress_thumb": false,
     "progress_track": 0.15,
     "play_button": "bare",
-    "bar_layout": "song_middle"
+    "bar_layout": "song_middle",
+    "bar_np_alpha": 0
   },
   "app": {
     "page_bg": "static",

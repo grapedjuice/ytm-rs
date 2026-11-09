@@ -145,11 +145,16 @@
     "resume_text_px": 14
   },
   "cover": {
-    "radius": 16,
-    "size_vh": 0.55,
-    "shadow": 0.4,
-    "shadow_blur": 50,
-    "shadow_offset": 20,
+    "radius": 12,
+    "shadow": 0.5,
+    "shadow_blur": 30,
+    "shadow_offset": 8,
+    "max_px": 400,
+    "fullscreen": {
+      "radius": 16,
+      "size_vh": 0.55,
+      "shadow": 0.4
+    },
     "open_scale": 0.2,
     "open_secs": 0.75,
     "open_slide": 0.6,
@@ -179,6 +184,7 @@
   },
   "chrome": {
     "bar_height": 64,
+    "bar_layout": "song_middle",
     "bar_color": "#141414",
     "progress_at": "top",
     "progress_px": 8,
@@ -191,7 +197,6 @@
       4
     ],
     "thumb_px": 47,
-    "time_at": "under_transport",
     "transport_gap": 0.8,
     "transport_scale": 1.12,
     "play_scale": 0.8,
@@ -232,7 +237,6 @@
       "hover": 0.1,
       "selected": 0.15,
       "slide": 8,
-      "title_rows": 24,
       "hide_divider": true,
       "playlists_label": "Playlists",
       "playlists_plus": true,

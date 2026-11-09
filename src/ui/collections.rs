@@ -62,6 +62,10 @@ impl App {
             }
         }
         self.lists.set_liked(tracks, like);
+        // The rows moved: picks are by row number.
+        if self.page_list() == Some(LIKED_MUSIC) {
+            self.selection.clear();
+        }
     }
 
     /// Play a kept album or playlist from the start; one still coming in fills the queue

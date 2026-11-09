@@ -36,7 +36,6 @@
     "tab_line_px": 3
   },
   "chrome": {
-    "glass": 0.7,
     "radius": 4,
     "progress_radius": 4,
     "progress_px": 4,

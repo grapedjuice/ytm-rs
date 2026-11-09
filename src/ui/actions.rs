@@ -79,6 +79,10 @@ impl App {
             }
             Action::Go(p) => self.go(p),
             Action::QueueJump(i) => {
+                // Its row may be gone: the queue changed since it was clicked.
+                if i >= self.queue.tracks.len() {
+                    return;
+                }
                 self.play_pending = None;
                 self.queue.index = Some(i);
                 self.play_current();
@@ -189,6 +193,8 @@ impl App {
                 let playlist_id = c.id.clone();
                 match c.move_row(from, gap) {
                     Some((set_id, before)) => {
+                        // Picked rows go by number.
+                        self.selection.clear();
                         let move_id = self.lists.move_sent(&playlist_id);
                         self.backend.request(Req::MoveInPlaylist { playlist_id, move_id, set_id, before });
                     }
@@ -257,7 +263,11 @@ impl App {
         // focused button or slider they still skip and change the volume.
         let editing = ctx.text_edit_focused();
         let i = ctx.input(|i| {
-            let k = |key| !typing && i.key_pressed(key);
+            // Once per press, and not with Ctrl+F and the like, which mean something else.
+            let k = |key: egui::Key| {
+                !typing
+                    && i.events.iter().any(|e| matches!(e, egui::Event::Key { key: which, pressed: true, repeat: false, modifiers, .. } if *which == key &&!modifiers.ctrl && !modifiers.alt && !modifiers.command))
+            };
             let ctrl = |key| !editing && i.modifiers.ctrl && i.key_pressed(key);
             (
                 k(egui::Key::Space),
@@ -305,7 +315,8 @@ impl App {
         if full && self.np_open {
             self.set_fullscreen(ctx, !self.fullscreen);
         }
-        if esc {
+        // A menu or dialog that's open takes this Esc for itself.
+        if esc && !egui::Popup::is_any_open(ctx) && ctx.memory(|m| m.top_modal_layer()).is_none() {
             if self.row_drag.take().is_some() {
                 // Just the drag.
             } else if self.fullscreen {
@@ -340,6 +351,14 @@ impl App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(on));
         }
         ctx.request_repaint();
+    }
+}
+
+/// A shuffled list about to play: not with the song already playing first, whose Play
+/// would only pause it.
+pub(super) fn not_current_first(t: &mut [Track], current: Option<&Track>) {
+    if t.len() > 1 && current.is_some_and(|c| c.id == t[0].id) {
+        t.swap(0, 1);
     }
 }
 

@@ -40,14 +40,12 @@
     "instrumental_rem": 4
   },
   "cover": {
-    "side": "right",
     "radius": 20,
-    "fullscreen": { "width_frac": 1 }
+    "fullscreen": { "width_frac": 1, "side": "right" }
   },
   "now_playing": {
     "title_align": "center",
-    "title_px": 24,
-    "artist_px": 24,
+    "fullscreen_text_px": [24, 24],
     "video_lyrics": true,
     "video_max_frac": 0.6,
     "title_shadow": [0, 0.2],

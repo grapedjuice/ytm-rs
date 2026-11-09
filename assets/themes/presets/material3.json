@@ -23,9 +23,19 @@
     "opacity_transition": {
       "frac": 0,
       "secs": 0.5,
-      "delay": 0.35
+      "delay": 0
     },
     "blur_transition": {
+      "frac": 0,
+      "secs": 0.5,
+      "delay": 0
+    },
+    "past_opacity_transition": {
+      "frac": 0,
+      "secs": 0.5,
+      "delay": 0.35
+    },
+    "past_blur_transition": {
       "frac": 0,
       "secs": 0.5,
       "delay": 0.35

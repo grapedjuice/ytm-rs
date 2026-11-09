@@ -303,13 +303,30 @@ pub fn webview(b: wry::WebViewBuilder<'_>, unbound: bool) -> wry::WebViewBuilder
     b
 }
 
-/// For yt-dlp: `--proxy <url>`, or `--proxy ""` (direct) when the proxy is off.
+/// For yt-dlp: `--proxy <url>`, or `--proxy ""` (direct) when the proxy is off. One with
+/// a password goes by `ytdlp_env` instead: other programs can read a command line.
 pub fn ytdlp_args() -> Vec<String> {
     match (active(), active().resolve()) {
-        (_, Some(p)) => vec!["--proxy".into(), p.to_string()],
+        (_, Some(p)) if !has_login(&p) => vec!["--proxy".into(), p.to_string()],
         (Setting::Off, None) => vec!["--proxy".into(), String::new()],
         _ => vec![],
     }
+}
+
+/// A proxy with a login, in the environment yt-dlp reads when it isn't given `--proxy`.
+pub fn ytdlp_env(cmd: &mut std::process::Command) {
+    let Some(p) = active().resolve().filter(has_login) else { return };
+    let url = p.to_string();
+    // Lowercase wins on Unix; on Windows these are the same variables.
+    for name in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
+        cmd.env(name, &url);
+    }
+    // Like `--proxy`, for everything.
+    cmd.env_remove("NO_PROXY").env_remove("no_proxy");
+}
+
+fn has_login(p: &url::Url) -> bool {
+    !p.username().is_empty() || p.password().is_some()
 }
 
 /// A TCP connection to `host:port`, through the active proxy when there is one.

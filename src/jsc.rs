@@ -22,6 +22,8 @@ const CORE: &str = include_str!("../assets/ejs/yt.solver.core.min.js");
 const IDLE: Duration = Duration::from_secs(20);
 /// YouTube rolls out new player versions every few days.
 const PLAYER_TTL: Duration = Duration::from_secs(3600);
+/// Far longer than preparing a player or a solve takes, even on a slow machine.
+const JS_LIMIT: Duration = Duration::from_secs(60);
 
 #[derive(Clone)]
 pub struct Player {
@@ -152,7 +154,8 @@ impl Solver {
                                 }
                             }
                         }
-                        let (.., ctx) = loaded.as_ref().unwrap();
+                        let (_, rt, ctx) = loaded.as_ref().unwrap();
+                        watchdog(rt);
                         let _ = reply.send(solve(ctx, n, sig));
                     }
                     Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => return,
@@ -175,10 +178,18 @@ fn js_err(ctx: &rquickjs::Ctx, e: rquickjs::Error) -> anyhow::Error {
     }
 }
 
+/// Stop what `rt` runs from now on after `JS_LIMIT`: YouTube's script hanging would
+/// otherwise hold up every song's solve for good.
+fn watchdog(rt: &Runtime) {
+    let deadline = Instant::now() + JS_LIMIT;
+    rt.set_interrupt_handler(Some(Box::new(move || Instant::now() >= deadline)));
+}
+
 /// Parse the player and extract its solver functions into a standalone script.
 fn preprocess(base: &str) -> anyhow::Result<String> {
     let rt = Runtime::new()?;
     rt.set_max_stack_size(64 << 20);
+    watchdog(&rt);
     let ctx = Context::full(&rt)?;
     ctx.with(|ctx| {
         let input = serde_json::json!({"type": "player", "player": base, "output_preprocessed": true, "requests": []});
@@ -193,6 +204,7 @@ fn load(path: &Path) -> anyhow::Result<(Runtime, Context)> {
     let t = std::time::Instant::now();
     let rt = Runtime::new()?;
     rt.set_max_stack_size(64 << 20);
+    watchdog(&rt);
     let ctx = Context::full(&rt)?;
     let cached = path.with_extension("qbc");
     let fresh = match std::fs::read(&cached) {
@@ -213,6 +225,7 @@ fn load(path: &Path) -> anyhow::Result<(Runtime, Context)> {
 fn compile(pre: &str) -> anyhow::Result<Vec<u8>> {
     let rt = Runtime::new()?;
     rt.set_max_stack_size(64 << 20);
+    watchdog(&rt);
     let ctx = Context::full(&rt)?;
     // QuickJS's parser wants a NUL after the source.
     let src = format!("var _r = {{n: null, sig: null}};\n(function (_result) {{\n{pre}\n}})(_r);\n\0");

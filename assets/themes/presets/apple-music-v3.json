@@ -19,7 +19,8 @@
     "audio_speed": 4.5,
     "scrim": 0.3,
     "layer": {
-      "opacity": 0.55
+      "opacity": 0.55,
+      "saturate": 0.5
     },
     "scrim_gradient": [
       0.15,
@@ -109,8 +110,11 @@
   },
   "cover": {
     "radius": 20,
-    "top_only": true,
+    "fullscreen": { "top_only": true, "max_px": 640 },
     "shadow2": [12, 13, 0.09],
+    "shadow3": [-12, 30, 0.06],
+    "shadow4": [4, 6, 0.06],
+    "shadow5": [-3, 5, 0.04],
     "shadow": 0.1,
     "shadow_blur": 55,
     "shadow_offset": 54,
@@ -120,6 +124,7 @@
     ]
   },
   "now_playing": {
+    "panel_frac": [0.42, 0.5],
     "tabs": "strip",
     "title_align": "left",
     "title_px": 25,
@@ -127,14 +132,15 @@
     "tab_px": 50,
     "tab_idle_alpha": 0.35,
     "tab_pill": 0.15,
-    "artist_alpha": 0.5,
-    "title_card": {
+    "artist_alpha": 0.75,
+    "fullscreen_title_card": {
       "fill": 0.05,
       "stroke": 0.15,
       "radius": 20,
       "dashed": true,
       "shadow": [20, 20, 0.1],
-      "attached": true
+      "attached": true,
+      "pad": 20
     }
   },
   "chrome": {
@@ -161,7 +167,7 @@
     "thumb_radius": 10,
     "bar_title_px": 15,
     "bar_title_weight": "bold",
-    "bar_byline_alpha": 0.45,
+    "bar_byline_alpha": 0.7,
     "bar_shadow": [
       10,
       40,
@@ -186,8 +192,8 @@
     "menu_radius": 16,
     "menu_border": 0.15,
     "search_radius": 100,
-    "search_alpha": 0.1,
-    "search_border": 0.08,
+    "search_alpha": 0,
+    "search_border": 0,
     "glass": {
       "top_bar": [10, 2, 1],
       "bar": [25, 1.5, 1],
@@ -218,7 +224,7 @@
       ]
     },
     "search_look": {
-      "max_px": 1000,
+      "max_px": 720,
       "drop_radius": 8,
       "drop_ring": 0.12,
       "item_radius": 4
@@ -226,7 +232,7 @@
     "top_bar": {
       "capsule_px": 1400.0,
       "capsule": [
-        0.75,
+        0.88,
         27
       ]
     },

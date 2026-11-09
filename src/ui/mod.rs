@@ -492,6 +492,8 @@ pub struct App {
     tray_failed: bool,
     /// × has hidden the window behind the tray icon.
     in_tray: bool,
+    /// Wayland: the minimized window has lost focus, so focus means it's back.
+    tray_left_focus: bool,
     /// Closing for real (Quit from the tray, restart to update): don't hide.
     exiting: bool,
     /// Minimized, or hidden in the tray: the window's geometry isn't worth saving.
@@ -634,6 +636,7 @@ impl App {
             tray: None,
             tray_failed: false,
             in_tray: false,
+            tray_left_focus: false,
             exiting: false,
             window_hidden: false,
             good_window: get("window"),
@@ -980,7 +983,7 @@ impl eframe::App for App {
         if crate::backdrop::active() == crate::backdrop::Backdrop::None { Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32() } else { [0.0; 4] }
     }
 
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         pace::frame(ctx);
         self.lyric_view.release_hidden(ctx.cumulative_pass_nr());
         let now = ctx.input(|i| i.time);
@@ -1057,7 +1060,7 @@ impl eframe::App for App {
             self.set_mini(ctx, on, now);
         }
         self.mini.tick(ctx, now);
-        self.tray_window(ctx);
+        self.tray_window(ctx, frame);
         self.window_hidden = self.in_tray || ctx.input(|i| i.viewport().minimized == Some(true));
         self.sync_discord();
         self.sync_lastfm();

@@ -292,6 +292,7 @@ impl AudioHandle {
 /// A seek that needs a new decoder built over the stream buffer (off the audio thread).
 struct SeekJob {
     shared: Arc<Shared>,
+    prepared: Option<Receiver<anyhow::Result<TrackDecoder>>>,
     pos: Duration,
     /// For a live seek (a jam): the host position and when it was, to catch up after the build.
     live: Option<(Duration, std::time::Instant)>,
@@ -301,9 +302,10 @@ struct SeekJob {
 
 /// Build a decoder for `j` (it may wait for the download) and hand it to the audio thread.
 fn build_seek(j: SeekJob, tx: &Sender<AudioCmd>, events: &Sender<AudioEvent>) {
-    let SeekJob { shared, pos, live, generation, seek } = j;
+    let SeekJob { shared, prepared, pos, live, generation, seek } = j;
     let seekable = !pos.is_zero();
-    let res = stream::decoder(shared.clone(), seekable).map_err(|e| e.to_string()).and_then(|mut d| {
+    let decoder = prepared.and_then(|rx| rx.recv().ok()).unwrap_or_else(|| stream::decoder(shared.clone(), seekable));
+    let res = decoder.map_err(|e| e.to_string()).and_then(|mut d| {
         // Building it may have waited for the download: catch up.
         let pos = live.map_or(pos, |(p, at)| p + at.elapsed());
         if seekable {
@@ -606,6 +608,8 @@ fn run(
     let mut offset = Duration::ZERO;
     // Whether the playing decoder can seek in place (it indexed the whole file).
     let mut seekable = false;
+    // Long AAC files need an index before seeking. Prepare it while they play.
+    let mut prepared_seek: Option<Receiver<anyhow::Result<TrackDecoder>>> = None;
     // Latest seek; a slower, older seek's decoder must not land after a newer one.
     let mut seek_seq: u64 = 0;
     let seek_job: Arc<std::sync::Mutex<Option<SeekJob>>> = Default::default();
@@ -654,6 +658,15 @@ fn run(
                 current = generation;
                 offset = at;
                 seekable = !at.is_zero();
+                prepared_seek = None;
+                if !seekable && !s.opus && s.duration_ms >= 20 * 60 * 1000 {
+                    let (sender, receiver) = crossbeam_channel::bounded(1);
+                    let shared = s.clone();
+                    std::thread::spawn(move || {
+                        let _ = sender.send(stream::decoder(shared, true));
+                    });
+                    prepared_seek = Some(receiver);
+                }
                 ending_sent = false;
                 status.stream_ms.store(s.duration_ms, Ordering::Relaxed);
                 status.started_gen.store(generation, Ordering::Release);
@@ -713,6 +726,7 @@ fn run(
                 let old = std::mem::replace(&mut player, Player::connect_new(&output.mixer));
                 fading.push(Fading { player: old, shared: shared.take(), out: fade_out.clone(), waiting: Some((Instant::now(), left)) });
                 current = 0;
+                prepared_seek = None;
                 status.playing.store(false, Ordering::Relaxed);
                 status.set_position(0);
             }
@@ -738,6 +752,7 @@ fn run(
                     fading.clear();
                 }
                 current = 0;
+                prepared_seek = None;
                 // Also stops a seek still waiting on this download.
                 if let Some(old) = shared.take() {
                     old.cancel();
@@ -774,7 +789,8 @@ fn run(
                 if let Some(s) = shared.clone() {
                     // One builder at a time, always for the latest seek: a burst of seeks
                     // (a jam catching up) mustn't pile up threads waiting on the download.
-                    *seek_job.lock().unwrap() = Some(SeekJob { shared: s, pos, live, generation: current, seek: seek_seq });
+                    let prepared = if pos.is_zero() { None } else { prepared_seek.take() };
+                    *seek_job.lock().unwrap() = Some(SeekJob { shared: s, prepared, pos, live, generation: current, seek: seek_seq });
                     if !seek_busy.swap(true, Ordering::AcqRel) {
                         let (job, busy, tx, events) = (seek_job.clone(), seek_busy.clone(), tx.clone(), events.clone());
                         std::thread::spawn(move || {

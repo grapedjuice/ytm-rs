@@ -1342,6 +1342,8 @@ impl eframe::App for App {
                 egui::Area::new(egui::Id::unique("queue-float")).order(egui::Order::Middle).fixed_pos(r.min).show(&ctx, |ui| {
                     ui.allocate_rect(r, egui::Sense::click_and_drag());
                     ui.painter().rect_filled(r, 0.0, theme::panel(0.94));
+                    // Its top is still the window's top: the window moves by it, around the heading.
+                    titlebar::drag_area(ui, egui::Rect::from_min_size(r.min, egui::vec2(r.width(), titlebar::HEIGHT)), "queue-float");
                     let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(egui::vec2(14.0, 16.0))));
                     inner.set_clip_rect(r);
                     shell::queue_drawer(self, &mut inner);

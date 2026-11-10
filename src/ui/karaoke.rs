@@ -1694,95 +1694,110 @@ impl View {
                     None => xf,
                 };
                 animating |= paint_instrumental(&painter, &mut self.glow, &ctx, &cfg, b, &bxf, t, f.now, st, dim * opacity, line_w - cfg.size * 0.5) && (f.playing || st.exit.is_some());
-            } else if blur > 0.05 {
-                // `filter: blur()` on the whole line: its text, romanization and translation.
-                let r = (blur * 4.0).round() / 4.0;
-                // Shown from here without an entrance when the line goes sharp.
-                for d in &b.decos {
-                    self.deco_born.entry(d.id).or_insert(f.now - 10.0);
+            } else {
+                // A line being sung comes in sharp over its blurred copy as that clears: the copy
+                // can't show words lit, and they'd all turn up at once when the blur ran out.
+                let sharp = if blur <= 0.05 {
+                    1.0
+                } else if on {
+                    // Against the most it can have been blurred by: as the next line, the last one, or the theme's own start.
+                    let from = [cfg.blur_from, up_t.first().map(|u| u[1]), past_t.first().map(|u| u[1])].into_iter().flatten().fold(0.05, f32::max);
+                    1.0 - (blur / from).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                if blur > 0.05 {
+                    // `filter: blur()` on the whole line: its text, romanization and translation.
+                    let r = (blur * 4.0).round() / 4.0;
+                    // Shown from here without an entrance when the line goes sharp.
+                    for d in &b.decos {
+                        self.deco_born.entry(d.id).or_insert(f.now - 10.0);
+                    }
+                    // What the image shows besides the radius and scale `blurred_line` checks: the
+                    // line's wrap and text size, and the alpha baked into it, in steps.
+                    let line_key = hash((image_key, ((dim * 64.0).round() / 64.0).to_bits(), ppp.to_bits()));
+                    // What goes in the image is only gathered when it has to be made.
+                    let made = self.glow.cached_line(&ctx, (line_key, i), r, scale).or_else(|| {
+                        let deco_words: Vec<(&Word, f32)> = b
+                            .decos
+                            .iter()
+                            .flat_map(|d| match &d.body {
+                                DecoBody::Timed { words, .. } => words.iter().map(|w| (w, dim)).collect::<Vec<_>>(),
+                                DecoBody::Text(..) => vec![],
+                            })
+                            .collect();
+                        let texts: Vec<(Arc<Galley>, Pos2, f32)> = b
+                            .decos
+                            .iter()
+                            .filter_map(|d| match &d.body {
+                                DecoBody::Text(text, font) => {
+                                    let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), d.wrap, (cfg.deco_tracking, cfg.deco_lh), b.align));
+                                    let pad = if d.roman { vec2(cfg.deco_rem() * 0.75 + 1.0, cfg.deco_rem() * 0.25 + 1.0) } else { Vec2::ZERO };
+                                    Some((g, d.rect.min + pad, if d.roman { cfg.roman_alpha } else { cfg.trans_alpha }))
+                                }
+                                DecoBody::Timed { .. } => None,
+                            })
+                            .collect();
+                        let words: Vec<(&Word, f32)> = b.words.iter().map(|w| (w, if w.bg { dim * cfg.bg_alpha } else { dim })).chain(deco_words).collect();
+                        // The romanization pill is part of the line, so it's blurred with it.
+                        let pills: Vec<(Rect, f32)> = b.decos.iter().filter(|d| d.pill).map(|d| (d.rect, cfg.deco_rem())).collect();
+                        self.glow.blurred_line(&ctx, (line_key, i), r, &words, &texts, &pills, scale, atlas, ppp)
+                    });
+                    if let Some((tex, rr, uv)) = made {
+                        // Rendered at the line's scale; snapped so it lands 1:1 on screen pixels.
+                        let to = xf.rect(rr);
+                        let snapped = (to.min.to_vec2() * ppp).round() / ppp;
+                        painter.image(tex, to.translate(snapped - to.min.to_vec2()), uv, theme::with_alpha(dim_tint, opacity * (1.0 - sharp)));
+                    }
+                    animating |= st.exit.is_some();
                 }
-                // What the image shows besides the radius and scale `blurred_line` checks: the
-                // line's wrap and text size, and the alpha baked into it, in steps.
-                let line_key = hash((image_key, ((dim * 64.0).round() / 64.0).to_bits(), ppp.to_bits()));
-                // What goes in the image is only gathered when it has to be made.
-                let made = self.glow.cached_line(&ctx, (line_key, i), r, scale).or_else(|| {
-                    let deco_words: Vec<(&Word, f32)> = b
-                        .decos
-                        .iter()
-                        .flat_map(|d| match &d.body {
-                            DecoBody::Timed { words, .. } => words.iter().map(|w| (w, dim)).collect::<Vec<_>>(),
-                            DecoBody::Text(..) => vec![],
-                        })
-                        .collect();
-                    let texts: Vec<(Arc<Galley>, Pos2, f32)> = b
-                        .decos
-                        .iter()
-                        .filter_map(|d| match &d.body {
+                if sharp > 0.0 {
+                    let opacity = opacity * sharp;
+                    let mut lit = LitState::new(&cfg, st, t, f.now, sung_now || st.selected, b.start);
+                    if let Some(c) = f.lyrics.lines[li].agent.as_deref().and_then(|a| a.strip_prefix('v')?.parse::<usize>().ok()).and_then(|n| cfg.agent_glow.get(n.checked_sub(1)?)) {
+                        lit.glow = *c;
+                    }
+                    let tints = (b.colors.0, dim_tint);
+                    paint_words(&painter, &ctx, &cfg, &b.words, &b.groups, &xf, &lit, dim, opacity, tints, atlas, &mut glow_work, (f.key, i, 0));
+                    for (k, d) in b.decos.iter().enumerate() {
+                        let born = *self.deco_born.entry(d.id).or_insert(f.now);
+                        let [enter_y, enter_x, enter_secs, enter_delay] = cfg.deco_enter;
+                        let enter_delay = enter_delay + if d.roman { 0.0 } else { cfg.trans_delay };
+                        let enter = ((f.now - born - enter_delay as f64) / enter_secs.max(0.01) as f64).clamp(0.0, 1.0) as f32;
+                        let e = DECO_EASE.at(enter);
+                        if enter < 1.0 {
+                            animating = true;
+                        }
+                        // `blyrics-decoration-in`: fades in from 0.4em above.
+                        let font_size = match &d.body {
+                            DecoBody::Text(_, f) => f.size,
+                            DecoBody::Timed { words, .. } => words.first().map_or(cfg.deco_rem() * 1.6, |w| w.font.size),
+                        };
+                        let dxf = Xf { content: xf.content + vec2(enter_x, enter_y) * font_size * (1.0 - e), ..xf };
+                        // Unsung words' alpha hides a decoration only on lines not being sung.
+                        let a = e * opacity * if on { 1.0 } else { (dim / 0.05).min(1.0) };
+                        if d.pill {
+                            let r = dxf.rect(d.rect);
+                            let radius = (cfg.deco_rem() * scale).min(255.0) as u8;
+                            painter.rect(r, radius, theme::with_alpha(Color32::WHITE, 0.05 * a), egui::Stroke::new(1.0, theme::with_alpha(Color32::WHITE, 0.1 * a)), egui::StrokeKind::Inside);
+                        }
+                        match &d.body {
+                            DecoBody::Timed { words, groups } => {
+                                paint_words(&painter, &ctx, &cfg, words, groups, &dxf, &lit, dim, a, tints, atlas, &mut glow_work, (f.key, i, k as u32 + 1));
+                            }
                             DecoBody::Text(text, font) => {
                                 let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), d.wrap, (cfg.deco_tracking, cfg.deco_lh), b.align));
                                 let pad = if d.roman { vec2(cfg.deco_rem() * 0.75 + 1.0, cfg.deco_rem() * 0.25 + 1.0) } else { Vec2::ZERO };
-                                Some((g, d.rect.min + pad, if d.roman { cfg.roman_alpha } else { cfg.trans_alpha }))
+                                // `--blyrics-translated-color`. Drawn through the line's transform
+                                // at the one laid-out size.
+                                let alpha = if d.roman { cfg.roman_alpha } else { cfg.trans_alpha };
+                                let alpha = cfg.deco_active.filter(|_| on).unwrap_or(alpha);
+                                paint_galley(&painter, &g, d.rect.min + pad, &dxf, theme::with_alpha(Color32::WHITE, alpha * a), atlas);
                             }
-                            DecoBody::Timed { .. } => None,
-                        })
-                        .collect();
-                    let words: Vec<(&Word, f32)> = b.words.iter().map(|w| (w, if w.bg { dim * cfg.bg_alpha } else { dim })).chain(deco_words).collect();
-                    // The romanization pill is part of the line, so it's blurred with it.
-                    let pills: Vec<(Rect, f32)> = b.decos.iter().filter(|d| d.pill).map(|d| (d.rect, cfg.deco_rem())).collect();
-                    self.glow.blurred_line(&ctx, (line_key, i), r, &words, &texts, &pills, scale, atlas, ppp)
-                });
-                if let Some((tex, rr, uv)) = made {
-                    // Rendered at the line's scale; snapped so it lands 1:1 on screen pixels.
-                    let to = xf.rect(rr);
-                    let snapped = (to.min.to_vec2() * ppp).round() / ppp;
-                    painter.image(tex, to.translate(snapped - to.min.to_vec2()), uv, theme::with_alpha(dim_tint, opacity));
-                }
-                animating |= st.exit.is_some();
-            } else {
-                let mut lit = LitState::new(&cfg, st, t, f.now, sung_now || st.selected, b.start);
-                if let Some(c) = f.lyrics.lines[li].agent.as_deref().and_then(|a| a.strip_prefix('v')?.parse::<usize>().ok()).and_then(|n| cfg.agent_glow.get(n.checked_sub(1)?)) {
-                    lit.glow = *c;
-                }
-                let tints = (b.colors.0, dim_tint);
-                paint_words(&painter, &ctx, &cfg, &b.words, &b.groups, &xf, &lit, dim, opacity, tints, atlas, &mut glow_work, (f.key, i, 0));
-                for (k, d) in b.decos.iter().enumerate() {
-                    let born = *self.deco_born.entry(d.id).or_insert(f.now);
-                    let [enter_y, enter_x, enter_secs, enter_delay] = cfg.deco_enter;
-                    let enter_delay = enter_delay + if d.roman { 0.0 } else { cfg.trans_delay };
-                    let enter = ((f.now - born - enter_delay as f64) / enter_secs.max(0.01) as f64).clamp(0.0, 1.0) as f32;
-                    let e = DECO_EASE.at(enter);
-                    if enter < 1.0 {
-                        animating = true;
-                    }
-                    // `blyrics-decoration-in`: fades in from 0.4em above.
-                    let font_size = match &d.body {
-                        DecoBody::Text(_, f) => f.size,
-                        DecoBody::Timed { words, .. } => words.first().map_or(cfg.deco_rem() * 1.6, |w| w.font.size),
-                    };
-                    let dxf = Xf { content: xf.content + vec2(enter_x, enter_y) * font_size * (1.0 - e), ..xf };
-                    // Unsung words' alpha hides a decoration only on lines not being sung.
-                    let a = e * opacity * if on { 1.0 } else { (dim / 0.05).min(1.0) };
-                    if d.pill {
-                        let r = dxf.rect(d.rect);
-                        let radius = (cfg.deco_rem() * scale).min(255.0) as u8;
-                        painter.rect(r, radius, theme::with_alpha(Color32::WHITE, 0.05 * a), egui::Stroke::new(1.0, theme::with_alpha(Color32::WHITE, 0.1 * a)), egui::StrokeKind::Inside);
-                    }
-                    match &d.body {
-                        DecoBody::Timed { words, groups } => {
-                            paint_words(&painter, &ctx, &cfg, words, groups, &dxf, &lit, dim, a, tints, atlas, &mut glow_work, (f.key, i, k as u32 + 1));
-                        }
-                        DecoBody::Text(text, font) => {
-                            let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), d.wrap, (cfg.deco_tracking, cfg.deco_lh), b.align));
-                            let pad = if d.roman { vec2(cfg.deco_rem() * 0.75 + 1.0, cfg.deco_rem() * 0.25 + 1.0) } else { Vec2::ZERO };
-                            // `--blyrics-translated-color`. Drawn through the line's transform
-                            // at the one laid-out size.
-                            let alpha = if d.roman { cfg.roman_alpha } else { cfg.trans_alpha };
-                            let alpha = cfg.deco_active.filter(|_| on).unwrap_or(alpha);
-                            paint_galley(&painter, &g, d.rect.min + pad, &dxf, theme::with_alpha(Color32::WHITE, alpha * a), atlas);
                         }
                     }
+                    animating |= lit.animating(b, t) && (f.playing || lit.exit.is_some());
                 }
-                animating |= lit.animating(b, t) && (f.playing || lit.exit.is_some());
             }
 
             // Click a line to seek to it (the extension seeks to the line's time).

@@ -1255,8 +1255,9 @@ impl eframe::App for App {
         } else {
             shell::background(self, ui, screen, now, covered.then_some(bar_strip));
         }
-        if !self.fullscreen && np > 0.001 {
-            // What shows around and through the player bar carries on from now playing above it.
+        if !self.fullscreen && np >= 0.5 {
+            // What shows around and through the player bar carries on from now playing above it,
+            // from the moment the bar turns dark: a light bar keeps the page under it.
             let pages = theme::set_mode(&ctx, false);
             nowplaying::backdrop(self, ui, screen, bar_strip, now, false);
             theme::set_mode(&ctx, pages);

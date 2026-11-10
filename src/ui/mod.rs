@@ -484,6 +484,8 @@ pub struct App {
     // updates
     updater: Option<crate::update::Updater>,
     auto_update: bool,
+    /// Updates from the nightly channel rather than stable.
+    update_nightly: bool,
     /// When the last automatic update check ran (app time, s).
     update_checked: Option<f64>,
     update_announced: bool,
@@ -666,6 +668,8 @@ impl App {
             output_devices: Vec::new(),
             updater: None,
             auto_update: get("auto_update").is_none_or(|v| v == "1"),
+            // A nightly build stays on nightlies until told otherwise.
+            update_nightly: get("update_channel").map_or_else(|| crate::update::is_nightly(&crate::update::build_version()), |v| v == "nightly"),
             close_to_tray: get("close_to_tray").is_some_and(|v| v == "1"),
             wgpu_renderer,
             app_icon,
@@ -1504,6 +1508,7 @@ impl eframe::App for App {
         storage.set_string("output_device", device.unwrap_or_default());
         storage.set_string("output_device_name", device_name.unwrap_or_default());
         storage.set_string("auto_update", b(self.auto_update));
+        storage.set_string("update_channel", if self.update_nightly { "nightly" } else { "stable" }.to_owned());
         // eframe has just saved the window's geometry. Minimized or in the tray that's
         // 0×0 at -32000, which would reopen as a speck: keep the last real one instead.
         if self.window_hidden {

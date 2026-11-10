@@ -2008,7 +2008,7 @@ fn settings_connections(app: &mut App, ui: &mut Ui) {
 fn settings_updates(app: &mut App, ui: &mut Ui) {
     let state = app.updater.as_ref().map(|u| u.state());
     let installed = super::updatable();
-    let (mut check, mut restart) = (false, false);
+    let (mut check, mut restart, mut channel) = (false, false, None);
     settings_section(ui, "Updates", None, None, |ui| {
         use crate::update::State;
         let status = if !installed {
@@ -2025,6 +2025,22 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
         };
         setting_row(ui, "Automatic updates", Some("Download new versions in the background and install them when you close the app."), |ui| {
             ui.add_enabled_ui(installed, |ui| toggle(ui, &mut app.auto_update, "Automatic updates"));
+        });
+        divider(ui);
+        let desc = "Stable: finished releases, ready for everyday listening.\nNightly: experimental. It can break at any time.";
+        setting_row(ui, "Update channel", Some(desc), |ui| {
+            ui.add_enabled_ui(installed, |ui| {
+                let btn = dropdown_button(ui, if app.update_nightly { "Nightly" } else { "Stable" }, 140.0, "Update channel");
+                widgets::menu_popup(&btn).show(|ui| {
+                    widgets::menu_body(ui, 140.0);
+                    for (label, nightly) in [("Stable", false), ("Nightly", true)] {
+                        if option_row(ui, label, nightly == app.update_nightly).clicked() {
+                            channel = Some(nightly);
+                            ui.close();
+                        }
+                    }
+                });
+            });
         });
         divider(ui);
         setting_row(ui, "Status", Some(&status), |ui| {
@@ -2071,6 +2087,9 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
             ui.add_space(12.0);
         }
     });
+    if let Some(nightly) = channel {
+        app.set_update_nightly(nightly);
+    }
     if check && let Some(u) = &app.updater {
         u.check();
     }
@@ -2122,7 +2141,7 @@ fn settings_shortcuts(ui: &mut Ui) {
 /// Settings › About.
 fn settings_about(ui: &mut Ui) {
     settings_section(ui, "About", None, None, |ui| {
-        setting_row(ui, &format!("ytm-rs {}", env!("CARGO_PKG_VERSION")), Some("A fast, native YouTube Music client."), |_| {});
+        setting_row(ui, &format!("ytm-rs {}", crate::update::build_version()), Some("A fast, native YouTube Music client."), |_| {});
         for (title, desc) in [
             ("Lyrics", "Better Lyrics API: Musixmatch, LRCLIB, QQ, KuGou and Better Lyrics TTML"),
             ("Themes", "Adapted from the Better Lyrics theme store; each card credits its creators"),
@@ -2564,7 +2583,8 @@ pub(super) fn setting_row(ui: &mut Ui, title: &str, desc: Option<&str>, control:
     let w = ui.available_width();
     let text_w = (w - 230.0).max(200.0);
     let title_g = widgets::galley(ui, title, theme::semibold(14.5), theme::text(), text_w);
-    let desc_g = desc.map(|d| widgets::galley_wrapped(ui, d, theme::regular(12.5), theme::text_dim(), text_w, 3));
+    // Up to three lines, and as many again for each line the description starts itself.
+    let desc_g = desc.map(|d| widgets::galley_wrapped(ui, d, theme::regular(12.5), theme::text_dim(), text_w, 3 * (1 + d.matches('\n').count())));
     let text_h = title_g.size().y + desc_g.as_ref().map_or(0.0, |g| g.size().y + 3.0);
     let h = (text_h + 26.0).max(58.0);
     let (rect, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());

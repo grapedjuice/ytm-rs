@@ -6,7 +6,10 @@
 ;   iscc /DArm64 installer\ytm-rs.iss  ->  ytm-rs-setup-<version>-arm64.exe
 
 #define AppName "ytm-rs"
-#define AppVersion "0.2.34"
+; A nightly build passes its own: iscc /DAppVersion=0.2.34-nightly.20261110
+#ifndef AppVersion
+  #define AppVersion "0.2.34"
+#endif
 #define AppExe "ytm-rs.exe"
 #ifdef Arm64
   #define Arch "arm64"

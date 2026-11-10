@@ -7,17 +7,73 @@ name: Release
 # file is attached, so the app's updater, which reads the latest published release,
 # never sees one without them. If no release exists yet, one is created as a draft
 # to be given notes and published by hand.
+#
+# Nightly: every night main has commits no release or nightly was built from, the same
+# files are built from it as version <version>-nightly.<date> (YTM_NIGHTLY tells the app
+# it's a nightly) and published as a prerelease, tagged v<version>-nightly.<date>, with
+# the commits since the last release or nightly as its notes. The app's nightly channel
+# reads those; the latest release is never one of them. Only the newest few are kept.
 on:
   push:
     tags: ["v*"]
+  schedule:
+    - cron: "0 4 * * *"
   workflow_dispatch:
+    inputs:
+      nightly:
+        description: "Publish a nightly from this branch"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
+  # The version to build, and for a nightly its build number, or whether there's
+  # nothing new to build one from.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      nightly: ${{ steps.v.outputs.nightly }}
+      skip: ${{ steps.v.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - id: v
+        env:
+          NIGHTLY: ${{ github.event_name == 'schedule' || inputs.nightly == true }}
+        run: |
+          cargo_ver=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "$NIGHTLY" != true ]; then
+            echo "version=$cargo_ver" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "$(git tag --points-at HEAD 'v*')" ]; then
+            echo "HEAD already has a release or nightly: $(git tag --points-at HEAD 'v*')"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The date, and a second number if there's already a nightly from today.
+          day=$(date -u +%Y%m%d)
+          build=$day
+          n=1
+          while git rev-parse -q --verify "refs/tags/v$cargo_ver-nightly.$build" >/dev/null; do
+            n=$((n + 1)); build="$day.$n"
+          done
+          echo "Nightly $cargo_ver-nightly.$build"
+          echo "version=$cargo_ver-nightly.$build" >> "$GITHUB_OUTPUT"
+          echo "nightly=$build" >> "$GITHUB_OUTPUT"
+
   windows:
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true'
     runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      YTM_NIGHTLY: ${{ needs.prepare.outputs.nightly }}
     steps:
       - uses: actions/checkout@v5
 
@@ -37,7 +93,6 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$cargo_ver" ]; then
             echo "tag $GITHUB_REF_NAME does not match v$cargo_ver"; exit 1
           fi
-          echo "VERSION=$cargo_ver" >> "$GITHUB_ENV"
 
       - name: Build
         run: cargo build --release --locked
@@ -51,9 +106,9 @@ jobs:
 
       - name: Build installer
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q installer\ytm-rs.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$env:VERSION" installer\ytm-rs.iss
           if ($LASTEXITCODE) { exit 1 }
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q /DArm64 installer\ytm-rs.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q /DArm64 "/DAppVersion=$env:VERSION" installer\ytm-rs.iss
           if ($LASTEXITCODE) { exit 1 }
 
       # The portable zips: the exe, the marker that makes it portable, README and LICENSE.
@@ -78,8 +133,13 @@ jobs:
           if-no-files-found: error
 
   linux:
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true'
     # The oldest supported Ubuntu, so the binary runs on older glibc too.
     runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      YTM_NIGHTLY: ${{ needs.prepare.outputs.nightly }}
     steps:
       - uses: actions/checkout@v5
 
@@ -93,9 +153,7 @@ jobs:
           sudo apt-get install -y libssl-dev libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev libdbus-1-dev
 
       - name: Build
-        run: |
-          cargo build --release --locked
-          echo "VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_ENV"
+        run: cargo build --release --locked
 
       # The installer tarball: the binary, install.sh with the launcher and icon it
       # installs, README and LICENSE. The portable one: the binary, the marker that makes
@@ -123,9 +181,13 @@ jobs:
           if-no-files-found: error
 
   macos:
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true'
     runs-on: macos-latest
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
+      VERSION: ${{ needs.prepare.outputs.version }}
+      YTM_NIGHTLY: ${{ needs.prepare.outputs.nightly }}
     steps:
       - uses: actions/checkout@v5
 
@@ -145,7 +207,6 @@ jobs:
         run: |
           cargo build --release --locked --target aarch64-apple-darwin
           cargo build --release --locked --target x86_64-apple-darwin
-          echo "VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_ENV"
 
       # Per architecture, the installer: a disk image with the app and an Applications
       # link to drag it to. And the portable zip: the app with the portable marker,
@@ -183,8 +244,8 @@ jobs:
           if-no-files-found: error
 
   attach:
-    if: github.ref_type == 'tag'
-    needs: [windows, linux, macos]
+    if: github.ref_type == 'tag' && needs.prepare.outputs.nightly == ''
+    needs: [prepare, windows, linux, macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v5
@@ -204,3 +265,54 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" files/* --draft --title "ytm-rs ${GITHUB_REF_NAME#v}" --notes ""
           fi
+
+  nightly:
+    if: needs.prepare.outputs.nightly != ''
+    needs: [prepare, windows, linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v5
+        with:
+          path: files
+          merge-multiple: true
+
+      # A draft until every file is attached, so the updater never sees it without them.
+      # The notes: the commits since the last release or nightly, but version bumps.
+      - name: Publish the nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          ls -l files
+          tag="v$VERSION"
+          prev=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
+          {
+            echo "A nightly build of the newest changes. It may have rough edges."
+            if [ -n "$prev" ]; then
+              echo
+              echo "Since ${prev#v}:"
+              echo
+              git log --no-merges --format='- %s' "$prev..HEAD" | grep -vE '^- [0-9]+\.[0-9]+\.[0-9]+$' || true
+            fi
+          } > notes.md
+          cat notes.md
+          gh release create "$tag" files/* --draft --prerelease --target "$GITHUB_SHA" --title "ytm-rs $VERSION" --notes-file notes.md
+          gh release edit "$tag" --draft=false --prerelease
+
+      # The newest few nightlies are plenty; delete the rest, tags too.
+      - name: Remove old nightlies
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release list --limit 200 --json tagName,isPrerelease,createdAt \
+            --jq '[.[] | select(.isPrerelease and (.tagName | test("-nightly\\.")))] | sort_by(.createdAt) | reverse | .[7:] | .[].tagName' |
+          while read -r tag; do
+            echo "removing $tag"
+            gh release delete "$tag" --yes --cleanup-tag
+          done

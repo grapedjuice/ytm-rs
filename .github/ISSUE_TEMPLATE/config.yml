@@ -1,1 +1,8 @@
 blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://github.com/grapedjuice/ytm-rs/discussions/categories/q-a
+    about: Not sure something is a bug? Ask in Discussions.
+  - name: Share your setup
+    url: https://github.com/grapedjuice/ytm-rs/discussions/categories/show-and-tell
+    about: Show off your theme, colours or favourite lyrics view.

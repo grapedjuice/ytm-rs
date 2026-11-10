@@ -1161,10 +1161,26 @@ pub struct View {
     was_user: bool,
     deco_born: HashMap<u64, f64>,
     glow: Glow,
+    /// The look as last resolved, and what it was resolved from: it's only built again
+    /// when one of those changes, not on every frame.
+    cfg: Option<(CfgKey, String, Arc<Cfg>)>,
     credits_focused: bool,
     /// The frame (`cumulative_pass_nr`) the view was last drawn in; 0 once its textures
     /// are freed.
     shown_pass: u64,
+}
+
+/// Everything `Cfg::new` reads besides the listener's font, which is kept beside it.
+#[derive(Clone, Copy, PartialEq)]
+struct CfgKey {
+    /// The theme's style, by address: it lives as long as the app does.
+    style: usize,
+    accent: Color32,
+    /// Panel width, window width and height, text scale.
+    sizes: [u32; 4],
+    centered: bool,
+    fullscreen: bool,
+    fonts: u32,
 }
 
 pub struct Frame<'a> {
@@ -1179,7 +1195,7 @@ pub struct Frame<'a> {
     pub playing: bool,
     pub now: f64,
     pub rect: Rect,
-    pub style: &'a LyricStyle,
+    pub style: &'static LyricStyle,
     pub accent: Color32,
     pub centered: bool,
     /// The listener's lyrics text size, a multiple of the theme's.
@@ -1236,8 +1252,27 @@ impl View {
             self.glow.lines.clear();
         }
         self.atlas_fill = fill;
-        let cfg = Cfg::new(f.style, f.accent, rect.width(), ctx.content_rect().width(), ctx.content_rect().height(), f.centered, f.scale, f.fullscreen);
-        let layout_key = hash((f.key, (rect.width().round() as i32, rect.height().round() as i32), cfg.size.to_bits(), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, cfg.weight as u8, cfg.spacing.to_bits(), cfg.line_height.to_bits(), (cfg.align as u8, cfg.agent_align as u8, cfg.wave.on), theme::fonts_generation()));
+        let (viewport, viewport_h) = (ctx.content_rect().width(), ctx.content_rect().height());
+        let cfg_key = CfgKey {
+            style: std::ptr::from_ref(f.style) as usize,
+            accent: f.accent,
+            sizes: [rect.width().to_bits(), viewport.to_bits(), viewport_h.to_bits(), f.scale.to_bits()],
+            centered: f.centered,
+            fullscreen: f.fullscreen,
+            fonts: theme::fonts_generation(),
+        };
+        let cfg = match &self.cfg {
+            Some((key, font, cfg)) if *key == cfg_key && theme::font_choice_is(font) => cfg.clone(),
+            _ => {
+                let cfg = Arc::new(Cfg::new(f.style, f.accent, rect.width(), viewport, viewport_h, f.centered, f.scale, f.fullscreen));
+                self.cfg = Some((cfg_key, theme::font_choice(), cfg.clone()));
+                cfg
+            }
+        };
+        // What a line's own picture depends on. The view's height isn't in it: that only moves
+        // the lines, and a new blurred image per line for every step of a resize piled up.
+        let image_key = hash((f.key, rect.width().round() as i32, cfg.size.to_bits(), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, cfg.weight as u8, cfg.spacing.to_bits(), cfg.line_height.to_bits(), (cfg.align as u8, cfg.agent_align as u8, cfg.wave.on), theme::fonts_generation()));
+        let layout_key = hash((image_key, rect.height().round() as i32));
         if self.layout.as_ref().is_none_or(|l| l.key != layout_key) {
             self.relayout(ui, &cfg, &f, layout_key, rect);
         }
@@ -1612,11 +1647,16 @@ impl View {
             // Fading out once the line stops glowing, so it's asked for on those frames too.
             let k = if cfg.active_glow.is_some() || cfg.hover_glow.is_some() { theme::anim_bool(&ctx, ("lyr-line-glow", i), line_glow.is_some(), 0.3) } else { 0.0 };
             if let Some([radius, a]) = line_glow.or(cfg.active_glow).or(cfg.hover_glow).filter(|_| k > 0.0 && !b.instrumental && blur <= 0.05) {
-                let words: Vec<(&Word, f32)> = b.words.iter().map(|w| (w, 1.0)).collect();
                 let colors: &[Color32] = if (on || line_glow.is_none()) && !cfg.active_glow_colors.is_empty() { &cfg.active_glow_colors } else { std::slice::from_ref(&cfg.glow) };
                 for (ci, c) in colors.iter().enumerate() {
                     let r = ((radius * cfg.rem() / 10.0 * (1.0 + ci as f32) * 4.0).round() / 4.0).max(1.0);
-                    if let Some((tex, rr, uv)) = self.glow.blurred_line(&ctx, (hash((layout_key, ppp.to_bits())) ^ 0x6c69_6e65, i * 8 + ci), r, &words, &[], &[], scale, atlas, ppp) {
+                    let key = (hash((image_key, ppp.to_bits())) ^ 0x6c69_6e65, i * 8 + ci);
+                    // The line's words are only gathered when its image has to be made.
+                    let made = self.glow.cached_line(&ctx, key, r, scale).or_else(|| {
+                        let words: Vec<(&Word, f32)> = b.words.iter().map(|w| (w, 1.0)).collect();
+                        self.glow.blurred_line(&ctx, key, r, &words, &[], &[], scale, atlas, ppp)
+                    });
+                    if let Some((tex, rr, uv)) = made {
                         let to = xf.rect(rr);
                         let snapped = (to.min.to_vec2() * ppp).round() / ppp;
                         painter.image(tex, to.translate(snapped - to.min.to_vec2()), uv, theme::with_alpha(*c, a * k * opacity / colors.len() as f32 * 2.0));
@@ -1661,33 +1701,37 @@ impl View {
                 for d in &b.decos {
                     self.deco_born.entry(d.id).or_insert(f.now - 10.0);
                 }
-                let deco_words: Vec<(&Word, f32)> = b
-                    .decos
-                    .iter()
-                    .flat_map(|d| match &d.body {
-                        DecoBody::Timed { words, .. } => words.iter().map(|w| (w, dim)).collect::<Vec<_>>(),
-                        DecoBody::Text(..) => vec![],
-                    })
-                    .collect();
-                let texts: Vec<(Arc<Galley>, Pos2, f32)> = b
-                    .decos
-                    .iter()
-                    .filter_map(|d| match &d.body {
-                        DecoBody::Text(text, font) => {
-                            let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), d.wrap, (cfg.deco_tracking, cfg.deco_lh), b.align));
-                            let pad = if d.roman { vec2(cfg.deco_rem() * 0.75 + 1.0, cfg.deco_rem() * 0.25 + 1.0) } else { Vec2::ZERO };
-                            Some((g, d.rect.min + pad, if d.roman { cfg.roman_alpha } else { cfg.trans_alpha }))
-                        }
-                        DecoBody::Timed { .. } => None,
-                    })
-                    .collect();
-                let words: Vec<(&Word, f32)> = b.words.iter().map(|w| (w, if w.bg { dim * cfg.bg_alpha } else { dim })).chain(deco_words).collect();
-                // The romanization pill is part of the line, so it's blurred with it.
-                let pills: Vec<(Rect, f32)> = b.decos.iter().filter(|d| d.pill).map(|d| (d.rect, cfg.deco_rem())).collect();
                 // What the image shows besides the radius and scale `blurred_line` checks: the
                 // line's wrap and text size, and the alpha baked into it, in steps.
-                let line_key = hash((layout_key, ((dim * 64.0).round() / 64.0).to_bits(), ppp.to_bits()));
-                if let Some((tex, rr, uv)) = self.glow.blurred_line(&ctx, (line_key, i), r, &words, &texts, &pills, scale, atlas, ppp) {
+                let line_key = hash((image_key, ((dim * 64.0).round() / 64.0).to_bits(), ppp.to_bits()));
+                // What goes in the image is only gathered when it has to be made.
+                let made = self.glow.cached_line(&ctx, (line_key, i), r, scale).or_else(|| {
+                    let deco_words: Vec<(&Word, f32)> = b
+                        .decos
+                        .iter()
+                        .flat_map(|d| match &d.body {
+                            DecoBody::Timed { words, .. } => words.iter().map(|w| (w, dim)).collect::<Vec<_>>(),
+                            DecoBody::Text(..) => vec![],
+                        })
+                        .collect();
+                    let texts: Vec<(Arc<Galley>, Pos2, f32)> = b
+                        .decos
+                        .iter()
+                        .filter_map(|d| match &d.body {
+                            DecoBody::Text(text, font) => {
+                                let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), d.wrap, (cfg.deco_tracking, cfg.deco_lh), b.align));
+                                let pad = if d.roman { vec2(cfg.deco_rem() * 0.75 + 1.0, cfg.deco_rem() * 0.25 + 1.0) } else { Vec2::ZERO };
+                                Some((g, d.rect.min + pad, if d.roman { cfg.roman_alpha } else { cfg.trans_alpha }))
+                            }
+                            DecoBody::Timed { .. } => None,
+                        })
+                        .collect();
+                    let words: Vec<(&Word, f32)> = b.words.iter().map(|w| (w, if w.bg { dim * cfg.bg_alpha } else { dim })).chain(deco_words).collect();
+                    // The romanization pill is part of the line, so it's blurred with it.
+                    let pills: Vec<(Rect, f32)> = b.decos.iter().filter(|d| d.pill).map(|d| (d.rect, cfg.deco_rem())).collect();
+                    self.glow.blurred_line(&ctx, (line_key, i), r, &words, &texts, &pills, scale, atlas, ppp)
+                });
+                if let Some((tex, rr, uv)) = made {
                     // Rendered at the line's scale; snapped so it lands 1:1 on screen pixels.
                     let to = xf.rect(rr);
                     let snapped = (to.min.to_vec2() * ppp).round() / ppp;
@@ -2744,6 +2788,16 @@ impl Glow {
         }
     }
 
+    /// The image `blurred_line` made for `key`, if it's still at this radius and scale.
+    fn cached_line(&mut self, ctx: &egui::Context, key: (u64, usize), radius: f32, scale: f32) -> Option<(TextureId, Rect, Rect)> {
+        let (s, r, rect, used) = self.lines.get_mut(&key)?;
+        if *r != line_step(radius, scale) {
+            return None;
+        }
+        *used = ctx.input(|i| i.time);
+        Some((s.tex.id(), *rect, s.uv()))
+    }
+
     /// A whole line blurred (`filter: blur()`): its words, each at its own alpha, its text
     /// decorations and pills, in content coordinates, rendered at the line's `scale` so the
     /// image isn't resampled on screen. Cached per line at its latest radius and scale.
@@ -2763,14 +2817,11 @@ impl Glow {
         if dev_off("blur") {
             return None;
         }
+        if let Some(hit) = self.cached_line(ctx, key, radius, scale) {
+            return Some(hit);
+        }
         let now = ctx.input(|i| i.time);
         let step = line_step(radius, scale);
-        if let Some((s, r, rect, used)) = self.lines.get_mut(&key)
-            && *r == step
-        {
-            *used = now;
-            return Some((s.tex.id(), *rect, s.uv()));
-        }
         let uv_of = |min: [u16; 2], max: [u16; 2]| {
             Rect::from_min_max(
                 pos2(min[0] as f32 / atlas_size[0] as f32, min[1] as f32 / atlas_size[1] as f32),
@@ -3478,7 +3529,7 @@ mod tests {
         let words = |at: i32| (0..4).map(|k| Part { start: at + k * 1000, dur: 900, text: format!("word{k} "), bg: false }).collect::<Vec<_>>();
         let lines: Vec<Line> = (0..6).map(|i| Line { start: i * 4000, dur: 3900, text: "word0 word1 word2 word3".into(), parts: words(i * 4000), ..Default::default() }).collect();
         let lyrics = Lyrics { lines, sync: Sync::Word, provider: crate::lyrics::Provider::BLyricsRich, language: None, songwriters: vec![] };
-        let style = LyricStyle::default();
+        let style: &'static LyricStyle = Box::leak(Box::new(LyricStyle::default()));
         let mut view = View::default();
         // (frame time, song time, playing) → whether it asked for another frame soon.
         let mut frame = |now: f64, t: f64, playing: bool| {
@@ -3486,7 +3537,7 @@ mod tests {
             let mut animating = false;
             let mut out = ctx.run_ui(input, |ui| {
                 let n = lyrics.lines.len();
-                let f = Frame { lyrics: &lyrics, key: 1, roman: (0..n).map(|_| None).collect(), trans: vec![None; n], t, playing, now, rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 500.0)), style: &style, accent: Color32::RED, centered: false, scale: 1.0, fullscreen: false, glass_chip: None };
+                let f = Frame { lyrics: &lyrics, key: 1, roman: (0..n).map(|_| None).collect(), trans: vec![None; n], t, playing, now, rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 500.0)), style, accent: Color32::RED, centered: false, scale: 1.0, fullscreen: false, glass_chip: None };
                 animating = view.show(ui, f).animating;
             });
             out.textures_delta.clear();

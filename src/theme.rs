@@ -924,6 +924,11 @@ pub fn font_choice() -> String {
     FONT_CHOICE.read().unwrap().clone()
 }
 
+/// Whether the listener's font is `name`, without copying it.
+pub fn font_choice_is(name: &str) -> bool {
+    *FONT_CHOICE.read().unwrap() == name
+}
+
 /// The font name to draw with where a theme asks for `theme_font`.
 pub fn effective_font(theme_font: &str) -> String {
     let choice = FONT_CHOICE.read().unwrap();

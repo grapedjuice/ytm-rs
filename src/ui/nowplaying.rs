@@ -4,7 +4,7 @@
 
 use egui::{Color32, Rect, Sense, Ui, Vec2, pos2, vec2};
 
-use super::widgets::{self, icon_button, named, text_at};
+use super::widgets::{self, icon_button, menu_divider, named, text_at};
 use super::{Action, App, NpTab, karaoke};
 use crate::lyrics::{Lyrics, Sync, SyncKind};
 use crate::shader::Params;
@@ -646,7 +646,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         ui.multiply_opacity(settle_fade);
     }
     let round = cs.shape != Shape::Rounded && !fs.plain_shape;
-    let radius = if round { side / 2.0 } else { fs.radius.or(fs.radius_pct.map(|p| p * side)).unwrap_or(cs.radius_pct.map_or(cs.radius, |p| p * side)).clamp(0.0, side / 2.0) };
+    let radius = if round { side / 2.0 } else { fs.radius.or(fs.radius_pct.map(|p| p * side)).unwrap_or(cs.radius_pct.map_or(cs.radius, |p| p * side)).clamp(0.0, (side / 2.0).max(0.0)) };
     let top_only = cs.top_only || fs.top_only;
     let cr = if top_only && !round { egui::CornerRadius { nw: radius.min(255.0) as u8, ne: radius.min(255.0) as u8, sw: 0, se: 0 } } else { egui::CornerRadius::same(radius.min(255.0) as u8) };
     if cs.glow > 0.0 {
@@ -838,7 +838,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         if np.title_edge_fade > 0.0 {
             widgets::faded_text_at(ui, pos2(title_x, title_y), &track.title, title_font, theme::with_alpha(Color32::WHITE, np.title_alpha), w, np.title_edge_fade);
         } else {
-            text_at(ui, pos2(title_x, title_y), &track.title, title_font, theme::with_alpha(Color32::WHITE, np.title_alpha), w);
+            widgets::title_at(ui, pos2(title_x, title_y), &track.title, track.explicit, title_font, theme::with_alpha(Color32::WHITE, np.title_alpha), w);
         }
         // Each artist opens their own page (features included).
         widgets::linked_text(ui, pos2(artist_x, title_y + title_px * 1.4), &line, &track.artists, artist_font, theme::with_alpha(theme::text_dim(), np.artist_alpha), w, &mut app.actions);
@@ -971,7 +971,7 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
         };
         let tx = x_of(&track.title, theme::bold(title_px), ui);
         let ax = x_of(&line, theme::regular(artist_px), ui);
-        text_at(ui, pos2(tx, y), &track.title, theme::bold(title_px), Color32::WHITE, fit.x);
+        widgets::title_at(ui, pos2(tx, y), &track.title, track.explicit, theme::bold(title_px), Color32::WHITE, fit.x);
         widgets::linked_text(ui, pos2(ax, y + title_px * 1.4), &line, &track.artists, theme::regular(artist_px), theme::text_dim(), fit.x, &mut app.actions);
     }
     if look.now_playing.video_pill {
@@ -1190,7 +1190,7 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
         let at = s + app.lyric_prefs.offset(id, lyrics.provider, lyrics.sync == Sync::Word) + app.audio.status.latency().as_secs_f64();
         app.actions.push(Action::Seek(at.max(0.0) as f32));
     }
-    if out.animating {
+    if out.animating && !app.window_hidden {
         // Smooth, without following a fast monitor: frame rate is the main CPU and GPU cost.
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
     }
@@ -1303,9 +1303,7 @@ fn options_menu(app: &mut App, ui: &mut Ui, track: &crate::model::Track, lyrics:
         ui.painter().circle_filled(rect.center() + vec2(dx, 0.0), 1.9, theme::with_alpha(Color32::WHITE, 0.75 + 0.25 * h));
     }
     widgets::menu_popup(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-        ui.set_width(270.0);
-        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        ui.add_space(4.0);
+        widgets::menu_body(ui, 270.0);
         if lyrics {
             lyric_options(app, ui);
             menu_divider(ui);
@@ -1318,7 +1316,6 @@ fn options_menu(app: &mut App, ui: &mut Ui, track: &crate::model::Track, lyrics:
                 *a = Action::LikeHeard(*like);
             }
         }
-        ui.add_space(4.0);
     });
 }
 
@@ -1367,20 +1364,13 @@ fn menu_caption(ui: &mut Ui, text: &str) {
     ui.painter().text(pos2(r.left() + 12.0, r.center().y + 2.0), egui::Align2::LEFT_CENTER, text, theme::semibold(11.0), theme::text_faint());
 }
 
-fn menu_divider(ui: &mut Ui) {
-    ui.add_space(5.0);
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().rect_filled(r.shrink2(vec2(8.0, 0.0)), 0.0, theme::glass(0.08));
-    ui.add_space(5.0);
-}
-
 /// A lyrics source: its sync type's dot, name and sync type, with a check on the one shown.
 fn source_row(ui: &mut Ui, name: &str, sync: SyncKind, current: bool) -> bool {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
     let resp = named(resp, &format!("Lyrics source {name}")).on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.12);
     if h > 0.0 || current {
-        ui.painter().rect_filled(rect, 8.0, theme::glass(0.05 * current as u8 as f32 + 0.08 * h));
+        ui.painter().rect_filled(rect, theme::menu_item_radius(), theme::glass(0.05 * current as u8 as f32 + 0.08 * h));
     }
     ui.painter().circle_filled(pos2(rect.left() + 19.0, rect.center().y), 3.5, sync_color(sync));
     let x = rect.left() + 40.0;
@@ -1401,7 +1391,7 @@ fn switch_row(ui: &mut Ui, label: &str, on: &mut bool) {
     }
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.12);
     if h > 0.0 {
-        ui.painter().rect_filled(rect, 8.0, theme::glass(0.08 * h));
+        ui.painter().rect_filled(rect, theme::menu_item_radius(), theme::glass(0.08 * h));
     }
     ui.painter().text(pos2(rect.left() + 12.0, rect.center().y), egui::Align2::LEFT_CENTER, label, theme::regular(14.0), theme::text());
     let t = theme::anim_bool(ui.ctx(), resp.id.with("t"), *on, 0.16);

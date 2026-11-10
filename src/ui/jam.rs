@@ -141,6 +141,8 @@ pub fn leave(app: &mut App) {
         c.leave();
     }
     fresh(app, false);
+    // A guest's queue was the host's: hidden explicit songs leave it.
+    app.queue.drop_explicit();
 }
 
 /// Dev hooks: YTM_JAM_HOST=<code> starts a room with that code, YTM_JAM_JOIN=<code> joins one.
@@ -181,7 +183,7 @@ pub fn dev_script(app: &mut App, ctx: &egui::Context, now: f64) {
             "queue=on" => set_control(app, app.jam.control, true),
             "queue=off" => set_control(app, app.jam.control, false),
             a if a.starts_with("add=") => {
-                let track = crate::model::Track { id: a[4..].to_owned(), title: "Test song".into(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false };
+                let track = crate::model::Track { id: a[4..].to_owned(), title: "Test song".into(), artists: vec![], ..Default::default() };
                 app.apply(Action::Enqueue(track));
             }
             a if a.starts_with("seek=") => {
@@ -247,6 +249,8 @@ fn on_event(app: &mut App, e: Event) {
             s.members = members;
             if promoted {
                 s.sent_sig = 0;
+                // The queue is ours now: hidden explicit songs leave it.
+                app.queue.drop_explicit();
                 app.toast("You're the host now");
             }
         }
@@ -372,6 +376,11 @@ fn host_request(app: &mut App, from: String, name: String, cmd: Cmd) {
         return;
     }
     if let Cmd::Add { track } | Cmd::Next { track } = &cmd {
+        // The host's setting decides what the jam plays.
+        if app.hide_explicit && track.explicit {
+            app.toast(format!("Skipped an explicit song {name} added"));
+            return;
+        }
         // Their app checks this too; two adds can cross the latest state, though.
         if waiting(app, &from) >= GUEST_WAITING && from != app.jam.you {
             log::info!("jam: {name} already has {GUEST_WAITING} songs waiting");
@@ -419,6 +428,7 @@ fn host_request(app: &mut App, from: String, name: String, cmd: Cmd) {
             let i = app.jam.sent_from + index;
             if i < app.queue.tracks.len() {
                 app.queue.index = Some(i);
+                app.queue.drop_explicit();
                 app.play_current();
             }
         }
@@ -489,6 +499,9 @@ fn sync(app: &mut App) {
             app.audio.status.position_ms.store(target.as_millis() as u64, Ordering::Relaxed);
             app.audio.status.duration_ms.store(app.current().and_then(|t| t.duration).map_or(0, |d| d as u64 * 1000), Ordering::Relaxed);
             app.request_art();
+            if let Some(t) = app.current().cloned() {
+                app.show_in_media(&t);
+            }
         }
         return;
     }
@@ -533,6 +546,11 @@ pub fn request(app: &mut App, cmd: Cmd) {
     }
     if !cmd.is_control() && !app.jam.queue {
         app.toast("The host turned off adding songs");
+        return;
+    }
+    if let Cmd::Add { track } | Cmd::Next { track } = &cmd
+        && app.explicit_hidden(track)
+    {
         return;
     }
     if !cmd.is_control() && waiting(app, &app.jam.you) >= GUEST_WAITING {

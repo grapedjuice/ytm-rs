@@ -1,0 +1,81 @@
+name: Bug report
+description: Something doesn't work, or stopped working.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please [search the open issues](https://github.com/grapedjuice/ytm-rs/issues) first, and make the title say what goes wrong ("Songs stop after a minute when signed in", not "Playback broken").
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What you see, and what you expected instead. Copy any error message word for word; a screenshot or clip helps, but not on its own.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What to click or play, from opening the app, to see it. Say if it happens every time or only sometimes, and include the song or playlist link if it's about one.
+      placeholder: |
+        1. Open a playlist
+        2. Click …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ytm-rs version
+      description: Under Settings › About. Please check it still happens on the latest release.
+      placeholder: "0.2.34"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How it's installed
+      options:
+        - Installer (Windows setup, macOS dmg, Linux install.sh)
+        - Portable
+        - Built from source
+        - Other (say which below)
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: On Linux, add the distro, the desktop, and X11 or Wayland.
+      placeholder: "Windows 11 24H2 / macOS 15 on Apple silicon / Fedora 42, KDE Plasma 6, Wayland"
+    validations:
+      required: true
+  - type: dropdown
+    id: account
+    attributes:
+      label: Account
+      description: Playback, the library and likes work differently for each.
+      options:
+        - Signed out
+        - Signed in, without Premium
+        - Signed in, with Premium
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Paste the part of `ytm-rs.log` from around when it happened. If you've restarted the app since, it's in `ytm-rs.prev.log` instead. Have a look through it before posting and take out anything you'd rather keep private.
+
+        - Windows: `%APPDATA%\ytm-rs\data`
+        - macOS: `~/Library/Application Support/ytm-rs`
+        - Linux: `~/.local/share/ytm-rs`
+        - Portable: the `data` folder beside the app
+      render: text
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: When it started (after an update?), VPN or proxy, audio device, anything you've already tried.

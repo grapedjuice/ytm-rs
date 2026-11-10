@@ -2,6 +2,7 @@
 
 mod appicon;
 mod fullscreen;
+mod hls;
 mod proxy;
 mod renderer;
 mod art;
@@ -12,6 +13,7 @@ mod bidi;
 mod deeplink;
 mod discord;
 mod downloads;
+mod hotkeys;
 mod images;
 mod jam;
 mod innertube;
@@ -49,6 +51,12 @@ pub const DEFAULT_SIZE: [f32; 2] = [1200.0, 780.0];
 pub const MIN_SIZE: [f32; 2] = [760.0, 480.0];
 
 fn main() -> eframe::Result {
+    // The updater's helper, run from its copy in the updates folder.
+    if update::apply_main() {
+        return Ok(());
+    }
+    // A relaunch: let the copy that started this one finish exiting.
+    update::wait_for_predecessor();
     // Child-process modes for the webview windows (see login.rs / turnstile.rs).
     let mut args = std::env::args_os().skip(1);
     if let (Some(flag), Some(dir)) = (args.next(), args.next()) {
@@ -79,6 +87,7 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     init_logging();
+    settle_window_system();
     update::clean_portable();
     stream::init_dev_hooks();
     proxy::init(&data_dir());
@@ -86,19 +95,22 @@ fn main() -> eframe::Result {
     // Dev hook: YTM_BACKGROUND opens the window off-screen, unfocused and off the
     // taskbar, so automated test runs don't pop up over whatever the user is doing.
     let background = std::env::var_os("YTM_BACKGROUND").is_some();
+    ui::init_titlebar(&data_dir());
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("YT Music")
         .with_app_id("ytm-rs")
         .with_inner_size(DEFAULT_SIZE)
         .with_min_inner_size(MIN_SIZE)
-        // Windows: the app draws its own title bar (see `ui::titlebar`).
+        // Windows, and Linux where the desktop draws none: the app draws its own title
+        // bar (see `ui::titlebar`).
         .with_decorations(!ui::custom_titlebar())
         .with_icon(appicon::get(appicon::load(&data_dir())).icon_data().expect("bundled icons are valid PNGs"));
     if background {
         viewport = viewport.with_position([-4000.0, 0.0]).with_inner_size([1920.0, 1057.0]).with_active(false).with_taskbar(false);
     }
     let renderer = renderer::init(&data_dir());
-    if backdrop::init(&data_dir(), renderer) {
+    // Both, so each settles this run's choice.
+    if backdrop::init(&data_dir(), renderer) | ui::init_pill(&data_dir(), renderer) {
         viewport = viewport.with_transparent(true);
     }
     let options = eframe::NativeOptions {
@@ -115,8 +127,12 @@ fn main() -> eframe::Result {
         multisampling: 0,
         depth_buffer: 0,
         stencil_buffer: 0,
-        // Dev hook: YTM_FPS paces frames itself (see `dev_pace`), so vsync is off.
-        glow_options: eframe::egui_glow::GlowConfiguration { vsync: std::env::var_os("YTM_FPS").is_none(), ..Default::default() },
+        // Dev hooks: YTM_FPS paces frames itself (see `ui::pace`), so vsync is off;
+        // YTM_NO_VSYNC turns it off as a driver forcing it off would.
+        glow_options: eframe::egui_glow::GlowConfiguration {
+            vsync: std::env::var_os("YTM_FPS").is_none() && std::env::var_os("YTM_NO_VSYNC").is_none(),
+            ..Default::default()
+        },
         wgpu_options: renderer::wgpu_options(),
         ..Default::default()
     };
@@ -266,6 +282,59 @@ fn init_logging() {
 
 /// Settings, caches and the sign-in: `data` beside the portable build's exe, else the
 /// user's app data. Dev hook: YTM_DATA_DIR runs on a separate profile.
+/// Whether the desktop session is Wayland, and whether this run's window is a Wayland
+/// one. Not the same thing: with Close to tray on, the window is an X11 one there.
+static WAYLAND: OnceLock<(bool, bool)> = OnceLock::new();
+
+/// The desktop session is Wayland, whatever kind of window the app has: apps can't
+/// watch for keys in the background there.
+pub fn wayland_session() -> bool {
+    WAYLAND.get().is_some_and(|w| w.0)
+}
+
+/// This run's window is a Wayland one (known before the window exists).
+pub fn wayland_window() -> bool {
+    WAYLAND.get().is_some_and(|w| w.1)
+}
+
+/// Whether to open an X11 window in a Wayland session: with Close to tray on. A Wayland
+/// window can't hide itself or come back when asked, so there the tray's "Show" could
+/// only ask for attention; an X11 window (through XWayland) does both.
+fn x11_for_tray(wayland: bool, x11: bool, close_to_tray: bool, keep_wayland: bool) -> bool {
+    wayland && x11 && close_to_tray && !keep_wayland
+}
+
+/// "Close to tray" as last saved: read from the settings file itself, since this is
+/// decided before the window, and so the settings, exist.
+fn close_to_tray_saved(app_ron: &str) -> bool {
+    app_ron.split_whitespace().collect::<String>().contains("\"close_to_tray\":\"1\"")
+}
+
+/// Linux: note what the session is, and pick the window system for this run. Called
+/// first thing, before any thread starts. Dev hook: `YTM_WAYLAND` keeps the Wayland window.
+fn settle_window_system() {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+    let set = |k: &str| std::env::var_os(k).is_some_and(|v| !v.is_empty());
+    let wayland = set("WAYLAND_DISPLAY") || std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v == "wayland");
+    let tray = close_to_tray_saved(&std::fs::read_to_string(data_dir().join("app.ron")).unwrap_or_default());
+    let x11 = x11_for_tray(wayland, set("DISPLAY"), tray, set("YTM_WAYLAND"));
+    if x11 {
+        log::info!("window: X11 (XWayland), so Close to tray can hide the window and bring it back");
+        // SAFETY: nothing else is running yet (no thread has been started), so nothing
+        // reads the environment while it changes. winit goes by XDG_SESSION_TYPE first;
+        // GTK (the tray, the sign-in window) by GDK_BACKEND.
+        unsafe {
+            std::env::remove_var("WAYLAND_DISPLAY");
+            std::env::remove_var("WAYLAND_SOCKET");
+            std::env::set_var("XDG_SESSION_TYPE", "x11");
+            std::env::set_var("GDK_BACKEND", "x11");
+        }
+    }
+    let _ = WAYLAND.set((wayland, wayland && !x11));
+}
+
 fn data_dir() -> std::path::PathBuf {
     if let Some(d) = std::env::var_os("YTM_DATA_DIR") {
         return d.into();
@@ -274,4 +343,26 @@ fn data_dir() -> std::path::PathBuf {
         return dir.join("data");
     }
     directories::ProjectDirs::from("", "", "ytm-rs").expect("no home directory").data_dir().to_path_buf()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{close_to_tray_saved, x11_for_tray};
+
+    #[test]
+    fn close_to_tray_opens_an_x11_window_on_wayland() {
+        assert!(x11_for_tray(true, true, true, false));
+        // Not without the setting, without XWayland, off Wayland, or when asked not to.
+        assert!(!x11_for_tray(true, true, false, false));
+        assert!(!x11_for_tray(true, false, true, false));
+        assert!(!x11_for_tray(false, true, true, false));
+        assert!(!x11_for_tray(true, true, true, true));
+    }
+
+    #[test]
+    fn the_saved_setting_is_read_from_the_settings_file() {
+        assert!(close_to_tray_saved("{\n    \"play_songs\": \"1\",\n    \"close_to_tray\": \"1\",\n}"));
+        assert!(!close_to_tray_saved("{\n    \"close_to_tray\": \"0\",\n}"));
+        assert!(!close_to_tray_saved(""));
+    }
 }

@@ -38,6 +38,10 @@ fn gradient(painter: &egui::Painter, rect: Rect, c: [Color32; 4]) {
 /// playing uses.
 fn page_mode(look: &crate::preset::Preset) -> crate::preset::BgMode {
     use crate::preset::{BgMode, PageBg};
+    // A theme file's background is the page.
+    if theme::file_background().is_some() {
+        return BgMode::Solid;
+    }
     match look.app.page_bg {
         PageBg::Same => look.background.mode,
         PageBg::Static => BgMode::CoverStatic,
@@ -54,9 +58,25 @@ pub fn pages_bg_moves(look: &crate::preset::Preset) -> bool {
 }
 
 /// `only`: paint just this part (the rest is covered by now playing).
+/// Moves the animated background's clock on by a frame. Now playing's backdrop runs on
+/// it too, also where the pages' background isn't drawn (full screen).
+pub fn background_clock(app: &mut App, now: f64) {
+    use crate::preset::BgMode;
+    let dt = (now - app.last_frame).clamp(0.0, 0.1);
+    app.last_frame = now;
+    let b = &app.look().background;
+    let animated = matches!(b.mode, BgMode::Kawarp | BgMode::CoverFullbleed) && b.speed > 0.0;
+    if app.anim_bg && animated && app.playing() {
+        // `audioSpeedMultiplier`: louder music moves it faster.
+        let boost = if app.reactive_bg { 1.0 + app.audio.status.level().min(1.0) * b.audio_speed } else { 1.0 };
+        app.bg_time += dt * b.speed as f64 * boost as f64;
+    }
+}
+
 /// The background's flat colour, under its art and gradients.
 pub fn base_color(app: &App) -> Color32 {
-    app.look().solid()
+    // A theme file's background is the page's flat colour.
+    if theme::file_background().is_some() { theme::bg() } else { app.look().solid() }
 }
 
 /// The docked or floating player bar's fill at `alpha`.
@@ -69,22 +89,13 @@ pub fn bar_fill(look: &crate::preset::Preset, alpha: f32) -> Color32 {
 
 pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64, only: Option<Rect>) {
     use crate::preset::BgMode;
-    let dt = (now - app.last_frame).clamp(0.0, 0.1);
-    app.last_frame = now;
+    background_clock(app, now);
     let look = app.look();
     let b = &look.background;
     let mode = page_mode(look);
     // Light pages are the art at full strength under a white wash, a pale tint of the cover.
     let light = theme::light();
     let dim = if light { 1.0 } else { look.app.page_dim.unwrap_or(b.page_dim).clamp(0.02, 1.0) };
-    // Now playing animates the shader itself, so keep the clock running for it too.
-    let animated = matches!(b.mode, BgMode::Kawarp | BgMode::CoverFullbleed) && b.speed > 0.0;
-    let moving = app.anim_bg && animated && app.playing();
-    if moving {
-        // `audioSpeedMultiplier`: louder music moves it faster.
-        let boost = if app.reactive_bg { 1.0 + app.audio.status.level().min(1.0) * b.audio_speed } else { 1.0 };
-        app.bg_time += dt * b.speed as f64 * boost as f64;
-    }
     let painter = match only {
         Some(r) => ui.painter().with_clip_rect(r),
         None => ui.painter().clone(),
@@ -313,6 +324,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     let rail_w = rail_w(app);
     let item = app.look().app.nav_item.clone();
     let idle = app.look().app.controls.idle_alpha.clamp(0.5, 1.0);
+    let accent = app.accent_color();
     // Labels fade out over the first two thirds of collapsing (and back in late).
     let a = ((1.0 - t) * 1.5 - 0.5).clamp(0.0, 1.0);
     // Content width when expanded: text keeps its truncation while the panel narrows.
@@ -347,10 +359,15 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     let mut go_to: Option<Page> = None;
     let look = NavLook::of(app);
     let nav_h = if item.rail_labels { lerp(item.height..=item.rail_height.unwrap_or(item.height.max(62.0)), t) } else { lerp(item.height..=item.rail_height.unwrap_or(item.height), t) };
+    let p = app.page.clone();
+    let logged_in = app.logged_in;
     let nav = |ui: &mut Ui, glyph: char, label: &str, page: Page, selected: bool, go_to: &mut Option<Page>| {
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), nav_h), Sense::click());
         let mut resp = named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
-        if collapsed && !item.rail_labels {
+        // Clicking the page you're on reloads it; say so where that loads anything.
+        if page == p && (matches!(page, Page::Home | Page::Explore) || (logged_in && matches!(page, Page::Library(_)))) {
+            resp = resp.on_hover_text("Refresh (F5)");
+        } else if collapsed && !item.rail_labels {
             resp = resp.on_hover_text(label);
         }
         let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
@@ -389,7 +406,6 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             *go_to = Some(page);
         }
     };
-    let p = app.page.clone();
     nav(ui, icon::HOUSE, "Home", Page::Home, p == Page::Home, &mut go_to);
     nav(ui, icon::COMPASS, "Explore", Page::Explore, p == Page::Explore, &mut go_to);
     nav(ui, icon::LIBRARY, "Library", Page::Library(LibTab::Playlists), matches!(p, Page::Library(_)), &mut go_to);
@@ -423,6 +439,9 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             } else {
                 ui.multiply_opacity(2.0 * t - 1.0);
                 nav(ui, icon::CIRCLE_USER, "Sign in", Page::Settings, false, &mut go_to);
+                if go_to.is_some() {
+                    app.settings_tab = super::pages::SettingsTab::Account;
+                }
             }
             return;
         }
@@ -463,11 +482,20 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 }
                 return;
             };
+            // A song dragged out of a list goes into the playlist it's let go on: your own
+            // playlists (the ones "Add to playlist" offers) and Liked Music.
+            row_drag::scroll_targets(ui, &app.row_drag);
+            let mut dropped = None;
             for c in playlists {
                 let title_row = item.title_rows.filter(|_| t < 0.5);
                 let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), title_row.unwrap_or(48.0)), Sense::click());
                 if !ui.is_rect_visible(rect) {
                     continue;
+                }
+                let takes = matches!(&c.target, Target::Playlist(id) if id.starts_with("PL") || id == "LM");
+                let over = if takes { row_drag::target(ui, &mut app.row_drag, rect) } else { None };
+                if let (Some(row_drag::Over::Dropped(t)), Target::Playlist(id)) = (&over, &c.target) {
+                    dropped = Some((id.clone(), t.clone()));
                 }
                 let mut resp = named(resp, &c.title).on_hover_cursor(egui::CursorIcon::PointingHand);
                 if collapsed {
@@ -476,6 +504,10 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
                 let selected = matches!(&c.target, Target::Playlist(id) if app.page == Page::Playlist(id.clone()));
                 ui.painter().rect_filled(rect, 8.0, theme::glass(0.05 * h + if selected { 0.08 } else { 0.0 }));
+                if matches!(over, Some(row_drag::Over::Held)) {
+                    ui.painter().rect_filled(rect, 8.0, theme::with_alpha(accent, 0.18));
+                    ui.painter().rect_stroke(rect, 8.0, egui::Stroke::new(1.5, accent), egui::StrokeKind::Inside);
+                }
                 if title_row.is_some() {
                     text_at(ui, pos2(rect.left() + 12.0, rect.center().y - 8.0), &c.title, theme::regular(13.0), theme::with_alpha(theme::text(), a), full_w - 24.0);
                     if resp.clicked() {
@@ -496,6 +528,16 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 if resp.clicked() {
                     app.actions.push(Action::Open(c.target.clone()));
                 }
+                // Right-click: the menu a playlist's card has.
+                resp.context_menu(|ui| widgets::card_menu_contents(ui, c, false, &mut app.actions));
+            }
+            match dropped {
+                Some((id, t)) if id == "LM" => {
+                    app.actions.push(Action::Like(t, true));
+                    app.toast("Added to Liked Music");
+                }
+                Some((playlist_id, t)) => app.add_to_playlist(playlist_id, &[t]),
+                None => {}
             }
         });
     });
@@ -536,6 +578,37 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
 
 // ------------------------------------------------------------------ top bar
 
+/// Round button with a clockwise arrow, drawn like the icon font's (Lucide's rotate-cw),
+/// which the bundled subset doesn't have.
+fn refresh_button(ui: &mut Ui) -> egui::Response {
+    const SIZE: f32 = 18.0;
+    let d = SIZE + 18.0;
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(d), Sense::click());
+    let resp = named(resp, "Refresh").on_hover_text("Refresh (F5)").on_hover_cursor(egui::CursorIcon::PointingHand);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
+    if h > 0.0 {
+        ui.painter().circle_filled(rect.center(), d / 2.0, theme::glass(0.10 * h));
+    }
+    let color = theme::lerp_color(theme::text_dim(), theme::text(), h);
+    let press = if resp.is_pointer_button_down_on() { 0.9 } else { 1.0 };
+    // On Lucide's 24-unit grid, centred on (12, 12).
+    let unit = SIZE * press / 24.0;
+    let at = |x: f32, y: f32| rect.center() + vec2(x - 12.0, y - 12.0) * unit;
+    let stroke = egui::Stroke::new(2.0 * unit, color);
+    // A circle of radius 9 from three o'clock round to the top right, then on to the arrow.
+    let mut arc: Vec<Pos2> = (0..=40)
+        .map(|i| {
+            let a = (i as f32 / 40.0) * 315.0_f32.to_radians();
+            at(12.0 + 9.0 * a.cos(), 12.0 + 9.0 * a.sin())
+        })
+        .collect();
+    arc.push(at(21.0, 8.0));
+    let painter = ui.painter();
+    painter.add(egui::Shape::line(arc, stroke));
+    painter.add(egui::Shape::line(vec![at(21.0, 3.0), at(21.0, 8.0), at(16.0, 8.0)], stroke));
+    resp
+}
+
 pub fn top_bar(app: &mut App, ui: &mut Ui) {
     let tb = &app.look().app.top_bar;
     let search_h = app.look().app.search_look.height;
@@ -549,7 +622,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         let on = if tb.band_on_scroll { (app.page_scrolled / 40.0).clamp(0.0, 1.0) } else { 1.0 };
         // The band takes the pointer from what's scrolled under it.
         if let Some(g) = glass {
-            ui.interact(Rect::from_min_size(band.min, vec2(band.width(), r.top() + search_h + 6.0 - screen.top())), ui.scope_id().with("band-back"), Sense::hover());
+            ui.interact(Rect::from_min_size(band.min, vec2(band.width(), r.top() + search_h + 6.0 - screen.top())), ui.scope_id().with("band-back"), Sense::click());
             // Down to where the page starts, so nothing at rest sits in the blur.
             let frosted = band.with_max_y(r.top() + search_h.max(42.0) + 6.0);
             crate::shader::frost(ui.painter(), frosted, crate::shader::Frost { look: g, radius: 0.0, opacity: on, fade: 12.0 });
@@ -568,7 +641,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         // Dark glass on dark pages, light on light ones, so the box in it stays readable.
         let fill = if theme::light() { theme::with_alpha(Color32::WHITE, tb.capsule[0]) } else { theme::shade(tb.capsule[0]) };
         if let Some(g) = glass {
-            ui.interact(pill, ui.scope_id().with("capsule-back"), Sense::hover());
+            ui.interact(pill, ui.scope_id().with("capsule-back"), Sense::click());
             crate::shader::frost(ui.painter(), pill, crate::shader::Frost { look: g, radius: tb.capsule[1].min(127.0), opacity: 1.0, fade: 0.0 });
         }
         ui.painter().rect_filled(pill, tb.capsule[1].min(127.0), fill);
@@ -587,6 +660,9 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         }
         if icon_button(ui, icon::CHEVRON_RIGHT, 20.0, "Forward", false).clicked() {
             app.nav_forward();
+        }
+        if refresh_button(ui).clicked() {
+            app.refresh();
         }
         ui.add_space(12.0);
 
@@ -674,7 +750,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         let edit = ui.put(
             inner,
             egui::TextEdit::singleline(&mut app.search_text)
-                .hint_text(egui::RichText::new("Search songs, albums, artists, podcasts").color(theme::text_faint()))
+                .hint_text(egui::RichText::new(if app.show_podcasts { "Search songs, albums, artists, podcasts" } else { "Search songs, albums, artists" }).color(theme::text_faint()))
                 .font(theme::regular(15.0))
                 .frame(egui::Frame::NONE)
                 .align(egui::Align2::LEFT_CENTER)
@@ -741,6 +817,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
                 icon_at(ui, r.center(), icon::USER, 18.0, theme::text_dim());
             }
             if resp.clicked() {
+                app.settings_tab = super::pages::SettingsTab::Account;
                 app.actions.push(Action::Go(Page::Settings));
             }
             if app.loading {
@@ -1164,10 +1241,10 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         if ar.clicked() {
             app.actions.push(Action::OpenNowPlaying(true));
         }
-        let tr = text_at(ui, pos2(x, cy - 19.0), &t.title, theme::weighted(chrome.bar_title_weight, chrome.bar_title_px), theme::text(), w);
+        let tr = widgets::title_at(ui, pos2(x, cy - 19.0), &t.title, t.explicit, theme::weighted(chrome.bar_title_weight, chrome.bar_title_px), theme::text(), w);
         let tresp = ui.interact(tr, ui.scope_id().with("np-title"), Sense::click());
         menu_on.push(tresp.clone());
-        if named(tresp, &t.title).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        if named(tresp, &widgets::song_name(&t.title, t.explicit)).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
             app.actions.push(Action::OpenNowPlaying(true));
         }
         let mut ax = x;
@@ -1309,7 +1386,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let scale = play_size * if presp.is_pointer_button_down_on() { 0.92 } else { 1.0 + (controls.play_hover_scale - 1.0) * ph };
     let play_lit = crate::preset::hex(&controls.play_hover_color);
     use crate::preset::PlayButton;
-    let kind = if app.look().app.accent_controls { PlayButton::Accent } else { app.look().chrome.play_button };
+    let kind = if app.look().app.accent_controls || app.accent_controls { PlayButton::Accent } else { app.look().chrome.play_button };
     let glyph = match kind {
         PlayButton::Disc => {
             let rest = if theme::light() { theme::text() } else { Color32::WHITE };
@@ -1472,7 +1549,7 @@ fn volume_slider(app: &mut App, ui: &mut Ui, slider: Rect, salt: &str) {
     ui.painter().rect_filled(track_r, 2.0, theme::glass(0.15));
     let fill = Rect::from_min_size(track_r.min, vec2(track_r.width() * vol, 4.0));
     let accent = app.accent_color();
-    let (rest, full) = if app.look().app.accent_controls { (accent, accent) } else { (theme::text_dim(), theme::text()) };
+    let (rest, full) = if app.look().app.accent_controls || app.accent_controls { (accent, accent) } else { (theme::text_dim(), theme::text()) };
     ui.painter().rect_filled(fill, 2.0, theme::lerp_color(rest, full, vh));
     ui.painter().circle_filled(pos2(fill.right(), track_r.center().y), 2.0 + 4.5 * vh, full);
     if let Some(p) = vresp.interact_pointer_pos()
@@ -1530,6 +1607,25 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
     queue_list(app, ui, "drawer");
 }
 
+/// "Playing from playlist", and its name, which opens it.
+fn playing_from(app: &mut App, ui: &mut Ui) {
+    let Some((kind, name, target)) = app.playing_from() else { return };
+    ui.label(egui::RichText::new(format!("Playing from {kind}")).font(theme::regular(12.5)).color(theme::text_dim()));
+    let w = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(vec2(w, 22.0), Sense::hover());
+    let r = text_at(ui, pos2(rect.left(), rect.top() + 1.0), &name, theme::semibold(15.0), theme::text(), w);
+    let resp = named(ui.interact(r, ui.scope_id().with("playing-from"), Sense::click()), &name).on_hover_cursor(egui::CursorIcon::PointingHand);
+    if resp.hovered() {
+        ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, theme::text()));
+    }
+    if resp.clicked() {
+        // Liked Music is Library › Songs, where it was played from.
+        let liked = matches!(&target, Target::Playlist(id) if id == super::lists::LIKED_MUSIC);
+        app.actions.push(if liked { Action::Go(Page::Library(LibTab::Songs)) } else { Action::Open(target) });
+    }
+    ui.add_space(8.0);
+}
+
 /// Current track plus everything after it. Shared by the drawer and now playing.
 pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
     let rows = super::pages::Rows::new(app, ui.input(|i| i.time));
@@ -1542,6 +1638,7 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
             return;
         }
         let start = app.queue.index.unwrap_or(0);
+        playing_from(app, ui);
         ui.horizontal(|ui| {
             ui.add_space(q.side_pad);
             ui.checkbox(&mut app.autoplay, egui::RichText::new("Autoplay similar songs").color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -1631,7 +1728,10 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
     // Frames only while it fades in or out; in between it just waits.
     if (0.25..hold).contains(&age) {
         ctx.request_repaint_after(std::time::Duration::from_secs_f32(hold - age));
-    } else {
+    } else if age < hold + 0.4 {
         ctx.request_repaint();
+    } else {
+        // Faded out: gone, whatever else would have kept it.
+        app.toast = None;
     }
 }

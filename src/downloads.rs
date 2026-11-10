@@ -178,11 +178,9 @@ fn from_tags(id: &str, path: &Path) -> Track {
         title: tag.as_ref().and_then(|t| t.title()).map(str::to_owned).unwrap_or(name),
         artists: tag.as_ref().map(|t| t.artists().map(link).collect()).unwrap_or_default(),
         album: tag.as_ref().and_then(|t| t.album()).map(link),
-        duration: None,
-        thumbs: Vec::new(),
         track_nr: tag.as_ref().and_then(|t| t.track_number()),
-        plays: None,
-        music_video: false,
+        explicit: tag.as_ref().is_some_and(|t| t.advisory_rating() == Some(mp4ameta::AdvisoryRating::Explicit)),
+        ..Default::default()
     }
 }
 
@@ -328,6 +326,10 @@ fn tag(path: &Path, t: &Track, cover: Option<Vec<u8>>) -> anyhow::Result<()> {
     if let Some(n) = t.track_nr {
         tag.set_track_number(n);
     }
+    // The "E" other players show too.
+    if t.explicit {
+        tag.set_advisory_rating(mp4ameta::AdvisoryRating::Explicit);
+    }
     let img = cover.and_then(|c| match c.get(..4) {
         Some([0xff, 0xd8, ..]) => Some(mp4ameta::Img::jpeg(c)),
         Some([0x89, b'P', b'N', b'G']) => Some(mp4ameta::Img::png(c)),
@@ -351,12 +353,7 @@ mod tests {
             id: "abc".into(),
             title: title.into(),
             artists,
-            album: None,
-            duration: None,
-            thumbs: Vec::new(),
-            track_nr: None,
-            plays: None,
-            music_video: false,
+            ..Default::default()
         };
         let t = track("What? / Why: \"Now\"...", vec![Link { name: "AC/DC".into(), id: None }]);
         assert_eq!(file_stem(&t), "AC_DC - What_ _ Why_ _Now_");

@@ -245,12 +245,24 @@ const UNIFORMS: [&str; 13] = ["u_a", "u_b", "u_blend", "u_time", "u_intensity", 
 /// The wgpu side, kept in egui-wgpu's callback resources.
 struct Wgpu {
     pipeline: wgpu::RenderPipeline,
-    uniforms: wgpu::Buffer,
     tex: [wgpu::Texture; 2],
-    /// Bind group `i` samples `tex[i]` as the current art and the other as the previous.
-    groups: [wgpu::BindGroup; 2],
+    /// One for each time the background is drawn in a frame (the page, now playing's layer
+    /// and canvas, the sidebar's tint, the bar's cover): every draw's uniforms are written
+    /// before any of them is painted, so each needs a buffer of its own.
+    draws: Vec<WgpuDraw>,
+    /// The next of `draws` to hand out, round and round.
+    next: usize,
     cur: usize,
 }
+
+struct WgpuDraw {
+    uniforms: wgpu::Buffer,
+    /// Bind group `i` samples `tex[i]` as the current art and the other as the previous.
+    groups: [wgpu::BindGroup; 2],
+}
+
+/// More than the background is ever drawn in one frame.
+const WGPU_DRAWS: usize = 8;
 
 #[derive(Clone)]
 pub struct Background {
@@ -266,12 +278,6 @@ impl Background {
     pub fn new_wgpu(rs: &eframe::egui_wgpu::RenderState) -> Self {
         let device = &rs.device;
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("background"), source: wgpu::ShaderSource::Wgsl(WGSL.into()) });
-        let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("background uniforms"),
-            size: 48,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
         let texture = |binding| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -332,24 +338,35 @@ impl Background {
             ..Default::default()
         });
         let views = tex.each_ref().map(|t| t.create_view(&Default::default()));
-        let groups = [0, 1].map(|i| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("background"),
-                layout: &layout,
-                entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: uniforms.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&views[i]) },
-                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&views[i ^ 1]) },
-                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&sampler) },
-                ],
+        let draws = (0..WGPU_DRAWS)
+            .map(|_| {
+                let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("background uniforms"),
+                    size: 48,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                let groups = [0, 1].map(|i| {
+                    device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("background"),
+                        layout: &layout,
+                        entries: &[
+                            wgpu::BindGroupEntry { binding: 0, resource: uniforms.as_entire_binding() },
+                            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&views[i]) },
+                            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&views[i ^ 1]) },
+                            wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&sampler) },
+                        ],
+                    })
+                });
+                WgpuDraw { uniforms, groups }
             })
-        });
+            .collect();
         // Both slots start with the idle backdrop.
         let idle = crate::art::idle();
         for t in &tex {
             upload_wgpu(&rs.queue, t, &idle);
         }
-        rs.renderer.write().callback_resources.insert(Wgpu { pipeline, uniforms, tex, groups, cur: 0 });
+        rs.renderer.write().callback_resources.insert(Wgpu { pipeline, tex, draws, next: 0, cur: 0 });
         Self { gl: Default::default(), pending: Default::default(), live: Default::default(), wgpu: true }
     }
 
@@ -425,7 +442,7 @@ impl Background {
 
     pub fn paint(&self, painter: &egui::Painter, rect: egui::Rect, p: Params) {
         if self.wgpu {
-            painter.add(eframe::egui_wgpu::Callback::new_paint_callback(rect, WgpuPaint { pending: self.pending.clone(), live: self.live.clone(), rect, p }));
+            painter.add(eframe::egui_wgpu::Callback::new_paint_callback(rect, WgpuPaint { pending: self.pending.clone(), live: self.live.clone(), rect, p, draw: Default::default() }));
             return;
         }
         let (gl_state, pending, live) = (self.gl.clone(), self.pending.clone(), self.live.clone());
@@ -488,6 +505,8 @@ struct WgpuPaint {
     live: Arc<Mutex<Option<Art>>>,
     rect: egui::Rect,
     p: Params,
+    /// Which of `Wgpu::draws` this one's uniforms went into.
+    draw: std::sync::atomic::AtomicUsize,
 }
 
 impl eframe::egui_wgpu::CallbackTrait for WgpuPaint {
@@ -511,14 +530,18 @@ impl eframe::egui_wgpu::CallbackTrait for WgpuPaint {
         let p = &self.p;
         let px = self.rect.size() * screen.pixels_per_point;
         let u = [p.blend, p.time, p.intensity, p.scale, p.saturation, p.dim, px.x, px.y, p.contrast, p.dither, p.rotate, p.alpha];
-        queue.write_buffer(&s.uniforms, 0, &u.iter().flat_map(|f| f.to_ne_bytes()).collect::<Vec<u8>>());
+        let draw = s.next;
+        s.next = (s.next + 1) % s.draws.len();
+        self.draw.store(draw, std::sync::atomic::Ordering::Relaxed);
+        queue.write_buffer(&s.draws[draw].uniforms, 0, &u.iter().flat_map(|f| f.to_ne_bytes()).collect::<Vec<u8>>());
         Vec::new()
     }
 
     fn paint(&self, _info: egui::PaintCallbackInfo, pass: &mut wgpu::RenderPass<'static>, resources: &eframe::egui_wgpu::CallbackResources) {
         let Some(s) = resources.get::<Wgpu>() else { return };
         pass.set_pipeline(&s.pipeline);
-        pass.set_bind_group(0, &s.groups[s.cur], &[]);
+        let draw = &s.draws[self.draw.load(std::sync::atomic::Ordering::Relaxed)];
+        pass.set_bind_group(0, &draw.groups[s.cur], &[]);
         pass.draw(0..3, 0..1);
     }
 }

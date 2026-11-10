@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 
 use egui::{Align2, Color32, Rect, RichText, Sense, Ui, pos2, vec2};
 
-use super::pages::{page_title, section_label, setting_row, settings_card};
+use super::pages::{filter_show, page_title, setting_row, settings_card, settings_section as section};
 use super::widgets::{self, icon_at, named, paint_cover, pill, text_at};
 use super::{Action, App, LibTab, Page};
 use crate::model::{Target, Thumb, Track as YtTrack};
@@ -120,24 +120,19 @@ fn big_button(ui: &mut Ui, label: &str, accent: Color32, enabled: bool, width: f
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered() && enabled, 0.15);
     let fill = if enabled { theme::lerp_color(accent, Color32::WHITE, 0.12 * h) } else { theme::glass(0.10) };
     ui.painter().rect_filled(rect, 25.0, fill);
-    let fg = if enabled { contrast(accent) } else { theme::text_faint() };
+    let fg = if enabled { widgets::contrast(accent) } else { theme::text_faint() };
     ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, theme::bold(16.0), fg);
     enabled && resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
 }
 
-/// Dark or light text, whichever reads on `bg`.
-fn contrast(bg: Color32) -> Color32 {
-    let l = 0.299 * bg.r() as f32 + 0.587 * bg.g() as f32 + 0.114 * bg.b() as f32;
-    if l > 150.0 { Color32::from_gray(20) } else { Color32::WHITE }
-}
-
 fn breadcrumb(app: &mut App, ui: &mut Ui) {
-    let g = widgets::galley(ui, "Settings › Transfer from Spotify", theme::regular(13.0), theme::text_dim(), 400.0);
+    let g = widgets::galley(ui, "Settings › General › Transfer from Spotify", theme::regular(13.0), theme::text_dim(), 400.0);
     let (rect, resp) = ui.allocate_exact_size(g.size(), Sense::click());
     let resp = named(resp, "Back to Settings").on_hover_cursor(egui::CursorIcon::PointingHand);
     let c = if resp.hovered() { theme::text() } else { theme::text_dim() };
     ui.painter().galley(rect.min, g, c);
     if resp.clicked() {
+        app.settings_tab = super::pages::SettingsTab::General;
         app.actions.push(Action::Go(Page::Settings));
     }
 }
@@ -209,6 +204,7 @@ fn setup(app: &mut App, ui: &mut Ui) {
         settings_card(ui, |ui| {
             setting_row(ui, "Sign in to YouTube Music first", Some("The songs go into your YouTube Music account."), |ui| {
                 if pill(ui, "Go to Settings", None, true).clicked() {
+                    app.settings_tab = super::pages::SettingsTab::Account;
                     app.actions.push(Action::Go(Page::Settings));
                 }
             });
@@ -745,7 +741,7 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
         })
         .collect();
     let mut acts = Vec::new();
-    egui::Frame::new().fill(theme::glass(0.04)).corner_radius(theme::panel_radius()).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+    egui::Frame::new().fill(theme::glass_panel(0.04)).corner_radius(theme::panel_radius()).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         list_header(ui);
         if rows.is_empty() {
@@ -786,7 +782,7 @@ fn stat_row(ui: &mut Ui, stats: &[(String, &str, bool)], accent: Color32) {
         ui.spacing_mut().item_spacing.x = gap;
         for (value, label, ring) in stats {
             let (rect, _) = ui.allocate_exact_size(vec2(w, 66.0), Sense::hover());
-            ui.painter().rect_filled(rect, 12.0, theme::glass(0.06));
+            ui.painter().rect_filled(rect, 12.0, theme::glass_panel(0.06));
             if *ring {
                 ui.painter().rect_stroke(rect, 12.0, egui::Stroke::new(1.5, accent), egui::StrokeKind::Inside);
             }
@@ -940,7 +936,7 @@ fn review(app: &mut App, ui: &mut Ui) {
             ui.vertical(|ui| {
                 ui.set_width(queue_w);
                 let card_h = if app.xfer.card_h > 0.0 { app.xfer.card_h } else { 560.0 };
-                egui::Frame::new().fill(theme::glass(0.04)).corner_radius(theme::panel_radius()).inner_margin(10).show(ui, |ui| {
+                egui::Frame::new().fill(theme::glass_panel(0.04)).corner_radius(theme::panel_radius()).inner_margin(10).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     // The same height as the card beside it, whatever's in the list.
                     ui.set_height(card_h - 20.0);
@@ -1028,7 +1024,7 @@ fn review(app: &mut App, ui: &mut Ui) {
                 }
                 ui.add_space(10.0);
                 let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-                ui.painter().rect_filled(line, 0.0, theme::glass(0.10));
+                ui.painter().rect_filled(line, 0.0, theme::glass_panel(0.10));
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("PICK THE RIGHT ONE ON YOUTUBE MUSIC").font(theme::bold(11.5)).color(theme::text_faint()));
@@ -1314,7 +1310,7 @@ fn done(app: &mut App, ui: &mut Ui) {
     let mut copy = None;
     let mut search = None;
     if !missed.is_empty() {
-        egui::Frame::new().fill(theme::glass(0.04)).corner_radius(theme::panel_radius()).inner_margin(egui::Margin::symmetric(16, 12)).show(ui, |ui| {
+        egui::Frame::new().fill(theme::glass_panel(0.04)).corner_radius(theme::panel_radius()).inner_margin(egui::Margin::symmetric(16, 12)).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 ui.label(RichText::new(format!("NOT ADDED ({})", fmt_n(missed.len()))).font(theme::bold(11.5)).color(theme::text_faint()));
@@ -1400,10 +1396,12 @@ fn failed(app: &mut App, ui: &mut Ui, e: &str) {
 pub fn settings_section(app: &mut App, ui: &mut Ui) {
     let xfer = app.transfer.clone();
     xfer.ensure_account(&app.backend);
-    section_label(ui, "Import", None);
     let account = xfer.account.lock().unwrap().clone();
     let mut open = false;
-    settings_card(ui, |ui| {
+    section(ui, "Import", None, None, |ui| {
+        if !filter_show(ui, "Transfer from Spotify copy your liked songs or any playlist into YouTube Music") {
+            return;
+        }
         let w = ui.available_width();
         let (rect, _) = ui.allocate_exact_size(vec2(w, 78.0), Sense::hover());
         let b = Rect::from_min_size(pos2(rect.left(), rect.center().y - 22.0), vec2(44.0, 44.0));

@@ -6,9 +6,11 @@
 mod account;
 mod actions;
 mod collections;
+mod colorpick;
 mod dev;
 mod dialogs;
 mod find;
+mod hotkeys;
 mod integrations;
 mod jam;
 mod karaoke;
@@ -17,6 +19,7 @@ mod lyric_prefs;
 mod mini;
 mod notes;
 mod nowplaying;
+mod pace;
 mod pages;
 mod playback;
 mod queue;
@@ -24,7 +27,7 @@ mod responses;
 mod row_drag;
 mod shell;
 mod titlebar;
-pub use titlebar::{custom as custom_titlebar, set_hwnd as set_titlebar_hwnd};
+pub use titlebar::{custom as custom_titlebar, init as init_titlebar, set_hwnd as set_titlebar_hwnd};
 mod transfer;
 mod vector;
 mod widgets;
@@ -47,7 +50,7 @@ use crate::shader::Background;
 use crate::theme;
 use lists::{LIKED_MUSIC, Lists};
 use queue::Queue;
-use dev::{dev_pace, dev_screenshot, dev_var};
+use dev::{dev_screenshot, dev_var};
 use dialogs::text_field;
 pub use queue::Repeat;
 
@@ -72,6 +75,8 @@ pub enum LibTab {
     Playlists,
     Songs,
     Albums,
+    /// Saved podcast shows (with Settings › Playback › Show podcasts on).
+    Podcasts,
     History,
     Uploads,
     /// Songs saved on this computer: played from their files, so offline and signed out too.
@@ -84,6 +89,51 @@ pub enum NpTab {
     UpNext,
     /// Neither panel: just the artwork.
     Art,
+}
+
+pub use mini::init_pill;
+
+/// Where the accent colour comes from (Settings › Appearance › Accent colour).
+#[derive(Clone, Copy, PartialEq)]
+pub enum AccentSource {
+    /// The theme's own: a fixed colour, the cover's, or the system's.
+    Theme,
+    /// The system accent colour, whatever the theme.
+    System,
+    /// `theme.conf` (every colour) or `accent.txt` (just this one) in the data folder, for
+    /// wallust, pywal and the like to write.
+    File,
+    Custom(Color32),
+}
+
+impl AccentSource {
+    /// Saved as "" (theme), "system", "file" or "#rrggbb"; older versions read "system"
+    /// and "file" as the theme's.
+    fn from_key(v: &str) -> Self {
+        match v {
+            "system" => Self::System,
+            "file" => Self::File,
+            v => crate::preset::hex(v).map_or(Self::Theme, Self::Custom),
+        }
+    }
+
+    fn key(self) -> String {
+        match self {
+            Self::Theme => String::new(),
+            Self::System => "system".into(),
+            Self::File => "file".into(),
+            Self::Custom(c) => format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Theme => "Theme",
+            Self::System => "System",
+            Self::File => "From file",
+            Self::Custom(_) => "Custom",
+        }
+    }
 }
 
 /// User intents collected while drawing; applied after the frame's UI pass.
@@ -236,6 +286,8 @@ pub struct App {
     was_focused: bool,
     /// Album / playlist / artist the queue was started from, so its card shows pause.
     queue_source: Option<Target>,
+    /// The name of a source played straight from its card, which isn't kept (see `playing_from`).
+    played_title: Option<(Target, String)>,
     /// Asked to play (shuffled?) before its songs are here: a playlist's first page, or
     /// an album's or artist's songs (`Req::PlayCollection`).
     play_pending: Option<(Target, bool)>,
@@ -326,6 +378,12 @@ pub struct App {
     ambient_light: bool,
     glow: Option<nowplaying::Glow>,
     hide_search_videos: bool,
+    /// Leave explicit songs out of lists and the queue.
+    hide_explicit: bool,
+    /// Podcast shows and episodes on Home, in search and in the library.
+    show_podcasts: bool,
+    /// With them, ask YouTube for its Restricted Mode too.
+    restricted_mode: bool,
     /// The song version playing in place of the current music video.
     playing_as: Option<PlayingAs>,
     /// The output device picked in settings (cpal's id and its name, for when it's not
@@ -348,8 +406,10 @@ pub struct App {
     chrome_applied: Option<String>,
     /// Light or dark pages (the ytm-rs theme's; see `light_pages`).
     appearance: theme::Appearance,
-    /// The listener's accent colour, instead of the theme's.
-    custom_accent: Option<Color32>,
+    /// The theme's accent colour, the system's or the listener's own.
+    accent_source: AccentSource,
+    /// The play button and volume slider in the accent colour, like the progress line.
+    accent_controls: bool,
     anim_bg: bool,
     /// Panels frost what's behind them, in themes that have them do so.
     glass_on: bool,
@@ -366,6 +426,8 @@ pub struct App {
     /// SponsorBlock segments for a video, and when one was last skipped.
     segments: Option<(String, Vec<crate::sponsorblock::Segment>)>,
     segment_skipped: f64,
+    /// The system-wide media shortcuts.
+    hotkeys: hotkeys::State,
     /// Background animation clock: advances only while music plays, so pausing
     /// freezes the motion instead of jumping when resumed.
     bg_time: f64,
@@ -389,6 +451,9 @@ pub struct App {
     queue_open: bool,
     /// A song row being dragged.
     row_drag: Option<row_drag::RowDrag>,
+    /// Settings: the category on show, and what its search box is looking for.
+    settings_tab: pages::SettingsTab,
+    settings_query: String,
     fullscreen: bool,
     /// The mini player: the window shrunk to a strip.
     mini: mini::Mini,
@@ -449,8 +514,14 @@ pub struct App {
     pub(super) wgpu_renderer: bool,
     /// Settings › App icon (`appicon::ALL` id).
     app_icon: &'static str,
-    /// The tray icon, while the window is hidden.
+    /// The tray icon, while "Close to tray" is on.
     tray: Option<crate::tray::Tray>,
+    /// The tray icon couldn't be made (e.g. no GTK): don't try again, × quits.
+    tray_failed: bool,
+    /// × has hidden the window behind the tray icon.
+    in_tray: bool,
+    /// Wayland: the minimized window has lost focus, so focus means it's back.
+    tray_left_focus: bool,
     /// Closing for real (Quit from the tray, restart to update): don't hide.
     exiting: bool,
     /// Minimized, or hidden in the tray: the window's geometry isn't worth saving.
@@ -492,6 +563,11 @@ impl App {
         let logged_in = backend.is_logged_in();
         // Before any request: a song started at launch (dev hooks) must see this setting.
         backend.set_high_quality(get("high_quality").is_none_or(|v| v == "1"));
+        let hide_explicit = get("hide_explicit").is_some_and(|v| v == "1");
+        let restricted_mode = get("restricted_mode").is_some_and(|v| v == "1");
+        backend.set_hide_explicit(hide_explicit, restricted_mode);
+        let show_podcasts = get("podcasts").is_some_and(|v| v == "1");
+        crate::ytm::set_podcasts(show_podcasts);
         backend.request(Req::Home(None));
         if logged_in {
             backend.request(Req::Library);
@@ -502,6 +578,7 @@ impl App {
             let b = backend.clone();
             crate::transfer::Transfer::new(backend.data_dir(), Arc::new(move || b.wake()))
         };
+        let hotkeys = hotkeys::State::new(backend.data_dir());
         let mut app = Self {
             backend,
             audio,
@@ -520,6 +597,7 @@ impl App {
             queue_checked: None,
             was_focused: false,
             queue_source: None,
+            played_title: None,
             play_pending: None,
             bg,
             page: Page::Home,
@@ -580,6 +658,9 @@ impl App {
             ambient_light: get("ambient_light").is_none_or(|v| v == "1"),
             glow: None,
             hide_search_videos: get("hide_search_videos").is_some_and(|v| v == "1"),
+            hide_explicit,
+            show_podcasts,
+            restricted_mode,
             playing_as: None,
             output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
             output_devices: Vec::new(),
@@ -589,6 +670,9 @@ impl App {
             wgpu_renderer,
             app_icon,
             tray: None,
+            tray_failed: false,
+            in_tray: false,
+            tray_left_focus: false,
             exiting: false,
             window_hidden: false,
             good_window: get("window"),
@@ -627,7 +711,8 @@ impl App {
             chrome_applied: None,
             // Dev hook: YTM_APPEARANCE=light|dark|system tries a mode without saving it.
             appearance: theme::Appearance::from_key(&dev_var("YTM_APPEARANCE").map(str::to_owned).or_else(|| get("appearance")).unwrap_or_default()),
-            custom_accent: get("custom_accent").and_then(|v| crate::preset::hex(&v)),
+            accent_source: AccentSource::from_key(&get("custom_accent").unwrap_or_default()),
+            accent_controls: get("accent_controls").is_some_and(|v| v == "1"),
             anim_bg: get("anim_bg").is_none_or(|v| v == "1"),
             glass_on: get("glass_on").is_none_or(|v| v == "1"),
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
@@ -638,6 +723,7 @@ impl App {
             crossfade_secs: get("crossfade_secs").and_then(|v| v.parse().ok()).unwrap_or(5).clamp(1, CROSSFADE_MAX),
             segments: None,
             segment_skipped: f64::NEG_INFINITY,
+            hotkeys,
             bg_time: 0.0,
             last_frame: 0.0,
             search_rect: None,
@@ -651,6 +737,8 @@ impl App {
             np_tab: if get("np_art").is_some_and(|v| v == "1") { NpTab::Art } else { NpTab::Lyrics },
             queue_open: false,
             row_drag: None,
+            settings_tab: Default::default(),
+            settings_query: String::new(),
             // Dev hook: the full screen layout, leaving the window where it is.
             fullscreen: dev_var("YTM_FAKE_FULLSCREEN").is_some(),
             mini: mini::Mini::load(get),
@@ -674,6 +762,8 @@ impl App {
             share_pending: None,
             smoke: None,
         };
+        app.queue.hide_explicit = hide_explicit;
+        app.find.hide_explicit = hide_explicit;
         app.request_liked(false);
         // Dev hooks: YTM_SMOKE="query" searches and plays the first song ("id:<videoId>[,<videoId>…]"
         // plays that video; with YTM_VIDEO, shown as a video); YTM_SEARCH
@@ -684,7 +774,7 @@ impl App {
         let smoke = std::env::var("YTM_SMOKE").ok().filter(|q| !q.is_empty());
         if let Some(ids) = smoke.as_deref().and_then(|q| q.strip_prefix("id:")) {
             // "id:a,b,c" queues several.
-            let track = |id: &str| Track { id: id.to_owned(), title: id.to_owned(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: dev_var("YTM_VIDEO").is_some() };
+            let track = |id: &str| Track { id: id.to_owned(), title: id.to_owned(), music_video: dev_var("YTM_VIDEO").is_some(), ..Default::default() };
             app.play_list(ids.split(',').map(track).collect(), 0);
         } else if let Some(q) = smoke {
             app.go(Page::Search(q.clone()));
@@ -706,6 +796,7 @@ impl App {
             Ok(p) if p.starts_with("album:") => app.go(Page::Album(p[6..].to_owned())),
             Ok(p) if p.starts_with("artist:") => app.go(Page::Artist(p[7..].to_owned())),
             Ok(p) if p.starts_with("playlist:") => app.go(Page::Playlist(p[9..].to_owned())),
+            Ok(p) if p.starts_with("search:") => app.go(Page::Search(p[7..].to_owned())),
             _ => {}
         }
         // YTM_UPLOAD=<file> uploads that file as if it had been picked.
@@ -714,6 +805,7 @@ impl App {
         }
         // Dev hook: YTM_PROXY_INPUT=<address> opens Settings › Network on Custom with it typed in.
         if let Some(v) = dev_var("YTM_PROXY_INPUT") {
+            app.settings_tab = pages::SettingsTab::General;
             app.proxy_mode = crate::proxy::Setting::Custom(String::new());
             app.proxy_url = v.to_owned();
         }
@@ -743,6 +835,11 @@ impl App {
     // ---------------------------------------------------------------- navigation
 
     fn go(&mut self, page: Page) {
+        // An episode's show stands where a song's artist does; it opens as the playlist it is.
+        let page = match page {
+            Page::Artist(id) if crate::ytm::list_id(&id) != id => Page::Playlist(id),
+            p => p,
+        };
         self.np_open = false;
         if page == self.page {
             // Clicking the page you're on refreshes it.
@@ -772,8 +869,20 @@ impl App {
     }
 
     /// Reload the current page's data in place: no page transition, the page stays as
-    /// it is until the new data arrives.
+    /// it is until the new data arrives. Unlike a visit, it also reloads a list kept from
+    /// the last few minutes and the search already shown.
     fn refresh(&mut self) {
+        let liked_out = self.page == Page::Library(LibTab::Songs) && !self.logged_in;
+        if let Some(id) = self.page_list().filter(|_| !liked_out).map(str::to_owned)
+            && let Some(s) = self.lists.load(&id, matches!(self.page, Page::Album(_)), false)
+        {
+            self.start_load(s);
+        }
+        if let Page::Search(q) = &self.page
+            && self.search.as_ref().is_some_and(|s| &s.query == q)
+        {
+            self.backend.request(Req::Search(q.clone()));
+        }
         let changed = self.page_changed;
         self.page_loaded();
         self.page_changed = changed;
@@ -791,6 +900,7 @@ impl App {
         };
         self.suggestions = Default::default();
         self.suggest_sel = None;
+        self.settings_query.clear();
         // Choosing a transfer match lasts while searching; any other page ends it.
         if !matches!(self.page, Page::Search(_)) {
             self.xfer.picking = None;
@@ -858,17 +968,43 @@ impl App {
         }
     }
 
+    /// Where the "From file" accent colour is read from.
+    fn accent_file(&self) -> std::path::PathBuf {
+        self.backend.data_dir().join("accent.txt")
+    }
+
+    /// Where "From file" reads the rest of the colours from (and the accent, if it's there).
+    fn theme_file(&self) -> std::path::PathBuf {
+        self.backend.data_dir().join("theme.conf")
+    }
+
+    /// The theme file's colours, while "From file" is picked.
+    fn file_theme(&self) -> theme::FileTheme {
+        if self.accent_source == AccentSource::File { theme::file_theme(&self.theme_file()) } else { theme::FileTheme::default() }
+    }
+
+    /// The accent before `accent_color` deepens it for light pages.
+    fn base_accent(&self) -> Color32 {
+        match self.accent_source {
+            AccentSource::Custom(c) => c,
+            AccentSource::System => theme::system_accent().unwrap_or_else(|| self.look().accent(self.accent)),
+            AccentSource::File => (self.file_theme().accent).or_else(|| theme::file_accent(&self.accent_file())).unwrap_or_else(|| self.look().accent(self.accent)),
+            AccentSource::Theme => self.look().accent(self.accent),
+        }
+    }
+
     fn accent_color(&self) -> Color32 {
-        let c = match self.custom_accent {
-            Some(custom) => custom,
-            None => self.look().accent(self.accent),
-        };
+        let c = self.base_accent();
         // A pale cover colour would barely show on light pages: deepen it.
         if theme::light() { theme::deepen(c, theme::bg(), 3.0) } else { c }
     }
 
     /// Whether pages draw light: Settings › Appearance › Mode, in any theme.
     fn light_pages(&self, ctx: &egui::Context) -> bool {
+        // A theme file's background says which it is.
+        if let Some(light) = theme::file_light() {
+            return light;
+        }
         self.appearance.is_light(ctx)
     }
 
@@ -911,20 +1047,34 @@ impl App {
 impl eframe::App for App {
     /// With a window material, nothing under the pages but what they paint.
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        if crate::backdrop::active() == crate::backdrop::Backdrop::None { Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32() } else { [0.0; 4] }
+        if self.mini.pill_showing() || crate::backdrop::active() != crate::backdrop::Backdrop::None {
+            return [0.0; 4];
+        }
+        // Opaque: a see-through window (made for the pill) mustn't show the desktop here.
+        let [r, g, b, _] = Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32();
+        [r, g, b, 1.0]
     }
 
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        dev_pace();
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        pace::frame(ctx);
         self.lyric_view.release_hidden(ctx.cumulative_pass_nr());
         let now = ctx.input(|i| i.time);
         self.sync_look();
         self.pump(now);
         self.skip_segments(ctx, now);
+        hotkeys::poll(self, ctx, frame);
         // System media controls and taskbar buttons follow the player however it changed.
         let playing = self.playing() || self.buffering;
         if let Some(m) = &mut self.media {
-            m.set_playing(playing);
+            // Not for a song shown without loading, while the last one may still be stopping.
+            if self.resume_at.is_none() {
+                m.sync_length(self.audio.status.stream_duration(self.generation));
+            }
+            // A song not loaded yet is at its start point; the player may still be stopping.
+            m.sync(playing, self.buffering, self.resume_at.unwrap_or_else(|| self.audio.status.position()));
+            if let Some(wait) = m.sync_volume(self.audio.volume()) {
+                ctx.request_repaint_after(wait);
+            }
         }
         self.request_lyric_extras();
         // Upload: files from the picker, or dropped onto the window.
@@ -987,8 +1137,8 @@ impl eframe::App for App {
             self.set_mini(ctx, on, now);
         }
         self.mini.tick(ctx, now);
-        self.tray_window(ctx);
-        self.window_hidden = self.tray.is_some() || ctx.input(|i| i.viewport().minimized == Some(true));
+        self.tray_window(ctx, frame);
+        self.window_hidden = self.in_tray || ctx.input(|i| i.viewport().minimized == Some(true));
         // Nothing takes a video's frames now, while its decoder would go on working in bursts.
         if (self.window_hidden || self.mini.busy()) && self.video.take().is_some() {
             self.video_frame = None;
@@ -1026,7 +1176,8 @@ impl eframe::App for App {
         } else if self.np_open && playing && !self.mini.busy() {
             ctx.request_repaint_after(Duration::from_millis(33));
         } else if playing && widgets::equalizer_shown(ctx) {
-            ctx.request_repaint_after(Duration::from_millis(33));
+            // The playing row's bars need a steady, full rate to read as smooth.
+            ctx.request_repaint_after(Duration::from_millis(16));
         } else if playing && self.anim_bg && shell::pages_bg_moves(self.look()) {
             ctx.request_repaint_after(Duration::from_millis(66));
         } else if playing || self.buffering {
@@ -1047,13 +1198,14 @@ impl eframe::App for App {
         let np = theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), look.app.np_open_secs).min(1.0);
         // The pages keep their mode while now playing slides over them. Now playing is dark;
         // once it's most of the way up, so are the player bar and what opens over it.
+        theme::set_file_theme(&ctx, self.file_theme());
         let light = self.light_pages(&ctx) && !self.fullscreen;
         let bar_light = light && np < 0.5;
         theme::set_mode(&ctx, light);
         // The mini player, or nothing but the background while the window changes size.
         let layout = self.mini.layout(&ctx);
         // Only the player bar shows the window's material once the pages are covered.
-        crate::backdrop::follow(crate::backdrop::shows(), light && (np < 1.0 || layout != mini::Layout::Full));
+        crate::backdrop::follow(crate::backdrop::shows() && !self.mini.pill_showing(), light && (np < 1.0 || layout != mini::Layout::Full));
         // The installed fonts arrived: the theme's can be loaded now. Not the first frame,
         // which is applying anyway and adds a texture loader.
         if self.chrome_applied.is_some() && theme::fonts_became_ready() {
@@ -1068,12 +1220,22 @@ impl eframe::App for App {
         }
         let accent = self.accent_color();
         ctx.data_mut(|d| d.insert_temp(egui::Id::unique("accent"), accent));
+        // The file can change with nothing else going on here.
+        if self.accent_source == AccentSource::File {
+            ctx.request_repaint_after(Duration::from_secs(2));
+        }
         let app_style = &look.app;
         // Once now playing has slid all the way up it hides everything but the player
         // bar, so the pages and the full-screen background under it aren't drawn.
         let covered = !self.fullscreen && np >= 1.0;
         let bar_strip = egui::Rect::from_min_max(egui::pos2(screen.left(), screen.bottom() - self.bar_height()), screen.max);
         titlebar::set_fullscreen(&ctx, self.fullscreen);
+        dev::dev_memory(&ctx, now);
+        if layout == mini::Layout::Mini && mini::pill_active() {
+            mini::pill(self, ui, now);
+            dev_screenshot(&ctx, now);
+            return;
+        }
         if layout != mini::Layout::Full {
             shell::background(self, ui, screen, now, None);
             if layout == mini::Layout::Mini {
@@ -1087,7 +1249,10 @@ impl eframe::App for App {
             return;
         }
         // Full-screen now playing paints over all of it.
-        if !(self.fullscreen && np >= 1.0) {
+        if self.fullscreen && np >= 1.0 {
+            // Not drawn, but now playing's own backdrop runs on the same clock.
+            shell::background_clock(self, now);
+        } else {
             shell::background(self, ui, screen, now, covered.then_some(bar_strip));
         }
         if !self.fullscreen && np > 0.001 {
@@ -1150,7 +1315,7 @@ impl eframe::App for App {
                 SidebarStyle::Solid => egui::Frame::new().fill(look.solid()).stroke(border).inner_margin(side_margin),
                 SidebarStyle::Floating => egui::Frame::new()
                     .fill(theme::panel(side_alpha.max(0.3)))
-                    .stroke(egui::Stroke::new(1.0, theme::glass(0.08)))
+                    .stroke(egui::Stroke::new(1.0, theme::glass_panel(0.08)))
                     .corner_radius(egui::CornerRadius::same(theme::panel_radius().max(12)))
                     .outer_margin(egui::Margin { left: 10, right: 4, top: 10, bottom: 10 })
                     .inner_margin(egui::Margin::symmetric(12, 14)),
@@ -1242,6 +1407,7 @@ impl eframe::App for App {
         }
         theme::set_mode(&ctx, bar_light);
         self.draw_dialog(&ctx);
+        hotkeys::capture_dialog(self, &ctx);
         notes::card(self, &ctx);
         notes::dialog(self, &ctx);
         if let Some(url) = self.share_pending.take() { ctx.copy_text(url); }
@@ -1323,6 +1489,9 @@ impl eframe::App for App {
         storage.set_string("show_video", b(self.show_video));
         storage.set_string("ambient_light", b(self.ambient_light));
         storage.set_string("hide_search_videos", b(self.hide_search_videos));
+        storage.set_string("hide_explicit", b(self.hide_explicit));
+        storage.set_string("podcasts", b(self.show_podcasts));
+        storage.set_string("restricted_mode", b(self.restricted_mode));
         let folder = crate::downloads::folder();
         storage.set_string("download_dir", if folder == crate::downloads::default_folder() { String::new() } else { folder.display().to_string() });
         let (device, device_name) = self.output_device.clone().unzip();
@@ -1354,7 +1523,7 @@ impl eframe::App for App {
         storage.set_string("default_theme", b(false));
         if dev_var("YTM_APPEARANCE").is_none() {
             storage.set_string("appearance", self.appearance.key().to_owned());
-            storage.set_string("custom_accent", self.custom_accent.map_or_else(String::new, |c| format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b())));
+            storage.set_string("custom_accent", self.accent_source.key());
         }
         if std::env::var_os("YTM_THEME").is_none() {
             storage.set_string("theme", self.theme_id.clone());
@@ -1362,6 +1531,7 @@ impl eframe::App for App {
         if dev_var("YTM_FONT").is_none() {
             storage.set_string("font", theme::font_choice());
         }
+        storage.set_string("accent_controls", b(self.accent_controls));
         storage.set_string("anim_bg", b(self.anim_bg));
         storage.set_string("glass_on", b(self.glass_on));
         storage.set_string("reactive_bg", b(self.reactive_bg));
@@ -1422,18 +1592,7 @@ fn frame_pace(raw: &egui::RawInput) {
 fn relaunch() {
     let Ok(exe) = std::env::current_exe() else { return };
     log::info!("restarting");
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        let script = format!("ping -n 3 127.0.0.1 >NUL & start \"\" \"{}\"", exe.display());
-        let _ = std::process::Command::new("cmd").arg("/C").raw_arg(&script).creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS).spawn();
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = std::process::Command::new(exe).spawn();
-    }
+    crate::update::start_after_exit(&exe);
 }
 
 /// What the sidebar and the account button show, kept for the next launch.
@@ -1583,13 +1742,13 @@ mod session_tests {
     fn sessions_saved_before_song_versions_still_load() {
         let old = r#"{"queue":[{"id":"a","title":"A","artists":[],"album":null,"duration":null,"thumbs":[],"track_nr":null,"plays":null}],"index":0,"position_ms":5000,"duration_ms":0}"#;
         let s: Session = serde_json::from_str(old).unwrap();
-        assert!(!s.queue[0].music_video && s.playing_as.is_none());
+        assert!(!s.queue[0].music_video && !s.queue[0].explicit && s.playing_as.is_none());
         // A song (or a session without a song version) saves as before, so an older
         // version, or a jam guest on one, reads it too.
         let saved = serde_json::to_string(&s).unwrap();
-        assert!(!saved.contains("music_video") && !saved.contains("playing_as"), "{saved}");
-        let video = Track { music_video: true, ..s.queue[0].clone() };
+        assert!(!saved.contains("music_video") && !saved.contains("explicit") && !saved.contains("playing_as"), "{saved}");
+        let video = Track { music_video: true, explicit: true, ..s.queue[0].clone() };
         let back: Track = serde_json::from_str(&serde_json::to_string(&video).unwrap()).unwrap();
-        assert!(back.music_video);
+        assert!(back.music_video && back.explicit);
     }
 }

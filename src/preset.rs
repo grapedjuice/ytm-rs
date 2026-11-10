@@ -1908,7 +1908,7 @@ pub struct MenuLook {
 
 impl Default for MenuLook {
     fn default() -> Self {
-        Self { row_px: 32.0, hover: 0.12, alpha: 1.0, icon_right: false, shadow: None, row_radius: 7.0, pop: None, item_slide: 0.0, separator: 0.0, min_px: 226.0, hover_accent: false, row_slide: 0.0, dialog_alpha: None }
+        Self { row_px: 36.0, hover: 0.12, alpha: 1.0, icon_right: false, shadow: None, row_radius: 7.0, pop: None, item_slide: 0.0, separator: 0.0, min_px: 260.0, hover_accent: false, row_slide: 0.0, dialog_alpha: None }
     }
 }
 

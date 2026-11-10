@@ -132,7 +132,13 @@ impl App {
 
     /// `fill`: the queue is a playlist still coming in, and its other songs follow.
     pub(super) fn play_list_filling(&mut self, tracks: Vec<Track>, start: usize, fill: Option<QueueFill>) {
-        if !self.queue.replace(tracks, start, fill) {
+        // A song opened from a link, say: the next one that isn't explicit plays, if any.
+        let hidden = tracks.get(start).is_some_and(|t| self.hide_explicit && t.explicit);
+        let played = self.queue.replace(tracks, start, fill);
+        if hidden {
+            self.toast(if played { "Skipped an explicit song" } else { "Nothing to play that isn't explicit" });
+        }
+        if !played {
             return;
         }
         // Whatever was about to play doesn't.
@@ -144,6 +150,10 @@ impl App {
     pub(super) fn restore_session(&mut self, json: &str) {
         let Ok(s) = serde_json::from_str::<Session>(json) else { return };
         let Some(track) = s.queue.get(s.index).cloned() else { return };
+        // It stopped on a song that's hidden now: nothing to pick up.
+        if self.hide_explicit && track.explicit {
+            return;
+        }
         self.queue.adopt(s.queue, s.index);
         let shown = s.playing_as.clone().unwrap_or_else(|| track.clone());
         self.playing_as = s.playing_as.map(|song| PlayingAs { generation: self.generation, listed: track.id.clone(), song });
@@ -153,6 +163,7 @@ impl App {
         self.resume_at = Some(Duration::from_millis(s.position_ms));
         self.listened_at = s.listened_at;
         self.request_art();
+        self.show_in_media(&shown);
         self.backend.request(Req::Lyrics(shown));
     }
 
@@ -179,7 +190,8 @@ impl App {
         let Some(track) = q.tracks.get(q.index).cloned() else { return };
         let idle = !self.playing() && !self.buffering && !self.jam.active();
         // A minute's slack: this app's own plays reach that queue too.
-        if !idle || q.watched_at <= self.listened_at + 60 || self.current_id() == Some(track.id.as_str()) {
+        let hidden = self.hide_explicit && track.explicit;
+        if !idle || hidden || q.watched_at <= self.listened_at + 60 || self.current_id() == Some(track.id.as_str()) {
             return;
         }
         log::info!("picking up {} from another device ({} in its queue)", track.id, q.tracks.len());
@@ -195,6 +207,7 @@ impl App {
         self.resume_at = Some(Duration::ZERO);
         self.resume_counts = true;
         self.request_art();
+        self.show_in_media(&track);
         self.backend.request(Req::Lyrics(track.clone()));
         self.toast(format!("Picked up \"{}\" from your other device. Press play to carry on.", track.title));
     }
@@ -292,7 +305,7 @@ impl App {
         self.backend.request(Req::Play { video_id: track.id.clone(), generation: self.generation, at, report, song_of, song: carried });
         self.show_in_media(&shown);
         if let Some(m) = &mut self.media {
-            m.set_playing(true);
+            m.start(at);
         }
         // Background art follows the track; lyrics and segments, what plays.
         self.request_art();
@@ -340,6 +353,49 @@ impl App {
         self.audio.set_crossfade(if self.crossfade { self.crossfade_secs } else { 0 });
     }
 
+    /// `t` is explicit while those are hidden: it won't play, and the toast says why.
+    pub(super) fn explicit_hidden(&mut self, t: &Track) -> bool {
+        let hidden = self.hide_explicit && t.explicit;
+        if hidden {
+            self.toast("Skipped an explicit song");
+        }
+        hidden
+    }
+
+    /// Repeat One replays the song, unless it's an explicit one left to finish when those
+    /// were hidden.
+    pub(super) fn repeats_one(&self) -> bool {
+        self.queue.repeat == Repeat::One && !self.current().is_some_and(|t| self.hide_explicit && t.explicit)
+    }
+
+    /// Explicit songs hidden or shown again: queued ones go (all but the one playing; a
+    /// jam guest's queue is the host's), and YouTube's Restricted Mode applies to what
+    /// loads from now on.
+    /// Settings › Playback › Show podcasts: Home and the library are asked for again, with
+    /// or without them.
+    pub(super) fn set_show_podcasts(&mut self) {
+        crate::ytm::set_podcasts(self.show_podcasts);
+        if !self.show_podcasts && self.page == super::Page::Library(super::LibTab::Podcasts) {
+            self.page = super::Page::Library(super::LibTab::Playlists);
+        }
+        self.search = None;
+        self.backend.request(Req::Home(None));
+        if self.logged_in {
+            self.backend.request(Req::Library);
+        }
+    }
+
+    pub(super) fn set_hide_explicit(&mut self) {
+        self.queue.hide_explicit = self.hide_explicit;
+        self.find.hide_explicit = self.hide_explicit;
+        if !self.jam.guest() {
+            self.queue.drop_explicit();
+            // What was fetched ahead may have gone.
+            self.prefetch_next();
+        }
+        self.backend.set_hide_explicit(self.hide_explicit, self.restricted_mode);
+    }
+
     /// Ask SponsorBlock about the playing song, when that's switched on.
     pub(super) fn request_segments(&mut self) {
         if !self.sponsorblock || self.segments.is_some() {
@@ -376,7 +432,7 @@ impl App {
         self.segment_skipped = now;
         log::info!("sponsorblock: skipping {:.1}–{:.1} s", seg.start, seg.end);
         if seg.end >= duration - 1.0 {
-            if self.queue.repeat == Repeat::One {
+            if self.repeats_one() {
                 self.play_current();
             } else {
                 self.next();

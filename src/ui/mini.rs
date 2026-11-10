@@ -34,6 +34,59 @@ const PINNED_BY_DEFAULT: bool = true;
 const CLOSE: CloseButton = CloseButton::LikeFullWindow;
 /// From the work area's corner, the first time.
 const MARGIN: f32 = 16.0;
+/// The pill's window: always wide enough for the open pill, which is only painted as far
+/// as it has grown, so hovering never has to resize a window.
+const PILL_WINDOW: Vec2 = vec2(292.0, 58.0);
+const PILL_REST: f32 = 216.0;
+const PILL_OPEN: f32 = 290.0;
+const PILL_HEIGHT: f32 = 56.0;
+
+static PILL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// The experimental pill was asked for, instead of the strip. Saved beside the settings:
+/// it's needed before the window opens.
+pub fn pill_saved(data_dir: &std::path::Path) -> bool {
+    std::fs::read_to_string(data_dir.join("mini_style")).is_ok_and(|s| s.trim() == "pill")
+}
+
+pub fn save_pill(data_dir: &std::path::Path, on: bool) -> std::io::Result<()> {
+    std::fs::write(data_dir.join("mini_style"), if on { "pill" } else { "strip" })
+}
+
+/// Settle this run's style, before the window opens. Returns whether the window has to be
+/// see-through, which only OpenGL's can be.
+pub fn init_pill(data_dir: &std::path::Path, renderer: crate::renderer::Renderer) -> bool {
+    let on = renderer == crate::renderer::Renderer::OpenGl && pill_saved(data_dir);
+    let _ = PILL.set(on);
+    on
+}
+
+/// This run's mini player is the pill.
+pub fn pill_active() -> bool {
+    *PILL.get_or_init(|| false)
+}
+
+/// The window's shape around a pill `width` wide, set against its right edge so it grows
+/// to the left and stays in the corner it's placed in: left, right, bottom and corner
+/// diameter in pixels. A point past the pill's edge keeps that edge smooth.
+fn pill_shape(window: f32, width: f32, ppp: f32) -> (i32, i32, i32, i32) {
+    let tall = ((PILL_HEIGHT + 2.0) * ppp).ceil() as i32;
+    (((window - width - 2.0) * ppp).floor() as i32, (window * ppp).ceil() as i32, tall, tall)
+}
+
+/// Where the mini player's place is saved: each style its own, as their widths differ.
+fn place_key() -> &'static str {
+    if pill_active() { "mini_pill_window" } else { "mini_window" }
+}
+
+/// The mini player's size when first opened.
+fn mini_size() -> Vec2 {
+    if pill_active() { PILL_WINDOW } else { SIZE }
+}
+
+fn width_limits() -> (f32, f32) {
+    if pill_active() { (PILL_WINDOW.x, PILL_WINDOW.x) } else { (MIN_W, MAX_W) }
+}
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq)]
@@ -103,10 +156,11 @@ impl Place {
 /// edges, for a window with `frame` (points) around its inside. A point is `scale`
 /// times `zoom` pixels.
 fn corner_place(area: Rect, frame: Vec2, scale: f32, zoom: f32) -> Place {
-    let outer = (SIZE + frame) * scale * zoom;
+    let size = mini_size();
+    let outer = (size + frame) * scale * zoom;
     let p = area.max - outer - Vec2::splat(MARGIN * scale);
     let p = p.max(area.min);
-    Place { x: p.x.round(), y: p.y.round(), w: SIZE.x, h: SIZE.y, scale, zoom }
+    Place { x: p.x.round(), y: p.y.round(), w: size.x, h: size.y, scale, zoom }
 }
 
 /// A window `size` (points) in the middle of `area` (physical pixels), kept inside it.
@@ -129,7 +183,8 @@ const SYSTEM: Screens = Screens { on_a_monitor: crate::fullscreen::on_a_monitor,
 
 /// A remembered strip size, within the limits (they may have changed since).
 fn clamp_size(p: Place) -> Place {
-    Place { w: p.w.clamp(MIN_W, MAX_W), h: SIZE.y, ..p }
+    let (min, max) = width_limits();
+    Place { w: p.w.clamp(min, max), h: mini_size().y, ..p }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -182,6 +237,8 @@ pub struct Mini {
     screens: Screens,
     /// The full window's normal place after coming back maximized, until it's restored down.
     restored_max: Option<Place>,
+    /// The shape the window was last clipped to, for the pill.
+    shape: Option<(i32, i32, i32, i32)>,
 }
 
 impl Mini {
@@ -189,7 +246,7 @@ impl Mini {
         Mini {
             on: false,
             pinned: get("mini_pinned").map_or(PINNED_BY_DEFAULT, |v| v == "1"),
-            place: get("mini_window").and_then(|v| serde_json::from_str(&v).ok()).map(clamp_size),
+            place: get(place_key()).and_then(|v| serde_json::from_str(&v).ok()).map(clamp_size),
             full: None,
             was_maximized: false,
             switch: None,
@@ -198,13 +255,27 @@ impl Mini {
             limits_scale: None,
             screens: SYSTEM,
             restored_max: None,
+            shape: None,
+        }
+    }
+
+    /// Clip the window to the pill, a point past its edge to keep that edge smooth.
+    fn shape_to(&mut self, ctx: &egui::Context, width: f32) {
+        // On the way back, the pill still draws until the window starts changing size.
+        if self.switch.is_some() {
+            return;
+        }
+        let shape = Some(pill_shape(ctx.content_rect().width(), width, ctx.pixels_per_point()));
+        if self.shape != shape {
+            self.shape = shape;
+            crate::fullscreen::set_window_shape(shape);
         }
     }
 
     pub fn save(&self, storage: &mut dyn eframe::Storage) {
         storage.set_string("mini_pinned", if self.pinned { "1" } else { "0" }.into());
         if let Some(p) = &self.place {
-            storage.set_string("mini_window", serde_json::to_string(p).unwrap_or_default());
+            storage.set_string(place_key(), serde_json::to_string(p).unwrap_or_default());
         }
     }
 
@@ -240,6 +311,12 @@ impl Mini {
     /// The strip is showing (not mid-switch).
     pub fn showing(&self) -> bool {
         self.on && self.switch.is_none()
+    }
+
+    /// The pill is up, on the way back included (it's drawn until the window starts
+    /// changing size): the window around it is see-through.
+    pub fn pill_showing(&self) -> bool {
+        pill_active() && self.on
     }
 
     /// The old layout stays until the window starts changing size.
@@ -317,7 +394,7 @@ impl Mini {
         if self.showing()
             && !minimized
             && !maximized
-            && let Some(p) = Place::current(ctx).filter(|p| p.w >= MIN_W - 1.0)
+            && let Some(p) = Place::current(ctx).filter(|p| p.w >= width_limits().0 - 1.0)
         {
             self.place = Some(clamp_size(p));
         }
@@ -380,6 +457,13 @@ impl Mini {
             let vp = i.viewport();
             vp.outer_rect.zip(vp.inner_rect).map_or(Vec2::ZERO, |(o, i)| o.size() - i.size())
         });
+        // The pill has no frame of its own, on any system.
+        let frame = if to_mini && pill_active() { Vec2::ZERO } else { frame };
+        if pill_active() {
+            ctx.send_viewport_cmd(ViewportCommand::Decorations(!to_mini && !titlebar::custom()));
+            self.shape = None;
+            crate::fullscreen::set_window_shape(None);
+        }
         if to_mini {
             self.full = now_place.map(|p| (p, self.was_maximized));
             let target = match (self.place, now_place) {
@@ -455,8 +539,9 @@ impl Mini {
     /// window's minimum doesn't hold the strip up.
     fn limits(&mut self, ctx: &egui::Context, mini: bool) {
         if mini {
-            ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(vec2(MIN_W, SIZE.y)));
-            ctx.send_viewport_cmd(ViewportCommand::MaxInnerSize(vec2(MAX_W, SIZE.y)));
+            let ((min, max), h) = (width_limits(), mini_size().y);
+            ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(vec2(min, h)));
+            ctx.send_viewport_cmd(ViewportCommand::MaxInnerSize(vec2(max, h)));
         } else {
             ctx.send_viewport_cmd(ViewportCommand::MaxInnerSize(Vec2::INFINITY));
             ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(Vec2::from(crate::MIN_SIZE)));
@@ -482,7 +567,7 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
     match &track {
         Some(t) => paint_cover(ui, art, &t.thumbs, theme::thumb_radius() + 1.0, 1.0),
         None => {
-            ui.painter().rect_filled(art, theme::thumb_radius() + 1.0, theme::glass(0.08));
+            ui.painter().rect_filled(art, theme::thumb_radius() + 1.0, theme::glass_panel(0.08));
             icon_at(ui, art.center(), icon::MUSIC, 28.0, theme::text_faint());
         }
     }
@@ -495,9 +580,10 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
         Some(t) => (t.title.clone(), t.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", ")),
         None => ("Nothing playing".to_owned(), String::new()),
     };
-    let tr = text_at(ui, pos2(x0, art.top() + 1.0), &title, theme::semibold(14.5), theme::text(), text_w);
+    let explicit = track.as_ref().is_some_and(|t| t.explicit);
+    let tr = super::widgets::title_at(ui, pos2(x0, art.top() + 1.0), &title, explicit, theme::semibold(14.5), theme::text(), text_w);
     if let Some(t) = &track {
-        named(ui.interact(tr, ui.scope_id().with("mini-title"), Sense::hover()), &t.title).on_hover_text(&t.title);
+        named(ui.interact(tr, ui.scope_id().with("mini-title"), Sense::hover()), &super::widgets::song_name(&t.title, t.explicit)).on_hover_text(&t.title);
     }
     text_at(ui, pos2(x0, art.top() + 22.0), &artists, theme::regular(12.5), theme::text_dim(), text_w);
 
@@ -537,10 +623,7 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
     };
     // The system's frame has its own close button.
     if titlebar::custom() && top_btn(ui, icon::X, "close", "Close", true, false) {
-        match CLOSE {
-            CloseButton::LikeFullWindow => ctx.send_viewport_cmd(ViewportCommand::Close),
-            CloseButton::Expand => app.actions.push(Action::Mini(false)),
-        }
+        close_window(app, &ctx);
     }
     if top_btn(ui, icon::MAXIMIZE_2, "full", "Full window (Ctrl+M)", false, false) {
         app.actions.push(Action::Mini(false));
@@ -572,18 +655,7 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
     let scale = if presp.is_pointer_button_down_on() { 0.92 } else { 1.0 + 0.05 * ph };
     let c = pr.center();
     ui.painter().circle_filled(c, 18.0 * scale, if theme::light() { theme::text() } else { Color32::WHITE });
-    let glyph = theme::on_text();
-    let morph = theme::anim_bool(&ctx, "mini-play-morph", playing || app.buffering, 0.18);
-    if app.buffering {
-        let a = now as f32 * 6.0;
-        let pts = (0..20).map(|i| c + vec2((a + i as f32 * 0.22).cos(), (a + i as f32 * 0.22).sin()) * 7.0).collect();
-        ui.painter().add(egui::Shape::Path(egui::epaint::PathShape::line(pts, egui::epaint::PathStroke::new(2.0, glyph))));
-        ctx.request_repaint_after(Duration::from_millis(33));
-    } else if morph > 0.5 {
-        widgets::pause_bars(ui, c, 6.5 * (2.0 * morph - 1.0).max(0.4), glyph);
-    } else {
-        widgets::play_triangle(ui, c + vec2(1.2, 0.0), 7.0 * (1.0 - 2.0 * morph).max(0.4), glyph);
-    }
+    play_glyph(app, ui, c, 1.0, theme::on_text(), now);
     if presp.clicked() && enabled {
         app.toggle();
     }
@@ -636,10 +708,153 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
     seek_line(app, ui, r, track.as_ref());
 }
 
+/// What's on the play button, `k` times the strip's size: play, pause or a spinner.
+fn play_glyph(app: &App, ui: &Ui, c: Pos2, k: f32, glyph: Color32, now: f64) {
+    let morph = theme::anim_bool(ui.ctx(), "mini-play-morph", app.playing() || app.buffering, 0.18);
+    if app.buffering {
+        let a = now as f32 * 6.0;
+        let pts = (0..20).map(|i| c + vec2((a + i as f32 * 0.22).cos(), (a + i as f32 * 0.22).sin()) * 7.0 * k).collect();
+        ui.painter().add(egui::Shape::Path(egui::epaint::PathShape::line(pts, egui::epaint::PathStroke::new(2.0, glyph))));
+        ui.ctx().request_repaint_after(Duration::from_millis(33));
+    } else if morph > 0.5 {
+        widgets::pause_bars(ui, c, 6.5 * k * (2.0 * morph - 1.0).max(0.4), glyph);
+    } else {
+        widgets::play_triangle(ui, c + vec2(1.2 * k, 0.0), 7.0 * k * (1.0 - 2.0 * morph).max(0.4), glyph);
+    }
+}
+
+/// The pill: cover in a progress ring, title and artists; pointing at it slides out
+/// previous, play, next and close. Drag to move, double-click for the full window.
+pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
+    let ctx = ui.ctx().clone();
+    let r = ctx.content_rect();
+    let width_id = egui::Id::unique("pill-width");
+    let was = ctx.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(PILL_REST);
+    let at = |w: f32| Rect::from_min_size(pos2(r.right() - 1.0 - w, r.top() + 1.0), vec2(w, PILL_HEIGHT));
+    let over = ctx.input(|i| i.pointer.hover_pos()).is_some_and(|p| at(was).contains(p));
+    // The keyboard opens it too, or Tab would land on buttons nobody can see.
+    let scope = ui.scope_id();
+    let btn_id = move |key: &str| scope.with(("pill", key));
+    let focused = ctx.memory(|m| m.focused()).is_some_and(|f| ["prev", "play", "next", "close"].iter().any(|k| btn_id(k) == f));
+    let active = over || focused;
+    // A toast takes the text's place, with the pill opened for the room, until it's pointed at.
+    let toast = app.toast.as_ref().filter(|_| !active).map(|(msg, _)| msg.clone());
+    if toast.is_some() {
+        ctx.request_repaint_after(Duration::from_millis(500));
+    }
+    let open = theme::anim_bool(&ctx, "pill-open", active || toast.is_some(), 0.18);
+    let reveal = theme::anim_bool(&ctx, "pill-buttons", active, 0.18);
+    let width = egui::lerp(PILL_REST..=PILL_OPEN, open);
+    ctx.data_mut(|d| d.insert_temp(width_id, width));
+    app.mini.shape_to(&ctx, width);
+    let rect = at(width);
+
+    let drag = titlebar::drag_strip(ui, rect, "mini");
+    let name = app.current().map_or_else(|| "Nothing playing".to_owned(), |t| widgets::song_name(&t.title, t.explicit).into_owned());
+    if named(drag, &name).double_clicked() {
+        app.actions.push(Action::Mini(false));
+    }
+    let radius = PILL_HEIGHT / 2.0;
+    ui.painter().rect_filled(rect, radius, super::shell::base_color(app));
+    ui.painter().rect_stroke(rect, radius, egui::Stroke::new(1.0, theme::glass(0.18)), egui::StrokeKind::Inside);
+
+    // The cover, with how far the song has got around it.
+    let track = app.current().cloned();
+    let c = pos2(rect.left() + 27.0, rect.center().y);
+    let status = app.audio.status.clone();
+    let total = song_length(app, track.as_ref());
+    let frac = if total > 0.0 { (status.position_smooth().as_secs_f32() / total).clamp(0.0, 1.0) } else { 0.0 };
+    ui.painter().circle_stroke(c, 18.5, egui::Stroke::new(2.0, theme::glass(0.2)));
+    if frac > 0.0 {
+        let steps = ((frac * 64.0).ceil() as usize).max(2);
+        let pts = (0..=steps).map(|i| {
+            let a = -std::f32::consts::FRAC_PI_2 + std::f32::consts::TAU * frac * i as f32 / steps as f32;
+            c + vec2(a.cos(), a.sin()) * 18.5
+        });
+        ui.painter().add(egui::Shape::Path(egui::epaint::PathShape::line(pts.collect(), egui::epaint::PathStroke::new(2.0, app.accent_color()))));
+    }
+    let art = Rect::from_center_size(c, Vec2::splat(32.0));
+    match &track {
+        Some(t) => paint_cover(ui, art, &t.thumbs, 16.0, 1.0),
+        None => {
+            ui.painter().rect_filled(art, 16.0, theme::glass_panel(0.08));
+            icon_at(ui, c, icon::MUSIC, 15.0, theme::text_faint());
+        }
+    }
+
+    // Title and artists, making room for the buttons as they slide out.
+    let x0 = c.x + 30.0;
+    let text_w = (rect.right() - 14.0 - 126.0 * reveal - x0).max(10.0);
+    let cy = rect.center().y;
+    let (title, artists) = match &track {
+        Some(t) => (t.title.clone(), t.artist_line()),
+        None => ("Nothing playing".to_owned(), String::new()),
+    };
+    let explicit = track.as_ref().is_some_and(|t| t.explicit);
+    if let Some(msg) = toast {
+        let g = ui.painter().layout(msg, theme::regular(11.5), theme::text(), text_w);
+        ui.painter().galley(pos2(x0, cy - g.size().y / 2.0), g, theme::text());
+    } else {
+        widgets::title_at(ui, pos2(x0, cy - 17.0), &title, explicit, theme::semibold(13.0), theme::text(), text_w);
+        text_at(ui, pos2(x0, cy + 2.0), &artists, theme::regular(11.5), theme::text_dim(), text_w);
+    }
+
+    // Clickable once most of the way out: a quick pass over the pill shouldn't press
+    // anything. Until then Tab can still get to them, which opens the pill.
+    let live = reveal > 0.5;
+    let button = |ui: &mut Ui, center: Pos2, key: &str, name: &str| -> egui::Response {
+        let sense = if live { Sense::click() } else { Sense::focusable_noninteractive() };
+        let resp = named(ui.interact(Rect::from_center_size(center, Vec2::splat(28.0)), btn_id(key), sense), name);
+        if resp.has_focus() {
+            ui.painter().circle_stroke(center, 14.0, egui::Stroke::new(1.5, theme::text()));
+        }
+        if live { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp }
+    };
+    let enabled = track.is_some();
+    let right = rect.right();
+    for (dx, glyph, key, name) in [(113.0, icon::SKIP_BACK, "prev", "Previous"), (47.0, icon::SKIP_FORWARD, "next", "Next"), (21.0, icon::X, "close", "Close")] {
+        let center = pos2(right - dx, cy);
+        let resp = button(ui, center, key, name);
+        let hot = live && resp.hovered();
+        if hot {
+            ui.painter().circle_filled(center, 13.0, theme::glass(0.12));
+        }
+        icon_at(ui, center, glyph, if key == "close" { 13.0 } else { 16.0 }, if hot { theme::text() } else { theme::text_dim() }.gamma_multiply(reveal));
+        if resp.clicked() {
+            match key {
+                "prev" if enabled => app.prev(),
+                "next" if enabled => app.next(),
+                "close" => close_window(app, &ctx),
+                _ => {}
+            }
+        }
+    }
+    let center = pos2(right - 80.0, cy);
+    let resp = button(ui, center, "play", if app.playing() { "Pause" } else { "Play" });
+    ui.painter().circle_filled(center, 15.0, if theme::light() { theme::text() } else { Color32::WHITE }.gamma_multiply(reveal));
+    play_glyph(app, ui, center, 0.82, theme::on_text().gamma_multiply(reveal), now);
+    if resp.clicked() && enabled {
+        app.toggle();
+    }
+}
+
+/// What the mini player's × does.
+fn close_window(app: &mut App, ctx: &egui::Context) {
+    match CLOSE {
+        CloseButton::LikeFullWindow => ctx.send_viewport_cmd(ViewportCommand::Close),
+        CloseButton::Expand => app.actions.push(Action::Mini(false)),
+    }
+}
+
+/// The song's length in seconds: its stream's, else what it's listed with, else 0.
+fn song_length(app: &App, track: Option<&crate::model::Track>) -> f32 {
+    app.audio.status.duration().map(|d| d.as_secs_f32()).or(track.and_then(|t| t.duration).map(|d| d as f32)).unwrap_or(0.0)
+}
+
 /// A line along the bottom; thicker on hover, with the time under the pointer.
 fn seek_line(app: &mut App, ui: &mut Ui, r: Rect, track: Option<&crate::model::Track>) {
     let status = app.audio.status.clone();
-    let total = status.duration().map(|d| d.as_secs_f32()).or(track.and_then(|t| t.duration).map(|d| d as f32)).unwrap_or(0.0);
+    let total = song_length(app, track);
     let pos = app.seek_drag.unwrap_or(status.position_smooth().as_secs_f32()).min(total.max(0.0));
     let hit = Rect::from_min_max(pos2(r.left(), r.bottom() - 10.0), r.max);
     let resp = ui.interact(hit, ui.scope_id().with("mini-seek"), Sense::click_and_drag());
@@ -699,6 +914,17 @@ mod tests {
         // Zoomed in, a point is bigger: the strip still ends at the margin.
         let p = corner_place(area, Vec2::ZERO, 1.0, 2.0);
         assert_eq!((p.x, p.y, p.zoom), (2560.0 - 800.0 - 16.0, 1400.0 - 224.0 - 16.0, 2.0));
+    }
+
+    #[test]
+    fn the_pill_grows_from_the_windows_right_edge() {
+        let (w, ppp) = (PILL_WINDOW.x, 1.5);
+        let (rest_l, rest_r, ..) = pill_shape(w, PILL_REST, ppp);
+        let (open_l, open_r, bottom, d) = pill_shape(w, PILL_OPEN, ppp);
+        assert_eq!(rest_r, open_r);
+        assert!(open_l < rest_l);
+        assert_eq!(open_l, 0);
+        assert_eq!((bottom, d), (87, 87));
     }
 
     #[test]

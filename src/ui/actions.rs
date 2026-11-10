@@ -50,6 +50,7 @@ impl App {
                     target => self.backend.request(Req::PlayCollection { target }),
                 }
             }
+            Action::Open(Target::Song(t)) | Action::Radio(t) if self.explicit_hidden(&t) => {}
             Action::Open(Target::Song(t)) | Action::Radio(t) => {
                 self.queue_source = None;
                 self.play_list(vec![t.clone()], 0);
@@ -61,6 +62,7 @@ impl App {
             Action::Open(Target::Album(id)) => self.go(Page::Album(id)),
             Action::Open(Target::Playlist(id)) => self.go(Page::Playlist(id)),
             Action::Open(Target::Artist(id)) => self.go(Page::Artist(id)),
+            Action::PlayNext(t) | Action::Enqueue(t) if self.explicit_hidden(&t) => {}
             Action::PlayNext(t) => {
                 let start = self.queue.play_next(t);
                 self.toast("Playing next");
@@ -85,6 +87,7 @@ impl App {
                 }
                 self.play_pending = None;
                 self.queue.index = Some(i);
+                self.queue.drop_explicit();
                 self.play_current();
             }
             Action::QueueRemove(i) => self.queue.remove(i),
@@ -180,7 +183,8 @@ impl App {
                 // Optimistic: drop the rows now; the playlist reloads once YouTube confirms.
                 c.remove_rows(&rows);
                 log::debug!("list {playlist}: removing {} entries", items.len());
-                self.lists.edits.remove(&playlist, items.iter().map(|(_, set)| set.clone()));
+                self.lists.edits.remove(&playlist, &items);
+                self.sync_card_count(&playlist);
                 self.selection.clear();
                 self.backend.request(Req::RemoveFromPlaylist { playlist_id: playlist, items });
             }
@@ -258,6 +262,10 @@ impl App {
     }
 
     pub(super) fn shortcuts(&mut self, ctx: &egui::Context) {
+        // Space or the arrows are being picked as a shortcut, not pressed.
+        if self.hotkeys.capturing() {
+            return;
+        }
         let typing = ctx.egui_wants_keyboard_input();
         // In a text box, Ctrl+arrows move the cursor by words (and lines) instead; on a
         // focused button or slider they still skip and change the volume.
@@ -284,15 +292,24 @@ impl App {
                 ctrl(egui::Key::ArrowDown),
                 // Once per press: holding it doesn't flip back and forth.
                 i.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::M, pressed: true, repeat: false, modifiers, .. } if modifiers.ctrl)),
+                // Once per press too: holding it doesn't fire a request every repeat.
+                i.events.iter().any(|e| {
+                    matches!(e, egui::Event::Key { key, pressed: true, repeat: false, modifiers, .. }
+                        if !editing && (*key == egui::Key::F5 || (*key == egui::Key::R && modifiers.ctrl)))
+                }),
             )
         });
-        let (space, back, fwd, next, prev, lyr, full, esc, vol_up, vol_down, mini) = i;
+        let (space, back, fwd, next, prev, lyr, full, esc, vol_up, vol_down, mini, refresh) = i;
         if mini {
             self.actions.push(Action::Mini(!self.mini.target()));
         }
         // The mini player has no pages or now playing to go to, nor does a window on
         // its way back until it's there.
-        let (back, fwd, lyr, full, esc) = if self.mini.busy() { (false, false, false, false, false) } else { (back, fwd, lyr, full, esc) };
+        let (back, fwd, lyr, full, esc, refresh) =
+            if self.mini.busy() { (false, false, false, false, false, false) } else { (back, fwd, lyr, full, esc, refresh) };
+        if refresh {
+            self.refresh();
+        }
         if space {
             self.toggle();
         }
@@ -326,9 +343,13 @@ impl App {
             }
         }
         if vol_up || vol_down {
-            let v = (self.audio.volume() + if vol_up { 0.05 } else { -0.05 }).clamp(0.0, 1.0);
-            self.audio.set_volume(v);
+            self.nudge_volume(vol_up);
         }
+    }
+
+    pub(super) fn nudge_volume(&self, up: bool) {
+        let v = (self.audio.volume() + if up { 0.05 } else { -0.05 }).clamp(0.0, 1.0);
+        self.audio.set_volume(v);
     }
 
     /// Into the mini player or back. Full screen ends first, a frame ahead.
@@ -365,7 +386,7 @@ pub(super) fn not_current_first(t: &mut [Track], current: Option<&Track>) {
 fn share_url(target: &Target) -> String {
     match target {
         Target::Song(t) => format!("https://music.youtube.com/watch?v={}", t.id),
-        Target::Playlist(id) => format!("https://music.youtube.com/playlist?list={id}"),
+        Target::Playlist(id) => format!("https://music.youtube.com/playlist?list={}", crate::ytm::list_id(id)),
         Target::Album(id) => format!("https://music.youtube.com/browse/{id}"),
         Target::Artist(id) => format!("https://music.youtube.com/channel/{id}"),
     }
@@ -377,9 +398,11 @@ mod share_tests {
 
     #[test]
     fn shares_youtube_music_urls() {
-        let song = Track { id: "abc123".into(), title: String::new(), artists: vec![], album: None, duration: None, thumbs: vec![], track_nr: None, plays: None, music_video: false };
+        let song = Track { id: "abc123".into(), title: String::new(), artists: vec![], ..Default::default() };
         assert_eq!(share_url(&Target::Song(song)), "https://music.youtube.com/watch?v=abc123");
         assert_eq!(share_url(&Target::Playlist("PL123".into())), "https://music.youtube.com/playlist?list=PL123");
+        // A podcast show is shared as its playlist.
+        assert_eq!(share_url(&Target::Playlist("MPSPPL123".into())), "https://music.youtube.com/playlist?list=PL123");
         assert_eq!(share_url(&Target::Album("MPRE123".into())), "https://music.youtube.com/browse/MPRE123");
         assert_eq!(share_url(&Target::Artist("UC123".into())), "https://music.youtube.com/channel/UC123");
     }

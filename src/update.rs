@@ -12,6 +12,11 @@
 //! `portable.txt` marker; inside the app bundle on macOS), which updates from the
 //! portable download. Dev builds never update themselves.
 //!
+//! Nothing waits a fixed time for the app to exit. The installer is run by a copy of
+//! this exe staged in the updates folder ([`apply_main`]), which waits for this process
+//! to exit, runs the installer, and starts the app again. A relaunch is passed this
+//! process's id ([`start_after_exit`]) and waits for it to exit before going on.
+//!
 //! Release notes (the release's Markdown body) are kept per version: the one a check
 //! finds, and any other on request ([`Updater::notes`]), for the update dialog, the
 //! card shown after updating and Settings.
@@ -20,13 +25,24 @@
 //! pretends to be that version; `YTM_UPDATE_DRYRUN=1` logs the install command
 //! instead of running it; `YTM_UPDATE_FEED=<url>` reads the latest release from there.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 const LATEST: &str = "https://api.github.com/repos/grapedjuice/ytm-rs/releases/latest";
 const ALL_RELEASES: &str = "https://api.github.com/repos/grapedjuice/ytm-rs/releases";
 const BY_TAG: &str = "https://api.github.com/repos/grapedjuice/ytm-rs/releases/tags/v";
 pub const RELEASES: &str = "https://github.com/grapedjuice/ytm-rs/releases";
+
+/// The first argument of the staged helper (see [`apply_main`]).
+const APPLY_FLAG: &str = "--apply-update";
+/// `--after=<pid>`: wait for that process to exit first (see [`wait_for_predecessor`]).
+const AFTER_FLAG: &str = "--after=";
+/// The staged helper, and the note it leaves when an install fails, in the updates folder.
+#[cfg_attr(not(windows), allow(dead_code))]
+const HELPER: &str = "update.exe";
+const FAILED: &str = "install-failed.txt";
 
 /// Release notes by version: `None` while fetching or when there are none.
 type Notes = Arc<Mutex<std::collections::HashMap<String, Option<String>>>>;
@@ -113,13 +129,130 @@ pub fn portable_dir() -> Option<PathBuf> {
     dir.join("portable.txt").exists().then_some(dir)
 }
 
-/// Remove the exe a portable update replaced (it was still running then).
+/// Remove the exe a portable update replaced (it was still running then), and any
+/// new one a failed swap left beside it.
 pub fn clean_portable() {
     if portable_dir().is_some()
         && let Ok(exe) = std::env::current_exe()
     {
         let _ = std::fs::remove_file(exe.with_extension("exe.old"));
+        let _ = std::fs::remove_file(exe.with_extension("exe.new"));
     }
+}
+
+/// A relaunch (`--after=<pid>`) waits for the copy that started it to exit, so the two
+/// never run at once. Before anything else, even the single-instance handoff.
+pub fn wait_for_predecessor() {
+    let pid = std::env::args_os().skip(1).find_map(|a| a.to_str()?.strip_prefix(AFTER_FLAG)?.parse().ok());
+    if let Some(pid) = pid {
+        wait_for_exit(pid);
+    }
+}
+
+/// Start `exe` once this process has exited: it waits for this one
+/// ([`wait_for_predecessor`]), so this process can take as long as it needs to close.
+pub fn start_after_exit(exe: &Path) -> bool {
+    let after = format!("{AFTER_FLAG}{}", std::process::id());
+    #[cfg(target_os = "macos")]
+    if let Some(app) = bundle_of(exe) {
+        // Through Launch Services; `-n` starts a new copy while this one is still up.
+        return spawn(Command::new("open").arg("-n").arg(app).arg("--args").arg(&after));
+    }
+    spawn(Command::new(exe).arg(after))
+}
+
+/// Wait for process `pid` to exit, however long it takes: going ahead early would run
+/// two copies at once (or hand off to one that's closing).
+#[cfg(windows)]
+fn wait_for_exit(pid: u32) {
+    use windows::Win32::Foundation::{CloseHandle, FILETIME, HANDLE};
+    use windows::Win32::System::Threading::{
+        GetCurrentProcess, GetProcessTimes, INFINITE, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+    };
+    // SAFETY: out-params of the right types, and a handle opened, waited on and closed
+    // here. One that can't be opened belongs to a process that has already exited.
+    unsafe {
+        let started = |h: HANDLE| {
+            let [mut created, mut exited, mut kernel, mut user] = [FILETIME::default(); 4];
+            let _ = GetProcessTimes(h, &mut created, &mut exited, &mut kernel, &mut user);
+            (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime)
+        };
+        if let Ok(h) = OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+            // One started after this process has the id only because ours has exited.
+            if started(h) <= started(GetCurrentProcess()) {
+                let _ = WaitForSingleObject(h, INFINITE);
+            }
+            let _ = CloseHandle(h);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn wait_for_exit(pid: u32) {
+    // Started straight from it (always, but for `open` on macOS), this process is its
+    // child until it exits: as a zombie it would still answer `kill`. Through `open`,
+    // it's gone once `kill` can't find it.
+    let child = cfg!(not(target_os = "macos")) || std::os::unix::process::parent_id() == pid;
+    // SAFETY: signal 0 only checks that the process exists.
+    let alive = || if child { std::os::unix::process::parent_id() == pid } else { unsafe { libc::kill(pid as libc::pid_t, 0) == 0 } };
+    while alive() {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// The staged helper: when this process was started as one, apply the update and
+/// return true (the caller exits). Arguments: the old process's id, the installer, the
+/// folder to install to, `/ALLUSERS` or `/CURRENTUSER`, and `1` to start the app after.
+pub fn apply_main() -> bool {
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if args.first().is_none_or(|a| a != APPLY_FLAG) {
+        return false;
+    }
+    #[cfg(windows)]
+    if let [pid, installer, dir, scope, relaunch] = &args[1..] {
+        wait_for_exit(pid.to_str().and_then(|p| p.parse().ok()).unwrap_or(0));
+        let installer = Path::new(installer);
+        let updates = installer.parent().unwrap_or(Path::new("."));
+        let arg = |name: &str, value: &std::ffi::OsStr| {
+            let mut a = OsString::from(name);
+            a.push(value);
+            a
+        };
+        let status = Command::new(installer)
+            .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
+            .arg(scope)
+            .arg(arg("/DIR=", dir.as_os_str()))
+            .arg(arg("/LOG=", updates.join("install.log").as_os_str()))
+            .status();
+        // The next launch logs it (this process has no log of its own).
+        let failed = match status {
+            Ok(s) if s.success() => None,
+            Ok(s) => Some(format!("the installer exited with {s}")),
+            Err(e) => Some(format!("couldn't run the installer: {e}")),
+        };
+        if let Some(why) = failed {
+            let _ = std::fs::write(updates.join(FAILED), why);
+        }
+        // Even after a failure: the installer rolls back, so the old version is still there.
+        // After this helper exits, so the next launch can delete it.
+        let exe = Path::new(dir).join("ytm-rs.exe");
+        if relaunch == "1" && exe.exists() {
+            start_after_exit(&exe);
+        }
+    }
+    true
+}
+
+/// Start a program that outlives this process; false if it couldn't be.
+fn spawn(cmd: &mut Command) -> bool {
+    cmd.stdin(std::process::Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Its own process group, so it isn't taken down with this one.
+        cmd.process_group(0);
+    }
+    cmd.spawn().inspect_err(|e| log::warn!("update: couldn't start {}: {e}", cmd.get_program().display())).is_ok()
 }
 
 /// `a` is newer than `b` (dotted numeric versions, a leading "v" ignored).
@@ -137,7 +270,15 @@ pub fn newer(a: &str, b: &str) -> bool {
 
 impl Updater {
     pub fn new(data_dir: &Path, wake: impl Fn() + Send + Sync + 'static) -> Self {
-        Self { state: Arc::new(Mutex::new(State::Idle)), dir: data_dir.join("updates"), wake: Arc::new(wake), notes: Default::default(), downloads: Default::default() }
+        let dir = data_dir.join("updates");
+        // What the last install's helper left behind.
+        #[cfg(windows)]
+        let _ = std::fs::remove_file(dir.join(HELPER));
+        if let Ok(why) = std::fs::read_to_string(dir.join(FAILED)) {
+            log::warn!("update: the last update didn't install: {why} (see {})", dir.join("install.log").display());
+            let _ = std::fs::remove_file(dir.join(FAILED));
+        }
+        Self { state: Arc::new(Mutex::new(State::Idle)), dir, wake: Arc::new(wake), notes: Default::default(), downloads: Default::default() }
     }
 
     pub fn state(&self) -> State {
@@ -318,102 +459,147 @@ impl Updater {
     pub fn install(&self, relaunch: bool) {
         let State::Ready { installer, .. } = self.state() else { return };
         let exe = std::env::current_exe().unwrap_or_default();
+        if !self.apply(&installer, &exe, relaunch) && relaunch {
+            // Nothing changed: start this version again.
+            start_after_exit(&exe);
+        }
+    }
+
+    /// Replace the app (and start it after, if `relaunch`); false if it couldn't be.
+    #[cfg(unix)]
+    fn apply(&self, installer: &Path, exe: &Path, relaunch: bool) -> bool {
         #[cfg(target_os = "macos")]
-        if let (Some(new), Some(app)) = (bundle_of(&installer), bundle_of(&exe)) {
+        if let (Some(new), Some(app)) = (bundle_of(installer), bundle_of(exe)) {
             return replace_bundle(new, app, relaunch);
         }
-        #[cfg(unix)]
-        replace_binary(&installer, &exe, relaunch);
-        #[cfg(windows)]
-        self.run_installer(&installer, &exe, relaunch);
+        replace_binary(installer, exe, relaunch)
     }
 
     #[cfg(windows)]
-    fn run_installer(&self, installer: &Path, exe: &Path, relaunch: bool) {
+    fn apply(&self, installer: &Path, exe: &Path, relaunch: bool) -> bool {
         if portable_dir().is_some() {
             return swap_exe(installer, exe, relaunch);
         }
-        // Update the copy that's running: an all-users install lives under Program Files
-        // (and the installer will ask for admin rights); otherwise it's per-user.
-        let program_files = std::env::var_os("ProgramFiles").map(PathBuf::from);
-        let scope = if program_files.is_some_and(|p| exe.starts_with(p)) { "/ALLUSERS" } else { "/CURRENTUSER" };
-        // Give this process a moment to save and exit before the installer replaces it.
-        let mut script = format!(
-            "ping -n 3 127.0.0.1 >NUL & \"{}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART {scope}",
-            installer.display()
-        );
-        if relaunch {
-            script += &format!(" & start \"\" \"{}\" {}", exe.display(), crate::deeplink::RELAUNCH_FLAG);
-        }
+        // Update the copy that's running, where it is (an all-users install asks for
+        // admin rights).
+        let Some(dir) = exe.parent() else { return false };
+        let scope = if all_users(dir) { "/ALLUSERS" } else { "/CURRENTUSER" };
+        // A copy of this exe runs it, as this one can't be replaced while it runs.
+        let helper = self.dir.join(HELPER);
+        let mut cmd = Command::new(&helper);
+        cmd.arg(APPLY_FLAG).arg(std::process::id().to_string()).arg(installer).arg(dir).arg(scope).arg(if relaunch { "1" } else { "0" });
         if std::env::var_os("YTM_UPDATE_DRYRUN").is_some() {
-            log::info!("update (dry run): cmd /C {script}");
-            return;
+            log::info!("update (dry run): {cmd:?}");
+            return true;
+        }
+        let _ = std::fs::remove_file(&helper);
+        if let Err(e) = std::fs::copy(exe, &helper) {
+            log::warn!("update: couldn't stage the updater: {e}");
+            return false;
         }
         log::info!("update: installing {}", installer.display());
-        run_detached(&script);
+        spawn(&mut cmd)
     }
 }
 
-/// The portable update: Windows lets a running exe be renamed, so move this one aside
-/// and put the new one in its place (the next launch deletes the old one).
+/// Whether the copy in `dir` is the all-users install: the installer records where it
+/// put that one under HKLM (else it's under Program Files, where per-user ones aren't).
 #[cfg(windows)]
-fn swap_exe(new: &Path, exe: &Path, relaunch: bool) {
-    let old = exe.with_extension("exe.old");
+fn all_users(dir: &Path) -> bool {
+    use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
+    use windows::core::w;
+    let mut buf = [0u16; 1024];
+    let mut size = std::mem::size_of_val(&buf) as u32;
+    // SAFETY: an out-buffer of the size passed; the strings are static. The key is the
+    // installer's AppId.
+    let read = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            w!(r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{6E0B7C4A-2D1F-4C8E-9B3A-7F5D1E2A9C40}_is1"),
+            w!("InstallLocation"),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr() as *mut _),
+            Some(&mut size),
+        )
+    };
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    let recorded = String::from_utf16_lossy(&buf[..len]);
+    let here = dir.to_string_lossy();
+    let program_files = std::env::var_os("ProgramFiles").map(PathBuf::from);
+    (read.is_ok() && recorded.trim_end_matches('\\').eq_ignore_ascii_case(here.trim_end_matches('\\'))) || program_files.is_some_and(|p| dir.starts_with(p))
+}
+
+/// The portable update: Windows lets a running exe be renamed, so move this one aside
+/// and put the new one in its place (the next launch deletes the old one). The new one
+/// is copied beside it first, so the exe is only ever renamed: never missing or half
+/// written.
+#[cfg(windows)]
+fn swap_exe(new: &Path, exe: &Path, relaunch: bool) -> bool {
+    let (old, next) = (exe.with_extension("exe.old"), exe.with_extension("exe.new"));
     if std::env::var_os("YTM_UPDATE_DRYRUN").is_some() {
         log::info!("update (dry run): {} aside to {}, {} in its place", exe.display(), old.display(), new.display());
-        return;
+        return true;
     }
     let _ = std::fs::remove_file(&old);
-    if let Err(e) = std::fs::rename(exe, &old) {
-        return log::warn!("update: couldn't move {} aside: {e}", exe.display());
-    }
-    if let Err(e) = std::fs::copy(new, exe) {
+    if let Err(e) = std::fs::copy(new, &next) {
+        let _ = std::fs::remove_file(&next);
         log::warn!("update: couldn't copy the new version: {e}");
+        return false;
+    }
+    if let Err(e) = std::fs::rename(exe, &old) {
+        let _ = std::fs::remove_file(&next);
+        log::warn!("update: couldn't move {} aside: {e}", exe.display());
+        return false;
+    }
+    if let Err(e) = std::fs::rename(&next, exe) {
         let _ = std::fs::rename(&old, exe);
-        return;
+        let _ = std::fs::remove_file(&next);
+        log::warn!("update: couldn't put the new version in place: {e}");
+        return false;
     }
     log::info!("update: replaced {}", exe.display());
     if relaunch {
-        // Once this process has saved and exited.
-        run_detached(&format!("ping -n 3 127.0.0.1 >NUL & start \"\" \"{}\" {}", exe.display(), crate::deeplink::RELAUNCH_FLAG));
+        start_after_exit(exe);
     }
+    true
 }
 
 /// Linux: rename the new binary over this one. The running process keeps its copy
 /// open until it exits; the next launch runs the new one.
 #[cfg(unix)]
-fn replace_binary(new: &Path, exe: &Path, relaunch: bool) {
+fn replace_binary(new: &Path, exe: &Path, relaunch: bool) -> bool {
     use std::os::unix::fs::PermissionsExt;
     let tmp = exe.with_file_name(".ytm-rs.new");
     if std::env::var_os("YTM_UPDATE_DRYRUN").is_some() {
         log::info!("update (dry run): {} over {}", new.display(), exe.display());
-        return;
+        return true;
     }
     let done = std::fs::copy(new, &tmp)
         .and_then(|_| std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755)))
         .and_then(|_| std::fs::rename(&tmp, exe));
     if let Err(e) = done {
         let _ = std::fs::remove_file(&tmp);
-        return log::warn!("update: couldn't replace {}: {e}", exe.display());
+        log::warn!("update: couldn't replace {}: {e}", exe.display());
+        return false;
     }
     log::info!("update: replaced {}", exe.display());
     if relaunch {
-        // Once this process has saved and exited.
-        let quoted = exe.display().to_string().replace('\'', r"'\''");
-        run_detached(&format!("sleep 2; exec '{quoted}'"));
+        start_after_exit(exe);
     }
+    true
 }
 
 /// macOS: put the new app bundle where this one is, so its Info.plist and icon update
 /// too. A running app's bundle can be moved; this process keeps running from the old
 /// one until it exits.
 #[cfg(target_os = "macos")]
-fn replace_bundle(new: &Path, app: &Path, relaunch: bool) {
+fn replace_bundle(new: &Path, app: &Path, relaunch: bool) -> bool {
     let parent = app.parent().unwrap_or(Path::new("/"));
     let (tmp, old) = (parent.join(".ytm-rs.app.new"), parent.join(".ytm-rs.app.old"));
     if std::env::var_os("YTM_UPDATE_DRYRUN").is_some() {
         log::info!("update (dry run): {} in place of {}", new.display(), app.display());
-        return;
+        return true;
     }
     let _ = std::fs::remove_dir_all(&tmp);
     let _ = std::fs::remove_dir_all(&old);
@@ -421,24 +607,26 @@ fn replace_bundle(new: &Path, app: &Path, relaunch: bool) {
     let copied = std::process::Command::new("ditto").arg(new).arg(&tmp).status().is_ok_and(|s| s.success());
     if !copied {
         let _ = std::fs::remove_dir_all(&tmp);
-        return log::warn!("update: couldn't copy {} beside {}", new.display(), app.display());
+        log::warn!("update: couldn't copy {} beside {}", new.display(), app.display());
+        return false;
     }
     if let Err(e) = std::fs::rename(app, &old) {
         let _ = std::fs::remove_dir_all(&tmp);
-        return log::warn!("update: couldn't move {} aside: {e}", app.display());
+        log::warn!("update: couldn't move {} aside: {e}", app.display());
+        return false;
     }
     if let Err(e) = std::fs::rename(&tmp, app) {
         let _ = std::fs::rename(&old, app);
         let _ = std::fs::remove_dir_all(&tmp);
-        return log::warn!("update: couldn't put the new version in place: {e}");
+        log::warn!("update: couldn't put the new version in place: {e}");
+        return false;
     }
     let _ = std::fs::remove_dir_all(&old);
     log::info!("update: replaced {}", app.display());
     if relaunch {
-        // Once this process has saved and exited.
-        let quoted = app.display().to_string().replace('\'', r"'\''");
-        run_detached(&format!("sleep 2; open '{quoted}'"));
+        start_after_exit(&app.join("Contents/MacOS/ytm-rs"));
     }
+    true
 }
 
 /// macOS: the app from a downloaded installer disk image, copied out into `dir`.
@@ -486,27 +674,6 @@ fn unzip_exe(zip: &Path, dir: &Path) -> anyhow::Result<PathBuf> {
         .unwrap_or_else(|| dir.join("ytm-rs"));
     anyhow::ensure!(status.success() && exe.exists(), "couldn't unpack {}", zip.display());
     Ok(exe)
-}
-
-/// Run a cmd script detached and windowless, so it outlives this process.
-fn run_detached(script: &str) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        if let Err(e) = std::process::Command::new("cmd").arg("/C").raw_arg(script).creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS).spawn() {
-            log::warn!("update: couldn't run the update: {e}");
-        }
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // Its own process group, so it isn't taken down with this one.
-        if let Err(e) = std::process::Command::new("sh").arg("-c").arg(script).process_group(0).spawn() {
-            log::warn!("update: couldn't run the update: {e}");
-        }
-    }
 }
 
 fn client() -> anyhow::Result<reqwest::Client> {

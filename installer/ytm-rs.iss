@@ -6,7 +6,7 @@
 ;   iscc /DArm64 installer\ytm-rs.iss  ->  ytm-rs-setup-<version>-arm64.exe
 
 #define AppName "ytm-rs"
-#define AppVersion "0.2.32"
+#define AppVersion "0.2.34"
 #define AppExe "ytm-rs.exe"
 #ifdef Arm64
   #define Arch "arm64"
@@ -66,6 +66,9 @@ Root: HKA; Subkey: "Software\Classes\ytm-rs\shell\open\command"; ValueType: stri
 [UninstallDelete]
 ; Installers downloaded by the in-app updater.
 Type: filesandordirs; Name: "{userappdata}\ytm-rs\data\updates"
+; The app's own Start menu shortcut on an all-users install, for a custom app icon.
+Type: files; Name: "{userprograms}\{#AppName}\{#AppName}.lnk"
+Type: dirifempty; Name: "{userprograms}\{#AppName}"
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent

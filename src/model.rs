@@ -33,7 +33,7 @@ pub struct Link {
     pub id: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Track {
     pub id: String,
     pub title: String,
@@ -49,6 +49,9 @@ pub struct Track {
     /// when one is found and that's switched on.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub music_video: bool,
+    /// Marked explicit (the "E" badge), which can be hidden.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub explicit: bool,
 }
 
 impl Track {

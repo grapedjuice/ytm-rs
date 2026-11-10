@@ -202,6 +202,9 @@ mod shortcuts {
                 Err(e) => log::debug!("{}: {e}", lnk.display()),
             }
         }
+        if let (Some(user), Some(common)) = (known_folder(&FOLDERID_Programs), known_folder(&FOLDERID_CommonPrograms)) {
+            per_user_copies(&user, &common, &exe, &icon, &mut changed);
+        }
         if !changed.is_empty() {
             // SAFETY: plain notifications; the path strings outlive the calls.
             unsafe {
@@ -217,28 +220,94 @@ mod shortcuts {
 
     /// Set `lnk`'s icon if it launches `exe` and doesn't show `icon` yet.
     fn update(lnk: &Path, exe: &Path, icon: &Path) -> anyhow::Result<bool> {
-        // SAFETY: COM calls on an object this function owns, with buffers it owns.
+        let (link, file) = open(lnk)?;
+        if !launches(&link, exe)? || shows(&link, exe, icon)? {
+            return Ok(false);
+        }
+        // SAFETY: COM calls on objects this function owns.
+        unsafe {
+            link.SetIconLocation(&HSTRING::from(icon.as_os_str()), 0)?;
+            file.Save(PCWSTR::null(), true)?;
+        }
+        Ok(true)
+    }
+
+    /// Without admin rights an all-users Start menu shortcut can't change, and Windows
+    /// shows its icon on the taskbar over the window's. A shortcut at the same place in
+    /// the user's own Start menu takes its place, so give that one the icon, and remove
+    /// it again once the all-users one shows the right icon (always so for classic).
+    fn per_user_copies(user: &Path, common: &Path, exe: &Path, icon: &Path, changed: &mut Vec<PathBuf>) {
+        let mut shared = Vec::new();
+        collect(common, 2, &mut shared);
+        for lnk in shared {
+            let Ok(rel) = lnk.strip_prefix(common) else { continue };
+            let own = user.join(rel);
+            let result = open(&lnk).and_then(|(link, file)| {
+                if !launches(&link, exe)? {
+                    return Ok(false);
+                }
+                if shows(&link, exe, icon)? {
+                    return remove_copy(&own, exe);
+                }
+                // One that's already there (say, from a per-user install) isn't ours to replace.
+                if own.exists() {
+                    return Ok(false);
+                }
+                if let Some(dir) = own.parent() {
+                    std::fs::create_dir_all(dir)?;
+                }
+                // SAFETY: COM calls on objects this closure owns.
+                unsafe {
+                    link.SetIconLocation(&HSTRING::from(icon.as_os_str()), 0)?;
+                    file.Save(&HSTRING::from(own.as_os_str()), true)?;
+                }
+                Ok(true)
+            });
+            match result {
+                Ok(true) => changed.push(own),
+                Ok(false) => {}
+                Err(e) => log::warn!("app icon: no shortcut of your own for {}: {e:#}", lnk.display()),
+            }
+        }
+    }
+
+    /// Remove our copy, and its folder if that leaves it empty.
+    fn remove_copy(own: &Path, exe: &Path) -> anyhow::Result<bool> {
+        if !own.exists() || !launches(&open(own)?.0, exe)? {
+            return Ok(false);
+        }
+        std::fs::remove_file(own)?;
+        if let Some(dir) = own.parent() {
+            let _ = std::fs::remove_dir(dir);
+        }
+        Ok(true)
+    }
+
+    fn open(lnk: &Path) -> anyhow::Result<(IShellLinkW, IPersistFile)> {
+        // SAFETY: COM calls on an object this function creates.
         unsafe {
             let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
             let file: IPersistFile = link.cast()?;
             file.Load(&HSTRING::from(lnk.as_os_str()), STGM_READ)?;
-            let mut buf = [0u16; 1024];
-            link.GetPath(&mut buf, std::ptr::null_mut(), 0)?;
-            if !same_file(&from_wide(&buf), exe) {
-                return Ok(false);
-            }
-            let mut index = 0;
-            link.GetIconLocation(&mut buf, &mut index)?;
-            let current = from_wide(&buf);
-            // No icon of its own means the exe's, which is the classic one.
-            let showing = if current.as_os_str().is_empty() { exe.to_owned() } else { current };
-            if same_file(&showing, icon) && index == 0 {
-                return Ok(false);
-            }
-            link.SetIconLocation(&HSTRING::from(icon.as_os_str()), 0)?;
-            file.Save(PCWSTR::null(), true)?;
-            Ok(true)
+            Ok((link, file))
         }
+    }
+
+    fn launches(link: &IShellLinkW, exe: &Path) -> anyhow::Result<bool> {
+        let mut buf = [0u16; 1024];
+        // SAFETY: the buffer outlives the call, which is told its length.
+        unsafe { link.GetPath(&mut buf, std::ptr::null_mut(), 0)? };
+        Ok(same_file(&from_wide(&buf), exe))
+    }
+
+    fn shows(link: &IShellLinkW, exe: &Path, icon: &Path) -> anyhow::Result<bool> {
+        let (mut buf, mut index) = ([0u16; 1024], 0);
+        // SAFETY: the buffer outlives the call, which is told its length.
+        unsafe { link.GetIconLocation(&mut buf, &mut index)? };
+        let current = from_wide(&buf);
+        // No icon of its own means the exe's, which is the classic one.
+        let showing = if current.as_os_str().is_empty() { exe.to_owned() } else { current };
+        Ok(same_file(&showing, icon) && index == 0)
     }
 
     fn shortcut_files() -> Vec<PathBuf> {
@@ -296,6 +365,79 @@ mod shortcuts {
     fn same_file(a: &Path, b: &Path) -> bool {
         let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_owned());
         canon(a).to_string_lossy().eq_ignore_ascii_case(&canon(b).to_string_lossy())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+
+        use super::*;
+
+        fn make_link(lnk: &Path, target: &Path) {
+            std::fs::create_dir_all(lnk.parent().unwrap()).unwrap();
+            // SAFETY: COM on this test's thread, on an object it owns.
+            unsafe {
+                CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap();
+                let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).unwrap();
+                link.SetPath(&HSTRING::from(target.as_os_str())).unwrap();
+                link.cast::<IPersistFile>().unwrap().Save(&HSTRING::from(lnk.as_os_str()), true).unwrap();
+            }
+        }
+
+        fn scratch(name: &str) -> PathBuf {
+            let dir = std::env::temp_dir().join(format!("ytm-appicon-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            dir
+        }
+
+        #[test]
+        fn a_stuck_all_users_shortcut_gets_a_copy_until_classic_is_back() {
+            let dir = scratch("copy");
+            let (user, common) = (dir.join("user"), dir.join("common"));
+            let (exe, icon) = (std::env::current_exe().unwrap(), dir.join("wave.ico"));
+            std::fs::write(&icon, b"icon").unwrap();
+            let shared = common.join("ytm-rs").join("ytm-rs.lnk");
+            let own = user.join("ytm-rs").join("ytm-rs.lnk");
+            make_link(&shared, &exe);
+
+            let mut changed = Vec::new();
+            per_user_copies(&user, &common, &exe, &icon, &mut changed);
+            assert_eq!(changed, std::slice::from_ref(&own));
+            let (link, _) = open(&own).unwrap();
+            assert!(launches(&link, &exe).unwrap() && shows(&link, &exe, &icon).unwrap());
+
+            // Run again: nothing more to do.
+            changed.clear();
+            per_user_copies(&user, &common, &exe, &icon, &mut changed);
+            assert!(changed.is_empty());
+
+            // Classic: the all-users shortcut is right again, so the copy goes.
+            per_user_copies(&user, &common, &exe, &exe, &mut changed);
+            assert_eq!(changed, std::slice::from_ref(&own));
+            assert!(!own.exists() && !own.parent().unwrap().exists());
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+
+        #[test]
+        fn a_shortcut_to_another_copy_of_the_app_is_left_alone() {
+            let dir = scratch("other");
+            let (user, common) = (dir.join("user"), dir.join("common"));
+            let (exe, icon) = (std::env::current_exe().unwrap(), dir.join("wave.ico"));
+            let other = dir.join("other.ico");
+            std::fs::write(&icon, b"icon").unwrap();
+            std::fs::write(&other, b"not this exe").unwrap();
+            let own = user.join("ytm-rs").join("ytm-rs.lnk");
+            make_link(&common.join("ytm-rs").join("ytm-rs.lnk"), &exe);
+            make_link(&own, &other);
+
+            let mut changed = Vec::new();
+            per_user_copies(&user, &common, &exe, &icon, &mut changed);
+            assert!(changed.is_empty());
+            per_user_copies(&user, &common, &exe, &exe, &mut changed);
+            assert!(changed.is_empty() && own.exists());
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
     }
 }
 

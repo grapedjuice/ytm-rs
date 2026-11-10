@@ -113,7 +113,7 @@ pub(super) fn dev_screenshot(ctx: &egui::Context, now: f64) {
 
 /// Dev hook: `YTM_SCRIPT="<secs>:<step>;…"` drives a test window that has no mouse or
 /// keyboard, with seconds from the first frame. Steps: `m:x,y` moves the pointer, `c:x,y`
-/// clicks, `r:w,h` resizes, `t:text` types, `s:name` saves `<YTM_SCRIPT_DIR>/name.png`, `q` quits.
+/// clicks, `r:w,h` resizes, `t:text` types, `k:esc` presses Esc, `s:name` saves `<YTM_SCRIPT_DIR>/name.png`, `q` quits.
 pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
     use std::sync::OnceLock;
     use std::time::Instant;
@@ -122,6 +122,7 @@ pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
         Press(egui::Pos2, bool),
         Resize(egui::Pos2),
         Text(&'static str),
+        Esc,
         Shot(&'static str),
         Quit,
     }
@@ -141,6 +142,7 @@ pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
                 ("c", Some(p)) => steps.extend([(at, Step::Move(p)), (at + 0.2, Step::Press(p, true)), (at + 0.3, Step::Press(p, false))]),
                 ("r", Some(p)) => steps.push((at, Step::Resize(p))),
                 ("t", _) => steps.push((at, Step::Text(value))),
+                ("k", _) if value == "esc" => steps.push((at, Step::Esc)),
                 ("s", _) => steps.push((at, Step::Shot(value))),
                 ("q", _) => steps.push((at, Step::Quit)),
                 _ => log::warn!("YTM_SCRIPT: can't read {step}"),
@@ -158,6 +160,11 @@ pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
             Step::Press(p, pressed) => raw.events.push(egui::Event::PointerButton { pos: *p, button: egui::PointerButton::Primary, pressed: *pressed, modifiers: egui::Modifiers::NONE }),
             Step::Resize(p) => ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(p.to_vec2())),
             Step::Text(text) => raw.events.push(egui::Event::Text((*text).to_owned())),
+            Step::Esc => {
+                for pressed in [true, false] {
+                    raw.events.push(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE });
+                }
+            }
             Step::Shot(name) => {
                 let path = std::path::Path::new(dev_var("YTM_SCRIPT_DIR").unwrap_or(".")).join(format!("{name}.png"));
                 ctx.request_screenshot(move |img| {
@@ -197,31 +204,44 @@ pub(super) fn dev_var(name: &str) -> Option<&'static str> {
     .map(String::as_str)
 }
 
-/// Dev hook: YTM_FPS=<hz> holds each frame to 1/<hz> s, as vsync does on a visible window
-/// of that refresh rate (test windows sit off-screen, where Windows gives them ~21 fps);
-/// YTM_FPS_LOG logs the rate reached every 5 s.
-pub(super) fn dev_pace() {
+/// Dev hook: `YTM_MEM=<secs>` logs, that often, what the app's own caches hold: GPU
+/// textures (thumbnails and the rest), the font atlas, and the image loaders' bytes. The
+/// process's own figures come from outside (Task Manager, `Get-Process`).
+pub(super) fn dev_memory(ctx: &egui::Context, now: f64) {
     use std::sync::Mutex;
-    use std::time::Instant;
-    static HZ: std::sync::OnceLock<Option<f64>> = std::sync::OnceLock::new();
-    static STATE: Mutex<Option<(Instant, Instant, u32)>> = Mutex::new(None);
-    let Some(hz) = *HZ.get_or_init(|| std::env::var("YTM_FPS").ok().and_then(|v| v.parse().ok())) else { return };
-    let period = std::time::Duration::from_secs_f64(1.0 / hz);
-    let mut st = STATE.lock().unwrap();
-    let now = Instant::now();
-    let (last, window, frames) = st.get_or_insert((now, now, 0));
-    let next = *last + period;
-    if next > now {
-        std::thread::sleep(next - now);
-    }
-    *last = Instant::now();
-    *frames += 1;
-    let span = last.duration_since(*window).as_secs_f64();
-    if span >= 5.0 {
-        if std::env::var_os("YTM_FPS_LOG").is_some() {
-            log::info!("fps {:.1}", *frames as f64 / span);
+    let Some(every) = dev_var("YTM_MEM").and_then(|v| v.parse::<f64>().ok()) else { return };
+    static LAST: Mutex<f64> = Mutex::new(f64::NEG_INFINITY);
+    {
+        let mut last = LAST.lock().unwrap();
+        if now - *last < every {
+            ctx.request_repaint_after(Duration::from_secs_f64(every - (now - *last)));
+            return;
         }
-        *window = *last;
-        *frames = 0;
+        *last = now;
     }
+    let mb = |b: usize| b as f64 / (1024.0 * 1024.0);
+    let (count, textures, biggest) = {
+        let tm = ctx.tex_manager();
+        let tm = tm.read();
+        let mut all: Vec<(usize, String)> = tm.allocated().map(|(_, m)| (m.bytes_used(), m.name.clone())).collect();
+        all.sort_unstable_by_key(|a| std::cmp::Reverse(a.0));
+        let total = all.iter().map(|a| a.0).sum::<usize>();
+        let top: Vec<String> = all.iter().take(3).map(|(b, n)| format!("{} {:.1}", n.chars().take(48).collect::<String>(), mb(*b))).collect();
+        (all.len(), total, top.join(", "))
+    };
+    let atlas = ctx.fonts(|f| f.font_image_size());
+    let loaders = ctx.loaders();
+    let bytes: usize = loaders.bytes.lock().iter().map(|l| l.byte_size()).sum();
+    let images: usize = loaders.image.lock().iter().map(|l| l.byte_size()).sum();
+    let tex_loaders: usize = loaders.texture.lock().iter().map(|l| l.byte_size()).sum();
+    log::info!(
+        "mem: {count} textures {:.1} MB (loader {:.1}); font atlas {}x{}; bytes {:.1} MB, decoded {:.1} MB; {} audio buffers [{biggest}]",
+        mb(textures),
+        mb(tex_loaders),
+        atlas[0],
+        atlas[1],
+        mb(bytes),
+        mb(images),
+        crate::stream::LIVE.load(std::sync::atomic::Ordering::Relaxed)
+    );
 }

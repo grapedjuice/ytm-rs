@@ -163,6 +163,9 @@ pub struct SearchResults {
     pub albums: Vec<Card>,
     pub artists: Vec<Card>,
     pub playlists: Vec<Card>,
+    /// Podcast shows and episodes, when podcasts are shown.
+    pub podcasts: Vec<Card>,
+    pub episodes: Vec<Track>,
 }
 
 /// An album or playlist page.
@@ -188,11 +191,22 @@ pub struct Collection {
 }
 
 impl Collection {
+    /// A podcast show: its page lists episodes.
+    pub fn is_show(&self) -> bool {
+        ytm::list_id(&self.id) != self.id
+    }
+
+    /// "songs", or what this lists instead.
+    pub fn things(&self) -> &'static str {
+        if self.is_show() { "episodes" } else { "songs" }
+    }
+
     /// The subtitle, with the song count for a playlist.
     pub fn byline(&self) -> String {
+        let things = self.things();
         match self.count {
-            Some(n) if self.subtitle.is_empty() => format!("{n} songs"),
-            Some(n) => format!("{} • {n} songs", self.subtitle),
+            Some(n) if self.subtitle.is_empty() => format!("{n} {things}"),
+            Some(n) => format!("{} • {n} {things}", self.subtitle),
             None => self.subtitle.clone(),
         }
     }
@@ -246,6 +260,8 @@ pub struct ArtistPage {
 pub struct Library {
     pub playlists: Vec<Card>,
     pub albums: Vec<Card>,
+    /// Saved podcast shows, when podcasts are shown.
+    pub podcasts: Vec<Card>,
     /// That half didn't load (YouTube Music refused it, say): the one shown stays.
     pub playlists_failed: bool,
     pub albums_failed: bool,
@@ -292,8 +308,8 @@ pub enum Resp {
     LyricsExtras { video_id: String, source: String, target: String, extras: crate::translate::Extras },
     Art { key: String, art: Art },
     Radio { seed: String, tracks: Vec<Track> },
-    /// What was asked to play (a `Req::PlayCollection`), and its songs.
-    PlayQueue { target: Target, tracks: Vec<Track> },
+    /// What was asked to play (a `Req::PlayCollection`), its name, and its songs.
+    PlayQueue { target: Target, title: String, tracks: Vec<Track> },
     /// `other`: its other version, whose like went with this one.
     Liked { video_id: String, like: bool, other: Option<String> },
     /// A run of likes or unlikes: `taken` just went through, `done` of `total` tried.
@@ -304,6 +320,7 @@ pub enum Resp {
     PlaylistChanged { id: String, message: &'static str },
     /// Songs weren't taken out of this playlist, though they've left it here already.
     RemoveFailed { id: String, error: String },
+    AddedToPlaylist { id: String, video_ids: Vec<String>, error: Option<String> },
     /// YouTube Music answered a song dragged to a new place.
     PlaylistMoved { id: String, move_id: u64, ok: bool },
     Collaboration(ytm::Collaboration),
@@ -336,6 +353,7 @@ impl Resp {
                 | Resp::Liked { .. }
                 | Resp::LikeProgress { .. }
                 | Resp::LikedMany { .. }
+                | Resp::AddedToPlaylist { .. }
         )
     }
 
@@ -503,6 +521,11 @@ pub struct Backend {
     /// High quality: with Premium, every song goes through the signed-in web player
     /// for its 256 kbps stream instead of the anonymous 128 kbps one.
     hq: Arc<std::sync::atomic::AtomicBool>,
+    /// Explicit songs are hidden: a music video's song version has to be clean.
+    clean: Arc<std::sync::atomic::AtomicBool>,
+    /// The visionOS player's file URLs were refused past 1 MiB this session (YouTube
+    /// wants a PO token for them on this network): songs play from its HLS segments.
+    visionos_hls: Arc<std::sync::atomic::AtomicBool>,
     /// Song versions of music videos looked up this session (`None`: there's none), by
     /// video and whether the account has Premium (which gets YouTube's own pairs). One
     /// cell each, so a prefetch and the play of the same video share a lookup.
@@ -534,7 +557,7 @@ impl Backend {
         {
             log::warn!("proxy relay: {e:#}");
         }
-        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), songs: Default::default() };
+        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), clean: Default::default(), visionos_hls: Default::default(), songs: Default::default() };
         backend.keep_signed_in();
         Ok(backend)
     }
@@ -778,13 +801,13 @@ impl Backend {
                     Resp::Radio { seed, tracks }
                 }
                 Req::PlayCollection { target } => {
-                    let tracks = match &target {
-                        Target::Album(id) => ytm::album(api, id).await?.tracks,
-                        Target::Playlist(id) => ytm::playlist(api, id, me, None).await?.tracks,
-                        Target::Artist(id) => ytm::artist(api, id).await?.top,
-                        Target::Song(t) => vec![t.clone()],
+                    let (title, tracks) = match &target {
+                        Target::Album(id) => ytm::album(api, id).await.map(|c| (c.title, c.tracks))?,
+                        Target::Playlist(id) => ytm::playlist(api, id, me, None).await.map(|c| (c.title, c.tracks))?,
+                        Target::Artist(id) => ytm::artist(api, id).await.map(|a| (a.name, a.top))?,
+                        Target::Song(t) => (t.title.clone(), vec![t.clone()]),
                     };
-                    Resp::PlayQueue { target, tracks }
+                    Resp::PlayQueue { target, title, tracks }
                 }
                 Req::Download { track: t, for_video } => {
                     let path = self.download(&t, for_video).await?;
@@ -869,8 +892,12 @@ impl Backend {
                     Resp::PlaylistChanged { id, message: "Playlist updated" }
                 }
                 Req::AddToPlaylist { playlist_id, video_ids } => {
-                    ytm::add_videos(api, &playlist_id, &video_ids).await?;
-                    Resp::PlaylistChanged { id: playlist_id, message: "Added to playlist" }
+                    // A failure says which songs too, so they stop showing in the playlist.
+                    let error = ytm::add_videos(api, &playlist_id, &video_ids).await.err().map(|e| {
+                        log::warn!("{what} failed: {e:#}");
+                        format!("{what} failed: {e}")
+                    });
+                    Resp::AddedToPlaylist { id: playlist_id, video_ids, error }
                 }
                 Req::RemoveFromPlaylist { playlist_id, items } => {
                     match ytm::remove_videos(api, &playlist_id, &items).await {
@@ -940,16 +967,24 @@ impl Backend {
         }))
     }
 
-    /// Songs, videos, albums, artists and playlists for a search, asked at once. Only the
-    /// songs must arrive.
+    /// Songs, videos, albums, artists and playlists for a search, asked at once (podcast
+    /// shows and episodes too when those are shown). Only the songs must arrive.
     async fn search(&self, query: String, me: bool) -> anyhow::Result<Resp> {
         let api = &*self.api;
-        let (t, v, al, ar, pl) = tokio::join!(
+        let podcasts = async {
+            if !ytm::podcasts() {
+                return (Vec::new(), Vec::new());
+            }
+            let (shows, episodes) = tokio::join!(ytm::search_cards(api, &query, ytm::Filter::Podcasts, me), ytm::search_episodes(api, &query, me));
+            (shows.unwrap_or_default(), episodes.unwrap_or_default())
+        };
+        let (t, v, al, ar, pl, (podcasts, episodes)) = tokio::join!(
             ytm::search_songs(api, &query, me),
             ytm::search_videos(api, &query, me),
             ytm::search_cards(api, &query, ytm::Filter::Albums, me),
             ytm::search_cards(api, &query, ytm::Filter::Artists, me),
             ytm::search_cards(api, &query, ytm::Filter::Playlists, me),
+            podcasts,
         );
         Ok(Resp::Search(SearchResults {
             tracks: t?,
@@ -957,6 +992,8 @@ impl Backend {
             albums: al.unwrap_or_default(),
             artists: ar.unwrap_or_default(),
             playlists: pl.unwrap_or_default(),
+            podcasts,
+            episodes,
             query,
         }))
     }
@@ -966,7 +1003,16 @@ impl Backend {
         let api = &*self.api;
         // Liked songs are Liked Music, loaded like any playlist. Each half shows
         // without the other; it only fails when both do.
-        let (pls, albums) = tokio::join!(ytm::saved_playlists(api), ytm::saved_albums(api));
+        let podcasts = async {
+            if !ytm::podcasts() {
+                return Vec::new();
+            }
+            ytm::saved_podcasts(api).await.unwrap_or_else(|e| {
+                log::warn!("saved podcasts didn't load: {e:#}");
+                Vec::new()
+            })
+        };
+        let (pls, albums, podcasts) = tokio::join!(ytm::saved_playlists(api), ytm::saved_albums(api), podcasts);
         let pls = match (pls, &albums) {
             (Err(e), Err(_)) => return Err(e),
             (pls, _) => pls,
@@ -982,6 +1028,7 @@ impl Backend {
             albums_failed: albums.is_err(),
             playlists: pls.map(|p| p.into_iter().filter(saved_playlist_visible).collect()).unwrap_or_default(),
             albums: albums.unwrap_or_default(),
+            podcasts,
         }))
     }
 
@@ -1151,7 +1198,9 @@ impl Backend {
         let prefetched = self.prefetched.lock().unwrap().take();
         let replay = self.current.lock().unwrap().take().filter(|(id, s)| *id == video_id && s.is_complete()).map(|(_, s)| s);
         let ready = match prefetched {
-            Some((id, s)) if id == video_id => Some(s),
+            // Not one whose download failed (refused, say): that opens afresh.
+            // Nor a file stream fetched before file streams turned out to be cut off.
+            Some((id, s)) if id == video_id && s.error().is_none() && !(self.visionos_hls.load(Ordering::Relaxed) && s.segments.is_none() && !s.is_complete()) => Some(s),
             // Replaying the current song keeps the next one's prefetch.
             other if replay.is_some() => {
                 *self.prefetched.lock().unwrap() = other;
@@ -1318,7 +1367,8 @@ impl Backend {
             return None;
         }
         // Its song version downloaded from Now playing: from the file, no lookup (offline too).
-        if let Some(song) = crate::downloads::song_for(listed) {
+        let clean = self.clean.load(Ordering::Relaxed);
+        if let Some(song) = crate::downloads::song_for(listed).filter(|s| !(clean && s.explicit)) {
             return Some(song);
         }
         let start = std::time::Instant::now();
@@ -1338,7 +1388,7 @@ impl Backend {
         }
         let cell = {
             let mut songs = self.songs.lock().unwrap();
-            let key = format!("{listed} {premium}");
+            let key = format!("{listed} {premium} {clean}");
             match songs.get(&key) {
                 Some(cell) => cell.clone(),
                 None => {
@@ -1355,7 +1405,7 @@ impl Backend {
         let (this, video) = (self.clone(), video.clone());
         let lookup = tokio::spawn(async move {
             cell.get_or_try_init(|| async {
-                let found = this.look_up_song(&video, premium).await?;
+                let found = this.look_up_song(&video, premium, clean).await?;
                 match &found {
                     Some(s) => log::info!("song version of {} \"{}\": {} \"{}\"", video.id, video.title, s.id, s.title),
                     None => log::info!("song version of {} \"{}\": none found", video.id, video.title),
@@ -1382,15 +1432,18 @@ impl Backend {
         }
     }
 
-    async fn look_up_song(&self, video: &Track, premium: bool) -> anyhow::Result<Option<Track>> {
+    /// clean: only a song that isn't explicit.
+    async fn look_up_song(&self, video: &Track, premium: bool, clean: bool) -> anyhow::Result<Option<Track>> {
         if premium {
             match ytm::paired_song(&self.api, &video.id).await {
                 // YouTube pairs every music video that has a song; trust it when it says none.
-                Ok(found) => return Ok(found),
+                Ok(found) if !(clean && found.as_ref().is_some_and(|s| s.explicit)) => return Ok(found),
+                // Paired with its explicit version: a search may find the clean one.
+                Ok(_) => {}
                 Err(e) => log::debug!("song pair of {}: {e:#}; searching instead", video.id),
             }
         }
-        ytm::searched_song(&self.api, video).await
+        ytm::searched_song(&self.api, video, clean).await
     }
 
     async fn open_stream(&self, video_id: &str, prefetch: bool) -> anyhow::Result<Arc<Shared>> {
@@ -1399,8 +1452,22 @@ impl Backend {
             return Ok(shared);
         }
         let (source, s) = self.resolve(video_id, false).await?;
-        let shared = Shared::new(s.size, s.duration_ms, s.loudness_db, s.opus, prefetch);
-        self.rt.spawn(stream::download(self.http(), s.url, s.user_agent, shared.clone(), Some(self.refresher(source, video_id, s.opus))));
+        match &s.starts {
+            Some(starts) => log::info!("stream {video_id}: {} HLS segments from {source:?}", starts.len()),
+            None => log::info!("stream {video_id}: {} bytes {} from {source:?}", s.size, if s.opus { "Opus" } else { "AAC" }),
+        }
+        let shared = s.buffer(prefetch);
+        let refresh = Some(self.refresher(source, video_id, s.opus));
+        let (this, buffer) = (self.clone(), shared.clone());
+        self.rt.spawn(async move {
+            stream::download(this.http(), s.media, s.user_agent, buffer.clone(), refresh).await;
+            // Fresh visionOS file URLs refused too: YouTube wants a PO token for them
+            // here, past the first MiB. Its HLS segments play without one; the song
+            // reopens where it stopped, and the rest of the session goes that way.
+            if source == Source::VisionOs && buffer.refused() && !this.visionos_hls.swap(true, Ordering::Relaxed) {
+                log::warn!("visionOS file streams are refused here past 1 MiB; playing HLS from now on");
+            }
+        });
         Ok(shared)
     }
 
@@ -1413,7 +1480,7 @@ impl Backend {
                 let s = this.resolve_from(source, &id, opus).await?;
                 // The buffer is laid out for the format it started with.
                 anyhow::ensure!(s.opus == opus, "the stream changed format");
-                Ok(s.url)
+                Ok(s.media)
             })
         })
     }
@@ -1422,8 +1489,9 @@ impl Backend {
     async fn download(&self, t: &Track, for_video: Option<String>) -> anyhow::Result<PathBuf> {
         let (source, s) = self.resolve(&t.id, true).await?;
         log::info!("download {}: {} bytes from {source:?}", t.id, s.size);
-        let shared = Shared::new(s.size, s.duration_ms, s.loudness_db, s.opus, false);
-        stream::download(self.http(), s.url, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus))).await;
+        anyhow::ensure!(s.starts.is_none(), "downloads need the file stream");
+        let shared = s.buffer(false);
+        stream::download(self.http(), s.media, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus))).await;
         if let Some(e) = shared.error() {
             anyhow::bail!("{e}");
         }
@@ -1476,6 +1544,15 @@ impl Backend {
                 Err(e) => log::warn!("high quality stream failed for {video_id} ({e:#}); using standard quality"),
             }
         }
+        // Downloads stay on the file stream: they're saved as the .m4a it is.
+        if !best && self.visionos_hls.load(Ordering::Relaxed) {
+            match self.resolve_from(Source::VisionOsHls, video_id, false).await {
+                Ok(s) => return Ok((Source::VisionOsHls, s)),
+                // The signed-in paths below take it.
+                Err(e) if needs_account(&e) => {}
+                Err(e) => log::warn!("HLS stream failed for {video_id} ({e:#}); trying the file stream"),
+            }
+        }
         match self.resolve_from(Source::VisionOs, video_id, !best).await {
             Ok(s) => Ok((Source::VisionOs, s)),
             // Age-restricted or Premium-only: only signed-in web players get it.
@@ -1497,7 +1574,8 @@ impl Backend {
     /// `opus`: the visionOS player's Opus stream where there is one (the others are AAC).
     async fn resolve_from(&self, source: Source, video_id: &str, opus: bool) -> anyhow::Result<ResolvedStream> {
         let plain = |s: innertube::Stream, ua: &str| ResolvedStream {
-            url: s.url,
+            media: stream::Media::File(s.url),
+            starts: None,
             size: s.size,
             duration_ms: s.duration_ms,
             user_agent: ua.to_owned(),
@@ -1506,6 +1584,11 @@ impl Backend {
         };
         Ok(match source {
             Source::VisionOs => plain(self.visionos_stream(video_id, opus).await?, innertube::UA),
+            Source::VisionOsHls => {
+                let s = self.visionos_hls(video_id).await?;
+                let (starts, urls) = s.segments.into_iter().unzip();
+                ResolvedStream { media: stream::Media::Segments(urls), starts: Some(starts), size: 0, duration_ms: s.duration_ms, user_agent: innertube::UA.to_owned(), loudness_db: s.loudness_db, opus: false }
+            }
             Source::WebMusic => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
                 plain(session.audio_stream(&self.http(), &self.jsc, video_id).await?, webmusic::UA)
@@ -1516,7 +1599,7 @@ impl Backend {
                 // Cookies Google replaced while yt-dlp used the session.
                 self.api.keep(&session, s.replaced.iter().map(String::as_str));
                 // yt-dlp's JSON doesn't carry YouTube's loudness figure.
-                ResolvedStream { url: s.url, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
+                ResolvedStream { media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
             }
         })
     }
@@ -1565,6 +1648,19 @@ impl Backend {
         }
     }
 
+    async fn visionos_hls(&self, video_id: &str) -> anyhow::Result<innertube::HlsStream> {
+        let vd = self.api.visitor_data(false).await?;
+        match innertube::hls_audio(&self.http(), video_id, &vd).await {
+            Ok(s) => Ok(s),
+            Err(e) if needs_account(&e) => Err(e),
+            Err(e) => {
+                log::info!("visionOS player (HLS): {e:#}; retrying with new visitor data");
+                let vd = self.api.visitor_data(true).await?;
+                innertube::hls_audio(&self.http(), video_id, &vd).await
+            }
+        }
+    }
+
     async fn visionos_stream(&self, video_id: &str, opus: bool) -> anyhow::Result<innertube::Stream> {
         let vd = self.api.visitor_data(false).await?;
         match innertube::audio_stream(&self.http(), video_id, &vd, opus).await {
@@ -1596,6 +1692,12 @@ impl Backend {
 
     pub fn set_high_quality(&self, on: bool) {
         self.hq.store(on, Ordering::Relaxed);
+    }
+
+    /// Explicit songs hidden, and whether YouTube's Restricted Mode is asked for as well.
+    pub fn set_hide_explicit(&self, on: bool, restricted: bool) {
+        self.clean.store(on, Ordering::Relaxed);
+        self.api.set_restricted(on && restricted);
     }
 
     /// Like or unlike a selection, one at a time, then check Liked Music and try again
@@ -1643,21 +1745,36 @@ fn reports_plays() -> bool {
     std::env::var_os("YTM_BACKGROUND").is_none() || std::env::var_os("YTM_REPORT_PLAYS").is_some()
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Source {
     VisionOs,
+    /// The visionOS player's HLS segments: where its file URLs are cut off at 1 MiB.
+    VisionOsHls,
     WebMusic,
     YtDlp,
 }
 
 struct ResolvedStream {
-    url: String,
+    media: stream::Media,
+    /// HLS: each segment's start (s).
+    starts: Option<Vec<f64>>,
+    /// Bytes (a file; 0 for segments).
     size: u64,
     duration_ms: u64,
     user_agent: String,
     loudness_db: Option<f32>,
     /// Opus in WebM; otherwise AAC in MP4.
     opus: bool,
+}
+
+impl ResolvedStream {
+    /// A buffer laid out for this stream. `head_only`: a prefetch's.
+    fn buffer(&self, head_only: bool) -> Arc<Shared> {
+        match &self.starts {
+            Some(starts) => Shared::segmented(starts.clone(), self.duration_ms, self.loudness_db, head_only),
+            None => Shared::new(self.size, self.duration_ms, self.loudness_db, self.opus, head_only),
+        }
+    }
 }
 
 /// The anonymous visionOS player refused because the song needs an account:

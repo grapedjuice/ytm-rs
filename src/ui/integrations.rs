@@ -116,7 +116,7 @@ impl App {
         self.scrobble = None;
     }
 
-    /// Switch the window, tray-to-be and shortcuts to another icon.
+    /// Switch the window, tray and shortcuts to another icon.
     pub(crate) fn set_app_icon(&mut self, ctx: &egui::Context, id: &'static str) {
         if id == self.app_icon {
             return;
@@ -130,6 +130,8 @@ impl App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Icon(Some(Arc::new(icon))));
         }
         crate::appicon::sync_shortcuts(id, self.backend.data_dir());
+        // `tray_window` makes it again with the new icon.
+        self.tray = None;
         log::info!("app icon: {id}");
     }
 
@@ -180,38 +182,74 @@ impl App {
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
 
-    /// "Close to tray": × hides the window behind a tray icon; the icon brings it
-    /// back or quits. eframe keeps running `logic` while the window is hidden.
-    pub(super) fn tray_window(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| i.viewport().close_requested()) && self.close_to_tray && !self.exiting {
+    /// "Close to tray": while it's on there's a tray icon, and × hides the window
+    /// behind it. The icon brings the window back or quits. eframe keeps running
+    /// `logic` while the window is hidden.
+    ///
+    /// On Wayland a window can't hide itself, so × minimizes it instead. It can't
+    /// bring itself back either: the compositor is only asked for attention, and the
+    /// window counts as hidden until it has focus again.
+    pub(super) fn tray_window(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        // Turning the setting off and on again tries again after a failure.
+        self.tray_failed &= self.close_to_tray;
+        let want = self.close_to_tray && !self.exiting && !self.tray_failed;
+        if want && self.tray.is_none() {
             let c = ctx.clone();
             match crate::tray::Tray::new(crate::appicon::get(self.app_icon), move || c.request_repaint()) {
-                Ok(t) => {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-                    self.tray = Some(t);
+                Ok(t) => self.tray = Some(t),
+                // Without an icon there'd be no way back: × just closes.
+                Err(e) => {
+                    log::warn!("tray icon unavailable: {e:#}");
+                    self.tray_failed = true;
                 }
-                // Without an icon there'd be no way back: just close.
-                Err(e) => log::warn!("tray icon unavailable: {e:#}"),
+            }
+        } else if !want && self.tray.is_some() {
+            self.tray = None;
+            if self.in_tray && !self.exiting {
+                self.show_window(ctx);
             }
         }
         if self.tray.is_none() {
             return;
         }
-        // The first click decides; the icon goes away with it.
-        match crate::tray::take().into_iter().next() {
-            Some(crate::tray::Cmd::Show) => self.show_window(ctx),
-            Some(crate::tray::Cmd::Quit) => {
-                self.tray = None;
-                self.quit(ctx);
+        let wayland = is_wayland(frame);
+        if wayland && self.in_tray && back_from_tray(ctx.input(|i| i.viewport().focused) != Some(false), &mut self.tray_left_focus) {
+            self.in_tray = false;
+        }
+        let hide = |app: &mut Self| {
+            ctx.send_viewport_cmd(hide_command(wayland));
+            app.in_tray = true;
+            app.tray_left_focus = false;
+        };
+        let show = |app: &mut Self| {
+            if wayland {
+                ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+            } else {
+                app.show_window(ctx);
             }
+        };
+        if ctx.input(|i| i.viewport().close_requested()) && !self.exiting {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            hide(self);
+        }
+        // Minimized counts as hidden: "Show" is what brings it back.
+        let shown = |app: &Self| !app.in_tray && ctx.input(|i| i.viewport().minimized) != Some(true);
+        match crate::tray::take().into_iter().next() {
+            Some(crate::tray::Cmd::Show) => show(self),
+            Some(crate::tray::Cmd::Toggle) if shown(self) => hide(self),
+            Some(crate::tray::Cmd::Toggle) => show(self),
+            Some(crate::tray::Cmd::Quit) => self.quit(ctx),
             None => {}
+        }
+        let shown = shown(self);
+        if let Some(t) = &mut self.tray {
+            t.set_shown(shown);
         }
     }
 
     /// Bring the window back (from the tray, or minimized) and to the front.
     pub(super) fn show_window(&mut self, ctx: &egui::Context) {
-        self.tray = None;
+        self.in_tray = false;
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
@@ -240,5 +278,49 @@ impl App {
                 Err(e) => log::debug!("media cover: {e:#}"),
             }
         });
+    }
+}
+
+pub(super) fn is_wayland(frame: &eframe::Frame) -> bool {
+    use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
+    frame.display_handle().is_ok_and(|h| matches!(h.as_raw(), RawDisplayHandle::Wayland(_)))
+}
+
+/// `Visible(false)` does nothing on Wayland; minimizing is what's left.
+fn hide_command(wayland: bool) -> egui::ViewportCommand {
+    if wayland { egui::ViewportCommand::Minimized(true) } else { egui::ViewportCommand::Visible(false) }
+}
+
+/// Wayland doesn't say when a minimized window comes back (from the taskbar, say),
+/// but it gets focus again. `left_focus` needs the focus lost first, since the window
+/// still has it for a moment after being minimized.
+fn back_from_tray(focused: bool, left_focus: &mut bool) -> bool {
+    if !focused {
+        *left_focus = true;
+        return false;
+    }
+    std::mem::take(left_focus)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wayland_minimizes_because_it_cannot_hide() {
+        assert_eq!(hide_command(true), egui::ViewportCommand::Minimized(true));
+        assert_eq!(hide_command(false), egui::ViewportCommand::Visible(false));
+    }
+
+    #[test]
+    fn stays_in_tray_until_focus_is_lost_and_regained() {
+        let mut left = false;
+        // Still focused just after minimizing: not back yet.
+        assert!(!back_from_tray(true, &mut left));
+        assert!(!back_from_tray(false, &mut left));
+        assert!(!back_from_tray(false, &mut left));
+        assert!(back_from_tray(true, &mut left));
+        // Once only.
+        assert!(!back_from_tray(true, &mut left));
     }
 }

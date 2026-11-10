@@ -36,6 +36,25 @@ pub fn work_area() -> Option<egui::Rect> {
     None
 }
 
+/// The refresh rate (Hz) of the monitor the window is on. None where the app can't ask.
+pub fn refresh_rate() -> Option<f64> {
+    #[cfg(windows)]
+    return imp::refresh_rate();
+    #[cfg(not(windows))]
+    None
+}
+
+/// Clip the window to a rounded rectangle along its top (left, right and bottom edges and
+/// corner diameter, in pixels from the window's corner), or back to all of it. Outside the
+/// shape Windows neither draws its frame nor gives the window the mouse. Nothing where
+/// windows have no such frame.
+pub fn set_window_shape(shape: Option<(i32, i32, i32, i32)>) {
+    #[cfg(windows)]
+    imp::set_window_shape(shape);
+    #[cfg(not(windows))]
+    let _ = shape;
+}
+
 /// Whether some of `rect` (physical pixels) is on a connected monitor. True where the
 /// app can't ask.
 pub fn on_a_monitor(rect: egui::Rect) -> bool {
@@ -54,9 +73,10 @@ mod imp {
 
     use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, RECT, WPARAM};
     use windows::Win32::Graphics::Gdi::{
-        CreateSolidBrush, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromRect, MonitorFromWindow, RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE,
-        RedrawWindow,
+        CreateSolidBrush, DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTONULL, MONITORINFO, MONITORINFOEXW, MonitorFromRect,
+        MonitorFromWindow, RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE, RedrawWindow,
     };
+    use windows::core::PCWSTR;
     use windows::Win32::UI::WindowsAndMessaging::{
         GCLP_HBRBACKGROUND, GWL_EXSTYLE, GWL_STYLE, GetWindowLongW, GetWindowPlacement, IsZoomed, SW_RESTORE, ShowWindow, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
         SendMessageW, SetClassLongPtrW, SetWindowLongW, SetWindowPlacement, SetWindowPos, WINDOWPLACEMENT, WM_SETREDRAW, WS_CAPTION, WS_EX_CLIENTEDGE,
@@ -97,6 +117,30 @@ mod imp {
             let r = info.rcWork;
             egui::Rect::from_min_max(egui::pos2(r.left as f32, r.top as f32), egui::pos2(r.right as f32, r.bottom as f32))
         })
+    }
+
+    pub fn set_window_shape(shape: Option<(i32, i32, i32, i32)>) {
+        use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
+        let Some(&h) = WINDOW.get() else { return };
+        // SAFETY: the app's own window; once set, the system owns the region.
+        unsafe {
+            let region = shape.map(|(left, right, bottom, d)| CreateRoundRectRgn(left, 0, right + 1, bottom + 1, d, d));
+            SetWindowRgn(HWND(h as *mut _), region, true);
+        }
+    }
+
+    pub fn refresh_rate() -> Option<f64> {
+        let &h = WINDOW.get()?;
+        let mut info = MONITORINFOEXW { monitorInfo: MONITORINFO { cbSize: size_of::<MONITORINFOEXW>() as u32, ..Default::default() }, ..Default::default() };
+        let mut mode = DEVMODEW { dmSize: size_of::<DEVMODEW>() as u16, ..Default::default() };
+        // SAFETY: the app's own window; `info` and `mode` are ours and sized, and
+        // `szDevice` is a NUL-terminated name.
+        unsafe {
+            GetMonitorInfoW(MonitorFromWindow(HWND(h as *mut _), MONITOR_DEFAULTTONEAREST), (&raw mut info).cast()).ok().ok()?;
+            EnumDisplaySettingsW(PCWSTR(info.szDevice.as_ptr()), ENUM_CURRENT_SETTINGS, &mut mode).ok().ok()?;
+        }
+        // 0 and 1 mean the hardware's default rate, which says nothing.
+        (mode.dmDisplayFrequency > 1).then_some(mode.dmDisplayFrequency as f64)
     }
 
     pub fn on_a_monitor(rect: egui::Rect) -> bool {

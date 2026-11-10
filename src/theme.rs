@@ -39,6 +39,9 @@ pub fn set_mode(ctx: &egui::Context, light: bool) -> bool {
 
 /// Main text.
 pub fn text() -> Color32 {
+    if let Some(c) = filed(F_TEXT) {
+        return c;
+    }
     if light() {
         return TEXT_LIGHT;
     }
@@ -61,21 +64,35 @@ fn fade() -> f32 {
 
 /// Text and icons on a fill of the main text colour (a primary button, a selected chip).
 pub fn on_text() -> Color32 {
-    if light() { Color32::WHITE } else { Color32::from_gray(15) }
+    match filed(F_TEXT) {
+        Some(t) => {
+            if luma(t) > 140.0 {
+                Color32::from_gray(15)
+            } else {
+                Color32::WHITE
+            }
+        }
+        None if light() => Color32::WHITE,
+        None => Color32::from_gray(15),
+    }
 }
 
 /// Least important text: counts, hints, placeholders.
 pub fn text_faint() -> Color32 {
-    if light() { TEXT_FAINT_LIGHT } else { TEXT_FAINT }
+    filed(F_TEXT_FAINT).unwrap_or(if light() { TEXT_FAINT_LIGHT } else { TEXT_FAINT })
 }
 
 /// The window's base colour, under the background.
 pub fn bg() -> Color32 {
-    if light() { BG_LIGHT } else { BG }
+    filed(F_BACKGROUND).unwrap_or(if light() { BG_LIGHT } else { BG })
 }
 
 /// Menus and popups.
 pub fn menu_fill() -> Color32 {
+    // A theme file's menu colour is used as it is: solid, so it stays readable.
+    if let Some(c) = filed(F_MENU) {
+        return c;
+    }
     if light() {
         return Color32::WHITE;
     }
@@ -89,6 +106,9 @@ pub fn menu_fill() -> Color32 {
 /// Menu colour for what has no frost behind it (toasts, the selection bar, the volume
 /// popup): never so see-through that it needs the blur to stay readable.
 pub fn menu_fill_solid() -> Color32 {
+    if let Some(c) = filed(F_MENU) {
+        return c;
+    }
     if light() {
         return Color32::WHITE;
     }
@@ -104,16 +124,274 @@ pub fn menu_frame(style: &egui::Style) -> egui::Frame {
 
 /// Dialogs and cards that float over the page.
 pub fn surface_fill() -> Color32 {
-    if light() { Color32::from_rgb(252, 251, 253) } else { Color32::from_rgb(28, 24, 32) }
+    filed(F_SURFACE).unwrap_or(if light() { Color32::from_rgb(252, 251, 253) } else { Color32::from_rgb(28, 24, 32) })
+}
+
+fn luma(c: Color32) -> f32 {
+    0.299 * c.r() as f32 + 0.587 * c.g() as f32 + 0.114 * c.b() as f32
+}
+
+// A theme file's colours (Settings › Appearance › Accent colour › From file), for wallust,
+// pywal and the like: `theme.conf` in the data folder, a `name = #rrggbb` on each line.
+//
+//     accent = #e0af68
+//     background = #1a1b26
+//     text = #c0caf5
+//     text-dim = #a9b1d6
+//     text-faint = #565f89
+//     surface = #1f2335
+//     menu = #24283b
+//
+// Any may be left out. `foreground` and `aux-foreground` are other names for `text` and
+// `text-dim`. With a background, pages are that flat colour instead of the album art, and
+// what isn't given (surface, menu, the dimmer text) is mixed from it and the text.
+
+/// What `theme.conf` holds.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct FileTheme {
+    pub accent: Option<Color32>,
+    pub background: Option<Color32>,
+    pub surface: Option<Color32>,
+    pub menu: Option<Color32>,
+    pub text: Option<Color32>,
+    pub text_dim: Option<Color32>,
+    pub text_faint: Option<Color32>,
+}
+
+impl FileTheme {
+    fn parse(s: &str) -> Self {
+        let mut t = Self::default();
+        for line in s.lines().map(|l| l.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')) {
+            // A line starting with # is a comment: names don't, only colours do.
+            if line.starts_with('#') || line.starts_with("//") || line.starts_with(';') {
+                continue;
+            }
+            let Some((name, value)) = line.split_once(['=', ':']) else { continue };
+            let Some(c) = parse_accent(value.trim().trim_matches(['"', '\'', ',', ';'])) else { continue };
+            let slot = match name.trim().trim_matches(['"', '\'']).to_ascii_lowercase().replace('_', "-").as_str() {
+                "accent" => &mut t.accent,
+                "background" | "bg" => &mut t.background,
+                "surface" => &mut t.surface,
+                "menu" => &mut t.menu,
+                "text" | "foreground" | "fg" => &mut t.text,
+                "text-dim" | "aux-foreground" | "secondary" => &mut t.text_dim,
+                "text-faint" | "faint" => &mut t.text_faint,
+                _ => continue,
+            };
+            *slot = Some(c);
+        }
+        t
+    }
+
+    /// With what follows from the colours given: surfaces a step off the background
+    /// toward the text, and dimmer text a step off the text toward the background.
+    fn filled(mut self) -> Self {
+        if let Some(bg) = self.background {
+            let ink = self.text.unwrap_or(if luma(bg) > 140.0 { TEXT_LIGHT } else { TEXT });
+            self.text = Some(ink);
+            self.surface = self.surface.or(Some(lerp_color(bg, ink, 0.06)));
+            self.menu = self.menu.or(Some(lerp_color(bg, ink, 0.11)));
+            self.text_dim = self.text_dim.or(Some(lerp_color(ink, bg, 0.28)));
+            self.text_faint = self.text_faint.or(Some(lerp_color(ink, bg, 0.5)));
+        } else if let Some(ink) = self.text {
+            let bg = if luma(ink) > 140.0 { BG } else { BG_LIGHT };
+            self.text_dim = self.text_dim.or(Some(lerp_color(ink, bg, 0.28)));
+            self.text_faint = self.text_faint.or(Some(lerp_color(ink, bg, 0.5)));
+        }
+        self
+    }
+
+    /// Whether these are colours for light pages: by the background, if there is one.
+    fn light(&self) -> Option<bool> {
+        self.background.map(|bg| luma(bg) > 140.0)
+    }
+
+    /// The mode these colours are for: the background's, or without one the one the
+    /// text is readable in (light text is for dark pages).
+    fn mode(&self) -> Option<bool> {
+        self.light().or(self.text.map(|t| luma(t) <= 140.0))
+    }
+}
+
+/// A theme file to start from: the accent showing now, the app's own text colours, and
+/// the background left for whoever wants flat pages. Nothing looks different until it's
+/// edited.
+pub fn theme_template(accent: Color32) -> String {
+    let hex = |c: Color32| format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b());
+    format!(
+        "# ytm-rs colours. One \"name = #rrggbb\" on each line.\n\
+         # Save the file and the app follows within a couple of seconds: no restart.\n\
+         # Lines starting with # are ignored. Remove the # to use one.\n\
+         \n\
+         accent = {}\n\
+         \n\
+         text = {}\n\
+         text-dim = {}\n\
+         text-faint = {}\n\
+         \n\
+         # With a background, pages are that flat colour instead of the album art.\n\
+         # Surfaces are dialogs and cards; menus are menus and popups.\n\
+         # background = {}\n\
+         # surface = {}\n\
+         # menu = {}\n",
+        hex(accent),
+        hex(TEXT),
+        hex(TEXT_DIM),
+        hex(TEXT_FAINT),
+        hex(BG),
+        hex(Color32::from_rgb(28, 24, 32)),
+        hex(Color32::from_rgb(38, 34, 42)),
+    )
+}
+
+/// Write the starter theme file at `path` unless one is there already.
+pub fn ensure_theme_file(path: &std::path::Path, accent: Color32) -> std::io::Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    std::fs::write(path, theme_template(accent))
+}
+
+/// Open a text file to edit: Notepad on Windows (a .conf file has no program of its own
+/// there), the system's text editor elsewhere.
+pub fn open_in_editor(path: &std::path::Path) {
+    #[cfg(windows)]
+    let cmd = std::process::Command::new("notepad").arg(path).spawn();
+    #[cfg(target_os = "macos")]
+    let cmd = std::process::Command::new("open").arg("-t").arg(path).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let cmd = std::process::Command::new("xdg-open").arg(path).spawn();
+    if let Err(e) = cmd {
+        log::warn!("theme file: couldn't open {}: {e}", path.display());
+    }
+}
+
+const F_BACKGROUND: usize = 0;
+const F_SURFACE: usize = 1;
+const F_MENU: usize = 2;
+const F_TEXT: usize = 3;
+const F_TEXT_DIM: usize = 4;
+const F_TEXT_FAINT: usize = 5;
+/// The theme file's colours in use (0: not given), read very often.
+static FILED: [std::sync::atomic::AtomicU32; 6] = [const { std::sync::atomic::AtomicU32::new(0) }; 6];
+/// The mode the file's colours are for (its background's, else its text's). 0: either;
+/// 1: dark; 2: light.
+static FILED_MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// The theme file's colour for `slot`, where it applies: its colours go with its
+/// background, so not on what's drawn in the other mode (now playing, dark over the art,
+/// with a light theme file).
+fn filed(slot: usize) -> Option<Color32> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let v = FILED[slot].load(Relaxed);
+    if v == 0 {
+        return None;
+    }
+    let mode = FILED_MODE.load(Relaxed);
+    if mode != 0 && (mode == 2) != light() {
+        return None;
+    }
+    let [r, g, b, _] = v.to_le_bytes();
+    Some(Color32::from_rgb(r, g, b))
+}
+
+/// Use these theme file colours from now on (`FileTheme::default()`: none).
+pub fn set_file_theme(ctx: &egui::Context, t: FileTheme) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let t = t.filled();
+    let slots = [t.background, t.surface, t.menu, t.text, t.text_dim, t.text_faint];
+    let mode = match t.mode() {
+        None => 0,
+        Some(false) => 1,
+        Some(true) => 2,
+    };
+    let mut changed = FILED_MODE.swap(mode, Relaxed) != mode;
+    for (slot, c) in FILED.iter().zip(slots) {
+        // Opaque, so never 0.
+        let v = c.map_or(0, |c| u32::from_le_bytes([c.r(), c.g(), c.b(), 255]));
+        changed |= slot.swap(v, Relaxed) != v;
+    }
+    if changed {
+        ctx.global_style_mut(|s| s.visuals = visuals());
+    }
+}
+
+/// The theme file's background, when it gives one: pages are that flat colour.
+pub fn file_background() -> Option<Color32> {
+    filed(F_BACKGROUND)
+}
+
+/// Whether the theme file in use is for light pages (`None`: it gives no background).
+pub fn file_light() -> Option<bool> {
+    use std::sync::atomic::Ordering::Relaxed;
+    if FILED[F_BACKGROUND].load(Relaxed) == 0 {
+        return None;
+    }
+    Some(FILED_MODE.load(Relaxed) == 2)
+}
+
+/// The theme file, looked at every couple of seconds so it follows a tool rewriting it.
+/// Empty while it's missing.
+pub fn file_theme(path: &std::path::Path) -> FileTheme {
+    use std::time::{Duration, Instant};
+    static THEME: std::sync::Mutex<Option<(Instant, FileTheme)>> = std::sync::Mutex::new(None);
+    let mut cached = THEME.lock().unwrap();
+    match *cached {
+        Some((at, t)) if at.elapsed() < Duration::from_secs(2) => t,
+        _ => {
+            let t = std::fs::read(path).map(|b| FileTheme::parse(&decode_text(&b))).unwrap_or_default();
+            *cached = Some((Instant::now(), t));
+            t
+        }
+    }
+}
+
+#[test]
+fn theme_files_name_their_colours() {
+    let rgb = |v: u32| Some(Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8));
+    let t = FileTheme::parse("# from wallust\naccent = #e0af68\nbackground: \"#1a1b26\"\nforeground = c0caf5\naux_foreground = #a9b1d6\nnonsense = #ffffff\ntext-faint = nope\n#565f89\n");
+    assert_eq!((t.accent, t.background, t.text, t.text_dim), (rgb(0xe0af68), rgb(0x1a1b26), rgb(0xc0caf5), rgb(0xa9b1d6)));
+    assert_eq!((t.text_faint, t.surface, t.menu), (None, None, None));
+    assert_eq!(t.light(), Some(false));
+    // What's missing is mixed from the background and the text.
+    let f = t.filled();
+    assert!(f.surface.is_some() && f.menu.is_some() && f.text_faint.is_some());
+    assert_eq!(f.text_dim, rgb(0xa9b1d6));
+    // A light background gets dark text when none is given.
+    let l = FileTheme::parse("background = #fafafa").filled();
+    assert_eq!((l.light(), l.text), (Some(true), Some(TEXT_LIGHT)));
+    // Text alone is for the pages it reads on; it doesn't say which the pages are.
+    let ink = FileTheme::parse("text = #f2f0f5");
+    assert_eq!((ink.light(), ink.mode()), (None, Some(false)));
+    // The starter file changes nothing: the app's own text colours, no background.
+    let start = FileTheme::parse(&theme_template(Color32::from_rgb(0xe0, 0xaf, 0x68)));
+    assert_eq!(start, FileTheme { accent: rgb(0xe0af68), text: Some(TEXT), text_dim: Some(TEXT_DIM), text_faint: Some(TEXT_FAINT), ..Default::default() });
+    // Just an accent changes nothing else.
+    assert_eq!(FileTheme::parse("accent=#ff00aa").filled(), FileTheme { accent: rgb(0xff00aa), ..Default::default() });
+    assert_eq!(FileTheme::parse(""), FileTheme::default());
 }
 
 /// Theme preset multiplier for every glass surface (f32 bits; 1.0 by default).
 static GLASS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f80_0000);
 
-/// White at `a` opacity, for glassy surfaces over the background (black in light mode).
+/// White at `a` opacity for controls: hover, selection, tracks, fields and toggles (black
+/// in light mode). A theme can make these stronger but not weaker, or they'd disappear.
 pub fn glass(a: f32) -> Color32 {
-    let k = f32::from_bits(GLASS.load(std::sync::atomic::Ordering::Relaxed));
-    let a = ((a * k).min(1.0) * 255.0) as u8;
+    glass_at(a * glass_scale().max(1.0))
+}
+
+/// White at `a` opacity for what only decorates: panels, dividers and placeholders. These
+/// follow the theme's glass setting all the way down.
+pub fn glass_panel(a: f32) -> Color32 {
+    glass_at(a * glass_scale())
+}
+
+fn glass_scale() -> f32 {
+    f32::from_bits(GLASS.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+fn glass_at(a: f32) -> Color32 {
+    let a = (a.min(1.0) * 255.0) as u8;
     if light() { Color32::from_black_alpha(a) } else { Color32::from_white_alpha(a) }
 }
 
@@ -128,6 +406,9 @@ static DIM: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32
 
 /// Secondary text colour (themes may tint it).
 pub fn text_dim() -> Color32 {
+    if let Some(c) = filed(F_TEXT_DIM) {
+        return c;
+    }
     if light() {
         return TEXT_DIM_LIGHT;
     }
@@ -233,6 +514,47 @@ pub fn system_accent() -> Option<Color32> {
     shades.map(|[dark, light_shade]| if light() { light_shade } else { dark })
 }
 
+/// The colour in the accent file, looked at every couple of seconds so it follows a tool
+/// rewriting the file. None while it's missing or doesn't hold a colour.
+pub fn file_accent(path: &std::path::Path) -> Option<Color32> {
+    use std::time::{Duration, Instant};
+    static ACCENT: std::sync::Mutex<Option<(Instant, Option<Color32>)>> = std::sync::Mutex::new(None);
+    let mut cached = ACCENT.lock().unwrap();
+    match *cached {
+        Some((at, c)) if at.elapsed() < Duration::from_secs(2) => c,
+        _ => {
+            let c = std::fs::read(path).ok().and_then(|b| parse_accent(&decode_text(&b)));
+            *cached = Some((Instant::now(), c));
+            c
+        }
+    }
+}
+
+/// UTF-8, or the UTF-16 Windows PowerShell's `>` writes.
+fn decode_text(bytes: &[u8]) -> String {
+    match bytes {
+        [0xff, 0xfe, rest @ ..] => String::from_utf16_lossy(&rest.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect::<Vec<_>>()),
+        _ => String::from_utf8_lossy(bytes).into_owned(),
+    }
+}
+
+/// `#rrggbb` or `rrggbb`, with any whitespace or byte-order mark around it.
+fn parse_accent(s: &str) -> Option<Color32> {
+    crate::preset::hex(&format!("#{}", s.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}').trim_start_matches('#')))
+}
+
+#[test]
+fn accent_files_hold_one_colour() {
+    let pink = Some(Color32::from_rgb(0xff, 0x00, 0xaa));
+    assert_eq!(parse_accent("#ff00aa\n"), pink);
+    assert_eq!(parse_accent("  ff00aa "), pink);
+    assert_eq!(parse_accent(&decode_text(b"\xef\xbb\xbf#ff00aa\r\n")), pink);
+    let utf16: Vec<u8> = [0xfeffu16].into_iter().chain("#ff00aa\r\n".encode_utf16()).flat_map(u16::to_le_bytes).collect();
+    assert_eq!(parse_accent(&decode_text(&utf16)), pink);
+    assert_eq!(parse_accent("#ff00"), None);
+    assert_eq!(parse_accent("not a colour"), None);
+}
+
 /// The accent's shades for dark and light surfaces.
 #[cfg(windows)]
 fn read_system_accent() -> Option<[Color32; 2]> {
@@ -274,6 +596,15 @@ pub fn thumb_radius() -> f32 {
 /// Corner radius of panels (settings sections, menus, dialogs).
 pub fn panel_radius() -> u8 {
     crate::preset::active().app.panel_radius.clamp(0.0, 32.0) as u8
+}
+
+/// How far a menu's content sits in from its edge.
+pub const MENU_INSET: i8 = 6;
+
+/// Corner radius of a row or field inside a menu: the menu's less the inset, so the two
+/// curves run parallel instead of the inner one bulging into the corner.
+pub fn menu_item_radius() -> f32 {
+    (panel_radius() as f32 - MENU_INSET as f32).max(0.0)
 }
 
 /// Strength of card hover zoom/lift.
@@ -1095,6 +1426,7 @@ pub fn install_style(ctx: &egui::Context) {
     ctx.global_style_mut(|s| {
         s.spacing.item_spacing = egui::vec2(8.0, 6.0);
         s.spacing.button_padding = egui::vec2(14.0, 7.0);
+        s.spacing.menu_margin = egui::Margin::same(MENU_INSET);
         s.spacing.scroll = egui::style::ScrollStyle::floating();
         if crate::preset::active().app.hide_scrollbars {
             let bar = &mut s.spacing.scroll;

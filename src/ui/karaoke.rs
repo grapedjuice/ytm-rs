@@ -1542,7 +1542,7 @@ impl View {
             } else if let Some(e) = st.exit {
                 scale = lerp(cfg.active_scale, cfg.scale, cfg.scale_exit_ease.at(((f.now - e) / cfg.scale_secs) as f32));
             } else if let Some(h) = cfg.hover_scale {
-                let k = theme::anim_bool(&ctx, ("lyr-hover", f.key, i), hovered, 0.3);
+                let k = theme::anim_bool(&ctx, ("lyr-hover", i), hovered, 0.3);
                 scale = lerp(cfg.scale, h, EASE.at(k));
             } else if let Some(ss) = cfg.scroll_scale.filter(|_| user) {
                 scale = ss;
@@ -1568,12 +1568,12 @@ impl View {
             };
             let xf = Xf { origin, scale, content };
             if let Some([a, r]) = cfg.hover_box {
-                let k = theme::anim_bool(&ctx, ("lyr-hover-box", f.key, i), hovered && !on, 0.2);
+                let k = theme::anim_bool(&ctx, ("lyr-hover-box", i), hovered && !on, 0.2);
                 if k > 0.0 {
                     let radius = r * cfg.rem() / 10.0;
                     let mut boxed = block_rect.shrink2(vec2(0.0, cfg.padding * 0.4));
                     if let Some([from, secs]) = cfg.hover_box_pop {
-                        let pop = theme::anim_bool(&ctx, ("lyr-hover-pop", f.key, i), hovered && !on, secs);
+                        let pop = theme::anim_bool(&ctx, ("lyr-hover-pop", i), hovered && !on, secs);
                         boxed = Rect::from_center_size(boxed.center(), boxed.size() * lerp(from, 1.0, Bezier(0.34, 1.56, 0.64, 1.0).at(pop)));
                     }
                     painter.rect_filled(boxed, radius, theme::glass(a * k));
@@ -1610,7 +1610,7 @@ impl View {
             // The whole line's own glow, under its words; a soft copy of the line, made once.
             let line_glow = if hovered && cfg.hover_glow.is_some() && (on || !cfg.hover_glow_sung) { cfg.hover_glow } else if on { cfg.active_glow } else { None };
             // Fading out once the line stops glowing, so it's asked for on those frames too.
-            let k = if cfg.active_glow.is_some() || cfg.hover_glow.is_some() { theme::anim_bool(&ctx, ("lyr-line-glow", f.key, i), line_glow.is_some(), 0.3) } else { 0.0 };
+            let k = if cfg.active_glow.is_some() || cfg.hover_glow.is_some() { theme::anim_bool(&ctx, ("lyr-line-glow", i), line_glow.is_some(), 0.3) } else { 0.0 };
             if let Some([radius, a]) = line_glow.or(cfg.active_glow).or(cfg.hover_glow).filter(|_| k > 0.0 && !b.instrumental && blur <= 0.05) {
                 let words: Vec<(&Word, f32)> = b.words.iter().map(|w| (w, 1.0)).collect();
                 let colors: &[Color32] = if (on || line_glow.is_none()) && !cfg.active_glow_colors.is_empty() { &cfg.active_glow_colors } else { std::slice::from_ref(&cfg.glow) };
@@ -3467,6 +3467,48 @@ mod tests {
             let (before, after) = ctx.fonts_mut(|f| (f.layout_no_wrap(text.clone(), font.clone(), Color32::WHITE), f.layout_job(crate::bidi::job(&text, font.clone(), Color32::WHITE))));
             println!("{text}: before first word x {:.0}, second {:.0} | after first {:.0}, second {:.0}", mean(&before, a), mean(&before, b), mean(&after, a), mean(&after, b));
             assert!(mean(&after, a) > mean(&after, b), "{text}: the first word should be on the right");
+        }
+    }
+
+    /// Paused, the view settles and then asks for no frames, however long the gaps
+    /// between the frames something else wakes it for.
+    #[test]
+    fn paused_lyrics_stop_asking_for_frames() {
+        let ctx = shot_ctx();
+        let words = |at: i32| (0..4).map(|k| Part { start: at + k * 1000, dur: 900, text: format!("word{k} "), bg: false }).collect::<Vec<_>>();
+        let lines: Vec<Line> = (0..6).map(|i| Line { start: i * 4000, dur: 3900, text: "word0 word1 word2 word3".into(), parts: words(i * 4000), ..Default::default() }).collect();
+        let lyrics = Lyrics { lines, sync: Sync::Word, provider: crate::lyrics::Provider::BLyricsRich, language: None, songwriters: vec![] };
+        let style = LyricStyle::default();
+        let mut view = View::default();
+        // (frame time, song time, playing) → whether it asked for another frame soon.
+        let mut frame = |now: f64, t: f64, playing: bool| {
+            let input = egui::RawInput { time: Some(now), screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))), ..Default::default() };
+            let mut animating = false;
+            let mut out = ctx.run_ui(input, |ui| {
+                let n = lyrics.lines.len();
+                let f = Frame { lyrics: &lyrics, key: 1, roman: (0..n).map(|_| None).collect(), trans: vec![None; n], t, playing, now, rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 500.0)), style: &style, accent: Color32::RED, centered: false, scale: 1.0, fullscreen: false, glass_chip: None };
+                animating = view.show(ui, f).animating;
+            });
+            out.textures_delta.clear();
+            let delay = out.viewport_output.get(&egui::ViewportId::ROOT).map_or(std::time::Duration::MAX, |v| v.repaint_delay);
+            animating || delay < std::time::Duration::from_millis(500)
+        };
+        // Playing into the middle of a word, then paused there.
+        let (mut now, t) = (100.0, 5.45);
+        for k in 0..90 {
+            frame(now, 4.0 + k as f64 / 60.0, true);
+            now += 1.0 / 60.0;
+        }
+        let mut busy = true;
+        for _ in 0..240 {
+            busy = frame(now, t, false);
+            now += 1.0 / 60.0;
+        }
+        assert!(!busy, "still asking for frames 4 s after pausing");
+        // Woken now and then (a timer elsewhere, the pointer): each time, nothing to animate.
+        for gap in [0.7, 2.0, 2.0, 5.0, 0.3, 2.0] {
+            now += gap;
+            assert!(!frame(now, t, false), "a frame {gap} s after the last one started animating again");
         }
     }
 

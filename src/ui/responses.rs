@@ -7,21 +7,20 @@ use souvlaki::MediaControlEvent;
 
 use crate::audio::{AudioCmd, AudioEvent};
 use crate::backend::{Req, Resp};
-use crate::model::{ShelfKind, Track};
+use crate::model::{ShelfKind, Target, Track};
 use crate::ytm::HomePage;
 
-use super::{App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, dev_var, shuffle};
+use super::{Action, App, Dialog, HomeState, LibTab, Page, PlayingAs, dev_var, shuffle};
 
 impl App {
     pub(super) fn pump(&mut self, now: f64) {
         let cover = self.media_cover.lock().unwrap().take();
-        // The listed track's art, with what plays's title, artists and length.
+        // The listed track's art.
         if let Some((id, file)) = cover
             && self.current().is_some_and(|t| t.id == id)
-            && let Some(track) = self.playing_track().cloned()
             && let Some(m) = &mut self.media
         {
-            m.set_track(&track.title, &track.artist_line(), track.album.as_ref().map(|a| a.name.as_str()), Some(&file), track.duration);
+            m.set_cover(&file);
         }
         while let Ok(r) = self.ch.resp_rx.try_recv() {
             self.on_resp(r, now);
@@ -30,7 +29,7 @@ impl App {
             match ev {
                 AudioEvent::Finished { generation } if generation == self.generation && self.jam.guest() => {}
                 AudioEvent::Finished { generation } if generation == self.generation => {
-                    if self.queue.repeat == Repeat::One {
+                    if self.repeats_one() {
                         self.play_current();
                     } else {
                         self.next();
@@ -43,7 +42,7 @@ impl App {
                 }
                 AudioEvent::Finished { .. } => {}
                 // Crossfade into the next song; repeat-one and the end of the queue wait for the end.
-                AudioEvent::Ending { generation } if generation == self.generation && !self.jam.guest() && self.queue.repeat != Repeat::One => {
+                AudioEvent::Ending { generation } if generation == self.generation && !self.jam.guest() && !self.repeats_one() => {
                     self.handoff = true;
                     self.next();
                     self.handoff = false;
@@ -63,10 +62,24 @@ impl App {
                 MediaControlEvent::Toggle => self.toggle(),
                 MediaControlEvent::Next => self.next(),
                 MediaControlEvent::Previous => self.prev(),
-                _ => {}
+                MediaControlEvent::SetVolume(v) => {
+                    if let Some(v) = crate::media::volume_from_os(v) {
+                        self.audio.set_volume(v);
+                    }
+                }
+                // Seeks go the way the seek bar's do: to the host in a jam, to the start
+                // point of a song not loaded yet, and none without a length to keep them in.
+                ev => {
+                    let len = self.audio.status.duration().or(self.current().and_then(|t| t.duration).map(|d| Duration::from_secs(d as u64)));
+                    if let Some(len) = len
+                        && let Some(at) = crate::media::seek_target(&ev, self.audio.status.position(), len)
+                    {
+                        self.apply(Action::Seek(at.as_secs_f32()));
+                    }
+                }
             }
         }
-        if self.buffering && self.playing() {
+        if self.buffering && self.audio.status.started(self.generation) {
             self.buffering = false;
             self.skip_streak = 0;
             self.prefetch_next();
@@ -181,7 +194,15 @@ impl App {
                 if l.albums_failed {
                     l.albums = self.library.as_ref().map(|o| o.albums.clone()).unwrap_or_default();
                 }
+                // What it says of a playlist edited here lately can be from before that.
+                let edited: Vec<String> = l.playlists.iter().filter_map(|c| match &c.target {
+                    Target::Playlist(id) if self.lists.edits.pending(id) => Some(id.clone()),
+                    _ => None,
+                }).collect();
                 self.library = Some(l);
+                for id in edited {
+                    self.sync_card_count(&id);
+                }
                 self.loading = false;
             }
             Resp::History(h) => {
@@ -267,13 +288,14 @@ impl App {
                 }
             }
             // Unless something else was asked to play meanwhile; shuffled as last asked.
-            Resp::PlayQueue { target, mut tracks } => {
+            Resp::PlayQueue { target, title, mut tracks } => {
                 if let Some((p, shuffled)) = &self.play_pending
                     && *p == target
                 {
                     if *shuffled {
                         shuffle(&mut tracks);
                     }
+                    self.played_title = Some((target.clone(), title));
                     self.queue_source = Some(target);
                     self.play_list(tracks, 0);
                 }
@@ -332,6 +354,19 @@ impl App {
                     self.load_list(&id, false, true);
                 }
                 self.toast(error);
+            }
+            Resp::AddedToPlaylist { id, video_ids, error: None } => {
+                self.lists.edits.confirm_add(&id, &video_ids);
+                self.on_playlist_changed(id, "Added to playlist");
+            }
+            Resp::AddedToPlaylist { id, video_ids, error: Some(e) } => {
+                // Shown as added: out again, and a reload makes sure of the rest.
+                self.lists.add_failed(&id, &video_ids);
+                self.sync_card_count(&id);
+                if self.lists.get(&id).is_some() {
+                    self.load_list(&id, false, true);
+                }
+                self.on_error(e);
             }
             Resp::PlaylistMoved { id, move_id, ok } => {
                 // Not for moves of an account or channel left since.

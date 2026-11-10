@@ -1,4 +1,4 @@
-//! System tray icon, shown while "Close to tray" has hidden the window.
+//! System tray icon, shown while "Close to tray" is on.
 //!
 //! The icon must be created on the UI thread (it owns a Win32 message window), so
 //! the app creates and drops it from `logic`. Clicks arrive on that thread's message
@@ -17,6 +17,8 @@ use tray_icon::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIc
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cmd {
     Show,
+    /// The menu's "Show"/"Hide" item: whichever it says.
+    Toggle,
     Quit,
 }
 
@@ -24,7 +26,15 @@ static PENDING: Mutex<Vec<Cmd>> = Mutex::new(Vec::new());
 
 pub struct Tray {
     #[cfg(not(target_os = "linux"))]
+    icon: Icon,
+    /// What the menu's first item says now: true for "Hide".
+    shown: bool,
+}
+
+/// The icon and its "Show"/"Hide" item, which says what clicking it would do.
+struct Icon {
     _icon: TrayIcon,
+    toggle: MenuItem,
 }
 
 impl Tray {
@@ -40,7 +50,7 @@ impl Tray {
                 }
             }));
             MenuEvent::set_event_handler(Some(move |e: MenuEvent| match e.id.as_ref() {
-                "show" => push(Cmd::Show, &wake),
+                "toggle" => push(Cmd::Toggle, &wake),
                 "quit" => push(Cmd::Quit, &wake),
                 _ => {}
             }));
@@ -48,12 +58,30 @@ impl Tray {
 
         let png = icon.rgba(32).ok_or_else(|| anyhow::anyhow!("icon doesn't decode"))?;
         #[cfg(not(target_os = "linux"))]
-        return Ok(Self { _icon: build(png)? });
+        return Ok(Self { icon: build(png)?, shown: false });
         #[cfg(target_os = "linux")]
         {
             gtk_thread::show(png)?;
-            Ok(Self {})
+            Ok(Self { shown: false })
         }
+    }
+
+    /// Say "Hide YT Music" while the window is on screen, else "Show YT Music".
+    pub fn set_shown(&mut self, shown: bool) {
+        if shown == self.shown {
+            return;
+        }
+        self.shown = shown;
+        #[cfg(not(target_os = "linux"))]
+        self.icon.set_shown(shown);
+        #[cfg(target_os = "linux")]
+        gtk_thread::set_shown(shown);
+    }
+}
+
+impl Icon {
+    fn set_shown(&self, shown: bool) {
+        self.toggle.set_text(if shown { "Hide YT Music" } else { "Show YT Music" });
     }
 }
 
@@ -64,18 +92,17 @@ impl Drop for Tray {
     }
 }
 
-fn build(png: image::RgbaImage) -> anyhow::Result<TrayIcon> {
-    let menu = Menu::with_items(&[
-        &MenuItem::with_id("show", "Show YT Music", true, None),
-        &MenuItem::with_id("quit", "Quit", true, None),
-    ])?;
+fn build(png: image::RgbaImage) -> anyhow::Result<Icon> {
+    let toggle = MenuItem::with_id("toggle", "Show YT Music", true, None);
+    let menu = Menu::with_items(&[&toggle, &MenuItem::with_id("quit", "Quit", true, None)])?;
     let (w, h) = png.dimensions();
-    Ok(TrayIconBuilder::new()
+    let icon = TrayIconBuilder::new()
         .with_icon(tray_icon::Icon::from_rgba(png.into_raw(), w, h)?)
         .with_tooltip("YT Music")
         .with_menu(Box::new(menu))
         .with_menu_on_left_click(false)
-        .build()?)
+        .build()?;
+    Ok(Icon { _icon: icon, toggle })
 }
 
 #[cfg(target_os = "linux")]
@@ -84,10 +111,10 @@ mod gtk_thread {
     use std::sync::OnceLock;
     use std::time::Duration;
 
-    use tray_icon::TrayIcon;
+    use super::Icon;
 
     thread_local! {
-        static ICON: RefCell<Option<TrayIcon>> = const { RefCell::new(None) };
+        static ICON: RefCell<Option<Icon>> = const { RefCell::new(None) };
     }
 
     /// Start GTK's thread once; an error if GTK can't start (no display).
@@ -122,6 +149,16 @@ mod gtk_thread {
             let _ = tx.send(res.map_err(|e| e.to_string()));
         });
         rx.recv_timeout(Duration::from_secs(5))?.map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub fn set_shown(shown: bool) {
+        gtk::glib::MainContext::default().invoke(move || {
+            ICON.with(|i| {
+                if let Some(i) = &*i.borrow() {
+                    i.set_shown(shown);
+                }
+            })
+        });
     }
 
     pub fn hide() {

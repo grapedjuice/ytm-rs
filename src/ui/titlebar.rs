@@ -328,8 +328,9 @@ pub fn set_hwnd(hwnd: *mut std::ffi::c_void) {
 
 #[cfg(windows)]
 mod frame {
-    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
     use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
     use windows::Win32::UI::Controls::MARGINS;
     use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
     use windows::Win32::UI::WindowsAndMessaging::{IsZoomed, NCCALCSIZE_PARAMS, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, WM_NCCALCSIZE};
@@ -368,11 +369,25 @@ mod frame {
             // Maximized, a GPU window can fill its whole monitor, and Windows then presents
             // it straight to the screen: no blending, so a window material turns black. A
             // pixel short of that keeps it composited (Chromium does the same).
-            if crate::backdrop::active() != crate::backdrop::Backdrop::None && IsZoomed(hwnd).as_bool() {
+            // Any window filling its monitor (maximized with the taskbar auto-hiding) is
+            // also taken for exclusive full screen by some drivers: AMD's OpenGL keeps
+            // some 80 MB more for it from then on, and the taskbar can't come up over it.
+            if IsZoomed(hwnd).as_bool() && (crate::backdrop::active() != crate::backdrop::Backdrop::None || fills_monitor(hwnd, &params.rgrc[0])) {
                 params.rgrc[0].bottom -= 1;
             }
             result
         }
+    }
+
+    /// Whether `r` covers all of the monitor the window is on.
+    fn fills_monitor(hwnd: HWND, r: &RECT) -> bool {
+        let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+        // SAFETY: the app's own window; `info` is ours and sized.
+        if !unsafe { GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut info) }.as_bool() {
+            return false;
+        }
+        let m = info.rcMonitor;
+        r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom
     }
 }
 

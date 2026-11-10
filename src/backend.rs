@@ -505,6 +505,9 @@ pub struct Backend {
     hq: Arc<std::sync::atomic::AtomicBool>,
     /// Explicit songs are hidden: a music video's song version has to be clean.
     clean: Arc<std::sync::atomic::AtomicBool>,
+    /// The visionOS player's file URLs were refused past 1 MiB this session (YouTube
+    /// wants a PO token for them on this network): songs play from its HLS segments.
+    visionos_hls: Arc<std::sync::atomic::AtomicBool>,
     /// Song versions of music videos looked up this session (`None`: there's none), by
     /// video and whether the account has Premium (which gets YouTube's own pairs). One
     /// cell each, so a prefetch and the play of the same video share a lookup.
@@ -535,7 +538,7 @@ impl Backend {
         {
             log::warn!("proxy relay: {e:#}");
         }
-        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), clean: Default::default(), songs: Default::default() };
+        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), clean: Default::default(), visionos_hls: Default::default(), songs: Default::default() };
         backend.keep_signed_in();
         Ok(backend)
     }
@@ -1138,7 +1141,9 @@ impl Backend {
         let prefetched = self.prefetched.lock().unwrap().take();
         let replay = self.current.lock().unwrap().take().filter(|(id, s)| *id == video_id && s.is_complete()).map(|(_, s)| s);
         let ready = match prefetched {
-            Some((id, s)) if id == video_id => Some(s),
+            // Not one whose download failed (refused, say): that opens afresh.
+            // Nor a file stream fetched before file streams turned out to be cut off.
+            Some((id, s)) if id == video_id && s.error().is_none() && !(self.visionos_hls.load(Ordering::Relaxed) && s.segments.is_none() && !s.is_complete()) => Some(s),
             // Replaying the current song keeps the next one's prefetch.
             other if replay.is_some() => {
                 *self.prefetched.lock().unwrap() = other;
@@ -1390,8 +1395,22 @@ impl Backend {
             return Ok(shared);
         }
         let (source, s) = self.resolve(video_id, false).await?;
-        let shared = Shared::new(s.size, s.duration_ms, s.loudness_db, s.opus, prefetch);
-        self.rt.spawn(stream::download(self.http(), s.url, s.user_agent, shared.clone(), Some(self.refresher(source, video_id, s.opus))));
+        match &s.starts {
+            Some(starts) => log::info!("stream {video_id}: {} HLS segments from {source:?}", starts.len()),
+            None => log::info!("stream {video_id}: {} bytes {} from {source:?}", s.size, if s.opus { "Opus" } else { "AAC" }),
+        }
+        let shared = s.buffer(prefetch);
+        let refresh = Some(self.refresher(source, video_id, s.opus));
+        let (this, buffer) = (self.clone(), shared.clone());
+        self.rt.spawn(async move {
+            stream::download(this.http(), s.media, s.user_agent, buffer.clone(), refresh).await;
+            // Fresh visionOS file URLs refused too: YouTube wants a PO token for them
+            // here, past the first MiB. Its HLS segments play without one; the song
+            // reopens where it stopped, and the rest of the session goes that way.
+            if source == Source::VisionOs && buffer.refused() && !this.visionos_hls.swap(true, Ordering::Relaxed) {
+                log::warn!("visionOS file streams are refused here past 1 MiB; playing HLS from now on");
+            }
+        });
         Ok(shared)
     }
 
@@ -1404,7 +1423,7 @@ impl Backend {
                 let s = this.resolve_from(source, &id, opus).await?;
                 // The buffer is laid out for the format it started with.
                 anyhow::ensure!(s.opus == opus, "the stream changed format");
-                Ok(s.url)
+                Ok(s.media)
             })
         })
     }
@@ -1413,8 +1432,9 @@ impl Backend {
     async fn download(&self, t: &Track, for_video: Option<String>) -> anyhow::Result<PathBuf> {
         let (source, s) = self.resolve(&t.id, true).await?;
         log::info!("download {}: {} bytes from {source:?}", t.id, s.size);
-        let shared = Shared::new(s.size, s.duration_ms, s.loudness_db, s.opus, false);
-        stream::download(self.http(), s.url, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus))).await;
+        anyhow::ensure!(s.starts.is_none(), "downloads need the file stream");
+        let shared = s.buffer(false);
+        stream::download(self.http(), s.media, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus))).await;
         if let Some(e) = shared.error() {
             anyhow::bail!("{e}");
         }
@@ -1467,6 +1487,15 @@ impl Backend {
                 Err(e) => log::warn!("high quality stream failed for {video_id} ({e:#}); using standard quality"),
             }
         }
+        // Downloads stay on the file stream: they're saved as the .m4a it is.
+        if !best && self.visionos_hls.load(Ordering::Relaxed) {
+            match self.resolve_from(Source::VisionOsHls, video_id, false).await {
+                Ok(s) => return Ok((Source::VisionOsHls, s)),
+                // The signed-in paths below take it.
+                Err(e) if needs_account(&e) => {}
+                Err(e) => log::warn!("HLS stream failed for {video_id} ({e:#}); trying the file stream"),
+            }
+        }
         match self.resolve_from(Source::VisionOs, video_id, !best).await {
             Ok(s) => Ok((Source::VisionOs, s)),
             // Age-restricted or Premium-only: only signed-in web players get it.
@@ -1488,7 +1517,8 @@ impl Backend {
     /// `opus`: the visionOS player's Opus stream where there is one (the others are AAC).
     async fn resolve_from(&self, source: Source, video_id: &str, opus: bool) -> anyhow::Result<ResolvedStream> {
         let plain = |s: innertube::Stream, ua: &str| ResolvedStream {
-            url: s.url,
+            media: stream::Media::File(s.url),
+            starts: None,
             size: s.size,
             duration_ms: s.duration_ms,
             user_agent: ua.to_owned(),
@@ -1497,6 +1527,11 @@ impl Backend {
         };
         Ok(match source {
             Source::VisionOs => plain(self.visionos_stream(video_id, opus).await?, innertube::UA),
+            Source::VisionOsHls => {
+                let s = self.visionos_hls(video_id).await?;
+                let (starts, urls) = s.segments.into_iter().unzip();
+                ResolvedStream { media: stream::Media::Segments(urls), starts: Some(starts), size: 0, duration_ms: s.duration_ms, user_agent: innertube::UA.to_owned(), loudness_db: s.loudness_db, opus: false }
+            }
             Source::WebMusic => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
                 plain(session.audio_stream(&self.http(), &self.jsc, video_id).await?, webmusic::UA)
@@ -1507,7 +1542,7 @@ impl Backend {
                 // Cookies Google replaced while yt-dlp used the session.
                 self.api.keep(&session, s.replaced.iter().map(String::as_str));
                 // yt-dlp's JSON doesn't carry YouTube's loudness figure.
-                ResolvedStream { url: s.url, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
+                ResolvedStream { media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
             }
         })
     }
@@ -1552,6 +1587,19 @@ impl Backend {
                 log::warn!("Premium check failed: {e:#}");
                 *premium = Err(Some(std::time::Instant::now()));
                 false
+            }
+        }
+    }
+
+    async fn visionos_hls(&self, video_id: &str) -> anyhow::Result<innertube::HlsStream> {
+        let vd = self.api.visitor_data(false).await?;
+        match innertube::hls_audio(&self.http(), video_id, &vd).await {
+            Ok(s) => Ok(s),
+            Err(e) if needs_account(&e) => Err(e),
+            Err(e) => {
+                log::info!("visionOS player (HLS): {e:#}; retrying with new visitor data");
+                let vd = self.api.visitor_data(true).await?;
+                innertube::hls_audio(&self.http(), video_id, &vd).await
             }
         }
     }
@@ -1640,21 +1688,36 @@ fn reports_plays() -> bool {
     std::env::var_os("YTM_BACKGROUND").is_none() || std::env::var_os("YTM_REPORT_PLAYS").is_some()
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Source {
     VisionOs,
+    /// The visionOS player's HLS segments: where its file URLs are cut off at 1 MiB.
+    VisionOsHls,
     WebMusic,
     YtDlp,
 }
 
 struct ResolvedStream {
-    url: String,
+    media: stream::Media,
+    /// HLS: each segment's start (s).
+    starts: Option<Vec<f64>>,
+    /// Bytes (a file; 0 for segments).
     size: u64,
     duration_ms: u64,
     user_agent: String,
     loudness_db: Option<f32>,
     /// Opus in WebM; otherwise AAC in MP4.
     opus: bool,
+}
+
+impl ResolvedStream {
+    /// A buffer laid out for this stream. `head_only`: a prefetch's.
+    fn buffer(&self, head_only: bool) -> Arc<Shared> {
+        match &self.starts {
+            Some(starts) => Shared::segmented(starts.clone(), self.duration_ms, self.loudness_db, head_only),
+            None => Shared::new(self.size, self.duration_ms, self.loudness_db, self.opus, head_only),
+        }
+    }
 }
 
 /// The anonymous visionOS player refused because the song needs an account:

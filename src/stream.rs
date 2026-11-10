@@ -5,6 +5,8 @@
 //! waiting on, so playback start and seeks are served first and the rest fills in
 //! around them. Reads of a missing block block until it arrives (or the download fails).
 //!
+//! An HLS stream (`Media::Segments`) is buffered the same way, a segment per block.
+//!
 //! Several readers may share one buffer (the audio engine opens a second, seekable
 //! decoder when the user seeks); the download stops once the last reader is dropped.
 
@@ -38,8 +40,16 @@ const WINDOWED_FROM: u64 = 40 * 1024 * 1024;
 const AHEAD: usize = 40;
 const BEHIND: usize = 8;
 
-/// Resolves a fresh stream URL for the same video.
-pub type Refresh = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> + Send + Sync>;
+/// What a download fetches.
+pub enum Media {
+    /// One file, in `BLOCK`-sized ranges.
+    File(String),
+    /// An HLS playlist's segments, one block each.
+    Segments(Vec<String>),
+}
+
+/// Resolves fresh URLs for the same video and format.
+pub type Refresh = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = anyhow::Result<Media>> + Send>> + Send + Sync>;
 
 struct Inner {
     blocks: Vec<Option<Bytes>>,
@@ -47,6 +57,8 @@ struct Inner {
     /// Block a reader most recently needed; workers prioritize from here.
     want: usize,
     error: Option<String>,
+    /// The download stopped on HTTP 403s that fresh URLs didn't get past.
+    refused: bool,
     readers: usize,
     /// Set once a reader existed and all were dropped.
     cancelled: bool,
@@ -93,8 +105,10 @@ pub struct Shared {
     pub duration_ms: u64,
     /// YouTube's loudness for this stream, in dB above its -14 LUFS target.
     pub loudness_db: Option<f32>,
-    /// Opus in WebM; otherwise AAC in MP4.
+    /// Opus in WebM; otherwise AAC in MP4, or ADTS in HLS segments.
     pub opus: bool,
+    /// HLS: each segment's start (s). Its blocks are the segments.
+    pub segments: Option<Arc<[f64]>>,
     /// Flips to true once the download task has stopped (complete, failed or cancelled).
     done: tokio::sync::watch::Sender<bool>,
     /// Wakes waiting workers: `limit` lifted, a reader moved or left, or cancelled.
@@ -105,7 +119,18 @@ impl Shared {
     /// A buffer for `total` bytes. `head_only` (a prefetch) fetches just the start until
     /// a reader opens it.
     pub fn new(total: u64, duration_ms: u64, loudness_db: Option<f32>, opus: bool, head_only: bool) -> Arc<Self> {
-        let n = total.div_ceil(BLOCK) as usize;
+        Self::build(total.div_ceil(BLOCK) as usize, total, total > WINDOWED_FROM, duration_ms, loudness_db, opus, None, head_only)
+    }
+
+    /// A buffer for an HLS stream's segments, starting at `starts` (s).
+    pub fn segmented(starts: Vec<f64>, duration_ms: u64, loudness_db: Option<f32>, head_only: bool) -> Arc<Self> {
+        // About as many segments (~7 s) as a windowed file has blocks (~8 s at 256 kbps).
+        let windowed = starts.len() as u64 > WINDOWED_FROM / BLOCK;
+        Self::build(starts.len(), 0, windowed, duration_ms, loudness_db, false, Some(starts.into()), head_only)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build(n: usize, total: u64, windowed: bool, duration_ms: u64, loudness_db: Option<f32>, opus: bool, segments: Option<Arc<[f64]>>, head_only: bool) -> Arc<Self> {
         let limit = if head_only { HEAD_BLOCKS.min(n) } else { n };
         LIVE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Arc::new(Self {
@@ -114,11 +139,12 @@ impl Shared {
                 in_flight: vec![false; n],
                 want: 0,
                 error: None,
+                refused: false,
                 readers: 0,
                 cancelled: false,
                 limit,
                 wants: Vec::new(),
-                windowed: total > WINDOWED_FROM,
+                windowed,
                 ever: vec![false; n],
                 fetched: 0,
             }),
@@ -127,6 +153,7 @@ impl Shared {
             duration_ms,
             loudness_db,
             opus,
+            segments,
             done: tokio::sync::watch::Sender::new(false),
             changed: tokio::sync::Notify::new(),
         })
@@ -175,6 +202,11 @@ impl Shared {
     /// Why the download stopped early, if it failed.
     pub fn error(&self) -> Option<String> {
         self.inner.lock().unwrap().error.clone()
+    }
+
+    /// The download failed on HTTP 403s that fresh URLs didn't get past.
+    pub fn refused(&self) -> bool {
+        self.inner.lock().unwrap().refused
     }
 
     /// Stop downloading (e.g. a prefetch that was superseded).
@@ -226,10 +258,13 @@ impl Shared {
         self.ready.notify_all();
     }
 
-    fn fail(&self, err: String) {
+    fn fail(&self, err: String, refused: bool) {
         log::error!("download failed: {err}");
         FAIL_FROM.store(usize::MAX, std::sync::atomic::Ordering::Relaxed);
-        self.inner.lock().unwrap().error = Some(err);
+        let mut inner = self.inner.lock().unwrap();
+        inner.error = Some(err);
+        inner.refused = refused;
+        drop(inner);
         self.ready.notify_all();
     }
 
@@ -239,10 +274,12 @@ impl Shared {
     }
 }
 
-/// The current URL plus how many times it has been replaced.
+/// The current URLs plus how many times they have been replaced.
 struct UrlSlot {
-    url: tokio::sync::Mutex<(String, u32)>,
+    url: tokio::sync::Mutex<(Media, u32)>,
     refresh: Option<Refresh>,
+    /// Segments the buffer has: fresh ones must be the same.
+    segments: Option<usize>,
 }
 
 impl UrlSlot {
@@ -252,11 +289,24 @@ impl UrlSlot {
         if slot.1 != seen {
             return true; // another worker already refreshed it
         }
-        let Some(refresh) = self.refresh.as_ref().filter(|_| slot.1 < MAX_REFRESHES) else { return false };
+        let Some(refresh) = self.refresh.as_ref() else { return false };
+        if slot.1 >= MAX_REFRESHES {
+            log::warn!("stream URL still refused after {MAX_REFRESHES} refreshes");
+            return false;
+        }
         match refresh().await {
-            Ok(url) => {
+            // The buffer is laid out for the stream it started with.
+            Ok(Media::Segments(urls)) if Some(urls.len()) != self.segments => {
+                log::warn!("stream URL refresh: {} segments for a buffer of {:?}", urls.len(), self.segments);
+                false
+            }
+            Ok(Media::File(_)) if self.segments.is_some() => {
+                log::warn!("stream URL refresh: a file for a segmented buffer");
+                false
+            }
+            Ok(media) => {
                 log::info!("stream URL refreshed after 403");
-                *slot = (url, slot.1 + 1);
+                *slot = (media, slot.1 + 1);
                 true
             }
             Err(e) => {
@@ -269,8 +319,9 @@ impl UrlSlot {
 
 /// Download into `shared` with parallel range requests; returns when complete,
 /// failed, or every reader was dropped.
-pub async fn download(http: reqwest::Client, url: String, ua: String, shared: Arc<Shared>, refresh: Option<Refresh>) {
-    let slot = Arc::new(UrlSlot { url: tokio::sync::Mutex::new((url, 0)), refresh });
+pub async fn download(http: reqwest::Client, media: Media, ua: String, shared: Arc<Shared>, refresh: Option<Refresh>) {
+    let segments = shared.segments.as_ref().map(|s| s.len());
+    let slot = Arc::new(UrlSlot { url: tokio::sync::Mutex::new((media, 0)), refresh, segments });
     let mut set = tokio::task::JoinSet::new();
     for _ in 0..WORKERS {
         let (http, ua, shared, slot) = (http.clone(), ua.clone(), shared.clone(), slot.clone());
@@ -288,17 +339,26 @@ pub async fn download(http: reqwest::Client, url: String, ua: String, shared: Ar
                     }
                     Claim::Done => break,
                 };
-                let (a, b) = shared.range(idx);
+                let (a, b) = if segments.is_none() { shared.range(idx) } else { (0, 0) };
+                let what = if segments.is_some() { format!("segment {idx}") } else { format!("range {a}-{b}") };
                 let mut attempt = 0;
                 loop {
-                    let (url, version) = slot.url.lock().await.clone();
+                    let (url, expect, version) = {
+                        let slot = slot.url.lock().await;
+                        match &slot.0 {
+                            Media::File(url) => (format!("{url}&range={a}-{b}"), Some(b - a + 1), slot.1),
+                            Media::Segments(urls) => (urls[idx].clone(), None, slot.1),
+                        }
+                    };
                     // A refreshed URL is tied to the address that resolved it, which is the
                     // current shared client's (a proxy may have switched exits since).
                     let client = if version > 0 { crate::proxy::http() } else { http.clone() };
                     let res = if idx >= FAIL_FROM.load(std::sync::atomic::Ordering::Relaxed) {
                         Err(anyhow::anyhow!("simulated network failure"))
+                    } else if segments.is_none() && idx >= REFUSE_FROM.load(std::sync::atomic::Ordering::Relaxed) {
+                        Err(anyhow::Error::new(SimulatedRefusal))
                     } else {
-                        fetch(&client, &format!("{url}&range={a}-{b}"), &ua, b - a + 1).await
+                        fetch(&client, &url, &ua, expect).await
                     };
                     match res {
                         Ok(data) => {
@@ -308,11 +368,16 @@ pub async fn download(http: reqwest::Client, url: String, ua: String, shared: Ar
                         Err(e) if is_forbidden(&e) && slot.renew(version).await => {}
                         Err(e) if attempt < RETRIES && !is_forbidden(&e) => {
                             attempt += 1;
-                            log::warn!("range {a}-{b}: {e:#} (retry {attempt})");
+                            log::warn!("{what}: {e:#} (retry {attempt})");
                             tokio::time::sleep(Duration::from_millis(400 * (attempt * attempt) as u64)).await;
                         }
                         Err(e) => {
-                            shared.fail(format!("range {a}-{b}: {e:#}"));
+                            // How many fresh URLs were tried tells a URL that keeps being
+                            // refused (the player's URLs, the address) from a one-off.
+                            let refreshed = slot.url.lock().await.1;
+                            let refused = is_forbidden(&e);
+                            let tail = if refused { format!(" after {refreshed} URL refresh(es)") } else { String::new() };
+                            shared.fail(format!("{what}: {e:#}{tail}"), refused);
                             return;
                         }
                     }
@@ -325,22 +390,44 @@ pub async fn download(http: reqwest::Client, url: String, ua: String, shared: Ar
 }
 
 fn is_forbidden(e: &anyhow::Error) -> bool {
-    e.downcast_ref::<reqwest::Error>()
-        .and_then(reqwest::Error::status)
-        .is_some_and(|s| s == reqwest::StatusCode::FORBIDDEN)
+    e.is::<SimulatedRefusal>()
+        || e.downcast_ref::<reqwest::Error>()
+            .and_then(reqwest::Error::status)
+            .is_some_and(|s| s == reqwest::StatusCode::FORBIDDEN)
 }
+
+/// `YTM_STREAM_REFUSE`'s answer: what googlevideo says to a range it won't serve.
+#[derive(Debug)]
+struct SimulatedRefusal;
+
+impl std::fmt::Display for SimulatedRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("HTTP status client error (403 Forbidden) (simulated)")
+    }
+}
+
+impl std::error::Error for SimulatedRefusal {}
 
 /// Dev hook: YTM_STREAM_FAIL=<block> makes the first download fail from that block on,
 /// as if the connection died mid-song; later downloads work.
 static FAIL_FROM: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(usize::MAX);
 
+/// Dev hook: YTM_STREAM_REFUSE=<block> answers every file stream's ranges from that
+/// block on with HTTP 403, fresh URLs too, as YouTube does past 1 MiB (block 4) where
+/// it wants a PO token for the visionOS player's URLs. HLS segments get through.
+static REFUSE_FROM: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(usize::MAX);
+
 pub fn init_dev_hooks() {
     if let Some(b) = std::env::var("YTM_STREAM_FAIL").ok().and_then(|v| v.parse().ok()) {
         FAIL_FROM.store(b, std::sync::atomic::Ordering::Relaxed);
     }
+    if let Some(b) = std::env::var("YTM_STREAM_REFUSE").ok().and_then(|v| v.parse().ok()) {
+        REFUSE_FROM.store(b, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
-async fn fetch(http: &reqwest::Client, url: &str, ua: &str, expect: u64) -> anyhow::Result<Bytes> {
+/// `expect`: the exact length a range must come back with (a segment's isn't known).
+async fn fetch(http: &reqwest::Client, url: &str, ua: &str, expect: Option<u64>) -> anyhow::Result<Bytes> {
     let stalled = || anyhow::anyhow!("no data for {} s", STALL.as_secs());
     // Errors leave the URL out: it carries the client's IP address and signatures (logs).
     let mut resp = tokio::time::timeout(STALL, http.get(url).header("User-Agent", ua).send())
@@ -348,11 +435,13 @@ async fn fetch(http: &reqwest::Client, url: &str, ua: &str, expect: u64) -> anyh
         .map_err(|_| stalled())?
         .and_then(reqwest::Response::error_for_status)
         .map_err(reqwest::Error::without_url)?;
-    let mut buf = bytes::BytesMut::with_capacity(expect as usize);
+    let mut buf = bytes::BytesMut::with_capacity(expect.or(resp.content_length()).unwrap_or(0) as usize);
     while let Some(chunk) = tokio::time::timeout(STALL, resp.chunk()).await.map_err(|_| stalled())?.map_err(reqwest::Error::without_url)? {
         buf.extend_from_slice(&chunk);
     }
-    anyhow::ensure!(buf.len() as u64 == expect, "short read: {} of {expect} bytes", buf.len());
+    if let Some(expect) = expect {
+        anyhow::ensure!(buf.len() as u64 == expect, "short read: {} of {expect} bytes", buf.len());
+    }
     Ok(buf.freeze())
 }
 
@@ -392,12 +481,9 @@ impl Drop for StreamReader {
     }
 }
 
-impl Read for StreamReader {
-    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
-        if out.is_empty() || self.pos >= self.shared.total {
-            return Ok(0);
-        }
-        let idx = (self.pos / BLOCK) as usize;
+impl StreamReader {
+    /// Block `idx`, once it's here; an error if the download failed or stopped first.
+    pub fn block_at(&mut self, idx: usize) -> io::Result<Bytes> {
         let mut inner = self.shared.inner.lock().unwrap();
         inner.want = idx;
         if idx != self.block {
@@ -409,7 +495,10 @@ impl Read for StreamReader {
                 self.shared.changed.notify_waiters();
             }
         }
-        while inner.blocks[idx].is_none() {
+        loop {
+            if let Some(b) = &inner.blocks[idx] {
+                return Ok(b.clone());
+            }
             if let Some(e) = &inner.error {
                 return Err(io::Error::other(e.clone()));
             }
@@ -418,7 +507,16 @@ impl Read for StreamReader {
             }
             inner = self.shared.ready.wait(inner).unwrap();
         }
-        let block = inner.blocks[idx].as_ref().unwrap();
+    }
+}
+
+impl Read for StreamReader {
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        if out.is_empty() || self.pos >= self.shared.total {
+            return Ok(0);
+        }
+        let idx = (self.pos / BLOCK) as usize;
+        let block = self.block_at(idx)?;
         let off = (self.pos - idx as u64 * BLOCK) as usize;
         let n = out.len().min(block.len() - off);
         out[..n].copy_from_slice(&block[off..off + n]);
@@ -447,6 +545,10 @@ impl Seek for StreamReader {
 /// fragment; seekable ones index every fragment first (i.e. effectively wait for the
 /// download). Opus ones are always seekable: WebM's index is at the start.
 pub fn decoder(shared: Arc<Shared>, seekable: bool) -> anyhow::Result<TrackDecoder> {
+    if let Some(starts) = shared.segments.clone() {
+        let duration_ms = shared.duration_ms;
+        return Ok(TrackDecoder::Hls(Box::new(crate::hls::HlsSource::new(StreamReader::new(shared), starts, duration_ms)?)));
+    }
     let size = shared.total;
     if shared.opus {
         let duration_ms = shared.duration_ms;
@@ -468,6 +570,8 @@ pub enum TrackDecoder {
     Aac(rodio::Decoder<StreamReader>),
     /// Boxed: its decoder state is about 11 KB.
     Opus(Box<crate::opus::OpusSource>),
+    /// AAC from HLS segments.
+    Hls(Box<crate::hls::HlsSource>),
 }
 
 impl Iterator for TrackDecoder {
@@ -477,6 +581,7 @@ impl Iterator for TrackDecoder {
         match self {
             Self::Aac(d) => d.next(),
             Self::Opus(d) => d.next(),
+            Self::Hls(d) => d.next(),
         }
     }
 }
@@ -486,30 +591,35 @@ impl rodio::Source for TrackDecoder {
         match self {
             Self::Aac(d) => d.current_span_len(),
             Self::Opus(d) => d.current_span_len(),
+            Self::Hls(d) => d.current_span_len(),
         }
     }
     fn channels(&self) -> rodio::ChannelCount {
         match self {
             Self::Aac(d) => d.channels(),
             Self::Opus(d) => d.channels(),
+            Self::Hls(d) => d.channels(),
         }
     }
     fn sample_rate(&self) -> rodio::SampleRate {
         match self {
             Self::Aac(d) => d.sample_rate(),
             Self::Opus(d) => d.sample_rate(),
+            Self::Hls(d) => d.sample_rate(),
         }
     }
     fn total_duration(&self) -> Option<Duration> {
         match self {
             Self::Aac(d) => d.total_duration(),
             Self::Opus(d) => d.total_duration(),
+            Self::Hls(d) => d.total_duration(),
         }
     }
     fn try_seek(&mut self, pos: Duration) -> Result<(), rodio::source::SeekError> {
         match self {
             Self::Aac(d) => d.try_seek(pos),
             Self::Opus(d) => d.try_seek(pos),
+            Self::Hls(d) => d.try_seek(pos),
         }
     }
 }

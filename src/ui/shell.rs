@@ -1482,7 +1482,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     }
     // Volume: a slider beside its icon, or in a narrow window the icon alone with the
     // slider in a small popup above it while the pointer is over either. A theme that
-    // hides the volume hides only the slider: the icon stays, and the time beside it.
+    // hides the volume hides only the slider in the bar: the icon and its popup stay.
     let vol = app.audio.volume();
     let vi = if compact_vol {
         Rect::from_center_size(pos2(rx - 16.0, cy), Vec2::splat(32.0))
@@ -1503,7 +1503,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let open = mresp.hovered() || (ui.data(|d| d.get_temp::<bool>(pop_id).unwrap_or(false)) && keep);
         ui.data_mut(|d| d.insert_temp(pop_id, open));
         let a = theme::anim_bool(ui.ctx(), pop_id.with("a"), open, 0.12);
-        if a > 0.0 && !chrome.hide_volume {
+        if a > 0.0 {
             egui::Area::new(pop_id).order(egui::Order::Foreground).fixed_pos(pop.min).interactable(open).show(ui.ctx(), |ui| {
                 ui.set_opacity(a);
                 let (r, _) = ui.allocate_exact_size(pop.size(), Sense::hover());

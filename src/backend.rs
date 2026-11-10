@@ -1513,8 +1513,8 @@ impl Backend {
 
     /// Find a stream URL, trying the fastest source that can play the song. `best`
     /// (downloads) takes the high quality stream whatever the setting, and waits for
-    /// the solver it needs. Playback without Premium takes Opus where there is one;
-    /// downloads stay AAC, which saves as a tagged .m4a.
+    /// the solver it needs. Playback takes Opus where there is one (Premium's 774 at
+    /// ~256 kbps, else 251); downloads stay AAC, which saves as a tagged .m4a.
     async fn resolve(&self, video_id: &str, best: bool) -> anyhow::Result<(Source, ResolvedStream)> {
         let hq = best || self.hq.load(Ordering::Relaxed);
         if best
@@ -1538,7 +1538,7 @@ impl Backend {
             && let Some(session) = self.api.account()
             && self.is_premium(&session).await
         {
-            match self.resolve_from(Source::WebMusic, video_id, false).await {
+            match self.resolve_from(Source::WebMusic, video_id, !best).await {
                 Ok(s) => return Ok((Source::WebMusic, s)),
                 // Not fatal: the usual 128 kbps stream still plays.
                 Err(e) => log::warn!("high quality stream failed for {video_id} ({e:#}); using standard quality"),
@@ -1560,7 +1560,7 @@ impl Backend {
                 log::info!("{video_id} needs a signed-in player ({e:#})");
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("sign in to play this song"))?;
                 if self.is_premium(&session).await {
-                    match self.resolve_from(Source::WebMusic, video_id, false).await {
+                    match self.resolve_from(Source::WebMusic, video_id, !best).await {
                         Ok(s) => return Ok((Source::WebMusic, s)),
                         Err(e) => log::warn!("web music player failed ({e:#}); using yt-dlp"),
                     }
@@ -1571,7 +1571,8 @@ impl Backend {
         }
     }
 
-    /// `opus`: the visionOS player's Opus stream where there is one (the others are AAC).
+    /// `opus`: the Opus stream where there is one (visionOS's 251, or Premium's 774 from
+    /// the web player); yt-dlp and HLS are AAC.
     async fn resolve_from(&self, source: Source, video_id: &str, opus: bool) -> anyhow::Result<ResolvedStream> {
         let plain = |s: innertube::Stream, ua: &str| ResolvedStream {
             media: stream::Media::File(s.url),
@@ -1591,7 +1592,7 @@ impl Backend {
             }
             Source::WebMusic => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
-                plain(session.audio_stream(&self.http(), &self.jsc, video_id).await?, webmusic::UA)
+                plain(session.audio_stream(&self.http(), &self.jsc, video_id, opus).await?, webmusic::UA)
             }
             Source::YtDlp => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("sign in to play this song"))?;

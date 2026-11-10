@@ -323,7 +323,8 @@ impl Session {
             || logo["tooltipText"].to_string().to_lowercase().contains("premium"))
     }
 
-    pub async fn audio_stream(&self, http: &reqwest::Client, solver: &Solver, video_id: &str) -> anyhow::Result<Stream> {
+    /// `opus`: Premium's Opus (774) first; otherwise AAC, which downloads save as .m4a.
+    pub async fn audio_stream(&self, http: &reqwest::Client, solver: &Solver, video_id: &str, opus: bool) -> anyhow::Result<Stream> {
         let player = solver.player(http).await?;
         let body = json!({
             "context": {"client": {"clientName": "WEB_REMIX", "clientVersion": VERSION, "hl": "en", "gl": "US"}},
@@ -337,12 +338,8 @@ impl Session {
         if status["status"] != "OK" {
             anyhow::bail!("{}: {}", status["status"].as_str().unwrap_or("UNPLAYABLE"), status["reason"].as_str().unwrap_or("no reason given"));
         }
-        // 141 is Premium's 256 kbps AAC-LC; 140 is the usual 128 kbps.
         let formats = resp["streamingData"]["adaptiveFormats"].as_array().map(Vec::as_slice).unwrap_or_default();
-        let f = [141, 140, 139]
-            .iter()
-            .find_map(|itag| formats.iter().find(|f| f["itag"] == *itag))
-            .ok_or_else(|| anyhow::anyhow!("no AAC stream in web player response"))?;
+        let f = pick_format(formats, opus).ok_or_else(|| anyhow::anyhow!("no audio stream in web player response"))?;
         log::info!("web music: {video_id} itag {} ({} kbps)", f["itag"], f["bitrate"].as_u64().unwrap_or(0) / 1000);
         let size = f["contentLength"].as_str().and_then(|s| s.parse().ok()).ok_or_else(|| anyhow::anyhow!("unknown stream size"))?;
         let duration_ms = f["approxDurationMs"].as_str().and_then(|d| d.parse().ok()).unwrap_or(0);
@@ -371,13 +368,45 @@ impl Session {
             pairs.push((sp, sig));
         }
         url.query_pairs_mut().clear().extend_pairs(pairs);
-        Ok(Stream { url: url.into(), size, duration_ms, loudness_db, opus: false })
+        Ok(Stream { url: url.into(), size, duration_ms, loudness_db, opus: is_opus(f) })
     }
+}
+
+/// The audio format to play, best first. Premium has 774 (Opus, ~256 kbps) and 141
+/// (AAC-LC, ~256 kbps); 251 and 140 are the ~128 kbps pair. Opus sounds better at the
+/// same bitrate, but 256 kbps of either beats 128 of the other. Without `opus` it's
+/// AAC only, which downloads save as a tagged .m4a.
+fn pick_format(formats: &[Value], opus: bool) -> Option<&Value> {
+    let itags: &[u64] = if opus { &[774, 141, 251, 140, 139] } else { &[141, 140, 139] };
+    itags.iter().find_map(|itag| formats.iter().find(|f| f["itag"] == *itag))
+}
+
+/// Opus in WebM, the format the Opus decoder reads.
+fn is_opus(format: &Value) -> bool {
+    format["mimeType"].as_str().is_some_and(|m| m.starts_with("audio/webm") && m.contains("opus"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn premium_plays_opus_first_and_downloads_stay_aac() {
+        let f = |itag: u64, mime: &str| json!({"itag": itag, "mimeType": mime});
+        let (aac, opus) = ("audio/mp4; codecs=\"mp4a.40.2\"", "audio/webm; codecs=\"opus\"");
+        let all = [f(140, aac), f(141, aac), f(249, opus), f(250, opus), f(251, opus), f(774, opus)];
+        let picked = |formats: &[Value], o: bool| pick_format(formats, o).map(|f| (f["itag"].as_u64().unwrap(), is_opus(f)));
+        assert_eq!(picked(&all, true), Some((774, true)));
+        assert_eq!(picked(&all, false), Some((141, false)));
+        // An account without 774 still gets 256 kbps, as AAC.
+        assert_eq!(picked(&all[..5], true), Some((141, false)));
+        // Without either 256 kbps stream: Opus 251 to play, AAC 140 to download.
+        let standard = [f(140, aac), f(251, opus)];
+        assert_eq!(picked(&standard, true), Some((251, true)));
+        assert_eq!(picked(&standard, false), Some((140, false)));
+        // Downloads never take Opus, even when it's all there is.
+        assert_eq!(picked(&[f(251, opus)], false), None);
+    }
 
     #[test]
     fn channels_of_one_sign_in_share_its_cookies() {

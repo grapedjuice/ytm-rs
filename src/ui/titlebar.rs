@@ -369,11 +369,16 @@ mod frame {
             // Maximized, a GPU window can fill its whole monitor, and Windows then presents
             // it straight to the screen: no blending, so a window material turns black. A
             // pixel short of that keeps it composited (Chromium does the same).
-            // Any window filling its monitor (maximized with the taskbar auto-hiding) is
-            // also taken for exclusive full screen by some drivers: AMD's OpenGL keeps
-            // some 80 MB more for it from then on, and the taskbar can't come up over it.
-            if IsZoomed(hwnd).as_bool() && (crate::backdrop::active() != crate::backdrop::Backdrop::None || fills_monitor(hwnd, &params.rgrc[0])) {
-                params.rgrc[0].bottom -= 1;
+            if IsZoomed(hwnd).as_bool() {
+                if crate::backdrop::active() != crate::backdrop::Backdrop::None {
+                    params.rgrc[0].bottom -= 1;
+                } else if fills_monitor(hwnd, &params.rgrc[0]) {
+                    // Exactly its monitor's size (maximized with the taskbar auto-hiding),
+                    // it's taken for exclusive full screen by some drivers: AMD's OpenGL
+                    // keeps some 80 MB more for it from then on. A pixel past the screen's
+                    // edge it isn't, and, unlike a pixel short, nothing shows.
+                    params.rgrc[0].bottom += 1;
+                }
             }
             result
         }

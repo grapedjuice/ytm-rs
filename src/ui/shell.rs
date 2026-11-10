@@ -622,7 +622,10 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         let on = if tb.band_on_scroll { (app.page_scrolled / 40.0).clamp(0.0, 1.0) } else { 1.0 };
         // The band takes the pointer from what's scrolled under it.
         if let Some(g) = glass {
-            ui.interact(Rect::from_min_size(band.min, vec2(band.width(), r.top() + search_h + 6.0 - screen.top())), ui.scope_id().with("band-back"), Sense::click());
+            let back = Rect::from_min_size(band.min, vec2(band.width(), r.top() + search_h + 6.0 - screen.top()));
+            ui.interact(back, ui.scope_id().with("band-back"), Sense::click());
+            // It runs up over the window's top, so it moves the window as the title bar would.
+            super::titlebar::drag_area(ui, back, "band-back");
             // Down to where the page starts, so nothing at rest sits in the blur.
             let frosted = band.with_max_y(r.top() + search_h.max(42.0) + 6.0);
             crate::shader::frost(ui.painter(), frosted, crate::shader::Frost { look: g, radius: 0.0, opacity: on, fade: 12.0 });
@@ -642,6 +645,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         let fill = if theme::light() { theme::with_alpha(Color32::WHITE, tb.capsule[0]) } else { theme::shade(tb.capsule[0]) };
         if let Some(g) = glass {
             ui.interact(pill, ui.scope_id().with("capsule-back"), Sense::click());
+            super::titlebar::drag_area(ui, pill, "capsule-back");
             crate::shader::frost(ui.painter(), pill, crate::shader::Frost { look: g, radius: tb.capsule[1].min(127.0), opacity: 1.0, fade: 0.0 });
         }
         ui.painter().rect_filled(pill, tb.capsule[1].min(127.0), fill);

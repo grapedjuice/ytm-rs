@@ -1709,6 +1709,36 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
             }
         }
         divider(ui);
+        if cfg!(target_os = "linux") {
+            use super::titlebar::Choice;
+            let dir = app.backend.data_dir().to_owned();
+            let saved = Choice::load(&dir);
+            setting_row(ui, "Title bar", Some("Who draws the window's title bar and buttons. Automatic uses ytm-rs's where the desktop draws none (GNOME on Wayland)."), |ui| {
+                let btn = dropdown_button(ui, saved.label(), 120.0, "Title bar");
+                egui::Popup::menu(&btn).show(|ui| {
+                    widgets::menu_body(ui, 120.0);
+                    for c in Choice::ALL {
+                        if option_row(ui, c.label(), c == saved).clicked() {
+                            if let Err(e) = c.save(&dir) {
+                                log::warn!("title bar: couldn't save the setting: {e}");
+                            }
+                            ui.close();
+                        }
+                    }
+                });
+            });
+            divider(ui);
+            if saved.own_here() != super::titlebar::custom() && std::env::var_os("YTM_NATIVE_TITLEBAR").is_none() {
+                let mut restart = false;
+                setting_row(ui, "Restart to apply", Some("The title bar changes from the next start."), |ui| {
+                    restart = pill(ui, "Restart now", None, true).clicked();
+                });
+                if restart {
+                    app.restart(ui.ctx());
+                }
+                divider(ui);
+            }
+        }
         setting_row(ui, "Collapse sidebar", Some("Show only icons in the sidebar, for narrow windows. The menu button at its top does the same."), |ui| {
             toggle(ui, &mut app.sidebar_collapsed, "Collapse sidebar");
         });

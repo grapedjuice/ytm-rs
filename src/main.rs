@@ -95,12 +95,14 @@ fn main() -> eframe::Result {
     // Dev hook: YTM_BACKGROUND opens the window off-screen, unfocused and off the
     // taskbar, so automated test runs don't pop up over whatever the user is doing.
     let background = std::env::var_os("YTM_BACKGROUND").is_some();
+    ui::init_titlebar(&data_dir());
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("YT Music")
         .with_app_id("ytm-rs")
         .with_inner_size(DEFAULT_SIZE)
         .with_min_inner_size(MIN_SIZE)
-        // Windows: the app draws its own title bar (see `ui::titlebar`).
+        // Windows, and Linux where the desktop draws none: the app draws its own title
+        // bar (see `ui::titlebar`).
         .with_decorations(!ui::custom_titlebar())
         .with_icon(appicon::get(appicon::load(&data_dir())).icon_data().expect("bundled icons are valid PNGs"));
     if background {

@@ -27,7 +27,7 @@ mod responses;
 mod row_drag;
 mod shell;
 mod titlebar;
-pub use titlebar::{custom as custom_titlebar, set_hwnd as set_titlebar_hwnd};
+pub use titlebar::{custom as custom_titlebar, init as init_titlebar, set_hwnd as set_titlebar_hwnd};
 mod transfer;
 mod widgets;
 

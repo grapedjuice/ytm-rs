@@ -1,7 +1,9 @@
-//! The app's own title bar on Windows: no system frame, the window buttons drawn at the
-//! top right, the empty top of the window to move it by (double-click maximizes), and
-//! its edges to resize it by. winit keeps the window styles snapping needs, so dragging
-//! to a screen edge and Win+arrows still work. Elsewhere the system's frame stays.
+//! The app's own title bar: no system frame, the window buttons drawn at the top right,
+//! the empty top of the window to move it by (double-click maximizes), and its edges to
+//! resize it by. On Windows always (winit keeps the window styles snapping needs, so
+//! dragging to a screen edge and Win+arrows still work). On Linux where the desktop
+//! draws no frame for a Wayland window (GNOME), or when Settings › Window asks for it.
+//! On macOS the system's frame stays.
 
 use egui::{Color32, CursorIcon, Id, Pos2, Rect, ResizeDirection, Sense, Stroke, Ui, ViewportCommand, pos2, vec2};
 
@@ -16,10 +18,84 @@ const BUTTON_W: f32 = 46.0;
 const EDGE: f32 = 5.0;
 const CORNER: f32 = 14.0;
 
-/// Whether the app draws the title bar itself: on Windows, unless `YTM_NATIVE_TITLEBAR`
-/// asks for the system's.
+/// Linux: who draws the title bar (Settings › Window), saved in `titlebar` in the data
+/// folder since the window is made with or without a frame before settings load.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum Choice {
+    /// The app's where the desktop draws none, the system's elsewhere.
+    #[default]
+    Auto,
+    Own,
+    System,
+}
+
+impl Choice {
+    pub const ALL: [Self; 3] = [Self::Auto, Self::Own, Self::System];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Automatic",
+            Self::Own => "ytm-rs's",
+            Self::System => "System's",
+        }
+    }
+
+    pub fn load(data_dir: &std::path::Path) -> Self {
+        match std::fs::read_to_string(data_dir.join("titlebar")).unwrap_or_default().trim() {
+            "own" => Self::Own,
+            "system" => Self::System,
+            _ => Self::Auto,
+        }
+    }
+
+    pub fn save(self, data_dir: &std::path::Path) -> std::io::Result<()> {
+        let key = match self {
+            Self::Auto => "auto",
+            Self::Own => "own",
+            Self::System => "system",
+        };
+        std::fs::write(data_dir.join("titlebar"), key)
+    }
+
+    /// Whether the app draws the title bar on Linux with this choice. `wayland`: the
+    /// window is a Wayland one; `desktop`: `XDG_CURRENT_DESKTOP`.
+    pub fn own(self, wayland: bool, desktop: &str) -> bool {
+        match self {
+            Self::Own => true,
+            Self::System => false,
+            // GNOME draws no frame around Wayland windows (it has no xdg-decoration),
+            // and what winit draws in its place is a bare strip. X11 windows get one.
+            Self::Auto => wayland && desktop.split(':').any(|d| d.trim().eq_ignore_ascii_case("gnome")),
+        }
+    }
+
+    /// As [`Self::own`], for this session.
+    pub fn own_here(self) -> bool {
+        self.own(crate::wayland_window(), &std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default())
+    }
+}
+
+static CUSTOM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// Settle who draws this run's title bar, before the window is made.
+pub fn init(data_dir: &std::path::Path) {
+    let _ = CUSTOM.set(decide(data_dir));
+}
+
+fn decide(data_dir: &std::path::Path) -> bool {
+    if std::env::var_os("YTM_NATIVE_TITLEBAR").is_some() {
+        return false;
+    }
+    if cfg!(target_os = "linux") {
+        return Choice::load(data_dir).own_here();
+    }
+    cfg!(windows)
+}
+
+/// Whether the app draws the title bar itself: on Windows, and on Linux as [`init`]
+/// settled it, unless `YTM_NATIVE_TITLEBAR` asks for the system's.
 pub fn custom() -> bool {
-    cfg!(windows) && std::env::var_os("YTM_NATIVE_TITLEBAR").is_none()
+    *CUSTOM.get_or_init(|| cfg!(windows) && std::env::var_os("YTM_NATIVE_TITLEBAR").is_none())
 }
 
 /// Full screen has no title bar. The app's own full screen (`crate::fullscreen`) goes
@@ -297,5 +373,22 @@ mod frame {
             }
             result
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Choice;
+
+    #[test]
+    fn linux_draws_its_own_title_bar_only_where_the_desktop_draws_none() {
+        assert!(Choice::Auto.own(true, "GNOME"));
+        assert!(Choice::Auto.own(true, "ubuntu:GNOME"));
+        // XWayland windows get the desktop's frame.
+        assert!(!Choice::Auto.own(false, "GNOME"));
+        assert!(!Choice::Auto.own(true, "KDE"));
+        assert!(!Choice::Auto.own(true, ""));
+        assert!(Choice::Own.own(false, "KDE"));
+        assert!(!Choice::System.own(true, "GNOME"));
     }
 }

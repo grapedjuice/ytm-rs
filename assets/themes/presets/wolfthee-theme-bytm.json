@@ -50,7 +50,7 @@
     "shadow_blur": 16,
     "shadow_offset": 5
   },
-  "now_playing": { "tabs": "strip", "tab_content": "icons", "tab_width_frac": 0.5, "cover_controls": true, "cover_buttons": [42, 0.5, 1.2], "cover_play_bare": true, "fullscreen_panel_frac": 0.55, "cover_play_hover": 1.2 },
+  "now_playing": { "cover_controls": true, "cover_buttons": [42, 0.5, 1.2], "cover_play_bare": true, "fullscreen_panel_frac": 0.55, "cover_play_hover": 1.2 },
   "chrome": {
     "radius": 6,
     "player_bar": "floating",

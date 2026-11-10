@@ -135,16 +135,9 @@
     "size_steps": [[0, 200], [769, 300], [1025, 350], [1171, 400], [1280, 450], [1401, 500], [1591, 550], [1701, 600]]
   },
   "now_playing": {
-    "tabs": "pill",
     "title_align": "left",
     "title_px": 20,
     "artist_px": 20,
-    "tab_content": "icons",
-    "tab_px": 30,
-    "tab_back": [
-      0.15,
-      8
-    ],
     "switch": {
       "back": 0.15,
       "selected": 0.15,

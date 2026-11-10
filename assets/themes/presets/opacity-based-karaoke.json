@@ -187,10 +187,6 @@
     "immersive_header": 0.6
   },
   "now_playing": {
-    "tabs": "strip",
-    "tab_pill": 0.1,
-    "tab_ring": 0.1,
-    "tab_idle_alpha": 0.7,
     "switch": {
       "back": 0.1,
       "selected": 0.15,

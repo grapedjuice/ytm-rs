@@ -69,13 +69,6 @@
     }
   },
   "now_playing": {
-    "tabs": "strip",
-    "tab_back": [
-      0.15,
-      8
-    ],
-    "tab_px": 40,
-    "tab_pill": 0.15,
     "switch": {
       "back": 0.1,
       "radius": 16,

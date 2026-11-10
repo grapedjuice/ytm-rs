@@ -27,6 +27,10 @@ fn flatten_paths(d: &str, close_ends: bool) -> Vec<Vec<[f32; 2]>> {
         let (ox, oy) = if rel { (x, y) } else { (0.0, 0.0) };
         match cmd.to_ascii_uppercase() {
             b'Z' => {
+                // Z takes no numbers: one after it belongs to nothing, and would be read here for ever.
+                if next.is_none() {
+                    break;
+                }
                 if !cur.is_empty() {
                     if close_ends {
                         cur.push([start_x, start_y]);

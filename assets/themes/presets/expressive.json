@@ -20,7 +20,6 @@
   "now_playing": {
     "title_weight": "medium",
     "artist_weight": "medium",
-    "tab_label_weight": "semibold",
     "fullscreen_title_weight": "semibold"
   },
   "chrome": {

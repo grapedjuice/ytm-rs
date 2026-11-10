@@ -152,7 +152,6 @@
     "open_fade": true
   },
   "now_playing": {
-    "tabs": "strip",
     "panel_frac": [
       0.5,
       0.45

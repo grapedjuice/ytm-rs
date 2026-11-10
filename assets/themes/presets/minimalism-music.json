@@ -105,12 +105,6 @@
     "open_fade": true
   },
   "now_playing": {
-    "tabs": "strip",
-    "tab_content": "icons",
-    "tab_px": 56,
-    "tab_icon_px": 29,
-    "tab_idle_alpha": 0.6,
-    "tab_line_px": 0,
     "switch": {
       "back": 0,
       "selected": 0.1,

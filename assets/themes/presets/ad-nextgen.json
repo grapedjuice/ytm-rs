@@ -100,15 +100,8 @@
   },
   "now_playing": {
     "panel_frac": [0.42, 0.5],
-    "tabs": "strip",
     "title_align": "left",
     "title_px": 25,
-    "tab_content": "both",
-    "tab_px": 44,
-    "tab_idle_alpha": 0.4,
-    "tab_label_px": 14,
-    "tab_edge": 0.06,
-    "tab_width_frac": 1.0,
     "artist_alpha": 0.82,
     "fullscreen_title_card": {
       "fill": 0.04,

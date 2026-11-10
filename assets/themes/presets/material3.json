@@ -47,9 +47,6 @@
     "ring_wave": true
   },
   "now_playing": {
-    "tabs": "strip",
-    "tab_selected_color": "#ffb4a9",
-    "tab_label_selected": "#f1dedc"
   },
   "chrome": {
     "play_button": "bare"

@@ -153,14 +153,10 @@
     "queue_card": true
   },
   "now_playing": {
-    "tabs": "strip",
-    "tab_idle_alpha": 0.7,
-    "tab_pill": 0.1,
     "switch": {
       "back": 0.1,
       "selected": 0.15,
       "stroke": 0.1
-    },
-    "tab_ring": 0.1
+    }
   }
 }

@@ -943,23 +943,10 @@ impl Default for CoverStyle {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Default, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TabStyle {
-    /// Lyrics and Up next chips that slide out by the ⋯ button.
-    #[default]
-    Hover,
-    /// An underlined strip above the lyrics, always there.
-    Strip,
-    /// A pill of icons in the bottom corner.
-    Pill,
-}
-
 /// The song's title block and what surrounds the cover in now playing.
 #[derive(Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct NowPlayingStyle {
-    pub tabs: TabStyle,
     pub title_align: Align,
     pub title_px: f32,
     pub artist_px: f32,
@@ -975,13 +962,6 @@ pub struct NowPlayingStyle {
     pub show_video_switch: bool,
     /// Corner radius of the video (the cover's when unset).
     pub video_radius: Option<f32>,
-    /// What the tabs show.
-    pub tab_content: TabContent,
-    /// Unselected tabs' opacity, and the tabs' row height. Kept usable: at least 0.35.
-    pub tab_idle_alpha: f32,
-    pub tab_px: f32,
-    /// A fill behind the tabs: `[white alpha, radius]`.
-    pub tab_back: Option<[f32; 2]>,
     /// Song and Video switch.
     pub switch: SwitchLook,
     /// Title and artist: opacity and weight.
@@ -1005,15 +985,6 @@ pub struct NowPlayingStyle {
     pub no_lyrics_text: String,
     /// How it looks saying it.
     pub no_lyrics: NoLyrics,
-    /// Tabs' labels, px and their strip's lower edge in white alpha.
-    pub tab_label_px: f32,
-    pub tab_edge: f32,
-    /// The selected tab: its colour, a glow around it, and a pill sliding under it.
-    pub tab_selected_color: String,
-    pub tab_glow: f32,
-    pub tab_pill: Option<f32>,
-    /// The strip's width as a fraction of the panel, in place of its own.
-    pub tab_width_frac: Option<f32>,
     /// Lyrics beside a video: the video's share of the view `[windowed, full screen]`.
     pub video_panel_frac: Option<[f32; 2]>,
     /// The sung line under a video, in a small pill.
@@ -1027,11 +998,6 @@ pub struct NowPlayingStyle {
     /// In full screen, previous and next on the cover when the pointer's over it, as
     /// `[px, black alpha, hover scale]`, whether `cover_controls` is on or not.
     pub fullscreen_cover_buttons: Option<[f32; 3]>,
-    /// The size of the icons on the tabs.
-    pub tab_icon_px: f32,
-    /// The tabs' capsule catching the light: white alpha of its top edge, of a ring all
-    /// round, and of its bottom edge.
-    pub tab_bevel: Option<[f32; 3]>,
     /// The lyrics' panel in full screen, of the view, and its side padding.
     pub fullscreen_panel_frac: Option<f32>,
     /// Padding around everything in full screen, px, in place of the usual.
@@ -1047,16 +1013,6 @@ pub struct NowPlayingStyle {
     pub fullscreen_progress_px: f32,
     /// The ends of a title too long for its width fade, px.
     pub title_edge_fade: f32,
-    /// The selected tab's line, px; the labels' weight; the selected label's colour when it differs from the line's.
-    pub tab_line_px: f32,
-    pub tab_label_weight: Weight,
-    pub tab_label_selected: String,
-    /// `tab_back` in black rather than white.
-    pub tab_back_black: bool,
-    /// White alpha of a line around the selected tab.
-    pub tab_ring: f32,
-    /// The tabs under the cover, in place of the header.
-    pub tab_under_cover: bool,
     /// The corner card at the top, this far from the corner, with these weights: `[title, artist]`.
     pub info_card_top: bool,
     pub info_card_margin: f32,
@@ -1104,15 +1060,6 @@ impl Default for NoLyrics {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Default, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TabContent {
-    #[default]
-    Labels,
-    Icons,
-    Both,
-}
-
 #[derive(Clone, Copy, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SwitchLook {
@@ -1155,7 +1102,7 @@ pub struct TitleCard {
 
 impl Default for NowPlayingStyle {
     fn default() -> Self {
-        Self { tabs: TabStyle::Hover, title_align: Align::Center, title_px: 24.0, artist_px: 16.0, title_lyric_font: false, show_title: true, info_card: false, info_card_text_only: false, show_video_switch: true, video_radius: None, tab_content: TabContent::Labels, tab_idle_alpha: 1.0, tab_px: 34.0, tab_back: None, switch: SwitchLook::default(), title_alpha: 1.0, artist_alpha: 1.0, title_weight: Weight::Bold, artist_weight: Weight::Regular, title_card: None, info_card_look: [0.45, 14.0], panel_frac: None, cover_controls: false, video_lyrics: false, video_max_frac: None, no_lyrics_text: String::new(), no_lyrics: NoLyrics::default(), tab_label_px: 12.5, tab_edge: 0.0, tab_selected_color: String::new(), tab_glow: 0.0, tab_pill: None, tab_width_frac: None, video_panel_frac: None, video_pill: false, title_max_px: None, title_shadow: None, cover_buttons: [44.0, 0.5, 1.0], fullscreen_cover_buttons: None, tab_icon_px: 18.0, tab_bevel: None, fullscreen_panel_frac: None, fullscreen_padding: None, header_autohide: false, cover_play_px: 76.0, cover_play_bare: false, cover_progress: false, fullscreen_progress_px: 0.0, title_edge_fade: 0.0, tab_line_px: 1.5, tab_label_weight: Weight::Semibold, tab_label_selected: String::new(), tab_back_black: false, tab_ring: 0.0, tab_under_cover: false, info_card_top: false, info_card_margin: 0.0, info_card_weights: None, fullscreen_title_weight: None, fullscreen_panel_inset: None, fullscreen_progress_radius: 0.0, cover_play_hover: 1.0, info_card_fullscreen_only: false, fullscreen_show_title: None, fullscreen_text_px: None, fullscreen_title_card: None }
+        Self { title_align: Align::Center, title_px: 24.0, artist_px: 16.0, title_lyric_font: false, show_title: true, info_card: false, info_card_text_only: false, show_video_switch: true, video_radius: None, switch: SwitchLook::default(), title_alpha: 1.0, artist_alpha: 1.0, title_weight: Weight::Bold, artist_weight: Weight::Regular, title_card: None, info_card_look: [0.45, 14.0], panel_frac: None, cover_controls: false, video_lyrics: false, video_max_frac: None, no_lyrics_text: String::new(), no_lyrics: NoLyrics::default(), video_panel_frac: None, video_pill: false, title_max_px: None, title_shadow: None, cover_buttons: [44.0, 0.5, 1.0], fullscreen_cover_buttons: None, fullscreen_panel_frac: None, fullscreen_padding: None, header_autohide: false, cover_play_px: 76.0, cover_play_bare: false, cover_progress: false, fullscreen_progress_px: 0.0, title_edge_fade: 0.0, info_card_top: false, info_card_margin: 0.0, info_card_weights: None, fullscreen_title_weight: None, fullscreen_panel_inset: None, fullscreen_progress_radius: 0.0, cover_play_hover: 1.0, info_card_fullscreen_only: false, fullscreen_show_title: None, fullscreen_text_px: None, fullscreen_title_card: None }
     }
 }
 
@@ -1634,8 +1581,6 @@ pub struct GlassLook {
     /// Over the cover and the background in now playing.
     pub title_card: Option<[f32; 3]>,
     pub tabs: Option<[f32; 3]>,
-    /// `brightness()` in the tabs' backdrop filter.
-    pub tabs_bright: Option<f32>,
     pub switch: Option<[f32; 3]>,
     pub resume: Option<[f32; 3]>,
     pub instrumental: Option<[f32; 3]>,

@@ -72,7 +72,7 @@
     ],
     "upcoming_line_synced": [
       [
-        0.15,
+        0.35,
         0
       ]
     ],
@@ -191,19 +191,14 @@
     "immersive_header": 0.6
   },
   "now_playing": {
-    "tabs": "strip",
-    "tab_back": [0, 34],
-    "tab_pill": 0.1,
     "no_lyrics_text": "No lyrics found",
     "no_lyrics": {
       "icon": true
     },
-    "tab_idle_alpha": 0.7,
     "switch": {
       "back": 0.1,
       "selected": 0.15,
       "stroke": 0.1
-    },
-    "tab_ring": 0.12
+    }
   }
 }

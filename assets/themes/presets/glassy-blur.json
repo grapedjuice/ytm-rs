@@ -149,11 +149,6 @@
     "shadow_offset": 20
   },
   "now_playing": {
-    "tabs": "strip",
-    "tab_content": "icons",
-    "tab_px": 50,
-    "tab_idle_alpha": 0.35,
-    "tab_pill": 0.15,
     "video_lyrics": true,
     "panel_frac": [0.5, 0.45],
     "video_panel_frac": [0.63, 0.64],
@@ -161,8 +156,7 @@
     "title_max_px": 500,
     "switch": { "back": 0.1, "radius": 16 },
     "no_lyrics_text": "No lyrics found",
-    "no_lyrics": { "rem": 2.0, "icon": true, "center_after": 1.4, "stays": true },
-    "tab_icon_px": 32
+    "no_lyrics": { "rem": 2.0, "icon": true, "center_after": 1.4, "stays": true }
   },
   "chrome": {
     "bar_color": "#141414",

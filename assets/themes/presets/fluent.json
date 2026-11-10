@@ -30,10 +30,7 @@
   "now_playing": {
     "title_px": 28,
     "artist_px": 14,
-    "title_weight": "semibold",
-    "tabs": "strip",
-    "tab_selected_color": "accent",
-    "tab_line_px": 3
+    "title_weight": "semibold"
   },
   "chrome": {
     "radius": 4,

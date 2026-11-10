@@ -161,16 +161,8 @@
     "open_fade": true
   },
   "now_playing": {
-    "tabs": "pill",
     "title_px": 20,
     "artist_px": 20,
-    "tab_content": "icons",
-    "tab_px": 30,
-    "tab_back": [
-      0.15,
-      8
-    ],
-    "tab_pill": 0.15,
     "video_panel_frac": [
       0.63,
       0.64

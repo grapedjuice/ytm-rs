@@ -29,17 +29,9 @@
   },
   "cover": { "radius": 20, "disc_slide_secs": 0.7 },
   "now_playing": {
-    "tabs": "strip",
-    "tab_content": "icons",
-    "tab_px": 36,
-    "tab_back": [0.08, 10],
-    "tab_idle_alpha": 0.7,
-    "tab_pill": 0.18,
     "title_align": "left",
     "video_lyrics": true,
-    "video_panel_frac": [0.5, 0.6],
-    "tab_under_cover": true,
-    "tab_ring": 0.2
+    "video_panel_frac": [0.5, 0.6]
   },
   "chrome": {
     "player_bar": "floating",

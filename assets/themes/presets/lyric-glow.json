@@ -110,15 +110,9 @@
     "size_steps": [[0, 352], [900, 10000]]
   },
   "now_playing": {
-    "tabs": "strip",
     "panel_frac": [0.45, 0.41],
     "video_lyrics": true,
     "video_panel_frac": [0.57, 0.58],
-    "tab_idle_alpha": 0.54,
-    "tab_px": 42,
-    "tab_label_px": 12,
-    "tab_selected_color": "#67d9ff",
-    "tab_glow": 0.16,
     "no_lyrics_text": "Lyrics unavailable",
     "no_lyrics": { "rem": 2.15, "icon": true, "stays": true }
   },

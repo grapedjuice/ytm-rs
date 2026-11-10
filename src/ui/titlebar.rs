@@ -330,7 +330,7 @@ pub fn set_hwnd(hwnd: *mut std::ffi::c_void) {
 mod frame {
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
     use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
-    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect};
     use windows::Win32::UI::Controls::MARGINS;
     use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
     use windows::Win32::UI::WindowsAndMessaging::{IsZoomed, NCCALCSIZE_PARAMS, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, WM_NCCALCSIZE};
@@ -372,7 +372,7 @@ mod frame {
             if IsZoomed(hwnd).as_bool() {
                 if crate::backdrop::active() != crate::backdrop::Backdrop::None {
                     params.rgrc[0].bottom -= 1;
-                } else if fills_monitor(hwnd, &params.rgrc[0]) {
+                } else if fills_monitor(&params.rgrc[0]) {
                     // Exactly its monitor's size (maximized with the taskbar auto-hiding),
                     // it's taken for exclusive full screen by some drivers: AMD's OpenGL
                     // keeps some 80 MB more for it from then on. A pixel past the screen's
@@ -384,11 +384,12 @@ mod frame {
         }
     }
 
-    /// Whether `r` covers all of the monitor the window is on.
-    fn fills_monitor(hwnd: HWND, r: &RECT) -> bool {
+    /// Whether `r` covers all of the monitor it's on: the one it's going to, while the
+    /// window moves to another.
+    fn fills_monitor(r: &RECT) -> bool {
         let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
-        // SAFETY: the app's own window; `info` is ours and sized.
-        if !unsafe { GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut info) }.as_bool() {
+        // SAFETY: `r` and `info` are ours, and `info` is sized.
+        if !unsafe { GetMonitorInfoW(MonitorFromRect(r, MONITOR_DEFAULTTONEAREST), &mut info) }.as_bool() {
             return false;
         }
         let m = info.rcMonitor;

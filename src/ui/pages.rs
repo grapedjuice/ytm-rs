@@ -1464,6 +1464,7 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             output_device_picker(app, ui);
         });
     });
+    settings_equalizer(app, ui);
     settings_section(ui, "Music videos", None, None, |ui| {
         setting_row(ui, "Play songs, not music videos", Some("An official music video plays as its song, the album recording, when YouTube Music has one: no intros, skits or video-only edits. Lists still show what they hold."), |ui| {
             toggle(ui, &mut app.play_songs, "Play songs, not music videos");
@@ -2445,6 +2446,129 @@ fn output_device_picker(app: &mut App, ui: &mut Ui) {
         app.audio.send(crate::audio::AudioCmd::SetDevice(pick.as_ref().map(|(id, _)| id.clone())));
         app.output_device = pick;
     }
+}
+
+/// Settings › Playback › Equalizer.
+fn settings_equalizer(app: &mut App, ui: &mut Ui) {
+    use crate::audio::eq;
+    settings_section(ui, "Equalizer", None, None, |ui| {
+        setting_row(ui, "Equalizer", Some("Shape the sound from deep bass to treble. Only what you hear changes: not downloads, or what others in a jam hear."), |ui| {
+            if toggle(ui, &mut app.eq_on, "Equalizer").changed() {
+                app.set_eq();
+            }
+        });
+        ui.add_enabled_ui(app.eq_on, |ui| {
+            divider(ui);
+            setting_row(ui, "Preset", None, |ui| {
+                let btn = dropdown_button(ui, eq::preset_name(&app.eq_gains).unwrap_or("Custom"), 180.0, "Equalizer preset");
+                let mut pick = None;
+                widgets::menu_popup(&btn).show(|ui| {
+                    widgets::menu_body(ui, 200.0);
+                    dropdown_list(ui, 380.0, |ui| {
+                        for (name, gains) in &eq::PRESETS {
+                            if option_row(ui, name, app.eq_gains == *gains).clicked() {
+                                pick = Some(*gains);
+                                ui.close();
+                            }
+                        }
+                    });
+                });
+                if let Some(g) = pick {
+                    app.eq_gains = g;
+                    app.set_eq();
+                }
+            });
+            if filter_show(ui, "Equalizer bands bass mids treble frequency") {
+                divider(ui);
+                if eq_bands(ui, &mut app.eq_gains) {
+                    app.set_eq();
+                }
+            }
+            divider(ui);
+            setting_row(ui, "Prevent clipping", Some("Turn everything down by as much as the bands boost, so loud songs are less likely to crackle."), |ui| {
+                if toggle(ui, &mut app.eq_no_clip, "Prevent clipping").changed() {
+                    app.set_eq();
+                }
+            });
+        });
+    });
+}
+
+/// The equalizer's bands as vertical sliders, over the curve they make together.
+/// Drag or click to set one, or double-click for 0 dB.
+/// True if one changed.
+fn eq_bands(ui: &mut Ui, gains: &mut crate::audio::eq::Gains) -> bool {
+    use crate::audio::eq::{BANDS, MAX_DB, response};
+    const LABELS: [&str; 10] = ["31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
+    const NAMES: [&str; 10] = ["31 Hz", "62 Hz", "125 Hz", "250 Hz", "500 Hz", "1 kHz", "2 kHz", "4 kHz", "8 kHz", "16 kHz"];
+    const GUTTER: f32 = 34.0;
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 210.0), Sense::hover());
+    let fade = if ui.is_enabled() { 1.0 } else { 0.45 };
+    let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
+    let p = ui.painter();
+    let top = rect.top() + 26.0;
+    let bottom = rect.bottom() - 30.0;
+    let mid = (top + bottom) / 2.0;
+    let y_of = |db: f32| mid - db / MAX_DB * (bottom - top) / 2.0;
+    let col_w = (rect.width() - GUTTER) / BANDS.len() as f32;
+    let x_of = |i: f32| rect.left() + GUTTER + col_w * (i + 0.5);
+    for (db, text) in [(MAX_DB, "+12"), (0.0, "0"), (-MAX_DB, "−12")] {
+        p.text(pos2(rect.left(), y_of(db)), Align2::LEFT_CENTER, text, theme::regular(11.5), theme::with_alpha(theme::text_dim(), fade));
+    }
+    p.line_segment([pos2(x_of(-0.5), mid), pos2(x_of(9.5), mid)], egui::Stroke::new(1.0, theme::glass(0.10 * fade)));
+    // Bands are an octave apart, so evenly spaced columns sit on a log frequency axis.
+    // The curve can go a little past ±12 between bands; it runs off the top rather than
+    // flattening there and hiding it. It's drawn from the first band to the last: past
+    // them it only shows the filters' tails, which the sliders don't set.
+    let db_at = response(gains);
+    let curve: Vec<egui::Pos2> = (0..=180)
+        .map(|k| {
+            let i = 9.0 * k as f32 / 180.0;
+            pos2(x_of(i), y_of(db_at(BANDS[0] * 2f32.powf(i))))
+        })
+        .collect();
+    ui.painter_at(rect).add(egui::Shape::line(curve, egui::Stroke::new(2.0, theme::with_alpha(accent, 0.55 * fade))));
+    let mut changed = false;
+    for (i, g) in gains.iter_mut().enumerate() {
+        let x = x_of(i as f32);
+        // Just the track and a knob's reach past its ends, so clicking a label doesn't
+        // send the band to the bottom.
+        let col = Rect::from_min_max(pos2(x - col_w / 2.0, top - 8.0), pos2(x + col_w / 2.0, bottom + 8.0));
+        let mut resp = ui.interact(col, ui.scope_id().with(("eq-band", i)), Sense::click_and_drag());
+        let name = NAMES[i];
+        let old = *g;
+        if resp.double_clicked() {
+            *g = 0.0;
+        } else if let Some(pos) = resp.interact_pointer_pos()
+            && (resp.dragged() || resp.clicked())
+        {
+            *g = (((mid - pos.y) / ((bottom - top) / 2.0) * MAX_DB * 2.0).round() / 2.0).clamp(-MAX_DB, MAX_DB);
+        }
+        if *g != old {
+            changed = true;
+            resp.mark_changed();
+        }
+        let value = *g;
+        resp.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), value as f64, name));
+        let resp = resp.on_hover_cursor(egui::CursorIcon::ResizeVertical);
+        let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered() || resp.dragged() || resp.has_focus(), 0.12);
+        let track = Rect::from_center_size(pos2(x, mid), vec2(4.0, bottom - top));
+        p.rect_filled(track, 2.0, theme::glass(0.15 * fade));
+        let knob = pos2(x, y_of(value));
+        p.rect_filled(Rect::from_two_pos(pos2(x - 2.0, mid), pos2(x + 2.0, knob.y)), 2.0, theme::with_alpha(accent, fade));
+        p.circle_filled(knob + vec2(0.0, 1.0), 7.0 + h, theme::shade(0.25 * fade));
+        p.circle_filled(knob, 7.0 + h, theme::with_alpha(Color32::WHITE, fade));
+        if h > 0.0 {
+            let text = match value {
+                0.0 => "0 dB".to_owned(),
+                v if v > 0.0 => format!("+{v} dB"),
+                v => format!("−{} dB", -v),
+            };
+            p.text(pos2(x, rect.top() + 9.0), Align2::CENTER_CENTER, text, theme::semibold(12.0), theme::with_alpha(theme::text(), h * fade));
+        }
+        p.text(pos2(x, rect.bottom() - 12.0), Align2::CENTER_CENTER, LABELS[i], theme::regular(12.0), theme::with_alpha(theme::text_dim(), fade));
+    }
+    changed
 }
 
 /// A dropdown's closed state: the chosen value and a chevron on a glass pill.

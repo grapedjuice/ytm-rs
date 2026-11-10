@@ -349,6 +349,10 @@ impl App {
         }
     }
 
+    pub(crate) fn set_eq(&self) {
+        self.audio.set_eq(self.eq_on, &self.eq_gains, self.eq_no_clip);
+    }
+
     pub(crate) fn set_crossfade(&self) {
         self.audio.set_crossfade(if self.crossfade { self.crossfade_secs } else { 0 });
     }

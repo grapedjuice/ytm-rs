@@ -1363,11 +1363,14 @@ impl eframe::App for App {
                     let glass = crate::shader::glass_ready() && !light;
                     let under_top = glass && app_style.glass.top_bar.is_some();
                     let under_bar = glass && app_style.glass.bar.is_some() && floating_slot.is_some();
+                    // The page is one place in either arrangement, so where it's scrolled to (and
+                    // the rest of what it remembers) stays when a theme switches between them.
+                    let page_id = egui::Id::unique("main-page");
                     if !under_top && !under_bar {
                         self.page_insets = [0.0, 0.0];
                         shell::top_bar(self, ui);
                         ui.add_space(6.0);
-                        pages::page(self, ui, now);
+                        ui.scope_builder(egui::UiBuilder::new().scope_id(page_id), |ui| pages::page(self, ui, now));
                         return;
                     }
                     // The page first, running under the glass, then what's over it.
@@ -1377,7 +1380,7 @@ impl eframe::App for App {
                     let bottom = if under_bar { screen.bottom() } else { panel.bottom() };
                     let page_rect = egui::Rect::from_min_max(egui::pos2(panel.left(), top), egui::pos2(panel.right(), bottom));
                     self.page_insets = [if under_top { panel.top() + row_h - screen.top() } else { 0.0 }, if under_bar { self.bar_height() } else { 0.0 }];
-                    let mut page_ui = ui.new_child(egui::UiBuilder::new().max_rect(page_rect));
+                    let mut page_ui = ui.new_child(egui::UiBuilder::new().scope_id(page_id).max_rect(page_rect));
                     page_ui.set_clip_rect(page_rect);
                     pages::page(self, &mut page_ui, now);
                     if under_top {

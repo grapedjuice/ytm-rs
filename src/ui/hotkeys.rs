@@ -41,9 +41,10 @@ impl State {
 /// Runs every frame, the hidden ones included.
 pub(super) fn poll(app: &mut App, ctx: &egui::Context, frame: &eframe::Frame) {
     // Waits for the first frame: it takes the window to know if this is Wayland, where
-    // the X11 grab would "succeed" and only ever fire over other X11 windows.
+    // the X11 grab would "succeed" and only ever fire over other X11 windows. That goes
+    // for an X11 window of ours in a Wayland session too (Close to tray opens one).
     if !std::mem::replace(&mut app.hotkeys.started, true) {
-        app.hotkeys.wayland = integrations::is_wayland(frame);
+        app.hotkeys.wayland = integrations::is_wayland(frame) || crate::wayland_session();
         if !app.hotkeys.wayland {
             let wake = ctx.clone();
             match GlobalHotkeys::new(move || wake.request_repaint()) {

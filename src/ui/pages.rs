@@ -1696,6 +1696,18 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
         setting_row(ui, "Close to tray", Some(how), |ui| {
             toggle(ui, &mut app.close_to_tray, "Close to tray");
         });
+        // A Wayland window can only be minimized, and can't bring itself back: from the
+        // next start the app opens an X11 window instead while this is on.
+        if app.close_to_tray && crate::wayland_window() {
+            divider(ui);
+            let mut restart = false;
+            setting_row(ui, "Restart to apply", Some("On Wayland the window can only hide in the tray and come back after a restart. Until then × minimizes it."), |ui| {
+                restart = pill(ui, "Restart now", None, true).clicked();
+            });
+            if restart {
+                app.restart(ui.ctx());
+            }
+        }
         divider(ui);
         setting_row(ui, "Collapse sidebar", Some("Show only icons in the sidebar, for narrow windows. The menu button at its top does the same."), |ui| {
             toggle(ui, &mut app.sidebar_collapsed, "Collapse sidebar");

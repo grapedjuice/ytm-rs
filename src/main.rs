@@ -87,6 +87,7 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     init_logging();
+    settle_window_system();
     update::clean_portable();
     stream::init_dev_hooks();
     proxy::init(&data_dir());
@@ -275,6 +276,59 @@ fn init_logging() {
 
 /// Settings, caches and the sign-in: `data` beside the portable build's exe, else the
 /// user's app data. Dev hook: YTM_DATA_DIR runs on a separate profile.
+/// Whether the desktop session is Wayland, and whether this run's window is a Wayland
+/// one. Not the same thing: with Close to tray on, the window is an X11 one there.
+static WAYLAND: OnceLock<(bool, bool)> = OnceLock::new();
+
+/// The desktop session is Wayland, whatever kind of window the app has: apps can't
+/// watch for keys in the background there.
+pub fn wayland_session() -> bool {
+    WAYLAND.get().is_some_and(|w| w.0)
+}
+
+/// This run's window is a Wayland one (known before the window exists).
+pub fn wayland_window() -> bool {
+    WAYLAND.get().is_some_and(|w| w.1)
+}
+
+/// Whether to open an X11 window in a Wayland session: with Close to tray on. A Wayland
+/// window can't hide itself or come back when asked, so there the tray's "Show" could
+/// only ask for attention; an X11 window (through XWayland) does both.
+fn x11_for_tray(wayland: bool, x11: bool, close_to_tray: bool, keep_wayland: bool) -> bool {
+    wayland && x11 && close_to_tray && !keep_wayland
+}
+
+/// "Close to tray" as last saved: read from the settings file itself, since this is
+/// decided before the window, and so the settings, exist.
+fn close_to_tray_saved(app_ron: &str) -> bool {
+    app_ron.split_whitespace().collect::<String>().contains("\"close_to_tray\":\"1\"")
+}
+
+/// Linux: note what the session is, and pick the window system for this run. Called
+/// first thing, before any thread starts. Dev hook: `YTM_WAYLAND` keeps the Wayland window.
+fn settle_window_system() {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+    let set = |k: &str| std::env::var_os(k).is_some_and(|v| !v.is_empty());
+    let wayland = set("WAYLAND_DISPLAY") || std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v == "wayland");
+    let tray = close_to_tray_saved(&std::fs::read_to_string(data_dir().join("app.ron")).unwrap_or_default());
+    let x11 = x11_for_tray(wayland, set("DISPLAY"), tray, set("YTM_WAYLAND"));
+    if x11 {
+        log::info!("window: X11 (XWayland), so Close to tray can hide the window and bring it back");
+        // SAFETY: nothing else is running yet (no thread has been started), so nothing
+        // reads the environment while it changes. winit goes by XDG_SESSION_TYPE first;
+        // GTK (the tray, the sign-in window) by GDK_BACKEND.
+        unsafe {
+            std::env::remove_var("WAYLAND_DISPLAY");
+            std::env::remove_var("WAYLAND_SOCKET");
+            std::env::set_var("XDG_SESSION_TYPE", "x11");
+            std::env::set_var("GDK_BACKEND", "x11");
+        }
+    }
+    let _ = WAYLAND.set((wayland, wayland && !x11));
+}
+
 fn data_dir() -> std::path::PathBuf {
     if let Some(d) = std::env::var_os("YTM_DATA_DIR") {
         return d.into();
@@ -283,4 +337,26 @@ fn data_dir() -> std::path::PathBuf {
         return dir.join("data");
     }
     directories::ProjectDirs::from("", "", "ytm-rs").expect("no home directory").data_dir().to_path_buf()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{close_to_tray_saved, x11_for_tray};
+
+    #[test]
+    fn close_to_tray_opens_an_x11_window_on_wayland() {
+        assert!(x11_for_tray(true, true, true, false));
+        // Not without the setting, without XWayland, off Wayland, or when asked not to.
+        assert!(!x11_for_tray(true, true, false, false));
+        assert!(!x11_for_tray(true, false, true, false));
+        assert!(!x11_for_tray(false, true, true, false));
+        assert!(!x11_for_tray(true, true, true, true));
+    }
+
+    #[test]
+    fn the_saved_setting_is_read_from_the_settings_file() {
+        assert!(close_to_tray_saved("{\n    \"play_songs\": \"1\",\n    \"close_to_tray\": \"1\",\n}"));
+        assert!(!close_to_tray_saved("{\n    \"close_to_tray\": \"0\",\n}"));
+        assert!(!close_to_tray_saved(""));
+    }
 }

@@ -2,7 +2,7 @@
   <img src="assets/icon/icon.png" alt="ytm-rs app icon" width="96">
   <h1>ytm-rs</h1>
   <p><strong>YouTube Music in a fast, native desktop app.</strong></p>
-  <p>Built in Rust with egui and rodio. No Electron, no browser-based player, and under 100 MB of memory while playing.</p>
+  <p>Built in Rust with egui and rodio. No Electron, no browser-based player, and around 130 MB of memory while playing.</p>
 
   <p>
     <a href="https://github.com/grapedjuice/ytm-rs/releases/latest"><img src="https://img.shields.io/github/v/release/grapedjuice/ytm-rs?style=flat-square&color=ff4e45" alt="Latest release"></a>
@@ -32,12 +32,12 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 
 | | ytm-rs | YouTube Music in Chrome | Pear Desktop |
 | --- | --- | --- | --- |
-| Memory with a song playing | **96 MB** | 496 MB | 638 MB |
+| Memory with a song playing | **~130 MB** | 496 MB | 638 MB |
 | Windows download | **11 MB** | – | 107 MB |
 | Installed size | **36 MB** | – | 397 MB |
 | Runs a web browser inside | No | Yes | Yes |
 
-<sub>Memory: the same song on the same Windows 11 PC in October 2026, with ytm-rs 0.2.18, Chrome 155 with one tab and Pear Desktop 3.12.0. Sizes: ytm-rs 0.3.0 and Pear Desktop 3.12.0.</sub>
+<sub>Memory with a song playing on the same Windows 11 PC: ytm-rs 0.3.0, Chrome 155 with one tab and Pear Desktop 3.12.0. Sizes: ytm-rs 0.3.0 and Pear Desktop 3.12.0.</sub>
 
 ## Table of contents
 

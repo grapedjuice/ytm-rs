@@ -40,8 +40,20 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
             // Swallow input so the page underneath doesn't react.
             ui.allocate_rect(rect, Sense::click_and_drag());
             // It covers the window's top too: that still moves the window.
+            let top = Rect::from_min_size(rect.min, vec2(rect.width(), super::titlebar::HEIGHT));
             if !app.fullscreen {
-                super::titlebar::drag_area(ui, Rect::from_min_size(rect.min, vec2(rect.width(), super::titlebar::HEIGHT)), "now-playing");
+                super::titlebar::drag_area(ui, top, "now-playing");
+            } else {
+                // Full screen has no title bar, but its top works like one: a double-click
+                // leaves full screen, and dragging leaves it and moves the window.
+                // Clicks only: sensing drags, it would take one started on the buttons over it.
+                let strip = ui.interact(top, egui::Id::unique("np-full-top"), Sense::CLICK);
+                if strip.double_clicked() {
+                    app.set_fullscreen(ctx, false);
+                } else if strip.is_pointer_button_down_on() && ui.input(|i| i.pointer.is_decidedly_dragging()) {
+                    app.set_fullscreen(ctx, false);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
             }
             // Laid out as if it ran under the player bar, which shows the rest of it.
             let under_bar = Rect::from_min_max(rect.min, rect.max + vec2(0.0, screen.bottom() - full.bottom()));
@@ -202,6 +214,13 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     if hide && !quiet {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
     }
+    // The content first: some themes run the lyrics up under the header in full screen,
+    // and its buttons go over them, taking the clicks.
+    let content = Rect::from_min_max(pos2(area.left(), header_real.bottom() + 12.0), area.max);
+    if app.fullscreen && look.now_playing.fullscreen_progress_px > 0.0 {
+        fullscreen_progress(app, ui, ui.ctx().content_rect(), look.now_playing.fullscreen_progress_px);
+    }
+    np_content(app, ui, content, &track, video_mode, video_lyrics, no_lyrics, now);
     if track.music_video && !app.jam.active() && look.now_playing.show_video_switch {
         song_video_switch(app, ui, header);
     }
@@ -272,12 +291,6 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         let full_w = ui.min_rect().width();
         ui.ctx().data_mut(|d| d.insert_temp(id, (full_w, focused)));
     });
-
-    let content = Rect::from_min_max(pos2(area.left(), header_real.bottom() + 12.0), area.max);
-    if app.fullscreen && look.now_playing.fullscreen_progress_px > 0.0 {
-        fullscreen_progress(app, ui, ui.ctx().content_rect(), look.now_playing.fullscreen_progress_px);
-    }
-    np_content(app, ui, content, &track, video_mode, video_lyrics, no_lyrics, now);
 }
 
 /// What's under the header: the video, or the cover and the panel beside it.

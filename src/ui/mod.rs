@@ -99,7 +99,7 @@ pub enum AccentSource {
     Theme,
     /// The system accent colour, whatever the theme.
     System,
-    /// `theme.txt` (every colour) or `accent.txt` (just this one) in the data folder, for
+    /// `theme.conf` (every colour) or `accent.txt` (just this one) in the data folder, for
     /// wallust, pywal and the like to write.
     File,
     Custom(Color32),
@@ -955,7 +955,7 @@ impl App {
 
     /// Where "From file" reads the rest of the colours from (and the accent, if it's there).
     fn theme_file(&self) -> std::path::PathBuf {
-        self.backend.data_dir().join("theme.txt")
+        self.backend.data_dir().join("theme.conf")
     }
 
     /// The theme file's colours, while "From file" is picked.

@@ -82,7 +82,7 @@ fn luma(c: Color32) -> f32 {
 }
 
 // A theme file's colours (Settings › Appearance › Accent colour › From file), for wallust,
-// pywal and the like: `theme.txt` in the data folder, a `name = #rrggbb` on each line.
+// pywal and the like: `theme.conf` in the data folder, a `name = #rrggbb` on each line.
 //
 //     accent = #e0af68
 //     background = #1a1b26
@@ -96,7 +96,7 @@ fn luma(c: Color32) -> f32 {
 // `text-dim`. With a background, pages are that flat colour instead of the album art, and
 // what isn't given (surface, menu, the dimmer text) is mixed from it and the text.
 
-/// What `theme.txt` holds.
+/// What `theme.conf` holds.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct FileTheme {
     pub accent: Option<Color32>,

@@ -2,10 +2,13 @@ name: Tests
 
 # Runs the tests and clippy on every pull request and on main, on Windows and Linux.
 # (macOS runs the tests in the release job, before a release is published.)
+# Not for changes only to the README and its screenshots, which the code doesn't use.
 on:
   pull_request:
+    paths-ignore: [README.md, docs/readme/**]
   push:
     branches: [main]
+    paths-ignore: [README.md, docs/readme/**]
   workflow_dispatch:
 
 permissions:

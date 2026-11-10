@@ -8,7 +8,8 @@ name: Release
 # never sees one without them. If no release exists yet, one is created as a draft
 # to be given notes and published by hand.
 #
-# Nightly: every night main has commits no release or nightly was built from, the same
+# Nightly: every night main has commits no release or nightly was built from (other than
+# README changes, which don't change the app), the same
 # files are built from it as version <version>-nightly.<date> (YTM_NIGHTLY tells the app
 # it's a nightly) and published as a prerelease, tagged v<version>-nightly.<date>, with
 # the commits since the last release or nightly as its notes. The app's nightly channel
@@ -53,6 +54,13 @@ jobs:
           fi
           if [ -n "$(git tag --points-at HEAD 'v*')" ]; then
             echo "HEAD already has a release or nightly: $(git tag --points-at HEAD 'v*')"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Only the README (and its screenshots) changed since then: nothing to build.
+          prev=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
+          if [ -n "$prev" ] && [ -z "$(git diff --name-only "$prev" HEAD -- . ':(exclude)README.md' ':(exclude)docs/readme')" ]; then
+            echo "Only the README changed since $prev"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi

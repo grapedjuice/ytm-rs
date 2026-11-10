@@ -9,7 +9,7 @@ name: Release
 # to be given notes and published by hand.
 #
 # Nightly: every night main has commits no release or nightly was built from (other than
-# README changes, which don't change the app), the same
+# changes to the README or .github, which don't change the app), the same
 # files are built from it as version <version>-nightly.<date> (YTM_NIGHTLY tells the app
 # it's a nightly) and published as a prerelease, tagged v<version>-nightly.<date>, with
 # the commits since the last release or nightly as its notes. The app's nightly channel
@@ -57,10 +57,11 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Only the README (and its screenshots) changed since then: nothing to build.
+          # Only the README (and its screenshots) or .github (workflows, issue templates)
+          # changed since then: the app is the same, so nothing to build.
           prev=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
-          if [ -n "$prev" ] && [ -z "$(git diff --name-only "$prev" HEAD -- . ':(exclude)README.md' ':(exclude)docs/readme')" ]; then
-            echo "Only the README changed since $prev"
+          if [ -n "$prev" ] && [ -z "$(git diff --name-only "$prev" HEAD -- . ':(exclude)README.md' ':(exclude)docs/readme' ':(exclude).github')" ]; then
+            echo "Only the README or .github changed since $prev"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi

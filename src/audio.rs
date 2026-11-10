@@ -292,7 +292,10 @@ impl AudioHandle {
 /// A seek that needs a new decoder built over the stream buffer (off the audio thread).
 struct SeekJob {
     shared: Arc<Shared>,
-    prepared: Option<Receiver<anyhow::Result<TrackDecoder>>>,
+    /// The song's seekable decoder being prepared in the background, if it's a long AAC
+    /// file and no seek has taken it yet. Taken when the build starts, not when the seek
+    /// is asked for, so a seek that's replaced before it's built doesn't lose it.
+    prepared: Prepared,
     pos: Duration,
     /// For a live seek (a jam): the host position and when it was, to catch up after the build.
     live: Option<(Duration, std::time::Instant)>,
@@ -300,11 +303,25 @@ struct SeekJob {
     seek: u64,
 }
 
+/// A long AAC song's seekable decoder, built in the background from when it starts.
+type Prepared = Arc<std::sync::Mutex<Option<Receiver<anyhow::Result<TrackDecoder>>>>>;
+
 /// Build a decoder for `j` (it may wait for the download) and hand it to the audio thread.
-fn build_seek(j: SeekJob, tx: &Sender<AudioCmd>, events: &Sender<AudioEvent>) {
-    let SeekJob { shared, prepared, pos, live, generation, seek } = j;
-    let seekable = !pos.is_zero();
-    let decoder = prepared.and_then(|rx| rx.recv().ok()).unwrap_or_else(|| stream::decoder(shared.clone(), seekable));
+/// `pending`: the seek asked for since, if any.
+fn build_seek(mut j: SeekJob, pending: &std::sync::Mutex<Option<SeekJob>>, tx: &Sender<AudioCmd>, events: &Sender<AudioEvent>) {
+    let seekable = !j.pos.is_zero();
+    let prepared = if seekable { j.prepared.lock().unwrap().take() } else { None };
+    let decoder = prepared.and_then(|rx| rx.recv().ok()).unwrap_or_else(|| stream::decoder(j.shared.clone(), seekable));
+    // That may have waited a long time (the download, the index). A seek in the same song
+    // asked for meanwhile takes this decoder, which can go anywhere, rather than have it
+    // dropped as stale and another built.
+    if seekable && decoder.is_ok() {
+        let mut next = pending.lock().unwrap();
+        if next.as_ref().is_some_and(|n| n.generation == j.generation && !n.pos.is_zero()) {
+            j = next.take().unwrap();
+        }
+    }
+    let SeekJob { shared, pos, live, generation, seek, .. } = j;
     let res = decoder.map_err(|e| e.to_string()).and_then(|mut d| {
         // Building it may have waited for the download: catch up.
         let pos = live.map_or(pos, |(p, at)| p + at.elapsed());
@@ -609,7 +626,7 @@ fn run(
     // Whether the playing decoder can seek in place (it indexed the whole file).
     let mut seekable = false;
     // Long AAC files need an index before seeking. Prepare it while they play.
-    let mut prepared_seek: Option<Receiver<anyhow::Result<TrackDecoder>>> = None;
+    let mut prepared_seek = Prepared::default();
     // Latest seek; a slower, older seek's decoder must not land after a newer one.
     let mut seek_seq: u64 = 0;
     let seek_job: Arc<std::sync::Mutex<Option<SeekJob>>> = Default::default();
@@ -658,14 +675,16 @@ fn run(
                 current = generation;
                 offset = at;
                 seekable = !at.is_zero();
-                prepared_seek = None;
-                if !seekable && !s.opus && s.duration_ms >= 20 * 60 * 1000 {
+                // A new slot: a seek still being built for the last song keeps the old one.
+                prepared_seek = Prepared::default();
+                // (HLS segments need no index: their decoder seeks as it is.)
+                if !seekable && !s.opus && s.segments.is_none() && s.duration_ms >= 20 * 60 * 1000 {
                     let (sender, receiver) = crossbeam_channel::bounded(1);
                     let shared = s.clone();
                     std::thread::spawn(move || {
                         let _ = sender.send(stream::decoder(shared, true));
                     });
-                    prepared_seek = Some(receiver);
+                    *prepared_seek.lock().unwrap() = Some(receiver);
                 }
                 ending_sent = false;
                 status.stream_ms.store(s.duration_ms, Ordering::Relaxed);
@@ -726,7 +745,7 @@ fn run(
                 let old = std::mem::replace(&mut player, Player::connect_new(&output.mixer));
                 fading.push(Fading { player: old, shared: shared.take(), out: fade_out.clone(), waiting: Some((Instant::now(), left)) });
                 current = 0;
-                prepared_seek = None;
+                prepared_seek = Prepared::default();
                 status.playing.store(false, Ordering::Relaxed);
                 status.set_position(0);
             }
@@ -752,7 +771,7 @@ fn run(
                     fading.clear();
                 }
                 current = 0;
-                prepared_seek = None;
+                prepared_seek = Prepared::default();
                 // Also stops a seek still waiting on this download.
                 if let Some(old) = shared.take() {
                     old.cancel();
@@ -789,15 +808,14 @@ fn run(
                 if let Some(s) = shared.clone() {
                     // One builder at a time, always for the latest seek: a burst of seeks
                     // (a jam catching up) mustn't pile up threads waiting on the download.
-                    let prepared = if pos.is_zero() { None } else { prepared_seek.take() };
-                    *seek_job.lock().unwrap() = Some(SeekJob { shared: s, prepared, pos, live, generation: current, seek: seek_seq });
+                    *seek_job.lock().unwrap() = Some(SeekJob { shared: s, prepared: prepared_seek.clone(), pos, live, generation: current, seek: seek_seq });
                     if !seek_busy.swap(true, Ordering::AcqRel) {
                         let (job, busy, tx, events) = (seek_job.clone(), seek_busy.clone(), tx.clone(), events.clone());
                         std::thread::spawn(move || {
                             loop {
                                 let next = job.lock().unwrap().take();
                                 match next {
-                                    Some(j) => build_seek(j, &tx, &events),
+                                    Some(j) => build_seek(j, &job, &tx, &events),
                                     None => {
                                         busy.store(false, Ordering::Release);
                                         // A seek that came in just now finds `busy` already false, or is taken here.

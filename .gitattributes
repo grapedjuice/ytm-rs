@@ -1,4 +1,5 @@
 *.iss linguist-detectable=false
+*.sh linguist-detectable=false
 site/** linguist-documentation
 assets/ejs/** linguist-vendored
 linux/** text eol=lf

@@ -211,6 +211,29 @@ pub(super) fn dev_var(name: &str) -> Option<&'static str> {
     .map(String::as_str)
 }
 
+/// Dev hook: `YTM_PROBE=1` logs, each time the pointer stops somewhere new (`YTM_SCRIPT`'s
+/// `m:x,y`), whether a press there would go to the title bar (move the window, maximize on
+/// a double-click), and how many widgets are under it.
+pub(super) fn dev_probe(ctx: &egui::Context) {
+    use std::sync::Mutex;
+    if dev_var("YTM_PROBE").is_none() {
+        return;
+    }
+    static LAST: Mutex<Option<egui::Pos2>> = Mutex::new(None);
+    let Some(p) = ctx.input(|i| i.pointer.hover_pos()) else { return };
+    {
+        let mut last = LAST.lock().unwrap();
+        if *last == Some(p) {
+            return;
+        }
+        *last = Some(p);
+    }
+    let (hovered, under) = ctx.viewport(|v| (v.interact_widgets.hovered.clone(), v.interact_widgets.contains_pointer.len()));
+    let names = ["main", "main-over", "band-back", "capsule-back", "now-playing", "queue-float"];
+    let title = names.iter().any(|n| hovered.contains(&egui::Id::unique(("titlebar-drag", *n)))) || hovered.contains(&egui::Id::unique("np-full-top"));
+    log::info!("probe {:.0},{:.0}: title bar {}, {} hovered, {under} under", p.x, p.y, if title { "yes" } else { "NO" }, hovered.len());
+}
+
 /// Dev hook: `YTM_MEM=<secs>` logs, that often, what the app's own caches hold: GPU
 /// textures (thumbnails and the rest), the font atlas, and the image loaders' bytes. The
 /// process's own figures come from outside (Task Manager, `Get-Process`).

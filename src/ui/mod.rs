@@ -1235,6 +1235,7 @@ impl eframe::App for App {
         let bar_strip = egui::Rect::from_min_max(egui::pos2(screen.left(), screen.bottom() - self.bar_height()), screen.max);
         titlebar::set_fullscreen(&ctx, self.fullscreen);
         dev::dev_memory(&ctx, now);
+        dev::dev_probe(&ctx);
         if layout == mini::Layout::Mini && mini::pill_active() {
             mini::pill(self, ui, now);
             dev_screenshot(&ctx, now);

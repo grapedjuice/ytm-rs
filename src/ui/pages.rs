@@ -476,7 +476,8 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     let ids = |section: &str| egui::Id::unique(("search", section));
     let tracks: Vec<&Track> = r.tracks.iter().filter(|t| rows.shows(t)).collect();
     let videos: Vec<&Track> = r.videos.iter().filter(|t| rows.shows(t)).collect();
-    if tracks.is_empty() && videos.is_empty() && r.artists.is_empty() && r.albums.is_empty() && r.playlists.is_empty() {
+    let episodes: Vec<&Track> = r.episodes.iter().filter(|t| rows.shows(t)).collect();
+    if tracks.is_empty() && videos.is_empty() && r.artists.is_empty() && r.albums.is_empty() && r.playlists.is_empty() && r.podcasts.is_empty() && episodes.is_empty() {
         page_title(ui, "No results");
         return;
     }
@@ -549,6 +550,26 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
         row_drag::carry(ui, drag, ids("more"));
     }
     card_row(ui, "s-pl", "Playlists", &r.playlists, acts);
+    card_row(ui, "s-podcasts", "Podcasts", &r.podcasts, acts);
+    if !episodes.is_empty() {
+        ui.add_space(26.0);
+        ui.label(RichText::new("Episodes").font(theme::bold(24.0)));
+        ui.add_space(10.0);
+        for (i, t) in episodes.iter().copied().take(6).enumerate() {
+            ui.push_id(("episodes", i), |ui| {
+                row_drag::grip(ui, drag, ids("episodes"), i, t);
+                let o = RowOpts { pick, ..rows.opts(liked, t, None, false) };
+                if track_row(ui, t, &o, acts).clicked() {
+                    // An episode plays alone: a radio from it would queue songs after it.
+                    acts.push(match play(t) {
+                        Action::Radio(t) => Action::Play(vec![t], 0),
+                        other => other,
+                    });
+                }
+            });
+        }
+        row_drag::carry(ui, drag, ids("episodes"));
+    }
 }
 
 /// `pick`: choosing a transfer match, so clicking a song picks it.
@@ -614,7 +635,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             ui.add_space(24.0);
             ui.vertical(|ui| {
                 ui.set_max_width(full.min(760.0));
-                ui.label(RichText::new(if is_album { "ALBUM" } else { "PLAYLIST" }).font(theme::semibold(12.0)).color(theme::text_dim()));
+                ui.label(RichText::new(if is_album { "ALBUM" } else if c.is_show() { "PODCAST" } else { "PLAYLIST" }).font(theme::semibold(12.0)).color(theme::text_dim()));
                 ui.label(RichText::new(&c.title).font(theme::bold(40.0)).color(theme::text()));
                 ui.add_space(2.0);
                 let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
@@ -622,7 +643,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                 let total: u32 = tracks.iter().filter_map(|t| t.duration).sum();
                 if total > 0 {
                     ui.label(
-                        RichText::new(format!("{} songs • {} min", tracks.len(), total / 60)).font(theme::regular(13.5)).color(theme::text_faint()),
+                        RichText::new(format!("{} {} • {} min", tracks.len(), c.things(), total / 60)).font(theme::regular(13.5)).color(theme::text_faint()),
                     );
                 }
                 if let Some(d) = c.description.as_deref().filter(|d| !d.trim().is_empty()) {
@@ -804,11 +825,13 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
             (LibTab::Playlists, "Playlists"),
             (LibTab::Songs, "Liked songs"),
             (LibTab::Albums, "Albums"),
+            (LibTab::Podcasts, "Podcasts"),
             (LibTab::History, "History"),
             (LibTab::Uploads, "Uploads"),
             (LibTab::Downloads, "Downloads"),
         ];
-        for (t, label) in tabs {
+        let podcasts = app.show_podcasts;
+        for (t, label) in tabs.into_iter().filter(|(t, _)| podcasts || *t != LibTab::Podcasts) {
             if chip(ui, label, tab == t).clicked() {
                 // Tabs swap in place (no history entry); the current one refreshes.
                 if tab == t {
@@ -959,6 +982,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                     grid(ui, &lib.playlists, &mut app.actions)
                 }
                 LibTab::Albums => grid(ui, &lib.albums, &mut app.actions),
+                LibTab::Podcasts => grid(ui, &lib.podcasts, &mut app.actions),
                 LibTab::Songs | LibTab::History | LibTab::Uploads | LibTab::Downloads => unreachable!(),
             }
         }
@@ -1337,6 +1361,12 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
         setting_row(ui, "Hide explicit songs", Some("Leave songs marked E out of lists, search, the queue and autoplay. Ones already playing finish."), |ui| {
             if toggle(ui, &mut app.hide_explicit, "Hide explicit songs").changed() {
                 app.set_hide_explicit();
+            }
+        });
+        divider(ui);
+        setting_row(ui, "Show podcasts", Some("Podcast shows and episodes: a Podcasts filter on Home, in search results, and the ones you've saved in your library."), |ui| {
+            if toggle(ui, &mut app.show_podcasts, "Show podcasts").changed() {
+                app.set_show_podcasts();
             }
         });
         divider(ui);

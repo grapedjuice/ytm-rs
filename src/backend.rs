@@ -163,6 +163,9 @@ pub struct SearchResults {
     pub albums: Vec<Card>,
     pub artists: Vec<Card>,
     pub playlists: Vec<Card>,
+    /// Podcast shows and episodes, when podcasts are shown.
+    pub podcasts: Vec<Card>,
+    pub episodes: Vec<Track>,
 }
 
 /// An album or playlist page.
@@ -188,11 +191,22 @@ pub struct Collection {
 }
 
 impl Collection {
+    /// A podcast show: its page lists episodes.
+    pub fn is_show(&self) -> bool {
+        ytm::list_id(&self.id) != self.id
+    }
+
+    /// "songs", or what this lists instead.
+    pub fn things(&self) -> &'static str {
+        if self.is_show() { "episodes" } else { "songs" }
+    }
+
     /// The subtitle, with the song count for a playlist.
     pub fn byline(&self) -> String {
+        let things = self.things();
         match self.count {
-            Some(n) if self.subtitle.is_empty() => format!("{n} songs"),
-            Some(n) => format!("{} • {n} songs", self.subtitle),
+            Some(n) if self.subtitle.is_empty() => format!("{n} {things}"),
+            Some(n) => format!("{} • {n} {things}", self.subtitle),
             None => self.subtitle.clone(),
         }
     }
@@ -246,6 +260,8 @@ pub struct ArtistPage {
 pub struct Library {
     pub playlists: Vec<Card>,
     pub albums: Vec<Card>,
+    /// Saved podcast shows, when podcasts are shown.
+    pub podcasts: Vec<Card>,
     /// That half didn't load (YouTube Music refused it, say): the one shown stays.
     pub playlists_failed: bool,
     pub albums_failed: bool,
@@ -930,16 +946,24 @@ impl Backend {
         }))
     }
 
-    /// Songs, videos, albums, artists and playlists for a search, asked at once. Only the
-    /// songs must arrive.
+    /// Songs, videos, albums, artists and playlists for a search, asked at once (podcast
+    /// shows and episodes too when those are shown). Only the songs must arrive.
     async fn search(&self, query: String, me: bool) -> anyhow::Result<Resp> {
         let api = &*self.api;
-        let (t, v, al, ar, pl) = tokio::join!(
+        let podcasts = async {
+            if !ytm::podcasts() {
+                return (Vec::new(), Vec::new());
+            }
+            let (shows, episodes) = tokio::join!(ytm::search_cards(api, &query, ytm::Filter::Podcasts, me), ytm::search_episodes(api, &query, me));
+            (shows.unwrap_or_default(), episodes.unwrap_or_default())
+        };
+        let (t, v, al, ar, pl, (podcasts, episodes)) = tokio::join!(
             ytm::search_songs(api, &query, me),
             ytm::search_videos(api, &query, me),
             ytm::search_cards(api, &query, ytm::Filter::Albums, me),
             ytm::search_cards(api, &query, ytm::Filter::Artists, me),
             ytm::search_cards(api, &query, ytm::Filter::Playlists, me),
+            podcasts,
         );
         Ok(Resp::Search(SearchResults {
             tracks: t?,
@@ -947,6 +971,8 @@ impl Backend {
             albums: al.unwrap_or_default(),
             artists: ar.unwrap_or_default(),
             playlists: pl.unwrap_or_default(),
+            podcasts,
+            episodes,
             query,
         }))
     }
@@ -956,7 +982,16 @@ impl Backend {
         let api = &*self.api;
         // Liked songs are Liked Music, loaded like any playlist. Each half shows
         // without the other; it only fails when both do.
-        let (pls, albums) = tokio::join!(ytm::saved_playlists(api), ytm::saved_albums(api));
+        let podcasts = async {
+            if !ytm::podcasts() {
+                return Vec::new();
+            }
+            ytm::saved_podcasts(api).await.unwrap_or_else(|e| {
+                log::warn!("saved podcasts didn't load: {e:#}");
+                Vec::new()
+            })
+        };
+        let (pls, albums, podcasts) = tokio::join!(ytm::saved_playlists(api), ytm::saved_albums(api), podcasts);
         let pls = match (pls, &albums) {
             (Err(e), Err(_)) => return Err(e),
             (pls, _) => pls,
@@ -972,6 +1007,7 @@ impl Backend {
             albums_failed: albums.is_err(),
             playlists: pls.map(|p| p.into_iter().filter(saved_playlist_visible).collect()).unwrap_or_default(),
             albums: albums.unwrap_or_default(),
+            podcasts,
         }))
     }
 

@@ -485,7 +485,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         let edit = ui.put(
             inner,
             egui::TextEdit::singleline(&mut app.search_text)
-                .hint_text(egui::RichText::new("Search songs, albums, artists, podcasts").color(theme::text_faint()))
+                .hint_text(egui::RichText::new(if app.show_podcasts { "Search songs, albums, artists, podcasts" } else { "Search songs, albums, artists" }).color(theme::text_faint()))
                 .font(theme::regular(15.0))
                 .frame(egui::Frame::NONE)
                 .align(egui::Align2::LEFT_CENTER)

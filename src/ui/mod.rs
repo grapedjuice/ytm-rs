@@ -74,6 +74,8 @@ pub enum LibTab {
     Playlists,
     Songs,
     Albums,
+    /// Saved podcast shows (with Settings › Playback › Show podcasts on).
+    Podcasts,
     History,
     Uploads,
     /// Songs saved on this computer: played from their files, so offline and signed out too.
@@ -370,6 +372,8 @@ pub struct App {
     hide_search_videos: bool,
     /// Leave explicit songs out of lists and the queue.
     hide_explicit: bool,
+    /// Podcast shows and episodes on Home, in search and in the library.
+    show_podcasts: bool,
     /// With them, ask YouTube for its Restricted Mode too.
     restricted_mode: bool,
     /// The song version playing in place of the current music video.
@@ -550,6 +554,8 @@ impl App {
         let hide_explicit = get("hide_explicit").is_some_and(|v| v == "1");
         let restricted_mode = get("restricted_mode").is_some_and(|v| v == "1");
         backend.set_hide_explicit(hide_explicit, restricted_mode);
+        let show_podcasts = get("podcasts").is_some_and(|v| v == "1");
+        crate::ytm::set_podcasts(show_podcasts);
         backend.request(Req::Home(None));
         if logged_in {
             backend.request(Req::Library);
@@ -637,6 +643,7 @@ impl App {
             glow: None,
             hide_search_videos: get("hide_search_videos").is_some_and(|v| v == "1"),
             hide_explicit,
+            show_podcasts,
             restricted_mode,
             playing_as: None,
             output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
@@ -808,6 +815,11 @@ impl App {
     // ---------------------------------------------------------------- navigation
 
     fn go(&mut self, page: Page) {
+        // An episode's show stands where a song's artist does; it opens as the playlist it is.
+        let page = match page {
+            Page::Artist(id) if crate::ytm::list_id(&id) != id => Page::Playlist(id),
+            p => p,
+        };
         self.np_open = false;
         if page == self.page {
             // Clicking the page you're on refreshes it.
@@ -1353,6 +1365,7 @@ impl eframe::App for App {
         storage.set_string("ambient_light", b(self.ambient_light));
         storage.set_string("hide_search_videos", b(self.hide_search_videos));
         storage.set_string("hide_explicit", b(self.hide_explicit));
+        storage.set_string("podcasts", b(self.show_podcasts));
         storage.set_string("restricted_mode", b(self.restricted_mode));
         let folder = crate::downloads::folder();
         storage.set_string("download_dir", if folder == crate::downloads::default_folder() { String::new() } else { folder.display().to_string() });

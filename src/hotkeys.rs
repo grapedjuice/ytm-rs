@@ -285,10 +285,11 @@ mod tests {
 
     #[test]
     fn keycaps_read_like_the_keyboard() {
-        assert_eq!(keycaps("shift+alt+KeyP"), ["Alt", "Shift", "P"]);
+        let alt = if cfg!(target_os = "macos") { "Option" } else { "Alt" };
+        assert_eq!(keycaps("shift+alt+KeyP"), [alt, "Shift", "P"]);
         assert_eq!(keycaps("control+Digit7"), ["Ctrl", "7"]);
-        assert_eq!(keycaps("alt+Equal"), ["Alt", "="]);
-        assert_eq!(keycaps("alt+F9"), ["Alt", "F9"]);
+        assert_eq!(keycaps("alt+Equal"), [alt, "="]);
+        assert_eq!(keycaps("alt+F9"), [alt, "F9"]);
         assert_eq!(keycaps("not a key"), ["not a key"]);
     }
 }

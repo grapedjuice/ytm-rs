@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ytm-rs: a fast, native YouTube Music desktop app for Windows, macOS and Linux</title>
-<meta name="description" content="ytm-rs is a free, open-source YouTube Music desktop client written in Rust for Windows, macOS and Linux. A 9 MB download with word-by-word synced lyrics, romanization, 26 themes and no Electron.">
+<meta name="description" content="ytm-rs is a free, open-source YouTube Music desktop client written in Rust for Windows, macOS and Linux. An 11 MB download with word-by-word synced lyrics, romanization, 30 themes and no Electron.">
 <meta name="keywords" content="YouTube Music desktop app, YouTube Music client, YouTube Music Windows, YouTube Music Mac, YouTube Music Linux, native YouTube Music player, Rust music player, egui, synced lyrics, romanized lyrics, Electron alternative, open source">
 <link rel="canonical" href="https://grapedjuice.github.io/ytm-rs/">
 <meta name="robots" content="index, follow, max-image-preview:large">
@@ -15,7 +15,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="ytm-rs">
 <meta property="og:title" content="ytm-rs: YouTube Music, without the browser">
-<meta property="og:description" content="A native YouTube Music desktop app for Windows, macOS and Linux, written in Rust. Word-by-word synced lyrics with romanization, 26 themes, free and open source.">
+<meta property="og:description" content="A native YouTube Music desktop app for Windows, macOS and Linux, written in Rust. Word-by-word synced lyrics with romanization, 30 themes, free and open source.">
 <meta property="og:url" content="https://grapedjuice.github.io/ytm-rs/">
 <meta property="og:image" content="https://grapedjuice.github.io/ytm-rs/og.png">
 <meta property="og:image:width" content="1200">
@@ -23,7 +23,7 @@
 <meta property="og:image:alt" content="ytm-rs, a native YouTube Music app, showing synced Japanese lyrics with romanization">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="ytm-rs: YouTube Music, without the browser">
-<meta name="twitter:description" content="A native YouTube Music desktop app for Windows, macOS and Linux, written in Rust. Word-by-word lyrics, 26 themes, open source.">
+<meta name="twitter:description" content="A native YouTube Music desktop app for Windows, macOS and Linux, written in Rust. Word-by-word lyrics, 30 themes, open source.">
 <meta name="twitter:image" content="https://grapedjuice.github.io/ytm-rs/og.png">
 
 <link rel="icon" href="favicon.ico" sizes="any">
@@ -48,11 +48,11 @@
       "@id": "https://grapedjuice.github.io/ytm-rs/#app",
       "name": "ytm-rs",
       "alternateName": "ytm-rs YouTube Music client",
-      "description": "A fast, lightweight, native YouTube Music desktop client written in Rust with egui and rodio. Word-by-word synced lyrics with romanization and translation, 26 themes, 256 kbps audio with Premium, uploads, listening together, Spotify playlist transfer, Discord Rich Presence and automatic updates.",
+      "description": "A fast, lightweight, native YouTube Music desktop client written in Rust with egui and rodio. Word-by-word synced lyrics with romanization and translation, 30 themes, 256 kbps audio with Premium, uploads, listening together, Spotify playlist transfer, Discord Rich Presence and automatic updates.",
       "applicationCategory": "MultimediaApplication",
       "applicationSubCategory": "Music player",
       "operatingSystem": "Windows, macOS, Linux",
-      "softwareVersion": "0.2.25",
+      "softwareVersion": "0.3.0",
       "url": "https://grapedjuice.github.io/ytm-rs/",
       "downloadUrl": "https://github.com/grapedjuice/ytm-rs/releases/latest",
       "installUrl": "https://github.com/grapedjuice/ytm-rs/releases/latest",
@@ -139,7 +139,7 @@
       <span class="kline"><span class="kw">without</span> <span class="kw">the</span> <span class="kw">browser.</span></span>
     </h1>
     <p class="hero__sub">
-      ytm-rs is a native YouTube Music app for Windows, macOS and Linux, written in Rust. Word-by-word synced lyrics, romanization and 26 themes in a 9&nbsp;MB download that draws nothing at all when you aren't looking.
+      ytm-rs is a native YouTube Music app for Windows, macOS and Linux, written in Rust. Word-by-word synced lyrics, romanization and 30 themes in an 11&nbsp;MB download that draws nothing at all when you aren't looking.
     </p>
     <div class="hero__cta">
       <a class="btn btn--primary btn--lg" href="#download" data-dl>
@@ -164,10 +164,10 @@
 <!-- ============ STATS ============ -->
 <section class="stats" aria-label="By the numbers">
   <div class="stats__grid">
-    <div class="stat"><span class="stat__num"><b data-tick="9">0</b><small>MB</small></span><span class="stat__label">download</span></div>
+    <div class="stat"><span class="stat__num"><b data-tick="11">0</b><small>MB</small></span><span class="stat__label">download</span></div>
     <div class="stat"><span class="stat__num"><b data-tick="94" data-prefix="~">0</b><small>MB</small></span><span class="stat__label">memory while playing</span></div>
     <div class="stat"><span class="stat__num"><b data-tick="0">0</b><small>fps</small></span><span class="stat__label">drawn when idle</span></div>
-    <div class="stat"><span class="stat__num"><b data-tick="26">0</b></span><span class="stat__label">community themes</span></div>
+    <div class="stat"><span class="stat__num"><b data-tick="27">0</b></span><span class="stat__label">community themes</span></div>
   </div>
   <p class="stats__note">Measured with v0.2.12 on Windows 11: private memory with a song playing (about 80&nbsp;MB idle, 102&nbsp;MB with lyrics open), and frames drawn with the window idle.</p>
 </section>
@@ -335,10 +335,10 @@
   <div class="themes__split">
     <div class="themes__copy">
       <p class="eyebrow">Themes</p>
-      <h2 id="themes-title">26 themes, rebuilt natively.</h2>
+      <h2 id="themes-title">27 community themes, rebuilt natively.</h2>
       <p class="lede">The Better Lyrics community made these as CSS for the browser. ytm-rs translates each one into native rendering: its lyrics, warped backdrop, cover, player bar, fonts and the rest of the app. Every theme credits its creators.</p>
       <details class="themes__all">
-      <summary>All 26 themes and their creators</summary>
+      <summary>All 27 community themes and their creators</summary>
       <ul class="themes__names" aria-label="Included themes">
         <li><b>Apple Music</b><span>tposejank</span></li>
         <li><b>Apple Music Refine</b><span>ankit008-mishra</span></li>
@@ -355,6 +355,7 @@
         <li><b>Glassy Blur</b><span>ankit008-mishra</span></li>
         <li><b>Lucid</b><span>drago-oo</span></li>
         <li><b>Lyric Glow</b><span>MatiuxXcd</span></li>
+        <li><b>Material 3</b><span>adidotzip</span></li>
         <li><b>Minimal</b><span>semicolonhope</span></li>
         <li><b>Minimalism Music</b><span>notacoderlols</span></li>
         <li><b>ModernPlayer</b><span>snw-mint</span></li>
@@ -579,7 +580,7 @@
     <div class="dl__beam" aria-hidden="true"></div>
     <img class="dl__icon" src="icon-512.png" alt="" width="96" height="96" loading="lazy">
     <h2 id="download-title">Get ytm-rs</h2>
-    <p class="dl__ver"><span data-version>v0.2.25</span> · <span data-date>October 2026</span> · Free and open source</p>
+    <p class="dl__ver"><span data-version>v0.3.0</span> · <span data-date>November 2026</span> · Free and open source</p>
 
     <div class="platforms">
       <a class="platform" href="https://github.com/grapedjuice/ytm-rs/releases/latest" data-os="windows" rel="noopener">
@@ -637,6 +638,7 @@
       <a href="https://github.com/grapedjuice/ytm-rs" rel="noopener">GitHub</a>
       <a href="https://github.com/grapedjuice/ytm-rs/releases" rel="noopener">Releases</a>
       <a href="https://github.com/grapedjuice/ytm-rs/issues" rel="noopener">Report a bug</a>
+      <a href="https://ko-fi.com/grapedjuice" rel="noopener">Support on Ko-fi</a>
       <a href="https://github.com/grapedjuice/ytm-rs/blob/main/LICENSE" rel="noopener">GPL-3.0</a>
     </nav>
     <p class="footer__fine">ytm-rs is an independent, unofficial client. It isn't affiliated with or endorsed by YouTube or Google. Themes are adapted from the <a href="https://github.com/better-lyrics/themes" rel="noopener">Better Lyrics theme store</a>, with credit to each creator. Album art in screenshots belongs to its owners.</p>

@@ -40,7 +40,6 @@
       "secs": 0.5,
       "delay": 0.35
     },
-    "translation_alpha": 0.8,
     "instrumental": "ring",
     "balance": true,
     "instrumental_rem": 5.6,

@@ -20,11 +20,6 @@
     "line_exit": [-200, 1.6],
     "fullscreen_padding_rem": 3,
     "instrumental_rem": 4,
-    "romanization_font": "Albert Sans",
-    "romanization_weight": "medium",
-    "romanization_pill": false,
-    "translation_font": "Lexend",
-    "translation_weight": "semibold",
     "line_exit_by_side": true
   },
   "cover": { "radius": 20, "disc_slide_secs": 0.7 },

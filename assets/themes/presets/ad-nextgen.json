@@ -60,11 +60,6 @@
     },
     "glow_alpha": 0.0001,
     "long_glow_alpha": 1.0,
-    "romanization_rem": 1.8,
-    "romanization_alpha": 0.09,
-    "romanization_pill": false,
-    "translation_rem": 1.8,
-    "translation_alpha": 0.09,
     "scroll_secs": 0.4,
     "word_rise_px": 3.0,
     "word_rise_secs": 0.2,
@@ -76,11 +71,7 @@
     },
     "past_blur_transition": {
       "secs": 0.2
-    },
-    "both_rem": [
-      1.8,
-      1.5
-    ]
+    }
   },
   "cover": {
     "radius": 20,

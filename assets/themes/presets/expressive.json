@@ -9,8 +9,6 @@
   "lyrics": {
     "font": "Google Sans Flex",
     "weight": "semibold",
-    "romanization_weight": "medium",
-    "translation_weight": "medium",
     "credits_weight": "medium"
   },
   "cover": {

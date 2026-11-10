@@ -2199,6 +2199,24 @@ mod tests {
         }
     }
 
+    /// Romanization and translation are drawn from the app's own theme in every theme, so
+    /// no other theme sets them: nothing would read it.
+    #[test]
+    fn only_the_default_theme_styles_romanization_and_translation() {
+        const KEYS: &[&str] = &[
+            "romanization_rem", "romanization_alpha", "romanization_pill", "romanization_weight", "romanization_font",
+            "translation_rem", "translation_alpha", "translation_weight", "translation_font", "translation_delay",
+            "both_rem", "deco_enter", "decor_tracking_em", "decor_fullscreen_scale", "decor_gap_em",
+            "decor_active_alpha", "decor_em", "decor_line_height",
+        ];
+        for (file, json) in FILES.iter().filter(|(file, _)| *file != DEFAULT_ID) {
+            let v: serde_json::Value = serde_json::from_str(json).unwrap();
+            for key in KEYS {
+                assert!(v["lyrics"].get(key).is_none(), "{file}: lyrics.{key} is only read from {DEFAULT_ID}");
+            }
+        }
+    }
+
     /// No theme gets a feature by name: nothing outside this file's tests looks at an id.
     #[test]
     fn nothing_branches_on_a_theme() {

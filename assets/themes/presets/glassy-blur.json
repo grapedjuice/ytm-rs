@@ -112,15 +112,6 @@
     "long_glow_alpha": 1.0,
     "glow_rem": 1.2,
     "background_em": 0.65,
-    "romanization_rem": 2.0,
-    "romanization_alpha": 0.2,
-    "romanization_pill": false,
-    "both_rem": [
-      2.0,
-      1.6
-    ],
-    "translation_rem": 2.0,
-    "translation_alpha": 0.2,
     "scroll_secs": 0.5,
     "scroll_ease": [
       0.42,
@@ -135,11 +126,9 @@
     "word_rise_ratio": 1.0,
     "line_stagger": 0,
     "line_fade_secs": 0.5,
-    "deco_enter": [-0.3, 0, 0.5, 0],
     "scroll_scale": 0.95,
     "scroll_transition": { "frac": 0, "secs": 0.3, "delay": 0 },
-    "resume_look": [12, 0.1, 0],
-    "translation_delay": 0.15
+    "resume_look": [12, 0.1, 0]
   },
   "cover": {
     "radius": 16,

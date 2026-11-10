@@ -97,7 +97,8 @@ pub enum AccentSource {
     Theme,
     /// The system accent colour, whatever the theme.
     System,
-    /// `accent.txt` in the data folder, for wallust, pywal and the like to write.
+    /// `theme.txt` (every colour) or `accent.txt` (just this one) in the data folder, for
+    /// wallust, pywal and the like to write.
     File,
     Custom(Color32),
 }
@@ -940,13 +941,23 @@ impl App {
         self.backend.data_dir().join("accent.txt")
     }
 
+    /// Where "From file" reads the rest of the colours from (and the accent, if it's there).
+    fn theme_file(&self) -> std::path::PathBuf {
+        self.backend.data_dir().join("theme.txt")
+    }
+
+    /// The theme file's colours, while "From file" is picked.
+    fn file_theme(&self) -> theme::FileTheme {
+        if self.accent_source == AccentSource::File && !self.default_theme { theme::file_theme(&self.theme_file()) } else { theme::FileTheme::default() }
+    }
+
     /// The accent before `accent_color` deepens it for light pages.
     fn base_accent(&self) -> Color32 {
         match self.accent_source {
             _ if self.default_theme => theme::RED,
             AccentSource::Custom(c) => c,
             AccentSource::System => theme::system_accent().unwrap_or_else(|| self.look().accent(self.accent)),
-            AccentSource::File => theme::file_accent(&self.accent_file()).unwrap_or_else(|| self.look().accent(self.accent)),
+            AccentSource::File => (self.file_theme().accent).or_else(|| theme::file_accent(&self.accent_file())).unwrap_or_else(|| self.look().accent(self.accent)),
             AccentSource::Theme => self.look().accent(self.accent),
         }
     }
@@ -966,6 +977,10 @@ impl App {
     /// Whether pages draw light: only the ytm-rs and Fluent themes have a light mode, and it follows
     /// Settings › Appearance › Mode.
     fn light_pages(&self, ctx: &egui::Context) -> bool {
+        // A theme file's background says which it is.
+        if let Some(light) = theme::file_light() {
+            return light;
+        }
         !self.default_theme && self.look().has_light() && self.appearance.is_light(ctx)
     }
 
@@ -1138,6 +1153,7 @@ impl eframe::App for App {
         let look = self.look();
         // Now playing is dark; once it's most of the way up, so is the player bar under it.
         let np = theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), 0.42);
+        theme::set_file_theme(&ctx, self.file_theme());
         let light = self.light_pages(&ctx) && np < 0.5 && !self.fullscreen;
         theme::set_mode(&ctx, light);
         crate::backdrop::follow(!self.default_theme && crate::backdrop::shows(look) && !self.mini.pill_showing(), light);

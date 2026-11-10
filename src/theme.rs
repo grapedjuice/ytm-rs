@@ -39,32 +39,219 @@ pub fn set_mode(ctx: &egui::Context, light: bool) -> bool {
 
 /// Main text.
 pub fn text() -> Color32 {
-    if light() { TEXT_LIGHT } else { TEXT }
+    filed(F_TEXT).unwrap_or(if light() { TEXT_LIGHT } else { TEXT })
 }
 
 /// Text and icons on a fill of the main text colour (a primary button, a selected chip).
 pub fn on_text() -> Color32 {
-    if light() { Color32::WHITE } else { Color32::from_gray(15) }
+    match filed(F_TEXT) {
+        Some(t) => {
+            if luma(t) > 140.0 {
+                Color32::from_gray(15)
+            } else {
+                Color32::WHITE
+            }
+        }
+        None if light() => Color32::WHITE,
+        None => Color32::from_gray(15),
+    }
 }
 
 /// Least important text: counts, hints, placeholders.
 pub fn text_faint() -> Color32 {
-    if light() { TEXT_FAINT_LIGHT } else { TEXT_FAINT }
+    filed(F_TEXT_FAINT).unwrap_or(if light() { TEXT_FAINT_LIGHT } else { TEXT_FAINT })
 }
 
 /// The window's base colour, under the background.
 pub fn bg() -> Color32 {
-    if light() { BG_LIGHT } else { BG }
+    filed(F_BACKGROUND).unwrap_or(if light() { BG_LIGHT } else { BG })
 }
 
 /// Menus and popups.
 pub fn menu_fill() -> Color32 {
-    if light() { Color32::WHITE } else { Color32::from_rgb(38, 34, 42) }
+    filed(F_MENU).unwrap_or(if light() { Color32::WHITE } else { Color32::from_rgb(38, 34, 42) })
 }
 
 /// Dialogs and cards that float over the page.
 pub fn surface_fill() -> Color32 {
-    if light() { Color32::from_rgb(252, 251, 253) } else { Color32::from_rgb(28, 24, 32) }
+    filed(F_SURFACE).unwrap_or(if light() { Color32::from_rgb(252, 251, 253) } else { Color32::from_rgb(28, 24, 32) })
+}
+
+fn luma(c: Color32) -> f32 {
+    0.299 * c.r() as f32 + 0.587 * c.g() as f32 + 0.114 * c.b() as f32
+}
+
+// A theme file's colours (Settings › Appearance › Accent colour › From file), for wallust,
+// pywal and the like: `theme.txt` in the data folder, a `name = #rrggbb` on each line.
+//
+//     accent = #e0af68
+//     background = #1a1b26
+//     text = #c0caf5
+//     text-dim = #a9b1d6
+//     text-faint = #565f89
+//     surface = #1f2335
+//     menu = #24283b
+//
+// Any may be left out. `foreground` and `aux-foreground` are other names for `text` and
+// `text-dim`. With a background, pages are that flat colour instead of the album art, and
+// what isn't given (surface, menu, the dimmer text) is mixed from it and the text.
+
+/// What `theme.txt` holds.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct FileTheme {
+    pub accent: Option<Color32>,
+    pub background: Option<Color32>,
+    pub surface: Option<Color32>,
+    pub menu: Option<Color32>,
+    pub text: Option<Color32>,
+    pub text_dim: Option<Color32>,
+    pub text_faint: Option<Color32>,
+}
+
+impl FileTheme {
+    fn parse(s: &str) -> Self {
+        let mut t = Self::default();
+        for line in s.lines().map(|l| l.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')) {
+            // A line starting with # is a comment: names don't, only colours do.
+            if line.starts_with('#') || line.starts_with("//") || line.starts_with(';') {
+                continue;
+            }
+            let Some((name, value)) = line.split_once(['=', ':']) else { continue };
+            let Some(c) = parse_accent(value.trim().trim_matches(['"', '\'', ',', ';'])) else { continue };
+            let slot = match name.trim().trim_matches(['"', '\'']).to_ascii_lowercase().replace('_', "-").as_str() {
+                "accent" => &mut t.accent,
+                "background" | "bg" => &mut t.background,
+                "surface" => &mut t.surface,
+                "menu" => &mut t.menu,
+                "text" | "foreground" | "fg" => &mut t.text,
+                "text-dim" | "aux-foreground" | "secondary" => &mut t.text_dim,
+                "text-faint" | "faint" => &mut t.text_faint,
+                _ => continue,
+            };
+            *slot = Some(c);
+        }
+        t
+    }
+
+    /// With what follows from the colours given: surfaces a step off the background
+    /// toward the text, and dimmer text a step off the text toward the background.
+    fn filled(mut self) -> Self {
+        if let Some(bg) = self.background {
+            let ink = self.text.unwrap_or(if luma(bg) > 140.0 { TEXT_LIGHT } else { TEXT });
+            self.text = Some(ink);
+            self.surface = self.surface.or(Some(lerp_color(bg, ink, 0.06)));
+            self.menu = self.menu.or(Some(lerp_color(bg, ink, 0.11)));
+            self.text_dim = self.text_dim.or(Some(lerp_color(ink, bg, 0.28)));
+            self.text_faint = self.text_faint.or(Some(lerp_color(ink, bg, 0.5)));
+        } else if let Some(ink) = self.text {
+            let bg = if luma(ink) > 140.0 { BG } else { BG_LIGHT };
+            self.text_dim = self.text_dim.or(Some(lerp_color(ink, bg, 0.28)));
+            self.text_faint = self.text_faint.or(Some(lerp_color(ink, bg, 0.5)));
+        }
+        self
+    }
+
+    /// Whether these are colours for light pages: by the background, if there is one.
+    fn light(&self) -> Option<bool> {
+        self.background.map(|bg| luma(bg) > 140.0)
+    }
+}
+
+const F_BACKGROUND: usize = 0;
+const F_SURFACE: usize = 1;
+const F_MENU: usize = 2;
+const F_TEXT: usize = 3;
+const F_TEXT_DIM: usize = 4;
+const F_TEXT_FAINT: usize = 5;
+/// The theme file's colours in use (0: not given), read very often.
+static FILED: [std::sync::atomic::AtomicU32; 6] = [const { std::sync::atomic::AtomicU32::new(0) }; 6];
+/// 0: the file gives no background; 1: a dark one; 2: a light one.
+static FILED_MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// The theme file's colour for `slot`, where it applies: its colours go with its
+/// background, so not on what's drawn in the other mode (now playing, dark over the art,
+/// with a light theme file).
+fn filed(slot: usize) -> Option<Color32> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let v = FILED[slot].load(Relaxed);
+    if v == 0 {
+        return None;
+    }
+    let mode = FILED_MODE.load(Relaxed);
+    if mode != 0 && (mode == 2) != light() {
+        return None;
+    }
+    let [r, g, b, _] = v.to_le_bytes();
+    Some(Color32::from_rgb(r, g, b))
+}
+
+/// Use these theme file colours from now on (`FileTheme::default()`: none).
+pub fn set_file_theme(ctx: &egui::Context, t: FileTheme) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let t = t.filled();
+    let slots = [t.background, t.surface, t.menu, t.text, t.text_dim, t.text_faint];
+    let mode = match t.light() {
+        None => 0,
+        Some(false) => 1,
+        Some(true) => 2,
+    };
+    let mut changed = FILED_MODE.swap(mode, Relaxed) != mode;
+    for (slot, c) in FILED.iter().zip(slots) {
+        // Opaque, so never 0.
+        let v = c.map_or(0, |c| u32::from_le_bytes([c.r(), c.g(), c.b(), 255]));
+        changed |= slot.swap(v, Relaxed) != v;
+    }
+    if changed {
+        ctx.global_style_mut(|s| s.visuals = visuals());
+    }
+}
+
+/// The theme file's background, when it gives one: pages are that flat colour.
+pub fn file_background() -> Option<Color32> {
+    filed(F_BACKGROUND)
+}
+
+/// Whether the theme file in use is for light pages (`None`: it gives no background).
+pub fn file_light() -> Option<bool> {
+    match FILED_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => None,
+        m => Some(m == 2),
+    }
+}
+
+/// The theme file, looked at every couple of seconds so it follows a tool rewriting it.
+/// Empty while it's missing.
+pub fn file_theme(path: &std::path::Path) -> FileTheme {
+    use std::time::{Duration, Instant};
+    static THEME: std::sync::Mutex<Option<(Instant, FileTheme)>> = std::sync::Mutex::new(None);
+    let mut cached = THEME.lock().unwrap();
+    match *cached {
+        Some((at, t)) if at.elapsed() < Duration::from_secs(2) => t,
+        _ => {
+            let t = std::fs::read(path).map(|b| FileTheme::parse(&decode_text(&b))).unwrap_or_default();
+            *cached = Some((Instant::now(), t));
+            t
+        }
+    }
+}
+
+#[test]
+fn theme_files_name_their_colours() {
+    let rgb = |v: u32| Some(Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8));
+    let t = FileTheme::parse("# from wallust\naccent = #e0af68\nbackground: \"#1a1b26\"\nforeground = c0caf5\naux_foreground = #a9b1d6\nnonsense = #ffffff\ntext-faint = nope\n#565f89\n");
+    assert_eq!((t.accent, t.background, t.text, t.text_dim), (rgb(0xe0af68), rgb(0x1a1b26), rgb(0xc0caf5), rgb(0xa9b1d6)));
+    assert_eq!((t.text_faint, t.surface, t.menu), (None, None, None));
+    assert_eq!(t.light(), Some(false));
+    // What's missing is mixed from the background and the text.
+    let f = t.filled();
+    assert!(f.surface.is_some() && f.menu.is_some() && f.text_faint.is_some());
+    assert_eq!(f.text_dim, rgb(0xa9b1d6));
+    // A light background gets dark text when none is given.
+    let l = FileTheme::parse("background = #fafafa").filled();
+    assert_eq!((l.light(), l.text), (Some(true), Some(TEXT_LIGHT)));
+    // Just an accent changes nothing else.
+    assert_eq!(FileTheme::parse("accent=#ff00aa").filled(), FileTheme { accent: rgb(0xff00aa), ..Default::default() });
+    assert_eq!(FileTheme::parse(""), FileTheme::default());
 }
 
 /// Theme preset multiplier for every glass surface (f32 bits; 1.0 by default).
@@ -102,6 +289,9 @@ static DIM: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32
 
 /// Secondary text colour (themes may tint it).
 pub fn text_dim() -> Color32 {
+    if let Some(c) = filed(F_TEXT_DIM) {
+        return c;
+    }
     if light() {
         return TEXT_DIM_LIGHT;
     }

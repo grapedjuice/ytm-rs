@@ -1580,7 +1580,11 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
             // System is offered where there's a system accent to follow (Windows).
             let has_system = theme::system_accent().is_some();
             let desc = if app.accent_source == AccentSource::File {
-                format!("Follows the #rrggbb colour in {}. Have wallust or pywal write it there.", app.accent_file().display())
+                format!(
+                    "Follows the #rrggbb colour in {}, or every colour in {} beside it (accent, background, text, text-dim, text-faint, surface, menu: one \"name = #rrggbb\" a line). Have wallust or pywal write them.",
+                    app.accent_file().display(),
+                    app.theme_file().file_name().unwrap_or_default().to_string_lossy()
+                )
             } else if has_system {
                 "The theme's colour, your Windows accent colour, a colour file, or one you pick.".to_owned()
             } else {

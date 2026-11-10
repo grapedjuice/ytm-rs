@@ -36,6 +36,10 @@ fn gradient(painter: &egui::Painter, rect: Rect, c: [Color32; 4]) {
 /// playing uses.
 fn page_mode(look: &crate::preset::Preset) -> crate::preset::BgMode {
     use crate::preset::{BgMode, PageBg};
+    // A theme file's background is the page.
+    if theme::file_background().is_some() {
+        return BgMode::Solid;
+    }
     match look.app.page_bg {
         PageBg::Same => look.background.mode,
         PageBg::Static => BgMode::CoverStatic,
@@ -54,7 +58,7 @@ pub fn pages_bg_moves(look: &crate::preset::Preset) -> bool {
 /// `only`: paint just this part (the rest is covered by now playing).
 /// The background's flat colour, under its art and gradients.
 pub fn base_color(app: &App) -> Color32 {
-    if app.default_theme { theme::bg() } else { app.look().solid() }
+    if app.default_theme || theme::file_background().is_some() { theme::bg() } else { app.look().solid() }
 }
 
 pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64, only: Option<Rect>) {

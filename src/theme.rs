@@ -155,6 +155,65 @@ impl FileTheme {
     fn light(&self) -> Option<bool> {
         self.background.map(|bg| luma(bg) > 140.0)
     }
+
+    /// The mode these colours are for: the background's, or without one the one the
+    /// text is readable in (light text is for dark pages).
+    fn mode(&self) -> Option<bool> {
+        self.light().or(self.text.map(|t| luma(t) <= 140.0))
+    }
+}
+
+/// A theme file to start from: the accent showing now, the app's own text colours, and
+/// the background left for whoever wants flat pages. Nothing looks different until it's
+/// edited.
+pub fn theme_template(accent: Color32) -> String {
+    let hex = |c: Color32| format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b());
+    format!(
+        "# ytm-rs colours. One \"name = #rrggbb\" on each line.\n\
+         # Save the file and the app follows within a couple of seconds: no restart.\n\
+         # Lines starting with # are ignored. Remove the # to use one.\n\
+         \n\
+         accent = {}\n\
+         \n\
+         text = {}\n\
+         text-dim = {}\n\
+         text-faint = {}\n\
+         \n\
+         # With a background, pages are that flat colour instead of the album art.\n\
+         # Surfaces are dialogs and cards; menus are menus and popups.\n\
+         # background = {}\n\
+         # surface = {}\n\
+         # menu = {}\n",
+        hex(accent),
+        hex(TEXT),
+        hex(TEXT_DIM),
+        hex(TEXT_FAINT),
+        hex(BG),
+        hex(Color32::from_rgb(28, 24, 32)),
+        hex(Color32::from_rgb(38, 34, 42)),
+    )
+}
+
+/// Write the starter theme file at `path` unless one is there already.
+pub fn ensure_theme_file(path: &std::path::Path, accent: Color32) -> std::io::Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    std::fs::write(path, theme_template(accent))
+}
+
+/// Open a text file to edit: Notepad on Windows (a .conf file has no program of its own
+/// there), the system's text editor elsewhere.
+pub fn open_in_editor(path: &std::path::Path) {
+    #[cfg(windows)]
+    let cmd = std::process::Command::new("notepad").arg(path).spawn();
+    #[cfg(target_os = "macos")]
+    let cmd = std::process::Command::new("open").arg("-t").arg(path).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let cmd = std::process::Command::new("xdg-open").arg(path).spawn();
+    if let Err(e) = cmd {
+        log::warn!("theme file: couldn't open {}: {e}", path.display());
+    }
 }
 
 const F_BACKGROUND: usize = 0;
@@ -165,7 +224,8 @@ const F_TEXT_DIM: usize = 4;
 const F_TEXT_FAINT: usize = 5;
 /// The theme file's colours in use (0: not given), read very often.
 static FILED: [std::sync::atomic::AtomicU32; 6] = [const { std::sync::atomic::AtomicU32::new(0) }; 6];
-/// 0: the file gives no background; 1: a dark one; 2: a light one.
+/// The mode the file's colours are for (its background's, else its text's). 0: either;
+/// 1: dark; 2: light.
 static FILED_MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
 /// The theme file's colour for `slot`, where it applies: its colours go with its
@@ -190,7 +250,7 @@ pub fn set_file_theme(ctx: &egui::Context, t: FileTheme) {
     use std::sync::atomic::Ordering::Relaxed;
     let t = t.filled();
     let slots = [t.background, t.surface, t.menu, t.text, t.text_dim, t.text_faint];
-    let mode = match t.light() {
+    let mode = match t.mode() {
         None => 0,
         Some(false) => 1,
         Some(true) => 2,
@@ -213,10 +273,11 @@ pub fn file_background() -> Option<Color32> {
 
 /// Whether the theme file in use is for light pages (`None`: it gives no background).
 pub fn file_light() -> Option<bool> {
-    match FILED_MODE.load(std::sync::atomic::Ordering::Relaxed) {
-        0 => None,
-        m => Some(m == 2),
+    use std::sync::atomic::Ordering::Relaxed;
+    if FILED[F_BACKGROUND].load(Relaxed) == 0 {
+        return None;
     }
+    Some(FILED_MODE.load(Relaxed) == 2)
 }
 
 /// The theme file, looked at every couple of seconds so it follows a tool rewriting it.
@@ -249,6 +310,12 @@ fn theme_files_name_their_colours() {
     // A light background gets dark text when none is given.
     let l = FileTheme::parse("background = #fafafa").filled();
     assert_eq!((l.light(), l.text), (Some(true), Some(TEXT_LIGHT)));
+    // Text alone is for the pages it reads on; it doesn't say which the pages are.
+    let ink = FileTheme::parse("text = #f2f0f5");
+    assert_eq!((ink.light(), ink.mode()), (None, Some(false)));
+    // The starter file changes nothing: the app's own text colours, no background.
+    let start = FileTheme::parse(&theme_template(Color32::from_rgb(0xe0, 0xaf, 0x68)));
+    assert_eq!(start, FileTheme { accent: rgb(0xe0af68), text: Some(TEXT), text_dim: Some(TEXT_DIM), text_faint: Some(TEXT_FAINT), ..Default::default() });
     // Just an accent changes nothing else.
     assert_eq!(FileTheme::parse("accent=#ff00aa").filled(), FileTheme { accent: rgb(0xff00aa), ..Default::default() });
     assert_eq!(FileTheme::parse(""), FileTheme::default());

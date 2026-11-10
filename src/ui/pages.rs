@@ -1610,11 +1610,7 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
             // System is offered where there's a system accent to follow (Windows).
             let has_system = theme::system_accent().is_some();
             let desc = if app.accent_source == AccentSource::File {
-                format!(
-                    "Follows the #rrggbb colour in {}, or every colour in {} beside it (accent, background, text, text-dim, text-faint, surface, menu: one \"name = #rrggbb\" a line). Have wallust or pywal write them.",
-                    app.accent_file().display(),
-                    app.theme_file().file_name().unwrap_or_default().to_string_lossy()
-                )
+                "Follows the colours in theme.conf: the accent, the text and, if you like, the background. Save the file and the app follows in a couple of seconds. wallust or pywal can write it too.".to_owned()
             } else if has_system {
                 "The theme's colour, your Windows accent colour, a colour file, or one you pick.".to_owned()
             } else {
@@ -1637,8 +1633,26 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
                         }
                     }
                 });
+                // Picking the file opens it, with a starter one written if there's none yet.
+                let mut edit = pick == Some(AccentSource::File);
                 if let Some(p) = pick {
+                    if p == AccentSource::File
+                        && let Err(e) = theme::ensure_theme_file(&app.theme_file(), app.base_accent())
+                    {
+                        log::warn!("theme file: couldn't write {}: {e}", app.theme_file().display());
+                    }
                     app.accent_source = p;
+                }
+                if app.accent_source == AccentSource::File {
+                    ui.add_space(8.0);
+                    edit |= pill(ui, "Edit file", None, false).clicked();
+                }
+                if edit {
+                    let file = app.theme_file();
+                    if let Err(e) = theme::ensure_theme_file(&file, app.base_accent()) {
+                        log::warn!("theme file: couldn't write {}: {e}", file.display());
+                    }
+                    theme::open_in_editor(&file);
                 }
                 if let AccentSource::Custom(c) = &mut app.accent_source {
                     ui.add_space(8.0);

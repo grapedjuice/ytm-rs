@@ -9,6 +9,7 @@
     <a href="https://github.com/grapedjuice/ytm-rs/releases"><img src="https://img.shields.io/github/downloads/grapedjuice/ytm-rs/total?style=flat-square&color=ff4e45" alt="Downloads"></a>
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-333?style=flat-square" alt="Platforms">
     <a href="LICENSE"><img src="https://img.shields.io/github/license/grapedjuice/ytm-rs?style=flat-square&color=333" alt="License: GPL-3.0"></a>
+    <a href="https://ko-fi.com/grapedjuice"><img src="https://img.shields.io/badge/Ko--fi-support-ff4e45?style=flat-square&logo=kofi&logoColor=white" alt="Support on Ko-fi"></a>
   </p>
 
   <p>
@@ -16,7 +17,8 @@
     <a href="https://github.com/grapedjuice/ytm-rs/releases/latest">Download</a> ·
     <a href="#features">Features</a> ·
     <a href="#installation">Installation</a> ·
-    <a href="#building-from-source">Build from source</a>
+    <a href="#building-from-source">Build from source</a> ·
+    <a href="https://github.com/grapedjuice/ytm-rs/discussions">Discussions</a>
   </p>
 </div>
 
@@ -24,8 +26,22 @@
   <img src="docs/readme/hero.jpg" alt="ytm-rs playing Birds of a Feather by Billie Eilish with synced lyrics, with the Spinning Record and reCover themes behind it" width="100%">
 </p>
 
+## Why ytm-rs
+
+Most YouTube Music desktop apps are the website running in a hidden browser. ytm-rs draws everything itself, so it starts quickly, stays light and leaves your memory for everything else.
+
+| | ytm-rs | YouTube Music in Chrome | Pear Desktop |
+| --- | --- | --- | --- |
+| Memory with a song playing | **96 MB** | 496 MB | 638 MB |
+| Windows download | **11 MB** | – | 107 MB |
+| Installed size | **36 MB** | – | 397 MB |
+| Runs a web browser inside | No | Yes | Yes |
+
+<sub>Memory: the same song on the same Windows 11 PC in October 2026, with ytm-rs 0.2.18, Chrome 155 with one tab and Pear Desktop 3.12.0. Sizes: ytm-rs 0.3.0 and Pear Desktop 3.12.0.</sub>
+
 ## Table of contents
 
+- [Why ytm-rs](#why-ytm-rs)
 - [Features](#features)
 - [Screenshots](#screenshots)
 - [Installation](#installation)
@@ -238,7 +254,7 @@ The relay in `server/` is a separate Cloudflare Worker, also in Rust ([workers-r
 
 ## Contributing
 
-Found a bug or have an idea? [Open an issue](https://github.com/grapedjuice/ytm-rs/issues). Pull requests are welcome.
+Found a bug or have an idea? [Open an issue](https://github.com/grapedjuice/ytm-rs/issues). Questions, or a setup to show off? Head to [Discussions](https://github.com/grapedjuice/ytm-rs/discussions). Pull requests are welcome.
 
 ## License
 

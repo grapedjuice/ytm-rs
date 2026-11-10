@@ -421,6 +421,10 @@ pub struct App {
     crossfade_secs: u32,
     /// Also crossfade when skipping or picking a song.
     crossfade_skips: bool,
+    /// The equalizer: whether it's on, its bands (dB) and whether it keeps clear of clipping.
+    eq_on: bool,
+    eq_gains: crate::audio::eq::Gains,
+    eq_no_clip: bool,
     /// The next song starts because this one is ending: crossfade into it.
     handoff: bool,
     /// SponsorBlock segments for a video, and when one was last skipped.
@@ -540,6 +544,16 @@ pub struct App {
 
 /// Longest crossfade offered, in seconds.
 pub(super) const CROSSFADE_MAX: u32 = 12;
+
+/// The equalizer's bands as saved: ten comma-separated dB values.
+fn parse_gains(s: &str) -> Option<crate::audio::eq::Gains> {
+    let mut out = [0.0; 10];
+    let mut parts = s.split(',');
+    for g in &mut out {
+        *g = parts.next()?.trim().parse::<f32>().ok().filter(|v| v.is_finite())?.clamp(-crate::audio::eq::MAX_DB, crate::audio::eq::MAX_DB);
+    }
+    parts.next().is_none().then_some(out)
+}
 
 impl App {
     pub fn new(
@@ -725,6 +739,9 @@ impl App {
             handoff: false,
             crossfade_skips: get("crossfade_skips").is_some_and(|v| v == "1"),
             crossfade_secs: get("crossfade_secs").and_then(|v| v.parse().ok()).unwrap_or(5).clamp(1, CROSSFADE_MAX),
+            eq_on: get("eq").is_some_and(|v| v == "1"),
+            eq_gains: get("eq_gains").and_then(|v| parse_gains(&v)).unwrap_or_default(),
+            eq_no_clip: get("eq_no_clip").is_none_or(|v| v == "1"),
             segments: None,
             segment_skipped: f64::NEG_INFINITY,
             hotkeys,
@@ -833,6 +850,7 @@ impl App {
         jam::dev_hooks(&mut app);
         app.audio.set_normalize(app.normalize);
         app.set_crossfade();
+        app.set_eq();
         app
     }
 
@@ -1550,6 +1568,9 @@ impl eframe::App for App {
         storage.set_string("crossfade", b(self.crossfade));
         storage.set_string("crossfade_secs", self.crossfade_secs.to_string());
         storage.set_string("crossfade_skips", b(self.crossfade_skips));
+        storage.set_string("eq", b(self.eq_on));
+        storage.set_string("eq_gains", self.eq_gains.map(|g| g.to_string()).join(","));
+        storage.set_string("eq_no_clip", b(self.eq_no_clip));
         storage.set_string("show_roman", b(self.show_roman));
         storage.set_string("show_trans", b(self.show_trans));
         // Background test runs mustn't change the listener's sources or per-song picks.
@@ -1761,5 +1782,20 @@ mod session_tests {
         let video = Track { music_video: true, explicit: true, ..s.queue[0].clone() };
         let back: Track = serde_json::from_str(&serde_json::to_string(&video).unwrap()).unwrap();
         assert!(back.music_video && back.explicit);
+    }
+}
+
+#[cfg(test)]
+mod eq_tests {
+    use super::parse_gains;
+
+    #[test]
+    fn stored_gains_read_back_or_fall_back_to_flat() {
+        let g = [1.5, -2.25, 0.0, 12.0, -12.0, 0.1, 0.0, 3.0, 0.0, -0.5];
+        assert_eq!(parse_gains(&g.map(|g| g.to_string()).join(",")), Some(g));
+        assert_eq!(parse_gains("40,-40,0,0,0,0,0,0,0,0").map(|g| (g[0], g[1])), Some((12.0, -12.0)));
+        for bad in ["", "0,0,0,0,0,0,0,0,0", "0,0,0,0,0,0,0,0,0,0,0", "NaN,0,0,0,0,0,0,0,0,0", "inf,0,0,0,0,0,0,0,0,0", "x,0,0,0,0,0,0,0,0,0"] {
+            assert_eq!(parse_gains(bad), None, "{bad}");
+        }
     }
 }

@@ -42,7 +42,7 @@
 - **Your music feed:** Listen again, Quick picks, your mixes (My Supermix, Discover Mix and more) and mood filters, refreshed each time you open a page.
 - **Explore and search:** new releases, charts, and search across songs, albums, artists and playlists.
 - **Your library:** liked songs, saved albums and playlists, history and uploads. Upload your own songs from the Uploads tab or by dropping files on the window.
-- **Playback:** queue, song radio, shuffle, repeat and autoplay, with the next track prefetched for instant skips. 256 kbps audio with YouTube Premium, volume normalization, and a choice of output device.
+- **Playback:** queue, song radio, shuffle, repeat and autoplay, with the next track prefetched for instant skips. 256 kbps audio with YouTube Premium, volume normalization, a 10-band equalizer, and a choice of output device.
 - **Skip non-music parts:** jumps over talking, skits and sponsor breaks in music videos, as marked by SponsorBlock.
 - **Explicit songs:** marked with an E. Turn on Hide explicit songs to leave them out of lists, search, the queue and autoplay, and optionally use YouTube's Restricted Mode as well.
 - **Downloads:** save any song as a tagged `.m4a` with cover art, at the best quality your account gets, and play it offline.

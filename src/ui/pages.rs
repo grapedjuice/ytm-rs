@@ -1789,6 +1789,24 @@ fn settings_zoom(ui: &mut Ui) {
 /// Settings › Window.
 fn settings_window(app: &mut App, ui: &mut Ui) {
     settings_section(ui, "Window", None, None, |ui| {
+        setting_row(ui, "Open on", Some("The page the app starts on. The Library's own tabs need you signed in, except Downloads; signed out, the app opens on Home."), |ui| {
+            let current = super::START_PAGES.iter().find(|(.., p)| *p == app.start_page).map_or("Home", |(_, l, _)| l);
+            let btn = dropdown_button(ui, current, 200.0, "Open on");
+            widgets::menu_popup(&btn).show(|ui| {
+                widgets::menu_body(ui, 200.0);
+                for (_, label, page) in super::START_PAGES {
+                    // Podcasts is a Library tab only with Settings › Playback › Show podcasts on.
+                    if page == Page::Library(LibTab::Podcasts) && !app.show_podcasts && app.start_page != page {
+                        continue;
+                    }
+                    if option_row(ui, label, page == app.start_page).clicked() {
+                        app.start_page = page;
+                        ui.close();
+                    }
+                }
+            });
+        });
+        divider(ui);
         // Linux tray icons only open their menu on click.
         let how = if cfg!(target_os = "linux") {
             "Keeps an icon in the tray. Clicking × hides the window there and keeps the music playing. The icon's menu brings it back, hides it or quits."

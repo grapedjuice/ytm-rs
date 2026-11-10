@@ -93,6 +93,35 @@ pub enum NpTab {
 
 pub use mini::init_pill;
 
+/// Settings › General › Window › Open on: the pages the app can start on, as saved and
+/// as listed.
+pub(super) const START_PAGES: [(&str, &str, Page); 9] = [
+    ("home", "Home", Page::Home),
+    ("explore", "Explore", Page::Explore),
+    ("library", "Library › Playlists", Page::Library(LibTab::Playlists)),
+    ("liked", "Library › Liked songs", Page::Library(LibTab::Songs)),
+    ("albums", "Library › Albums", Page::Library(LibTab::Albums)),
+    ("podcasts", "Library › Podcasts", Page::Library(LibTab::Podcasts)),
+    ("history", "Library › History", Page::Library(LibTab::History)),
+    ("uploads", "Library › Uploads", Page::Library(LibTab::Uploads)),
+    ("downloads", "Library › Downloads", Page::Library(LibTab::Downloads)),
+];
+
+/// The page picked to open on, from the saved `start_page` key (Home for anything unknown).
+fn start_choice(saved: &str) -> Page {
+    START_PAGES.into_iter().find(|(k, ..)| *k == saved).map_or(Page::Home, |(.., p)| p)
+}
+
+/// The page the app opens on: the one picked, or Home when it can't show this time (the
+/// account's Library signed out, Podcasts hidden). The pick itself stays for next time.
+fn start_page(choice: &Page, logged_in: bool, podcasts: bool) -> Page {
+    match choice {
+        Page::Library(LibTab::Podcasts) if !podcasts => Page::Home,
+        Page::Library(t) if !logged_in && *t != LibTab::Downloads => Page::Home,
+        p => p.clone(),
+    }
+}
+
 /// Where the accent colour comes from (Settings › Appearance › Accent colour).
 #[derive(Clone, Copy, PartialEq)]
 pub enum AccentSource {
@@ -295,6 +324,8 @@ pub struct App {
 
     // navigation
     page: Page,
+    /// Settings › General › Window › Open on: the page the app starts on.
+    start_page: Page,
     back: Vec<Page>,
     forward: Vec<Page>,
     page_changed: f64,
@@ -585,8 +616,14 @@ impl App {
         let show_podcasts = get("podcasts").is_some_and(|v| v == "1");
         crate::ytm::set_podcasts(show_podcasts);
         backend.request(Req::Home(None));
+        let start_choice = start_choice(&get("start_page").unwrap_or_default());
+        let start = start_page(&start_choice, logged_in, show_podcasts);
+        // Opening on the Library asks for it below, as visiting the page does.
+        let start_asks_library = matches!(start, Page::Library(LibTab::Playlists | LibTab::Albums | LibTab::Podcasts));
         if logged_in {
-            backend.request(Req::Library);
+            if !start_asks_library {
+                backend.request(Req::Library);
+            }
             backend.request(Req::Account);
             backend.warm_signed_in();
         }
@@ -617,6 +654,7 @@ impl App {
             play_pending: None,
             bg,
             page: Page::Home,
+            start_page: start_choice,
             back: Vec::new(),
             forward: Vec::new(),
             page_changed: 0.0,
@@ -786,6 +824,13 @@ impl App {
         app.queue.hide_explicit = hide_explicit;
         app.find.hide_explicit = hide_explicit;
         app.request_liked(false);
+        // Settings › Open on: in place, not a visit (nothing to go back to), and without
+        // the page transition.
+        if start != Page::Home {
+            app.page = start;
+            app.page_loaded();
+            app.page_changed = 0.0;
+        }
         // Dev hooks: YTM_SMOKE="query" searches and plays the first song ("id:<videoId>[,<videoId>…]"
         // plays that video; with YTM_VIDEO, shown as a video); YTM_SEARCH
         // only searches; YTM_PAGE opens a page; YTM_NOWPLAYING opens the overlay.
@@ -1544,6 +1589,8 @@ impl eframe::App for App {
             self.good_window = Some(w);
         }
         storage.set_string("close_to_tray", b(self.close_to_tray));
+        let start = START_PAGES.iter().find(|(.., p)| *p == self.start_page).map_or("home", |(k, ..)| k);
+        storage.set_string("start_page", start.to_owned());
         storage.set_string("sidebar_collapsed", b(self.sidebar_collapsed));
         // Pretend versions (dev hook) mustn't decide the real "what's new".
         if std::env::var_os("YTM_UPDATE_AS").is_none() {
@@ -1798,5 +1845,26 @@ mod eq_tests {
         for bad in ["", "0,0,0,0,0,0,0,0,0", "0,0,0,0,0,0,0,0,0,0,0", "NaN,0,0,0,0,0,0,0,0,0", "inf,0,0,0,0,0,0,0,0,0", "x,0,0,0,0,0,0,0,0,0"] {
             assert_eq!(parse_gains(bad), None, "{bad}");
         }
+    }
+}
+
+#[cfg(test)]
+mod start_page_tests {
+    use super::*;
+
+    #[test]
+    fn opens_on_the_picked_page_or_home_when_it_cant_show() {
+        for (key, _, page) in START_PAGES {
+            assert_eq!(start_choice(key), page, "{key}");
+        }
+        assert_eq!(start_choice(""), Page::Home);
+        assert_eq!(start_choice("nowhere"), Page::Home);
+        let lib = |t| Page::Library(t);
+        assert_eq!(start_page(&lib(LibTab::Playlists), true, false), lib(LibTab::Playlists));
+        assert_eq!(start_page(&lib(LibTab::Playlists), false, false), Page::Home);
+        assert_eq!(start_page(&lib(LibTab::Downloads), false, false), lib(LibTab::Downloads));
+        assert_eq!(start_page(&Page::Explore, false, false), Page::Explore);
+        assert_eq!(start_page(&lib(LibTab::Podcasts), true, false), Page::Home);
+        assert_eq!(start_page(&lib(LibTab::Podcasts), true, true), lib(LibTab::Podcasts));
     }
 }

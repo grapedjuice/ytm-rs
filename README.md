@@ -62,7 +62,7 @@
 - **Last.fm and Discord:** scrobbling and Rich Presence.
 
 **Desktop**
-- System media controls with a seekable timeline, taskbar thumbnail buttons, close to tray (Wayland too), a collapsible sidebar and screen-reader-accessible controls.
+- System media controls with a seekable timeline, taskbar thumbnail buttons, close to tray (Wayland too), a choice of page to open on, a collapsible sidebar and screen-reader-accessible controls.
 - The app draws its own title bar on Windows, so the window is one surface, and on Linux desktops that draw none. On Windows 11, Mica or Acrylic can show behind the window.
 - **Mini player:** shrink the window to a small strip with the song and controls (Ctrl+M), or try the experimental pill that sits in a corner and opens on hover.
 - **System-wide media shortcuts:** play/pause, next, previous and volume work while another app is in front or the window is in the tray. Change them in Settings › Keyboard shortcuts.

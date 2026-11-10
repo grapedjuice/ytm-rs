@@ -41,16 +41,20 @@
 **Listening**
 - **Your music feed:** Listen again, Quick picks, your mixes (My Supermix, Discover Mix and more) and mood filters, refreshed each time you open a page.
 - **Explore and search:** new releases, charts, and search across songs, albums, artists and playlists.
-- **Your library:** liked songs, saved albums and playlists, history and uploads. Upload your own songs from the Uploads tab or by dropping files on the window.
-- **Playback:** queue, song radio, shuffle, repeat and autoplay, with the next track prefetched for instant skips. 256 kbps audio with YouTube Premium, volume normalization, a 10-band equalizer, and a choice of output device.
+- **Your library:** liked songs, saved albums and playlists, history and uploads. Upload your own songs from the Uploads tab or by dropping files on the window. Turn on podcasts to see shows and episodes too.
+- **Song lists:** drag songs to reorder the queue and your own playlists, or drop them on a playlist in the sidebar to add them. A find box narrows any list to the songs that match.
+- **Playback:** queue, song radio, shuffle, repeat, autoplay and crossfade, with the next track prefetched for instant skips. Volume normalization, a 10-band equalizer with presets, and a choice of output device.
+- **Sound quality:** Opus at about 256 kbps with YouTube Premium, the best stream YouTube offers, and Opus at about 130 kbps without it.
+- **Songs, not music videos:** an official music video plays as its album recording, without the intros and skits, or switch to the video itself in Now playing.
 - **Skip non-music parts:** jumps over talking, skits and sponsor breaks in music videos, as marked by SponsorBlock.
 - **Explicit songs:** marked with an E. Turn on Hide explicit songs to leave them out of lists, search, the queue and autoplay, and optionally use YouTube's Restricted Mode as well.
-- **Downloads:** save any song as a tagged `.m4a` with cover art, at the best quality your account gets, and play it offline.
+- **Downloads:** save any song as a tagged `.m4a` with cover art, at the best quality your account gets. Saved songs are listed in Library › Downloads and play offline.
 
 **Lyrics and looks**
 - **Karaoke lyrics:** word-by-word lyrics drawn the way the Better Lyrics extension draws them, from every Better Lyrics source, with automatic fallback, romanization, translations and per-song timing offsets.
 - **Animated background:** the album art drifts and pulses with the music behind everything. Go full-screen, or hide the lyrics to see just the artwork.
-- **30 themes:** 27 rebuilt from the [Better Lyrics community themes](https://github.com/better-lyrics/themes), such as Apple Music, Spicy, Spinning Record and reCover, plus the app's own two and Fluent, in the style of Windows 11 with your Windows accent colour. Each one restyles the whole app. Use any bundled or installed font.
+- **30 themes:** 27 rebuilt from the [Better Lyrics community themes](https://github.com/better-lyrics/themes), such as Apple Music, Spicy, Spinning Record, reCover and Material 3, plus the app's own ytm-rs and Classic looks and Fluent, in the style of Windows 11. Each one restyles the whole app, in light or dark mode, with real frosted glass where the theme has it. Use any bundled or installed font.
+- **Your colours:** the accent can follow the theme or your system, or be any colour you pick. A `theme.conf` file can set every colour in the app, for tools like wallust and pywal to write. Zoom makes everything bigger or smaller.
 
 **Together and across services**
 - **Listen together:** start a jam, share the code or link, and up to 16 people hear the same song at the same moment. The host decides whether guests can add songs or control playback.
@@ -58,9 +62,11 @@
 - **Last.fm and Discord:** scrobbling and Rich Presence.
 
 **Desktop**
-- System media controls, taskbar thumbnail buttons, close to tray, a collapsible sidebar and screen-reader-accessible controls. On Windows, the app draws its own title bar so the window is one surface.
+- System media controls with a seekable timeline, taskbar thumbnail buttons, close to tray (Wayland too), a collapsible sidebar and screen-reader-accessible controls.
+- The app draws its own title bar on Windows, so the window is one surface, and on Linux desktops that draw none. On Windows 11, Mica or Acrylic can show behind the window.
+- **Mini player:** shrink the window to a small strip with the song and controls (Ctrl+M), or try the experimental pill that sits in a corner and opens on hover.
 - **System-wide media shortcuts:** play/pause, next, previous and volume work while another app is in front or the window is in the tray. Change them in Settings › Keyboard shortcuts.
-- Automatic updates in the background for both the installed and portable versions, with release notes when an update is ready.
+- Automatic updates in the background for both the installed and portable versions, with release notes when an update is ready. Pick the Nightly channel for builds of the newest changes.
 
 ## Screenshots
 
@@ -101,7 +107,7 @@
 
 ## Installation
 
-Downloads for every platform are on the [latest release](https://github.com/grapedjuice/ytm-rs/releases/latest). Once installed, ytm-rs keeps itself up to date; you can turn this off in **Settings → Updates**.
+Downloads for every platform are on the [latest release](https://github.com/grapedjuice/ytm-rs/releases/latest). Once installed, ytm-rs keeps itself up to date; you can turn this off, or switch to nightly builds, in **Settings › About › Updates**.
 
 <details open>
 <summary><b>Windows</b></summary>
@@ -157,14 +163,15 @@ Sign-ins are still kept by the system (Credential Manager, Keychain or your keyr
 
 | To… | Do this |
 | --- | --- |
-| **Sign in** | **Settings → Sign in with Google.** Unlocks your feed, library, likes and history. Browsing and search work without it. |
+| **Sign in** | **Settings › Account › Sign in with Google.** Unlocks your feed, library, likes and history. Browsing and search work without it. If your account has more than one YouTube channel, pick one there too. |
 | **Listen together** | Click **Listen together** in the sidebar, start a jam and share the code or link. Songs guests add play next, marked with who added them, up to 5 waiting per guest. |
-| **Transfer from Spotify** | **Settings → Import**, then sign in to Spotify to pick a playlist or Liked Songs, or paste a public playlist link without signing in. Matches ytm-rs isn't sure about come to you for review before it creates a private playlist. |
-| **Upload music** | **Library → Uploads → Upload music**, or drop MP3, M4A, FLAC, OGG or WMA files on the window. Title, artist, album and cover come from the file's tags. |
-| **Download songs** | Open a song's menu and click **Download**. Files go to `Music\ytm-rs`; change this in **Settings → Downloads**. |
-| **Scrobble to Last.fm** | **Settings → Connections → Connect** next to Last.fm, then allow ytm-rs in your browser. Songs scrobble after half their length or four minutes. |
-| **Change the theme** | **Settings → Theme**, click a card. Turn on **Classic theme** under Appearance for the plain dark look with red accents. |
-| **Tune the lyrics** | **Settings → Lyrics** sets the source order, translation language and timing offsets. |
+| **Transfer from Spotify** | **Settings › General › Transfer from Spotify**, then sign in to Spotify to pick a playlist or Liked Songs, or paste a public playlist link without signing in. Matches ytm-rs isn't sure about come to you for review before it creates a private playlist. |
+| **Upload music** | **Library › Uploads › Upload music**, or drop MP3, M4A, FLAC, OGG or WMA files on the window. Title, artist, album and cover come from the file's tags. |
+| **Download songs** | Open a song's menu and click **Download**. Files go to `Music\ytm-rs`; change this in **Settings › General › Downloads**. |
+| **Scrobble to Last.fm** | **Settings › Account › Connections**, click **Connect** next to Last.fm, then allow ytm-rs in your browser. Songs scrobble after half their length or four minutes. |
+| **Change the theme** | **Settings › Appearance**, click a theme card. Mode switches between light and dark, and Accent colour sets the highlight colour. |
+| **Shape the sound** | **Settings › Playback** has the equalizer, crossfade and volume normalization. |
+| **Tune the lyrics** | **Settings › Lyrics** sets the source order, translation language and timing offsets. |
 
 ## Building from source
 

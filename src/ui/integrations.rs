@@ -1,4 +1,4 @@
-//! Discord, Last.fm, ListenBrainz, the system media controls, the app icon, updates and the tray.
+//! Discord, Last.fm, ListenBrainz, remote control, the system media controls, the app icon, updates and the tray.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -51,6 +51,42 @@ impl App {
         });
         d.set(want.clone());
         self.discord_sent = want;
+    }
+
+    /// Mirror playback to a Stream Deck plugin, and keep the socket open only while the
+    /// setting is on. Cheap every frame: clients are told only when the snapshot changes.
+    pub(super) fn sync_remote(&mut self, ctx: &egui::Context) {
+        if !self.remote_enabled {
+            if self.remote.is_running() {
+                self.remote.stop();
+            }
+            return;
+        }
+        if !self.remote.is_running() {
+            let wake = ctx.clone();
+            self.remote.start(move || wake.request_repaint());
+        }
+        let track = self.playing_track();
+        self.remote.publish(crate::remote::Snapshot {
+            title: track.map(|t| t.title.clone()).unwrap_or_default(),
+            artist: track.map(|t| t.artist_line()).unwrap_or_default(),
+            album: track.and_then(|t| t.album.as_ref().map(|a| a.name.clone())),
+            cover_url: track.and_then(backend::art_url),
+            playing: self.playing(),
+            liked: self.heard_liked(),
+            repeat: match self.queue.repeat {
+                super::Repeat::Off => crate::remote::RepeatMode::Off,
+                super::Repeat::All => crate::remote::RepeatMode::All,
+                super::Repeat::One => crate::remote::RepeatMode::One,
+            },
+            volume: (self.audio.volume() * 100.0).round() / 100.0,
+            position: self.audio.status.position().as_secs(),
+            duration: self.audio.status.duration().map(|d| d.as_secs()).unwrap_or(0),
+        });
+        // The window may be hidden, and nothing else would move the position along.
+        if self.playing() {
+            ctx.request_repaint_after(Duration::from_secs(1));
+        }
     }
 
     /// Tell Last.fm and ListenBrainz what's playing, and scrobble it once it has played

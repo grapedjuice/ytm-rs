@@ -10,7 +10,9 @@ use crate::backend::{Req, Resp};
 use crate::model::{ShelfKind, Target, Track};
 use crate::ytm::HomePage;
 
-use super::{Action, App, Dialog, HomeState, LibTab, Page, PlayingAs, dev_var, shuffle};
+use crate::remote::{Cmd, RepeatMode};
+
+use super::{Action, App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, dev_var, shuffle};
 
 impl App {
     pub(super) fn pump(&mut self, now: f64) {
@@ -79,6 +81,9 @@ impl App {
                 }
             }
         }
+        for cmd in self.remote.drain() {
+            self.on_remote(cmd);
+        }
         if self.buffering && self.audio.status.started(self.generation) {
             self.buffering = false;
             self.skip_streak = 0;
@@ -104,6 +109,31 @@ impl App {
             // An empty box signed in shows the account's recent searches.
             if !q.is_empty() || self.logged_in {
                 self.backend.request(Req::Suggest { query: q, round: self.suggest_round });
+            }
+        }
+    }
+
+    fn on_remote(&mut self, cmd: Cmd) {
+        match cmd {
+            Cmd::Toggle => self.toggle(),
+            Cmd::Next => self.next(),
+            Cmd::Prev => self.prev(),
+            Cmd::VolumeUp => self.nudge_volume(true),
+            Cmd::VolumeDown => self.nudge_volume(false),
+            Cmd::SetVolume(v) => self.audio.set_volume(v.clamp(0.0, 1.0)),
+            Cmd::Like(v) => self.apply(Action::LikeHeard(v.unwrap_or(!self.heard_liked()))),
+            Cmd::Shuffle => self.shuffle_upcoming(),
+            Cmd::Repeat(mode) => {
+                self.queue.repeat = match mode {
+                    Some(RepeatMode::Off) => Repeat::Off,
+                    Some(RepeatMode::All) => Repeat::All,
+                    Some(RepeatMode::One) => Repeat::One,
+                    None => match self.queue.repeat {
+                        Repeat::Off => Repeat::All,
+                        Repeat::All => Repeat::One,
+                        Repeat::One => Repeat::Off,
+                    },
+                };
             }
         }
     }

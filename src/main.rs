@@ -24,6 +24,7 @@ mod login;
 mod listenbrainz;
 mod lyrics;
 mod media;
+mod remote;
 mod model;
 mod opus;
 mod preset;

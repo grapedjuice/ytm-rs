@@ -686,13 +686,14 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         // Anywhere on the pill focuses the box, not just on the text area inside it.
         let (rect, field) = ui.allocate_exact_size(vec2(width, sl.height.max(30.0)), Sense::click());
         ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique("search-box-right"), rect.right()));
-        if let Some(g) = app.look().app.glass.search.filter(|_| !theme::light()) {
-            crate::shader::frost(ui.painter(), rect, crate::shader::Frost { look: g, radius: app.look().app.search_radius.min(21.0), opacity: 1.0, fade: 0.0 });
+        let box_look = &app.look().app;
+        // At most a pill, whatever the box's height.
+        let box_r = box_look.search_radius.min(rect.height() / 2.0);
+        if let Some(g) = box_look.glass.search.filter(|_| !theme::light()) {
+            crate::shader::frost(ui.painter(), rect, crate::shader::Frost { look: g, radius: box_r, opacity: 1.0, fade: 0.0 });
         }
         let field = field.on_hover_cursor(egui::CursorIcon::Text);
         let focus = theme::anim_bool(ui.ctx(), "search-focus", app.search_focused, 0.2);
-        let box_look = &app.look().app;
-        let box_r = box_look.search_radius.min(21.0);
         let rest = egui::lerp(box_look.controls.idle_alpha.clamp(0.5, 1.0)..=1.0, focus);
         let suggesting = app.search_focused && !app.suggestions.1.is_empty() && !app.np_open;
         let open = theme::anim_bool(ui.ctx(), "search-open", suggesting, 0.15);

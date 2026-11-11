@@ -531,6 +531,8 @@ pub struct App {
     /// When the last automatic update check ran (app time, s).
     update_checked: Option<f64>,
     update_announced: bool,
+    /// The last version the .deb copy said was out, so it says so once per version.
+    update_seen: Option<String>,
     /// Release notes dialog (update ready, or "See all notes").
     notes_dialog: Option<notes::NotesDialog>,
     /// Version whose "Updated to" card is showing, on the first launch after an update.
@@ -747,6 +749,7 @@ impl App {
             sidebar_collapsed: get("sidebar_collapsed").is_some_and(|v| v == "1"),
             update_checked: None,
             update_announced: false,
+            update_seen: get("update_seen"),
             notes_dialog: None,
             // First launch of a newer version than last time: show what changed.
             // YTM_WHATS_NEW=1 shows the card for this version regardless.
@@ -1608,6 +1611,9 @@ impl eframe::App for App {
         if std::env::var_os("YTM_UPDATE_AS").is_none() {
             storage.set_string("last_version", crate::update::current_version());
         }
+        if let Some(v) = &self.update_seen {
+            storage.set_string("update_seen", v.clone());
+        }
         storage.set_string("discord_enabled", b(self.discord_enabled));
         storage.set_string("default_theme", b(false));
         if dev_var("YTM_APPEARANCE").is_none() {
@@ -1815,11 +1821,12 @@ pub fn shuffle<T>(v: &mut [T]) {
     }
 }
 
-/// Whether this is the installed or the portable app (updates only apply there). It
+/// Whether this is the installed or the portable app, or the .deb (which only says a
+/// new version is out): updates only apply there. It
 /// can't change while running, and the check touches the disk, so it runs once.
 fn updatable() -> bool {
     static UPDATABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *UPDATABLE.get_or_init(|| crate::update::installed() || crate::update::portable_dir().is_some())
+    *UPDATABLE.get_or_init(|| crate::update::installed() || crate::update::portable_dir().is_some() || crate::update::deb())
 }
 
 pub fn fmt_time(secs: u32) -> String {

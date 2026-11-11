@@ -219,11 +219,18 @@ impl App {
             let next = self.update_checked.map_or(8.0, |t| t + 6.0 * 3600.0);
             ctx.request_repaint_after(Duration::from_secs_f64((next - now).max(0.5) + 0.1));
         }
-        if let State::Ready { version, .. } = u.state()
-            && !self.update_announced
-        {
-            self.update_announced = true;
-            self.notes_dialog = Some(notes::NotesDialog { version, ready: true });
+        match u.state() {
+            State::Ready { version, .. } if !self.update_announced => {
+                self.update_announced = true;
+                self.notes_dialog = Some(notes::NotesDialog { version, ready: true });
+            }
+            // The .deb: once per version, not every launch (the sidebar keeps saying so).
+            State::Available { version, .. } if !self.update_announced && self.update_seen.as_ref() != Some(&version) => {
+                self.update_announced = true;
+                self.update_seen = Some(version.clone());
+                self.notes_dialog = Some(notes::NotesDialog { version, ready: true });
+            }
+            _ => {}
         }
     }
 

@@ -188,6 +188,11 @@ pub struct NotesDialog {
 pub fn dialog(app: &mut App, ctx: &egui::Context) {
     let Some(d) = app.notes_dialog.clone() else { return };
     let body = app.updater.as_ref().and_then(|u| u.notes(&d.version));
+    // For the .deb, which can't install it itself: the new .deb to download.
+    let deb_url = app.updater.as_ref().and_then(|u| match u.state() {
+        crate::update::State::Available { version, url } if d.ready && version == d.version => Some(url),
+        _ => None,
+    });
     let (mut close, mut restart) = (false, false);
     let accent = app.accent_color();
     widgets::modal_extras(ctx, egui::Id::unique("release-notes"));
@@ -199,7 +204,7 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 widgets::icon_at(ui, ui.cursor().min + vec2(8.0, 8.0), icon::SPARKLES, 15.0, accent);
                 ui.add_space(22.0);
-                let label = if d.ready { "UPDATE READY" } else { "WHAT'S NEW" };
+                let label = if deb_url.is_some() { "UPDATE AVAILABLE" } else if d.ready { "UPDATE READY" } else { "WHAT'S NEW" };
                 let mut j = LayoutJob::default();
                 j.append(label, 0.0, TextFormat { font_id: theme::semibold(12.0), color: theme::text_dim(), extra_letter_spacing: 1.0, ..Default::default() });
                 ui.label(j);
@@ -207,7 +212,9 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
             ui.add_space(8.0);
             ui.label(egui::RichText::new(format!("ytm-rs {}", d.version)).font(theme::bold(26.0)).color(theme::text()));
             ui.add_space(6.0);
-            let sub = if d.ready {
+            let sub = if deb_url.is_some() {
+                format!("You're on {}. Download the new .deb and open it to install it over this one.", crate::update::current_version())
+            } else if d.ready {
                 format!("You're on {}. It's downloaded and installs when you close the app.", crate::update::current_version())
             } else {
                 "The version you're running.".to_owned()
@@ -236,7 +243,13 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
         egui::Frame::new().inner_margin(Margin { left: 28, right: 28, top: 16, bottom: 16 }).show(ui, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
-                if d.ready {
+                if let Some(url) = &deb_url {
+                    if widgets::pill(ui, "Download", None, true).clicked() {
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        close = true;
+                    }
+                    close |= widgets::pill(ui, "Later", None, false).clicked();
+                } else if d.ready {
                     restart = widgets::pill(ui, "Restart to update", None, true).clicked();
                     close = widgets::pill(ui, "Later", None, false).clicked();
                 } else {

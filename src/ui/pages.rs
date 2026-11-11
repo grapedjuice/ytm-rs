@@ -2070,11 +2070,17 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
                 Some(State::UpToDate) => format!("You're on the latest version ({}).", crate::update::current_version()),
                 Some(State::Downloading { version, percent }) => format!("Downloading {version}… {percent}%"),
                 Some(State::Ready { version, .. }) => format!("Version {version} is ready. It installs when you close ytm-rs."),
+                Some(State::Available { version, .. }) => format!("Version {version} is out. Download the new .deb and open it to install it over this one."),
                 Some(State::Failed(e)) => format!("Couldn't check for updates: {e}"),
                 _ => format!("Version {}.", crate::update::current_version()),
             }
         };
-        setting_row(ui, "Automatic updates", Some("Download new versions in the background and install them when you close the app."), |ui| {
+        let auto_desc = if crate::update::deb() {
+            "Check for new versions and tell you when one is out."
+        } else {
+            "Download new versions in the background and install them when you close the app."
+        };
+        setting_row(ui, "Automatic updates", Some(auto_desc), |ui| {
             ui.add_enabled_ui(installed, |ui| toggle(ui, &mut app.auto_update, "Automatic updates"));
         });
         divider(ui);
@@ -2100,15 +2106,26 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
             }
             match &state {
                 Some(State::Ready { .. }) => restart = pill(ui, "Restart to update", Some(icon::SPARKLES), true).clicked(),
+                Some(State::Available { url, .. }) => {
+                    if pill(ui, "Download", Some(icon::SPARKLES), true).clicked() {
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                    }
+                }
                 Some(State::Checking | State::Downloading { .. }) => {
                     widgets::loader(ui);
                 }
                 _ => check = pill(ui, "Check now", None, false).clicked(),
             }
         });
+        // The other kind of Linux install, still there beside this one.
+        if let Some(cmd) = crate::update::other_copy() {
+            divider(ui);
+            let kind = if crate::update::deb() { "install.sh" } else { "the .deb" };
+            setting_row(ui, "Another copy", Some(&format!("ytm-rs is also installed from {kind}. To remove that copy, run {cmd}")), |_| {});
+        }
         // Release notes for the version that's ready, else the one running.
         let (notes_v, ready) = match &state {
-            Some(State::Ready { version, .. }) => (version.clone(), true),
+            Some(State::Ready { version, .. } | State::Available { version, .. }) => (version.clone(), true),
             _ => (crate::update::current_version(), false),
         };
         if let Some(md) = app.updater.as_ref().and_then(|u| u.notes(&notes_v)).filter(|_| !filtering()) {

@@ -1,8 +1,8 @@
 name: Release
 
 # Builds an installer and a portable download for every platform from the tagged source:
-# Windows (setup exe and portable zip, x64 and ARM64), Linux (install.sh tarball and
-# portable tarball) and macOS (disk image and portable zip, Apple silicon and Intel), then attaches them all to the GitHub release for that tag.
+# Windows (setup exe and portable zip, x64 and ARM64), Linux (install.sh tarball, .deb
+# and portable tarball) and macOS (disk image and portable zip, Apple silicon and Intel), then attaches them all to the GitHub release for that tag.
 # Releases are written as drafts (with notes) and published here only once every
 # file is attached, so the app's updater, which reads the latest published release,
 # never sees one without them. If no release exists yet, one is created as a draft
@@ -167,7 +167,7 @@ jobs:
       - name: Install libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libssl-dev libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev libdbus-1-dev
+          sudo apt-get install -y libssl-dev libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev libdbus-1-dev dpkg-dev
 
       - name: Build
         run: cargo build --release --locked
@@ -189,12 +189,19 @@ jobs:
           chmod 755 "out/$dir/ytm-rs"
           tar -czf "out/$dir.tar.gz" -C out "$dir"
 
+      # The .deb (ytm-rs_<version>_amd64.deb, a nightly's as <version>+nightly.<date>),
+      # which installs over the last one. It tells you about new versions rather than
+      # updating itself.
+      - name: Build the .deb
+        run: sh linux/deb.sh target/release/ytm-rs "$VERSION" out
+
       - uses: actions/upload-artifact@v5
         with:
           name: linux
           path: |
             out/ytm-rs-${{ env.VERSION }}-linux-x86_64.tar.gz
             out/ytm-rs-portable-${{ env.VERSION }}-linux-x86_64.tar.gz
+            out/ytm-rs_*_amd64.deb
           if-no-files-found: error
 
   macos:

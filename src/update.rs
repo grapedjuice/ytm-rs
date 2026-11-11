@@ -8,7 +8,9 @@
 //! put in place by `install.sh` (an `install.txt` beside the binary) downloads the new
 //! tarball and renames the new binary over itself as it closes. On macOS, the copy
 //! installed from the disk image downloads the new one and puts the app from it in
-//! place of its own as it closes. Every platform has a portable build too (a
+//! place of its own as it closes. A copy from the Linux .deb (a `deb.txt` beside the
+//! binary, in /usr/lib/ytm-rs) can't replace itself: it only says a new version is out
+//! ([`State::Available`]), and the new .deb installs over it. Every platform has a portable build too (a
 //! `portable.txt` marker; inside the app bundle on macOS), which updates from the
 //! portable download. Dev builds never update themselves.
 //!
@@ -64,6 +66,9 @@ pub enum State {
     Downloading { version: String, percent: u8 },
     /// `installer` is the setup exe, or for the portable build the new ytm-rs.exe.
     Ready { version: String, installer: PathBuf },
+    /// A newer version is out, for a copy that can't install it itself (the .deb):
+    /// `url` is its .deb.
+    Available { version: String, url: String },
     Failed(String),
 }
 
@@ -114,6 +119,36 @@ pub fn installed() -> bool {
     exe.parent().is_some_and(|d| d.join(marker).exists())
 }
 
+/// Whether this copy was installed from the .deb, which marks it with `deb.txt` beside
+/// the binary. Apt owns it, so it never replaces itself.
+pub fn deb() -> bool {
+    static DEB: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *DEB.get_or_init(|| cfg!(target_os = "linux") && std::env::current_exe().ok().and_then(|e| Some(e.parent()?.join("deb.txt").exists())).unwrap_or(false))
+}
+
+/// On Linux, the command that removes another copy installed the other way (one from
+/// install.sh beside the .deb's, or the other way round), which would otherwise be left
+/// behind: the menu and the `ytm-rs` command open the install.sh one.
+pub fn other_copy() -> Option<&'static str> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+    if deb() {
+        home.join(".local/lib/ytm-rs/install.txt").exists().then_some("~/.local/lib/ytm-rs/install.sh --uninstall")
+    } else if installed() {
+        Path::new("/usr/lib/ytm-rs/deb.txt").exists().then_some("sudo apt remove ytm-rs")
+    } else {
+        None
+    }
+}
+
+/// A version as the .deb has it: a nightly (`0.3.0-nightly.20261111`) comes after its
+/// version there too (`0.3.0+nightly.20261111`).
+pub fn deb_version(version: &str) -> String {
+    version.replacen(NIGHTLY, "+nightly.", 1)
+}
+
 /// The `.app` bundle a binary is in (`X.app/Contents/MacOS/ytm-rs`).
 fn bundle_of(exe: &Path) -> Option<&Path> {
     exe.ancestors().nth(3).filter(|a| a.extension().is_some_and(|x| x == "app"))
@@ -123,6 +158,10 @@ fn bundle_of(exe: &Path) -> Option<&Path> {
 fn asset_name(version: &str) -> String {
     let portable = portable_dir().is_some();
     let arch = std::env::consts::ARCH;
+    if cfg!(target_os = "linux") && deb() {
+        let arch = if arch == "x86_64" { "amd64" } else if arch == "aarch64" { "arm64" } else { arch };
+        return format!("ytm-rs_{}_{arch}.deb", deb_version(version));
+    }
     if cfg!(target_os = "linux") {
         let kind = if portable { "portable-" } else { "" };
         return format!("ytm-rs-{kind}{version}-linux-{arch}.tar.gz");
@@ -495,6 +534,10 @@ impl Updater {
             return Ok(State::UpToDate);
         };
         let url = asset["browser_download_url"].as_str().ok_or_else(|| anyhow::anyhow!("asset has no URL"))?;
+        if deb() {
+            log::info!("update: {version} is out");
+            return Ok(State::Available { version, url: url.to_owned() });
+        }
         let size = asset["size"].as_u64().unwrap_or(0);
         std::fs::create_dir_all(&self.dir)?;
         let path = self.dir.join(&want);
@@ -772,8 +815,15 @@ fn client() -> anyhow::Result<reqwest::Client> {
 
 #[cfg(test)]
 mod tests {
-    use super::{newer, pick_release, wanted};
+    use super::{deb_version, newer, pick_release, wanted};
     use serde_json::json;
+
+    #[test]
+    fn deb_versions() {
+        assert_eq!(deb_version("0.3.0"), "0.3.0");
+        assert_eq!(deb_version("0.3.0-nightly.20261111"), "0.3.0+nightly.20261111");
+        assert_eq!(deb_version("0.3.0-nightly.20261111.2"), "0.3.0+nightly.20261111.2");
+    }
 
     #[test]
     fn version_order() {

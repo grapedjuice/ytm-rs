@@ -37,7 +37,7 @@ body:
     attributes:
       label: How it's installed
       options:
-        - Installer (Windows setup, macOS dmg, Linux install.sh)
+        - Installer (Windows setup, macOS dmg, Linux install.sh or .deb)
         - Portable
         - Built from source
         - Other (say which below)

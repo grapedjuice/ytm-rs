@@ -23,7 +23,7 @@
 </div>
 
 <p align="center">
-  <img src="docs/readme/hero.jpg" alt="ytm-rs playing Birds of a Feather by Billie Eilish with synced lyrics, with the Spinning Record and reCover themes behind it" width="100%">
+  <img src="docs/readme/v2/hero.jpg" alt="ytm-rs playing Espresso by Sabrina Carpenter with synced lyrics in the Apple Music theme, in front of the Home page, with the mini player floating over both" width="100%">
 </p>
 
 ## Why ytm-rs
@@ -86,40 +86,13 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 
 ## Screenshots
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/readme/home.jpg" alt="Home feed with mood filters, Quick picks and Throwbacks"></td>
-    <td width="50%"><img src="docs/readme/artist.jpg" alt="Billie Eilish's artist page with her top songs"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Home</b></td>
-    <td align="center"><b>Artist page</b></td>
-  </tr>
-  <tr>
-    <td><img src="docs/readme/theme-spinning-record.jpg" alt="Spinning Record theme: Pink Pony Club by Chappell Roan on a spinning vinyl beside the lyrics"></td>
-    <td><img src="docs/readme/theme-recover.jpg" alt="reCover theme: Abracadabra by Lady Gaga, the cover filling the left side and fading into the lyrics"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Spinning Record theme</b></td>
-    <td align="center"><b>reCover theme</b></td>
-  </tr>
-  <tr>
-    <td><img src="docs/readme/search.jpg" alt="Search results for Tyler, The Creator: top result, songs, artists and albums"></td>
-    <td><img src="docs/readme/settings-themes.jpg" alt="The theme gallery in Settings"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Search</b></td>
-    <td align="center"><b>Theme gallery</b></td>
-  </tr>
-  <tr>
-    <td><img src="docs/readme/listen-together.jpg" alt="Listen together: start a jam or join one with a code"></td>
-    <td><img src="docs/readme/spotify-transfer.jpg" alt="Transfer from Spotify: Today's Top Hits pasted in, ready to copy into a new YouTube Music playlist"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Listen together</b></td>
-    <td align="center"><b>Transfer from Spotify</b></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/readme/v2/themes-grid.jpg" alt="Six of the 30 themes in Now playing: ytm-rs, Apple Music, Material 3, Spicy, Spinning Record and reCover, each with synced lyrics" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/readme/v2/features.jpg" alt="Light mode on the Home page, Listen together, the 10-band equalizer, the mini player, and the Last.fm and Discord connections in Settings" width="100%">
+</p>
 
 ## Installation
 

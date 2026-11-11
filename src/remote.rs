@@ -5,7 +5,6 @@
 //!
 //! Position is whole seconds. Finer than that isn't shown on a key, and the UI would
 //! push an update every frame while a song plays.
-//! ponytail: one-second position. Send milliseconds if a progress key needs it.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -211,6 +210,8 @@ fn socket_config() -> WebSocketConfig {
 }
 
 /// `Err` when the request comes from a browser (`Origin` set). The socket then answers 403.
+// tungstenite's handshake callback fixes this signature, so the error can't be boxed.
+#[allow(clippy::result_large_err)]
 fn reject_browser_origin(request: &Request, response: Response) -> Result<Response, ErrorResponse> {
     if request.headers().contains_key(http::header::ORIGIN) {
         return Err(http::Response::builder()

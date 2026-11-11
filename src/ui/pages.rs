@@ -1465,6 +1465,7 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
         });
     });
     settings_equalizer(app, ui);
+    settings_tempo(app, ui);
     settings_section(ui, "Music videos", None, None, |ui| {
         setting_row(ui, "Play songs, not music videos", Some("An official music video plays as its song, the album recording, when YouTube Music has one: no intros, skits or video-only edits. Lists still show what they hold."), |ui| {
             toggle(ui, &mut app.play_songs, "Play songs, not music videos");
@@ -2571,6 +2572,29 @@ fn settings_equalizer(app: &mut App, ui: &mut Ui) {
     });
 }
 
+fn settings_tempo(app: &mut App, ui: &mut Ui) {
+    let jam = app.jam.active();
+    settings_section(ui, "Playback speed", None, jam.then_some(TEMPO_IN_JAM), |ui| {
+        setting_row(ui, "Playback speed", Some("Play songs faster or slower, also from a button in the player bar. Faster sounds higher and slower lower, like a record. Lyrics stay in time. Back to 1× each time ytm-rs starts."), |ui| {
+            toggle(ui, &mut app.tempo_on, "Playback speed");
+        });
+        ui.add_enabled_ui(app.tempo_on && !jam, |ui| {
+            use crate::audio::tempo::{MAX_SPEED, MIN_SPEED};
+            divider(ui);
+            setting_row(ui, "Speed", None, |ui| {
+                step_slider(ui, &mut app.speed, (MIN_SPEED, MAX_SPEED, 0.05), Some(1.0), times, "Speed");
+            });
+        });
+    });
+}
+
+pub(super) const TEMPO_IN_JAM: &str = "Back to normal while you're in a jam, so everyone hears the same song.";
+
+/// A speed as it's shown: 1×, 1.5×, 1.25×.
+pub(super) fn times(v: f32) -> String {
+    format!("{}×", (v * 100.0).round() / 100.0)
+}
+
 /// The equalizer's bands as vertical sliders, over the curve they make together.
 /// Drag or click to set one, or double-click for 0 dB.
 /// True if one changed.
@@ -2855,24 +2879,38 @@ pub(super) fn toggle(ui: &mut Ui, on: &mut bool, name: &str) -> egui::Response {
 /// Whole seconds on a track like the volume slider's, with the ends labelled and the
 /// value beside it: click or drag to set (scrolling over it scrolls the page).
 fn seconds_slider(ui: &mut Ui, v: &mut u32, range: std::ops::RangeInclusive<u32>, name: &str) -> egui::Response {
-    let (lo, hi) = (*range.start(), *range.end());
-    let label = |ui: &mut Ui, text: String, w: f32, font: egui::FontId, color: Color32| {
-        let (rect, _) = ui.allocate_exact_size(vec2(w, 26.0), Sense::hover());
-        let g = widgets::galley(ui, &text, font, color, w);
+    let mut f = *v as f32;
+    let resp = step_slider(ui, &mut f, (*range.start() as f32, *range.end() as f32, 1.0), None, |v| format!("{v} s"), name);
+    *v = f as u32;
+    resp
+}
+
+/// A slider over `lo..=hi` in steps of `step`, for a settings row: the value, then the
+/// track between its ends. It fills from `from` (`lo` when none) to the knob.
+fn step_slider(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), from: Option<f32>, text: impl Fn(f32) -> String, name: &str) -> egui::Response {
+    let label = |ui: &mut Ui, text: String, w: Option<f32>, font: egui::FontId, color: Color32| {
+        let g = widgets::galley(ui, &text, font, color, 60.0);
+        let (rect, _) = ui.allocate_exact_size(vec2(w.unwrap_or(g.size().x), 26.0), Sense::hover());
         ui.painter().galley(pos2(rect.right() - g.size().x, rect.center().y - g.size().y / 2.0), g, color);
     };
-    label(ui, format!("{v} s"), 34.0, theme::semibold(13.0), theme::text());
+    label(ui, text(*v), Some(40.0), theme::semibold(13.0), theme::text());
     ui.add_space(6.0);
-    label(ui, format!("{hi} s"), 26.0, theme::regular(12.0), theme::text_dim());
-    let (rect, mut resp) = ui.allocate_exact_size(vec2(170.0, 26.0), Sense::click_and_drag());
-    label(ui, format!("{lo} s"), 22.0, theme::regular(12.0), theme::text_dim());
+    label(ui, text(hi), None, theme::regular(12.0), theme::text_dim());
+    let resp = slider_track(ui, v, (lo, hi, step), from, 170.0, name);
+    label(ui, text(lo), None, theme::regular(12.0), theme::text_dim());
+    resp
+}
+
+/// Just the track and knob of a step slider, `width` wide.
+pub(super) fn slider_track(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), from: Option<f32>, width: f32, name: &str) -> egui::Response {
+    let (rect, mut resp) = ui.allocate_exact_size(vec2(width, 26.0), Sense::click_and_drag());
     let track = Rect::from_center_size(rect.center(), vec2(rect.width() - 16.0, 4.0));
     let old = *v;
     if let Some(p) = resp.interact_pointer_pos()
         && (resp.dragged() || resp.clicked())
     {
         let t = ((p.x - track.left()) / track.width()).clamp(0.0, 1.0);
-        *v = (lo as f32 + t * (hi - lo) as f32).round() as u32;
+        *v = (((lo + t * (hi - lo)) / step).round() * step).clamp(lo, hi);
     }
     if *v != old {
         resp.mark_changed();
@@ -2882,10 +2920,11 @@ fn seconds_slider(ui: &mut Ui, v: &mut u32, range: std::ops::RangeInclusive<u32>
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered() || resp.dragged(), 0.12);
     let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
-    let t = (value - lo) as f32 / (hi - lo) as f32;
-    let knob = pos2(egui::lerp(track.left()..=track.right(), t), track.center().y);
+    let x = |v: f32| egui::lerp(track.left()..=track.right(), (v - lo) / (hi - lo));
+    let knob = pos2(x(value), track.center().y);
+    let from = x(from.unwrap_or(lo));
     ui.painter().rect_filled(track, 2.0, theme::glass(0.15));
-    ui.painter().rect_filled(Rect::from_min_max(track.min, pos2(knob.x, track.max.y)), 2.0, accent);
+    ui.painter().rect_filled(Rect::from_min_max(pos2(from.min(knob.x), track.min.y), pos2(from.max(knob.x), track.max.y)), 2.0, accent);
     ui.painter().circle_filled(knob + vec2(0.0, 1.0), 7.0 + h, theme::shade(0.25));
     ui.painter().circle_filled(knob, 7.0 + h, Color32::WHITE);
     resp

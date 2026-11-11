@@ -470,6 +470,10 @@ pub struct App {
     eq_on: bool,
     eq_gains: crate::audio::eq::Gains,
     eq_no_clip: bool,
+    /// Playback speed: whether it's on (saved, and it puts a button in the player bar),
+    /// and the speed (not saved: 1× each launch).
+    tempo_on: bool,
+    speed: f32,
     /// The next song starts because this one is ending: crossfade into it.
     handoff: bool,
     /// SponsorBlock segments for a video, and when one was last skipped.
@@ -807,6 +811,8 @@ impl App {
             eq_on: get("eq").is_some_and(|v| v == "1"),
             eq_gains: get("eq_gains").and_then(|v| parse_gains(&v)).unwrap_or_default(),
             eq_no_clip: get("eq_no_clip").is_none_or(|v| v == "1"),
+            tempo_on: get("tempo").is_some_and(|v| v == "1"),
+            speed: 1.0,
             segments: None,
             segment_skipped: f64::NEG_INFINITY,
             hotkeys,
@@ -1243,6 +1249,7 @@ impl eframe::App for App {
             self.restore_art();
         }
         self.sync_remote(ctx);
+        self.sync_tempo();
         self.sync_discord();
         self.sync_scrobbles();
         self.sync_server_queue(ctx, now);
@@ -1655,6 +1662,7 @@ impl eframe::App for App {
         storage.set_string("eq", b(self.eq_on));
         storage.set_string("eq_gains", self.eq_gains.map(|g| g.to_string()).join(","));
         storage.set_string("eq_no_clip", b(self.eq_no_clip));
+        storage.set_string("tempo", b(self.tempo_on));
         storage.set_string("show_roman", b(self.show_roman));
         storage.set_string("show_trans", b(self.show_trans));
         // Background test runs mustn't change the listener's sources or per-song picks.

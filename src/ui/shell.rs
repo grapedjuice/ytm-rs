@@ -1006,6 +1006,70 @@ pub fn floating_bar(app: &mut App, ui: &mut Ui, slot: Rect, now: f64) {
     player_bar(app, &mut bar, now);
 }
 
+/// The player bar's speed button: the speed it's at, lit (with the dot under it) when
+/// it isn't 1×. Opens a slider for it.
+fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32, dot_floor: f32) {
+    let jam = app.jam.active();
+    let changed = !jam && (app.speed - 1.0).abs() > 0.001;
+    let resp = named(ui.interact(r, ui.scope_id().with("tempo"), Sense::click()), "Playback speed")
+        .on_hover_text("Playback speed")
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
+    if h > 0.0 {
+        ui.painter().rect_filled(r, r.height() / 2.0, theme::glass(0.10 * h));
+    }
+    widgets::focus_ring(ui, &resp, r, r.height() / 2.0);
+    let color = theme::with_alpha(if changed { theme::text() } else { theme::lerp_color(theme::text_dim(), theme::text(), h) }, rest);
+    let speed = if jam { 1.0 } else { app.speed };
+    let g = widgets::galley(ui, &super::pages::times(speed), theme::semibold(13.0), color, 60.0);
+    ui.painter().galley(r.center() - g.size() / 2.0, g, color);
+    if changed {
+        ui.painter().circle_filled(pos2(r.center().x, (r.bottom() + 3.0).min(dot_floor)), 2.0, accent);
+    }
+    // A small card over the button: the speed, its slider under it.
+    let popup = widgets::menu_popup(&resp).align(egui::RectAlign::TOP_END).align_alternatives(&[egui::RectAlign::BOTTOM_END]);
+    popup.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+        use super::pages as p;
+        widgets::menu_body(ui, 248.0);
+        let pad = 10.0;
+        ui.add_space(6.0);
+        if jam {
+            ui.horizontal(|ui| {
+                ui.add_space(pad);
+                ui.add(egui::Label::new(egui::RichText::new(p::TEMPO_IN_JAM).font(theme::regular(12.5)).color(theme::text_dim())).wrap());
+            });
+            ui.add_space(6.0);
+        }
+        ui.add_enabled_ui(!jam, |ui| {
+            use crate::audio::tempo::{MAX_SPEED, MIN_SPEED};
+            ui.horizontal(|ui| {
+                ui.add_space(pad);
+                ui.label(egui::RichText::new("Speed").font(theme::semibold(13.5)).color(theme::text()));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(pad);
+                    ui.label(egui::RichText::new(p::times(speed)).font(theme::regular(13.0)).color(theme::text_dim()));
+                });
+            });
+            ui.horizontal(|ui| {
+                ui.add_space(pad - 8.0);
+                p::slider_track(ui, &mut app.speed, (MIN_SPEED, MAX_SPEED, 0.05), Some(1.0), ui.available_width() - pad + 8.0, "Speed");
+            });
+            // Always there, so the card keeps its size while the slider moves.
+            widgets::menu_divider(ui);
+            let normal = (app.speed - 1.0).abs() < 0.001;
+            ui.add_enabled_ui(!normal, |ui| {
+                if normal {
+                    ui.multiply_opacity(0.4);
+                }
+                if widgets::menu_action(ui, Some(icon::HISTORY), "Back to normal") {
+                    app.speed = 1.0;
+                }
+            });
+        });
+        ui.add_space(4.0);
+    });
+}
+
 pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let full = ui.max_rect();
     // A floating bar is rounded: keep the progress line clear of its corners.
@@ -1184,10 +1248,12 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let song_x = art_x + art_side / 2.0 + 14.0 + chrome.disc_secs.map_or(0.0, |_| art_side * 0.46);
     let title_w = |room: f32| (row.width() * 0.3 - 110.0).max(80.0).min(room).max(40.0);
     // With the song in the middle, what's left is from where its title and heart (about 48 px) end.
-    let song_end = song_x + if track.is_some() { song_text.min(title_w(row.right() - 244.0 - song_x)) + 48.0 } else { 0.0 };
-    // Room between the repeat button's edge (plus a gap) and the lyrics/queue/expand/mini
-    // player buttons. The volume with its slider takes 140 px plus the time; the icon alone, 36.
-    let free = |half: f32| row.right() - 160.0 - if song_middle { song_end } else { row.center().x + half + 12.0 };
+    // The speed button, when shown, takes 44 px.
+    let speed_w = if app.tempo_on { 44.0 } else { 0.0 };
+    let song_end = song_x + if track.is_some() { song_text.min(title_w(row.right() - 244.0 - speed_w - song_x)) + 48.0 } else { 0.0 };
+    // Room between the repeat button's edge (plus a gap) and the speed/lyrics/queue/expand/
+    // mini player buttons. The volume with its slider takes 140 px plus the time; the icon alone, 36.
+    let free = |half: f32| row.right() - 160.0 - speed_w - if song_middle { song_end } else { row.center().x + half + 12.0 };
     let tight = free(141.0) < 140.0 + time_w;
     let half = if tight { 125.0 } else { 141.0 };
     let compact_vol = free(half) < 140.0 + time_w;
@@ -1202,7 +1268,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let block_slot = chrome.track_block.map(|_| ui.painter().add(egui::Shape::Noop));
         let x = song_x;
         // Title, artists and the heart (about 48 px) end before the shuffle button.
-        let room = if song_middle { row.right() - 244.0 - x } else { row.center().x - half - 18.0 - 14.0 - 48.0 - x };
+        let room = if song_middle { row.right() - 244.0 - speed_w - x } else { row.center().x - half - 18.0 - 14.0 - 48.0 - x };
         let w = title_w(room);
         // Right click on the song has everything about it, like on any song's row. Registered
         // first, so the art, title and artist links above it keep their clicks; they get the
@@ -1491,6 +1557,10 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             app.np_tab = NpTab::Lyrics;
             app.actions.push(Action::OpenNowPlaying(true));
         }
+    }
+    if app.tempo_on {
+        tempo_button(app, ui, Rect::from_center_size(pos2(rx - 20.0, cy), vec2(40.0, 18.0 * bar_scale + 16.0)), bar_rest, accent, dot_floor);
+        rx -= 44.0;
     }
     // Volume: a slider beside its icon, or in a narrow window the icon alone with the
     // slider in a small popup above it while the pointer is over either. A theme that

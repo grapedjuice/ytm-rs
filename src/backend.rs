@@ -73,6 +73,8 @@ pub enum Req {
     Play { video_id: String, generation: u64, at: std::time::Duration, report: bool, song_of: Option<Track>, song: Option<Track> },
     /// A video's stream, for showing it.
     VideoStream(String),
+    /// The animated cover standing in for a song's cover, if it has one.
+    Canvas(Track),
     /// Resolve and download a track ahead of time so skipping to it is instant.
     Prefetch { video_id: String, song_of: Option<Track> },
     Like { video_id: String, like: bool },
@@ -127,6 +129,7 @@ impl Req {
             Req::Play { .. } => "Playback",
             Req::Prefetch { .. } => "Prefetch",
             Req::VideoStream(_) => "Video",
+            Req::Canvas(_) => "Animated cover",
             Req::Like { .. } | Req::LikeMany { .. } | Req::UnlikeBoth { .. } => "Like",
             Req::Dislike(_) => "Dislike",
             Req::CreatePlaylist { .. } => "Create playlist",
@@ -284,6 +287,8 @@ pub enum Resp {
     Search(SearchResults),
     /// `None`: this video can't be shown; the picture stays.
     VideoStream { video_id: String, stream: Option<innertube::VideoStream> },
+    /// `clip`: the HLS playlist of the song's animated cover; `None`: it has none.
+    Canvas { video_id: String, clip: Option<String> },
     Suggest { query: String, round: u64, terms: Vec<ytm::Suggestion> },
     /// An album or playlist; `more`: the rest of its songs follow in `CollectionMore`.
     Collection { load: u64, c: Collection, more: bool },
@@ -830,6 +835,7 @@ impl Backend {
                     }
                     Resp::VideoStream { video_id, stream: found.ok() }
                 }
+                Req::Canvas(track) => Resp::Canvas { clip: crate::canvas::find(&self.http(), &self.data_dir, &track).await, video_id: track.id },
                 Req::Prefetch { video_id, song_of } => {
                     self.prefetch(video_id, song_of).await?;
                     return Ok(None);

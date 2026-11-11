@@ -415,6 +415,10 @@ pub struct App {
     /// The glow around a video, from its colours.
     ambient_light: bool,
     glow: Option<nowplaying::Glow>,
+    /// Animated covers in Now playing, where Apple Music has one for the song.
+    animated_covers: bool,
+    /// The song's animated cover: looked up, then playing.
+    cover_clip: Option<nowplaying::CoverClip>,
     hide_search_videos: bool,
     /// Leave explicit songs out of lists and the queue.
     hide_explicit: bool,
@@ -725,6 +729,8 @@ impl App {
             video_frame: None,
             ambient_light: get("ambient_light").is_none_or(|v| v == "1"),
             glow: None,
+            animated_covers: std::env::var_os("YTM_CANVAS").is_some() || get("animated_covers").is_some_and(|v| v == "1"),
+            cover_clip: None,
             hide_search_videos: get("hide_search_videos").is_some_and(|v| v == "1"),
             hide_explicit,
             show_podcasts,
@@ -1222,6 +1228,9 @@ impl eframe::App for App {
         self.tray_window(ctx, frame);
         self.window_hidden = self.in_tray || ctx.input(|i| i.viewport().minimized == Some(true));
         // Nothing takes a video's frames now, while its decoder would go on working in bursts.
+        if self.window_hidden || self.mini.busy() {
+            self.cover_clip = None;
+        }
         if (self.window_hidden || self.mini.busy()) && self.video.take().is_some() {
             self.video_frame = None;
             self.glow = None;
@@ -1488,7 +1497,7 @@ impl eframe::App for App {
         if np > 0.001 {
             theme::set_mode(&ctx, false);
             nowplaying::overlay(self, &ctx, now);
-        } else if self.video.take().is_some() {
+        } else if self.cover_clip.take().is_some() || self.video.take().is_some() {
             // Now playing's closed, and its own cleanup only runs while it's drawn.
             self.video_frame = None;
             self.glow = None;
@@ -1577,6 +1586,7 @@ impl eframe::App for App {
         storage.set_string("play_songs", b(self.play_songs));
         storage.set_string("show_video", b(self.show_video));
         storage.set_string("ambient_light", b(self.ambient_light));
+        storage.set_string("animated_covers", b(self.animated_covers));
         storage.set_string("hide_search_videos", b(self.hide_search_videos));
         storage.set_string("hide_explicit", b(self.hide_explicit));
         storage.set_string("podcasts", b(self.show_podcasts));

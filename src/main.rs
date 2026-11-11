@@ -10,6 +10,7 @@ mod audio;
 mod backdrop;
 mod backend;
 mod bidi;
+mod canvas;
 mod deeplink;
 mod discord;
 mod downloads;

@@ -1481,6 +1481,10 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             toggle(ui, &mut app.ambient_light, "Ambient light");
         });
         divider(ui);
+        setting_row(ui, "Animated covers", Some("Some albums' covers move in Now playing, where Apple Music has a clip for them. Finding them sends each song's title and artist to Apple Music."), |ui| {
+            toggle(ui, &mut app.animated_covers, "Animated covers");
+        });
+        divider(ui);
         setting_row(ui, "Hide videos in search", Some("Only songs, albums, artists and playlists in search results."), |ui| {
             toggle(ui, &mut app.hide_search_videos, "Hide videos in search");
         });

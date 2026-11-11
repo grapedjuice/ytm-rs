@@ -133,6 +133,12 @@ impl App {
                     }
                 }
             }
+            Resp::Canvas { video_id, clip } => {
+                if let Some(c) = self.cover_clip.as_mut().filter(|c| c.id == video_id) {
+                    c.player = clip.clone().map(|url| crate::video::Loop::start(url, self.backend.http(), c.px));
+                    c.url = clip;
+                }
+            }
             Resp::Search(r) => {
                 if self.smoke.as_ref() == Some(&r.query) {
                     self.smoke = None;

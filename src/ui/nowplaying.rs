@@ -22,6 +22,7 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
     let t = theme::anim_bool(ctx, "np-open", app.np_open && app.current().is_some(), app.look().app.np_open_secs).min(1.0);
     if t <= 0.001 {
         // Closed: nothing to decode for. It picks up from the music's place when opened.
+        app.cover_clip = None;
         if app.video.take().is_some() {
             app.video_frame = None;
             app.glow = None;
@@ -715,6 +716,12 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         } else {
             widgets::paint_cover_px(ui, art, &track.thumbs, radius, 1.0, px);
         }
+        // The animated cover over the still one, faded in once it's moving. Sized to the
+        // cover as drawn: `px` is the biggest it may glide to, which can be twice that.
+        let drawn = (side * ui.ctx().pixels_per_point()) as u32;
+        if let Some((tex, shown)) = cover_clip(app, ui.ctx(), track, drawn, now) {
+            egui::Image::from_texture(&tex).corner_radius(cr).tint(Color32::WHITE.gamma_multiply(shown)).paint_at(ui, art);
+        }
         if brightness < 0.99 {
             ui.painter().rect_filled(art, cr, theme::shade(1.0 - brightness));
         }
@@ -1035,6 +1042,70 @@ fn paint_glow(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, step: bool) {
     let painter = ui.painter_at(clip);
     painter.image(tex.id(), full, uv, Color32::from_gray(150));
     painter.rect_filled(rect, 0.0, theme::shade(0.25));
+}
+
+/// A song's animated cover: asked for, then playing once found.
+pub(super) struct CoverClip {
+    pub id: String,
+    /// The cover's size the clip plays at, which picks its rendition.
+    pub px: u32,
+    /// The clip's playlist, once found.
+    pub url: Option<String>,
+    pub player: Option<crate::video::Loop>,
+    frame: Option<(egui::TextureHandle, f64)>,
+    /// Another size the cover has kept since (s), to play at once it has settled.
+    resized: Option<(u32, f64)>,
+}
+
+/// The animated cover's latest frame, and how far it has faded in. Keeps the clip in step
+/// with the song.
+fn cover_clip(app: &mut App, ctx: &egui::Context, track: &crate::model::Track, px: u32, now: f64) -> Option<(egui::TextureHandle, f32)> {
+    if !app.animated_covers {
+        app.cover_clip = None;
+        return None;
+    }
+    if app.cover_clip.as_ref().is_none_or(|c| c.id != track.id) {
+        app.cover_clip = Some(CoverClip { id: track.id.clone(), px: px.max(1), url: None, player: None, frame: None, resized: None });
+        app.backend.request(crate::backend::Req::Canvas(track.clone()));
+    }
+    let playing = app.playing();
+    let http = app.backend.http();
+    let c = app.cover_clip.as_mut()?;
+    // The window resized or went full screen: the clip again at the new size once it has
+    // stayed there a moment (a resize passes through many), the last frame up meanwhile.
+    let off = px.max(1) as f32 / c.px as f32;
+    if c.url.is_some() && !(0.8..=1.25).contains(&off) {
+        match c.resized {
+            Some((seen, since)) if seen.abs_diff(px) * 10 <= seen => {
+                if now - since > 0.5 && let Some(url) = c.url.clone() {
+                    c.px = px.max(1);
+                    c.player = Some(crate::video::Loop::start(url, http, c.px));
+                    c.resized = None;
+                } else {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                }
+            }
+            _ => c.resized = Some((px, now)),
+        }
+    } else {
+        c.resized = None;
+    }
+    let player = c.player.as_mut().filter(|p| !p.failed())?;
+    if let Some(f) = player.take_due(now, playing) {
+        match &mut c.frame {
+            Some((tex, _)) => tex.set(f.image, egui::TextureOptions::LINEAR),
+            None => c.frame = Some((ctx.load_texture("cover-clip", f.image, egui::TextureOptions::LINEAR), now)),
+        }
+    }
+    let shown = c.frame.as_ref().map_or(0.0, |(_, at)| ((now - at) / 0.32).clamp(0.0, 1.0)) as f32;
+    // Now playing runs at 30 fps while the music plays; paused, only the first frame and
+    // its fade need drawing.
+    if c.frame.is_none() {
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    } else if shown < 1.0 {
+        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+    }
+    c.frame.as_ref().map(|(tex, _)| (tex.clone(), shown))
 }
 
 /// The video's latest frame in a texture. Keeps the player, and the glow's colours, in

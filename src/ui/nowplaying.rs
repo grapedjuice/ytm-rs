@@ -1243,7 +1243,7 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
     let playing = app.playing();
     // Audible position: the device plays what the player hands it a buffer later.
     let pos = app.audio.status.position_smooth().as_secs_f64() - app.audio.status.latency().as_secs_f64();
-    let pos = app.lyric_clock.tick(pos, playing, now);
+    let pos = app.lyric_clock.tick(pos, playing, now, app.audio.status.speed() as f64);
     let t = pos - app.lyric_prefs.offset(id, lyrics.provider, lyrics.sync == Sync::Word);
     let (roman, trans) = decorations(app.show_roman, app.show_trans, &app.lyric_prefs.target, app.lyrics_extras.as_ref(), id, lyrics);
     let key = {

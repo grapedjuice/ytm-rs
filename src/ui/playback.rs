@@ -353,6 +353,12 @@ impl App {
         self.audio.set_eq(self.eq_on, &self.eq_gains, self.eq_no_clip);
     }
 
+    /// Every frame: a jam starting or ending changes it too. Normal in a jam, where
+    /// everyone hears the same song at the same moment.
+    pub(super) fn sync_tempo(&self) {
+        self.audio.set_speed(if self.jam.active() || !self.tempo_on { 1.0 } else { self.speed });
+    }
+
     pub(crate) fn set_crossfade(&self) {
         self.audio.set_crossfade(if self.crossfade { self.crossfade_secs } else { 0 });
     }

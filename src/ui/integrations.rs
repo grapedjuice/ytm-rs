@@ -29,11 +29,13 @@ impl App {
         let Some(d) = &self.discord else { return };
         let track = self.playing_track().filter(|_| self.playing() && !self.buffering);
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
-        let start_ms = now - self.audio.status.position().as_millis() as i64;
-        let dur = self.audio.status.duration_ms.load(Ordering::Relaxed) as i64;
+        // In real time: a song at 2x is over in half its length.
+        let speed = self.audio.status.speed() as f64;
+        let start_ms = now - (self.audio.status.position().as_millis() as f64 / speed) as i64;
+        let dur = (self.audio.status.duration_ms.load(Ordering::Relaxed) as f64 / speed) as i64;
         // Position ticks every 100 ms; only a jump of 2 s or more is a real seek.
         let same = match (track, &self.discord_sent) {
-            (Some(t), Some(b)) => b.video_id == t.id && (start_ms - b.start_ms).abs() < 2000 && b.end_ms.is_some() == (dur > 0),
+            (Some(t), Some(b)) => b.video_id == t.id && (start_ms - b.start_ms).abs() < 2000 && b.end_ms.map_or(dur <= 0, |e| (e - (start_ms + dur)).abs() < 2000),
             (None, None) => true,
             _ => false,
         };
@@ -134,7 +136,8 @@ impl App {
             track: t.title.clone(),
             album: t.album.as_ref().map(|a| a.name.clone()),
             duration: (!dur.is_zero()).then_some(dur.as_secs() as u32),
-            timestamp: now - pos.as_secs() as i64,
+            // When it started, in real time.
+            timestamp: now - (pos.as_secs_f64() / self.audio.status.speed() as f64) as i64,
         };
         if play.artist.is_empty() {
             return;

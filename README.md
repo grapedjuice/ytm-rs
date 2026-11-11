@@ -51,6 +51,7 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 - [Contributing](#contributing)
 - [License](#license)
 - [Acknowledgements](#acknowledgements)
+- [Star History](#star-history)
 
 ## Features
 
@@ -243,3 +244,13 @@ ytm-rs is licensed under [GPL-3.0](LICENSE).
 - Listen together runs on a small relay built with [workers-rs](https://github.com/cloudflare/workers-rs) on Cloudflare Durable Objects.
 - The animated background is based on Kawarp from [Better Lyrics](https://github.com/better-lyrics), and the theme presets are adapted from the Better Lyrics theme store, with credit to each theme's creators.
 - Fonts: Inter, DM Sans, Google Sans Flex, Figtree and Instrument Sans (SIL OFL 1.1). Icons: Lucide.
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=grapedjuice%2Fytm-rs&type=date&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=grapedjuice/ytm-rs&type=date&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=grapedjuice/ytm-rs&type=date&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=grapedjuice/ytm-rs&type=date&legend=bottom-right" />
+ </picture>
+</a>

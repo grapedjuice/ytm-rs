@@ -2021,6 +2021,38 @@ fn settings_connections(app: &mut App, ui: &mut Ui) {
     if discord_enabled != app.discord_enabled {
         app.set_discord_enabled(discord_enabled);
     }
+        divider(ui);
+        let busy = app.listenbrainz_busy.load(Ordering::Relaxed);
+        let desc = match &app.listenbrainz_user {
+            Some(name) => format!("Sending what you play to {name}'s profile."),
+            None => "Send what you play to your ListenBrainz profile.".to_owned(),
+        };
+        let (mut connect, mut disconnect) = (false, false);
+        let typed = !app.listenbrainz_token.trim().is_empty();
+        setting_row(ui, "ListenBrainz", Some(&desc), |ui| {
+            if app.listenbrainz_user.is_some() {
+                disconnect = pill(ui, "Disconnect", None, false).clicked();
+            } else if busy {
+                widgets::loader(ui);
+            } else {
+                connect = pill(ui, "Connect", None, typed).clicked() && typed;
+            }
+        });
+        // Shown with its row in a search.
+        if app.listenbrainz_user.is_none() && filter_hit(&format!("ListenBrainz {desc}")) {
+            let resp = super::text_field(ui, "User token", &mut app.listenbrainz_token, false, "Paste your ListenBrainz user token");
+            connect |= typed && !busy && resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            ui.horizontal(|ui| {
+                ui.hyperlink_to(RichText::new("Get your token on listenbrainz.org").font(theme::regular(12.5)).color(if theme::light() { Color32::from_rgb(0, 102, 204) } else { Color32::from_rgb(62, 166, 255) }), "https://listenbrainz.org/settings/");
+            });
+            ui.add_space(12.0);
+        }
+        if connect {
+            app.listenbrainz_connect();
+        }
+        if disconnect {
+            app.listenbrainz_sign_out();
+        }
 }
 
 /// Settings › Updates.

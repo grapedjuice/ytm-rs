@@ -76,7 +76,7 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 **Together and across services**
 - **Listen together:** start a jam, share the code or link, and up to 16 people hear the same song at the same moment. The host decides whether guests can add songs or control playback.
 - **Transfer from Spotify:** bring playlists and Liked Songs over to YouTube Music in the background. ytm-rs asks you when it isn't sure about a match and picks up where it left off if interrupted.
-- **Last.fm and Discord:** scrobbling and Rich Presence.
+- **Last.fm, ListenBrainz and Discord:** scrobbling and Rich Presence.
 
 **Desktop**
 - System media controls with a seekable timeline, taskbar thumbnail buttons, close to tray (Wayland too), a choice of page to open on, a collapsible sidebar and screen-reader-accessible controls.
@@ -161,6 +161,7 @@ Sign-ins are still kept by the system (Credential Manager, Keychain or your keyr
 | **Upload music** | **Library › Uploads › Upload music**, or drop MP3, M4A, FLAC, OGG or WMA files on the window. Title, artist, album and cover come from the file's tags. |
 | **Download songs** | Open a song's menu and click **Download**. Files go to `Music\ytm-rs`; change this in **Settings › General › Downloads**. |
 | **Scrobble to Last.fm** | **Settings › Account › Connections**, click **Connect** next to Last.fm, then allow ytm-rs in your browser. Songs scrobble after half their length or four minutes. |
+| **Send listens to ListenBrainz** | Copy your user token from [listenbrainz.org/settings](https://listenbrainz.org/settings/), then in **Settings › Account › Connections** paste it under ListenBrainz and click **Connect**. Songs count after half their length or four minutes. |
 | **Change the theme** | **Settings › Appearance**, click a theme card. Mode switches between light and dark, and Accent colour sets the highlight colour. |
 | **Shape the sound** | **Settings › Playback** has the equalizer, crossfade and volume normalization. |
 | **Tune the lyrics** | **Settings › Lyrics** sets the source order, translation language and timing offsets. |

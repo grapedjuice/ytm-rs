@@ -302,7 +302,14 @@ pub struct App {
     lastfm_user: Option<String>,
     lastfm_busy: Arc<AtomicBool>,
     lastfm_result: Arc<std::sync::Mutex<Option<Result<String, String>>>>,
-    /// The play generation Last.fm last heard about, and whether it was scrobbled.
+    /// The ListenBrainz account listens go to; the token being typed, a check of it in
+    /// progress and its outcome.
+    listenbrainz_user: Option<String>,
+    listenbrainz_token: String,
+    listenbrainz_busy: Arc<AtomicBool>,
+    listenbrainz_result: Arc<std::sync::Mutex<Option<Result<String, String>>>>,
+    /// The play generation Last.fm and ListenBrainz last heard about, and whether it was
+    /// scrobbled.
     scrobble: Option<(u64, bool)>,
     /// Last session's song, restored paused: Play starts it from here.
     resume_at: Option<Duration>,
@@ -611,6 +618,7 @@ impl App {
         // Before any request: a song started at launch (dev hooks) must see this setting.
         backend.set_high_quality(get("high_quality").is_none_or(|v| v == "1"));
         let hide_explicit = get("hide_explicit").is_some_and(|v| v == "1");
+        crate::listenbrainz::init(backend.data_dir());
         let restricted_mode = get("restricted_mode").is_some_and(|v| v == "1");
         backend.set_hide_explicit(hide_explicit, restricted_mode);
         let show_podcasts = get("podcasts").is_some_and(|v| v == "1");
@@ -647,6 +655,10 @@ impl App {
             resume_at: None,
             resume_counts: false,
             listened_at: 0,
+            listenbrainz_user: crate::listenbrainz::user(),
+            listenbrainz_token: String::new(),
+            listenbrainz_busy: Default::default(),
+            listenbrainz_result: Default::default(),
             queue_checked: None,
             was_focused: false,
             queue_source: None,
@@ -1213,7 +1225,7 @@ impl eframe::App for App {
             self.restore_art();
         }
         self.sync_discord();
-        self.sync_lastfm();
+        self.sync_scrobbles();
         self.sync_server_queue(ctx, now);
         self.tick_updates(ctx, now);
         let np = widgets::NowPlaying {

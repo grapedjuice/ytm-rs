@@ -284,7 +284,7 @@ impl App {
         let before = self.generation;
         self.generation += 1;
         // The same play going on (a download that broke off, a video swapped for its song):
-        // Last.fm has heard of it, and it may have been scrobbled.
+        // Last.fm and ListenBrainz have heard of it, and it may have been scrobbled.
         if !report
             && let Some((g, _)) = &mut self.scrobble
             && *g == before

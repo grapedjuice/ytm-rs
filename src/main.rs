@@ -20,6 +20,7 @@ mod innertube;
 mod jsc;
 mod lastfm;
 mod login;
+mod listenbrainz;
 mod lyrics;
 mod media;
 mod model;

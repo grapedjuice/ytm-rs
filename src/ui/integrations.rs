@@ -1,4 +1,4 @@
-//! Discord, Last.fm, the system media controls, the app icon, updates and the tray.
+//! Discord, Last.fm, ListenBrainz, the system media controls, the app icon, updates and the tray.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -53,21 +53,40 @@ impl App {
         self.discord_sent = want;
     }
 
-    /// Tell Last.fm what's playing, and scrobble it once it has played half its length
-    /// or 4 minutes (songs under 30 s don't count). Runs every frame, like Discord's.
-    pub(super) fn sync_lastfm(&mut self) {
+    /// Tell Last.fm and ListenBrainz what's playing, and scrobble it once it has played
+    /// half its length or 4 minutes (songs under 30 s don't count). Runs every frame, like
+    /// Discord's.
+    pub(super) fn sync_scrobbles(&mut self) {
         let result = self.lastfm_result.lock().unwrap().take();
         if let Some(r) = result {
             match r {
                 Ok(name) => {
                     self.toast(format!("Scrobbling to Last.fm as {name}"));
+                    // Only when nothing was listening already, so this play isn't sent twice.
+                    if self.listenbrainz_user.is_none() {
+                        self.scrobble = None;
+                    }
                     self.lastfm_user = Some(name);
-                    self.scrobble = None;
                 }
                 Err(e) => self.toast(format!("Last.fm sign-in failed: {e}")),
             }
         }
-        if self.lastfm_user.is_none() {
+        let result = self.listenbrainz_result.lock().unwrap().take();
+        if let Some(r) = result {
+            match r {
+                Ok(name) => {
+                    self.toast(format!("Sending listens to ListenBrainz as {name}"));
+                    if self.lastfm_user.is_none() {
+                        self.scrobble = None;
+                    }
+                    self.listenbrainz_user = Some(name);
+                    self.listenbrainz_token.clear();
+                }
+                Err(e) => self.toast(format!("Couldn't connect ListenBrainz: {e}")),
+            }
+        }
+        let (lastfm, listenbrainz) = (self.lastfm_user.is_some(), self.listenbrainz_user.is_some());
+        if !lastfm && !listenbrainz {
             return;
         }
         let Some(t) = self.playing_track().filter(|_| self.playing() && !self.buffering) else { return };
@@ -84,16 +103,35 @@ impl App {
         if play.artist.is_empty() {
             return;
         }
+        let listen = crate::listenbrainz::Listen {
+            artist: t.artist_line(),
+            track: play.track.clone(),
+            album: play.album.clone(),
+            duration: play.duration,
+            timestamp: play.timestamp,
+            video_id: t.id.clone(),
+        };
         let http = self.backend.http();
         if self.scrobble.is_none_or(|(g, _)| g != self.generation) {
             self.scrobble = Some((self.generation, false));
-            let p = play.clone();
-            self.backend.spawn(async move { crate::lastfm::now_playing(&http, &p).await });
+            if lastfm {
+                let (http, p) = (http.clone(), play.clone());
+                self.backend.spawn(async move { crate::lastfm::now_playing(&http, &p).await });
+            }
+            if listenbrainz {
+                self.backend.spawn(async move { crate::listenbrainz::now_playing(&http, &listen).await });
+            }
             return;
         }
         if dur >= Duration::from_secs(30) && pos >= (dur / 2).min(Duration::from_secs(240)) && self.scrobble.is_some_and(|(_, done)| !done) {
             self.scrobble = Some((self.generation, true));
-            self.backend.spawn(async move { crate::lastfm::scrobble(&http, play).await });
+            if lastfm {
+                let http = http.clone();
+                self.backend.spawn(async move { crate::lastfm::scrobble(&http, play).await });
+            }
+            if listenbrainz {
+                self.backend.spawn(async move { crate::listenbrainz::listen(&http, listen).await });
+            }
         }
     }
 
@@ -113,7 +151,32 @@ impl App {
     pub(super) fn lastfm_sign_out(&mut self) {
         crate::lastfm::sign_out();
         self.lastfm_user = None;
-        self.scrobble = None;
+        if self.listenbrainz_user.is_none() {
+            self.scrobble = None;
+        }
+    }
+
+    /// Check the pasted token with ListenBrainz, then keep it.
+    pub(super) fn listenbrainz_connect(&mut self) {
+        if self.listenbrainz_busy.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        let token = self.listenbrainz_token.trim().to_owned();
+        let (busy, result, http, backend) = (self.listenbrainz_busy.clone(), self.listenbrainz_result.clone(), self.backend.http(), self.backend.clone());
+        self.backend.spawn(async move {
+            let r = crate::listenbrainz::connect(&http, &token).await.map_err(|e| format!("{e:#}"));
+            *result.lock().unwrap() = Some(r);
+            busy.store(false, Ordering::Relaxed);
+            backend.wake();
+        });
+    }
+
+    pub(super) fn listenbrainz_sign_out(&mut self) {
+        crate::listenbrainz::sign_out();
+        self.listenbrainz_user = None;
+        if self.lastfm_user.is_none() {
+            self.scrobble = None;
+        }
     }
 
     /// Switch the window, tray and shortcuts to another icon.

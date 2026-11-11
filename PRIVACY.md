@@ -1,15 +1,4 @@
-# Code signing policy
-
-Windows releases are built from this repository by [GitHub Actions](.github/workflows/release.yml); nothing is built or signed on a personal machine.
-
-Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
-
-## Team
-
-- Committers and reviewers: [grapedjuice](https://github.com/grapedjuice)
-- Approvers: [grapedjuice](https://github.com/grapedjuice)
-
-## Privacy
+# Privacy
 
 ytm-rs has no accounts of its own and collects nothing about you. It only talks to the services below, and only for the features that need them:
 

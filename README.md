@@ -99,7 +99,7 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 
 Downloads for every platform are on the [latest release](https://github.com/grapedjuice/ytm-rs/releases/latest). Once installed, ytm-rs keeps itself up to date; you can turn this off, or switch to nightly builds, in **Settings › About › Updates**.
 
-Free code signing for Windows provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). See the [code signing policy](CODE_SIGNING.md).
+ytm-rs collects nothing about you; see [Privacy](PRIVACY.md) for every service it talks to and why.
 
 <details open>
 <summary><b>Windows</b></summary>

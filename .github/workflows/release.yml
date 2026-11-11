@@ -30,6 +30,12 @@ on:
 permissions:
   contents: write
 
+env:
+  # What goes into the downloads: the code, assets, build and packaging. Only changes
+  # here make a nightly, or appear in its notes; the site, docs, Markdown, the worker in
+  # server/, .github and the like don't change the app.
+  APP_PATHS: "src assets build.rs Cargo.toml Cargo.lock installer linux macos :(exclude)*.md"
+
 jobs:
   # The version to build, and for a nightly its build number, or whether there's
   # nothing new to build one from.
@@ -58,11 +64,10 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Only what goes into the downloads counts: the code, assets, build and packaging.
-          # The site, docs, Markdown, the worker in server/, .github and the like don't
-          # change the app, so nothing to build if they're all that changed.
+          # Nothing to build if nothing in the app changed (APP_PATHS).
+          read -ra app <<< "$APP_PATHS"
           prev=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
-          if [ -n "$prev" ] && [ -z "$(git diff --name-only "$prev" HEAD -- src assets build.rs Cargo.toml Cargo.lock installer linux macos ':(exclude)*.md')" ]; then
+          if [ -n "$prev" ] && [ -z "$(git diff --name-only "$prev" HEAD -- "${app[@]}")" ]; then
             echo "Nothing in the app changed since $prev"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -293,7 +298,8 @@ jobs:
           merge-multiple: true
 
       # A draft until every file is attached, so the updater never sees it without them.
-      # The notes: the commits since the last release or nightly, but version bumps.
+      # The notes: the commits since the last release or nightly that changed the app
+      # (APP_PATHS), but version bumps and developer-only ones (Dev:, CI:, Tests:).
       - name: Publish the nightly
         env:
           GH_TOKEN: ${{ github.token }}
@@ -303,13 +309,14 @@ jobs:
           ls -l files
           tag="v$VERSION"
           prev=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
+          read -ra app <<< "$APP_PATHS"
           {
             echo "A nightly build of the newest changes. It may have rough edges."
             if [ -n "$prev" ]; then
               echo
               echo "Since ${prev#v}:"
               echo
-              git log --no-merges --format='- %s' "$prev..HEAD" | grep -vE '^- [0-9]+\.[0-9]+\.[0-9]+$' || true
+              git log --no-merges --format='- %s' "$prev..HEAD" -- "${app[@]}" | grep -vE '^- ([0-9]+\.[0-9]+\.[0-9]+|(Dev|CI|Tests?): .*)$' || true
             fi
           } > notes.md
           cat notes.md

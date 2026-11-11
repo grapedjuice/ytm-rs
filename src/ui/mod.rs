@@ -298,6 +298,9 @@ pub struct App {
     discord_enabled: bool,
     /// Last state sent to Discord, to send only real changes.
     discord_sent: Option<crate::discord::Presence>,
+    /// Local WebSocket for a Stream Deck plugin. Off until Connections enables it.
+    remote: crate::remote::Remote,
+    remote_enabled: bool,
     /// The Last.fm account scrobbles go to; a sign-in in progress and its outcome.
     lastfm_user: Option<String>,
     lastfm_busy: Arc<AtomicBool>,
@@ -612,6 +615,7 @@ impl App {
         // Dev hook: YTM_FONT=<font name> tries a font without saving it.
         theme::set_font_choice(&dev_var("YTM_FONT").map(str::to_owned).or_else(|| get("font")).unwrap_or_default());
         let discord_enabled = get("discord_enabled").is_none_or(|v| v == "1");
+        let remote_enabled = get("remote_enabled").is_some_and(|v| v == "1");
         let app_icon = crate::appicon::load(backend.data_dir());
         let wgpu_renderer = crate::renderer::load(backend.data_dir()) == crate::renderer::Renderer::Wgpu;
         // Updates reinstall the shortcuts with the classic icon.
@@ -654,6 +658,8 @@ impl App {
             discord: discord_enabled.then(crate::discord::Discord::spawn).flatten(),
             discord_enabled,
             discord_sent: None,
+            remote: crate::remote::Remote::new(),
+            remote_enabled,
             lastfm_user: crate::lastfm::user(),
             lastfm_busy: Default::default(),
             lastfm_result: Default::default(),
@@ -1236,6 +1242,7 @@ impl eframe::App for App {
             self.glow = None;
             self.restore_art();
         }
+        self.sync_remote(ctx);
         self.sync_discord();
         self.sync_scrobbles();
         self.sync_server_queue(ctx, now);
@@ -1625,6 +1632,7 @@ impl eframe::App for App {
             storage.set_string("update_seen", v.clone());
         }
         storage.set_string("discord_enabled", b(self.discord_enabled));
+        storage.set_string("remote_enabled", b(self.remote_enabled));
         storage.set_string("default_theme", b(false));
         if dev_var("YTM_APPEARANCE").is_none() {
             storage.set_string("appearance", self.appearance.key().to_owned());

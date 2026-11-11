@@ -27,6 +27,7 @@ mod media;
 mod model;
 mod opus;
 mod preset;
+mod remote;
 mod shader;
 mod sponsorblock;
 mod stream;

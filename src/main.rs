@@ -195,6 +195,9 @@ fn main() -> eframe::Result {
             if let Some(h) = hwnd(cc) {
                 appicon::set_hwnd(h);
                 fullscreen::set_hwnd(h);
+                if let Some(window) = cc.winit_window().cloned() {
+                    fullscreen::set_drag(move || window.has_focus() && window.drag_window().is_ok());
+                }
                 ui::set_titlebar_hwnd(h);
                 backdrop::prepare(h);
                 // eframe sets only the small icon; the taskbar button wants the big one.

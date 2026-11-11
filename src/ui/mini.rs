@@ -34,12 +34,24 @@ const PINNED_BY_DEFAULT: bool = true;
 const CLOSE: CloseButton = CloseButton::LikeFullWindow;
 /// From the work area's corner, the first time.
 const MARGIN: f32 = 16.0;
-/// The pill's window: always wide enough for the open pill, which is only painted as far
-/// as it has grown, so hovering never has to resize a window.
-const PILL_WINDOW: Vec2 = vec2(292.0, 58.0);
+/// The open pill's button that grows it into a card with more of the song: only where the
+/// window can be clipped to a shape (Windows). Elsewhere a window big enough for the card
+/// would take the clicks meant for what's around the pill.
+const CARD: bool = cfg!(windows);
 const PILL_REST: f32 = 216.0;
-const PILL_OPEN: f32 = 290.0;
+const PILL_OPEN: f32 = 290.0 + if CARD { 26.0 } else { 0.0 };
 const PILL_HEIGHT: f32 = 56.0;
+/// As wide as the open pill, so it only grows up or down.
+const CARD_SIZE: Vec2 = vec2(PILL_OPEN, 252.0);
+const CARD_RADIUS: f32 = 22.0;
+/// The pill's window: always big enough for the open pill, which is only painted as far
+/// as it has grown, so hovering never has to resize a window. Just the pill's, so what
+/// Windows snaps (and shows it snapping) is the pill.
+const PILL_WINDOW: Vec2 = vec2(PILL_OPEN + 2.0, PILL_HEIGHT + 2.0);
+/// The window while the card shows, or is on its way.
+const CARD_WINDOW: Vec2 = vec2(PILL_WINDOW.x, CARD_SIZE.y + 2.0);
+/// How far the window moves up for a card opening upwards, in points.
+const CARD_TRAVEL: f32 = CARD_SIZE.y - PILL_HEIGHT;
 
 static PILL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
@@ -66,15 +78,35 @@ pub fn pill_active() -> bool {
     *PILL.get_or_init(|| false)
 }
 
-/// The window's shape around a pill `width` wide, set against its right edge so it grows
-/// to the left and stays in the corner it's placed in: left, right, bottom and corner
-/// diameter in pixels. A point past the pill's edge keeps that edge smooth.
-fn pill_shape(window: f32, width: f32, ppp: f32) -> (i32, i32, i32, i32) {
-    let tall = ((PILL_HEIGHT + 2.0) * ppp).ceil() as i32;
-    (((window - width - 2.0) * ppp).floor() as i32, (window * ppp).ceil() as i32, tall, tall)
+/// The pill `width` wide in the window `r`, set against its right edge so it grows to the
+/// left and stays in the corner it's placed in. `low`: at the window's bottom, which a card
+/// opening upwards has lifted.
+fn pill_rect(r: Rect, width: f32, low: bool) -> Rect {
+    let top = if low { r.bottom() - 1.0 - PILL_HEIGHT } else { r.top() + 1.0 };
+    Rect::from_min_size(pos2(r.right() - 1.0 - width, top), vec2(width, PILL_HEIGHT))
 }
 
-/// Where the mini player's place is saved: each style its own, as their widths differ.
+/// The card in the window `r` (the card's window).
+fn card_rect(r: Rect) -> Rect {
+    Rect::from_min_size(pos2(r.right() - 1.0 - CARD_SIZE.x, r.top() + 1.0), CARD_SIZE)
+}
+
+/// The window's shape around `rect` (points from the window's corner) with corners of
+/// `radius`: left, top, right, bottom and corner diameter in pixels. A point past the
+/// edge keeps it smooth.
+fn region(rect: Rect, radius: f32, ppp: f32) -> (i32, i32, i32, i32, i32) {
+    let r = rect.expand(1.0);
+    let d = ((radius + 1.0) * 2.0 * ppp).ceil() as i32;
+    ((r.left() * ppp).floor() as i32, (r.top() * ppp).floor() as i32, (r.right() * ppp).ceil() as i32, (r.bottom() * ppp).ceil() as i32, d)
+}
+
+/// How far (whole pixels, so up and back down end where they began) the window moves up
+/// for a card opening upwards.
+fn travel(ppp: f32) -> f32 {
+    (CARD_TRAVEL * ppp).round()
+}
+
+/// Where the mini player's place is saved: each style its own, as their sizes differ.
 fn place_key() -> &'static str {
     if pill_active() { "mini_pill_window" } else { "mini_window" }
 }
@@ -238,7 +270,17 @@ pub struct Mini {
     /// The full window's normal place after coming back maximized, until it's restored down.
     restored_max: Option<Place>,
     /// The shape the window was last clipped to, for the pill.
-    shape: Option<(i32, i32, i32, i32)>,
+    shape: Option<(i32, i32, i32, i32, i32)>,
+    /// The pill has grown into its card.
+    card: bool,
+    /// The card opens upwards from the pill; else downwards. Chosen as it opens.
+    up: bool,
+    /// The window is the card's size (asked for, at least), from opening until it's shut.
+    tall: bool,
+    /// The window has moved up for a card opening upwards: the pill is at its bottom.
+    lifted: bool,
+    /// The window has reached the card's size since it was asked for (it may lose it).
+    grown: bool,
 }
 
 impl Mini {
@@ -256,20 +298,77 @@ impl Mini {
             screens: SYSTEM,
             restored_max: None,
             shape: None,
+            card: false,
+            up: true,
+            tall: false,
+            lifted: false,
+            grown: false,
         }
     }
 
-    /// Clip the window to the pill, a point past its edge to keep that edge smooth.
-    fn shape_to(&mut self, ctx: &egui::Context, width: f32) {
+    /// Clip the window to the pill (or its card) at `rect`.
+    fn shape_to(&mut self, ctx: &egui::Context, rect: Rect, radius: f32) {
         // On the way back, the pill still draws until the window starts changing size.
         if self.switch.is_some() {
             return;
         }
-        let shape = Some(pill_shape(ctx.content_rect().width(), width, ctx.pixels_per_point()));
+        let shape = Some(region(rect.translate(-ctx.content_rect().min.to_vec2()), radius, ctx.pixels_per_point()));
         if self.shape != shape {
             self.shape = shape;
             crate::fullscreen::set_window_shape(shape);
         }
+    }
+
+    /// Grow the pill into its card, or back. Opening, the window grows down to the card's
+    /// size (the pill stays at its top); the card opens upwards unless only below has room,
+    /// for which [`Mini::lift`] moves the window up once it's grown.
+    fn set_card(&mut self, ctx: &egui::Context, on: bool) {
+        self.card = on;
+        if !on || self.tall {
+            return;
+        }
+        self.up = self.opens_up(ctx);
+        self.tall = true;
+        self.limits(ctx, true);
+        ctx.send_viewport_cmd(ViewportCommand::InnerSize(CARD_WINDOW));
+    }
+
+    /// Whether the card would open upwards from the pill's window where it is now: unless
+    /// only below has room.
+    fn opens_up(&self, ctx: &egui::Context) -> bool {
+        let outer = ctx.input(|i| i.viewport().outer_rect);
+        let (Some(outer), Some(area)) = (outer, (self.screens.work_area)()) else { return self.up };
+        let ppp = ctx.pixels_per_point();
+        let pill_top = (outer.min.y + 1.0) * ppp;
+        let fits_up = pill_top - CARD_TRAVEL * ppp >= area.top();
+        let fits_down = pill_top + CARD_SIZE.y * ppp <= area.bottom();
+        fits_up || !fits_down
+    }
+
+    /// Move the window up for the card (the pill now at its bottom), or back down, keeping
+    /// the pill where it is on screen.
+    fn lift(&mut self, ctx: &egui::Context, up: bool) {
+        let Some(outer) = ctx.input(|i| i.viewport().outer_rect) else { return };
+        self.lifted = up;
+        let ppp = ctx.pixels_per_point();
+        let travel = travel(ppp) * if up { -1.0 } else { 1.0 };
+        crate::fullscreen::move_window((outer.min.x * ppp).round() as i32, (outer.min.y * ppp + travel).round() as i32);
+    }
+
+    /// Back to the pill's size, once the card has shrunk away.
+    fn shrink(&mut self, ctx: &egui::Context) {
+        if self.lifted {
+            self.lift(ctx, false);
+        }
+        (self.tall, self.grown) = (false, false);
+        self.limits(ctx, true);
+        ctx.send_viewport_cmd(ViewportCommand::InnerSize(PILL_WINDOW));
+    }
+
+    /// Where the pill is, for its window at `p`: lower down while the card has lifted it.
+    fn pill_place(&self, p: Place, ppp: f32) -> Place {
+        let y = if self.lifted { p.y + travel(ppp) } else { p.y };
+        clamp_size(Place { y, ..p })
     }
 
     pub fn save(&self, storage: &mut dyn eframe::Storage) {
@@ -357,6 +456,7 @@ impl Mini {
         }
         let to_mini = !self.on;
         let mut step = Step::Resize;
+        self.card = false;
         if to_mini {
             self.was_maximized = ctx.input(|i| i.viewport().maximized == Some(true));
             if self.was_maximized {
@@ -396,7 +496,7 @@ impl Mini {
             && !maximized
             && let Some(p) = Place::current(ctx).filter(|p| p.w >= width_limits().0 - 1.0)
         {
-            self.place = Some(clamp_size(p));
+            self.place = Some(self.pill_place(p, ctx.pixels_per_point()));
         }
         let Some(sw) = &mut self.switch else { return };
         ctx.request_repaint_after(Duration::from_millis(16));
@@ -486,8 +586,9 @@ impl Mini {
             self.go(ctx, target, false, true)
         } else {
             if let Some(p) = now_place {
-                self.place = Some(clamp_size(p));
+                self.place = Some(self.pill_place(p, ctx.pixels_per_point()));
             }
+            (self.tall, self.lifted, self.grown) = (false, false, false);
             ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::Normal));
             // Kept until the window has settled: a save meanwhile still writes it.
             match self.full {
@@ -539,7 +640,7 @@ impl Mini {
     /// window's minimum doesn't hold the strip up.
     fn limits(&mut self, ctx: &egui::Context, mini: bool) {
         if mini {
-            let ((min, max), h) = (width_limits(), mini_size().y);
+            let ((min, max), h) = (width_limits(), if self.tall { CARD_WINDOW.y } else { mini_size().y });
             ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(vec2(min, h)));
             ctx.send_viewport_cmd(ViewportCommand::MaxInnerSize(vec2(max, h)));
         } else {
@@ -696,13 +797,7 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
         }
     }
     if vresp.clicked() {
-        let stash = super::shell::unmute_id();
-        if vol > 0.0 {
-            ui.data_mut(|d| d.insert_temp(stash, vol));
-            app.audio.set_volume(0.0);
-        } else {
-            app.audio.set_volume(ui.data(|d| d.get_temp::<f32>(stash)).unwrap_or(0.6));
-        }
+        toggle_mute(app, ui);
     }
 
     seek_line(app, ui, r, track.as_ref());
@@ -724,40 +819,107 @@ fn play_glyph(app: &App, ui: &Ui, c: Pos2, k: f32, glyph: Color32, now: f64) {
 }
 
 /// The pill: cover in a progress ring, title and artists; pointing at it slides out
-/// previous, play, next and close. Drag to move, double-click for the full window.
+/// previous, play, next, the card's button and close. Drag to move, double-click for the
+/// full window. The card grows out of it with more of the song and its controls.
 pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
     let ctx = ui.ctx().clone();
     let r = ctx.content_rect();
+    if app.mini.card && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        app.mini.set_card(&ctx, false);
+    }
+    let card_on = app.mini.card;
+    // A seek dragged in the card ends with it.
+    if !card_on {
+        app.seek_drag = None;
+    }
+    // The card waits for its window: grown, and moved up when it opens upwards.
+    let tall = r.height() >= CARD_WINDOW.y - 1.0;
+    // The card's size until the window has it, also after something else (Windows leaving
+    // a snap) sizes it back down: only closing the card shrinks it.
+    if app.mini.tall && app.mini.switch.is_none() {
+        if tall {
+            app.mini.grown = true;
+        } else {
+            app.mini.limits(&ctx, true);
+            ctx.send_viewport_cmd(ViewportCommand::InnerSize(CARD_WINDOW));
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
+    }
+    if card_on && tall && app.mini.up && !app.mini.lifted {
+        app.mini.lift(&ctx, true);
+    }
+    let ready = app.mini.grown && (app.mini.lifted || !app.mini.up);
+    // Back from the full window: no card half-shrunk from when it was left.
+    if app.mini.shape.is_none() {
+        ctx.animate_bool_with_time(egui::Id::unique("pill-card"), card_on && ready, 0.0);
+    }
+    let grow = theme::anim_bool(&ctx, "pill-card", card_on && ready, 0.3).clamp(0.0, 1.0);
+    // Shut: the window back to the pill's size.
+    if !card_on && app.mini.tall && grow <= 0.0 {
+        app.mini.shrink(&ctx);
+    }
+    let low = app.mini.lifted;
     let width_id = egui::Id::unique("pill-width");
     let was = ctx.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(PILL_REST);
-    let at = |w: f32| Rect::from_min_size(pos2(r.right() - 1.0 - w, r.top() + 1.0), vec2(w, PILL_HEIGHT));
-    let over = ctx.input(|i| i.pointer.hover_pos()).is_some_and(|p| at(was).contains(p));
+    let over = ctx.input(|i| i.pointer.hover_pos()).is_some_and(|p| pill_rect(r, was, low).contains(p));
     // The keyboard opens it too, or Tab would land on buttons nobody can see.
-    let scope = ui.scope_id();
-    let btn_id = move |key: &str| scope.with(("pill", key));
-    let focused = ctx.memory(|m| m.focused()).is_some_and(|f| ["prev", "play", "next", "close"].iter().any(|k| btn_id(k) == f));
-    let active = over || focused;
+    let focused = ctx.memory(|m| m.focused()).is_some_and(|f| ["prev", "play", "next", "card", "close"].iter().any(|k| pill_btn(k) == f));
+    let active = over || focused || card_on;
     // A toast takes the text's place, with the pill opened for the room, until it's pointed at.
     let toast = app.toast.as_ref().filter(|_| !active).map(|(msg, _)| msg.clone());
-    if toast.is_some() {
+    if app.toast.is_some() {
         ctx.request_repaint_after(Duration::from_millis(500));
     }
     let open = theme::anim_bool(&ctx, "pill-open", active || toast.is_some(), 0.18);
     let reveal = theme::anim_bool(&ctx, "pill-buttons", active, 0.18);
     let width = egui::lerp(PILL_REST..=PILL_OPEN, open);
     ctx.data_mut(|d| d.insert_temp(width_id, width));
-    app.mini.shape_to(&ctx, width);
-    let rect = at(width);
+    let (small, card) = (pill_rect(r, width, low), card_rect(r));
+    let rect = Rect::from_min_max(small.min.lerp(card.min, grow), small.max.lerp(card.max, grow));
+    let radius = egui::lerp(PILL_HEIGHT / 2.0..=CARD_RADIUS, grow);
+    app.mini.shape_to(&ctx, rect, radius);
 
-    let drag = titlebar::drag_strip(ui, rect, "mini");
+    // Only once it has settled: a quick second click on More or Less mustn't land on what's
+    // fading in under the pointer, nor count as a double-click on the background.
+    let settled = if grow < 0.5 { grow <= 0.0 } else { app.mini.card && grow >= 0.99 };
+    let mut back = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+    if !settled {
+        back.disable();
+    }
+    let drag = titlebar::drag_strip(&back, rect, "mini");
     let name = app.current().map_or_else(|| "Nothing playing".to_owned(), |t| widgets::song_name(&t.title, t.explicit).into_owned());
     if named(drag, &name).double_clicked() {
         app.actions.push(Action::Mini(false));
     }
-    let radius = PILL_HEIGHT / 2.0;
     ui.painter().rect_filled(rect, radius, super::shell::base_color(app));
     ui.painter().rect_stroke(rect, radius, egui::Stroke::new(1.0, theme::glass(0.18)), egui::StrokeKind::Inside);
 
+    // One fades out before the other fades in, inside the shape as it grows.
+    let mut inside = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+    inside.set_clip_rect(rect.intersect(ui.clip_rect()));
+    // Disabled without dimming: the fade is enough.
+    if !settled {
+        inside.visuals_mut().disabled_alpha = 1.0;
+        inside.disable();
+    }
+    if grow < 0.5 {
+        inside.multiply_opacity(1.0 - grow * 2.0);
+        pill_row(app, &mut inside, small, reveal, toast, now);
+    } else {
+        inside.multiply_opacity(grow * 2.0 - 1.0);
+        card_body(app, &mut inside, card, now);
+    }
+}
+
+/// A pill button's id, the same wherever it's asked for (the pill's focus check, its row).
+fn pill_btn(key: &str) -> egui::Id {
+    egui::Id::unique(("pill-btn", key))
+}
+
+/// What's in the pill: the cover in a progress ring, title and artists or a toast, and the
+/// buttons that slide out.
+fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<String>, now: f64) {
+    let ctx = ui.ctx().clone();
     // The cover, with how far the song has got around it.
     let track = app.current().cloned();
     let c = pos2(rect.left() + 27.0, rect.center().y);
@@ -783,8 +945,9 @@ pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
     }
 
     // Title and artists, making room for the buttons as they slide out.
+    let shift = if CARD { 26.0 } else { 0.0 };
     let x0 = c.x + 30.0;
-    let text_w = (rect.right() - 14.0 - 126.0 * reveal - x0).max(10.0);
+    let text_w = (rect.right() - 14.0 - (126.0 + shift) * reveal - x0).max(10.0);
     let cy = rect.center().y;
     let (title, artists) = match &track {
         Some(t) => (t.title.clone(), t.artist_line()),
@@ -792,7 +955,7 @@ pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
     };
     let explicit = track.as_ref().is_some_and(|t| t.explicit);
     if let Some(msg) = toast {
-        let g = ui.painter().layout(msg, theme::regular(11.5), theme::text(), text_w);
+        let g = ui.painter().layout(msg, theme::semibold(13.0), theme::text(), text_w);
         ui.painter().galley(pos2(x0, cy - g.size().y / 2.0), g, theme::text());
     } else {
         widgets::title_at(ui, pos2(x0, cy - 17.0), &title, explicit, theme::semibold(13.0), theme::text(), text_w);
@@ -801,10 +964,10 @@ pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
 
     // Clickable once most of the way out: a quick pass over the pill shouldn't press
     // anything. Until then Tab can still get to them, which opens the pill.
-    let live = reveal > 0.5;
+    let live = reveal > 0.5 && !app.mini.card;
     let button = |ui: &mut Ui, center: Pos2, key: &str, name: &str| -> egui::Response {
         let sense = if live { Sense::click() } else { Sense::focusable_noninteractive() };
-        let resp = named(ui.interact(Rect::from_center_size(center, Vec2::splat(28.0)), btn_id(key), sense), name);
+        let resp = named(ui.interact(Rect::from_center_size(center, Vec2::splat(28.0)), pill_btn(key), sense), name);
         if resp.has_focus() {
             ui.painter().circle_stroke(center, 14.0, egui::Stroke::new(1.5, theme::text()));
         }
@@ -812,7 +975,13 @@ pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
     };
     let enabled = track.is_some();
     let right = rect.right();
-    for (dx, glyph, key, name) in [(113.0, icon::SKIP_BACK, "prev", "Previous"), (47.0, icon::SKIP_FORWARD, "next", "Next"), (21.0, icon::X, "close", "Close")] {
+    // Which way it'll open from here, while the window is the pill's.
+    let up = if app.mini.tall { app.mini.up } else { app.mini.opens_up(&ctx) };
+    let mut buttons = vec![(113.0 + shift, icon::SKIP_BACK, "prev", "Previous"), (47.0 + shift, icon::SKIP_FORWARD, "next", "Next"), (21.0, icon::X, "close", "Close")];
+    if CARD {
+        buttons.push((47.0, if up { icon::CHEVRON_UP } else { icon::CHEVRON_DOWN }, "card", "More"));
+    }
+    for (dx, glyph, key, name) in buttons {
         let center = pos2(right - dx, cy);
         let resp = button(ui, center, key, name);
         let hot = live && resp.hovered();
@@ -824,17 +993,227 @@ pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
             match key {
                 "prev" if enabled => app.prev(),
                 "next" if enabled => app.next(),
+                "card" => app.mini.set_card(&ctx, true),
                 "close" => close_window(app, &ctx),
                 _ => {}
             }
         }
     }
-    let center = pos2(right - 80.0, cy);
+    let center = pos2(right - 80.0 - shift, cy);
     let resp = button(ui, center, "play", if app.playing() { "Pause" } else { "Play" });
     ui.painter().circle_filled(center, 15.0, if theme::light() { theme::text() } else { Color32::WHITE }.gamma_multiply(reveal));
     play_glyph(app, ui, center, 0.82, theme::on_text().gamma_multiply(reveal), now);
     if resp.clicked() && enabled {
         app.toggle();
+    }
+}
+
+/// The pill's card: where it's playing from, the cover with title, artists and album and a
+/// like, a seek bar with the times, shuffle / previous / play / next / repeat, and volume.
+fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
+    let ctx = ui.ctx().clone();
+    let (l, rt, top) = (cr.left() + 18.0, cr.right() - 18.0, cr.top());
+    let track = app.current().cloned();
+    let enabled = track.is_some();
+    let button = |ui: &mut Ui, c: Pos2, glyph: char, size: f32, name: &str, active: bool| -> bool {
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_center_size(c, Vec2::splat(size + 16.0))));
+        widgets::icon_button(&mut child, glyph, size, name, active).clicked()
+    };
+
+    // Where it's playing from (its name opens it in the full window); the full window and
+    // back to the pill beside it.
+    let head = top + 30.0;
+    if button(ui, pos2(rt - 8.0, head), if app.mini.up { icon::CHEVRON_DOWN } else { icon::CHEVRON_UP }, 16.0, "Less", false) {
+        app.mini.set_card(&ctx, false);
+    }
+    if button(ui, pos2(rt - 42.0, head), icon::MAXIMIZE_2, 14.0, "Full window (Ctrl+M)", false) {
+        app.actions.push(Action::Mini(false));
+    }
+    let head_w = rt - 66.0 - l;
+    // A toast ("Shuffled up next", "Sign in to like songs") takes the header's place while
+    // it lasts, kept through its fade-out.
+    let toast_id = egui::Id::unique("card-toast");
+    if let Some((msg, _)) = &app.toast {
+        ctx.data_mut(|d| d.insert_temp(toast_id, msg.clone()));
+    }
+    // Still opening: whatever the toast is now, without fading out an old one.
+    if !ui.is_enabled() {
+        ctx.animate_bool_with_time(egui::Id::unique(toast_id), app.toast.is_some(), 0.0);
+    }
+    let tt = theme::anim_bool(&ctx, toast_id, app.toast.is_some(), 0.2).clamp(0.0, 1.0);
+    if let Some(msg) = ctx.data(|d| d.get_temp::<String>(toast_id)).filter(|_| tt > 0.0) {
+        let g = ui.painter().layout(msg, theme::semibold(13.0), theme::text().gamma_multiply(tt), head_w);
+        ui.painter().galley(pos2(l, head - g.size().y / 2.0 + 4.0 * (1.0 - tt)), g, theme::text());
+    }
+    // Faded under the toast, and not clickable once it has mostly taken over.
+    let live = tt < 0.5;
+    {
+        let mut from_ui = ui.new_child(egui::UiBuilder::new().max_rect(cr));
+        from_ui.multiply_opacity(1.0 - tt);
+        let ui = &mut from_ui;
+        match app.playing_from() {
+            Some((kind, name, target)) => {
+                text_at(ui, pos2(l, head - 16.0), &format!("Playing from {kind}"), theme::regular(11.0), theme::text_faint(), head_w);
+                let nr = text_at(ui, pos2(l, head - 1.0), &name, theme::semibold(13.0), theme::text(), head_w);
+                let sense = if live { Sense::click() } else { Sense::hover() };
+                let resp = named(ui.interact(nr, ui.scope_id().with("card-from"), sense), &name);
+                let resp = if live { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
+                if resp.hovered() && live {
+                    ui.painter().hline(nr.x_range(), nr.bottom(), egui::Stroke::new(1.0, theme::text()));
+                }
+                if resp.clicked() {
+                    // Liked Music is Library › Songs, where it was played from.
+                    let liked = matches!(&target, crate::model::Target::Playlist(id) if id == super::lists::LIKED_MUSIC);
+                    app.actions.push(Action::Mini(false));
+                    app.actions.push(if liked { Action::Go(super::Page::Library(super::LibTab::Songs)) } else { Action::Open(target) });
+                }
+            }
+            None => {
+                text_at(ui, pos2(l, head - 8.0), "Now playing", theme::semibold(13.0), theme::text_dim(), head_w);
+            }
+        }
+    }
+
+    // The cover, title, artists and album, and a like.
+    let art = Rect::from_min_size(pos2(l, top + 60.0), Vec2::splat(68.0));
+    match &track {
+        Some(t) => paint_cover(ui, art, &t.thumbs, theme::thumb_radius() + 4.0, 1.0),
+        None => {
+            ui.painter().rect_filled(art, theme::thumb_radius() + 4.0, theme::glass_panel(0.08));
+            icon_at(ui, art.center(), icon::MUSIC, 26.0, theme::text_faint());
+        }
+    }
+    let x0 = art.right() + 14.0;
+    let text_w = (rt - 34.0 - x0).max(20.0);
+    match &track {
+        Some(t) => {
+            let tr = widgets::title_at(ui, pos2(x0, art.top() + 6.0), &t.title, t.explicit, theme::semibold(15.0), theme::text(), text_w);
+            named(ui.interact(tr, ui.scope_id().with("card-title"), Sense::hover()), &widgets::song_name(&t.title, t.explicit)).on_hover_text(&t.title);
+            text_at(ui, pos2(x0, art.top() + 27.0), &t.artist_line(), theme::regular(12.5), theme::text_dim(), text_w);
+            if let Some(album) = &t.album {
+                text_at(ui, pos2(x0, art.top() + 45.0), &album.name, theme::regular(12.0), theme::text_faint(), text_w);
+            }
+        }
+        None => {
+            text_at(ui, pos2(x0, art.center().y - 9.0), "Nothing playing", theme::semibold(15.0), theme::text_dim(), text_w);
+        }
+    }
+    if let Some(t) = &track {
+        // What's heard, like Now playing's menu: a song version standing in for the music video.
+        let t = &app.playing_track().cloned().unwrap_or_else(|| t.clone());
+        let liked = app.heard_liked();
+        let lpos = pos2(rt - 8.0, art.center().y);
+        let lresp = ui.interact(Rect::from_center_size(lpos, Vec2::splat(32.0)), ui.scope_id().with("card-like"), Sense::click());
+        let name = if liked { "Remove like" } else { "Like" };
+        let lresp = named(lresp, name).on_hover_text(name).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let lh = theme::anim_bool(&ctx, lresp.id.with("h"), lresp.hovered(), 0.15);
+        let pop = theme::anim_bool(&ctx, ("liked", &t.id), liked, 0.3);
+        ui.painter().circle_filled(lpos, 16.0, theme::glass(0.1 * lh));
+        let size = 17.0 * (1.0 + 0.25 * (pop * std::f32::consts::PI).sin());
+        let outline = theme::lerp_color(theme::lerp_color(theme::text_dim(), theme::text(), lh), theme::RED, pop);
+        widgets::heart(ui, lpos, size, pop, outline, theme::RED);
+        if lresp.clicked() {
+            app.actions.push(Action::LikeHeard(!liked));
+        }
+    }
+
+    card_seek(app, ui, Rect::from_min_max(pos2(l, top + 146.0), pos2(rt, top + 146.0)), track.as_ref());
+
+    // Shuffle, previous, play, next, repeat.
+    let cy = top + 192.0;
+    let cx = cr.center().x;
+    if button(ui, pos2(cx - 104.0, cy), icon::SHUFFLE, 16.0, "Shuffle up next", false) {
+        app.shuffle_upcoming();
+    }
+    if button(ui, pos2(cx - 54.0, cy), icon::SKIP_BACK, 20.0, "Previous", false) && enabled {
+        app.prev();
+    }
+    if button(ui, pos2(cx + 54.0, cy), icon::SKIP_FORWARD, 20.0, "Next", false) && enabled {
+        app.next();
+    }
+    use super::Repeat;
+    let (rep_icon, rep_on) = match app.queue.repeat {
+        Repeat::Off => (icon::REPEAT, false),
+        Repeat::All => (icon::REPEAT, true),
+        Repeat::One => (icon::REPEAT_1, true),
+    };
+    let rpos = pos2(cx + 104.0, cy);
+    if button(ui, rpos, rep_icon, 16.0, "Repeat", rep_on) {
+        app.queue.repeat = match app.queue.repeat {
+            Repeat::Off => Repeat::All,
+            Repeat::All => Repeat::One,
+            Repeat::One => Repeat::Off,
+        };
+    }
+    if rep_on {
+        ui.painter().circle_filled(rpos + vec2(0.0, 15.0), 2.0, app.accent_color());
+    }
+    let playing = app.playing();
+    let pr = Rect::from_center_size(pos2(cx, cy), Vec2::splat(44.0));
+    let presp = named(ui.interact(pr, ui.scope_id().with("card-play"), Sense::click()), if playing { "Pause" } else { "Play" }).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let ph = theme::anim_bool(&ctx, presp.id.with("h"), presp.hovered(), 0.15);
+    let scale = if presp.is_pointer_button_down_on() { 0.92 } else { 1.0 + 0.05 * ph };
+    ui.painter().circle_filled(pr.center(), 22.0 * scale, if theme::light() { theme::text() } else { Color32::WHITE });
+    play_glyph(app, ui, pr.center(), 1.15, theme::on_text(), now);
+    widgets::focus_ring(ui, &presp, pr, 22.0);
+    if presp.clicked() && enabled {
+        app.toggle();
+    }
+
+    // Volume: the speaker mutes, the slider sets it.
+    let vy = top + 232.0;
+    let vol = app.audio.volume();
+    let vglyph = if vol == 0.0 { icon::VOLUME_X } else if vol < 0.5 { icon::VOLUME_1 } else { icon::VOLUME_2 };
+    if button(ui, pos2(l + 6.0, vy), vglyph, 16.0, if vol == 0.0 { "Unmute" } else { "Mute" }, false) {
+        toggle_mute(app, ui);
+    }
+    super::shell::volume_slider(app, ui, Rect::from_min_max(pos2(l + 30.0, vy - 10.0), pos2(rt, vy + 10.0)), "card-vol");
+}
+
+/// Mute, keeping the volume to go back to, or go back to it.
+fn toggle_mute(app: &mut App, ui: &Ui) {
+    let vol = app.audio.volume();
+    let stash = super::shell::unmute_id();
+    if vol > 0.0 {
+        ui.data_mut(|d| d.insert_temp(stash, vol));
+        app.audio.set_volume(0.0);
+    } else {
+        app.audio.set_volume(ui.data(|d| d.get_temp::<f32>(stash)).unwrap_or(0.6));
+    }
+}
+
+/// The card's seek bar along `line`, with the time so far and the song's length under it.
+fn card_seek(app: &mut App, ui: &mut Ui, line: Rect, track: Option<&crate::model::Track>) {
+    let total = song_length(app, track);
+    let pos = app.seek_drag.unwrap_or(app.audio.status.position_smooth().as_secs_f32()).min(total.max(0.0));
+    let resp = ui.interact(line.expand2(vec2(4.0, 9.0)), ui.scope_id().with("card-seek"), Sense::click_and_drag());
+    let resp = if total > 0.0 { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
+    resp.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
+    let h = theme::anim_bool(ui.ctx(), "card-seek-h", total > 0.0 && (resp.hovered() || resp.dragged()), 0.15);
+    let thick = 4.0 + 2.0 * h;
+    let bar = Rect::from_center_size(line.center(), vec2(line.width(), thick));
+    ui.painter().rect_filled(bar, thick / 2.0, theme::glass(0.18));
+    let frac = if total > 0.0 { pos / total } else { 0.0 };
+    let fill = Rect::from_min_size(bar.min, vec2(bar.width() * frac, thick));
+    ui.painter().rect_filled(fill, thick / 2.0, app.accent_color());
+    if h > 0.0 {
+        ui.painter().circle_filled(pos2(fill.right(), bar.center().y), 6.0 * h, theme::text());
+    }
+    let font = theme::regular(11.0);
+    text_at(ui, pos2(bar.left(), bar.bottom() + 7.0), &fmt_time(pos as u32), font.clone(), theme::text_faint(), 60.0);
+    let g = widgets::galley(ui, &fmt_time(total as u32), font, theme::text_faint(), 60.0);
+    ui.painter().galley(pos2(bar.right() - g.size().x, bar.bottom() + 7.0), g, theme::text_faint());
+    let at = |p: Pos2| ((p.x - bar.left()) / bar.width()).clamp(0.0, 1.0) * total;
+    if total > 0.0
+        && let Some(p) = resp.interact_pointer_pos()
+    {
+        if resp.dragged() {
+            app.seek_drag = Some(at(p));
+        }
+        if resp.drag_stopped() || resp.clicked() {
+            app.seek_drag = None;
+            app.actions.push(Action::Seek(at(p)));
+        }
     }
 }
 
@@ -918,13 +1297,19 @@ mod tests {
 
     #[test]
     fn the_pill_grows_from_the_windows_right_edge() {
-        let (w, ppp) = (PILL_WINDOW.x, 1.5);
-        let (rest_l, rest_r, ..) = pill_shape(w, PILL_REST, ppp);
-        let (open_l, open_r, bottom, d) = pill_shape(w, PILL_OPEN, ppp);
-        assert_eq!(rest_r, open_r);
-        assert!(open_l < rest_l);
-        assert_eq!(open_l, 0);
-        assert_eq!((bottom, d), (87, 87));
+        let (win, ppp) = (Rect::from_min_size(Pos2::ZERO, PILL_WINDOW), 1.5);
+        let shape = |w: f32| region(pill_rect(win, w, false), PILL_HEIGHT / 2.0, ppp);
+        let (rest, open) = (shape(PILL_REST), shape(PILL_OPEN));
+        assert_eq!(rest.2, open.2);
+        assert!(open.0 < rest.0);
+        // The open pill fills its window.
+        assert_eq!(open, (0, 0, (PILL_WINDOW.x * ppp).ceil() as i32, (PILL_WINDOW.y * ppp).ceil() as i32, 87));
+        // The card fills its window; the pill sits at either end of it.
+        let tall = Rect::from_min_size(Pos2::ZERO, CARD_WINDOW);
+        let c = region(card_rect(tall), CARD_RADIUS, ppp);
+        assert_eq!(c, (0, 0, (CARD_WINDOW.x * ppp).ceil() as i32, (CARD_WINDOW.y * ppp).ceil() as i32, c.4));
+        let (top, low) = (pill_rect(tall, PILL_OPEN, false), pill_rect(tall, PILL_OPEN, true));
+        assert_eq!(low.top() - top.top(), CARD_TRAVEL);
     }
 
     #[test]

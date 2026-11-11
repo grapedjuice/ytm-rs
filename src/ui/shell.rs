@@ -1622,7 +1622,7 @@ pub fn unmute_id() -> egui::Id {
 }
 
 /// The volume track: click or drag to set, scroll over it to nudge.
-fn volume_slider(app: &mut App, ui: &mut Ui, slider: Rect, salt: &str) {
+pub(super) fn volume_slider(app: &mut App, ui: &mut Ui, slider: Rect, salt: &str) {
     let vol = app.audio.volume();
     let vresp = ui.interact(slider, ui.scope_id().with(salt), Sense::click_and_drag()).on_hover_cursor(egui::CursorIcon::PointingHand);
     vresp.widget_info(|| egui::WidgetInfo::slider(true, vol as f64, "Volume"));

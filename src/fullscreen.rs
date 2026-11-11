@@ -44,15 +44,47 @@ pub fn refresh_rate() -> Option<f64> {
     None
 }
 
-/// Clip the window to a rounded rectangle along its top (left, right and bottom edges and
-/// corner diameter, in pixels from the window's corner), or back to all of it. Outside the
+/// Clip the window to a rounded rectangle (left, top, right and bottom edges and corner
+/// diameter, in pixels from the window's corner), or back to all of it. Outside the
 /// shape Windows neither draws its frame nor gives the window the mouse. Nothing where
 /// windows have no such frame.
-pub fn set_window_shape(shape: Option<(i32, i32, i32, i32)>) {
+pub fn set_window_shape(shape: Option<(i32, i32, i32, i32, i32)>) {
     #[cfg(windows)]
     imp::set_window_shape(shape);
     #[cfg(not(windows))]
     let _ = shape;
+}
+
+/// Move the window's corner to `x`, `y` (pixels) now, not after the frame the way eframe
+/// does: with its shape set in the same frame, what's drawn moves with it.
+pub fn move_window(x: i32, y: i32) {
+    #[cfg(windows)]
+    imp::move_window(x, y);
+    #[cfg(not(windows))]
+    let _ = (x, y);
+}
+
+/// How the window starts the system's move (winit's, which also lets go of the button
+/// afterwards), from `main`.
+pub fn set_drag(start: impl Fn() -> bool + Send + Sync + 'static) {
+    #[cfg(windows)]
+    imp::set_drag(Box::new(start));
+    #[cfg(not(windows))]
+    let _ = start;
+}
+
+/// Hand the window to the system to move, pressed at `from` (pixels from the window's
+/// drawing area's corner). The move is only recognized once the pointer has gone some way,
+/// a long way on a quick flick, and the system's move keeps whatever gap there is then: the
+/// window first catches up. False where the app can't (it's then up to eframe).
+pub fn start_drag(from: (i32, i32)) -> bool {
+    #[cfg(windows)]
+    return imp::start_drag(from);
+    #[cfg(not(windows))]
+    {
+        let _ = from;
+        false
+    }
 }
 
 /// Whether some of `rect` (physical pixels) is on a connected monitor. True where the
@@ -119,14 +151,52 @@ mod imp {
         })
     }
 
-    pub fn set_window_shape(shape: Option<(i32, i32, i32, i32)>) {
+    pub fn set_window_shape(shape: Option<(i32, i32, i32, i32, i32)>) {
         use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
         let Some(&h) = WINDOW.get() else { return };
         // SAFETY: the app's own window; once set, the system owns the region.
         unsafe {
-            let region = shape.map(|(left, right, bottom, d)| CreateRoundRectRgn(left, 0, right + 1, bottom + 1, d, d));
+            let region = shape.map(|(left, top, right, bottom, d)| CreateRoundRectRgn(left, top, right + 1, bottom + 1, d, d));
             SetWindowRgn(HWND(h as *mut _), region, true);
         }
+    }
+
+    pub fn move_window(x: i32, y: i32) {
+        let Some(&h) = WINDOW.get() else { return };
+        // SAFETY: the app's own window.
+        unsafe {
+            let _ = SetWindowPos(HWND(h as *mut _), None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
+
+    static DRAG: OnceLock<Box<dyn Fn() -> bool + Send + Sync>> = OnceLock::new();
+
+    pub fn set_drag(start: Box<dyn Fn() -> bool + Send + Sync>) {
+        let _ = DRAG.set(start);
+    }
+
+    pub fn start_drag((x, y): (i32, i32)) -> bool {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::Graphics::Gdi::ClientToScreen;
+        use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetWindowRect};
+        let (Some(&h), Some(start)) = (WINDOW.get(), DRAG.get()) else { return false };
+        let hwnd = HWND(h as *mut _);
+        let (mut pressed, mut cursor, mut r) = (POINT { x, y }, POINT::default(), RECT::default());
+        // SAFETY: the app's own window, on its UI thread; every struct passed is ours.
+        unsafe {
+            if !ClientToScreen(hwnd, &mut pressed).as_bool() || GetCursorPos(&mut cursor).is_err() || GetWindowRect(hwnd, &mut r).is_err() {
+                return false;
+            }
+            // winit only posts the system's move, so this still comes first. Maximized, the
+            // system puts the window back to its size under the pointer itself.
+            if !start() {
+                return false;
+            }
+            if !IsZoomed(hwnd).as_bool() {
+                let _ = SetWindowPos(hwnd, None, r.left + cursor.x - pressed.x, r.top + cursor.y - pressed.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+        }
+        true
     }
 
     pub fn refresh_rate() -> Option<f64> {

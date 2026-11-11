@@ -1765,7 +1765,6 @@ fn fit_window_to_monitor(ctx: &egui::Context) {
     let (outer, monitor, maximized) = ctx.input(|i| (i.viewport().outer_rect, i.viewport().monitor_size, i.viewport().maximized));
     let (Some(outer), Some(monitor)) = (outer, monitor) else { return };
     ctx.data_mut(|d| d.insert_temp(done, true));
-    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, monitor);
     // A saved size below the minimum (closed while minimized saves a tiny one, which
     // eframe restores as-is) would open a window too small to see: start over centred.
     let min = egui::Vec2::from(crate::MIN_SIZE);
@@ -1776,11 +1775,19 @@ fn fit_window_to_monitor(ctx: &egui::Context) {
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(((monitor - size) / 2.0).max(egui::Vec2::ZERO).to_pos2()));
         return;
     }
-    // A little slack for the invisible resize borders Windows adds around the frame.
-    if maximized != Some(true) && !screen.expand(12.0).contains_rect(outer) {
+    if maximized != Some(true) && too_big(outer.size(), monitor) {
         log::info!("window {outer:?} exceeds monitor {monitor:?}; maximizing");
         ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
     }
+}
+
+/// Whether a window of `size` can't fit on a monitor of `monitor` size. Sizes only: the
+/// window's position is on the whole desktop, so a window on a monitor other than the
+/// one at its origin (0, 0) isn't off-screen. (eframe pulls a saved one back onto a
+/// monitor on Windows and drops an off-screen one on a Mac; on X11 that's the window manager's.)
+fn too_big(size: egui::Vec2, monitor: egui::Vec2) -> bool {
+    // A little slack for the invisible resize borders Windows adds around the frame.
+    size.x > monitor.x + 24.0 || size.y > monitor.y + 24.0
 }
 
 /// Smooth scrolling: mouse-wheel notches (line units) are collected and replayed as
@@ -1867,6 +1874,26 @@ mod session_tests {
         let video = Track { music_video: true, explicit: true, ..s.queue[0].clone() };
         let back: Track = serde_json::from_str(&serde_json::to_string(&video).unwrap()).unwrap();
         assert!(back.music_video && back.explicit);
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::too_big;
+    use egui::vec2;
+
+    #[test]
+    fn only_a_window_larger_than_its_monitor_is_maximized_at_start() {
+        let monitor = vec2(1920.0, 1080.0);
+        // A floating window, wherever it is on the desktop (#99: on a second monitor it was
+        // taken for off-screen, so the app opened maximized and saved itself that way).
+        assert!(!too_big(vec2(1216.0, 819.0), monitor));
+        // Within the slack, or a pixel past the screen's edge (quit in video full screen).
+        assert!(!too_big(vec2(1935.0, 1090.0), monitor));
+        assert!(!too_big(vec2(1920.0, 1081.0), monitor));
+        // Saved on a bigger monitor.
+        assert!(too_big(vec2(2576.0, 1408.0), monitor));
+        assert!(too_big(vec2(1200.0, 1200.0), monitor));
     }
 }
 

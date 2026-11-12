@@ -187,8 +187,6 @@ mod os {
     use super::{Keep, REASON};
 
     const TIMEOUT: Duration = Duration::from_secs(5);
-    /// How long the portal has to refuse.
-    const REFUSAL: Duration = Duration::from_secs(1);
     const NO_ANSWER: u32 = u32::MAX;
     const PORTAL: &str = "org.freedesktop.portal.Desktop";
     const SCREENSAVER: &str = "org.freedesktop.ScreenSaver";
@@ -255,7 +253,8 @@ mod os {
 
     /// Suspend, and idle (the screen blanking and locking) for a video. A desktop that
     /// can't do that says so only after the call, in a Response, which a success doesn't
-    /// get: no answer by `REFUSAL` is a yes.
+    /// get: no answer in the time a call has is a yes. The request holds meanwhile, and
+    /// only this thread waits.
     fn portal(bus: &Connection, keep: Keep) -> Result<Path<'static>, dbus::Error> {
         let flags: u32 = if keep == Keep::Display { 4 | 8 } else { 4 };
         let mut options = PropMap::new();
@@ -269,7 +268,7 @@ mod os {
             seen.store(code, Ordering::Relaxed);
             true
         })?;
-        let until = Instant::now() + REFUSAL;
+        let until = Instant::now() + TIMEOUT;
         while answer.load(Ordering::Relaxed) == NO_ANSWER
             && let Some(left) = until.checked_duration_since(Instant::now())
         {
@@ -278,7 +277,11 @@ mod os {
         let _ = bus.remove_match(token);
         match answer.load(Ordering::Relaxed) {
             0 | NO_ANSWER => Ok(handle),
-            code => Err(dbus::Error::new_failed(&format!("refused ({code})"))),
+            code => {
+                // A refused request stays on the portal until it's closed.
+                let _: Result<(), _> = bus.with_proxy(PORTAL, handle, TIMEOUT).method_call("org.freedesktop.portal.Request", "Close", ());
+                Err(dbus::Error::new_failed(&format!("refused ({code})")))
+            }
         }
     }
 }

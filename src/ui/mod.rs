@@ -1182,9 +1182,12 @@ impl eframe::App for App {
                 ctx.request_repaint_after(wait);
             }
         }
-        // No sleep while playing, and the screen stays on for a video on show.
+        // No sleep while playing, and the screen stays on for a video on show: this song's
+        // (picture in picture keeps the last one's player for a song after it).
+        let video = self.current().filter(|t| self.video_mode(t)).is_some_and(|t| {
+            self.video.as_ref().is_some_and(|(id, p)| *id == t.id && p.as_ref().is_some_and(|p| !p.failed()))
+        });
         if let Some(a) = &mut self.awake {
-            let video = self.video.as_ref().is_some_and(|(_, p)| p.as_ref().is_some_and(|p| !p.failed()));
             a.set(crate::awake::Keep::of(playing, video));
         }
         self.request_lyric_extras();

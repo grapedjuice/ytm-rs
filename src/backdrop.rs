@@ -107,11 +107,22 @@ static WINDOW: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomi
 pub fn follow(show: bool, light: bool) {
     use std::sync::atomic::{AtomicU8, Ordering};
     use windows::Win32::Foundation::HWND;
-    use windows::Win32::Graphics::Dwm::{DWM_SYSTEMBACKDROP_TYPE, DWMSBT_MAINWINDOW, DWMSBT_NONE, DWMSBT_TABBEDWINDOW, DWMSBT_TRANSIENTWINDOW, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
+    use windows::Win32::Graphics::Dwm::{DWM_SYSTEMBACKDROP_TYPE, DWMSBT_MAINWINDOW, DWMSBT_NONE, DWMSBT_TABBEDWINDOW, DWMSBT_TRANSIENTWINDOW, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmGetWindowAttribute, DwmSetWindowAttribute};
     static LAST: AtomicU8 = AtomicU8::new(u8::MAX);
     let hwnd = HWND(WINDOW.load(Ordering::Relaxed));
+    if hwnd.0.is_null() {
+        return;
+    }
+    // The window's light or dark gets set over ours: egui's dark theme after the first
+    // frame, and winit the system's at every settings change. In light on a dark system,
+    // that left the material dark (#109). So what the window has counts, not only what
+    // was sent last.
+    let mut now = windows::core::BOOL::default();
+    // SAFETY: the app's own window; the attribute is a BOOL, the size passed.
+    let read = unsafe { DwmGetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &mut now as *mut _ as *mut _, std::mem::size_of_val(&now) as u32) };
+    let kept = read.is_err() || now.as_bool() != light;
     let state = show as u8 | (light as u8) << 1;
-    if hwnd.0.is_null() || LAST.swap(state, Ordering::Relaxed) == state {
+    if LAST.swap(state, Ordering::Relaxed) == state && kept {
         return;
     }
     let kind: DWM_SYSTEMBACKDROP_TYPE = match active() {

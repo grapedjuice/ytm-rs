@@ -173,45 +173,48 @@ fn parse_moof(moof: &[u8], moof_at: usize, track: &Track, out: &mut Vec<Sample>)
     let default_size = if flags & 0x10 != 0 { be32(tfhd, o)? } else { 0 };
     let tfdt = find(traf, &["tfdt"])?;
     let mut time = if tfdt[0] == 1 { be64(tfdt, 4)? as i64 } else { be32(tfdt, 4)? as i64 };
-    let trun = find(traf, &["trun"])?;
-    let flags = be32(trun, 0)? & 0xff_ffff;
-    let count = be32(trun, 4)? as usize;
-    let mut o = 8;
-    // Counted from the start of the `moof`, as YouTube's files say to.
-    let mut at = moof_at;
-    if flags & 0x1 != 0 {
-        at = (moof_at as i64 + be32(trun, o)? as i32 as i64) as usize;
-        o += 4;
-    }
-    if flags & 0x4 != 0 {
-        o += 4;
-    }
     let scale = track.timescale.max(1) as f64;
-    for _ in 0..count {
-        let duration = if flags & 0x100 != 0 {
-            o += 4;
-            be32(trun, o - 4)?
-        } else {
-            default_duration
-        };
-        let size = if flags & 0x200 != 0 {
-            o += 4;
-            be32(trun, o - 4)?
-        } else {
-            default_size
-        } as usize;
-        if flags & 0x400 != 0 {
+    // Counted from the start of the `moof`, as YouTube's and Apple's files say to.
+    let mut at = moof_at;
+    // Every run of samples: Apple's clips have two in each fragment, and a run without
+    // an offset of its own carries on from the one before.
+    for trun in boxes(traf).filter(|(kind, _)| *kind == b"trun").map(|(_, body)| body) {
+        let flags = be32(trun, 0)? & 0xff_ffff;
+        let count = be32(trun, 4)? as usize;
+        let mut o = 8;
+        if flags & 0x1 != 0 {
+            at = (moof_at as i64 + be32(trun, o)? as i32 as i64) as usize;
             o += 4;
         }
-        let offset = if flags & 0x800 != 0 {
+        if flags & 0x4 != 0 {
             o += 4;
-            be32(trun, o - 4)? as i32 as i64
-        } else {
-            0
-        };
-        out.push(Sample { at, size, pts: (time + offset - track.start) as f64 / scale });
-        at += size;
-        time += duration as i64;
+        }
+        for _ in 0..count {
+            let duration = if flags & 0x100 != 0 {
+                o += 4;
+                be32(trun, o - 4)?
+            } else {
+                default_duration
+            };
+            let size = if flags & 0x200 != 0 {
+                o += 4;
+                be32(trun, o - 4)?
+            } else {
+                default_size
+            } as usize;
+            if flags & 0x400 != 0 {
+                o += 4;
+            }
+            let offset = if flags & 0x800 != 0 {
+                o += 4;
+                be32(trun, o - 4)? as i32 as i64
+            } else {
+                0
+            };
+            out.push(Sample { at, size, pts: (time + offset - track.start) as f64 / scale });
+            at += size;
+            time += duration as i64;
+        }
     }
     Some(())
 }
@@ -615,14 +618,13 @@ impl Drop for Loop {
     }
 }
 
-/// A clip's frame times without the gaps between its fragments, and its length. Apple's
-/// clips jump about a second at every fragment (players going by the HLS playlist play
-/// them back to back), which held each fragment's last frame that long. Frames keep their
-/// order, a frame's step apart: the step most of them already are.
-fn even_times(pts: &[f64]) -> (Vec<f64>, f64) {
+/// A clip's frame times from its first frame, and how long one lap lasts: up to the last
+/// frame's end, a frame's usual step after it.
+fn loop_times(pts: &[f64]) -> (Vec<f64>, f64) {
     let mut sorted = pts.to_vec();
     sorted.sort_by(f64::total_cmp);
-    // Counted by whole milliseconds, so near-equal steps count as one; their average is the step.
+    let (Some(first), Some(last)) = (sorted.first().copied(), sorted.last().copied()) else { return (Vec::new(), 0.0) };
+    // The step most frames are apart, counted by whole milliseconds and averaged.
     let mut counts: std::collections::HashMap<i64, (usize, f64)> = std::collections::HashMap::new();
     for w in sorted.windows(2) {
         let d = w[1] - w[0];
@@ -633,8 +635,7 @@ fn even_times(pts: &[f64]) -> (Vec<f64>, f64) {
         }
     }
     let step = counts.into_values().max_by(|a, b| a.0.cmp(&b.0).then(b.1.total_cmp(&a.1))).map_or(1.0 / 30.0, |(n, sum)| sum / n as f64);
-    let rank = |p: f64| sorted.partition_point(|s| *s < p);
-    (pts.iter().map(|p| rank(*p) as f64 * step).collect(), sorted.len() as f64 * step)
+    (pts.iter().map(|p| p - first).collect(), last - first + step)
 }
 
 fn run_loop(url: &str, http: &reqwest::Client, side: u32, shared: &Shared) -> anyhow::Result<()> {
@@ -651,7 +652,7 @@ fn run_loop(url: &str, http: &reqwest::Client, side: u32, shared: &Shared) -> an
     if samples.is_empty() {
         anyhow::bail!("no frames");
     }
-    let (times, length) = even_times(&samples.iter().map(|s| s.1).collect::<Vec<_>>());
+    let (times, length) = loop_times(&samples.iter().map(|s| s.1).collect::<Vec<_>>());
     let samples: Vec<(Vec<u8>, f64)> = samples.into_iter().zip(times).map(|((data, _), t)| (data, t)).collect();
     log::info!("animated cover: {} frames, {length:.1} s", samples.len());
     // Waits for room for a frame; false once stopped.
@@ -767,24 +768,86 @@ mod tests {
         pts.sort_by(f64::total_cmp);
         let gaps: Vec<f64> = pts.windows(2).map(|w| w[1] - w[0]).collect();
         let big: Vec<(usize, f64)> = gaps.iter().copied().enumerate().filter(|(_, g)| *g > 0.06).collect();
-        let (even, length) = even_times(&pts);
-        println!("played: {:.3}..{:.3} step {:.4}, loops every {length:.3} s", even[0], even[even.len() - 1], even[1] - even[0]);
+        let (times, length) = loop_times(&pts);
+        println!("played: {:.3}..{:.3}, loops every {length:.3} s", times.iter().cloned().fold(f64::MAX, f64::min), times.iter().cloned().fold(0.0, f64::max));
         println!("{} frames, pts {:.3}..{:.3}; step min {:.4} max {:.4}; big steps {:?}", pts.len(), pts[0], pts[pts.len() - 1], gaps.iter().cloned().fold(f64::MAX, f64::min), gaps.iter().cloned().fold(0.0, f64::max), big);
     }
 
+    /// `YTM_CLIP_FILE=<saved clip> YTM_CLIP_SIG=<out> cargo test --release -- --ignored clip_order_live --nocapture`:
+    /// each frame the clip player would show, in order, as 16×16 averages of its light
+    /// (one byte each), to match against ffmpeg's decode of the same file.
     #[test]
-    fn a_clip_plays_its_fragments_back_to_back() {
-        // Decode order, B-frames shown out of it, and a second's jump before the second
-        // fragment, as Apple's clips have.
+    #[ignore]
+    fn clip_order_live() {
+        let file = std::fs::read(std::env::var("YTM_CLIP_FILE").unwrap()).unwrap();
+        let track = parse_track(find(&file, &["moov"]).unwrap()).unwrap();
+        let samples: Vec<(Vec<u8>, f64)> = parse_fragment(&file, &track).into_iter().map(|s| (annex_b(&file[s.at..s.at + s.size], track.nal_len), s.pts)).collect();
+        let (times, _) = loop_times(&samples.iter().map(|s| s.1).collect::<Vec<_>>());
+        let mut decoder = new_decoder(&track).unwrap();
+        let mut pending: BinaryHeap<Pts> = BinaryHeap::new();
+        let mut out = Vec::new();
+        let mut shown = Vec::new();
+        let sig = |yuv: &openh264::decoder::DecodedYUV, out: &mut Vec<u8>| {
+            let (w, h) = yuv.dimensions();
+            let ys = yuv.strides().0;
+            for by in 0..16 {
+                for bx in 0..16 {
+                    let (x0, x1, y0, y1) = (bx * w / 16, (bx + 1) * w / 16, by * h / 16, (by + 1) * h / 16);
+                    let mut sum = 0u64;
+                    for y in y0..y1 {
+                        for x in x0..x1 {
+                            sum += yuv.y()[y * ys + x] as u64;
+                        }
+                    }
+                    out.push((sum / ((x1 - x0) * (y1 - y0)) as u64) as u8);
+                }
+            }
+        };
+        for ((data, _), t) in samples.iter().zip(&times) {
+            pending.push(Pts(*t));
+            let Ok(Some(yuv)) = decoder.decode(data) else { continue };
+            let Some(Pts(t)) = pending.pop() else { continue };
+            sig(&yuv, &mut out);
+            shown.push(t);
+        }
+        for yuv in decoder.flush_remaining().unwrap_or_default() {
+            let Some(Pts(t)) = pending.pop() else { break };
+            sig(&yuv, &mut out);
+            shown.push(t);
+        }
+        std::fs::write(std::env::var("YTM_CLIP_SIG").unwrap(), &out).unwrap();
+        let backwards = shown.windows(2).filter(|w| w[1] < w[0]).count();
+        println!("{} samples in, {} frames out; times going backwards {backwards}; first {:?}", samples.len(), shown.len(), &shown[..shown.len().min(6)]);
+    }
+
+    #[test]
+    fn a_clip_keeps_its_own_times_and_loops_after_its_last_frame() {
+        // Decode order, B-frames shown out of it, starting late as Apple's do.
         let frame = 1.0 / 30.0;
-        let pts = [0.0, 3.0, 1.0, 2.0, 34.0, 37.0, 35.0, 36.0].map(|n| n * frame);
-        let (times, length) = even_times(&pts);
-        let want = [0.0, 3.0, 1.0, 2.0, 4.0, 7.0, 5.0, 6.0].map(|n| n * frame);
-        for (t, w) in times.iter().zip(want) {
+        let pts = [10.0, 13.0, 11.0, 12.0].map(|n| n * frame);
+        let (times, length) = loop_times(&pts);
+        for (t, w) in times.iter().zip([0.0, 3.0, 1.0, 2.0].map(|n| n * frame)) {
             assert!((t - w).abs() < 1e-9, "{times:?}");
         }
-        assert!((length - 8.0 * frame).abs() < 1e-9);
-        assert_eq!(even_times(&[]).0, Vec::<f64>::new());
+        assert!((length - 4.0 * frame).abs() < 1e-9);
+        assert_eq!(loop_times(&[]).0, Vec::<f64>::new());
+    }
+
+    #[test]
+    fn every_run_of_a_fragment_is_read() {
+        // Two runs in one track fragment, as in Apple's clips: the second has no data
+        // offset of its own and carries on in time and in the file from the first.
+        let tfhd = boxed(b"tfhd", &u32s(&[0x8 | 0x10, 1, 1, 10]));
+        let tfdt = boxed(b"tfdt", &u32s(&[0, 0]));
+        let first = boxed(b"trun", &u32s(&[0x1, 2, 200]));
+        let second = boxed(b"trun", &u32s(&[0, 3]));
+        let traf = boxed(b"traf", &[tfhd, tfdt, first, second].concat());
+        let moof = boxed(b"moof", &traf);
+        let track = Track { params: vec![], nal_len: 4, timescale: 30, default_duration: 0, start: 0 };
+        let samples = parse_fragment(&moof, &track);
+        assert_eq!(samples.len(), 5);
+        assert_eq!(samples.iter().map(|s| s.at).collect::<Vec<_>>(), [200, 210, 220, 230, 240]);
+        assert!((samples[4].pts - 4.0 / 30.0).abs() < 1e-9);
     }
 
     #[test]

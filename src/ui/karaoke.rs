@@ -1608,7 +1608,7 @@ impl View {
                     let radius = r * cfg.rem() / 10.0;
                     let mut boxed = block_rect.shrink2(vec2(0.0, cfg.padding * 0.4));
                     if let Some([from, secs]) = cfg.hover_box_pop {
-                        let pop = theme::anim_bool(&ctx, ("lyr-hover-pop", i), hovered && !on, secs);
+                        let pop = theme::anim_bool_timed(&ctx, ("lyr-hover-pop", i), hovered && !on, secs);
                         boxed = Rect::from_center_size(boxed.center(), boxed.size() * lerp(from, 1.0, Bezier(0.34, 1.56, 0.64, 1.0).at(pop)));
                     }
                     painter.rect_filled(boxed, radius, theme::glass(a * k));

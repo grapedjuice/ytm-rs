@@ -1304,7 +1304,7 @@ impl eframe::App for App {
         self.sync_look();
         let look = self.look();
         // A spring's overshoot isn't for this: it would say "covered" before it is.
-        let np = theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), look.app.np_open_secs).min(1.0);
+        let np = theme::anim_bool_timed(&ctx, "np-open", self.np_open && self.current().is_some(), look.app.np_open_secs).min(1.0);
         // The pages keep their mode while now playing slides over them. Now playing is dark;
         // once it's most of the way up, so are the player bar and what opens over it.
         theme::set_file_theme(&ctx, self.file_theme());

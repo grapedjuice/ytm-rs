@@ -19,7 +19,7 @@ pub(super) struct Glow {
 
 pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
     // A spring's overshoot isn't for this: past its place it would leave a gap over the bar.
-    let t = theme::anim_bool(ctx, "np-open", app.np_open && app.current().is_some(), app.look().app.np_open_secs).min(1.0);
+    let t = theme::anim_bool_timed(ctx, "np-open", app.np_open && app.current().is_some(), app.look().app.np_open_secs).min(1.0);
     if t <= 0.001 {
         // Closed: nothing to decode for. It picks up from the music's place when opened.
         app.cover_clip = None;
@@ -626,7 +626,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     let np = &look.now_playing;
     let side = art_side(cs, col, app.fullscreen, ui.ctx().content_rect().width());
     // Opening now playing, the cover grows into place.
-    let opened = if cs.open_scale < 1.0 || cs.open_slide != 0.0 || cs.open_fade { theme::anim_bool(ui.ctx(), "np-cover-open", app.np_open, cs.open_secs) } else { 1.0 };
+    let opened = if cs.open_scale < 1.0 || cs.open_slide != 0.0 || cs.open_fade { theme::anim_bool_timed(ui.ctx(), "np-cover-open", app.np_open, cs.open_secs) } else { 1.0 };
     let mut opening = if cs.open_scale < 1.0 { egui::lerp(cs.open_scale..=1.0, opened) } else { 1.0 };
     let fs = cs.fullscreen.filter(|_| app.fullscreen).unwrap_or_default();
     // Leaving full screen, it settles from a little bigger.

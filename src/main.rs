@@ -54,6 +54,23 @@ pub const DEFAULT_SIZE: [f32; 2] = [1200.0, 780.0];
 pub const MIN_SIZE: [f32; 2] = [760.0, 480.0];
 
 fn main() -> eframe::Result {
+    // glibc gives each thread that allocates its own heap (up to 8 per core), and what a
+    // song frees in one isn't reused by the next song's threads: on Linux the app grew a
+    // few MB with every song. Two heaps keep the freed memory in use. And big blocks (a
+    // song's buffer, its pictures) go back to the system as soon as they're freed: glibc
+    // otherwise raises that limit past them after the first one and keeps them in its
+    // heaps. Before any thread starts; MALLOC_ARENA_MAX and MALLOC_MMAP_THRESHOLD_ still
+    // set them.
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        // SAFETY: only changes allocator settings, while the process is single-threaded.
+        if std::env::var_os("MALLOC_ARENA_MAX").is_none() {
+            unsafe { libc::mallopt(libc::M_ARENA_MAX, 2) };
+        }
+        if std::env::var_os("MALLOC_MMAP_THRESHOLD_").is_none() {
+            unsafe { libc::mallopt(libc::M_MMAP_THRESHOLD, 128 * 1024) };
+        }
+    }
     // The updater's helper, run from its copy in the updates folder.
     if update::apply_main() {
         return Ok(());

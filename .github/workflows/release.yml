@@ -8,7 +8,7 @@ name: Release
 # never sees one without them. If no release exists yet, one is created as a draft
 # to be given notes and published by hand.
 #
-# Nightly: at 11:59 PM Central, if main has changes to the app (its code, assets, build
+# Nightly: at 11:47 PM Central, if main has changes to the app (its code, assets, build
 # or packaging) that no release or nightly was built from, the same
 # files are built from it as version <version>-nightly.<date> (YTM_NIGHTLY tells the app
 # it's a nightly) and published as a prerelease, tagged v<version>-nightly.<date>, with
@@ -18,7 +18,8 @@ on:
   push:
     tags: ["v*"]
   schedule:
-    - cron: "59 23 * * *"
+    # Off the hour: GitHub delays or drops scheduled runs near it.
+    - cron: "47 23 * * *"
       timezone: "America/Chicago"
   workflow_dispatch:
     inputs:

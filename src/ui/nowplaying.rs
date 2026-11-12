@@ -696,7 +696,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
             app.record_angle = (app.record_angle + dt * std::f64::consts::TAU / cs.spin_secs.max(4.0) as f64) % std::f64::consts::TAU;
             // At the usual 30 fps a huge disc's edge visibly steps, and paused nothing would draw it at all.
             if !app.window_hidden {
-                ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+                super::pace::repaint_after(ui.ctx(), std::time::Duration::from_millis(16));
             }
         }
         let angle = if cs.shape == Shape::Record { app.record_angle as f32 } else { 0.0 };
@@ -1130,7 +1130,7 @@ fn cover_clip(app: &mut App, ctx: &egui::Context, track: &crate::model::Track, p
     if c.frame.is_none() {
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
     } else if shown < 1.0 {
-        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        super::pace::repaint_after(ctx, std::time::Duration::from_millis(16));
     }
     c.frame.as_ref().map(|(tex, _)| (tex.clone(), shown))
 }
@@ -1184,7 +1184,7 @@ pub(super) fn video_frame(app: &mut App, ctx: &egui::Context, track: &crate::mod
         }
     }
     if app.playing() {
-        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        super::pace::repaint_after(ctx, std::time::Duration::from_millis(16));
     } else if app.video_frame.is_none() {
         // Paused or still loading: the first frame shows when it's here, or after a seek.
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
@@ -1303,7 +1303,7 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
     }
     if out.animating && !app.window_hidden {
         // Smooth, without following a fast monitor: frame rate is the main CPU and GPU cost.
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+        super::pace::repaint_after(ui.ctx(), std::time::Duration::from_millis(16));
     }
     // The extension's `.autoscroll-resume-button` (YouTube Music's rem is 10 px): a frosted
     // pill under the top edge in the lyrics font at 600, 1.75rem; padding .5rem 1rem;

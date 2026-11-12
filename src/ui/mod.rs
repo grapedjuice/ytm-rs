@@ -1283,12 +1283,12 @@ impl eframe::App for App {
                 ctx.request_repaint_after(Duration::from_millis(250));
             }
         } else if self.np_open && playing && !self.mini.busy() {
-            ctx.request_repaint_after(Duration::from_millis(33));
+            pace::repaint_after(ctx, Duration::from_millis(33));
         } else if playing && widgets::equalizer_shown(ctx) {
             // The playing row's bars need a steady, full rate to read as smooth.
-            ctx.request_repaint_after(Duration::from_millis(16));
+            pace::repaint_after(ctx, Duration::from_millis(16));
         } else if playing && self.anim_bg && shell::pages_bg_moves(self.look()) {
-            ctx.request_repaint_after(Duration::from_millis(66));
+            pace::repaint_after(ctx, Duration::from_millis(66));
         } else if playing || self.buffering {
             ctx.request_repaint_after(Duration::from_millis(250));
         }

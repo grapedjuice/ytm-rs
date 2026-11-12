@@ -294,6 +294,8 @@ pub struct App {
     audio: AudioHandle,
     ch: Channels,
     media: Option<Media>,
+    /// Keeps the computer awake while playing.
+    awake: Option<crate::awake::Awake>,
     discord: Option<crate::discord::Discord>,
     discord_enabled: bool,
     /// Last state sent to Discord, to send only real changes.
@@ -661,6 +663,7 @@ impl App {
             audio,
             ch,
             media,
+            awake: crate::awake::Awake::spawn(),
             discord: discord_enabled.then(crate::discord::Discord::spawn).flatten(),
             discord_enabled,
             discord_sent: None,
@@ -1178,6 +1181,11 @@ impl eframe::App for App {
             if let Some(wait) = m.sync_volume(self.audio.volume()) {
                 ctx.request_repaint_after(wait);
             }
+        }
+        // No sleep while playing, and the screen stays on for a video on show.
+        if let Some(a) = &mut self.awake {
+            let video = self.video.as_ref().is_some_and(|(_, p)| p.as_ref().is_some_and(|p| !p.failed()));
+            a.set(crate::awake::Keep::of(playing, video));
         }
         self.request_lyric_extras();
         // Upload: files from the picker, or dropped onto the window.

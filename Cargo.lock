@@ -7487,6 +7487,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "crossbeam-channel",
+ "dbus",
  "directories",
  "discord-rich-presence",
  "eframe",

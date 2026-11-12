@@ -52,6 +52,24 @@ const PILL_WINDOW: Vec2 = vec2(PILL_OPEN + 2.0, PILL_HEIGHT + 2.0);
 const CARD_WINDOW: Vec2 = vec2(PILL_WINDOW.x, CARD_SIZE.y + 2.0);
 /// How far the window moves up for a card opening upwards, in points.
 const CARD_TRAVEL: f32 = CARD_SIZE.y - PILL_HEIGHT;
+/// Picture in picture: the mini player for a video, when first opened, and as small and
+/// as big as it goes. Any shape in between: the video keeps its own, in black.
+const VIDEO_SIZE: Vec2 = vec2(480.0, 270.0);
+const VIDEO_MIN: Vec2 = vec2(240.0, 135.0);
+const VIDEO_MAX: Vec2 = vec2(1280.0, 720.0);
+
+/// The mini player is the video (picture in picture): a video was on show when it opened.
+static VIDEO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The mini player up, or last up, is the video.
+pub fn video_active() -> bool {
+    VIDEO.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The pill is this mini player: not when it's the video.
+fn pill_now() -> bool {
+    pill_active() && !video_active()
+}
 
 static PILL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
@@ -108,16 +126,36 @@ fn travel(ppp: f32) -> f32 {
 
 /// Where the mini player's place is saved: each style its own, as their sizes differ.
 fn place_key() -> &'static str {
-    if pill_active() { "mini_pill_window" } else { "mini_window" }
+    if video_active() {
+        VIDEO_KEY
+    } else if pill_active() {
+        "mini_pill_window"
+    } else {
+        "mini_window"
+    }
 }
+
+const VIDEO_KEY: &str = "mini_video_window";
 
 /// The mini player's size when first opened.
 fn mini_size() -> Vec2 {
-    if pill_active() { PILL_WINDOW } else { SIZE }
+    if video_active() {
+        VIDEO_SIZE
+    } else if pill_active() {
+        PILL_WINDOW
+    } else {
+        SIZE
+    }
 }
 
 fn width_limits() -> (f32, f32) {
-    if pill_active() { (PILL_WINDOW.x, PILL_WINDOW.x) } else { (MIN_W, MAX_W) }
+    if video_active() {
+        (VIDEO_MIN.x, VIDEO_MAX.x)
+    } else if pill_active() {
+        (PILL_WINDOW.x, PILL_WINDOW.x)
+    } else {
+        (MIN_W, MAX_W)
+    }
 }
 
 #[allow(dead_code)]
@@ -216,7 +254,9 @@ const SYSTEM: Screens = Screens { on_a_monitor: crate::fullscreen::on_a_monitor,
 /// A remembered strip size, within the limits (they may have changed since).
 fn clamp_size(p: Place) -> Place {
     let (min, max) = width_limits();
-    Place { w: p.w.clamp(min, max), h: mini_size().y, ..p }
+    // The video's is any height in its limits; the others have one.
+    let h = if video_active() { p.h.clamp(VIDEO_MIN.y, VIDEO_MAX.y) } else { mini_size().y };
+    Place { w: p.w.clamp(min, max), h, ..p }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -254,8 +294,10 @@ pub struct Mini {
     /// The strip is showing.
     on: bool,
     pub pinned: bool,
-    /// The strip's last place.
+    /// The strip's (or the pill's) last place.
     place: Option<Place>,
+    /// Picture in picture's.
+    video_place: Option<Place>,
     /// The full window's, from before it shrank, and whether it was maximized.
     full: Option<(Place, bool)>,
     was_maximized: bool,
@@ -297,6 +339,7 @@ impl Mini {
                 let x = if pill_active() { p.x + (p.w - PILL_WINDOW.x) * p.scale * p.zoom } else { p.x };
                 clamp_size(Place { x, ..p })
             }),
+            video_place: get(VIDEO_KEY).and_then(|v| serde_json::from_str::<Place>(&v).ok()),
             full: None,
             was_maximized: false,
             switch: None,
@@ -385,8 +428,11 @@ impl Mini {
 
     pub fn save(&self, storage: &mut dyn eframe::Storage) {
         storage.set_string("mini_pinned", if self.pinned { "1" } else { "0" }.into());
-        if let Some(p) = &self.place {
-            storage.set_string(place_key(), serde_json::to_string(p).unwrap_or_default());
+        let strip_key = if pill_active() { "mini_pill_window" } else { "mini_window" };
+        for (key, place) in [(strip_key, &self.place), (VIDEO_KEY, &self.video_place)] {
+            if let Some(p) = place {
+                storage.set_string(key, serde_json::to_string(p).unwrap_or_default());
+            }
         }
     }
 
@@ -427,7 +473,20 @@ impl Mini {
     /// The pill is up, on the way back included (it's drawn until the window starts
     /// changing size): the window around it is see-through.
     pub fn pill_showing(&self) -> bool {
-        pill_active() && self.on
+        pill_now() && self.on
+    }
+
+    /// This mini player's last place.
+    fn place(&self) -> Option<Place> {
+        if video_active() { self.video_place } else { self.place }
+    }
+
+    fn set_place(&mut self, p: Place) {
+        if video_active() {
+            self.video_place = Some(clamp_size(p));
+        } else {
+            self.place = Some(p);
+        }
     }
 
     /// The old layout stays until the window starts changing size.
@@ -462,11 +521,20 @@ impl Mini {
     }
 
     /// Switch to the strip or back. The full window leaves full screen first (the caller's).
-    pub fn toggle(&mut self, ctx: &egui::Context, now: f64) {
+    /// `video`: going to the mini player with a video on show, which it then plays.
+    pub fn toggle(&mut self, ctx: &egui::Context, now: f64, video: bool) {
         if self.switch.is_some() {
             return;
         }
         let to_mini = !self.on;
+        if to_mini {
+            VIDEO.store(video, std::sync::atomic::Ordering::Relaxed);
+        }
+        // Named like a browser's picture in picture while it's one. Wayland lets no app put
+        // itself above others: a KDE window rule for this title (and the app, ytm-rs) can.
+        if video_active() {
+            ctx.send_viewport_cmd(ViewportCommand::Title(if to_mini { "Picture in picture" } else { "YT Music" }.into()));
+        }
         let mut step = Step::Resize;
         self.card = false;
         if to_mini {
@@ -508,7 +576,8 @@ impl Mini {
             && !maximized
             && let Some(p) = Place::current(ctx).filter(|p| p.w >= width_limits().0 - 1.0)
         {
-            self.place = Some(self.pill_place(p, ctx.pixels_per_point()));
+            let p = self.pill_place(p, ctx.pixels_per_point());
+            self.set_place(p);
         }
         let Some(sw) = &mut self.switch else { return };
         ctx.request_repaint_after(Duration::from_millis(16));
@@ -570,19 +639,19 @@ impl Mini {
             vp.outer_rect.zip(vp.inner_rect).map_or(Vec2::ZERO, |(o, i)| o.size() - i.size())
         });
         // The pill has no frame of its own, on any system.
-        let frame = if to_mini && pill_active() { Vec2::ZERO } else { frame };
-        if pill_active() {
+        let frame = if to_mini && pill_now() { Vec2::ZERO } else { frame };
+        if pill_now() {
             ctx.send_viewport_cmd(ViewportCommand::Decorations(!to_mini && !titlebar::custom()));
             self.shape = None;
             crate::fullscreen::set_window_shape(None);
         }
         if to_mini {
             self.full = now_place.map(|p| (p, self.was_maximized));
-            let target = match (self.place, now_place) {
+            let target = match (self.place(), now_place) {
                 // Test runs stay off-screen, where they are; YTM_MINI_W tries other widths.
                 (_, Some(here)) if std::env::var_os("YTM_BACKGROUND").is_some() => {
-                    let w = std::env::var("YTM_MINI_W").ok().and_then(|w| w.parse().ok()).unwrap_or(SIZE.x);
-                    clamp_size(Place { w, ..here })
+                    let w = std::env::var("YTM_MINI_W").ok().and_then(|w| w.parse().ok()).unwrap_or(mini_size().x);
+                    clamp_size(Place { w, h: mini_size().y, ..here })
                 }
                 (Some(p), _) if self.visible(p, frame) => p,
                 (_, here) => {
@@ -598,7 +667,8 @@ impl Mini {
             self.go(ctx, target, false, true)
         } else {
             if let Some(p) = now_place {
-                self.place = Some(self.pill_place(p, ctx.pixels_per_point()));
+                let p = self.pill_place(p, ctx.pixels_per_point());
+                self.set_place(p);
             }
             (self.tall, self.lifted, self.grown) = (false, false, false);
             ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::Normal));
@@ -651,7 +721,10 @@ impl Mini {
     /// The window's size limits for a mode. Shrinking sets them first, so the full
     /// window's minimum doesn't hold the strip up.
     fn limits(&mut self, ctx: &egui::Context, mini: bool) {
-        if mini {
+        if mini && video_active() {
+            ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(VIDEO_MIN));
+            ctx.send_viewport_cmd(ViewportCommand::MaxInnerSize(VIDEO_MAX));
+        } else if mini {
             let ((min, max), h) = (width_limits(), if self.tall { CARD_WINDOW.y } else { mini_size().y });
             ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(vec2(min, h)));
             ctx.send_viewport_cmd(ViewportCommand::MaxInnerSize(vec2(max, h)));
@@ -1233,6 +1306,104 @@ fn card_seek(app: &mut App, ui: &mut Ui, line: Rect, track: Option<&crate::model
             app.actions.push(Action::Seek(at(p)));
         }
     }
+}
+
+/// Picture in picture: the video filling the window (its cover for a song that plays
+/// after it). Pointed at, previous / play / next over it, pin, the full window and close
+/// at the top right, and a seek line. Drag to move, double-click for the full window.
+pub fn video_pip(app: &mut App, ui: &mut Ui, now: f64) {
+    let ctx = ui.ctx().clone();
+    let r = ctx.content_rect();
+    if titlebar::drag_strip(ui, r, "pip").double_clicked() {
+        app.actions.push(Action::Mini(false));
+    }
+    ui.painter().rect_filled(r, 0.0, Color32::BLACK);
+    let track = app.current().cloned();
+    let video = track.as_ref().filter(|t| app.video_mode(t));
+    let frame = video.and_then(|t| super::nowplaying::video_frame(app, &ctx, t));
+    match (&frame, &track) {
+        (Some(tex), _) => {
+            let size = tex.size_vec2();
+            let fit = size * (r.width() / size.x).min(r.height() / size.y);
+            egui::Image::from_texture((tex.id(), fit)).paint_at(ui, Rect::from_center_size(r.center(), fit));
+        }
+        (None, Some(t)) if video.is_some() => {
+            let fit = vec2(16.0, 9.0) * (r.width() / 16.0).min(r.height() / 9.0);
+            super::nowplaying::video_placeholder(ui, Rect::from_center_size(r.center(), fit), t, 0.0);
+        }
+        (None, Some(t)) => paint_cover(ui, Rect::from_center_size(r.center(), Vec2::splat(r.height() - 24.0)), &t.thumbs, theme::thumb_radius() + 2.0, 1.0),
+        (None, None) => icon_at(ui, r.center(), icon::MUSIC, 32.0, theme::text_faint()),
+    }
+
+    // The controls, while pointed at (or one has the keyboard).
+    let keys = ["prev", "play", "next", "pin", "full", "close"];
+    let btn_id = |key: &str| egui::Id::unique(("pip-btn", key));
+    let focused = ctx.memory(|m| m.focused()).is_some_and(|f| keys.iter().any(|k| btn_id(k) == f));
+    let over = ctx.input(|i| i.pointer.hover_pos()).is_some_and(|p| r.contains(p));
+    let reveal = theme::anim_bool(&ctx, "pip-controls", over || focused, 0.15);
+    if reveal <= 0.0 {
+        return;
+    }
+    ui.painter().rect_filled(r, 0.0, Color32::from_black_alpha((110.0 * reveal) as u8));
+    let enabled = track.is_some();
+    let btn = |ui: &mut Ui, c: Pos2, side: f32, key: &str, name: &str| -> egui::Response {
+        let b = Rect::from_center_size(c, Vec2::splat(side));
+        let resp = named(ui.interact(b, btn_id(key), Sense::click()), name).on_hover_text(name).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.12);
+        if h > 0.0 {
+            ui.painter().circle_filled(c, side / 2.0, Color32::WHITE.gamma_multiply(0.16 * h * reveal));
+        }
+        if resp.has_focus() {
+            ui.painter().circle_stroke(c, side / 2.0 - 1.0, egui::Stroke::new(1.5, Color32::WHITE));
+        }
+        resp
+    };
+    // Not while still fading in: a quick click there was meant for the window.
+    let live = |resp: &egui::Response| resp.clicked() && (reveal > 0.5 || resp.has_focus());
+    let white = Color32::WHITE.gamma_multiply(reveal);
+
+    // Previous, play, next, in the middle.
+    let c = r.center();
+    let gap = (r.width() * 0.16).clamp(48.0, 84.0);
+    let prev = btn(ui, c - vec2(gap, 0.0), 44.0, "prev", "Previous");
+    icon_at(ui, c - vec2(gap, 0.0), icon::SKIP_BACK, 22.0, white);
+    if live(&prev) && enabled {
+        app.prev();
+    }
+    let next = btn(ui, c + vec2(gap, 0.0), 44.0, "next", "Next");
+    icon_at(ui, c + vec2(gap, 0.0), icon::SKIP_FORWARD, 22.0, white);
+    if live(&next) && enabled {
+        app.next();
+    }
+    let play = btn(ui, c, 56.0, "play", if app.playing() { "Pause" } else { "Play" });
+    ui.painter().circle_filled(c, 26.0, white);
+    play_glyph(app, ui, c, 1.3, Color32::BLACK.gamma_multiply(reveal), now);
+    if live(&play) && enabled {
+        app.toggle();
+    }
+
+    // Top right: close (with no system frame to have one), the full window, pin.
+    let mut x = r.right() - 22.0;
+    let mut corner = |ui: &mut Ui, glyph: char, key: &str, name: &str| -> bool {
+        let resp = btn(ui, pos2(x, r.top() + 22.0), 32.0, key, name);
+        icon_at(ui, pos2(x, r.top() + 22.0), glyph, 16.0, white);
+        x -= 36.0;
+        live(&resp)
+    };
+    if titlebar::custom() && corner(ui, icon::X, "close", "Close") {
+        close_window(app, &ctx);
+    }
+    if corner(ui, icon::MAXIMIZE_2, "full", "Full window (Ctrl+M)") {
+        app.actions.push(Action::Mini(false));
+    }
+    let pinned = app.mini.pinned;
+    if corner(ui, if pinned { icon::PIN } else { icon::PIN_OFF }, "pin", if pinned { "Stop keeping on top" } else { "Keep on top" }) {
+        app.mini.set_pinned(&ctx, !pinned);
+    }
+
+    let mut faded = ui.new_child(egui::UiBuilder::new().max_rect(r));
+    faded.multiply_opacity(reveal);
+    seek_line(app, &mut faded, r, track.as_ref());
 }
 
 /// What the mini player's × does.

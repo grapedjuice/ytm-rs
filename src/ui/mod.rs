@@ -1246,7 +1246,8 @@ impl eframe::App for App {
         if self.window_hidden || self.mini.busy() {
             self.cover_clip = None;
         }
-        if (self.window_hidden || self.mini.busy()) && self.video.take().is_some() {
+        // Picture in picture goes on with the video, on the way there and back included.
+        if (self.window_hidden || (self.mini.busy() && !mini::video_active())) && self.video.take().is_some() {
             self.video_frame = None;
             self.glow = None;
             self.restore_art();
@@ -1340,6 +1341,15 @@ impl eframe::App for App {
         titlebar::set_fullscreen(&ctx, self.fullscreen);
         dev::dev_memory(&ctx, now);
         dev::dev_probe(&ctx);
+        if layout == mini::Layout::Mini && mini::video_active() {
+            mini::video_pip(self, ui, now);
+            // Any shape: by every edge and corner, unlike the strip.
+            titlebar::resize_edges(&ctx);
+            shell::toast(self, &ctx, now);
+            self.mini.fade_in(&ctx, now, Color32::BLACK);
+            dev_screenshot(&ctx, now);
+            return;
+        }
         if layout == mini::Layout::Mini && mini::pill_active() {
             mini::pill(self, ui, now);
             dev_screenshot(&ctx, now);

@@ -362,7 +362,9 @@ impl App {
             self.mini.request(true);
             return;
         }
-        self.mini.toggle(ctx, now);
+        // With a video on show, the mini player is that video (picture in picture).
+        let video = on && self.np_open && self.current().is_some_and(|t| self.video_mode(t));
+        self.mini.toggle(ctx, now, video);
     }
 
     pub(super) fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {

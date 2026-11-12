@@ -956,28 +956,17 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
     };
     let scale = (room_w / w.max(1.0)).min((stage.height() - 64.0).max(120.0) / h.max(1.0));
     let fit = vec2(w * scale, h * scale);
-    let picture = Rect::from_center_size(pos2(stage.center().x, stage.top() + fit.y / 2.0), fit);
+    // In the middle of what's left over, with the title under it (the 64 kept for it): a
+    // window taller than the video is wide leaves room above and below, not all below.
+    let top = stage.top() + ((stage.height() - 64.0 - fit.y) / 2.0).max(0.0);
+    let picture = Rect::from_center_size(pos2(stage.center().x, top + fit.y / 2.0), fit);
     let look = app.look();
     let radius = egui::CornerRadius::same(look.now_playing.video_radius.unwrap_or(look.cover.radius_pct.map_or(look.cover.radius, |p| p * fit.y)).clamp(0.0, 255.0) as u8);
     match &frame {
         Some(tex) => {
             egui::Image::from_texture((tex.id(), fit)).corner_radius(radius).paint_at(ui, picture);
         }
-        // On its way, or it can't be shown: the video's own thumbnail in its place, the
-        // whole 16:9 of it, sharp once YouTube's biggest one has loaded.
-        None => {
-            ui.painter().rect_filled(picture, radius, Color32::BLACK);
-            if let Some(t) = track.thumbs.iter().max_by_key(|t| t.width) {
-                let ratio = t.width as f32 / t.height.max(1) as f32;
-                // 16:9 inside a 4:3 frame, as the smaller ones are: the middle three quarters.
-                let uv = if (1.2..1.6).contains(&ratio) { Rect::from_min_max(pos2(0.0, 0.125), pos2(1.0, 0.875)) } else { Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)) };
-                let r = radius.nw as f32;
-                widgets::paint_remote(ui, &t.url, picture, r, uv, Color32::WHITE);
-                if let Some(big) = crate::model::ytimg_max(&t.url) {
-                    widgets::paint_when_ready(ui, &big, picture, r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)));
-                }
-            }
-        }
+        None => video_placeholder(ui, picture, track, radius.nw as f32),
     }
     let cover = named(ui.interact(picture, ui.scope_id().with(("video-playback", &track.id)), Sense::click()), if app.playing() { "Pause" } else { "Play" }).on_hover_cursor(egui::CursorIcon::PointingHand);
     let hover = theme::anim_bool(ui.ctx(), ("video-playback-hover", &track.id), cover.hovered(), 0.16);
@@ -987,6 +976,20 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
     }
     if cover.clicked() {
         app.actions.push(Action::TogglePlay);
+    }
+    // Picture in picture, at the video's top right while it's pointed at.
+    if ui.rect_contains_pointer(picture) || hover > 0.0 {
+        let c = pos2(picture.right() - 30.0, picture.top() + 30.0);
+        let b = Rect::from_center_size(c, Vec2::splat(40.0));
+        let resp = named(ui.interact(b, ui.scope_id().with("pip"), Sense::click()), "Picture in picture (Ctrl+M)")
+            .on_hover_text("Picture in picture (Ctrl+M)")
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        let shown = if resp.hovered() { 1.0 } else { hover.max(if ui.rect_contains_pointer(picture) { 1.0 } else { 0.0 }) };
+        ui.painter().circle_filled(c, 20.0, theme::shade(if resp.hovered() { 0.75 } else { 0.5 } * shown));
+        widgets::icon_at(ui, c, icon::PICTURE_IN_PICTURE, 18.0, theme::with_alpha(Color32::WHITE, shown));
+        if resp.clicked() {
+            app.actions.push(Action::Mini(true));
+        }
     }
     let y = picture.bottom() + 12.0;
     let np = &look.now_playing;
@@ -1011,6 +1014,21 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
         let mut q = ui.new_child(egui::UiBuilder::new().max_rect(r));
         q.set_clip_rect(r.intersect(ui.clip_rect()));
         super::shell::queue_list(app, &mut q, "np");
+    }
+}
+
+/// While a video is on its way, or can't be shown: its own thumbnail in its place, the
+/// whole 16:9 of it, sharp once YouTube's biggest one has loaded.
+pub(super) fn video_placeholder(ui: &Ui, picture: Rect, track: &crate::model::Track, radius: f32) {
+    ui.painter().rect_filled(picture, radius, Color32::BLACK);
+    if let Some(t) = track.thumbs.iter().max_by_key(|t| t.width) {
+        let ratio = t.width as f32 / t.height.max(1) as f32;
+        // 16:9 inside a 4:3 frame, as the smaller ones are: the middle three quarters.
+        let uv = if (1.2..1.6).contains(&ratio) { Rect::from_min_max(pos2(0.0, 0.125), pos2(1.0, 0.875)) } else { Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)) };
+        widgets::paint_remote(ui, &t.url, picture, radius, uv, Color32::WHITE);
+        if let Some(big) = crate::model::ytimg_max(&t.url) {
+            widgets::paint_when_ready(ui, &big, picture, radius, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)));
+        }
     }
 }
 
@@ -1119,9 +1137,9 @@ fn cover_clip(app: &mut App, ctx: &egui::Context, track: &crate::model::Track, p
 
 /// The video's latest frame in a texture. Keeps the player, and the glow's colours, in
 /// step with what's playing.
-fn video_frame(app: &mut App, ctx: &egui::Context, track: &crate::model::Track) -> Option<egui::TextureHandle> {
+pub(super) fn video_frame(app: &mut App, ctx: &egui::Context, track: &crate::model::Track) -> Option<egui::TextureHandle> {
     // Nothing to show it on: `logic` has stopped the decoder and it stays stopped.
-    if app.window_hidden || app.mini.busy() {
+    if app.window_hidden || (app.mini.busy() && !super::mini::video_active()) {
         return None;
     }
     if app.video.as_ref().is_none_or(|(id, _)| *id != track.id) {

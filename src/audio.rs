@@ -604,6 +604,10 @@ impl Drop for Bridge {
 /// How often to look for a new default device while playing.
 const DEVICE_CHECK: Duration = Duration::from_secs(1);
 
+/// How long nothing plays before the output device is let go. An open stream counts as
+/// audio playing to the OS (on Windows it keeps the computer from sleeping), even paused.
+const IDLE_CLOSE: Duration = Duration::from_secs(30);
+
 pub fn spawn(volume: f32, log_volume: bool, device: Option<String>, events: Sender<AudioEvent>, wake: impl Fn() + Send + 'static) -> AudioHandle {
     let (tx, rx) = unbounded();
     let status = Arc::new(AudioStatus::default());
@@ -664,9 +668,16 @@ fn run(
     // Dev hook: YTM_DEVICE_LOST=<secs> acts as if the output device disconnected that
     // long into the first song (the error callback firing for a device that's gone).
     let mut dev_lost = std::env::var("YTM_DEVICE_LOST").ok().and_then(|v| v.parse::<f32>().ok()).map(Duration::from_secs_f32);
+    // Since when nothing has played, to let go of the device after `IDLE_CLOSE`.
+    let mut idle_since: Option<Instant> = Some(Instant::now());
     loop {
-        // Poll while playing so the position stays fresh and the end is noticed; idle otherwise.
-        let timeout = if (current != 0 || !fading.is_empty()) && !player.is_paused() { Duration::from_millis(100) } else { Duration::from_secs(3600) };
+        // Poll while playing so the position stays fresh and the end is noticed; idle otherwise,
+        // waking to let go of the device.
+        let timeout = match idle_since {
+            None => Duration::from_millis(100),
+            Some(since) if output.sink.is_some() => IDLE_CLOSE.saturating_sub(since.elapsed()).max(Duration::from_millis(10)),
+            Some(_) => Duration::from_secs(3600),
+        };
         match rx.recv_timeout(timeout) {
             Ok(AudioCmd::Start { generation, decoder, shared: s, at }) => {
                 if generation != status.wanted_gen.load(Ordering::Relaxed) {
@@ -824,8 +835,13 @@ fn run(
                 for f in &fading {
                     f.out.store(QUICK_FADE_MS, Ordering::Relaxed);
                 }
-                // A seekable decoder already indexed the (fully downloaded) file.
-                if seekable && player.try_seek(pos).is_ok() {
+                // Paused long enough, the device was let go: a seek in place waits on it.
+                if output.sink.is_none() && output.open(tx.clone(), &status) {
+                    idle_since = Some(Instant::now());
+                }
+                // A seekable decoder already indexed the (fully downloaded) file. Without a
+                // device to take the seek, a new decoder (below) instead.
+                if seekable && output.sink.is_some() && player.try_seek(pos).is_ok() {
                     log::debug!("audio: seek to {pos:?} in place");
                     status.set_position(pos.as_millis() as u64);
                     wake();
@@ -875,7 +891,8 @@ fn run(
             Ok(AudioCmd::SetDevice(id)) => {
                 log::info!("audio: output device set to {id:?}");
                 output.preferred = id;
-                if output.default_changed() || output.sink.is_none() {
+                // A device let go while idle opens again with the next song.
+                if (output.sink.is_some() || idle_since.is_none()) && (output.sink.is_none() || output.default_changed()) {
                     output.open(tx.clone(), &status);
                 }
             }
@@ -907,6 +924,14 @@ fn run(
             && (output.sink.is_none() || output.default_changed())
         {
             output.open(tx.clone(), &status);
+        }
+        // Let go of the device once nothing has played for a while; playing opens it again.
+        if (current != 0 || !fading.is_empty()) && !player.is_paused() {
+            idle_since = None;
+        } else if idle_since.get_or_insert_with(Instant::now).elapsed() >= IDLE_CLOSE && output.sink.is_some() {
+            log::info!("audio: nothing playing, letting go of the output device");
+            output.sink = None;
+            output.device = None;
         }
         if !fading.is_empty() {
             // The next song is taking too long: don't hold this one up any longer.

@@ -7,6 +7,7 @@ mod proxy;
 mod renderer;
 mod art;
 mod audio;
+mod awake;
 mod backdrop;
 mod backend;
 mod bidi;

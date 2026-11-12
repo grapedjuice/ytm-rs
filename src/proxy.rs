@@ -3,7 +3,8 @@
 //! yt-dlp, the sign-in windows and Listen together.
 //!
 //! - System: whatever Windows is set to (Settings › Network › Proxy), else the
-//!   `HTTPS_PROXY`/`HTTP_PROXY` environment variables, else direct.
+//!   `HTTPS_PROXY`/`ALL_PROXY`/`HTTP_PROXY` environment variables, else direct. On
+//!   Linux and macOS, just those variables.
 //! - Off: always direct.
 //! - Custom: `http://host:port` or `socks5://host:port`, optionally `user:pass@`.
 //!
@@ -31,7 +32,8 @@ pub enum Setting {
 impl Setting {
     pub fn label(&self) -> &'static str {
         match self {
-            Setting::System => "Use Windows settings",
+            Setting::System if cfg!(windows) => "Use Windows settings",
+            Setting::System => "Use system settings",
             Setting::Off => "No proxy",
             Setting::Custom(_) => "Custom",
         }
@@ -196,6 +198,8 @@ pub async fn new_circuit(available: impl AsyncFn(&reqwest::Client) -> bool) -> b
 
 fn apply_with(b: reqwest::ClientBuilder, s: &Setting) -> reqwest::ClientBuilder {
     match (s, s.resolve()) {
+        // Outside Windows that's the environment, which reqwest reads by itself (NO_PROXY too).
+        (Setting::System, _) if cfg!(not(windows)) => b,
         (_, Some(p)) => match reqwest::Proxy::all(p.as_str()) {
             Ok(proxy) => b.proxy(proxy),
             Err(e) => {
@@ -213,10 +217,10 @@ fn apply_with(b: reqwest::ClientBuilder, s: &Setting) -> reqwest::ClientBuilder 
 /// webview can't use itself goes through the local relay instead.
 pub fn pass_to(cmd: &mut std::process::Command) {
     let v = match (active(), RELAY.get()) {
-        (Setting::Custom(_), Some(port)) => format!("http://127.0.0.1:{port}"),
-        (Setting::Custom(u), None) => u.clone(),
-        (Setting::System, _) => "system".to_owned(),
         (Setting::Off, _) => "off".to_owned(),
+        (_, Some(port)) if needs_relay() => format!("http://127.0.0.1:{port}"),
+        (Setting::Custom(u), _) => u.clone(),
+        (Setting::System, _) => "system".to_owned(),
     };
     cmd.env(CHILD_ENV, v);
 }
@@ -224,9 +228,30 @@ pub fn pass_to(cmd: &mut std::process::Command) {
 static RELAY: OnceLock<u16> = OnceLock::new();
 
 /// Whether the sign-in windows need the relay: Chromium can't sign in to a SOCKS
-/// proxy at all, and for an HTTP one it would ask in a box of its own.
+/// proxy at all, and for an HTTP one it would ask in a box of its own; WebKitGTK is
+/// only told a host and port. On Windows a system proxy is WebView2's own business.
 pub fn needs_relay() -> bool {
-    matches!(active(), Setting::Custom(_)) && active().resolve().is_some_and(|p| !p.username().is_empty() || p.scheme().starts_with("socks") || p.scheme() == "https")
+    let p = match active() {
+        Setting::Custom(_) => active().resolve(),
+        _ if cfg!(target_os = "linux") => webkit_proxy(),
+        _ => None,
+    };
+    p.is_some_and(|p| !p.username().is_empty() || p.scheme().starts_with("socks") || p.scheme() == "https")
+}
+
+/// The proxy a WebKitGTK window is told. A system one that's `https://`, or that
+/// `NO_PROXY` skips for Google, is left to WebKit, which reads those variables itself.
+fn webkit_proxy() -> Option<url::Url> {
+    match active() {
+        Setting::System => system().filter(|p| p.scheme() != "https" && !no_proxy("accounts.google.com")),
+        s => s.resolve(),
+    }
+}
+
+/// Whether `NO_PROXY` sends `host` direct.
+fn no_proxy(host: &str) -> bool {
+    let list = ["NO_PROXY", "no_proxy"].iter().find_map(|k| std::env::var(k).ok()).unwrap_or_default();
+    list.trim() == "*" || list.split(',').map(|e| e.trim().trim_start_matches('*').trim_start_matches('.')).any(|e| !e.is_empty() && (host == e || host.ends_with(&format!(".{e}"))))
 }
 
 /// A local, password-free HTTP proxy (CONNECT only) on a random loopback port that
@@ -278,8 +303,9 @@ async fn relay_one(client: &mut TcpStream) -> anyhow::Result<()> {
 
 /// A sign-in window's webview. WebView2 follows Windows' proxy by itself, so only a
 /// custom proxy, or none at all, needs saying. (Chromium takes no password here: an
-/// authenticated proxy asks for it in the window.) `unbound`: no device-bound sessions
-/// (see `login::run`).
+/// authenticated proxy asks for it in the window.) WebKitGTK goes by the desktop's
+/// proxy settings, which outside GNOME and KDE are usually none: it's told whichever
+/// proxy is in effect. `unbound`: no device-bound sessions (see `login::run`).
 pub fn webview(b: wry::WebViewBuilder<'_>, unbound: bool) -> wry::WebViewBuilder<'_> {
     #[cfg(windows)]
     {
@@ -300,6 +326,11 @@ pub fn webview(b: wry::WebViewBuilder<'_>, unbound: bool) -> wry::WebViewBuilder
     }
     #[cfg(not(windows))]
     let _ = unbound;
+    #[cfg(target_os = "linux")]
+    if let Some(p) = webkit_proxy() {
+        let endpoint = wry::ProxyEndpoint { host: p.host_str().unwrap_or_default().to_owned(), port: p.port_or_known_default().unwrap_or(8080).to_string() };
+        return b.with_proxy_config(if p.scheme().starts_with("socks") { wry::ProxyConfig::Socks5(endpoint) } else { wry::ProxyConfig::Http(endpoint) });
+    }
     b
 }
 
@@ -414,14 +445,17 @@ fn env_proxy() -> Option<url::Url> {
     if matches!(active(), Setting::Off) {
         return None;
     }
-    ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"]
-        .iter()
-        .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
-        .and_then(|v| parse(&v).ok())
+    env_var(&["HTTPS_PROXY", "https_proxy"]).or_else(|| env_var(&["HTTP_PROXY", "http_proxy"])).or_else(|| env_var(&["ALL_PROXY", "all_proxy"]))
+}
+
+/// The first of `names` that's set, even to nothing, as reqwest reads them.
+fn env_var(names: &[&str]) -> Option<url::Url> {
+    names.iter().find_map(|k| std::env::var(k).ok()).and_then(|v| parse(&v).ok())
 }
 
 /// The proxy Windows is set to use (Settings › Network › Proxy › Manual), if on.
-/// Setup scripts (PAC) aren't read.
+/// Setup scripts (PAC) aren't read. Elsewhere, the one the environment sets for
+/// https, as reqwest picks it.
 pub fn system() -> Option<url::Url> {
     #[cfg(windows)]
     {
@@ -439,7 +473,7 @@ pub fn system() -> Option<url::Url> {
         parse(&addr).ok()
     }
     #[cfg(not(windows))]
-    None
+    env_var(&["HTTPS_PROXY", "https_proxy"]).or_else(|| env_var(&["ALL_PROXY", "all_proxy"]))
 }
 
 #[cfg(windows)]

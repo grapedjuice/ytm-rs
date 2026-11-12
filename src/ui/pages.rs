@@ -2304,15 +2304,17 @@ fn network(app: &mut App, ui: &mut Ui) {
             let desc = match cached {
                 Some((_, desc)) => desc,
                 None => {
-                    let desc = match proxy::system() {
-                        Some(p) => format!("Windows is set to use {}.", proxy::redact(&p)),
-                        None => "Windows isn't set to use a proxy, so ytm-rs connects directly.".to_owned(),
+                    let desc = match (proxy::system(), cfg!(windows)) {
+                        (Some(p), true) => format!("Windows is set to use {}.", proxy::redact(&p)),
+                        (None, true) => "Windows isn't set to use a proxy, so ytm-rs connects directly.".to_owned(),
+                        (Some(p), false) => format!("The environment sets {}.", proxy::redact(&p)),
+                        (None, false) => "No HTTPS_PROXY or ALL_PROXY is set, so ytm-rs connects directly.".to_owned(),
                     };
                     ui.data_mut(|d| d.insert_temp(id, (now, desc.clone())));
                     desc
                 }
             };
-            setting_row(ui, "Windows proxy", Some(&desc), |_| {});
+            setting_row(ui, if cfg!(windows) { "Windows proxy" } else { "System proxy" }, Some(&desc), |_| {});
         }
         Setting::Custom(_) if !filter_hit("Proxy address") => {}
         Setting::Custom(_) => {

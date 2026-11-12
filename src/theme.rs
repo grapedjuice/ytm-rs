@@ -696,7 +696,15 @@ pub fn anim(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, tar
 }
 
 pub fn anim_bool(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, on: bool, secs: f32) -> f32 {
-    let t = ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED * fade());
+    eased(ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED * fade()))
+}
+
+/// [`anim_bool`] for a transition whose length the theme sets itself, so `ui_fade_secs` leaves it alone.
+pub fn anim_bool_timed(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, on: bool, secs: f32) -> f32 {
+    eased(ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED))
+}
+
+fn eased(t: f32) -> f32 {
     if crate::preset::active().app.controls.spring { ease_back(t) } else { ease_out(t) }
 }
 

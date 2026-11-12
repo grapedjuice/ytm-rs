@@ -1283,12 +1283,12 @@ impl eframe::App for App {
                 ctx.request_repaint_after(Duration::from_millis(250));
             }
         } else if self.np_open && playing && !self.mini.busy() {
-            ctx.request_repaint_after(Duration::from_millis(33));
+            pace::repaint_after(ctx, Duration::from_millis(33));
         } else if playing && widgets::equalizer_shown(ctx) {
             // The playing row's bars need a steady, full rate to read as smooth.
-            ctx.request_repaint_after(Duration::from_millis(16));
+            pace::repaint_after(ctx, Duration::from_millis(16));
         } else if playing && self.anim_bg && shell::pages_bg_moves(self.look()) {
-            ctx.request_repaint_after(Duration::from_millis(66));
+            pace::repaint_after(ctx, Duration::from_millis(66));
         } else if playing || self.buffering {
             ctx.request_repaint_after(Duration::from_millis(250));
         }
@@ -1304,7 +1304,7 @@ impl eframe::App for App {
         self.sync_look();
         let look = self.look();
         // A spring's overshoot isn't for this: it would say "covered" before it is.
-        let np = theme::anim_bool(&ctx, "np-open", self.np_open && self.current().is_some(), look.app.np_open_secs).min(1.0);
+        let np = theme::anim_bool_timed(&ctx, "np-open", self.np_open && self.current().is_some(), look.app.np_open_secs).min(1.0);
         // The pages keep their mode while now playing slides over them. Now playing is dark;
         // once it's most of the way up, so are the player bar and what opens over it.
         theme::set_file_theme(&ctx, self.file_theme());

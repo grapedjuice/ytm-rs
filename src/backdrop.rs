@@ -88,8 +88,15 @@ pub fn supported() -> bool {
 /// Note the window for `follow`, when this run has a material.
 #[cfg(windows)]
 pub fn prepare(hwnd: *mut std::ffi::c_void) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::Shell::SetWindowSubclass;
     if active() != Backdrop::None {
         WINDOW.store(hwnd, std::sync::atomic::Ordering::Relaxed);
+        // SAFETY: the app's own window, on the thread that made it; the subclass lives as
+        // long as the window.
+        if !unsafe { SetWindowSubclass(HWND(hwnd), Some(settings_changed), 0, 0) }.as_bool() {
+            log::warn!("backdrop: couldn't subclass the window");
+        }
     }
 }
 
@@ -99,21 +106,54 @@ pub fn prepare(_hwnd: *mut std::ffi::c_void) {}
 #[cfg(windows)]
 static WINDOW: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 
+/// What was last sent to Windows: `show` and `light` as bits, `u8::MAX` for nothing yet.
+#[cfg(windows)]
+static LAST: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(u8::MAX);
+
 /// The material while `show`, in light or dark. Called every frame; only a change reaches
 /// Windows. Only these two attributes, as Tauri's `window-vibrancy` sets them: the window
 /// is already see-through and frameless, and its styles and frame are what snapping and
 /// maximizing depend on.
 #[cfg(windows)]
 pub fn follow(show: bool, light: bool) {
-    use std::sync::atomic::{AtomicU8, Ordering};
+    use std::sync::atomic::Ordering;
     use windows::Win32::Foundation::HWND;
-    use windows::Win32::Graphics::Dwm::{DWM_SYSTEMBACKDROP_TYPE, DWMSBT_MAINWINDOW, DWMSBT_NONE, DWMSBT_TABBEDWINDOW, DWMSBT_TRANSIENTWINDOW, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
-    static LAST: AtomicU8 = AtomicU8::new(u8::MAX);
+    use windows::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmGetWindowAttribute};
     let hwnd = HWND(WINDOW.load(Ordering::Relaxed));
-    let state = show as u8 | (light as u8) << 1;
-    if hwnd.0.is_null() || LAST.swap(state, Ordering::Relaxed) == state {
+    if hwnd.0.is_null() {
         return;
     }
+    // egui sets its dark theme on the window after the first frame, over ours: in light,
+    // the material stayed dark (#109). So a window that lost ours counts as a change.
+    let mut now = windows::core::BOOL::default();
+    // SAFETY: the app's own window; the attribute is a BOOL, the size passed.
+    let read = unsafe { DwmGetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &mut now as *mut _ as *mut _, std::mem::size_of_val(&now) as u32) };
+    let kept = read.is_err() || now.as_bool() != light;
+    let state = show as u8 | (light as u8) << 1;
+    if LAST.swap(state, Ordering::Relaxed) != state || !kept {
+        apply(hwnd, state);
+    }
+}
+
+/// winit sets the system's light or dark on the window at every settings change, and
+/// Windows sends one for many settings: put ours back straight away, drawing or not.
+#[cfg(windows)]
+unsafe extern "system" fn settings_changed(hwnd: windows::Win32::Foundation::HWND, msg: u32, wparam: windows::Win32::Foundation::WPARAM, lparam: windows::Win32::Foundation::LPARAM, _: usize, _: usize) -> windows::Win32::Foundation::LRESULT {
+    use windows::Win32::UI::WindowsAndMessaging::WM_SETTINGCHANGE;
+    // SAFETY: the window's own message, passed on as it came.
+    let result = unsafe { windows::Win32::UI::Shell::DefSubclassProc(hwnd, msg, wparam, lparam) };
+    let last = LAST.load(std::sync::atomic::Ordering::Relaxed);
+    if msg == WM_SETTINGCHANGE && last != u8::MAX {
+        apply(hwnd, last);
+    }
+    result
+}
+
+/// Send a `follow` state to Windows.
+#[cfg(windows)]
+fn apply(hwnd: windows::Win32::Foundation::HWND, state: u8) {
+    use windows::Win32::Graphics::Dwm::{DWM_SYSTEMBACKDROP_TYPE, DWMSBT_MAINWINDOW, DWMSBT_NONE, DWMSBT_TABBEDWINDOW, DWMSBT_TRANSIENTWINDOW, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
+    let (show, light) = (state & 1 != 0, state & 2 != 0);
     let kind: DWM_SYSTEMBACKDROP_TYPE = match active() {
         _ if !show => DWMSBT_NONE,
         Backdrop::None => return,

@@ -1153,25 +1153,30 @@ pub fn row_height(ui: &Ui) -> f32 {
 /// of the same height. `row(ui, i)` draws row `i`, under an id of its own so its hover
 /// and menu state don't jump to another song as the list scrolls.
 pub fn visible_rows(ui: &mut Ui, n: usize, row: impl FnMut(&mut Ui, usize)) {
-    visible_rows_gap(ui, n, 0.0, row);
+    visible_rows_gap(ui, n, 0, 0.0, row);
 }
 
-/// `visible_rows`, with space under the first row.
-pub fn visible_rows_gap(ui: &mut Ui, n: usize, gap: f32, mut row: impl FnMut(&mut Ui, usize)) {
+/// `visible_rows`, with `gap` of space under row `after`.
+pub fn visible_rows_gap(ui: &mut Ui, n: usize, after: usize, gap: f32, mut row: impl FnMut(&mut Ui, usize)) {
     let h = row_height(ui);
     let top = ui.cursor().top();
     let clip = ui.clip_rect();
-    let first = (((clip.top() - top - gap) / h).floor().max(0.0) as usize).min(n);
+    let gap = if after < n { gap } else { 0.0 };
+    // Rows past `after` sit `gap` lower.
+    let below = (after + 1) as f32;
+    let f = (clip.top() - top) / h;
+    let first = if f < below { f.floor() } else { ((clip.top() - top - gap) / h).floor().max(below) };
+    let first = (first.max(0.0) as usize).min(n);
     let last = ((((clip.bottom() - top) / h).ceil().max(0.0)) as usize + 1).clamp(first, n);
-    // Past the first row, its gap is in what's skipped.
-    ui.add_space(first as f32 * h + if first > 0 { gap } else { 0.0 });
+    // The gap is in what's skipped once its row is.
+    ui.add_space(first as f32 * h + if first > after { gap } else { 0.0 });
     for i in first..last {
         ui.push_id(i, |ui| row(ui, i));
-        if i == 0 && gap > 0.0 {
+        if i == after && gap > 0.0 {
             ui.add_space(gap);
         }
     }
-    ui.add_space((n - last) as f32 * h);
+    ui.add_space((n - last) as f32 * h + if last <= after { gap } else { 0.0 });
 }
 
 /// Song row: cover (or index), title, artists, album, duration. Click plays.

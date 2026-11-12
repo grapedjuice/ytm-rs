@@ -1708,37 +1708,45 @@ fn playing_from(app: &mut App, ui: &mut Ui) {
     ui.add_space(8.0);
 }
 
-/// Current track plus everything after it. Shared by the drawer and now playing.
+/// The whole queue, scrolled to the current song when it changes: the songs already
+/// played are above it. Shared by the drawer and now playing.
 pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
     let rows = super::pages::Rows::new(app, ui.input(|i| i.time));
     let q = app.look().app.queue_look;
     let differs = q.thumb_radius.is_some() || q.radius.is_some() || q.pad.is_some() || q.hover_border.is_some() || q.image_zoom.is_some() || q.image_dim.is_some();
+    if app.queue.tracks.is_empty() {
+        ui.label(egui::RichText::new("Nothing queued yet").color(theme::text_dim()));
+        return;
+    }
+    let start = app.queue.index.unwrap_or(0);
+    // Above the list, so they stay in sight however far up it's scrolled.
+    playing_from(app, ui);
+    ui.horizontal(|ui| {
+        ui.add_space(q.side_pad);
+        ui.checkbox(&mut app.autoplay, egui::RichText::new("Autoplay similar songs").color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
+    });
+    ui.add_space(6.0);
+    // A new current song (or a new queue) brings it back to the top of the list.
+    let mut area = egui::ScrollArea::vertical().id_salt(("queue", salt)).auto_shrink(false);
+    let shown = egui::Id::unique(("queue-at", salt));
+    let at = (app.queue.index, app.queue.current().map(|t| t.id.clone()));
+    if ui.data(|d| d.get_temp::<(Option<usize>, Option<String>)>(shown)).as_ref() != Some(&at) {
+        ui.data_mut(|d| d.insert_temp(shown, at));
+        area = area.vertical_scroll_offset(start as f32 * widgets::row_height(ui));
+    }
     ui.data_mut(|d| d.insert_temp(egui::Id::unique("in-queue"), differs));
-    egui::ScrollArea::vertical().id_salt(("queue", salt)).auto_shrink(false).show(ui, |ui| {
-        if app.queue.tracks.is_empty() {
-            ui.label(egui::RichText::new("Nothing queued yet").color(theme::text_dim()));
-            return;
-        }
-        let start = app.queue.index.unwrap_or(0);
-        playing_from(app, ui);
-        ui.horizontal(|ui| {
-            ui.add_space(q.side_pad);
-            ui.checkbox(&mut app.autoplay, egui::RichText::new("Autoplay similar songs").color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
-        });
-        ui.add_space(6.0);
+    area.show(ui, |ui| {
         let accent = app.accent_color();
         let (queue, liked, acts, has_current, by, drag) = (&app.queue.tracks, &app.liked, &mut app.actions, app.queue.index.is_some(), &app.jam.by, &mut app.row_drag);
         // Songs to come can be dragged into another order; in a jam, by the host.
         let (list, movable) = (egui::Id::unique(("queue", salt)), !app.jam.guest());
         let gap = if has_current { q.current_gap } else { 0.0 };
-        // Only the songs below the current one can be dragged to, so they're what it's measured from.
+        // Only the songs below the current one can be dragged to; they're `gap` lower.
         let top = ui.cursor().top() + gap;
-        widgets::visible_rows_gap(ui, queue.len() - start, gap, |ui, k| {
-            let i = start + k;
+        widgets::visible_rows_gap(ui, queue.len(), start, gap, |ui, i| {
             let t = &queue[i];
-            // The first row is the current song.
-            let current = k == 0 && has_current;
-            if movable && !current {
+            let current = i == start && has_current;
+            if movable && (i > start || !has_current) {
                 row_drag::grip(ui, drag, list, i, t);
             }
             let o = widgets::RowOpts { current, added_by: by.get(&t.id).cloned(), ..rows.opts(liked, t, None, false) };
@@ -1759,7 +1767,7 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
             }
         });
         let lowest = if has_current { start + 1 } else { start };
-        if let Some(d) = row_drag::feedback(ui, drag, list, row_drag::Rows { top, first: start, lowest, end: queue.len(), accent }) {
+        if let Some(d) = row_drag::feedback(ui, drag, list, row_drag::Rows { top, first: 0, lowest, end: queue.len(), accent }) {
             acts.push(Action::QueueMove { from: d.from, gap: d.gap, id: d.id });
         }
     });

@@ -1616,13 +1616,13 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
         ui.add_space(8.0);
         let n = app.lyric_prefs.order.len();
         let mut swap: Option<(usize, usize)> = None;
-        for i in 0..n {
-            let (p, on) = app.lyric_prefs.order[i];
+        for (i, entry) in app.lyric_prefs.order.iter_mut().enumerate() {
+            let (p, on) = *entry;
             let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::hover());
             let mut row = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
             let mut enabled = on;
             if toggle(&mut row, &mut enabled, p.name()).changed() {
-                app.lyric_prefs.order[i].1 = enabled;
+                entry.1 = enabled;
             }
             row.add_space(10.0);
             let kind = match p.sync() {

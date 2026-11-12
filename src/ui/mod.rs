@@ -93,7 +93,7 @@ pub enum NpTab {
     Art,
 }
 
-pub use mini::init_pill;
+pub use mini::{init_pill, set_hwnd as set_mini_hwnd};
 
 /// Settings › General › Window › Open on: the pages the app can start on, as saved and
 /// as listed.

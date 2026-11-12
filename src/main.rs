@@ -217,6 +217,7 @@ fn main() -> eframe::Result {
                     fullscreen::set_drag(move || window.has_focus() && window.drag_window().is_ok());
                 }
                 ui::set_titlebar_hwnd(h);
+                ui::set_mini_hwnd(h);
                 backdrop::prepare(h);
                 // eframe sets only the small icon; the taskbar button wants the big one.
                 appicon::set_window_icon(appicon::get(appicon::load(backend.data_dir())));

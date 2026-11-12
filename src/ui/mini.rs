@@ -53,10 +53,102 @@ const CARD_WINDOW: Vec2 = vec2(PILL_WINDOW.x, CARD_SIZE.y + 2.0);
 /// How far the window moves up for a card opening upwards, in points.
 const CARD_TRAVEL: f32 = CARD_SIZE.y - PILL_HEIGHT;
 /// Picture in picture: the mini player for a video, when first opened, and as small and
-/// as big as it goes. Any shape in between: the video keeps its own, in black.
+/// as big as it goes. In between it takes the video's shape (#104).
 const VIDEO_SIZE: Vec2 = vec2(480.0, 270.0);
 const VIDEO_MIN: Vec2 = vec2(240.0, 135.0);
 const VIDEO_MAX: Vec2 = vec2(1280.0, 720.0);
+
+/// How long the window keeps one size before it's put in the video's shape: a resize
+/// the app can't follow (Wayland's, done by the desktop) is over by then. Windows keeps
+/// the shape as it's dragged instead, as mpv does.
+const SNAP_AFTER: f64 = 0.3;
+
+/// The size in the video's shape (`ratio`, width over height) and within `min` and `max`,
+/// keeping the width, or with `by_height` the height.
+fn in_shape(ratio: f32, size: Vec2, by_height: bool, min: Vec2, max: Vec2) -> Vec2 {
+    let lo = min.x.max(min.y * ratio);
+    let hi = max.x.min(max.y * ratio).max(lo);
+    let w = if by_height { size.y * ratio } else { size.x }.clamp(lo, hi);
+    vec2(w, w / ratio)
+}
+
+/// Whether a resize from `from` to `to` was mostly of the height, so that's the side to keep.
+fn height_led(from: Vec2, to: Vec2) -> bool {
+    (to.y - from.y).abs() / from.y.max(1.0) > (to.x - from.x).abs() / from.x.max(1.0)
+}
+
+/// The window is being dragged or resized (Windows' own loop for it): not the moment
+/// to change its size. Only Windows says.
+static MOVING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Picture in picture's shape for Windows, which keeps it while the edges are dragged:
+/// the video's width over height, and the size limits, in physical pixels.
+#[cfg(windows)]
+static SHAPE: std::sync::Mutex<Option<(f32, Vec2, Vec2)>> = std::sync::Mutex::new(None);
+
+/// Keeps picture in picture in the video's shape while it's resized (Windows; elsewhere it
+/// takes the shape once the resize is over).
+#[cfg_attr(not(windows), allow(unused_variables))]
+pub fn set_hwnd(hwnd: *mut std::ffi::c_void) {
+    #[cfg(windows)]
+    shape::init(hwnd);
+}
+
+#[cfg(windows)]
+mod shape {
+    use std::sync::atomic::Ordering;
+
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+    use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, GetWindowRect, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_SIZING, WMSZ_BOTTOMLEFT, WMSZ_BOTTOM, WMSZ_LEFT, WMSZ_TOP, WMSZ_TOPLEFT, WMSZ_TOPRIGHT};
+
+    pub fn init(hwnd: *mut std::ffi::c_void) {
+        // SAFETY: the app's own window, on the thread that made it; the subclass lives as
+        // long as the window.
+        if !unsafe { SetWindowSubclass(HWND(hwnd), Some(proc), 3, 0) }.as_bool() {
+            log::warn!("picture in picture: couldn't subclass the window");
+        }
+    }
+
+    unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM, _: usize, _: usize) -> LRESULT {
+        match msg {
+            WM_ENTERSIZEMOVE => super::MOVING.store(true, Ordering::Relaxed),
+            WM_EXITSIZEMOVE => super::MOVING.store(false, Ordering::Relaxed),
+            _ => {}
+        }
+        // SAFETY: the window's own message, passed on as it came.
+        let result = unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) };
+        let shape = *super::SHAPE.lock().unwrap();
+        let Some((ratio, min, max)) = shape.filter(|_| msg == WM_SIZING) else { return result };
+        let (mut outer, mut inner) = (RECT::default(), RECT::default());
+        // SAFETY: the app's own window; the rectangles are ours.
+        if unsafe { GetWindowRect(hwnd, &mut outer).is_err() || GetClientRect(hwnd, &mut inner).is_err() } {
+            return result;
+        }
+        // The frame around the inside, which the dragged rectangle includes.
+        let fx = (outer.right - outer.left) - (inner.right - inner.left);
+        let fy = (outer.bottom - outer.top) - (inner.bottom - inner.top);
+        // SAFETY: for WM_SIZING, lparam points at the window's proposed rectangle.
+        let r = unsafe { &mut *(lparam.0 as *mut RECT) };
+        let edge = wparam.0 as u32;
+        let size = egui::vec2((r.right - r.left - fx) as f32, (r.bottom - r.top - fy) as f32);
+        // Like mpv: the top or bottom edge sets the height, any other the width.
+        let fit = super::in_shape(ratio, size, edge == WMSZ_TOP || edge == WMSZ_BOTTOM, min, max);
+        let (w, h) = (fit.x.round() as i32 + fx, fit.y.round() as i32 + fy);
+        // The edges across from the one dragged stay put.
+        if matches!(edge, WMSZ_LEFT | WMSZ_TOPLEFT | WMSZ_BOTTOMLEFT) {
+            r.left = r.right - w;
+        } else {
+            r.right = r.left + w;
+        }
+        if matches!(edge, WMSZ_TOP | WMSZ_TOPLEFT | WMSZ_TOPRIGHT) {
+            r.top = r.bottom - h;
+        } else {
+            r.bottom = r.top + h;
+        }
+        LRESULT(1)
+    }
+}
 
 /// The mini player is the video (picture in picture): a video was on show when it opened.
 static VIDEO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -326,6 +418,14 @@ pub struct Mini {
     /// When the card was last asked for, so the second click of a double-click on More
     /// can't land on what has grown under the pointer.
     card_at: f64,
+    /// The shown video's width over height, while picture in picture has one.
+    pub video_shape: Option<f32>,
+    /// Picture in picture's last size in the video's shape, to tell which side a resize changed.
+    shaped: Option<Vec2>,
+    /// The window's size, and since when it's had it.
+    sized: Option<(Vec2, f64)>,
+    /// A size the video's shape was asked for from, so a desktop that says no isn't asked again.
+    asked_from: Option<Vec2>,
 }
 
 impl Mini {
@@ -355,7 +455,62 @@ impl Mini {
             lifted: false,
             grown: false,
             card_at: f64::NEG_INFINITY,
+            video_shape: None,
+            shaped: None,
+            sized: None,
+            asked_from: None,
         }
+    }
+
+    /// Picture in picture takes the video's shape: Windows keeps it while an edge is
+    /// dragged, and any other resize gets it once it's over (keeping the side changed),
+    /// as does a video of another shape coming on.
+    fn keep_shape(&mut self, ctx: &egui::Context, now: f64, still: bool) {
+        let ratio = self.video_shape.filter(|_| still && self.showing() && video_active() && self.switch.is_none());
+        #[cfg(windows)]
+        {
+            let px = ctx.pixels_per_point();
+            *SHAPE.lock().unwrap() = ratio.map(|r| (r, VIDEO_MIN * px, VIDEO_MAX * px));
+        }
+        let Some(ratio) = ratio else {
+            if !self.showing() {
+                self.video_shape = None;
+            }
+            (self.shaped, self.sized, self.asked_from) = (None, None, None);
+            return;
+        };
+        let size = ctx.content_rect().size();
+        if (size.x / ratio - size.y).abs() < 1.5 {
+            (self.shaped, self.asked_from) = (Some(size), None);
+            return;
+        }
+        let since = match self.sized {
+            Some((s, since)) if (s - size).length() < 0.5 => since,
+            _ => {
+                self.sized = Some((size, now));
+                now
+            }
+        };
+        if self.asked_from.is_some_and(|a| (a - size).length() < 0.5) {
+            return;
+        }
+        // Still being dragged: not yet. (The app may not see the button let go after a
+        // resize the system did, so the pointer can't say.)
+        if MOVING.load(std::sync::atomic::Ordering::Relaxed) {
+            self.sized = Some((size, now));
+            ctx.request_repaint_after(Duration::from_millis(50));
+            return;
+        }
+        let wait = SNAP_AFTER - (now - since);
+        if wait > 0.0 {
+            ctx.request_repaint_after(Duration::from_secs_f64(wait.max(0.05)));
+            return;
+        }
+        let by_height = self.shaped.is_some_and(|from| height_led(from, size));
+        let target = in_shape(ratio, size, by_height, VIDEO_MIN, VIDEO_MAX);
+        log::debug!("picture in picture: {size:?} to the video's shape, {target:?}");
+        self.asked_from = Some(size);
+        ctx.send_viewport_cmd(ViewportCommand::InnerSize(target));
     }
 
     /// Clip the window to the pill (or its card) at `rect`.
@@ -579,6 +734,7 @@ impl Mini {
             let p = self.pill_place(p, ctx.pixels_per_point());
             self.set_place(p);
         }
+        self.keep_shape(ctx, now, !minimized && !maximized);
         let Some(sw) = &mut self.switch else { return };
         ctx.request_repaint_after(Duration::from_millis(16));
         let waited = now - sw.since;
@@ -1321,6 +1477,8 @@ pub fn video_pip(app: &mut App, ui: &mut Ui, now: f64) {
     let track = app.current().cloned();
     let video = track.as_ref().filter(|t| app.video_mode(t));
     let frame = video.and_then(|t| super::nowplaying::video_frame(app, &ctx, t));
+    // The window takes its shape (see `keep_shape`); a song without a video leaves it be.
+    app.mini.video_shape = frame.as_ref().map(|tex| tex.size_vec2()).filter(|s| s.x > 0.0 && s.y > 0.0).map(|s| s.x / s.y);
     match (&frame, &track) {
         (Some(tex), _) => {
             let size = tex.size_vec2();
@@ -1462,6 +1620,29 @@ fn seek_line(app: &mut App, ui: &mut Ui, r: Rect, track: Option<&crate::model::T
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn picture_in_picture_takes_the_videos_shape_within_its_limits() {
+        let wide = 16.0 / 9.0;
+        // A 4:3 video in the first 16:9 window: the width stays.
+        assert_eq!(in_shape(4.0 / 3.0, vec2(480.0, 270.0), false, VIDEO_MIN, VIDEO_MAX), vec2(480.0, 360.0));
+        // Made taller: the height stays.
+        assert_eq!(in_shape(wide, vec2(480.0, 360.0), true, VIDEO_MIN, VIDEO_MAX), vec2(640.0, 360.0));
+        // Never past the limits, in either direction, and still the video's shape.
+        assert_eq!(in_shape(wide, vec2(2000.0, 100.0), false, VIDEO_MIN, VIDEO_MAX), vec2(1280.0, 720.0));
+        assert_eq!(in_shape(wide, vec2(100.0, 100.0), false, VIDEO_MIN, VIDEO_MAX), vec2(240.0, 135.0));
+        // A tall video can't be wider than the tallest window allows.
+        let tall = in_shape(9.0 / 16.0, vec2(480.0, 270.0), false, VIDEO_MIN, VIDEO_MAX);
+        assert!(tall.y <= VIDEO_MAX.y + 0.01 && (tall.x / tall.y - 9.0 / 16.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn the_side_a_resize_changed_more_is_the_one_kept() {
+        assert!(height_led(vec2(480.0, 270.0), vec2(490.0, 400.0)));
+        assert!(!height_led(vec2(480.0, 270.0), vec2(700.0, 280.0)));
+        // Both by the same share: the width.
+        assert!(!height_led(vec2(400.0, 200.0), vec2(800.0, 400.0)));
+    }
 
     #[test]
     fn first_place_is_the_work_areas_corner() {

@@ -41,6 +41,7 @@ pub fn obtain(profile_dir: PathBuf) -> anyhow::Result<String> {
     let exe = std::env::current_exe()?;
     let mut cmd = std::process::Command::new(exe);
     crate::proxy::pass_to(&mut cmd);
+    crate::login::webkit_env(&mut cmd);
     let out = cmd
         .arg(FLAG)
         .arg(&profile_dir)

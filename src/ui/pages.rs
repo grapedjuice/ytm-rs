@@ -1478,6 +1478,22 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             }
         });
         divider(ui);
+        setting_row(ui, "Video quality", Some("Music videos play this sharp, or as close below it as the video comes. 1080p takes about three times the work of 720p, which a slower computer may not keep up with."), |ui| {
+            let label = |h: u32| format!("{h}p");
+            let btn = dropdown_button(ui, &label(app.video_quality), 120.0, "Video quality");
+            widgets::menu_popup(&btn).show(|ui| {
+                widgets::menu_body(ui, 120.0);
+                for h in super::VIDEO_QUALITIES {
+                    if option_row(ui, &label(h), h == app.video_quality).clicked() {
+                        // Nothing to switch over: a video only plays in Now playing, which
+                        // covers this page. The next one asks for the new quality.
+                        app.video_quality = h;
+                        ui.close();
+                    }
+                }
+            });
+        });
+        divider(ui);
         setting_row(ui, "Ambient light", Some("Now playing glows with the video's colours around it."), |ui| {
             toggle(ui, &mut app.ambient_light, "Ambient light");
         });

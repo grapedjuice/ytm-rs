@@ -439,7 +439,7 @@ fn swap_songs(a: &mut Collection, videos: &[usize], songs: &[AlbumSong]) -> usiz
         let (Some(t), Some(s)) = (a.tracks.get_mut(i), songs.get(i)) else { continue };
         if t.id != s.id && same_title(&t.title, &s.title) {
             (t.id, t.duration) = (s.id.clone(), s.duration.or(t.duration));
-            t.music_video = false;
+            (t.music_video, t.video) = (false, false);
             swapped += 1;
         }
     }
@@ -1394,6 +1394,7 @@ fn two_row(r: &Value) -> Option<Card> {
             track_nr: None,
             plays: None,
             music_video: music_video(&[nav]),
+            video: has_video(&[nav]),
             explicit: explicit(&r["subtitleBadges"]),
         })
     } else if let Some(playlist) = nav["watchPlaylistEndpoint"]["playlistId"].as_str() {
@@ -1488,7 +1489,12 @@ fn is_video(item: &Value) -> bool {
     // Only where the item itself plays: a playlist card can hold its first video's type too.
     let (two, row) = (&item["musicTwoRowItemRenderer"], &item["musicResponsiveListItemRenderer"]);
     let own = [&two["navigationEndpoint"], &row["overlay"], &row["flexColumns"][0], &item["navigationEndpoint"]];
-    matches!(video_type(&own), Some("MUSIC_VIDEO_TYPE_OMV" | "MUSIC_VIDEO_TYPE_UGC" | "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC"))
+    has_video(&own)
+}
+
+/// A video of any kind (an official music video, a channel's upload), not a song.
+fn has_video(parts: &[&Value]) -> bool {
+    matches!(video_type(parts), Some("MUSIC_VIDEO_TYPE_OMV" | "MUSIC_VIDEO_TYPE_UGC" | "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC"))
 }
 
 /// The first `musicVideoType` under these parts of an item.
@@ -1565,8 +1571,9 @@ fn list_item(r: &Value) -> Option<Track> {
         duration = Some(d);
     }
     let track_nr = text(&r["index"]).and_then(|n| n.parse().ok());
-    let music_video = music_video(&[&r["overlay"], &r["flexColumns"][0]]);
-    Some(Track { id, title, artists, album, duration, thumbs: thumbs(&r["thumbnail"]["musicThumbnailRenderer"]), track_nr, plays, music_video, explicit: explicit(&r["badges"]) })
+    let parts = [&r["overlay"], &r["flexColumns"][0]];
+    let (music_video, video) = (music_video(&parts), has_video(&parts));
+    Some(Track { id, title, artists, album, duration, thumbs: thumbs(&r["thumbnail"]["musicThumbnailRenderer"]), track_nr, plays, music_video, video, explicit: explicit(&r["badges"]) })
 }
 
 /// A song in a radio / up-next panel.
@@ -1593,6 +1600,7 @@ fn panel_item(r: &Value) -> Option<Track> {
         track_nr: None,
         plays: None,
         music_video: music_video(&[&r["navigationEndpoint"]]),
+        video: has_video(&[&r["navigationEndpoint"]]),
         explicit: explicit(&r["badges"]),
     })
 }
@@ -2228,6 +2236,9 @@ mod tests {
         assert!(!row("MUSIC_VIDEO_TYPE_ATV"));
         // User uploads and covers have no song version to look for.
         assert!(!row("MUSIC_VIDEO_TYPE_UGC"));
+        // They're still videos to show.
+        let video = |kind: &str| list_item(&album_row("x", "Song", kind)["musicResponsiveListItemRenderer"]).unwrap().video;
+        assert!(video("MUSIC_VIDEO_TYPE_OMV") && video("MUSIC_VIDEO_TYPE_UGC") && !video("MUSIC_VIDEO_TYPE_ATV"));
     }
 
     #[test]

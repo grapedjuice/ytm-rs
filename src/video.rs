@@ -21,9 +21,8 @@ use crate::innertube::VideoStream;
 const READY: usize = 12;
 /// Decoded this far behind the clock, a frame isn't worth converting: it would never show.
 const LATE: f64 = 0.05;
-/// A clock this far outside what's decoded is a seek.
+/// The clock this far before what's waiting to show is a seek back.
 const SEEK_BACK: f64 = 0.5;
-const SEEK_AHEAD: f64 = 6.0;
 
 // ---------------------------------------------------------------------------- MP4
 
@@ -353,39 +352,32 @@ fn to_image(yuv: &openh264::decoder::DecodedYUV) -> egui::ColorImage {
 
 fn run(stream: &VideoStream, http: &reqwest::Client, status: &AudioStatus, shared: &Shared) -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    let fetch = |from: u64, to: u64| -> anyhow::Result<Vec<u8>> {
-        rt.block_on(async {
-            let url = format!("{}&range={from}-{to}", stream.url);
-            let mut last = None;
-            for _ in 0..3 {
-                let got = async { anyhow::Ok(http.get(&url).header("User-Agent", crate::innertube::UA).timeout(Duration::from_secs(30)).send().await?.error_for_status()?.bytes().await?.to_vec()) };
-                match got.await {
-                    Ok(b) => return Ok(b),
-                    Err(e) => last = Some(e),
-                }
-            }
-            Err(last.unwrap_or_else(|| anyhow::anyhow!("no answer")))
-        })
-    };
-    let head = fetch(0, stream.init_end)?;
-    let track = parse_track(find(&head, &["moov"]).ok_or_else(|| anyhow::anyhow!("no moov"))?).ok_or_else(|| anyhow::anyhow!("not H.264 in MP4"))?;
-    let index = fetch(stream.index.0, stream.index.1)?;
-    let fragments = find(&index, &["sidx"]).and_then(|s| parse_index(s, stream.index.1 + 1)).filter(|f| !f.is_empty()).ok_or_else(|| anyhow::anyhow!("no index"))?;
+    let download = |from: u64, to: u64| Download { rt: &rt, http, url: &stream.url, from, to, resp: None, tries: 0 };
+    // The header and the index after it, in one request.
+    let start = download(0, stream.index.1).all()?;
+    let head = start.get(..=stream.init_end as usize).ok_or_else(|| anyhow::anyhow!("short header"))?;
+    let index = start.get(stream.index.0 as usize..).ok_or_else(|| anyhow::anyhow!("short index"))?;
+    let track = parse_track(find(head, &["moov"]).ok_or_else(|| anyhow::anyhow!("no moov"))?).ok_or_else(|| anyhow::anyhow!("not H.264 in MP4"))?;
+    let fragments = find(index, &["sidx"]).and_then(|s| parse_index(s, stream.index.1 + 1)).filter(|f| !f.is_empty()).ok_or_else(|| anyhow::anyhow!("no index"))?;
     log::info!("video: {}x{}, {} fragments", stream.width, stream.height, fragments.len());
 
     let mut decoder = new_decoder(&track)?;
     let mut next = fragment_at(&fragments, status.position_smooth().as_secs_f64());
     let mut pending: BinaryHeap<Pts> = BinaryHeap::new();
-    // Where decoding has got to, for telling a seek from just playing on.
-    let mut decoded_to = fragments[next].start;
+    // The last frame out of the decoder: with none waiting to show, where the picture is.
+    let mut last_out = fragments[next].start;
+    // Where to start over, from deeper in.
+    let mut restart = None;
+    // Since starting or starting over, until there's a picture: for the log.
+    let mut waiting_since = Some((std::time::Instant::now(), fragments[next].start));
+    // The earliest frame still to show.
+    let showing_from = |last_out: f64| shared.frames.lock().unwrap().front().map_or(last_out, |f| f.pts);
     'play: while !shared.stop.load(Ordering::Relaxed) {
         let clock = status.position_smooth().as_secs_f64();
-        // Audio running on past the last fragment isn't a seek: that fragment would be
-        // fetched and decoded again and again. The wait below is all there is left to do.
-        let past_end = next >= fragments.len();
-        if clock < decoded_to - seek_margin(&shared.frames) || (clock > decoded_to + SEEK_AHEAD && !past_end) {
-            next = fragment_at(&fragments, clock);
-            decoded_to = fragments[next].start;
+        if let Some(at) = restart.take().or_else(|| seek_target(&fragments, next, clock, showing_from(last_out))) {
+            next = at;
+            last_out = fragments[at].start;
+            waiting_since = Some((std::time::Instant::now(), clock));
             decoder = new_decoder(&track)?;
             pending.clear();
             shared.frames.lock().unwrap().clear();
@@ -395,38 +387,141 @@ fn run(stream: &VideoStream, http: &reqwest::Client, status: &AudioStatus, share
             continue;
         }
         let f = fragments[next];
-        let bytes = fetch(f.offset, f.offset + f.size as u64 - 1)?;
         next += 1;
-        for sample in parse_fragment(&bytes, &track) {
-            let Some(data) = bytes.get(sample.at..sample.at + sample.size) else { continue };
-            pending.push(Pts(sample.pts));
-            decoded_to = decoded_to.max(sample.pts);
-            let Ok(Some(yuv)) = decoder.decode(&annex_b(data, track.nal_len)) else { continue };
-            let Some(Pts(pts)) = pending.pop() else { continue };
-            let clock = status.position_smooth().as_secs_f64();
-            if pts < clock - LATE {
-                continue;
-            }
-            let frame = Frame { pts, image: to_image(&yuv) };
-            // Paused, or decoding ahead: wait with this frame for room.
-            loop {
-                if shared.stop.load(Ordering::Relaxed) {
-                    break 'play;
-                }
-                let now = status.position_smooth().as_secs_f64();
-                if now < pts - SEEK_AHEAD || now > pts + SEEK_AHEAD {
-                    // A seek: the outer loop starts over from there.
+        // Decoded as it arrives: each picture once its bytes are in, not after all of them.
+        let mut dl = download(f.offset, f.offset + f.size as u64 - 1);
+        let (mut bytes, mut done) = (Vec::with_capacity(f.size as usize), 0);
+        loop {
+            let more = dl.more(&mut bytes)?;
+            let samples = parse_fragment(&bytes, &track);
+            while let Some(sample) = samples.get(done).filter(|s| s.at + s.size <= bytes.len()) {
+                done += 1;
+                let data = &bytes[sample.at..sample.at + sample.size];
+                let clock = status.position_smooth().as_secs_f64();
+                // Skipped through: on from the fragment the clock is in.
+                if let Some(at) = seek_target(&fragments, next - 1, clock, showing_from(last_out)) {
+                    restart = Some(at);
                     continue 'play;
                 }
-                if shared.frames.lock().unwrap().len() < READY {
-                    break;
+                // Catching up (starting, or after a seek): a picture nothing else is made
+                // from needn't be decoded to get to the ones that show. About half the work.
+                if sample.pts < clock - LATE && disposable(data, track.nal_len) {
+                    continue;
                 }
-                std::thread::sleep(Duration::from_millis(10));
+                pending.push(Pts(sample.pts));
+                let Ok(Some(yuv)) = decoder.decode(&annex_b(data, track.nal_len)) else { continue };
+                let Some(Pts(pts)) = pending.pop() else { continue };
+                last_out = pts;
+                if pts < clock - LATE {
+                    continue;
+                }
+                let frame = Frame { pts, image: to_image(&yuv) };
+                // Paused, or decoding ahead: wait with this frame for room.
+                loop {
+                    if shared.stop.load(Ordering::Relaxed) {
+                        break 'play;
+                    }
+                    let now = status.position_smooth().as_secs_f64();
+                    if let Some(at) = seek_target(&fragments, next - 1, now, showing_from(pts).min(pts)) {
+                        restart = Some(at);
+                        continue 'play;
+                    }
+                    if shared.frames.lock().unwrap().len() < READY {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                shared.frames.lock().unwrap().push_back(frame);
+                if let Some((since, from)) = waiting_since.take() {
+                    log::info!("video: picture {:.0} ms after starting at {from:.1} s", since.elapsed().as_secs_f64() * 1000.0);
+                }
             }
-            shared.frames.lock().unwrap().push_back(frame);
+            if !more {
+                break;
+            }
         }
     }
     Ok(())
+}
+
+/// Where to start decoding over when the clock has jumped: back before what's waiting to
+/// show, or on past the fragment being decoded, `current` (decoding the rest of it would
+/// only make pictures too late to show, and each fragment starts with one of its own).
+fn seek_target(fragments: &[Fragment], current: usize, clock: f64, showing_from: f64) -> Option<usize> {
+    let at = fragment_at(fragments, clock);
+    (clock < showing_from - SEEK_BACK || (at > current && current < fragments.len())).then_some(at)
+}
+
+/// Whether nothing is decoded from this sample's picture (`nal_ref_idc` 0 on all of its
+/// slices): it can be left out when it wouldn't show anyway.
+fn disposable(sample: &[u8], nal_len: usize) -> bool {
+    let (mut i, mut slices) = (0, 0);
+    while i + nal_len <= sample.len() {
+        let len = sample[i..i + nal_len].iter().fold(0usize, |n, b| n << 8 | *b as usize);
+        i += nal_len;
+        let Some(&header) = sample.get(i) else { break };
+        // Coded slices: 1, and 5 for the pictures everything after starts from.
+        if matches!(header & 0x1f, 1 | 5) {
+            if header >> 5 & 3 != 0 {
+                return false;
+            }
+            slices += 1;
+        }
+        i += len;
+    }
+    slices > 0
+}
+
+/// A range of the video, read as it arrives. One that breaks off goes on from where it got
+/// to, three times.
+struct Download<'a> {
+    rt: &'a tokio::runtime::Runtime,
+    http: &'a reqwest::Client,
+    url: &'a str,
+    from: u64,
+    to: u64,
+    resp: Option<reqwest::Response>,
+    tries: u32,
+}
+
+impl Download<'_> {
+    /// Add what has arrived since to `buf`: false once all of it has.
+    fn more(&mut self, buf: &mut Vec<u8>) -> anyhow::Result<bool> {
+        loop {
+            let at = self.from + buf.len() as u64;
+            if at > self.to {
+                return Ok(false);
+            }
+            let got = self.rt.block_on(async {
+                if self.resp.is_none() {
+                    let url = format!("{}&range={at}-{}", self.url, self.to);
+                    self.resp = Some(self.http.get(&url).header("User-Agent", crate::innertube::UA).timeout(Duration::from_secs(30)).send().await?.error_for_status()?);
+                }
+                anyhow::Ok(self.resp.as_mut().expect("just set").chunk().await?)
+            });
+            match got {
+                Ok(Some(chunk)) => {
+                    buf.extend_from_slice(&chunk);
+                    return Ok(true);
+                }
+                // Ended short: ask for the rest.
+                Ok(None) => self.resp = None,
+                Err(e) => {
+                    self.resp = None;
+                    self.tries += 1;
+                    if self.tries >= 3 {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+    }
+
+    fn all(mut self) -> anyhow::Result<Vec<u8>> {
+        let mut buf = Vec::new();
+        while self.more(&mut buf)? {}
+        Ok(buf)
+    }
 }
 
 // ---------------------------------------------------------------------------- looping clips
@@ -597,17 +692,6 @@ fn run_loop(url: &str, http: &reqwest::Client, side: u32, shared: &Shared) -> an
     Ok(())
 }
 
-/// How far behind what's decoded the clock may be before it's a seek: decoding runs up to
-/// a fragment ahead of what's shown, and the frames still waiting are ahead of it anyway.
-fn seek_margin(frames: &Mutex<VecDeque<Frame>>) -> f64 {
-    let frames = frames.lock().unwrap();
-    let waiting = match (frames.front(), frames.back()) {
-        (Some(a), Some(b)) => b.pts - a.pts,
-        _ => 0.0,
-    };
-    waiting + SEEK_BACK + SEEK_AHEAD
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -730,6 +814,33 @@ mod tests {
         assert_eq!(annex_b(&sample, 4), [0, 0, 0, 1, 9, 9, 0, 0, 0, 1, 7]);
         // Cut off: what's whole stays.
         assert_eq!(annex_b(&sample[..9], 4), [0, 0, 0, 1, 9, 9]);
+    }
+
+    #[test]
+    fn any_jump_outside_whats_decoded_starts_over_where_the_clock_is() {
+        let fragments: Vec<Fragment> = (0..5).map(|i| Fragment { offset: i * 100, size: 100, start: i as f64 * 6.0 }).collect();
+        // Playing along in fragment 1, frames ready from 7 s.
+        assert_eq!(seek_target(&fragments, 1, 7.0, 7.0), None);
+        // A skip of a few seconds on, into the next fragment: from there, not decoding
+        // the rest of this one first.
+        assert_eq!(seek_target(&fragments, 1, 12.5, 7.0), Some(2));
+        // A few seconds back, inside what was decoded: over from that fragment.
+        assert_eq!(seek_target(&fragments, 1, 4.0, 7.0), Some(0));
+        // Just behind what's ready is no seek.
+        assert_eq!(seek_target(&fragments, 1, 6.8, 7.0), None);
+        // Past the last fragment, there's nothing further to go to.
+        assert_eq!(seek_target(&fragments, 5, 29.0, 28.0), None);
+    }
+
+    #[test]
+    fn only_pictures_nothing_is_made_from_can_be_left_out() {
+        // Length-prefixed NAL units: a header byte each (ref_idc in bits 5-6, type below).
+        let sample = |headers: &[u8]| headers.iter().flat_map(|&h| [0, 0, 0, 2, h, 0xAA]).collect::<Vec<u8>>();
+        assert!(disposable(&sample(&[0x01]), 4)); // a B slice nothing refers to
+        assert!(!disposable(&sample(&[0x21]), 4)); // a slice that's referred to
+        assert!(!disposable(&sample(&[0x65]), 4)); // the picture a fragment starts from
+        assert!(!disposable(&sample(&[0x06, 0x09]), 4)); // no picture at all
+        assert!(!disposable(&sample(&[0x01, 0x41]), 4)); // one slice referred to
     }
 
     #[test]

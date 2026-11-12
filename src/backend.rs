@@ -71,8 +71,8 @@ pub enum Req {
     /// `song`: the song version already playing for the music video `video_id` (picked up
     /// mid-song): played without a lookup, and the video if it won't.
     Play { video_id: String, generation: u64, at: std::time::Duration, report: bool, song_of: Option<Track>, song: Option<Track> },
-    /// A video's stream, for showing it.
-    VideoStream(String),
+    /// A video's stream, for showing it: the tallest at most `max_height`.
+    VideoStream { video_id: String, max_height: u32 },
     /// The animated cover standing in for a song's cover, if it has one.
     Canvas(Track),
     /// Resolve and download a track ahead of time so skipping to it is instant.
@@ -128,7 +128,7 @@ impl Req {
             Req::PlayCollection { .. } => "Playback",
             Req::Play { .. } => "Playback",
             Req::Prefetch { .. } => "Prefetch",
-            Req::VideoStream(_) => "Video",
+            Req::VideoStream { .. } => "Video",
             Req::Canvas(_) => "Animated cover",
             Req::Like { .. } | Req::LikeMany { .. } | Req::UnlikeBoth { .. } => "Like",
             Req::Dislike(_) => "Dislike",
@@ -286,7 +286,7 @@ pub enum Resp {
     Explore(Explore),
     Search(SearchResults),
     /// `None`: this video can't be shown; the picture stays.
-    VideoStream { video_id: String, stream: Option<innertube::VideoStream> },
+    VideoStream { video_id: String, max_height: u32, stream: Option<innertube::VideoStream> },
     /// `clip`: the HLS playlist of the song's animated cover; `None`: it has none.
     Canvas { video_id: String, clip: Option<String> },
     Suggest { query: String, round: u64, terms: Vec<ytm::Suggestion> },
@@ -381,8 +381,6 @@ pub const LIKE_GAP: std::time::Duration = std::time::Duration::from_millis(400);
 pub static LIKES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static PLAYLIST_MOVES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// Tallest video fetched: 720p decodes comfortably on the CPU.
-const VIDEO_MAX_HEIGHT: u64 = 720;
 
 /// How long one like or unlike may take. Taken ones answer in about a quarter second;
 /// ones YouTube Music refuses while it limits the account are held 8–9 s before the 403
@@ -828,12 +826,12 @@ impl Backend {
                     Ok(()) => return Ok(None),
                     Err(e) => Resp::PlayError { generation, msg: format!("{e:#}") },
                 },
-                Req::VideoStream(video_id) => {
-                    let found = async { innertube::video_stream(&self.http(), &video_id, &api.visitor_data(false).await?, VIDEO_MAX_HEIGHT).await }.await;
+                Req::VideoStream { video_id, max_height } => {
+                    let found = async { innertube::video_stream(&self.http(), &video_id, &api.visitor_data(false).await?, max_height.into()).await }.await;
                     if let Err(e) = &found {
                         log::warn!("video of {video_id}: {e:#}");
                     }
-                    Resp::VideoStream { video_id, stream: found.ok() }
+                    Resp::VideoStream { video_id, max_height, stream: found.ok() }
                 }
                 Req::Canvas(track) => Resp::Canvas { clip: crate::canvas::find(&self.http(), &self.data_dir, &track).await, video_id: track.id },
                 Req::Prefetch { video_id, song_of } => {

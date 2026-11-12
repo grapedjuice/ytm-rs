@@ -152,9 +152,11 @@ impl App {
                 self.explore = Some(e);
                 self.loading = false;
             }
-            Resp::VideoStream { video_id, stream } => {
+            Resp::VideoStream { video_id, max_height, stream } => {
+                // Not one asked for before the quality changed.
                 if let Some((id, player)) = &mut self.video
                     && *id == video_id
+                    && max_height == self.video_quality
                 {
                     let none = stream.is_none();
                     *player = stream.map(|s| crate::video::Player::start(s, self.backend.http(), self.audio.status.clone()));

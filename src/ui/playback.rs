@@ -259,7 +259,7 @@ impl App {
     /// Whether a video is what's on show for `t`: lyrics are timed to its song, so they
     /// don't go with it.
     pub(super) fn video_mode(&self, t: &Track) -> bool {
-        self.show_video && t.music_video && self.playing_as().is_none() && !self.jam.active()
+        self.show_video && t.has_video() && self.playing_as().is_none() && !self.jam.active()
     }
 
     /// From its video to its song version, at about the same place.

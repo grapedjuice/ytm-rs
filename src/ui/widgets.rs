@@ -597,6 +597,23 @@ pub fn paint_cover_px(ui: &Ui, rect: Rect, thumbs: &[Thumb], radius: f32, zoom: 
     }
     let url = steady_url(ui.ctx(), &t.url, px);
     paint_remote(ui, &url, rect, radius, uv, Color32::WHITE);
+    // A video's thumbnail is listed at most 480 tall, a square of 480 from it: a bigger
+    // cover gets YouTube's 720 one once it's there.
+    if px > t.height
+        && let Some(big) = crate::model::ytimg_max(&t.url)
+    {
+        // Always 16:9, whatever shape the listed one was.
+        let wide = Thumb { url: String::new(), width: 1280, height: 720 }.square_uv();
+        paint_when_ready(ui, &big, rect, radius, if zoom > 1.0 { Rect::from_center_size(wide.center(), wide.size() / zoom) } else { wide });
+    }
+}
+
+/// `url` over what's painted at `rect`, once it has loaded: nothing meanwhile, nor if it
+/// fails, so what's under it shows.
+pub fn paint_when_ready(ui: &Ui, url: &str, rect: Rect, radius: f32, uv: Rect) {
+    if matches!(egui::Image::new(url).load_for_size(ui.ctx(), rect.size()), Ok(egui::load::TexturePoll::Ready { .. })) {
+        paint_remote(ui, url, rect, radius, uv, Color32::WHITE);
+    }
 }
 
 /// [`paint_cover_px`] with its own corners.

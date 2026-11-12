@@ -222,7 +222,7 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         fullscreen_progress(app, ui, ui.ctx().content_rect(), look.now_playing.fullscreen_progress_px);
     }
     np_content(app, ui, content, &track, video_mode, video_lyrics, no_lyrics, now);
-    if track.music_video && !app.jam.active() && look.now_playing.show_video_switch {
+    if track.has_video() && !app.jam.active() && look.now_playing.show_video_switch {
         song_video_switch(app, ui, header);
     }
     let mut hui = ui.new_child(egui::UiBuilder::new().max_rect(header).layout(egui::Layout::left_to_right(egui::Align::Center)));
@@ -963,11 +963,20 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
         Some(tex) => {
             egui::Image::from_texture((tex.id(), fit)).corner_radius(radius).paint_at(ui, picture);
         }
-        // On its way, or it can't be shown: the cover in its place.
+        // On its way, or it can't be shown: the video's own thumbnail in its place, the
+        // whole 16:9 of it, sharp once YouTube's biggest one has loaded.
         None => {
             ui.painter().rect_filled(picture, radius, Color32::BLACK);
-            let side = fit.y;
-            widgets::paint_cover_px(ui, Rect::from_center_size(picture.center(), Vec2::splat(side)), &track.thumbs, 0.0, 1.0, (side * ui.ctx().pixels_per_point()) as u32);
+            if let Some(t) = track.thumbs.iter().max_by_key(|t| t.width) {
+                let ratio = t.width as f32 / t.height.max(1) as f32;
+                // 16:9 inside a 4:3 frame, as the smaller ones are: the middle three quarters.
+                let uv = if (1.2..1.6).contains(&ratio) { Rect::from_min_max(pos2(0.0, 0.125), pos2(1.0, 0.875)) } else { Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)) };
+                let r = radius.nw as f32;
+                widgets::paint_remote(ui, &t.url, picture, r, uv, Color32::WHITE);
+                if let Some(big) = crate::model::ytimg_max(&t.url) {
+                    widgets::paint_when_ready(ui, &big, picture, r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)));
+                }
+            }
         }
     }
     let cover = named(ui.interact(picture, ui.scope_id().with(("video-playback", &track.id)), Sense::click()), if app.playing() { "Pause" } else { "Play" }).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -1119,7 +1128,7 @@ fn video_frame(app: &mut App, ctx: &egui::Context, track: &crate::model::Track) 
         app.video = Some((track.id.clone(), None));
         app.video_frame = None;
         app.glow = None;
-        app.backend.request(crate::backend::Req::VideoStream(track.id.clone()));
+        app.backend.request(crate::backend::Req::VideoStream { video_id: track.id.clone(), max_height: app.video_quality });
     }
     let player = app.video.as_ref()?.1.as_ref()?;
     if player.failed() {

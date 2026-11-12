@@ -156,7 +156,7 @@ pub fn all() -> Vec<Track> {
             let modified = std::fs::metadata(&e.path).ok().filter(|m| m.is_file())?.modified().unwrap_or(std::time::UNIX_EPOCH);
             let mut t = e.track.or(e.song).unwrap_or_else(|| from_tags(&id, &e.path));
             t.id = id;
-            t.music_video = false;
+            (t.music_video, t.video) = (false, false);
             if e.duration_ms > 0 {
                 t.duration = Some((e.duration_ms / 1000) as u32);
             }

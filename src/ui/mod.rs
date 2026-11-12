@@ -412,6 +412,8 @@ pub struct App {
     play_songs: bool,
     /// Show music videos moving, playing their own audio to stay in time.
     show_video: bool,
+    /// The tallest a music video plays at, one of [`VIDEO_QUALITIES`].
+    video_quality: u32,
     /// The video on show or on its way, by id.
     video: Option<(String, Option<crate::video::Player>)>,
     video_frame: Option<egui::TextureHandle>,
@@ -735,6 +737,7 @@ impl App {
             high_quality: get("high_quality").is_none_or(|v| v == "1"),
             play_songs: get("play_songs").is_none_or(|v| v == "1"),
             show_video: dev_var("YTM_VIDEO").is_some() || get("show_video").is_some_and(|v| v == "1"),
+            video_quality: get("video_quality").and_then(|v| v.parse().ok()).filter(|h| VIDEO_QUALITIES.contains(h)).unwrap_or(720),
             video: None,
             video_frame: None,
             ambient_light: get("ambient_light").is_none_or(|v| v == "1"),
@@ -1599,6 +1602,7 @@ impl eframe::App for App {
         storage.set_string("high_quality", b(self.high_quality));
         storage.set_string("play_songs", b(self.play_songs));
         storage.set_string("show_video", b(self.show_video));
+        storage.set_string("video_quality", self.video_quality.to_string());
         storage.set_string("ambient_light", b(self.ambient_light));
         storage.set_string("animated_covers", b(self.animated_covers));
         storage.set_string("hide_search_videos", b(self.hide_search_videos));
@@ -1697,6 +1701,10 @@ impl eframe::App for App {
 }
 
 const SESSION_KEY: &str = "session";
+
+/// The heights offered for music videos. Decoding is on the CPU: 720p is easy, 1080p takes
+/// about three times as much.
+const VIDEO_QUALITIES: [u32; 4] = [1080, 720, 480, 360];
 
 /// The pointer moving wakes a frame per event, up to the monitor's rate, and each of those
 /// asks for more: frames wait for 60 fps unless the listener is doing something that wants

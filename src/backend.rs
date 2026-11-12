@@ -24,6 +24,8 @@ pub enum Req {
     HomeMore(String),
     MoreQuickPicks(String),
     Explore(Vec<String>),
+    /// A Moods & genres category, by its browse params.
+    Mood(String),
     Search(String),
     /// Suggestions for a query; `round` comes back with them, so stale ones can be dropped.
     Suggest { query: String, round: u64 },
@@ -105,6 +107,7 @@ impl Req {
             Req::Home(_) | Req::HomeMore(_) => "Loading home",
             Req::MoreQuickPicks(_) => "Loading more picks",
             Req::Explore(_) => "Loading explore",
+            Req::Mood(_) => "Loading the category",
             Req::Search(_) => "Search",
             Req::Suggest { .. } => "Suggest",
             Req::ForgetSearch(_) => "Removing the search",
@@ -156,6 +159,8 @@ pub struct Explore {
     pub new_albums: Vec<Card>,
     pub charts: Vec<Card>,
     pub top: Vec<Track>,
+    /// Moods & genres: the categories it opens.
+    pub moods: Vec<ytm::MoodGroup>,
 }
 
 pub struct SearchResults {
@@ -284,6 +289,7 @@ pub enum Resp {
     HomeMore(ytm::HomePage),
     QuickPicksMore { seed: String, tracks: Vec<Track> },
     Explore(Explore),
+    Mood(ytm::MoodPage),
     Search(SearchResults),
     /// `None`: this video can't be shown; the picture stays.
     VideoStream { video_id: String, max_height: u32, stream: Option<innertube::VideoStream> },
@@ -736,6 +742,7 @@ impl Backend {
                     Resp::QuickPicksMore { seed, tracks }
                 }
                 Req::Explore(preferred_artists) => self.explore(&preferred_artists, me).await?,
+                Req::Mood(params) => Resp::Mood(ytm::mood(api, &params, me).await?),
                 Req::Search(query) => self.search(query, me).await?,
                 Req::Suggest { query, round } => {
                     let terms = ytm::suggestions(api, &query, me).await?.into_iter().take(8).collect();
@@ -959,15 +966,17 @@ impl Backend {
         })
     }
 
-    /// Explore: the charts, and new albums by charting artists or the listener's own.
+    /// Explore: the charts, new albums by charting artists or the listener's own, and
+    /// Moods & genres.
     async fn explore(&self, preferred_artists: &[String], me: bool) -> anyhow::Result<Resp> {
         let api = &*self.api;
-        let (charts, new) = tokio::join!(ytm::charts(api), ytm::new_albums(api, me));
+        let (charts, new, moods) = tokio::join!(ytm::charts(api), ytm::new_albums(api, me), ytm::moods(api, me));
         let charts = charts?;
         Ok(Resp::Explore(Explore {
             new_albums: popular_new_albums(&new.unwrap_or_default(), &charts.artists, preferred_artists),
             charts: charts.playlists,
             top: charts.top,
+            moods: moods.unwrap_or_default(),
         }))
     }
 

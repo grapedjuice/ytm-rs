@@ -58,6 +58,8 @@ pub use queue::Repeat;
 pub enum Page {
     Home,
     Explore,
+    /// A Moods & genres category, by its browse params.
+    Mood(String),
     Library(LibTab),
     Search(String),
     Album(String),
@@ -366,6 +368,8 @@ pub struct App {
     home: Option<HomeState>,
     home_loading: bool,
     explore: Option<Explore>,
+    /// The Moods & genres category last opened.
+    mood: Option<crate::ytm::MoodPage>,
     search: Option<SearchResults>,
     /// Albums and playlists opened lately, so going back to one shows it at once (and
     /// refreshes it quietly), and their loads under way.
@@ -706,6 +710,7 @@ impl App {
             home: None,
             home_loading: true,
             explore: None,
+            mood: None,
             search: None,
             lists: Lists::default(),
             artist: None,
@@ -899,6 +904,7 @@ impl App {
             Ok("transfer") => app.go(Page::Transfer),
             Ok("jam") => app.go(Page::Jam),
             Ok(p) if p.starts_with("album:") => app.go(Page::Album(p[6..].to_owned())),
+            Ok(p) if p.starts_with("mood:") => app.go(Page::Mood(p[5..].to_owned())),
             Ok(p) if p.starts_with("artist:") => app.go(Page::Artist(p[7..].to_owned())),
             Ok(p) if p.starts_with("playlist:") => app.go(Page::Playlist(p[9..].to_owned())),
             Ok(p) if p.starts_with("search:") => app.go(Page::Search(p[7..].to_owned())),
@@ -1020,6 +1026,7 @@ impl App {
                 Some(Req::Home(None))
             }
             Page::Explore => Some(Req::Explore(self.preferred_artist_ids())),
+            Page::Mood(p) if self.mood.as_ref().is_none_or(|m| &m.params != p) => Some(Req::Mood(p.clone())),
             Page::Search(q) if self.search.as_ref().is_none_or(|s| &s.query != q) => Some(Req::Search(q.clone())),
             Page::Album(id) | Page::Playlist(id) => {
                 self.visit_list(id, matches!(self.page, Page::Album(_)));
@@ -1046,6 +1053,7 @@ impl App {
         let cached = match &self.page {
             Page::Home => self.home.is_some(),
             Page::Explore => self.explore.is_some(),
+            Page::Mood(p) => self.mood.as_ref().is_some_and(|m| &m.params == p),
             Page::Album(id) | Page::Playlist(id) => self.opened(id).is_some(),
             Page::Artist(id) => self.artist.as_ref().is_some_and(|a| &a.id == id),
             Page::Library(LibTab::History) => self.history.is_some(),

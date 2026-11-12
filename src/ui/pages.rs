@@ -52,6 +52,7 @@ pub fn page(app: &mut App, ui: &mut Ui, now: f64) {
         match &page {
             Page::Home => home(app, ui, now),
             Page::Explore => explore(app, ui, now),
+            Page::Mood(p) => mood(app, ui, p, now),
             Page::Search(q) => search(app, ui, q, now),
             Page::Album(id) | Page::Playlist(id) => collection(app, ui, id, now),
             Page::Artist(id) => artist(app, ui, id, now),
@@ -412,17 +413,7 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
                     continue;
                 }
                 let (strap, thumb) = if s.title == "Listen again" { (None, None) } else { (s.strapline.as_deref(), s.strap_thumb.as_deref()) };
-                let (l, r) = shelf_header(ui, &s.title, strap, thumb, true);
-                let nudge = r as i32 - l as i32;
-                let acts = &mut app.actions;
-                let liked = &app.liked;
-                h_scroll(ui, &id, nudge, cards.len(), CARD, 18.0, |ui| {
-                    ui.spacing_mut().item_spacing.x = 18.0;
-                    for c in cards {
-                        let is_liked = matches!(&c.target, Target::Song(t) if liked.contains(&t.id));
-                        card(ui, c, CARD, is_liked, acts);
-                    }
-                });
+                cards_shelf(ui, &app.liked, &mut app.actions, &id, &s.title, strap, thumb, &cards);
             }
             ShelfKind::Songs { tracks, rows: n } => {
                 let reached_end = song_grid(ui, &rows, &app.liked, &mut app.actions, &id, &s.title, s.strapline.as_deref(), tracks, *n);
@@ -444,6 +435,20 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
     }
 }
 
+/// Cards scrolling sideways under a shelf's title.
+#[allow(clippy::too_many_arguments)]
+fn cards_shelf(ui: &mut Ui, liked: &HashSet<String>, acts: &mut Vec<Action>, id: &str, title: &str, strap: Option<&str>, thumb: Option<&str>, cards: &[&Card]) {
+    let (l, r) = shelf_header(ui, title, strap, thumb, true);
+    let nudge = r as i32 - l as i32;
+    h_scroll(ui, id, nudge, cards.len(), CARD, 18.0, |ui| {
+        ui.spacing_mut().item_spacing.x = 18.0;
+        for c in cards {
+            let is_liked = matches!(&c.target, Target::Song(t) if liked.contains(&t.id));
+            card(ui, c, CARD, is_liked, acts);
+        }
+    });
+}
+
 // ------------------------------------------------------------------ explore
 
 fn explore(app: &mut App, ui: &mut Ui, now: f64) {
@@ -459,6 +464,71 @@ fn explore(app: &mut App, ui: &mut Ui, now: f64) {
         song_grid(ui, &rows, &app.liked, &mut app.actions, "ex-top", "Top songs", None, &e.top, 4);
     }
     card_row(ui, "ex-charts", "Charts", &e.charts, &mut app.actions);
+    for g in &e.moods {
+        mood_grid(ui, g, &mut app.actions);
+    }
+}
+
+/// A group of Moods & genres: its categories in as many columns as fit, each opening its page.
+fn mood_grid(ui: &mut Ui, g: &crate::ytm::MoodGroup, acts: &mut Vec<Action>) {
+    shelf_header(ui, &g.title, None, None, false);
+    let gap = 14.0;
+    let w = ui.available_width();
+    let cols = ((w + gap) / (190.0 + gap)).floor().max(1.0);
+    // A little under the exact share, so rounding never pushes the last one to a new line.
+    let bw = ((w - gap * (cols - 1.0)) / cols - 0.5).max(60.0);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(gap, gap);
+        for m in &g.moods {
+            if mood_button(ui, m, bw).clicked() {
+                acts.push(Action::Go(Page::Mood(m.params.clone())));
+            }
+        }
+    });
+}
+
+/// A category's button: its name, and the stripe of its own colour down the left edge.
+fn mood_button(ui: &mut Ui, m: &crate::ytm::Mood, w: f32) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, 48.0), Sense::click());
+    let resp = named(resp, &m.title).on_hover_cursor(egui::CursorIcon::PointingHand);
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
+    let radius = (crate::preset::active().chrome.radius * 0.4).clamp(4.0, 12.0) as u8;
+    let p = ui.painter();
+    p.rect_filled(rect, radius, theme::glass(0.08 + 0.06 * h));
+    let [_, r, g, b] = m.color.to_be_bytes();
+    let stripe = Rect::from_min_size(rect.min, vec2(6.0, rect.height()));
+    p.rect_filled(stripe, egui::CornerRadius { nw: radius, sw: radius, ne: 0, se: 0 }, Color32::from_rgb(r, g, b));
+    let font = theme::semibold(14.5);
+    let y = rect.center().y - ui.fonts_mut(|f| f.row_height(&font)) / 2.0;
+    widgets::text_at(ui, pos2(rect.left() + 20.0, y), &m.title, font, theme::text(), w - 28.0);
+    resp
+}
+
+/// A Moods & genres category: its shelves of playlists.
+fn mood(app: &mut App, ui: &mut Ui, params: &str, now: f64) {
+    let Some(m) = app.mood.as_ref().filter(|m| m.params == params) else {
+        placeholder(app, ui, now, 3, CARD);
+        return;
+    };
+    page_title(ui, &m.title);
+    let rows = Rows::new(app, now);
+    for (i, s) in m.shelves.iter().enumerate() {
+        let id = format!("mood-{i}-{}", s.title);
+        match &s.kind {
+            ShelfKind::Cards(cards) => {
+                let cards: Vec<&Card> = cards.iter().filter(|c| !matches!(&c.target, Target::Song(t) if !rows.shows(t))).collect();
+                if !cards.is_empty() {
+                    cards_shelf(ui, &app.liked, &mut app.actions, &id, &s.title, s.strapline.as_deref(), s.strap_thumb.as_deref(), &cards);
+                }
+            }
+            ShelfKind::Songs { tracks, rows: n } => {
+                song_grid(ui, &rows, &app.liked, &mut app.actions, &id, &s.title, s.strapline.as_deref(), tracks, *n);
+            }
+        }
+    }
 }
 
 pub(super) fn page_title(ui: &mut Ui, title: &str) {

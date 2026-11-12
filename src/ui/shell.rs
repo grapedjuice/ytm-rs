@@ -407,7 +407,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         }
     };
     nav(ui, icon::HOUSE, "Home", Page::Home, p == Page::Home, &mut go_to);
-    nav(ui, icon::COMPASS, "Explore", Page::Explore, p == Page::Explore, &mut go_to);
+    nav(ui, icon::COMPASS, "Explore", Page::Explore, matches!(p, Page::Explore | Page::Mood(_)), &mut go_to);
     nav(ui, icon::LIBRARY, "Library", Page::Library(LibTab::Playlists), matches!(p, Page::Library(_)), &mut go_to);
     let jam_label = match app.jam.member_count() {
         n if app.jam.active() && n > 0 => format!("Jam · {n} listening"),

@@ -152,6 +152,12 @@ impl App {
                 self.explore = Some(e);
                 self.loading = false;
             }
+            Resp::Mood(m) => {
+                if self.page == Page::Mood(m.params.clone()) {
+                    self.loading = false;
+                }
+                self.mood = Some(m);
+            }
             Resp::VideoStream { video_id, max_height, stream } => {
                 // Not one asked for before the quality changed.
                 if let Some((id, player)) = &mut self.video

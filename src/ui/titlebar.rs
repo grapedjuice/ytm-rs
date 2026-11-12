@@ -171,7 +171,10 @@ pub fn drag_strip(ui: &Ui, rect: Rect, id: &str) -> egui::Response {
     }
     if !resp.double_clicked() && down && dragging && ui.ctx().data_mut(|d| d.remove_temp::<bool>(pressed_here)).unwrap_or(false) {
         // Once: the system moves the window until the button is let go.
-        ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
+        let from = ui.input(|i| i.pointer.press_origin().map(|p| p * i.pixels_per_point())).map(|p| (p.x.round() as i32, p.y.round() as i32));
+        if !from.is_some_and(crate::fullscreen::start_drag) {
+            ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
+        }
     }
     resp
 }

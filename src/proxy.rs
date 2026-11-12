@@ -218,9 +218,9 @@ fn apply_with(b: reqwest::ClientBuilder, s: &Setting) -> reqwest::ClientBuilder 
 pub fn pass_to(cmd: &mut std::process::Command) {
     let v = match (active(), RELAY.get()) {
         (Setting::Off, _) => "off".to_owned(),
-        (_, Some(port)) => format!("http://127.0.0.1:{port}"),
-        (Setting::Custom(u), None) => u.clone(),
-        (Setting::System, None) => "system".to_owned(),
+        (_, Some(port)) if needs_relay() => format!("http://127.0.0.1:{port}"),
+        (Setting::Custom(u), _) => u.clone(),
+        (Setting::System, _) => "system".to_owned(),
     };
     cmd.env(CHILD_ENV, v);
 }
@@ -231,8 +231,27 @@ static RELAY: OnceLock<u16> = OnceLock::new();
 /// proxy at all, and for an HTTP one it would ask in a box of its own; WebKitGTK is
 /// only told a host and port. On Windows a system proxy is WebView2's own business.
 pub fn needs_relay() -> bool {
-    let ours = matches!(active(), Setting::Custom(_)) || cfg!(target_os = "linux");
-    ours && active().resolve().is_some_and(|p| !p.username().is_empty() || p.scheme().starts_with("socks") || p.scheme() == "https")
+    let p = match active() {
+        Setting::Custom(_) => active().resolve(),
+        _ if cfg!(target_os = "linux") => webkit_proxy(),
+        _ => None,
+    };
+    p.is_some_and(|p| !p.username().is_empty() || p.scheme().starts_with("socks") || p.scheme() == "https")
+}
+
+/// The proxy a WebKitGTK window is told. A system one that's `https://`, or that
+/// `NO_PROXY` skips for Google, is left to WebKit, which reads those variables itself.
+fn webkit_proxy() -> Option<url::Url> {
+    match active() {
+        Setting::System => system().filter(|p| p.scheme() != "https" && !no_proxy("accounts.google.com")),
+        s => s.resolve(),
+    }
+}
+
+/// Whether `NO_PROXY` sends `host` direct.
+fn no_proxy(host: &str) -> bool {
+    let list = ["NO_PROXY", "no_proxy"].iter().find_map(|k| std::env::var(k).ok()).unwrap_or_default();
+    list.trim() == "*" || list.split(',').map(|e| e.trim().trim_start_matches('*').trim_start_matches('.')).any(|e| !e.is_empty() && (host == e || host.ends_with(&format!(".{e}"))))
 }
 
 /// A local, password-free HTTP proxy (CONNECT only) on a random loopback port that
@@ -308,7 +327,7 @@ pub fn webview(b: wry::WebViewBuilder<'_>, unbound: bool) -> wry::WebViewBuilder
     #[cfg(not(windows))]
     let _ = unbound;
     #[cfg(target_os = "linux")]
-    if let Some(p) = active().resolve() {
+    if let Some(p) = webkit_proxy() {
         let endpoint = wry::ProxyEndpoint { host: p.host_str().unwrap_or_default().to_owned(), port: p.port_or_known_default().unwrap_or(8080).to_string() };
         return b.with_proxy_config(if p.scheme().starts_with("socks") { wry::ProxyConfig::Socks5(endpoint) } else { wry::ProxyConfig::Http(endpoint) });
     }
@@ -426,11 +445,12 @@ fn env_proxy() -> Option<url::Url> {
     if matches!(active(), Setting::Off) {
         return None;
     }
-    env_var(&["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"])
+    env_var(&["HTTPS_PROXY", "https_proxy"]).or_else(|| env_var(&["HTTP_PROXY", "http_proxy"])).or_else(|| env_var(&["ALL_PROXY", "all_proxy"]))
 }
 
+/// The first of `names` that's set, even to nothing, as reqwest reads them.
 fn env_var(names: &[&str]) -> Option<url::Url> {
-    names.iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).and_then(|v| parse(&v).ok())
+    names.iter().find_map(|k| std::env::var(k).ok()).and_then(|v| parse(&v).ok())
 }
 
 /// The proxy Windows is set to use (Settings › Network › Proxy › Manual), if on.
@@ -453,7 +473,7 @@ pub fn system() -> Option<url::Url> {
         parse(&addr).ok()
     }
     #[cfg(not(windows))]
-    env_var(&["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"])
+    env_var(&["HTTPS_PROXY", "https_proxy"]).or_else(|| env_var(&["ALL_PROXY", "all_proxy"]))
 }
 
 #[cfg(windows)]

@@ -281,6 +281,9 @@ pub struct Mini {
     lifted: bool,
     /// The window has reached the card's size since it was asked for (it may lose it).
     grown: bool,
+    /// When the card was last asked for, so the second click of a double-click on More
+    /// can't land on what has grown under the pointer.
+    card_at: f64,
 }
 
 impl Mini {
@@ -288,7 +291,12 @@ impl Mini {
         Mini {
             on: false,
             pinned: get("mini_pinned").map_or(PINNED_BY_DEFAULT, |v| v == "1"),
-            place: get(place_key()).and_then(|v| serde_json::from_str(&v).ok()).map(clamp_size),
+            place: get(place_key()).and_then(|v| serde_json::from_str::<Place>(&v).ok()).map(|p| {
+                // A pill saved narrower (before it had the card's button) keeps its right
+                // edge, so one in the corner doesn't reopen partly off the screen.
+                let x = if pill_active() { p.x + (p.w - PILL_WINDOW.x) * p.scale * p.zoom } else { p.x };
+                clamp_size(Place { x, ..p })
+            }),
             full: None,
             was_maximized: false,
             switch: None,
@@ -303,6 +311,7 @@ impl Mini {
             tall: false,
             lifted: false,
             grown: false,
+            card_at: f64::NEG_INFINITY,
         }
     }
 
@@ -324,6 +333,9 @@ impl Mini {
     /// for which [`Mini::lift`] moves the window up once it's grown.
     fn set_card(&mut self, ctx: &egui::Context, on: bool) {
         self.card = on;
+        if on {
+            self.card_at = ctx.input(|i| i.time);
+        }
         if !on || self.tall {
             return;
         }
@@ -880,8 +892,14 @@ pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
     app.mini.shape_to(&ctx, rect, radius);
 
     // Only once it has settled: a quick second click on More or Less mustn't land on what's
-    // fading in under the pointer, nor count as a double-click on the background.
-    let settled = if grow < 0.5 { grow <= 0.0 } else { app.mini.card && grow >= 0.99 };
+    // fading in under the pointer, nor count as a double-click on the background. Opening
+    // upwards, the volume slider grows under where More was: it waits out a slow
+    // double-click (Windows allows half a second) too.
+    let wait = app.mini.card_at + 0.5 - ctx.input(|i| i.time);
+    if app.mini.card && wait > 0.0 {
+        ctx.request_repaint_after(Duration::from_secs_f64(wait));
+    }
+    let settled = if grow < 0.5 { grow <= 0.0 } else { app.mini.card && grow >= 0.99 && wait <= 0.0 };
     let mut back = ui.new_child(egui::UiBuilder::new().max_rect(rect));
     if !settled {
         back.disable();

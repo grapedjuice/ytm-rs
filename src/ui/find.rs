@@ -34,6 +34,8 @@ pub enum Sort {
     Album,
     /// Shortest first.
     Duration,
+    /// The list's own order turned around: oldest first, where it comes newest first.
+    Reversed,
 }
 
 /// What's being looked for, in one list at a time: another list starts empty. Sorts
@@ -236,6 +238,7 @@ fn list_id(page: &Page) -> Option<String> {
 fn sort_rows(rows: &mut [usize], tracks: &[Track], sort: Sort) {
     match sort {
         Sort::Default => {}
+        Sort::Reversed => rows.reverse(),
         Sort::Duration => rows.sort_by_key(|&i| tracks[i].duration.unwrap_or(u32::MAX)),
         Sort::TitleDesc => rows.sort_by_cached_key(|&i| std::cmp::Reverse(fold(&tracks[i].title))),
         Sort::Title | Sort::Artist | Sort::Album => rows.sort_by_cached_key(|&i| {
@@ -363,6 +366,9 @@ mod tests {
         assert_eq!(sorted(Sort::Album, "", &tracks), Some(vec![3, 2, 1, 0]));
         assert_eq!(sorted(Sort::Duration, "", &tracks), Some(vec![3, 1, 0, 2]));
         assert_eq!(sorted(Sort::Default, "", &tracks), None);
+        assert_eq!(sorted(Sort::Reversed, "", &tracks), Some(vec![3, 2, 1, 0]));
+        // Found songs turn around too.
+        assert_eq!(sorted(Sort::Reversed, "daft", &tracks), Some(vec![2, 0]));
     }
 
     #[test]

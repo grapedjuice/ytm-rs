@@ -306,17 +306,25 @@ const SORT_W: f32 = 150.0;
 /// The orders `page`'s list can be shown in, its own first under its name there. None for
 /// an album, which keeps its track order.
 fn sort_options(page: &Page) -> Vec<(Sort, &'static str)> {
-    let own = match page {
-        Page::Playlist(id) if id == super::LIKED_MUSIC => "Recently liked",
-        Page::Playlist(_) => "Custom order",
-        Page::Library(LibTab::Songs) => "Recently liked",
-        Page::Library(LibTab::History) => "Recently played",
-        Page::Library(LibTab::Uploads) => "Recently added",
-        Page::Library(LibTab::Downloads) => "Newest first",
+    // Lists that come newest first can turn around. YouTube Music's own date sorts can't be
+    // used: past the first 100 songs its pages come back unsorted, and on your own playlists
+    // the menu saves the order to the playlist itself.
+    let (own, newest_first) = match page {
+        Page::Playlist(id) if id == super::LIKED_MUSIC => ("Recently liked", true),
+        Page::Playlist(_) => ("Custom order", false),
+        Page::Library(LibTab::Songs) => ("Recently liked", true),
+        Page::Library(LibTab::History) => ("Recently played", false),
+        Page::Library(LibTab::Uploads) => ("Recently added", true),
+        Page::Library(LibTab::Downloads) => ("Newest first", true),
         Page::Library(LibTab::Playlists | LibTab::Albums | LibTab::Podcasts) => return vec![(Sort::Default, "Recent"), (Sort::Title, "A–Z"), (Sort::TitleDesc, "Z–A")],
         _ => return Vec::new(),
     };
-    vec![(Sort::Default, own), (Sort::Title, "Title"), (Sort::Artist, "Artist"), (Sort::Album, "Album"), (Sort::Duration, "Duration")]
+    let mut options = vec![(Sort::Default, own)];
+    if newest_first {
+        options.push((Sort::Reversed, "Oldest first"));
+    }
+    options.extend([(Sort::Title, "Title"), (Sort::Artist, "Artist"), (Sort::Album, "Album"), (Sort::Duration, "Duration")]);
+    options
 }
 
 /// A list's Sort button, with its orders in a menu. Away while the list is still coming in.

@@ -58,9 +58,10 @@ impl Glide {
     /// a wheel glide, as it always has. Returns whether a glide is still going, which
     /// needs another frame.
     pub(super) fn filter(&mut self, events: &mut Vec<Event>, time: f64, predicted_dt: f32, viewport_h: f32) -> bool {
-        // How long this frame's events took to come in (an idle window's first frame
-        // can't tell, so it says the most a lift-off speed looks back).
+        // How long this frame's events took to come in. A swipe's first frame is woken by
+        // its first event, so however long the window sat idle before, it counts one frame.
         let gap = ((time - self.last_time) as f32).clamp(0.001, SPEED_WINDOW as f32);
+        let first_gap = gap.min(predicted_dt.max(0.001));
         self.last_time = time;
         for e in std::mem::take(events) {
             let Event::MouseWheel { unit, delta, phase, modifiers, source } = e else {
@@ -88,7 +89,7 @@ impl Glide {
                             self.pending = Vec2::ZERO;
                             self.coasting = false;
                             self.swipe.clear();
-                            self.swipe.push((time, gap, delta));
+                            self.swipe.push((time, first_gap, delta));
                             events.push(e);
                             events.push(Event::MouseWheel { unit, delta, phase: TouchPhase::Move, modifiers, source });
                         }
@@ -98,6 +99,7 @@ impl Glide {
                                 self.stop_coast();
                             }
                             self.swipe.retain(|(t, ..)| *t > time - SPEED_WINDOW);
+                            let gap = if self.swipe.is_empty() { first_gap } else { gap };
                             self.swipe.push((time, gap, delta));
                             events.push(e);
                         }
@@ -118,7 +120,9 @@ impl Glide {
                     continue;
                 }
             };
-            // Reversing direction cancels the remaining glide instead of fighting it.
+            // A notch stops a coast rather than speeding up the rest of it. Reversing
+            // direction cancels the remaining glide instead of fighting it.
+            self.stop_coast();
             if self.pending.y * px.y < 0.0 || self.pending.x * px.x < 0.0 {
                 self.pending = Vec2::ZERO;
             }
@@ -128,7 +132,7 @@ impl Glide {
             self.mods = modifiers;
         }
         if self.pending.length() < 0.5 {
-            self.stop_coast();
+            self.coasting = false;
             self.pending = Vec2::ZERO;
             return false;
         }
@@ -156,11 +160,12 @@ impl Glide {
 
 /// A swipe's speed at lift-off at `time`, points per second: its moves over the last
 /// [`SPEED_WINDOW`], so fingers that stopped before lifting don't coast, over the time
-/// they took to come in (the oldest one over the frame gap before it).
+/// they took to come in (the oldest one over the frame gap before it). `swipe` is in time
+/// order.
 fn lift_off_speed(swipe: &[(f64, f32, Vec2)], time: f64) -> Vec2 {
-    let recent = swipe.iter().filter(|(t, ..)| *t > time - SPEED_WINDOW);
-    let Some((first, gap, _)) = recent.clone().min_by(|a, b| a.0.total_cmp(&b.0)) else { return Vec2::ZERO };
-    let speed = recent.fold(Vec2::ZERO, |sum, (.., d)| sum + *d) / ((time - first) as f32 + gap);
+    let Some(i) = swipe.iter().position(|(t, ..)| *t > time - SPEED_WINDOW) else { return Vec2::ZERO };
+    let (first, gap, _) = swipe[i];
+    let speed = swipe[i..].iter().fold(Vec2::ZERO, |sum, (.., d)| sum + *d) / ((time - first) as f32 + gap);
     if speed.length() > MAX_SPEED { speed * (MAX_SPEED / speed.length()) } else { speed }
 }
 
@@ -179,8 +184,8 @@ mod tests {
         wheel(MouseWheelUnit::Point, phase, y)
     }
 
-    /// A touchpad's glide, with a frame already drawn at time 0.
-    fn touchpad() -> Glide {
+    /// A glide that coasts, with a frame already drawn at time 0.
+    fn glide() -> Glide {
         let mut g = Glide { kinetic: true, ..Glide::default() };
         g.filter(&mut Vec::new(), 0.0, FRAME, 800.0);
         g
@@ -212,7 +217,7 @@ mod tests {
 
     #[test]
     fn a_wheel_notch_glides_its_whole_distance() {
-        let mut g = touchpad();
+        let mut g = glide();
         let first = frame(&mut g, vec![wheel(MouseWheelUnit::Line, TouchPhase::Move, -1.0)], 1.0);
         // The first step is a frame's share, as before: predicted_dt paces a wheel glide.
         let share = NOTCH_PX * (1.0 - (-FRAME / GLIDE).exp());
@@ -221,13 +226,14 @@ mod tests {
         assert!((total + NOTCH_PX).abs() < 0.5, "{total}");
     }
 
-    /// A swipe at 1200 pt/s, 20 pt a frame, with the fingers lifting at `lift` (s) after
-    /// the last move. Returns (distance while touching, coast after).
+    /// A quick flick on a window idle for a second: 1200 pt/s, 20 pt a frame for six
+    /// frames, with the fingers lifting at `lift` (s) after the last move. Returns
+    /// (distance while touching, coast after).
     fn swipe(lift: f64) -> (f32, f32) {
-        let mut g = touchpad();
-        let mut t = f64::from(FRAME);
+        let mut g = glide();
+        let mut t = 1.0;
         let mut touching = frame(&mut g, vec![pad(TouchPhase::Start, -20.0)], t);
-        for _ in 0..9 {
+        for _ in 0..5 {
             t += f64::from(FRAME);
             touching += frame(&mut g, vec![pad(TouchPhase::Move, -20.0)], t);
         }
@@ -241,35 +247,46 @@ mod tests {
     fn a_touchpad_swipe_scrolls_every_move_then_coasts() {
         let (touching, coast) = swipe(0.0);
         // Every move counts, the Start's too: egui would drop that one.
-        assert!((touching + 200.0).abs() < 0.5, "{touching}");
-        // Then about 1200 pt/s × COAST more, in the same direction.
+        assert!((touching + 120.0).abs() < 0.5, "{touching}");
+        // Then about 1200 pt/s × COAST more, in the same direction: the idle second
+        // before the swipe doesn't slow it.
         assert!((coast + 1200.0 * COAST).abs() < 20.0, "{coast}");
     }
 
     #[test]
     fn fingers_that_stop_before_lifting_dont_coast() {
         let (touching, coast) = swipe(0.5);
-        assert!((touching + 200.0).abs() < 0.5, "{touching}");
+        assert!((touching + 120.0).abs() < 0.5, "{touching}");
         assert_eq!(coast, 0.0);
     }
 
     #[test]
-    fn a_swipe_that_comes_in_one_frame_coasts_at_its_real_speed() {
-        // 150 pt over the 120 ms a stalled frame took: 1250 pt/s, not 150 pt per 1/60 s.
-        let swipe = || [pad(TouchPhase::Start, -25.0)].into_iter().chain((0..5).map(|_| pad(TouchPhase::Move, -25.0))).chain([pad(TouchPhase::End, 0.0)]).collect::<Vec<_>>();
-        let mut g = touchpad();
-        // The frame scrolls the 150 pt the fingers moved, then the coast.
-        let coast = frame(&mut g, swipe(), 0.12) + settle(&mut g, 0.12) + 150.0;
-        assert!((coast + 1250.0 * COAST).abs() < 20.0, "{coast}");
-        // An idle window's first frame can't tell how long it took: it says 150 ms.
-        let mut g = Glide { kinetic: true, ..Glide::default() };
-        let coast = frame(&mut g, swipe(), 5.0) + settle(&mut g, 5.0) + 150.0;
-        assert!((coast + 1000.0 * COAST).abs() < 20.0, "{coast}");
+    fn a_swipe_held_up_by_a_slow_frame_coasts_at_its_real_speed() {
+        // 25 pt in the first frame, then 125 pt that piled up over a 120 ms frame:
+        // 150 pt over 120 ms and a frame, not 125 pt per 1/60 s.
+        let mut g = glide();
+        let mut moved = frame(&mut g, vec![pad(TouchPhase::Start, -25.0)], 1.0);
+        let rest = (0..5).map(|_| pad(TouchPhase::Move, -25.0)).chain([pad(TouchPhase::End, 0.0)]).collect();
+        moved += frame(&mut g, rest, 1.12);
+        // Past the fingers' 150 pt, the coast (which starts in the slow frame).
+        let coast = moved + settle(&mut g, 1.12) + 150.0;
+        let speed = 150.0 / (0.12 + FRAME);
+        assert!((coast + speed * COAST).abs() < 20.0, "{coast}");
     }
 
-    /// A touchpad coasting downwards at time 0.1: 40 pt in 100 ms, so 100 pt to go.
+    #[test]
+    fn a_whole_swipe_in_one_frame_coasts_no_faster_than_a_hard_flick() {
+        // It can't tell how long the swipe took, so it counts a frame: the cap holds it.
+        let mut g = glide();
+        let swipe = [pad(TouchPhase::Start, -25.0)].into_iter().chain((0..5).map(|_| pad(TouchPhase::Move, -25.0))).chain([pad(TouchPhase::End, 0.0)]).collect();
+        let coast = frame(&mut g, swipe, 1.0) + 150.0 + settle(&mut g, 1.0);
+        assert!((coast + MAX_SPEED * COAST).abs() < 20.0, "{coast}");
+    }
+
+    /// A touchpad coasting downwards at time 0.1: 40 pt in a frame and 25 ms, so about
+    /// 150 pt to go.
     fn coasting() -> Glide {
-        let mut g = touchpad();
+        let mut g = glide();
         frame(&mut g, vec![pad(TouchPhase::Start, -20.0)], 0.05);
         frame(&mut g, vec![pad(TouchPhase::Move, -20.0)], 0.075);
         frame(&mut g, vec![pad(TouchPhase::End, 0.0)], 0.1);
@@ -286,6 +303,13 @@ mod tests {
         let mut g = coasting();
         assert_eq!(frame(&mut g, vec![pad(TouchPhase::Move, 0.0)], 0.15), 0.0);
         assert_eq!(settle(&mut g, 0.15), 0.0);
+    }
+
+    #[test]
+    fn a_wheel_notch_stops_a_coast_and_glides_alone() {
+        let mut g = coasting();
+        let total = frame(&mut g, vec![wheel(MouseWheelUnit::Line, TouchPhase::Move, -1.0)], 0.15) + settle(&mut g, 0.15);
+        assert!((total + NOTCH_PX).abs() < 0.5, "{total}");
     }
 
     #[test]

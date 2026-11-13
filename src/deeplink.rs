@@ -117,13 +117,80 @@ fn pipe_name() -> String {
 #[cfg(windows)]
 pub use win::{forward_to_running, listen, register_protocol};
 
+/// Per-user socket path. A dev profile (`YTM_DATA_DIR`) gets its own, so test runs
+/// never talk to the installed copy — the same rule as `pipe_name` on Windows.
 #[cfg(not(windows))]
-pub fn forward_to_running(_code: &str) -> bool {
-    false
+fn socket_path() -> std::path::PathBuf {
+    let user: String = std::env::var("USER")
+        .unwrap_or_default()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let mut name = format!("ytm-rs-jam-{user}");
+    if let Some(dir) = std::env::var_os("YTM_DATA_DIR") {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        dir.hash(&mut h);
+        name.push_str(&format!("-{:016x}", h.finish()));
+    }
+    let dir = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    dir.join(name).with_extension("sock")
 }
 
 #[cfg(not(windows))]
-pub fn listen(_wake: impl Fn() + Send + 'static) {}
+pub fn forward_to_running(code: &str) -> bool {
+    use std::io::Write;
+    match std::os::unix::net::UnixStream::connect(socket_path()) {
+        Ok(mut stream) => stream.write_all(format!("{code}\n").as_bytes()).and_then(|()| stream.flush()).is_ok(),
+        // Nobody is listening: no running copy, or a socket a crash left behind.
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(windows))]
+pub fn listen(wake: impl Fn() + Send + 'static) {
+    use std::io::{BufRead, Read};
+
+    let path = socket_path();
+    // A live copy would have taken the launch, so anything here is stale.
+    let _ = std::fs::remove_file(&path);
+    let listener = match std::os::unix::net::UnixListener::bind(&path) {
+        Ok(listener) => listener,
+        Err(e) => {
+            log::warn!("single-instance socket: {e}");
+            return;
+        }
+    };
+    let spawned = std::thread::Builder::new().name("deeplink".into()).spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { continue };
+            // One line per launch, capped like the Windows pipe.
+            let mut msg = String::new();
+            if let Err(e) = std::io::BufReader::new(stream.take(257)).read_line(&mut msg) {
+                log::warn!("single-instance socket: {e}");
+                continue;
+            }
+            let msg = msg.trim();
+            if msg == SHOW_MSG {
+                log::info!("another launch asked for the window");
+                SHOW.store(true, std::sync::atomic::Ordering::Relaxed);
+                wake();
+                continue;
+            }
+            match normalize(msg) {
+                Some(code) => {
+                    log::info!("jam link received from another launch: {code}");
+                    push(code);
+                    wake();
+                }
+                None => log::warn!("single-instance socket: ignored an invalid message"),
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        log::warn!("single-instance listener: {e}");
+    }
+}
 
 #[cfg(not(windows))]
 pub fn register_protocol() {}

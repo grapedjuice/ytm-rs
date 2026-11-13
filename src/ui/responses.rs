@@ -103,6 +103,20 @@ impl App {
                 }
             }
         }
+        // Sorted playlists load again when it's time, for their new order. One whose load
+        // ended without its first page (it failed) stops waiting, so Sort comes back.
+        let mut due = Vec::new();
+        let lists = &self.lists;
+        self.sorting.retain(|id, w| {
+            if w.take_due(now) {
+                due.push(id.clone());
+                return true;
+            }
+            !w.awaiting() || lists.loading(id) || lists.moving(id)
+        });
+        for id in due {
+            self.load_list(&id, false, true);
+        }
         if self.suggest_due.is_some_and(|d| now >= d) {
             self.suggest_due = None;
             let q = self.search_text.trim().to_owned();
@@ -207,6 +221,11 @@ impl App {
                 let rows = |app: &Self| app.opened(&id).map(|o| o.c.tracks.iter().map(|t| t.id.clone()).collect::<Vec<_>>());
                 let before = rows(&*self);
                 self.collection_in(load, c, more);
+                // A sort waiting for its order, from this load (an older one isn't kept).
+                let sorted = self.lists.get(&id).filter(|o| o.load == load).zip(self.sorting.get_mut(&id)).is_some_and(|(o, w)| w.arrived(&o.c.sorts, now));
+                if sorted {
+                    self.sorting.remove(&id);
+                }
                 if self.page_list() == Some(id.as_str()) && rows(&*self) != before {
                     self.selection.clear();
                 }
@@ -552,7 +571,13 @@ impl App {
     /// A playlist was edited, added to, removed from, saved or deleted; `message` says which.
     fn on_playlist_changed(&mut self, id: String, message: &'static str) {
         self.request_library();
-        self.sorting.remove(&id);
+        // A sort taken waits on, for the reload in its order; anything else ends it.
+        match self.sorting.get_mut(&id) {
+            Some(w) if message == "Playlist sorted" => w.taken(),
+            _ => {
+                self.sorting.remove(&id);
+            }
+        }
         if message == "Playlist deleted" {
             // Its load is dropped too, and the queue stops waiting for it.
             self.lists.forget(&id);

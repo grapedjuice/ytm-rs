@@ -379,8 +379,8 @@ pub struct App {
     /// Albums and playlists opened lately, so going back to one shows it at once (and
     /// refreshes it quietly), and their loads under way.
     lists: Lists,
-    /// Playlists a sort was asked of, until YouTube Music has answered.
-    sorting: HashSet<String>,
+    /// Playlists a sort was asked of, until they load in that order (or it fails).
+    sorting: HashMap<String, lists::SortWait>,
     artist: Option<ArtistPage>,
     library: Option<Library>,
     /// When the library was last requested; the sidebar spinner gives up after a while.
@@ -723,7 +723,7 @@ impl App {
             mood: None,
             search: None,
             lists: Lists::default(),
-            sorting: HashSet::new(),
+            sorting: HashMap::new(),
             artist: None,
             library: None,
             library_requested: std::time::Instant::now(),
@@ -1195,6 +1195,10 @@ impl eframe::App for App {
         let now = ctx.input(|i| i.time);
         self.sync_look();
         self.pump(now);
+        // A sorted playlist that loads again in a while, for its new order.
+        if let Some(t) = self.sorting.values().filter_map(lists::SortWait::due).reduce(f64::min) {
+            ctx.request_repaint_after(Duration::from_secs_f64((t - now).max(0.0)));
+        }
         self.skip_segments(ctx, now);
         hotkeys::poll(self, ctx, frame);
         // System media controls and taskbar buttons follow the player however it changed.

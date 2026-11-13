@@ -828,7 +828,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let (c, more) = (&o.c, app.receiving(id));
     // A sort of it is under way. None starts while it loads (what's ticked may be stale) or a
     // drag is still being saved (the load after the sort would wait for it).
-    let sorting = app.sorting.contains(id);
+    let sorting = app.sorting.contains_key(id);
     let busy = sorting || app.lists.loading(id) || app.lists.moving(id);
     let acts = &mut app.actions;
     let tracks = &c.tracks;

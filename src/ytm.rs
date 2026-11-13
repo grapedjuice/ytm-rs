@@ -771,8 +771,27 @@ fn parse_artist(v: &Value, id: &str) -> Option<ArtistPage> {
 /// Songs to play after `video_id` (its radio), at least `limit` when there are enough.
 /// A music video's radio is music videos only (a song's is songs): then those, rather
 /// than nothing. Its song's radio is the one to ask for.
-pub async fn radio(api: &Api, video_id: &str, auth: bool, limit: usize) -> anyhow::Result<Vec<Track>> {
-    let body = json!({
+/// A song's first page of comments: its Comments tab (Up next, Lyrics, Comments, Related)
+/// holds the token for it. `None`: the song has comments turned off (the tab is then just
+/// a message) or has no such tab.
+pub async fn comments(api: &Api, video_id: &str, auth: bool) -> anyhow::Result<Option<Value>> {
+    let watch = api.call("next", json!({ "videoId": video_id }), auth).await?;
+    let tabs = &watch["contents"]["singleColumnMusicWatchNextResultsRenderer"]["tabbedRenderer"]["watchNextTabbedResultsRenderer"]["tabs"];
+    let tab = tabs.as_array().into_iter().flatten().find(|t| t["tabRenderer"]["title"] == "Comments");
+    let Some(token) = tab.and_then(|t| first_string(&t["tabRenderer"]["content"], "continuation")) else { return Ok(None) };
+    api.call("next", json!({ "continuation": token }), auth).await.map(Some)
+}
+
+/// The first string keyed `key` anywhere under `v`.
+fn first_string(v: &Value, key: &str) -> Option<String> {
+    match v {
+        Value::Object(m) => m.get(key).and_then(Value::as_str).map(str::to_owned).or_else(|| m.values().find_map(|x| first_string(x, key))),
+        Value::Array(a) => a.iter().find_map(|x| first_string(x, key)),
+        _ => None,
+    }
+}
+
+pub async fn radio(api: &Api, video_id: &str, auth: bool, limit: usize) -> anyhow::Result<Vec<Track>> {    let body = json!({
         "playlistId": format!("RDAMVM{video_id}"),
         "params": "wAEB8gECeAE%3D",
         "enablePersistentPlaylistPanel": true,

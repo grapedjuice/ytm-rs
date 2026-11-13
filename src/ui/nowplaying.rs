@@ -272,6 +272,15 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         let mut focused = fs_btn.has_focus();
         // Clicking the active chip again turns it off, leaving just the artwork. These look
         // the same in every theme.
+        // Comments, rightmost of the three (right to left: drawn first), with Settings ›
+        // Playback › Show comments on.
+        if !app.show_comments && app.np_tab == NpTab::Comments {
+            app.np_tab = NpTab::Art;
+        }
+        let com = app.show_comments.then(|| widgets::default_chip(ui, "Comments", app.np_tab == NpTab::Comments));
+        if com.as_ref().is_some_and(|c| c.clicked()) {
+            app.np_tab = if app.np_tab == NpTab::Comments { NpTab::Art } else { NpTab::Comments };
+        }
         let up = widgets::default_chip(ui, "Up next", app.np_tab == NpTab::UpNext);
         if up.clicked() {
             app.np_tab = if app.np_tab == NpTab::UpNext { NpTab::Art } else { NpTab::UpNext };
@@ -288,7 +297,7 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         if lyr.inner.clicked() {
             app.np_tab = if app.np_tab == NpTab::Lyrics { NpTab::Art } else { NpTab::Lyrics };
         }
-        focused |= up.has_focus() || lyr.inner.has_focus();
+        focused |= up.has_focus() || lyr.inner.has_focus() || com.is_some_and(|c| c.has_focus());
         let full_w = ui.min_rect().width();
         ui.ctx().data_mut(|d| d.insert_temp(id, (full_w, focused)));
     });
@@ -449,9 +458,9 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
     let rect = right.translate(vec2(toward * (1.0 - panel_vis), 0.0));
     let inset = look.now_playing.fullscreen_panel_inset.filter(|_| app.fullscreen);
     let rect = inset.map_or(rect, |[top, bottom]| Rect::from_min_max(pos2(rect.left(), rect.top() + top), pos2(rect.right(), rect.bottom() - bottom)));
-    // Switching between Lyrics and Up next: the old one fades out over the first 55%,
+    // Switching between Lyrics, Up next and Comments: the old one fades out over the first 55%,
     // the new one fades in and rises into place from a third of the way.
-    for (tab, key) in [(NpTab::Lyrics, "np-tab-lyrics"), (NpTab::UpNext, "np-tab-upnext")] {
+    for (tab, key) in [(NpTab::Lyrics, "np-tab-lyrics"), (NpTab::UpNext, "np-tab-upnext"), (NpTab::Comments, "np-tab-comments")] {
         let w = ui.ctx().animate_bool_with_time(egui::Id::unique(key), panel_tab == tab, 0.45 * theme::SPEED);
         if w > 0.0 && w < 1.0 {
             ui.ctx().request_repaint();
@@ -472,6 +481,7 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
         rui.multiply_opacity(panel_vis * vis);
         match tab {
             NpTab::Lyrics => lyrics_panel(app, &mut rui, r, now, centered),
+            NpTab::Comments => super::comments::panel(app, &mut rui),
             _ => super::shell::queue_list(app, &mut rui, "np"),
         }
     }
@@ -941,13 +951,14 @@ fn song_video_switch(app: &mut App, ui: &mut Ui, header: Rect) {
     }
 }
 
-/// The video as the whole view, with Up next beside it when that's open.
+/// The video as the whole view, with Up next or Comments beside it when that's open.
 fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::Track) {
     let frame = video_frame(app, ui.ctx(), track);
-    // Up next: beside the video, or under it when there's no room.
-    let up_next = app.np_tab == NpTab::UpNext;
-    let queue_w = if up_next && content.width() > 900.0 { 360.0 } else { 0.0 };
-    let queue_h = if up_next && queue_w == 0.0 { content.height() * 0.45 } else { 0.0 };
+    // Up next or Comments: beside the video, or under it when there's no room.
+    let comments = app.np_tab == NpTab::Comments && app.show_comments;
+    let side = app.np_tab == NpTab::UpNext || comments;
+    let queue_w = if side && content.width() > 900.0 { 360.0 } else { 0.0 };
+    let queue_h = if side && queue_w == 0.0 { content.height() * 0.45 } else { 0.0 };
     let stage = Rect::from_min_max(content.min, pos2(content.right() - queue_w, content.bottom() - queue_h));
     let (w, h) = frame.as_ref().map_or((16.0, 9.0), |t| (t.size()[0] as f32, t.size()[1] as f32));
     let room_w = match app.look().now_playing.video_max_frac.filter(|_| app.fullscreen) {
@@ -1009,11 +1020,15 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
     if look.now_playing.video_pill {
         video_line_pill(app, ui, picture);
     }
-    if up_next {
+    if side {
         let r = if queue_w > 0.0 { Rect::from_min_max(pos2(stage.right() + 24.0, content.top()), content.max) } else { Rect::from_min_max(pos2(content.left(), stage.bottom() + 8.0), content.max) };
         let mut q = ui.new_child(egui::UiBuilder::new().max_rect(r));
         q.set_clip_rect(r.intersect(ui.clip_rect()));
-        super::shell::queue_list(app, &mut q, "np");
+        if comments {
+            super::comments::panel(app, &mut q);
+        } else {
+            super::shell::queue_list(app, &mut q, "np");
+        }
     }
 }
 

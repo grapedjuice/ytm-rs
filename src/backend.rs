@@ -65,6 +65,15 @@ pub enum Req {
     /// Radio seeded from a track (`seed`, its id); appended to the queue. `song_of`: the
     /// track, when it's a music video to play as its song: the song's radio is asked for.
     Radio { seed: String, song_of: Option<Track> },
+    /// A song's first page of comments (now playing's Comments panel).
+    Comments { video_id: String },
+    /// The next page of a comments list (more comments, a comment's replies, another
+    /// sort), from its `next` continuation token.
+    CommentsPage { token: String },
+    /// A comment call as the account: `comment/create_comment`, `comment/create_comment_reply`
+    /// or `comment/perform_comment_action` (like, unlike). `tag` comes back as the
+    /// `CommentsPage` token.
+    CommentAction { endpoint: String, body: serde_json::Value, tag: String },
     /// Fetch an album/playlist and play it from the start.
     PlayCollection { target: Target },
     /// `at`: start position (non-zero when resuming last session's song). `report`: tell
@@ -128,6 +137,7 @@ impl Req {
             Req::LyricsExtras { .. } => "Translation",
             Req::Art { .. } => "Art",
             Req::Radio { .. } => "Loading radio",
+            Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. } => "Comments",
             Req::PlayCollection { .. } => "Playback",
             Req::Play { .. } => "Playback",
             Req::Prefetch { .. } => "Prefetch",
@@ -151,7 +161,7 @@ impl Req {
 
     /// Background requests fail quietly (logged, no toast).
     fn quiet(&self) -> bool {
-        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::Art { .. } | Req::Prefetch { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::LyricsExtras { .. })
+        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::Art { .. } | Req::Prefetch { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::LyricsExtras { .. } | Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. })
     }
 }
 
@@ -319,6 +329,9 @@ pub enum Resp {
     LyricsExtras { video_id: String, source: String, target: String, extras: crate::translate::Extras },
     Art { key: String, art: Art },
     Radio { seed: String, tracks: Vec<Track> },
+    /// A comments response (`Req::Comments`, `CommentsPage` or `CommentAction`) by its tag;
+    /// `None`: it failed.
+    CommentsPage { token: String, page: Option<serde_json::Value> },
     /// What was asked to play (a `Req::PlayCollection`), its name, and its songs.
     PlayQueue { target: Target, title: String, tracks: Vec<Track> },
     /// `other`: its other version, whose like went with this one.
@@ -783,6 +796,28 @@ impl Backend {
                 Req::Lyrics(track) => {
                     let video_id = track.id.clone();
                     Resp::Lyrics { lyrics: self.lyrics_for(&track).await, video_id }
+                }
+                Req::Comments { video_id } => {
+                    let page = ytm::comments(api, &video_id, me).await.map(|p| p.unwrap_or_else(|| serde_json::json!({ "commentsOff": true })));
+                    if let Err(e) = &page {
+                        log::warn!("comments for {video_id}: {e:#}");
+                    }
+                    Resp::CommentsPage { token: format!("video:{video_id}"), page: page.ok() }
+                }
+                Req::CommentAction { endpoint, body, tag } => {
+                    // As the account: only ever from a click (Comment, Reply, the thumb).
+                    let page = api.call_signed_in(&endpoint, body).await;
+                    if let Err(e) = &page {
+                        log::warn!("comments {endpoint}: {e:#}");
+                    }
+                    Resp::CommentsPage { token: tag, page: page.ok() }
+                }
+                Req::CommentsPage { token } => {
+                    let page = api.call("next", serde_json::json!({ "continuation": token }), me).await;
+                    if let Err(e) = &page {
+                        log::warn!("comments page: {e:#}");
+                    }
+                    Resp::CommentsPage { token, page: page.ok() }
                 }
                 Req::Segments { video_id } => {
                     let segments = crate::sponsorblock::segments(&self.http(), &video_id).await?;

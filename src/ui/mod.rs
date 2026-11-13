@@ -7,6 +7,7 @@ mod account;
 mod actions;
 mod collections;
 mod colorpick;
+mod comments;
 mod dev;
 mod dialogs;
 mod find;
@@ -89,6 +90,7 @@ pub enum LibTab {
 pub enum NpTab {
     Lyrics,
     UpNext,
+    Comments,
     /// Neither panel: just the artwork.
     Art,
 }
@@ -435,6 +437,8 @@ pub struct App {
     hide_explicit: bool,
     /// Podcast shows and episodes on Home, in search and in the library.
     show_podcasts: bool,
+    /// Now playing's Comments panel. Off by default.
+    show_comments: bool,
     /// With them, ask YouTube for its Restricted Mode too.
     restricted_mode: bool,
     /// The song version playing in place of the current music video.
@@ -644,6 +648,7 @@ impl App {
         let restricted_mode = get("restricted_mode").is_some_and(|v| v == "1");
         backend.set_hide_explicit(hide_explicit, restricted_mode);
         let show_podcasts = get("podcasts").is_some_and(|v| v == "1");
+        let show_comments = get("comments").is_some_and(|v| v == "1");
         crate::ytm::set_podcasts(show_podcasts);
         backend.request(Req::Home(None));
         let start_choice = start_choice(&get("start_page").unwrap_or_default());
@@ -755,6 +760,7 @@ impl App {
             hide_search_videos: get("hide_search_videos").is_some_and(|v| v == "1"),
             hide_explicit,
             show_podcasts,
+            show_comments,
             restricted_mode,
             playing_as: None,
             output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
@@ -922,6 +928,13 @@ impl App {
         }
         if std::env::var("YTM_NOWPLAYING").is_ok() {
             app.np_open = true;
+        }
+        // Dev hook: YTM_NP_TAB=comments|upnext|art opens that panel.
+        match std::env::var("YTM_NP_TAB").as_deref() {
+            Ok("comments") => app.np_tab = NpTab::Comments,
+            Ok("upnext") => app.np_tab = NpTab::UpNext,
+            Ok("art") => app.np_tab = NpTab::Art,
+            _ => {}
         }
         app.jam.name = get("jam_name").unwrap_or_default();
         // Last launch's name, picture and playlists, so they show at once; the account
@@ -1637,6 +1650,7 @@ impl eframe::App for App {
         storage.set_string("hide_search_videos", b(self.hide_search_videos));
         storage.set_string("hide_explicit", b(self.hide_explicit));
         storage.set_string("podcasts", b(self.show_podcasts));
+        storage.set_string("comments", b(self.show_comments));
         storage.set_string("restricted_mode", b(self.restricted_mode));
         let folder = crate::downloads::folder();
         storage.set_string("download_dir", if folder == crate::downloads::default_folder() { String::new() } else { folder.display().to_string() });

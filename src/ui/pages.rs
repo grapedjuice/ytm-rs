@@ -1500,6 +1500,12 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             }
         });
         divider(ui);
+        setting_row(ui, "Show comments", Some("A Comments tab in now playing, beside Up next and Lyrics: what people say about the song, Top or Newest, with replies. Signed in, you can comment, reply and like too."), |ui| {
+            if toggle(ui, &mut app.show_comments, "Show comments").changed() && !app.show_comments && app.np_tab == super::NpTab::Comments {
+                app.np_tab = super::NpTab::Art;
+            }
+        });
+        divider(ui);
         // Only with hiding on: it's off (and shown off) until then.
         ui.add_enabled_ui(app.hide_explicit, |ui| {
             setting_row(ui, "Use YouTube's Restricted Mode", Some("Stricter: YouTube also leaves out whatever else it finds mature, not just explicit songs. Applies to pages loaded from now on."), |ui| {

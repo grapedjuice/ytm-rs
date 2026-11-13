@@ -213,7 +213,7 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
             ui.label(egui::RichText::new(format!("ytm-rs {}", d.version)).font(theme::bold(26.0)).color(theme::text()));
             ui.add_space(6.0);
             let sub = if deb_url.is_some() {
-                format!("You're on {}. Download the new .deb and open it to install it over this one.", crate::update::current_version())
+                format!("You're on {}. {}", crate::update::current_version(), crate::update::package_step())
             } else if d.ready {
                 format!("You're on {}. It's downloaded and installs when you close the app.", crate::update::current_version())
             } else {

@@ -113,7 +113,7 @@ pub(super) fn dev_screenshot(ctx: &egui::Context, now: f64) {
 
 /// Dev hook: `YTM_SCRIPT="<secs>:<step>;…"` drives a test window that has no mouse or
 /// keyboard, with seconds from the first frame. Steps: `m:x,y` moves the pointer, `c:x,y`
-/// clicks, `r:w,h` resizes, `t:text` types, `k:esc` presses Esc (`k:f` F, and so on), `w:n` scrolls n lines (down), `s:name` saves `<YTM_SCRIPT_DIR>/name.png`, `q` quits.
+/// clicks, `r:w,h` resizes, `t:text` types, `k:esc` presses Esc (`k:f` F, and so on), `w:n` scrolls n lines (down), `f:n` flicks a touchpad n points (down) over 0.1 s, as Wayland sends it, `s:name` saves `<YTM_SCRIPT_DIR>/name.png`, `q` quits.
 pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
     use std::sync::OnceLock;
     use std::time::Instant;
@@ -124,6 +124,7 @@ pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
         Text(&'static str),
         Key(egui::Key),
         Wheel(f32),
+        Swipe(egui::TouchPhase, f32),
         Shot(&'static str),
         Quit,
     }
@@ -148,6 +149,13 @@ pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
                     steps.push((at, Step::Key(key)));
                 }
                 ("w", _) if value.parse::<f32>().is_ok() => steps.push((at, Step::Wheel(value.parse().unwrap_or(0.0)))),
+                ("f", _) if value.parse::<f32>().is_ok() => {
+                    // 6 moves 20 ms apart, then the fingers lift (Wayland's axis stop).
+                    let n: f32 = value.parse().unwrap_or(0.0);
+                    steps.push((at, Step::Swipe(egui::TouchPhase::Start, n / 6.0)));
+                    steps.extend((1..6).map(|i| (at + 0.02 * f64::from(i), Step::Swipe(egui::TouchPhase::Move, n / 6.0))));
+                    steps.push((at + 0.11, Step::Swipe(egui::TouchPhase::End, 0.0)));
+                }
                 ("s", _) => steps.push((at, Step::Shot(value))),
                 ("q", _) => steps.push((at, Step::Quit)),
                 _ => log::warn!("YTM_SCRIPT: can't read {step}"),
@@ -167,6 +175,7 @@ pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
             Step::Text(text) => raw.events.push(egui::Event::Text((*text).to_owned())),
             // Positive scrolls down, in lines.
             Step::Wheel(n) => raw.events.push(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, -*n), phase: egui::TouchPhase::Move, modifiers: egui::Modifiers::NONE, source: egui::MouseWheelSource::Wheel }),
+            Step::Swipe(phase, n) => raw.events.push(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, -*n), phase: *phase, modifiers: egui::Modifiers::NONE, source: egui::MouseWheelSource::Unknown }),
             Step::Key(key) => {
                 for pressed in [true, false] {
                     raw.events.push(egui::Event::Key { key: *key, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE });

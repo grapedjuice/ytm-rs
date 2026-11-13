@@ -1,6 +1,7 @@
 //! What clicks and keys ask for: the actions pages queue up, and keyboard shortcuts.
 
-use std::time::Duration;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use crate::backend::Req;
 use crate::model::{Target, Track};
@@ -231,6 +232,19 @@ impl App {
                 if self.logged_in { self.backend.request(Req::SaveCollection { id, save }); }
                 else { self.toast("Sign in to save to library"); }
             }
+            Action::Subscribe(on) => {
+                if !self.logged_in {
+                    self.toast("Sign in to subscribe");
+                } else if let Some(a) = self.artist.as_mut().filter(|a| a.subscribed != on)
+                    && let Some(channel_id) = a.channel_id.clone()
+                    // One at a time, and not queued: the pill is greyed out while one runs.
+                    && self.subscriptions.start(&channel_id, on)
+                {
+                    // Shown at once; put back if YouTube Music refuses it.
+                    a.subscribed = on;
+                    self.backend.request(Req::Subscribe { channel_id, on });
+                }
+            }
             Action::HomeChip(params) => {
                 self.home_loading = true;
                 if let Some(h) = &mut self.home {
@@ -391,6 +405,89 @@ fn share_url(target: &Target) -> String {
         Target::Playlist(id) => format!("https://music.youtube.com/playlist?list={}", crate::ytm::list_id(id)),
         Target::Album(id) => format!("https://music.youtube.com/browse/{id}"),
         Target::Artist(id) => format!("https://music.youtube.com/channel/{id}"),
+    }
+}
+
+/// Subscribing and unsubscribing from artist pages: one at a time, and what each settled,
+/// so an artist page asked for before a change can't undo it.
+#[derive(Default)]
+pub(super) struct Subscriptions {
+    /// The one under way: its channel, and whether it subscribes.
+    running: Option<(String, bool)>,
+    /// Each channel's last change: where it stands, and when YouTube Music answered.
+    settled: HashMap<String, (bool, Instant)>,
+}
+
+impl Subscriptions {
+    pub(super) fn busy(&self) -> bool {
+        self.running.is_some()
+    }
+
+    /// Starts one, unless another is under way.
+    pub(super) fn start(&mut self, channel: &str, on: bool) -> bool {
+        if self.busy() {
+            return false;
+        }
+        self.running = Some((channel.to_owned(), on));
+        true
+    }
+
+    /// Its answer, which lets the next one go: where the channel now stands.
+    pub(super) fn finish(&mut self, channel: &str, on: bool, ok: bool) -> bool {
+        self.running = None;
+        let now = on == ok;
+        self.settled.insert(channel.to_owned(), (now, Instant::now()));
+        now
+    }
+
+    /// Whether an artist page asked for at `asked` shows the channel subscribed: as the
+    /// page says, unless a change under way, or answered since, says otherwise.
+    pub(super) fn shown(&self, channel: &str, says: bool, asked: Instant) -> bool {
+        match (&self.running, self.settled.get(channel)) {
+            (Some((c, on)), _) if c == channel => *on,
+            (_, Some(&(on, at))) if asked < at => on,
+            _ => says,
+        }
+    }
+}
+
+#[cfg(test)]
+mod subscription_tests {
+    use super::*;
+
+    #[test]
+    fn one_at_a_time() {
+        let mut s = Subscriptions::default();
+        assert!(s.start("UCa", true));
+        assert!(s.busy());
+        assert!(!s.start("UCa", false), "a click while one runs does nothing");
+        assert!(!s.start("UCb", true));
+        assert!(s.finish("UCa", true, true));
+        assert!(!s.busy());
+        assert!(s.start("UCb", true));
+        // A failure lets the next one go too, and puts the old state back.
+        assert!(!s.finish("UCb", true, false));
+        assert!(!s.busy());
+    }
+
+    #[test]
+    fn earlier_pages_dont_undo_a_change() {
+        let mut s = Subscriptions::default();
+        let before = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+        assert!(s.shown("UCa", true, before), "nothing changed here: the page says");
+        s.start("UCa", true);
+        // Under way: what was asked, whenever the page was fetched.
+        assert!(s.shown("UCa", false, before));
+        assert!(s.shown("UCa", false, Instant::now()));
+        assert!(!s.shown("UCb", false, before), "another channel: the page says");
+        s.finish("UCa", true, true);
+        assert!(s.shown("UCa", false, before), "asked before the answer: the answer stands");
+        let after = Instant::now() + Duration::from_secs(1);
+        assert!(!s.shown("UCa", false, after), "asked after it: the page says");
+        // A refused unsubscribe leaves it subscribed, over a page from before it.
+        s.start("UCa", false);
+        s.finish("UCa", false, false);
+        assert!(s.shown("UCa", false, before));
     }
 }
 

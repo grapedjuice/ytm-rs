@@ -79,6 +79,8 @@ pub enum LibTab {
     Playlists,
     Songs,
     Albums,
+    /// Subscribed artists.
+    Artists,
     /// Saved podcast shows (with Settings › Playback › Show podcasts on).
     Podcasts,
     History,
@@ -100,12 +102,13 @@ pub use mini::{init_pill, set_hwnd as set_mini_hwnd};
 
 /// Settings › General › Window › Open on: the pages the app can start on, as saved and
 /// as listed.
-pub(super) const START_PAGES: [(&str, &str, Page); 9] = [
+pub(super) const START_PAGES: [(&str, &str, Page); 10] = [
     ("home", "Home", Page::Home),
     ("explore", "Explore", Page::Explore),
     ("library", "Library › Playlists", Page::Library(LibTab::Playlists)),
     ("liked", "Library › Liked songs", Page::Library(LibTab::Songs)),
     ("albums", "Library › Albums", Page::Library(LibTab::Albums)),
+    ("artists", "Library › Artists", Page::Library(LibTab::Artists)),
     ("podcasts", "Library › Podcasts", Page::Library(LibTab::Podcasts)),
     ("history", "Library › History", Page::Library(LibTab::History)),
     ("uploads", "Library › Uploads", Page::Library(LibTab::Uploads)),
@@ -210,6 +213,8 @@ pub enum Action {
     Collaborate,
     DeletePlaylist,
     SaveCollection(String, bool),
+    /// Subscribe to the open artist (true), or unsubscribe.
+    Subscribe(bool),
     HomeChip(Option<String>),
     OpenNowPlaying(bool),
     /// Into the mini player (true) or back to the full window.
@@ -378,6 +383,8 @@ pub struct App {
     /// refreshes it quietly), and their loads under way.
     lists: Lists,
     artist: Option<ArtistPage>,
+    /// Subscribes and unsubscribes: the one under way, and what they settled.
+    subscriptions: actions::Subscriptions,
     library: Option<Library>,
     /// When the library was last requested; the sidebar spinner gives up after a while.
     library_requested: std::time::Instant,
@@ -654,7 +661,7 @@ impl App {
         let start_choice = start_choice(&get("start_page").unwrap_or_default());
         let start = start_page(&start_choice, logged_in, show_podcasts);
         // Opening on the Library asks for it below, as visiting the page does.
-        let start_asks_library = matches!(start, Page::Library(LibTab::Playlists | LibTab::Albums | LibTab::Podcasts));
+        let start_asks_library = matches!(start, Page::Library(LibTab::Playlists | LibTab::Albums | LibTab::Artists | LibTab::Podcasts));
         if logged_in {
             if !start_asks_library {
                 backend.request(Req::Library);
@@ -719,6 +726,7 @@ impl App {
             search: None,
             lists: Lists::default(),
             artist: None,
+            subscriptions: actions::Subscriptions::default(),
             library: None,
             library_requested: std::time::Instant::now(),
             history: None,
@@ -901,6 +909,7 @@ impl App {
             Ok("home") => app.go(Page::Home),
             Ok("explore") => app.go(Page::Explore),
             Ok("library") => app.go(Page::Library(LibTab::Playlists)),
+            Ok("artists") => app.go(Page::Library(LibTab::Artists)),
             Ok("uploads") => app.go(Page::Library(LibTab::Uploads)),
             Ok("liked") => app.go(Page::Library(LibTab::Songs)),
             Ok("history") => app.go(Page::Library(LibTab::History)),

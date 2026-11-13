@@ -711,9 +711,37 @@ fn list_page(items: &[Value]) -> (Vec<Track>, Vec<Option<String>>, Option<String
 
 // ----------------------------------------------------------------------- artists
 
-pub async fn artist(api: &Api, id: &str) -> anyhow::Result<ArtistPage> {
-    let v = api.call("browse", json!({ "browseId": id }), false).await?;
-    parse_artist(&v, id).ok_or_else(|| anyhow::anyhow!("YouTube Music returned an empty artist page"))
+/// `auth`: ask as the account, so the page says whether it's subscribed.
+pub async fn artist(api: &Api, id: &str, auth: bool) -> anyhow::Result<ArtistPage> {
+    let asked = std::time::Instant::now();
+    let body = json!({ "browseId": id });
+    // The page is anyone's to see: a session YouTube turns away gets it signed out, the
+    // way a revoked one is answered anyway.
+    let (v, fell_back) = match api.call("browse", body.clone(), auth).await {
+        Err(e) if auth && api.account().is_some() && crate::ytmapi::session_refused(&e) => {
+            log::warn!("artist {id} signed in: {e:#}; asking signed out");
+            (api.call("browse", body, false).await?, true)
+        }
+        r => (r?, false),
+    };
+    let mut page = parse_artist(&v, id).ok_or_else(|| anyhow::anyhow!("YouTube Music returned an empty artist page"))?;
+    page.asked = asked;
+    if auth && api.account().is_some() && answered_signed_out(fell_back, &v) {
+        unknown_subscription(&mut page);
+    }
+    Ok(page)
+}
+
+/// A signed-in ask answered as no one: by the fallback, or a session Google revoked.
+fn answered_signed_out(fell_back: bool, v: &Value) -> bool {
+    fell_back || crate::ytmapi::logged_out(v)
+}
+
+/// Whether the account subscribes isn't known: no pill, rather than a Subscribe that
+/// would only fail.
+fn unknown_subscription(page: &mut ArtistPage) {
+    page.subscribed = false;
+    page.channel_id = None;
 }
 
 fn parse_artist(v: &Value, id: &str) -> Option<ArtistPage> {
@@ -727,6 +755,9 @@ fn parse_artist(v: &Value, id: &str) -> Option<ArtistPage> {
         id: id.to_owned(),
         banner: thumbs(&h["thumbnail"]["musicThumbnailRenderer"]),
         subscribers,
+        subscribed: sub["subscribed"].as_bool().unwrap_or(false),
+        channel_id: sub["channelId"].as_str().map(str::to_owned),
+        asked: std::time::Instant::now(),
         description: text(&h["description"]),
         top: Vec::new(),
         top_playlist: None,
@@ -1001,6 +1032,48 @@ pub async fn saved_podcasts(api: &Api) -> anyhow::Result<Vec<Card>> {
 
 pub async fn saved_albums(api: &Api) -> anyhow::Result<Vec<Card>> {
     saved(api, "4qmFsgIoEhRGRW11c2ljX2xpa2VkX2FsYnVtcxoQZ2dNR0tnUUlBQkFCb0FZQg%3D%3D").await
+}
+
+/// The artists the account subscribes to, as Library › Artists lists them.
+pub async fn subscribed_artists(api: &Api) -> anyhow::Result<Vec<Card>> {
+    let v = api.call_signed_in("browse", json!({ "browseId": "FEmusic_library_corpus_artists" })).await?;
+    let sections = arr(&v["contents"]["singleColumnBrowseResultsRenderer"]["tabs"][0]["tabRenderer"]["content"]["sectionListRenderer"]["contents"]);
+    // None subscribed: a message stands where the list would.
+    let Some(shelf) = sections.iter().map(|s| &s["musicShelfRenderer"]).find(|s| !s.is_null()) else { return Ok(Vec::new()) };
+    let mut cards = list_cards(arr(&shelf["contents"]));
+    let mut token = continuation(shelf).or_else(|| item_token(arr(&shelf["contents"])));
+    for _ in 0..100 {
+        let Some(t) = token.take() else { break };
+        // A later page failing keeps the pages already loaded.
+        let v = match api.call_signed_in("browse", json!({ "continuation": t })).await {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!("subscribed artists page: {e}");
+                break;
+            }
+        };
+        let (more, next) = shelf_continuation(&v);
+        if more.is_empty() {
+            break;
+        }
+        cards.extend(more);
+        token = next;
+    }
+    Ok(cards)
+}
+
+/// A following page of a list shelf: its rows, and the token for the page after.
+fn shelf_continuation(v: &Value) -> (Vec<Card>, Option<String>) {
+    let appended = arr(&v["onResponseReceivedActions"][0]["appendContinuationItemsAction"]["continuationItems"]);
+    if !appended.is_empty() {
+        return (list_cards(appended), item_token(appended));
+    }
+    let more = &v["continuationContents"]["musicShelfContinuation"];
+    (list_cards(arr(&more["contents"])), continuation(more))
+}
+
+fn list_cards(items: &[Value]) -> Vec<Card> {
+    items.iter().filter_map(|i| list_card(&i["musicResponsiveListItemRenderer"])).collect()
 }
 
 /// The signed-in account's name and photo, as its account menu shows them (for a brand
@@ -1299,6 +1372,13 @@ pub async fn delete_playlist(api: &Api, id: &str) -> anyhow::Result<()> {
         .iter()
         .find_map(|command| command["handlePlaylistDeletionCommand"]["playlistId"].as_str());
     anyhow::ensure!(deleted_id == Some(id), "YouTube Music did not confirm playlist deletion");
+    Ok(())
+}
+
+/// Subscribe to an artist's channel, or unsubscribe.
+pub async fn set_subscribed(api: &Api, channel_id: &str, on: bool) -> anyhow::Result<()> {
+    let endpoint = if on { "subscription/subscribe" } else { "subscription/unsubscribe" };
+    write(api, endpoint, json!({"channelIds": [channel_id]})).await?;
     Ok(())
 }
 
@@ -2151,6 +2231,47 @@ mod tests {
 
         let last = json!({"continuationContents": {"gridContinuation": {"items": [card("VLe")]}}});
         assert_eq!(grid_continuation(&last).1, None);
+    }
+
+    #[test]
+    fn subscribed_artist_pages() {
+        let artist: Value = serde_json::from_str(ARTIST_ROW).unwrap();
+        let old = json!({"continuationContents": {"musicShelfContinuation": {"contents": [artist], "continuations": [{"nextContinuationData": {"continuation": "P2"}}]}}});
+        let (cards, next) = shelf_continuation(&old);
+        assert!(matches!(&cards[..], [Card { target: Target::Artist(id), .. }] if id == "UClYV6hHlupm_S_ObS1W-DYw"));
+        assert_eq!(next.as_deref(), Some("P2"));
+
+        let new = json!({"onResponseReceivedActions": [{"appendContinuationItemsAction": {"continuationItems": [
+            artist,
+            {"continuationItemRenderer": {"continuationEndpoint": {"continuationCommand": {"token": "P3"}}}}
+        ]}}]});
+        let (cards, next) = shelf_continuation(&new);
+        assert_eq!(cards.len(), 1);
+        assert_eq!(next.as_deref(), Some("P3"));
+
+        assert_eq!(shelf_continuation(&json!({})), (Vec::new(), None));
+    }
+
+    #[test]
+    fn artist_subscription() {
+        let page = |button: Value| json!({"header": {"musicImmersiveHeaderRenderer": {"title": {"runs": [{"text": "Alex G"}]}, "subscriptionButton": button}}});
+        let followed = parse_artist(&page(json!({"subscribeButtonRenderer": {"subscribed": true, "channelId": "UCx"}})), "UCa").unwrap();
+        assert!(followed.subscribed);
+        assert_eq!(followed.channel_id.as_deref(), Some("UCx"));
+        // No button (signed out, or not a channel one can subscribe to): no pill.
+        let none = parse_artist(&page(Value::Null), "UCa").unwrap();
+        assert!(!none.subscribed);
+        assert_eq!(none.channel_id, None);
+
+        // Asked signed in, answered signed out: whether it's followed isn't known.
+        let signed_out = json!({"responseContext": {"serviceTrackingParams": [{"params": [{"key": "logged_in", "value": "0"}]}]}});
+        assert!(answered_signed_out(false, &signed_out));
+        assert!(answered_signed_out(true, &json!({})));
+        assert!(!answered_signed_out(false, &json!({})));
+        let mut p = followed;
+        unknown_subscription(&mut p);
+        assert!(!p.subscribed);
+        assert_eq!(p.channel_id, None);
     }
 
     #[test]

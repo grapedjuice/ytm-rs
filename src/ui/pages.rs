@@ -1835,7 +1835,7 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             toggle(ui, &mut app.play_songs, "Play songs, not music videos");
         });
         divider(ui);
-        setting_row(ui, "Show music videos", Some("Music videos play as moving video, with their own sound and no lyrics. The Song and Video switch in Now playing swaps between them either way."), |ui| {
+        setting_row(ui, "Show music videos", Some("Music videos play as moving video, with their own sound and no lyrics. Turned off while songs play in their place, Now playing has no Song and Video switch."), |ui| {
             let mut on = app.show_video;
             if toggle(ui, &mut on, "Show music videos").changed() {
                 app.actions.push(Action::ToggleVideo);

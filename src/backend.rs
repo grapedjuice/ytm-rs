@@ -866,7 +866,10 @@ impl Backend {
                 }
                 Req::Play { video_id, generation, at, report, song_of, song } => match self.start_playback(&video_id, song_of.as_ref(), song, generation, at, report).await {
                     Ok(()) => return Ok(None),
-                    Err(e) => Resp::PlayError { generation, msg: format!("{e:#}") },
+                    Err(e) => {
+                        log::warn!("play {video_id}: {e:#}");
+                        Resp::PlayError { generation, msg: format!("{e:#}") }
+                    }
                 },
                 Req::VideoStream { video_id, max_height } => {
                     let found = async { innertube::video_stream(&self.http(), &video_id, &api.visitor_data(false).await?, max_height.into()).await }.await;
@@ -1502,10 +1505,10 @@ impl Backend {
         let (source, s) = self.resolve(video_id, false).await?;
         match &s.starts {
             Some(starts) => log::info!("stream {video_id}: {} HLS segments from {source:?}", starts.len()),
-            None => log::info!("stream {video_id}: {} bytes {} from {source:?}", s.size, if s.opus { "Opus" } else { "AAC" }),
+            None => log::info!("stream {video_id}: {} bytes {} from {source:?}", s.size, s.kind()),
         }
         let shared = s.buffer(prefetch);
-        let refresh = Some(self.refresher(source, video_id, s.opus));
+        let refresh = Some(self.refresher(source, video_id, s.opus, s.size));
         let (this, buffer) = (self.clone(), shared.clone());
         self.rt.spawn(async move {
             stream::download(this.http(), s.media, s.user_agent, buffer.clone(), refresh).await;
@@ -1520,7 +1523,7 @@ impl Backend {
     }
 
     /// Resolves a fresh URL from the same source and format, for a download that got a 403.
-    fn refresher(&self, source: Source, video_id: &str, opus: bool) -> stream::Refresh {
+    fn refresher(&self, source: Source, video_id: &str, opus: bool, size: u64) -> stream::Refresh {
         let (this, id) = (self.clone(), video_id.to_owned());
         Arc::new(move || {
             let (this, id) = (this.clone(), id.clone());
@@ -1528,6 +1531,8 @@ impl Backend {
                 let s = this.resolve_from(source, &id, opus).await?;
                 // The buffer is laid out for the format it started with.
                 anyhow::ensure!(s.opus == opus, "the stream changed format");
+                // A podcast host may put other ads in, which makes another file.
+                anyhow::ensure!(s.size == size, "the stream changed size");
                 Ok(s.media)
             })
         })
@@ -1538,8 +1543,10 @@ impl Backend {
         let (source, s) = self.resolve(&t.id, true).await?;
         log::info!("download {}: {} bytes from {source:?}", t.id, s.size);
         anyhow::ensure!(s.starts.is_none(), "downloads need the file stream");
+        // Saved as a tagged .m4a, which a feed's MP3 isn't.
+        anyhow::ensure!(!matches!(s.media, stream::Media::Feed(_)), "episodes of podcasts added by RSS can't be downloaded");
         let shared = s.buffer(false);
-        stream::download(self.http(), s.media, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus))).await;
+        stream::download(self.http(), s.media, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus, s.size))).await;
         if let Some(e) = shared.error() {
             anyhow::bail!("{e}");
         }
@@ -1613,6 +1620,13 @@ impl Backend {
                         Err(e) => log::warn!("web music player failed ({e:#}); using yt-dlp"),
                     }
                 }
+                // An episode of a podcast added by RSS (visionOS just asks to sign in for
+                // it): the web player gives the feed's file, Premium or not.
+                match session.feed(&self.http(), video_id).await {
+                    Ok(Some(feed)) => return Ok((Source::Feed, self.feed_stream(feed).await?)),
+                    Ok(None) => {}
+                    Err(e) => log::info!("{video_id}: web player: {e:#}"),
+                }
                 Ok((Source::YtDlp, self.resolve_from(Source::YtDlp, video_id, false).await?))
             }
             Err(e) => Err(e),
@@ -1640,7 +1654,15 @@ impl Backend {
             }
             Source::WebMusic => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
-                plain(session.audio_stream(&self.http(), &self.jsc, video_id, opus).await?, webmusic::UA)
+                match session.audio_stream(&self.http(), &self.jsc, video_id, opus).await? {
+                    webmusic::Audio::YouTube(s) => plain(s, webmusic::UA),
+                    webmusic::Audio::Feed(feed) => self.feed_stream(feed).await?,
+                }
+            }
+            Source::Feed => {
+                let session = self.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
+                let feed = session.feed(&self.http(), video_id).await?.ok_or_else(|| anyhow::anyhow!("not an RSS podcast episode"))?;
+                self.feed_stream(feed).await?
             }
             Source::YtDlp => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("sign in to play this song"))?;
@@ -1650,6 +1672,22 @@ impl Backend {
                 // yt-dlp's JSON doesn't carry YouTube's loudness figure.
                 ResolvedStream { media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
             }
+        })
+    }
+
+    /// An RSS podcast episode's file, fetched from where its redirects (trackers, mostly)
+    /// end, so they aren't followed again for every range.
+    async fn feed_stream(&self, feed: webmusic::Feed) -> anyhow::Result<ResolvedStream> {
+        let (url, size) = stream::probe_feed(&self.http(), &feed.url, webmusic::UA).await?;
+        log::info!("podcast feed file on {}", reqwest::Url::parse(&url).ok().as_ref().and_then(reqwest::Url::host_str).unwrap_or("?"));
+        Ok(ResolvedStream {
+            media: stream::Media::Feed(url),
+            starts: None,
+            size,
+            duration_ms: feed.duration_ms,
+            user_agent: webmusic::UA.to_owned(),
+            loudness_db: None,
+            opus: false,
         })
     }
 
@@ -1800,6 +1838,8 @@ enum Source {
     /// The visionOS player's HLS segments: where its file URLs are cut off at 1 MiB.
     VisionOsHls,
     WebMusic,
+    /// An RSS podcast episode's file, which the web player finds without Premium.
+    Feed,
     YtDlp,
 }
 
@@ -1812,16 +1852,26 @@ struct ResolvedStream {
     duration_ms: u64,
     user_agent: String,
     loudness_db: Option<f32>,
-    /// Opus in WebM; otherwise AAC in MP4.
+    /// Opus in WebM; otherwise AAC in MP4, or a podcast feed's file.
     opus: bool,
 }
 
 impl ResolvedStream {
     /// A buffer laid out for this stream. `head_only`: a prefetch's.
     fn buffer(&self, head_only: bool) -> Arc<Shared> {
-        match &self.starts {
-            Some(starts) => Shared::segmented(starts.clone(), self.duration_ms, self.loudness_db, head_only),
-            None => Shared::new(self.size, self.duration_ms, self.loudness_db, self.opus, head_only),
+        match (&self.starts, &self.media) {
+            (Some(starts), _) => Shared::segmented(starts.clone(), self.duration_ms, self.loudness_db, head_only),
+            (None, stream::Media::Feed(_)) => Shared::feed(self.size, self.duration_ms, head_only),
+            (None, _) => Shared::new(self.size, self.duration_ms, self.loudness_db, self.opus, head_only),
+        }
+    }
+
+    /// For the log.
+    fn kind(&self) -> &'static str {
+        match (&self.media, self.opus) {
+            (stream::Media::Feed(_), _) => "podcast feed file",
+            (_, true) => "Opus",
+            _ => "AAC",
         }
     }
 }

@@ -103,6 +103,20 @@ impl App {
                 }
             }
         }
+        // Sorted playlists load again when it's time, for their new order. One whose load
+        // ended without its first page (it failed) stops waiting, so Sort comes back.
+        let mut due = Vec::new();
+        let lists = &self.lists;
+        self.sorting.retain(|id, w| {
+            if w.take_due(now) {
+                due.push(id.clone());
+                return true;
+            }
+            !w.awaiting() || lists.loading(id) || lists.moving(id)
+        });
+        for id in due {
+            self.load_list(&id, false, true);
+        }
         if self.suggest_due.is_some_and(|d| now >= d) {
             self.suggest_due = None;
             let q = self.search_text.trim().to_owned();
@@ -207,6 +221,11 @@ impl App {
                 let rows = |app: &Self| app.opened(&id).map(|o| o.c.tracks.iter().map(|t| t.id.clone()).collect::<Vec<_>>());
                 let before = rows(&*self);
                 self.collection_in(load, c, more);
+                // A sort waiting for its order, from this load (an older one isn't kept).
+                let sorted = self.lists.get(&id).filter(|o| o.load == load).zip(self.sorting.get_mut(&id)).is_some_and(|(o, w)| w.arrived(&o.c.sorts, now));
+                if sorted {
+                    self.sorting.remove(&id);
+                }
                 if self.page_list() == Some(id.as_str()) && rows(&*self) != before {
                     self.selection.clear();
                 }
@@ -219,13 +238,17 @@ impl App {
                     self.lists.load_failed(&id, load);
                 }
             }
-            Resp::Artist(a) => {
+            Resp::Artist(mut a) => {
                 // A slow answer for an artist left meanwhile doesn't replace the one on screen.
                 if matches!(&self.page, Page::Artist(id) if *id != a.id) {
                     return;
                 }
                 if self.page == Page::Artist(a.id.clone()) {
                     self.loading = false;
+                }
+                // Asked for before a subscribe here was answered, it can be from before that.
+                if let Some(channel) = &a.channel_id {
+                    a.subscribed = self.subscriptions.shown(channel, a.subscribed, a.asked);
                 }
                 self.artist = Some(a);
             }
@@ -237,6 +260,9 @@ impl App {
                 }
                 if l.albums_failed {
                     l.albums = self.library.as_ref().map(|o| o.albums.clone()).unwrap_or_default();
+                }
+                if l.artists_failed {
+                    l.artists = self.library.as_ref().map(|o| o.artists.clone()).unwrap_or_default();
                 }
                 // What it says of a playlist edited here lately can be from before that.
                 let edited: Vec<String> = l.playlists.iter().filter_map(|c| match &c.target {
@@ -262,10 +288,13 @@ impl App {
             Resp::Downloaded { title, path } => {
                 log::info!("downloaded to {}", path.display());
                 self.toast(format!("Downloaded \u{201c}{title}\u{201d}"));
+                self.all_downloaded.clear();
                 if self.page == Page::Library(LibTab::Downloads) {
-                    self.downloads = Some(crate::downloads::all());
+                    self.reload_downloads();
                 }
             }
+            Resp::Downloads(runs) => self.on_download_runs(runs),
+            Resp::ConfirmDownload { target, title, tracks, count } => self.dialog = Some(Dialog::ConfirmDownload { target, title, tracks, count }),
             Resp::Uploaded { done, failed } => {
                 let songs = |n: usize| if n == 1 { "1 song".to_owned() } else { format!("{n} songs") };
                 self.toast(match (done, failed.len()) {
@@ -392,6 +421,23 @@ impl App {
                 self.go(Page::Playlist(id));
             }
             Resp::PlaylistChanged { id, message } => self.on_playlist_changed(id, message),
+            Resp::Subscribed { channel_id, on, ok } => {
+                // As it now stands, over a reload fetched before the change.
+                let now = self.subscriptions.finish(&channel_id, on, ok);
+                if let Some(a) = self.artist.as_mut().filter(|a| a.channel_id.as_deref() == Some(&channel_id)) {
+                    a.subscribed = now;
+                }
+                // Library › Artists lists it now (or no longer).
+                if ok {
+                    self.request_library();
+                }
+                self.toast(match (ok, on) {
+                    (true, true) => "Subscribed",
+                    (true, false) => "Unsubscribed",
+                    (false, true) => "Couldn't subscribe",
+                    (false, false) => "Couldn't unsubscribe",
+                });
+            }
             Resp::RemoveFailed { id, error } => {
                 // Its songs are still there: they come back with a reload.
                 self.lists.edits.removal_failed(&id);
@@ -520,6 +566,65 @@ impl App {
         }
     }
 
+    /// Library › Downloads read whole: every file looked at (disk work, so on a visit,
+    /// not as each song lands).
+    pub(super) fn read_downloads(&mut self) {
+        // Counted first: a song saved meanwhile is taken on again next time, not missed.
+        self.downloads_seen = crate::downloads::saves();
+        self.downloads = Some(crate::downloads::all());
+    }
+
+    /// Library › Downloads takes on the songs saved since it was read, at the top, from
+    /// the index (no look at the other files). New files come first, so the picked rows
+    /// move: the same songs stay picked.
+    fn reload_downloads(&mut self) {
+        let Some(old) = self.downloads.take() else { return self.read_downloads() };
+        let (seen, mut new) = crate::downloads::saved_since(self.downloads_seen);
+        self.downloads_seen = seen;
+        if new.is_empty() {
+            self.downloads = Some(old);
+            return;
+        }
+        let fresh: HashSet<String> = new.iter().map(|t| t.id.clone()).collect();
+        new.extend(old.iter().filter(|t| !fresh.contains(&t.id)).cloned());
+        if self.selection.page == Some(Page::Library(LibTab::Downloads)) {
+            let id = |i: usize| old.get(i).map(|t| t.id.as_str());
+            let at = |id: &str| new.iter().position(|t| t.id == id);
+            let picked: HashSet<&str> = self.selection.rows.iter().filter_map(|&i| id(i)).collect();
+            self.selection.rows = new.iter().enumerate().filter(|(_, t)| picked.contains(t.id.as_str())).map(|(i, _)| i).collect();
+            self.selection.anchor = self.selection.anchor.and_then(id).and_then(at);
+        }
+        self.downloads = Some(new);
+    }
+
+    /// Downloads of albums, playlists and selections moved on. One toast as each starts
+    /// and one as it ends, not one per song: their pages and Library › Downloads show
+    /// how far they are.
+    fn on_download_runs(&mut self, runs: Vec<crate::backend::DownloadRun>) {
+        let mut notes = Vec::new();
+        for r in &runs {
+            let name = if r.title.is_empty() { String::new() } else { format!(" \u{201c}{}\u{201d}", r.title) };
+            if r.finished() {
+                notes.push(download_summary(r, &name));
+            } else if !self.download_runs.iter().any(|o| o.key == r.key) {
+                notes.push(format!("Downloading {}{}", songs(r.total - r.done), if name.is_empty() { String::new() } else { format!(" from{name}") }));
+            }
+        }
+        // Lists that finished are looked at again for their "Downloaded".
+        if runs.iter().any(|r| r.finished()) {
+            self.all_downloaded.clear();
+        }
+        let saved = |rs: &[crate::backend::DownloadRun], key: &str| rs.iter().find(|r| r.key == key).map_or(0, |r| r.saved);
+        let more = runs.iter().any(|r| r.saved > saved(&self.download_runs, &r.key));
+        self.download_runs = runs.into_iter().filter(|r| !r.finished()).collect();
+        if !notes.is_empty() {
+            self.toast(notes.join(" \u{b7} "));
+        }
+        if more && self.page == Page::Library(LibTab::Downloads) {
+            self.reload_downloads();
+        }
+    }
+
     /// Liking or unliking many songs at once has finished: `failed` are the ones YouTube
     /// Music refused.
     fn on_liked_many(&mut self, video_ids: Vec<String>, failed: Vec<String>, like: bool) {
@@ -552,6 +657,13 @@ impl App {
     /// A playlist was edited, added to, removed from, saved or deleted; `message` says which.
     fn on_playlist_changed(&mut self, id: String, message: &'static str) {
         self.request_library();
+        // A sort taken waits on, for the reload in its order; anything else ends it.
+        match self.sorting.get_mut(&id) {
+            Some(w) if message == "Playlist sorted" => w.taken(),
+            _ => {
+                self.sorting.remove(&id);
+            }
+        }
         if message == "Playlist deleted" {
             // Its load is dropped too, and the queue stops waiting for it.
             self.lists.forget(&id);
@@ -629,6 +741,9 @@ impl App {
         self.library = None;
         self.history = None;
         self.uploads = None;
+        // Whether it's subscribed is this account's (or channel's) to say.
+        self.artist = None;
+        self.subscriptions = Default::default();
         // Your own playlists show differently (and private ones not at all) to another
         // account, and its likes aren't this one's.
         self.lists.clear();
@@ -637,7 +752,7 @@ impl App {
         self.unliking.clear();
         self.queue.fill = None;
         self.play_pending = None;
-        if self.page_list().is_some() {
+        if self.page_list().is_some() || matches!(self.page, Page::Artist(_)) {
             self.refresh();
         }
         self.home = None;
@@ -675,6 +790,54 @@ impl App {
 
 /// Unplayable songs skipped in a row before playback stops.
 const MAX_SKIPS: u32 = 3;
+
+fn songs(n: usize) -> String {
+    if n == 1 { "1 song".to_owned() } else { format!("{n} songs") }
+}
+
+/// What a finished download of many songs did; `name` is " “its title”", or empty for a selection.
+fn download_summary(r: &crate::backend::DownloadRun, name: &str) -> String {
+    let mut msg = if r.cancelled {
+        format!("Stopped downloading{name}: {} saved", songs(r.saved))
+    } else if r.saved == 0 && r.failed.is_empty() {
+        return if name.is_empty() { "Downloaded already".to_owned() } else { format!("{} is downloaded already", name.trim_start()) };
+    } else {
+        format!("Downloaded{name}: {}", songs(r.saved))
+    };
+    if r.skipped > 0 && !r.cancelled {
+        msg += &format!(", {} already there", r.skipped);
+    }
+    if !r.failed.is_empty() {
+        let few: Vec<&str> = r.failed.iter().take(3).map(String::as_str).collect();
+        let more = if r.failed.len() > 3 { ", …" } else { "" };
+        msg += &format!("; {} couldn't be downloaded ({}{more})", r.failed.len(), few.join(", "));
+    }
+    msg
+}
+
+#[cfg(test)]
+mod download_summary_tests {
+    use super::download_summary;
+    use crate::backend::DownloadRun;
+
+    fn run(saved: usize, skipped: usize, failed: &[&str], cancelled: bool) -> DownloadRun {
+        let failed: Vec<String> = failed.iter().map(|s| s.to_string()).collect();
+        DownloadRun { key: "PL1".into(), title: "Mix".into(), total: saved + failed.len(), done: saved + failed.len(), saved, skipped, failed, cancelled, ..Default::default() }
+    }
+
+    #[test]
+    fn says_what_a_run_did() {
+        let name = " \u{201c}Mix\u{201d}";
+        assert_eq!(download_summary(&run(37, 3, &[], false), name), "Downloaded \u{201c}Mix\u{201d}: 37 songs, 3 already there");
+        assert_eq!(download_summary(&run(0, 12, &[], false), name), "\u{201c}Mix\u{201d} is downloaded already");
+        assert_eq!(download_summary(&run(0, 2, &[], false), ""), "Downloaded already");
+        assert_eq!(download_summary(&run(5, 0, &[], true), name), "Stopped downloading \u{201c}Mix\u{201d}: 5 songs saved");
+        assert_eq!(
+            download_summary(&run(1, 0, &["A", "B", "C", "D"], false), ""),
+            "Downloaded: 1 song; 4 couldn't be downloaded (A, B, C, …)"
+        );
+    }
+}
 
 /// When a song failed because of the account (Premium-only, or needs signing in),
 /// the message to show instead of skipping: the rest of an album like that fails the

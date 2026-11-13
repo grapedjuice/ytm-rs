@@ -714,6 +714,9 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
     if h > 0.0 && !c.round {
         ui.painter().rect_filled(img, radius, theme::shade(cl.image_dim * h));
     }
+    if let Target::Album(id) | Target::Playlist(id) = &c.target {
+        download_veil(ui, img, radius, id);
+    }
     if cl.image_outline > 0.0 {
         ui.painter().rect_stroke(img, radius, egui::Stroke::new(1.0, theme::glass(cl.image_outline)), egui::StrokeKind::Inside);
     }
@@ -772,6 +775,39 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, acts: &mut Vec<Actio
     }
 }
 
+/// While the album or playlist `id` downloads, its whole cover darkens, then the darkness
+/// recedes from the bottom with the progress, so more and more of the picture shows in its
+/// true colours. When the download ends what's left of it fades away.
+pub fn download_veil(ui: &Ui, img: Rect, radius: f32, id: &str) {
+    let ctx = ui.ctx();
+    let runs = ctx.data(|d| d.get_temp::<std::sync::Arc<Vec<(String, f32)>>>(egui::Id::unique("download-progress")));
+    let now = runs.as_ref().and_then(|r| r.iter().find(|(k, _)| k == id)).map(|&(_, p)| p);
+    // Where it got to, while it shows; not downloading and gone, there's nothing to do.
+    let held = egui::Id::unique(("download-veil-held", id));
+    let Some(last) = now.or_else(|| ctx.data(|d| d.get_temp::<f32>(held))) else { return };
+    let on = theme::anim_bool(ctx, ("download-veil-on", id), now.is_some(), 0.35);
+    // The progress shows once the cover is fully dark; fading out, it holds where it was.
+    let target = match now {
+        Some(f) if on >= 0.999 => f,
+        Some(_) => 0.0,
+        None => last,
+    };
+    let p = theme::anim(ctx, ("download-veil", id), target, 0.5);
+    if now.is_none() && on <= 0.001 {
+        // Gone: a next download of it starts from a dark cover again.
+        ctx.data_mut(|d| d.remove::<f32>(held));
+        ctx.animate_value_with_time(egui::Id::unique(("download-veil", id)), 0.0, 0.0);
+        return;
+    }
+    ctx.data_mut(|d| d.insert_temp(held, p));
+    if p >= 0.999 {
+        return;
+    }
+    let y = egui::lerp(img.bottom()..=img.top(), p);
+    // The cover's own rounded shape, dimmed above the progress; the contrast is the edge.
+    ui.painter().with_clip_rect(Rect::from_min_max(img.min, pos2(img.right(), y))).rect_filled(img, radius, theme::shade(0.62 * on));
+}
+
 pub fn card_menu_contents(ui: &mut Ui, c: &Card, liked: bool, acts: &mut Vec<Action>) {
     match &c.target {
         Target::Song(t) => song_menu(ui, t, liked, None, acts),
@@ -785,6 +821,9 @@ pub fn card_menu_contents(ui: &mut Ui, c: &Card, liked: bool, acts: &mut Vec<Act
             }
             if menu_action(ui, None, "Open") {
                 acts.push(Action::Open(t.clone()));
+            }
+            if matches!(t, Target::Album(_) | Target::Playlist(_)) && menu_action(ui, Some(icon::DOWNLOAD), "Download") {
+                acts.push(Action::DownloadMany(Some(t.clone()), c.title.clone(), None));
             }
             menu_divider(ui);
             if menu_action(ui, None, "Copy link") {
@@ -896,6 +935,17 @@ pub fn menu_divider(ui: &mut Ui) {
 }
 
 pub fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
+    menu_row(ui, glyph, label, true)
+}
+
+/// A menu row for one of several choices (a Sort menu's orders), ticked when it's the one
+/// on. Looks like [`menu_action`]'s rows, the tick where their icons go.
+pub fn menu_choice(ui: &mut Ui, label: &str, on: bool) -> bool {
+    menu_row(ui, on.then_some(icon::CHECK), label, false)
+}
+
+/// A menu row; without a glyph, an arrow in its place when `arrow`, else nothing.
+fn menu_row(ui: &mut Ui, glyph: Option<char>, label: &str, arrow: bool) -> bool {
     let m = crate::preset::active().app.menu_look;
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), m.row_px.max(26.0)), Sense::click());
     let response = named(response, label).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -918,7 +968,7 @@ pub fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
     let (icon_x, text_x) = if m.icon_right { (rect.right() - 19.0 + slide, rect.left() + 12.0 + slide) } else { (rect.left() + 19.0 + slide, rect.left() + 40.0 + slide) };
     if let Some(glyph) = glyph {
         icon_at(ui, pos2(icon_x, rect.center().y), glyph, 16.0, color);
-    } else {
+    } else if arrow {
         ui.painter().text(pos2(icon_x, rect.center().y), Align2::CENTER_CENTER, "↗", theme::semibold(17.0), color);
     }
     ui.painter().text(pos2(text_x, rect.center().y), Align2::LEFT_CENTER, label, theme::regular(14.0), if response.hovered() { lit } else { theme::text() });

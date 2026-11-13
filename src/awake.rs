@@ -302,6 +302,12 @@ mod os {
 mod tests {
     use super::*;
 
+    // Waits well inside or well past the grace, so a slow or busy runner (macOS's
+    // sleeps can overshoot by tens of milliseconds) doesn't change the outcome.
+    const GRACE_MS: u64 = 200;
+    const SHORT: u64 = 10;
+    const LONG: u64 = 600;
+
     fn applied(sends: &[(Keep, u64)]) -> Vec<Keep> {
         let (tx, rx) = crossbeam_channel::unbounded();
         let sends = sends.to_vec();
@@ -311,10 +317,10 @@ mod tests {
                 tx.send(k).unwrap();
             }
             // Long enough for the last step down to be taken, then the app quits.
-            std::thread::sleep(Duration::from_millis(150));
+            std::thread::sleep(Duration::from_millis(LONG));
         });
         let mut got = vec![];
-        run(&rx, Duration::from_millis(50), |k| got.push(k));
+        run(&rx, Duration::from_millis(GRACE_MS), |k| got.push(k));
         sender.join().unwrap();
         got
     }
@@ -329,10 +335,10 @@ mod tests {
     #[test]
     fn a_step_up_is_taken_at_once_and_a_step_down_once_it_lasts() {
         use Keep::*;
-        assert_eq!(applied(&[(System, 0), (Display, 0), (System, 100), (Nothing, 100)]), [System, Display, System, Nothing]);
+        assert_eq!(applied(&[(System, 0), (Display, 0), (System, LONG), (Nothing, LONG)]), [System, Display, System, Nothing]);
         // Between songs: the pause is over before the grace is.
-        assert_eq!(applied(&[(System, 0), (Nothing, 10), (System, 10)]), [System]);
+        assert_eq!(applied(&[(System, 0), (Nothing, SHORT), (System, SHORT)]), [System]);
         // A video closed and opened again just as quickly.
-        assert_eq!(applied(&[(Display, 0), (System, 10), (Display, 10), (Nothing, 10)]), [Display, Nothing]);
+        assert_eq!(applied(&[(Display, 0), (System, SHORT), (Display, SHORT), (Nothing, SHORT)]), [Display, Nothing]);
     }
 }

@@ -840,8 +840,11 @@ fn run(
                     idle_since = Some(Instant::now());
                 }
                 // A seekable decoder already indexed the (fully downloaded) file. Without a
-                // device to take the seek, a new decoder (below) instead.
-                if seekable && output.sink.is_some() && player.try_seek(pos).is_ok() {
+                // device to take the seek, a new decoder (below) instead. Likewise for a
+                // podcast feed's file not all in memory: its seek reads at the new spot,
+                // which would wait on the download inside the device's callback.
+                let in_place = seekable && shared.as_ref().is_none_or(|s| !s.feed || s.is_complete());
+                if in_place && output.sink.is_some() && player.try_seek(pos).is_ok() {
                     log::debug!("audio: seek to {pos:?} in place");
                     status.set_position(pos.as_millis() as u64);
                     wake();
@@ -954,7 +957,9 @@ fn run(
                 && let Some(d) = length
                 && d > crossfade * 2
                 && pos + crossfade >= d
-                && shared.as_ref().is_some_and(|s| s.error().is_none())
+                // Not a podcast feed's file: the ads its host puts in make it run longer
+                // than YouTube Music's length, so it plays to its real end.
+                && shared.as_ref().is_some_and(|s| s.error().is_none() && !s.feed)
             {
                 ending_sent = true;
                 let _ = events.send(AudioEvent::Ending { generation: current });

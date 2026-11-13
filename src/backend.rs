@@ -1329,7 +1329,16 @@ impl Backend {
                 if let Some((this, id)) = report.filter(|_| audio.status.wanted_gen.load(Ordering::Relaxed) == generation) {
                     let rt = this.rt.clone();
                     rt.spawn(async move {
-                        match ytm::report_play(&this.api, &id).await {
+                        // The player request needs the current signatureTimestamp, or YouTube
+                        // leaves out the stats URL. Without a solver, try anyway as before.
+                        let sts = match this.jsc.player(&this.http()).await {
+                            Ok(p) => Some(p.sts),
+                            Err(e) => {
+                                log::debug!("report play of {id} without signatureTimestamp: {e:#}");
+                                None
+                            }
+                        };
+                        match ytm::report_play(&this.api, &id, sts).await {
                             Ok(w) => {
                                 log::debug!("reported play of {id}");
                                 this.report_watchtime(&id, generation, w).await;

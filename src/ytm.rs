@@ -1174,8 +1174,11 @@ pub async fn dislike(api: &Api, video_id: &str) -> anyhow::Result<()> {
 /// playback starts. Streams come from other clients, so this asks for the player
 /// response only to get that URL. What it returns then reports how much of the song
 /// was heard ([`report_watchtime`]), as the web player does while it plays.
-pub async fn report_play(api: &Api, video_id: &str) -> anyhow::Result<Watchtime> {
-    let player = api.call_signed_in("player", json!({"videoId": video_id, "contentCheckOk": true, "racyCheckOk": true})).await?;
+///
+/// `sts` is the current player's signatureTimestamp. Without it YouTube answers
+/// UNPLAYABLE ("The page needs to be reloaded") and leaves the stats URL out.
+pub async fn report_play(api: &Api, video_id: &str, sts: Option<u32>) -> anyhow::Result<Watchtime> {
+    let player = api.call_signed_in("player", report_play_body(video_id, sts)).await?;
     let tracking = &player["playbackTracking"];
     let url = tracking["videostatsPlaybackUrl"]["baseUrl"]
         .as_str()
@@ -1188,6 +1191,14 @@ pub async fn report_play(api: &Api, video_id: &str) -> anyhow::Result<Watchtime>
         flush_at: arr(&tracking["videostatsScheduledFlushWalltimeSeconds"]).iter().filter_map(Value::as_u64).collect(),
         flush_every: tracking["videostatsDefaultFlushIntervalSeconds"].as_u64().filter(|&s| s > 0).unwrap_or(40),
     })
+}
+
+fn report_play_body(video_id: &str, sts: Option<u32>) -> Value {
+    let mut body = json!({"videoId": video_id, "contentCheckOk": true, "racyCheckOk": true});
+    if let Some(sts) = sts {
+        body["playbackContext"] = json!({"contentPlaybackContext": {"signatureTimestamp": sts}});
+    }
+    body
 }
 
 /// One play's listening-time reports: where they go and when the web player sends them.
@@ -1755,6 +1766,17 @@ fn browse_id(run: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn play_report_asks_with_the_signature_timestamp() {
+        let body = report_play_body("gIhejm0k3dU", Some(20767));
+        assert_eq!(body["videoId"], "gIhejm0k3dU");
+        assert_eq!(body["playbackContext"]["contentPlaybackContext"]["signatureTimestamp"], 20767);
+        // Without a prepared player it asks as before rather than not at all.
+        let body = report_play_body("gIhejm0k3dU", None);
+        assert!(body.get("playbackContext").is_none());
+        assert_eq!(body["contentCheckOk"], true);
+    }
 
     #[test]
     fn moods_and_genres_are_read_with_their_categories() {

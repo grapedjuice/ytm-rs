@@ -87,7 +87,7 @@ impl ListFind {
         if let Some(m) = memo.as_ref().filter(|m| m.query == asked && m.hide_explicit == self.hide_explicit && m.sort == sort && m.list == list) {
             return Some(m.rows.clone());
         }
-        let query = asked.to_lowercase();
+        let query = fold(asked);
         let words: Vec<&str> = query.split_whitespace().collect();
         let mut rows: Vec<usize> = tracks.iter().enumerate().filter(|(_, t)| !(self.hide_explicit && t.explicit) && matches(t, &words)).map(|(i, _)| i).collect();
         sort_rows(&mut rows, tracks, sort);
@@ -270,11 +270,11 @@ pub fn run(shown: Option<&[usize]>, from: usize, to: usize) -> Vec<usize> {
     }
 }
 
-/// Every word is somewhere in the song's title, artists or album.
+/// Every word (folded) is somewhere in the song's title, artists or album, accents aside.
 fn matches(t: &Track, words: &[&str]) -> bool {
-    let title = t.title.to_lowercase();
-    let artists: Vec<String> = t.artists.iter().map(|a| a.name.to_lowercase()).collect();
-    let album = t.album.as_ref().map(|a| a.name.to_lowercase());
+    let title = fold(&t.title);
+    let artists: Vec<String> = t.artists.iter().map(|a| fold(&a.name)).collect();
+    let album = t.album.as_ref().map(|a| fold(&a.name));
     words.iter().all(|w| title.contains(w) || artists.iter().any(|a| a.contains(w)) || album.as_ref().is_some_and(|a| a.contains(w)))
 }
 
@@ -369,6 +369,8 @@ mod tests {
         assert_eq!(sorted(Sort::Reversed, "", &tracks), Some(vec![3, 2, 1, 0]));
         // Found songs turn around too.
         assert_eq!(sorted(Sort::Reversed, "daft", &tracks), Some(vec![2, 0]));
+        // Nor in what's looked for.
+        assert_eq!(sorted(Sort::Default, "ete", &tracks), Some(vec![3]));
     }
 
     #[test]

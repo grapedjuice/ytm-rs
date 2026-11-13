@@ -166,6 +166,11 @@ impl Lists {
         self.move_ids
     }
 
+    /// Moves of it are still being told to YouTube Music: a load of it waits for them.
+    pub fn moving(&self, id: &str) -> bool {
+        self.moves.get(id).is_some_and(|m| m.last_sent.elapsed() < MOVE_UNANSWERED)
+    }
+
     /// This move's answer is still awaited.
     pub fn awaiting_move(&self, id: &str, move_id: u64) -> bool {
         self.moves.get(id).is_some_and(|m| m.pending.contains(&move_id))

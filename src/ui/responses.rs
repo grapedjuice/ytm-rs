@@ -219,13 +219,17 @@ impl App {
                     self.lists.load_failed(&id, load);
                 }
             }
-            Resp::Artist(a) => {
+            Resp::Artist(mut a) => {
                 // A slow answer for an artist left meanwhile doesn't replace the one on screen.
                 if matches!(&self.page, Page::Artist(id) if *id != a.id) {
                     return;
                 }
                 if self.page == Page::Artist(a.id.clone()) {
                     self.loading = false;
+                }
+                // Asked for before a subscribe here was answered, it can be from before that.
+                if let Some(channel) = &a.channel_id {
+                    a.subscribed = self.subscriptions.shown(channel, a.subscribed, a.asked);
                 }
                 self.artist = Some(a);
             }
@@ -396,10 +400,10 @@ impl App {
             }
             Resp::PlaylistChanged { id, message } => self.on_playlist_changed(id, message),
             Resp::Subscribed { channel_id, on, ok } => {
-                self.subscribing = false;
                 // As it now stands, over a reload fetched before the change.
+                let now = self.subscriptions.finish(&channel_id, on, ok);
                 if let Some(a) = self.artist.as_mut().filter(|a| a.channel_id.as_deref() == Some(&channel_id)) {
-                    a.subscribed = on == ok;
+                    a.subscribed = now;
                 }
                 // Library › Artists lists it now (or no longer).
                 if ok {
@@ -651,7 +655,7 @@ impl App {
         self.uploads = None;
         // Whether it's subscribed is this account's (or channel's) to say.
         self.artist = None;
-        self.subscribing = false;
+        self.subscriptions = Default::default();
         // Your own playlists show differently (and private ones not at all) to another
         // account, and its likes aren't this one's.
         self.lists.clear();
@@ -688,7 +692,6 @@ impl App {
         self.loading = false;
         self.home_loading = false;
         self.radio_pending = false;
-        self.subscribing = false;
         if let Some(h) = &mut self.home {
             h.loading_more = None;
             h.picks_loading = false;

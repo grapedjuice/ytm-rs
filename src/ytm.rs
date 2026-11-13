@@ -713,8 +713,35 @@ fn list_page(items: &[Value]) -> (Vec<Track>, Vec<Option<String>>, Option<String
 
 /// `auth`: ask as the account, so the page says whether it's subscribed.
 pub async fn artist(api: &Api, id: &str, auth: bool) -> anyhow::Result<ArtistPage> {
-    let v = api.call("browse", json!({ "browseId": id }), auth).await?;
-    parse_artist(&v, id).ok_or_else(|| anyhow::anyhow!("YouTube Music returned an empty artist page"))
+    let asked = std::time::Instant::now();
+    let body = json!({ "browseId": id });
+    // The page is anyone's to see: a session YouTube turns away gets it signed out, the
+    // way a revoked one is answered anyway.
+    let (v, fell_back) = match api.call("browse", body.clone(), auth).await {
+        Err(e) if auth && api.account().is_some() && crate::ytmapi::session_refused(&e) => {
+            log::warn!("artist {id} signed in: {e:#}; asking signed out");
+            (api.call("browse", body, false).await?, true)
+        }
+        r => (r?, false),
+    };
+    let mut page = parse_artist(&v, id).ok_or_else(|| anyhow::anyhow!("YouTube Music returned an empty artist page"))?;
+    page.asked = asked;
+    if auth && api.account().is_some() && answered_signed_out(fell_back, &v) {
+        unknown_subscription(&mut page);
+    }
+    Ok(page)
+}
+
+/// A signed-in ask answered as no one: by the fallback, or a session Google revoked.
+fn answered_signed_out(fell_back: bool, v: &Value) -> bool {
+    fell_back || crate::ytmapi::logged_out(v)
+}
+
+/// Whether the account subscribes isn't known: no pill, rather than a Subscribe that
+/// would only fail.
+fn unknown_subscription(page: &mut ArtistPage) {
+    page.subscribed = false;
+    page.channel_id = None;
 }
 
 fn parse_artist(v: &Value, id: &str) -> Option<ArtistPage> {
@@ -730,6 +757,7 @@ fn parse_artist(v: &Value, id: &str) -> Option<ArtistPage> {
         subscribers,
         subscribed: sub["subscribed"].as_bool().unwrap_or(false),
         channel_id: sub["channelId"].as_str().map(str::to_owned),
+        asked: std::time::Instant::now(),
         description: text(&h["description"]),
         top: Vec::new(),
         top_playlist: None,
@@ -2234,6 +2262,16 @@ mod tests {
         let none = parse_artist(&page(Value::Null), "UCa").unwrap();
         assert!(!none.subscribed);
         assert_eq!(none.channel_id, None);
+
+        // Asked signed in, answered signed out: whether it's followed isn't known.
+        let signed_out = json!({"responseContext": {"serviceTrackingParams": [{"params": [{"key": "logged_in", "value": "0"}]}]}});
+        assert!(answered_signed_out(false, &signed_out));
+        assert!(answered_signed_out(true, &json!({})));
+        assert!(!answered_signed_out(false, &json!({})));
+        let mut p = followed;
+        unknown_subscription(&mut p);
+        assert!(!p.subscribed);
+        assert_eq!(p.channel_id, None);
     }
 
     #[test]

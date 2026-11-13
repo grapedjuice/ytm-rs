@@ -272,6 +272,8 @@ pub struct ArtistPage {
     pub subscribed: bool,
     /// What subscribing takes; it isn't always the page's id.
     pub channel_id: Option<String>,
+    /// When it was asked for: a subscribe change answered since outranks `subscribed`.
+    pub asked: std::time::Instant,
     pub description: Option<String>,
     pub top: Vec<Track>,
     /// "Top songs" playlist behind the shelf's Show all button.
@@ -707,6 +709,11 @@ impl Backend {
             Req::Album { id, load } | Req::Playlist { id, load, .. } => Some((id.clone(), *load)),
             _ => None,
         };
+        // A subscribe always answers as `Resp::Subscribed`, which lets the next one go.
+        let subscribe = match &req {
+            Req::Subscribe { channel_id, on } => Some((channel_id.clone(), *on)),
+            _ => None,
+        };
         let this = self.clone();
         let t0 = std::time::Instant::now();
         let epoch = self.api.epoch();
@@ -723,9 +730,10 @@ impl Backend {
                 Ok(resp) => resp,
                 Err(e) if e.is_panic() => {
                     log::error!("{what}: request panicked");
-                    match play_gen {
-                        Some(generation) => Some(Resp::PlayError { generation, msg: "YouTube didn't respond properly".into() }),
-                        None => (!quiet).then(|| Resp::Error(format!("{what} failed: YouTube didn't respond properly"))),
+                    match (play_gen, subscribe) {
+                        (Some(generation), _) => Some(Resp::PlayError { generation, msg: "YouTube didn't respond properly".into() }),
+                        (_, Some((channel_id, on))) => Some(Resp::Subscribed { channel_id, on, ok: false }),
+                        _ => (!quiet).then(|| Resp::Error(format!("{what} failed: YouTube didn't respond properly"))),
                     }
                 }
                 Err(_) => None,

@@ -382,8 +382,8 @@ pub struct App {
     /// refreshes it quietly), and their loads under way.
     lists: Lists,
     artist: Option<ArtistPage>,
-    /// A subscribe or unsubscribe is under way: another waits for it.
-    subscribing: bool,
+    /// Subscribes and unsubscribes: the one under way, and what they settled.
+    subscriptions: actions::Subscriptions,
     library: Option<Library>,
     /// When the library was last requested; the sidebar spinner gives up after a while.
     library_requested: std::time::Instant,
@@ -726,7 +726,7 @@ impl App {
             search: None,
             lists: Lists::default(),
             artist: None,
-            subscribing: false,
+            subscriptions: actions::Subscriptions::default(),
             library: None,
             library_requested: std::time::Instant::now(),
             history: None,

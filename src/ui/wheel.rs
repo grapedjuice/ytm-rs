@@ -65,6 +65,11 @@ impl Glide {
         self.last_time = time;
         for e in std::mem::take(events) {
             let Event::MouseWheel { unit, delta, phase, modifiers, source } = e else {
+                // A click or a key press stops a coast. On Wayland, fingers resting on the
+                // touchpad send nothing, so that's the other way to stop one.
+                if matches!(e, Event::PointerButton { pressed: true, .. } | Event::Key { pressed: true, .. }) {
+                    self.stop_coast();
+                }
                 events.push(e);
                 continue;
             };
@@ -84,10 +89,10 @@ impl Glide {
                 MouseWheelUnit::Point => {
                     match phase {
                         TouchPhase::Start => {
-                            // Fingers on the touchpad stop a coast. egui ignores a Start's
-                            // delta, so it goes on as a move of its own.
-                            self.pending = Vec2::ZERO;
-                            self.coasting = false;
+                            // Fingers on the touchpad stop a coast (a wheel glide plays
+                            // out). egui ignores a Start's delta, so it goes on as a move
+                            // of its own.
+                            self.stop_coast();
                             self.swipe.clear();
                             self.swipe.push((time, first_gap, delta));
                             events.push(e);
@@ -104,12 +109,16 @@ impl Glide {
                             events.push(e);
                         }
                         // The fingers lifted: coast. The End itself stays out of egui, which
-                        // would drop this frame's moves with it and smooth the coast.
+                        // would drop this frame's moves with it and smooth the coast. What's
+                        // left of a wheel glide goes on with it.
                         TouchPhase::End => {
-                            self.pending = delta + lift_off_speed(&self.swipe, time) * COAST;
-                            self.tau = COAST;
-                            self.coasting = true;
-                            self.mods = modifiers;
+                            let coast = delta + lift_off_speed(&self.swipe, time) * COAST;
+                            if coast.length() >= 0.5 {
+                                self.pending += coast;
+                                self.tau = COAST;
+                                self.coasting = true;
+                                self.mods = modifiers;
+                            }
                             self.swipe.clear();
                         }
                         TouchPhase::Cancel => {
@@ -303,6 +312,45 @@ mod tests {
         let mut g = coasting();
         assert_eq!(frame(&mut g, vec![pad(TouchPhase::Move, 0.0)], 0.15), 0.0);
         assert_eq!(settle(&mut g, 0.15), 0.0);
+    }
+
+    #[test]
+    fn a_click_or_a_key_press_stops_a_coast() {
+        let click = Event::PointerButton { pos: egui::pos2(10.0, 10.0), button: egui::PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE };
+        let key = Event::Key { key: egui::Key::ArrowDown, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
+        for e in [click, key] {
+            let mut g = coasting();
+            let mut out = vec![e.clone()];
+            assert!(!g.filter(&mut out, 0.15, FRAME, 800.0));
+            assert_eq!(out, vec![e]);
+            assert_eq!(settle(&mut g, 0.15), 0.0);
+        }
+        // Letting go of a button doesn't: the press already did, or there was no coast.
+        let mut g = coasting();
+        let release = Event::PointerButton { pos: egui::pos2(10.0, 10.0), button: egui::PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE };
+        assert!(g.filter(&mut vec![release], 0.15, FRAME, 800.0));
+    }
+
+    #[test]
+    fn a_click_or_a_key_press_leaves_a_wheel_glide_alone() {
+        let mut g = glide();
+        let first = frame(&mut g, vec![wheel(MouseWheelUnit::Line, TouchPhase::Move, -1.0)], 1.0);
+        let key = Event::Key { key: egui::Key::A, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
+        let total = first + frame(&mut g, vec![key], 1.0 + f64::from(FRAME)) + settle(&mut g, 1.0 + f64::from(FRAME));
+        assert!((total + NOTCH_PX).abs() < 0.5, "{total}");
+    }
+
+    #[test]
+    fn touching_the_touchpad_leaves_a_wheel_glide_alone() {
+        // A notch, then a swipe starting while it glides: both scroll their whole way.
+        let mut g = glide();
+        let mut total = frame(&mut g, vec![wheel(MouseWheelUnit::Line, TouchPhase::Move, -1.0)], 1.0);
+        let t = 1.0 + f64::from(FRAME);
+        total += frame(&mut g, vec![pad(TouchPhase::Start, -10.0)], t);
+        // The fingers stop a while before lifting, so the swipe itself doesn't coast.
+        total += frame(&mut g, vec![pad(TouchPhase::End, 0.0)], t + 0.5);
+        total += settle(&mut g, t + 0.5);
+        assert!((total + NOTCH_PX + 10.0).abs() < 0.5, "{total}");
     }
 
     #[test]

@@ -280,8 +280,10 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
 /// The Sort button and the box that narrow a page's song list, at the end of its row of
 /// buttons.
 fn find_box(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track]) {
-    sort_pill(ui, find, page);
-    find_field(ui, find, sel, page, tracks);
+    ui.horizontal(|ui| {
+        sort_pill(ui, find, page);
+        find_field(ui, find, sel, page, tracks);
+    });
 }
 
 /// [`find_box`] against the right edge of a row.

@@ -185,8 +185,8 @@ impl ListFind {
             let at = pos2(end - g.size().x, rect.center().y - g.size().y / 2.0);
             ui.painter().galley(at, g, theme::text_faint());
         }
-        let edit = ui.put(
-            inner,
+        // In a child, so what comes after the box (the Sort button) isn't drawn over it.
+        let edit = ui.new_child(egui::UiBuilder::new().id_salt("find-field").max_rect(inner).layout(egui::Layout::left_to_right(egui::Align::Center))).add(
             egui::TextEdit::singleline(&mut self.query)
                 .hint_text(egui::RichText::new("Find in this list").color(theme::text_faint()))
                 .font(theme::regular(14.0))

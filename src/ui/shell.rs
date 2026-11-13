@@ -330,8 +330,14 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     // Content width when expanded: text keeps its truncation while the panel narrows.
     let full_w = ui.available_width() + (sidebar_w(app) - rail_w) * t;
 
-    // Menu button, logo
-    ui.horizontal(|ui| {
+    // Menu button, logo. Laid out on its own, with only its height taken here: on the rail
+    // it's wider than the rail, and would widen every row under it past what's seen, their
+    // highlights cut off at the rail's edge.
+    let row_w = ui.available_width();
+    let head_rect = Rect::from_min_size(ui.cursor().min, vec2(row_w, ui.spacing().interact_size.y));
+    let mut head = ui.new_child(egui::UiBuilder::new().max_rect(head_rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    {
+        let ui = &mut head;
         ui.spacing_mut().item_spacing.x = 0.0;
         ui.add_space(4.0);
         menu_button(app, ui);
@@ -353,7 +359,8 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         } else {
             logo_name(ui, &logo, app.accent_color());
         }
-    });
+    }
+    ui.allocate_space(vec2(row_w, head.min_rect().height()));
     ui.add_space(22.0);
 
     let mut go_to: Option<Page> = None;
@@ -373,8 +380,6 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
         let s = theme::anim_bool(ui.ctx(), resp.id.with("s"), selected, 0.2);
         let rect = rect.shrink2(vec2(item.side_margin, 0.0));
-        // On a rail with labels the row is cut by the rail: keep to what's seen, and centre on it.
-        let rect = if item.rail_labels && t > 0.5 { rect.with_max_x(rect.right().min(ui.clip_rect().right() - 4.0)) } else { rect };
         let fill_rect = if item.hover_zoom != 1.0 { Rect::from_center_size(rect.center(), rect.size() * (1.0 + (item.hover_zoom - 1.0) * h)) } else { rect };
         let icon_fg = nav_bg(ui, look, fill_rect, h, s);
         if item.press > 0.0 && resp.is_pointer_button_down_on() {
@@ -515,9 +520,8 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                     }
                     continue;
                 }
-                // Under the nav's icons, which centre on what's seen of their row on a labelled rail.
-                let seen = rect.shrink2(vec2(item.side_margin, 0.0));
-                let img_x = if item.rail_labels && t > 0.5 { seen.with_max_x(seen.right().min(ui.clip_rect().right() - 4.0)).center().x } else { rect.left() + ICON_X };
+                // Under the nav's icons, which centre on their row on a labelled rail.
+                let img_x = if item.rail_labels && t > 0.5 { rect.shrink2(vec2(item.side_margin, 0.0)).center().x } else { rect.left() + ICON_X };
                 let img = Rect::from_center_size(pos2(img_x, rect.center().y), Vec2::splat(36.0));
                 paint_cover(ui, img, &c.thumbs, theme::thumb_radius(), 1.0);
                 if a > 0.0 {

@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 use egui::{Align2, Color32, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
 
 use super::widgets::{self, RowOpts, card, chip, h_scroll, named, paint_cover, pill, shelf_header, track_row};
-use super::find::ListFind;
+use super::find::{ListFind, Sort};
 use super::row_drag::{self, RowDrag};
 use super::{Action, App, LibTab, Page, Selection};
 use crate::backend::compact;
@@ -143,7 +143,7 @@ fn placeholder(app: &mut App, ui: &mut Ui, now: f64, rows: usize, card: f32) {
 
 /// A page's main Play button. Shows Pause while this page's album / playlist / artist
 /// is playing, and toggles instead of restarting when it's already loaded.
-fn play_pill(ui: &mut Ui, acts: &mut Vec<Action>, target: &Target, tracks: &[Track]) {
+fn play_pill(ui: &mut Ui, acts: &mut Vec<Action>, target: &Target, tracks: &[Track], find: &ListFind, page: &Page) {
     let active = widgets::active_state(ui, target);
     let (label, glyph) = if active == Some(true) { ("Pause", icon::PAUSE) } else { ("Play", icon::PLAY) };
     // Under the button, placed once the button has said where it is.
@@ -158,8 +158,16 @@ fn play_pill(ui: &mut Ui, acts: &mut Vec<Action>, target: &Target, tracks: &[Tra
         if active.is_some() {
             acts.push(Action::TogglePlay);
         } else if !tracks.is_empty() {
-            acts.push(Action::Play(tracks.to_vec(), 0));
+            acts.push(play_all(find, page, tracks));
         }
+    }
+}
+
+/// A list's Play button: all of it from the top, in the order it's sorted on `page`.
+fn play_all(find: &ListFind, page: &Page, tracks: &[Track]) -> Action {
+    match find.sorted(page, tracks) {
+        Some(order) => Action::PlayFound(order.iter().map(|&i| tracks[i].clone()).collect(), 0),
+        None => Action::Play(tracks.to_vec(), 0),
     }
 }
 
@@ -229,9 +237,10 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
     let selecting = sel.on(page);
     let mods = ui.input(|i| i.modifiers);
     let plays_col = tracks.iter().any(|t| t.plays.is_some());
-    // Only the whole list has an order to change. Hidden explicit songs aside: rows are
-    // dragged among the ones on show, then counted back in the whole list.
-    let movable = movable && !selecting && !find.searching(page);
+    // Only the whole list in its own order has an order to change. Hidden explicit songs
+    // aside: rows are dragged among the ones on show, then counted back in the whole list.
+    let reordered = find.reordered(page);
+    let movable = movable && !selecting && !find.searching(page) && !reordered;
     let n = shown.as_ref().map_or(tracks.len(), Vec::len);
     // Rows on show changing mid-drag (find typed into) make it another list: the drag ends.
     let (drag_list, top) = (egui::Id::unique(("list", page)).with(&shown), ui.cursor().top());
@@ -248,13 +257,11 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
         };
         if track_row(ui, t, &o, acts).clicked() {
             if selecting || mods.command || mods.shift {
-                sel.pick(page, i, mods.shift);
-                // A run of picks is of the rows on show.
-                if let Some(s) = &shown {
-                    sel.rows.retain(|r| s.binary_search(r).is_ok());
-                }
-            } else if let Some(s) = shown.as_ref().filter(|_| find.searching(page)) {
-                // What's on show plays. (Hidden explicit songs alone: the queue leaves those out.)
+                // A run of picks is of the rows on show, in their order on screen.
+                sel.pick(page, i, mods.shift, shown.as_deref());
+            } else if let Some(s) = shown.as_ref().filter(|_| reordered || find.searching(page)) {
+                // What's on show plays, in its order. (Hidden explicit songs alone: the queue
+                // leaves those out.)
                 acts.push(Action::PlayFound(s.iter().map(|&r| tracks[r].clone()).collect(), k));
             } else {
                 acts.push(Action::Play(tracks.to_vec(), i));
@@ -270,18 +277,69 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
     }
 }
 
-/// The box that narrows a page's song list, at the end of its row of buttons. What's looked
-/// for changing leaves no picks behind that can't be seen.
+/// The Sort button and the box that narrow a page's song list, at the end of its row of
+/// buttons.
 fn find_box(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track]) {
+    sort_pill(ui, find, page);
+    find_field(ui, find, sel, page, tracks);
+}
+
+/// [`find_box`] against the right edge of a row.
+fn find_box_right(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track]) {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        find_field(ui, find, sel, page, tracks);
+        sort_pill(ui, find, page);
+    });
+}
+
+/// What's looked for changing leaves no picks behind that can't be seen.
+fn find_field(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track]) {
     if find.show(ui, page, tracks) && sel.page.as_ref() == Some(page) {
         sel.rows.clear();
         sel.anchor = None;
     }
 }
 
-/// [`find_box`] against the right edge of a row.
-fn find_box_right(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track]) {
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| find_box(ui, find, sel, page, tracks));
+/// The room [`sort_pill`] takes, at its widest.
+const SORT_W: f32 = 150.0;
+
+/// The orders `page`'s list can be shown in, its own first under its name there. None for
+/// an album, which keeps its track order.
+fn sort_options(page: &Page) -> Vec<(Sort, &'static str)> {
+    let own = match page {
+        Page::Playlist(id) if id == super::LIKED_MUSIC => "Recently liked",
+        Page::Playlist(_) => "Custom order",
+        Page::Library(LibTab::Songs) => "Recently liked",
+        Page::Library(LibTab::History) => "Recently played",
+        Page::Library(LibTab::Uploads) => "Recently added",
+        Page::Library(LibTab::Downloads) => "Newest first",
+        Page::Library(LibTab::Playlists | LibTab::Albums | LibTab::Podcasts) => return vec![(Sort::Default, "Recent"), (Sort::Title, "A–Z"), (Sort::TitleDesc, "Z–A")],
+        _ => return Vec::new(),
+    };
+    vec![(Sort::Default, own), (Sort::Title, "Title"), (Sort::Artist, "Artist"), (Sort::Album, "Album"), (Sort::Duration, "Duration")]
+}
+
+/// A list's Sort button, with its orders in a menu. Away while the list is still coming in.
+fn sort_pill(ui: &mut Ui, find: &mut ListFind, page: &Page) {
+    let options = sort_options(page);
+    if options.is_empty() || find.holding(page) {
+        return;
+    }
+    let now = find.sort(page);
+    let label = match options.iter().find(|(s, _)| *s == now && now != Sort::Default) {
+        Some((_, name)) => format!("Sort: {name}"),
+        None => "Sort".to_owned(),
+    };
+    let resp = pill(ui, &label, None, false);
+    widgets::menu_popup(&resp).show(|ui| {
+        widgets::menu_body(ui, 190.0);
+        for (s, name) in options {
+            if option_row(ui, name, s == now).clicked() {
+                find.set_sort(page, s);
+                ui.close();
+            }
+        }
+    });
 }
 
 /// A list page's "Select" button: turns select mode on and off.
@@ -709,6 +767,8 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     }
     let rows = Rows::new(app, now);
     let Some(o) = app.lists.get(id) else { return };
+    // Sorted once all of it is here: until then it plays as it arrives.
+    app.find.hold(&app.page, !o.complete);
     let (c, more) = (&o.c, app.receiving(id));
     let acts = &mut app.actions;
     let tracks = &c.tracks;
@@ -760,15 +820,16 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             // The most these buttons take (Save to library's the widest); below that, the
             // find box takes a line of its own.
             const BUTTONS_W: f32 = 660.0;
-            let beside = full >= BUTTONS_W + super::find::BOX_W;
+            let tools_w = super::find::BOX_W + if is_album { 0.0 } else { SORT_W };
+            let beside = full >= BUTTONS_W + tools_w;
             let page = &app.page;
             let (selection, find) = (&mut app.selection, &mut app.find);
             ui.horizontal(|ui| {
-                let width = if beside { full - super::find::BOX_W - 16.0 } else { full };
+                let width = if beside { full - tools_w - 16.0 } else { full };
                 ui.allocate_ui_with_layout(vec2(width, 38.0), egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true), |ui| {
                     ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
                     let target = if is_album { Target::Album(id.to_owned()) } else { Target::Playlist(id.to_owned()) };
-                    play_pill(ui, acts, &target, tracks);
+                    play_pill(ui, acts, &target, tracks, find, page);
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() && !tracks.is_empty() {
                         let mut t = tracks.clone();
                         super::shuffle(&mut t);
@@ -871,7 +932,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     ui.add_space(18.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
-        play_pill(ui, acts, &Target::Artist(id.to_owned()), top);
+        play_pill(ui, acts, &Target::Artist(id.to_owned()), top, &app.find, &app.page);
         if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() && !top.is_empty() {
             let mut t = top.clone();
             super::shuffle(&mut t);
@@ -978,11 +1039,11 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
         }
         return;
     }
-    let grid = |ui: &mut Ui, cards: &[Card], acts: &mut Vec<Action>| {
+    let grid = |ui: &mut Ui, cards: &[Card], order: &[usize], acts: &mut Vec<Action>| {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(20.0, 22.0);
-            for c in cards {
-                card(ui, c, CARD, false, acts);
+            for &i in order {
+                card(ui, &cards[i], CARD, false, acts);
             }
         });
     };
@@ -1033,7 +1094,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
             ui.horizontal(|ui| {
                 if !songs.is_empty() {
                     if pill(ui, "Play", Some(icon::PLAY), true).clicked() {
-                        app.actions.push(Action::Play(songs.clone(), 0));
+                        app.actions.push(play_all(&app.find, &app.page, songs));
                     }
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() {
                         let mut t = songs.clone();
@@ -1072,11 +1133,12 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
             }
             let more = app.receiving(super::LIKED_MUSIC);
             let Some(o) = app.lists.get(super::LIKED_MUSIC) else { return };
+            app.find.hold(&app.page, !o.complete);
             let liked = &o.c.tracks;
             if !liked.is_empty() {
                 ui.horizontal(|ui| {
                     if pill(ui, "Play", Some(icon::PLAY), true).clicked() {
-                        app.actions.push(Action::Play(liked.clone(), 0));
+                        app.actions.push(play_all(&app.find, &app.page, liked));
                     }
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() {
                         let mut t = liked.clone();
@@ -1100,18 +1162,23 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 return;
             }
             let Some(lib) = &app.library else { return };
-            match tab {
-                LibTab::Playlists => {
-                    if pill(ui, "New playlist", None, false).clicked() {
-                        app.actions.push(Action::NewPlaylist(Vec::new()));
-                    }
-                    ui.add_space(14.0);
-                    grid(ui, &lib.playlists, &mut app.actions)
-                }
-                LibTab::Albums => grid(ui, &lib.albums, &mut app.actions),
-                LibTab::Podcasts => grid(ui, &lib.podcasts, &mut app.actions),
+            let cards = match tab {
+                LibTab::Playlists => &lib.playlists,
+                LibTab::Albums => &lib.albums,
+                LibTab::Podcasts => &lib.podcasts,
                 LibTab::Songs | LibTab::History | LibTab::Uploads | LibTab::Downloads => unreachable!(),
-            }
+            };
+            let page = &app.page;
+            ui.horizontal(|ui| {
+                if tab == LibTab::Playlists && pill(ui, "New playlist", None, false).clicked() {
+                    app.actions.push(Action::NewPlaylist(Vec::new()));
+                }
+                if !cards.is_empty() {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| sort_pill(ui, &mut app.find, page));
+                }
+            });
+            ui.add_space(14.0);
+            grid(ui, cards, &app.find.cards(page, cards), &mut app.actions);
         }
     }
 }

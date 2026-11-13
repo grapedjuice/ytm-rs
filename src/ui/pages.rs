@@ -7,10 +7,10 @@ use std::sync::atomic::Ordering;
 use egui::{Align2, Color32, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
 
 use super::widgets::{self, RowOpts, card, chip, h_scroll, named, paint_cover, pill, shelf_header, track_row};
-use super::find::ListFind;
+use super::find::{ListFind, Sort};
 use super::row_drag::{self, RowDrag};
 use super::{Action, App, LibTab, Page, Selection};
-use crate::backend::compact;
+use crate::backend::{PlaylistSort, compact};
 use crate::model::{Card, ShelfKind, Target, Track};
 use crate::theme::{self, icon};
 
@@ -143,7 +143,7 @@ fn placeholder(app: &mut App, ui: &mut Ui, now: f64, rows: usize, card: f32) {
 
 /// A page's main Play button. Shows Pause while this page's album / playlist / artist
 /// is playing, and toggles instead of restarting when it's already loaded.
-fn play_pill(ui: &mut Ui, acts: &mut Vec<Action>, target: &Target, tracks: &[Track]) {
+fn play_pill(ui: &mut Ui, acts: &mut Vec<Action>, target: &Target, tracks: &[Track], find: &ListFind, page: &Page) {
     let active = widgets::active_state(ui, target);
     let (label, glyph) = if active == Some(true) { ("Pause", icon::PAUSE) } else { ("Play", icon::PLAY) };
     // Under the button, placed once the button has said where it is.
@@ -158,8 +158,16 @@ fn play_pill(ui: &mut Ui, acts: &mut Vec<Action>, target: &Target, tracks: &[Tra
         if active.is_some() {
             acts.push(Action::TogglePlay);
         } else if !tracks.is_empty() {
-            acts.push(Action::Play(tracks.to_vec(), 0));
+            acts.push(play_all(find, page, tracks));
         }
+    }
+}
+
+/// A list's Play button: all of it from the top, in the order it's sorted on `page`.
+fn play_all(find: &ListFind, page: &Page, tracks: &[Track]) -> Action {
+    match find.sorted(page, tracks) {
+        Some(order) => Action::PlayFound(order.iter().map(|&i| tracks[i].clone()).collect(), 0),
+        None => Action::Play(tracks.to_vec(), 0),
     }
 }
 
@@ -229,37 +237,40 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
     let selecting = sel.on(page);
     let mods = ui.input(|i| i.modifiers);
     let plays_col = tracks.iter().any(|t| t.plays.is_some());
-    // Only the whole list has an order to change. Hidden explicit songs aside: rows are
-    // dragged among the ones on show, then counted back in the whole list.
-    let movable = movable && !selecting && !find.searching(page);
+    // Only the whole list in its own order has an order to change. Hidden explicit songs
+    // aside: rows are dragged among the ones on show, then counted back in the whole list.
+    let reordered = find.reordered(page);
+    let movable = movable && !selecting && !find.searching(page) && !reordered;
     let n = shown.as_ref().map_or(tracks.len(), Vec::len);
     // Rows on show changing mid-drag (find typed into) make it another list: the drag ends.
     let (drag_list, top) = (egui::Id::unique(("list", page)).with(&shown), ui.cursor().top());
     widgets::visible_rows(ui, n, |ui, k| {
         let i = shown.as_ref().map_or(k, |s| s[k]);
         let t = &tracks[i];
-        // Any song can be dragged onto a playlist in the sidebar.
-        row_drag::grip(ui, drag, drag_list, k, t);
-        let o = RowOpts {
-            selected: selecting.then(|| sel.rows.contains(&i)),
-            remove: own.then_some(i),
-            plays_col,
-            ..rows.opts(liked, t, number(i, t), show_album)
-        };
-        if track_row(ui, t, &o, acts).clicked() {
-            if selecting || mods.command || mods.shift {
-                sel.pick(page, i, mods.shift);
-                // A run of picks is of the rows on show.
-                if let Some(s) = &shown {
-                    sel.rows.retain(|r| s.binary_search(r).is_ok());
+        // Keyed on the song as well as the place: a song's open menu closes when the order
+        // changes under it, instead of turning into another song's.
+        ui.push_id(&t.id, |ui| {
+            // Any song can be dragged onto a playlist in the sidebar.
+            row_drag::grip(ui, drag, drag_list, k, t);
+            let o = RowOpts {
+                selected: selecting.then(|| sel.rows.contains(&i)),
+                remove: own.then_some(i),
+                plays_col,
+                ..rows.opts(liked, t, number(i, t), show_album)
+            };
+            if track_row(ui, t, &o, acts).clicked() {
+                if selecting || mods.command || mods.shift {
+                    // A run of picks is of the rows on show, in their order on screen.
+                    sel.pick(page, i, mods.shift, shown.as_deref());
+                } else if let Some(s) = shown.as_ref().filter(|_| reordered || find.searching(page)) {
+                    // What's on show plays, in its order. (Hidden explicit songs alone: the queue
+                    // leaves those out.)
+                    acts.push(Action::PlayFound(s.iter().map(|&r| tracks[r].clone()).collect(), k));
+                } else {
+                    acts.push(Action::Play(tracks.to_vec(), i));
                 }
-            } else if let Some(s) = shown.as_ref().filter(|_| find.searching(page)) {
-                // What's on show plays. (Hidden explicit songs alone: the queue leaves those out.)
-                acts.push(Action::PlayFound(s.iter().map(|&r| tracks[r].clone()).collect(), k));
-            } else {
-                acts.push(Action::Play(tracks.to_vec(), i));
             }
-        }
+        });
     });
     if !movable {
         row_drag::carry(ui, drag, drag_list);
@@ -270,18 +281,117 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
     }
 }
 
-/// The box that narrows a page's song list, at the end of its row of buttons. What's looked
-/// for changing leaves no picks behind that can't be seen.
-fn find_box(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track]) {
+/// The Sort button and the box that narrow a page's song list, against the right edge of
+/// its row of buttons.
+fn find_box_right(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track]) {
+    find_tools(ui, find, sel, page, tracks, &[], false, false, &mut Vec::new(), true);
+}
+
+/// The Sort button, then the find box; `right`: against the right edge of the row. Your own
+/// playlist (`saved` has its orders) gets YouTube Music's Sort, the rest the app's own;
+/// `busy`: it can't be sorted for now; `sorting`: because a sort of it is under way.
+#[allow(clippy::too_many_arguments)]
+fn find_tools(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track], saved: &[PlaylistSort], busy: bool, sorting: bool, acts: &mut Vec<Action>, right: bool) {
+    let layout = if right { egui::Layout::right_to_left(egui::Align::Center) } else { egui::Layout::left_to_right(egui::Align::Center) };
+    // A row of its own height: on a line of its own (under the page's buttons) the rest of
+    // the page's height would be taken, with the row centred in it.
+    ui.allocate_ui_with_layout(vec2(ui.available_width(), 38.0), layout, |ui| {
+        if right {
+            find_field(ui, find, sel, page, tracks);
+        }
+        match page {
+            Page::Playlist(id) if !saved.is_empty() => saved_sort_pill(ui, find, page, id, saved, busy, sorting, acts),
+            _ => sort_pill(ui, find, page),
+        }
+        if !right {
+            find_field(ui, find, sel, page, tracks);
+        }
+    });
+}
+
+/// What's looked for changing leaves no picks behind that can't be seen.
+fn find_field(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track]) {
     if find.show(ui, page, tracks) && sel.page.as_ref() == Some(page) {
         sel.rows.clear();
         sel.anchor = None;
     }
 }
 
-/// [`find_box`] against the right edge of a row.
-fn find_box_right(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track]) {
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| find_box(ui, find, sel, page, tracks));
+/// The room [`sort_pill`] takes, at its widest.
+const SORT_W: f32 = 175.0;
+
+/// The orders `page`'s list can be shown in, its own order first. None for an album, which
+/// keeps its track order.
+fn sort_options(page: &Page) -> Vec<(Sort, &'static str)> {
+    // Lists that come newest first can turn around. Loading YouTube Music's own sorts just to
+    // look can't be used: past the first 100 songs its pages come back unsorted. (Your own
+    // playlists use its menu instead, which saves the order: see `saved_sort_pill`.)
+    let (own, newest_first) = match page {
+        Page::Playlist(id) if id == super::LIKED_MUSIC => ("Recently liked", true),
+        Page::Playlist(_) => ("Custom order", false),
+        Page::Library(LibTab::Songs) => ("Recently liked", true),
+        Page::Library(LibTab::History) => ("Recently played", true),
+        Page::Library(LibTab::Uploads) => ("Recently added", true),
+        Page::Library(LibTab::Downloads) => ("Newest first", true),
+        Page::Library(LibTab::Playlists | LibTab::Albums | LibTab::Artists | LibTab::Podcasts) => return vec![(Sort::Default, "Recent"), (Sort::Title, "A–Z"), (Sort::TitleDesc, "Z–A")],
+        _ => return Vec::new(),
+    };
+    let mut options = vec![(Sort::Default, own)];
+    if newest_first {
+        options.push((Sort::Reversed, "Oldest first"));
+    }
+    options.extend([(Sort::Title, "Title"), (Sort::Artist, "Artist"), (Sort::Album, "Album"), (Sort::Duration, "Duration")]);
+    options
+}
+
+/// A list's Sort button, with its orders in a menu. Away while the list is still coming in.
+fn sort_pill(ui: &mut Ui, find: &mut ListFind, page: &Page) {
+    let options = sort_options(page);
+    if options.is_empty() || find.holding(page) {
+        return;
+    }
+    let now = find.sort(page);
+    let label = match options.iter().find(|(s, _)| *s == now && now != Sort::Default) {
+        Some((_, name)) => format!("Sort: {name}"),
+        None => "Sort".to_owned(),
+    };
+    let resp = pill(ui, &label, None, false);
+    widgets::menu_popup(&resp).show(|ui| {
+        widgets::menu_body(ui, 190.0);
+        for (s, name) in options {
+            if widgets::menu_choice(ui, name, s == now) {
+                find.set_sort(page, s);
+            }
+        }
+    });
+}
+
+/// Your own playlist's Sort button: YouTube Music's orders, saved to the playlist as there,
+/// which then loads again in the new order. Away while the list is still coming in.
+#[allow(clippy::too_many_arguments)]
+fn saved_sort_pill(ui: &mut Ui, find: &mut ListFind, page: &Page, id: &str, saved: &[PlaylistSort], busy: bool, sorting: bool, acts: &mut Vec<Action>) {
+    if find.holding(page) {
+        return;
+    }
+    // It comes in the order picked here: none of the app's own sorts on top.
+    if find.sort(page) != Sort::Default {
+        find.set_sort(page, Sort::Default);
+    }
+    // One sort at a time: what's ticked is stale until the playlist has loaded again.
+    let label = match saved.iter().find(|s| s.on && !s.manual) {
+        _ if sorting => "Sorting…".to_owned(),
+        Some(s) => format!("Sort: {}", s.name),
+        None => "Sort".to_owned(),
+    };
+    let resp = ui.add_enabled_ui(!busy, |ui| pill(ui, &label, None, false)).inner;
+    widgets::menu_popup(&resp).show(|ui| {
+        widgets::menu_body(ui, 190.0);
+        for s in saved {
+            if widgets::menu_choice(ui, &s.name, s.on) && !s.on {
+                acts.push(Action::SortPlaylist(id.to_owned(), s.actions.clone()));
+            }
+        }
+    });
 }
 
 /// A list page's "Select" button: turns select mode on and off.
@@ -315,7 +425,11 @@ fn selection_bar(app: &mut App, ctx: &egui::Context, page: &Page, area: Rect) {
     // With a list narrowed by find, "all" is what's on show.
     let shown = app.find.rows(page, tracks);
     let n = shown.as_ref().map_or(tracks.len(), Vec::len);
-    let picked: Vec<Track> = app.selection.rows.iter().filter_map(|&i| tracks.get(i).cloned()).collect();
+    // In the order on screen.
+    let picked: Vec<Track> = match &shown {
+        Some(s) => s.iter().filter(|i| app.selection.rows.contains(i)).map(|&i| tracks[i].clone()).collect(),
+        None => app.selection.rows.iter().filter_map(|&i| tracks.get(i).cloned()).collect(),
+    };
     let all = !picked.is_empty() && picked.len() == n;
     let all_liked = !picked.is_empty() && picked.iter().all(|t| app.liked.contains(&t.id));
     // Labelled buttons when there's room, icons with tooltips when the window is narrow.
@@ -714,7 +828,13 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let downloaded = all_downloaded(app, id);
     let run = app.download_runs.iter().find(|r| r.key == id).map(|r| (r.done, r.total, r.cancelled));
     let Some(o) = app.lists.get(id) else { return };
+    // Sorted once all of it is here: until then it plays as it arrives.
+    app.find.hold(&app.page, !o.complete);
     let (c, more) = (&o.c, app.receiving(id));
+    // A sort of it is under way. None starts while it loads (what's ticked may be stale) or a
+    // drag is still being saved (the load after the sort would wait for it).
+    let sorting = app.sorting.contains_key(id);
+    let busy = sorting || app.lists.loading(id) || app.lists.moving(id);
     let acts = &mut app.actions;
     let tracks = &c.tracks;
     let is_album = c.is_album;
@@ -766,15 +886,16 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             // The most these buttons take (Save to library's the widest); below that, the
             // find box takes a line of its own.
             const BUTTONS_W: f32 = 820.0;
-            let beside = full >= BUTTONS_W + super::find::BOX_W;
+            let tools_w = super::find::BOX_W + if is_album { 0.0 } else { SORT_W };
+            let beside = full >= BUTTONS_W + tools_w;
             let page = &app.page;
             let (selection, find) = (&mut app.selection, &mut app.find);
             ui.horizontal(|ui| {
-                let width = if beside { full - super::find::BOX_W - 16.0 } else { full };
+                let width = if beside { full - tools_w - 16.0 } else { full };
                 ui.allocate_ui_with_layout(vec2(width, 38.0), egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true), |ui| {
                     ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
                     let target = if is_album { Target::Album(id.to_owned()) } else { Target::Playlist(id.to_owned()) };
-                    play_pill(ui, acts, &target, tracks);
+                    play_pill(ui, acts, &target, tracks, find, page);
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() && !tracks.is_empty() {
                         let mut t = tracks.clone();
                         super::shuffle(&mut t);
@@ -832,12 +953,12 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                     });
                 });
                 if beside {
-                    find_box_right(ui, find, selection, page, tracks);
+                    find_tools(ui, find, selection, page, tracks, &c.sorts, busy, sorting, acts, true);
                 }
             });
             if !beside {
                 ui.add_space(10.0);
-                find_box(ui, find, selection, page, tracks);
+                find_tools(ui, find, selection, page, tracks, &c.sorts, busy, sorting, acts, false);
             }
         });
     });
@@ -845,7 +966,8 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let number = |i: usize, t: &Track| is_album.then(|| t.track_nr.map_or(i + 1, |n| n as usize));
     let own = app.logged_in && c.owned && !is_album;
     // Only with all of it here and no load that would bring the old order back.
-    let movable = own && o.complete && !app.lists.loading(id) && !matches!(id, "LM" | "SE");
+    // And in the custom order, not one of YouTube Music's sorts.
+    let movable = own && o.complete && !app.lists.loading(id) && !matches!(id, "LM" | "SE") && c.sorts.iter().all(|s| !s.on || s.manual);
     list(ui, &rows, &app.liked, tracks, !is_album, number, ListCtx { sel: &mut app.selection, find: &app.find, drag: &mut app.row_drag, movable, page: &app.page, own }, acts);
     if more {
         widgets::skeleton_rows(ui, now, 3);
@@ -929,6 +1051,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let rows = Rows::new(app, now);
     let accent = app.accent_color();
     let Some(a) = &app.artist else { return };
+    let subscribing = app.subscriptions.busy();
     let acts = &mut app.actions;
     let drag = &mut app.row_drag;
     let top: Vec<Track> = a.top.iter().filter(|t| rows.shows(t)).cloned().collect();
@@ -957,7 +1080,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     ui.add_space(18.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
-        play_pill(ui, acts, &Target::Artist(id.to_owned()), top);
+        play_pill(ui, acts, &Target::Artist(id.to_owned()), top, &app.find, &app.page);
         if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() && !top.is_empty() {
             let mut t = top.clone();
             super::shuffle(&mut t);
@@ -968,6 +1091,12 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             && pill(ui, "Radio", Some(icon::RADIO), false).clicked() {
                 acts.push(Action::Radio(first.clone()));
             }
+        // Greyed out while a subscribe or unsubscribe runs: a click then wouldn't count.
+        if a.channel_id.is_some()
+            && ui.add_enabled_ui(!subscribing, |ui| pill(ui, if a.subscribed { "Subscribed" } else { "Subscribe" }, None, false)).inner.clicked()
+        {
+            acts.push(Action::Subscribe(!a.subscribed));
+        }
     });
     if !top.is_empty() {
         ui.add_space(26.0);
@@ -1035,6 +1164,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
             (LibTab::Playlists, "Playlists"),
             (LibTab::Songs, "Liked songs"),
             (LibTab::Albums, "Albums"),
+            (LibTab::Artists, "Artists"),
             (LibTab::Podcasts, "Podcasts"),
             (LibTab::History, "History"),
             (LibTab::Uploads, "Uploads"),
@@ -1064,11 +1194,11 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
         }
         return;
     }
-    let grid = |ui: &mut Ui, cards: &[Card], acts: &mut Vec<Action>| {
+    let grid = |ui: &mut Ui, cards: &[Card], order: &[usize], acts: &mut Vec<Action>| {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(20.0, 22.0);
-            for c in cards {
-                card(ui, c, CARD, false, acts);
+            for &i in order {
+                card(ui, &cards[i], CARD, false, acts);
             }
         });
     };
@@ -1119,7 +1249,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
             ui.horizontal(|ui| {
                 if !songs.is_empty() {
                     if pill(ui, "Play", Some(icon::PLAY), true).clicked() {
-                        app.actions.push(Action::Play(songs.clone(), 0));
+                        app.actions.push(play_all(&app.find, &app.page, songs));
                     }
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() {
                         let mut t = songs.clone();
@@ -1177,11 +1307,12 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
             }
             let more = app.receiving(super::LIKED_MUSIC);
             let Some(o) = app.lists.get(super::LIKED_MUSIC) else { return };
+            app.find.hold(&app.page, !o.complete);
             let liked = &o.c.tracks;
             if !liked.is_empty() {
                 ui.horizontal(|ui| {
                     if pill(ui, "Play", Some(icon::PLAY), true).clicked() {
-                        app.actions.push(Action::Play(liked.clone(), 0));
+                        app.actions.push(play_all(&app.find, &app.page, liked));
                     }
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() {
                         let mut t = liked.clone();
@@ -1205,18 +1336,24 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 return;
             }
             let Some(lib) = &app.library else { return };
-            match tab {
-                LibTab::Playlists => {
-                    if pill(ui, "New playlist", None, false).clicked() {
-                        app.actions.push(Action::NewPlaylist(Vec::new()));
-                    }
-                    ui.add_space(14.0);
-                    grid(ui, &lib.playlists, &mut app.actions)
-                }
-                LibTab::Albums => grid(ui, &lib.albums, &mut app.actions),
-                LibTab::Podcasts => grid(ui, &lib.podcasts, &mut app.actions),
+            let cards = match tab {
+                LibTab::Playlists => &lib.playlists,
+                LibTab::Albums => &lib.albums,
+                LibTab::Artists => &lib.artists,
+                LibTab::Podcasts => &lib.podcasts,
                 LibTab::Songs | LibTab::History | LibTab::Uploads | LibTab::Downloads => unreachable!(),
-            }
+            };
+            let page = &app.page;
+            ui.horizontal(|ui| {
+                if tab == LibTab::Playlists && pill(ui, "New playlist", None, false).clicked() {
+                    app.actions.push(Action::NewPlaylist(Vec::new()));
+                }
+                if !cards.is_empty() {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| sort_pill(ui, &mut app.find, page));
+                }
+            });
+            ui.add_space(14.0);
+            grid(ui, cards, &app.find.cards(page, cards), &mut app.actions);
         }
     }
 }
@@ -2278,12 +2415,12 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
                 Some(State::UpToDate) => format!("You're on the latest version ({}).", crate::update::current_version()),
                 Some(State::Downloading { version, percent }) => format!("Downloading {version}… {percent}%"),
                 Some(State::Ready { version, .. }) => format!("Version {version} is ready. It installs when you close ytm-rs."),
-                Some(State::Available { version, .. }) => format!("Version {version} is out. Download the new .deb and open it to install it over this one."),
+                Some(State::Available { version, .. }) => format!("Version {version} is out. {}", crate::update::package_step()),
                 Some(State::Failed(e)) => format!("Couldn't check for updates: {e}"),
                 _ => format!("Version {}.", crate::update::current_version()),
             }
         };
-        let auto_desc = if crate::update::deb() {
+        let auto_desc = if crate::update::packaged() {
             "Check for new versions and tell you when one is out."
         } else {
             "Download new versions in the background and install them when you close the app."
@@ -2326,9 +2463,8 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
             }
         });
         // The other kind of Linux install, still there beside this one.
-        if let Some(cmd) = crate::update::other_copy() {
+        if let Some((kind, cmd)) = crate::update::other_copy() {
             divider(ui);
-            let kind = if crate::update::deb() { "install.sh" } else { "the .deb" };
             setting_row(ui, "Another copy", Some(&format!("ytm-rs is also installed from {kind}. To remove that copy, run {cmd}")), |_| {});
         }
         // Release notes for the version that's ready, else the one running.

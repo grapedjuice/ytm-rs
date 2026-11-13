@@ -580,6 +580,12 @@ fn now_secs() -> u64 {
 }
 
 /// The text between `start` and the next `end`.
+/// The signed-in session itself was turned away (signed out, or refused even after the
+/// retries): a page anyone can see may still come asked signed out.
+pub fn session_refused(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<ApiError>().is_some_and(|a| a.status == 401 || a.status == 403)
+}
+
 fn is_refused(e: &anyhow::Error) -> bool {
     e.downcast_ref::<ApiError>().is_some_and(is_throttled)
 }
@@ -645,6 +651,17 @@ fn utc_offset_minutes() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_refusals() {
+        let api = |status| anyhow::Error::new(ApiError { status, msg: String::new() });
+        assert!(session_refused(&api(401)));
+        assert!(session_refused(&api(403)));
+        // Not about the session: asking signed out wouldn't help.
+        assert!(!session_refused(&api(400)));
+        assert!(!session_refused(&api(500)));
+        assert!(!session_refused(&anyhow::anyhow!("YouTube Music returned an empty artist page")));
+    }
 
     #[test]
     fn stray_refusals_dont_pause_everything() {

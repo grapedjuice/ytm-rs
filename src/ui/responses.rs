@@ -103,6 +103,20 @@ impl App {
                 }
             }
         }
+        // Sorted playlists load again when it's time, for their new order. One whose load
+        // ended without its first page (it failed) stops waiting, so Sort comes back.
+        let mut due = Vec::new();
+        let lists = &self.lists;
+        self.sorting.retain(|id, w| {
+            if w.take_due(now) {
+                due.push(id.clone());
+                return true;
+            }
+            !w.awaiting() || lists.loading(id) || lists.moving(id)
+        });
+        for id in due {
+            self.load_list(&id, false, true);
+        }
         if self.suggest_due.is_some_and(|d| now >= d) {
             self.suggest_due = None;
             let q = self.search_text.trim().to_owned();
@@ -207,6 +221,11 @@ impl App {
                 let rows = |app: &Self| app.opened(&id).map(|o| o.c.tracks.iter().map(|t| t.id.clone()).collect::<Vec<_>>());
                 let before = rows(&*self);
                 self.collection_in(load, c, more);
+                // A sort waiting for its order, from this load (an older one isn't kept).
+                let sorted = self.lists.get(&id).filter(|o| o.load == load).zip(self.sorting.get_mut(&id)).is_some_and(|(o, w)| w.arrived(&o.c.sorts, now));
+                if sorted {
+                    self.sorting.remove(&id);
+                }
                 if self.page_list() == Some(id.as_str()) && rows(&*self) != before {
                     self.selection.clear();
                 }
@@ -219,13 +238,17 @@ impl App {
                     self.lists.load_failed(&id, load);
                 }
             }
-            Resp::Artist(a) => {
+            Resp::Artist(mut a) => {
                 // A slow answer for an artist left meanwhile doesn't replace the one on screen.
                 if matches!(&self.page, Page::Artist(id) if *id != a.id) {
                     return;
                 }
                 if self.page == Page::Artist(a.id.clone()) {
                     self.loading = false;
+                }
+                // Asked for before a subscribe here was answered, it can be from before that.
+                if let Some(channel) = &a.channel_id {
+                    a.subscribed = self.subscriptions.shown(channel, a.subscribed, a.asked);
                 }
                 self.artist = Some(a);
             }
@@ -237,6 +260,9 @@ impl App {
                 }
                 if l.albums_failed {
                     l.albums = self.library.as_ref().map(|o| o.albums.clone()).unwrap_or_default();
+                }
+                if l.artists_failed {
+                    l.artists = self.library.as_ref().map(|o| o.artists.clone()).unwrap_or_default();
                 }
                 // What it says of a playlist edited here lately can be from before that.
                 let edited: Vec<String> = l.playlists.iter().filter_map(|c| match &c.target {
@@ -395,6 +421,23 @@ impl App {
                 self.go(Page::Playlist(id));
             }
             Resp::PlaylistChanged { id, message } => self.on_playlist_changed(id, message),
+            Resp::Subscribed { channel_id, on, ok } => {
+                // As it now stands, over a reload fetched before the change.
+                let now = self.subscriptions.finish(&channel_id, on, ok);
+                if let Some(a) = self.artist.as_mut().filter(|a| a.channel_id.as_deref() == Some(&channel_id)) {
+                    a.subscribed = now;
+                }
+                // Library › Artists lists it now (or no longer).
+                if ok {
+                    self.request_library();
+                }
+                self.toast(match (ok, on) {
+                    (true, true) => "Subscribed",
+                    (true, false) => "Unsubscribed",
+                    (false, true) => "Couldn't subscribe",
+                    (false, false) => "Couldn't unsubscribe",
+                });
+            }
             Resp::RemoveFailed { id, error } => {
                 // Its songs are still there: they come back with a reload.
                 self.lists.edits.removal_failed(&id);
@@ -614,6 +657,13 @@ impl App {
     /// A playlist was edited, added to, removed from, saved or deleted; `message` says which.
     fn on_playlist_changed(&mut self, id: String, message: &'static str) {
         self.request_library();
+        // A sort taken waits on, for the reload in its order; anything else ends it.
+        match self.sorting.get_mut(&id) {
+            Some(w) if message == "Playlist sorted" => w.taken(),
+            _ => {
+                self.sorting.remove(&id);
+            }
+        }
         if message == "Playlist deleted" {
             // Its load is dropped too, and the queue stops waiting for it.
             self.lists.forget(&id);
@@ -691,6 +741,9 @@ impl App {
         self.library = None;
         self.history = None;
         self.uploads = None;
+        // Whether it's subscribed is this account's (or channel's) to say.
+        self.artist = None;
+        self.subscriptions = Default::default();
         // Your own playlists show differently (and private ones not at all) to another
         // account, and its likes aren't this one's.
         self.lists.clear();
@@ -699,7 +752,7 @@ impl App {
         self.unliking.clear();
         self.queue.fill = None;
         self.play_pending = None;
-        if self.page_list().is_some() {
+        if self.page_list().is_some() || matches!(self.page, Page::Artist(_)) {
             self.refresh();
         }
         self.home = None;

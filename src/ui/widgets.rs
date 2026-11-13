@@ -935,6 +935,17 @@ pub fn menu_divider(ui: &mut Ui) {
 }
 
 pub fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
+    menu_row(ui, glyph, label, true)
+}
+
+/// A menu row for one of several choices (a Sort menu's orders), ticked when it's the one
+/// on. Looks like [`menu_action`]'s rows, the tick where their icons go.
+pub fn menu_choice(ui: &mut Ui, label: &str, on: bool) -> bool {
+    menu_row(ui, on.then_some(icon::CHECK), label, false)
+}
+
+/// A menu row; without a glyph, an arrow in its place when `arrow`, else nothing.
+fn menu_row(ui: &mut Ui, glyph: Option<char>, label: &str, arrow: bool) -> bool {
     let m = crate::preset::active().app.menu_look;
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), m.row_px.max(26.0)), Sense::click());
     let response = named(response, label).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -957,7 +968,7 @@ pub fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
     let (icon_x, text_x) = if m.icon_right { (rect.right() - 19.0 + slide, rect.left() + 12.0 + slide) } else { (rect.left() + 19.0 + slide, rect.left() + 40.0 + slide) };
     if let Some(glyph) = glyph {
         icon_at(ui, pos2(icon_x, rect.center().y), glyph, 16.0, color);
-    } else {
+    } else if arrow {
         ui.painter().text(pos2(icon_x, rect.center().y), Align2::CENTER_CENTER, "↗", theme::semibold(17.0), color);
     }
     ui.painter().text(pos2(text_x, rect.center().y), Align2::LEFT_CENTER, label, theme::regular(14.0), if response.hovered() { lit } else { theme::text() });

@@ -231,6 +231,19 @@ impl App {
                 if self.logged_in { self.backend.request(Req::SaveCollection { id, save }); }
                 else { self.toast("Sign in to save to library"); }
             }
+            Action::Subscribe(on) => {
+                if !self.logged_in {
+                    self.toast("Sign in to subscribe");
+                } else if !self.subscribing
+                    && let Some(a) = self.artist.as_mut().filter(|a| a.subscribed != on)
+                    && let Some(channel_id) = a.channel_id.clone()
+                {
+                    // Shown at once; put back if YouTube Music refuses it.
+                    a.subscribed = on;
+                    self.subscribing = true;
+                    self.backend.request(Req::Subscribe { channel_id, on });
+                }
+            }
             Action::HomeChip(params) => {
                 self.home_loading = true;
                 if let Some(h) = &mut self.home {

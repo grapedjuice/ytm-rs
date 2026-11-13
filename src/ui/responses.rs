@@ -238,6 +238,9 @@ impl App {
                 if l.albums_failed {
                     l.albums = self.library.as_ref().map(|o| o.albums.clone()).unwrap_or_default();
                 }
+                if l.artists_failed {
+                    l.artists = self.library.as_ref().map(|o| o.artists.clone()).unwrap_or_default();
+                }
                 // What it says of a playlist edited here lately can be from before that.
                 let edited: Vec<String> = l.playlists.iter().filter_map(|c| match &c.target {
                     Target::Playlist(id) if self.lists.edits.pending(id) => Some(id.clone()),
@@ -392,6 +395,23 @@ impl App {
                 self.go(Page::Playlist(id));
             }
             Resp::PlaylistChanged { id, message } => self.on_playlist_changed(id, message),
+            Resp::Subscribed { channel_id, on, ok } => {
+                self.subscribing = false;
+                // As it now stands, over a reload fetched before the change.
+                if let Some(a) = self.artist.as_mut().filter(|a| a.channel_id.as_deref() == Some(&channel_id)) {
+                    a.subscribed = on == ok;
+                }
+                // Library › Artists lists it now (or no longer).
+                if ok {
+                    self.request_library();
+                }
+                self.toast(match (ok, on) {
+                    (true, true) => "Subscribed",
+                    (true, false) => "Unsubscribed",
+                    (false, true) => "Couldn't subscribe",
+                    (false, false) => "Couldn't unsubscribe",
+                });
+            }
             Resp::RemoveFailed { id, error } => {
                 // Its songs are still there: they come back with a reload.
                 self.lists.edits.removal_failed(&id);
@@ -629,6 +649,9 @@ impl App {
         self.library = None;
         self.history = None;
         self.uploads = None;
+        // Whether it's subscribed is this account's (or channel's) to say.
+        self.artist = None;
+        self.subscribing = false;
         // Your own playlists show differently (and private ones not at all) to another
         // account, and its likes aren't this one's.
         self.lists.clear();
@@ -637,7 +660,7 @@ impl App {
         self.unliking.clear();
         self.queue.fill = None;
         self.play_pending = None;
-        if self.page_list().is_some() {
+        if self.page_list().is_some() || matches!(self.page, Page::Artist(_)) {
             self.refresh();
         }
         self.home = None;
@@ -665,6 +688,7 @@ impl App {
         self.loading = false;
         self.home_loading = false;
         self.radio_pending = false;
+        self.subscribing = false;
         if let Some(h) = &mut self.home {
             h.loading_more = None;
             h.picks_loading = false;

@@ -106,6 +106,7 @@ pub enum Req {
     Collaboration(String),
     SetCollaboration { info: ytm::Collaboration, change: ytm::CollabChange },
     SaveCollection { id: String, save: bool },
+    Subscribe { channel_id: String, on: bool },
     SetCookie(String),
     Logout,
 }
@@ -154,6 +155,7 @@ impl Req {
             Req::Collaboration(_) => "Loading collaboration",
             Req::SetCollaboration { .. } => "Collaboration",
             Req::SaveCollection { .. } => "Save to library",
+            Req::Subscribe { .. } => "Subscribe",
             Req::SetCookie(_) => "Sign in",
             Req::Logout => "Sign out",
         }
@@ -266,6 +268,10 @@ pub struct ArtistPage {
     pub name: String,
     pub banner: Vec<Thumb>,
     pub subscribers: Option<u64>,
+    /// The account subscribes to it (false signed out).
+    pub subscribed: bool,
+    /// What subscribing takes; it isn't always the page's id.
+    pub channel_id: Option<String>,
     pub description: Option<String>,
     pub top: Vec<Track>,
     /// "Top songs" playlist behind the shelf's Show all button.
@@ -280,9 +286,12 @@ pub struct Library {
     pub albums: Vec<Card>,
     /// Saved podcast shows, when podcasts are shown.
     pub podcasts: Vec<Card>,
-    /// That half didn't load (YouTube Music refused it, say): the one shown stays.
+    /// Subscribed artists.
+    pub artists: Vec<Card>,
+    /// That part didn't load (YouTube Music refused it, say): the one shown stays.
     pub playlists_failed: bool,
     pub albums_failed: bool,
+    pub artists_failed: bool,
 }
 
 /// The signed-in account's channels.
@@ -340,6 +349,8 @@ pub enum Resp {
     LikeProgress { taken: Vec<String>, done: usize, total: usize, like: bool },
     /// The songs YouTube Music took, and the ones it refused.
     LikedMany { video_ids: Vec<String>, failed: Vec<String>, like: bool, others: Vec<String> },
+    /// A subscribe or unsubscribe went through (`ok`), or didn't.
+    Subscribed { channel_id: String, on: bool, ok: bool },
     PlaylistCreated { id: String, songs: usize },
     PlaylistChanged { id: String, message: &'static str },
     /// Songs weren't taken out of this playlist, though they've left it here already.
@@ -378,6 +389,8 @@ impl Resp {
                 | Resp::LikeProgress { .. }
                 | Resp::LikedMany { .. }
                 | Resp::AddedToPlaylist { .. }
+                | Resp::Artist(_)
+                | Resp::Subscribed { .. }
         )
     }
 
@@ -768,7 +781,7 @@ impl Backend {
                 Req::Album { id, load } => Resp::Collection { load, c: ytm::album(api, &id).await?, more: false },
                 Req::Playlist { id, load, stream: false } => Resp::Collection { load, c: ytm::playlist(api, &id, me, None).await?, more: false },
                 Req::Playlist { id, load, stream: true } => self.stream_playlist(id, load, me).await?,
-                Req::Artist(id) => Resp::Artist(ytm::artist(api, &id).await?),
+                Req::Artist(id) => Resp::Artist(ytm::artist(api, &id, me).await?),
                 Req::Library => self.library().await?,
                 Req::History => Resp::History(ytm::history(api).await?),
                 Req::Uploads => Resp::Uploads(ytm::uploads(api).await?),
@@ -849,7 +862,7 @@ impl Backend {
                     let (title, tracks) = match &target {
                         Target::Album(id) => ytm::album(api, id).await.map(|c| (c.title, c.tracks))?,
                         Target::Playlist(id) => ytm::playlist(api, id, me, None).await.map(|c| (c.title, c.tracks))?,
-                        Target::Artist(id) => ytm::artist(api, id).await.map(|a| (a.name, a.top))?,
+                        Target::Artist(id) => ytm::artist(api, id, false).await.map(|a| (a.name, a.top))?,
                         Target::Song(t) => (t.title.clone(), vec![t.clone()]),
                     };
                     Resp::PlayQueue { target, title, tracks }
@@ -981,6 +994,13 @@ impl Backend {
                     ytm::save_collection(api, &id, save).await?;
                     Resp::PlaylistChanged { id, message: if save { "Saved to library" } else { "Removed from library" } }
                 }
+                Req::Subscribe { channel_id, on } => {
+                    let result = ytm::set_subscribed(api, &channel_id, on).await;
+                    if let Err(e) = &result {
+                        log::warn!("subscribe={on} {channel_id}: {e:#}");
+                    }
+                    Resp::Subscribed { channel_id, on, ok: result.is_ok() }
+                }
                 Req::SetCookie(input) => {
                     self.set_cookie(&input).await?;
                     *self.premium.lock().await = Err(None);
@@ -1060,7 +1080,10 @@ impl Backend {
                 Vec::new()
             })
         };
-        let (pls, albums, podcasts) = tokio::join!(ytm::saved_playlists(api), ytm::saved_albums(api), podcasts);
+        let artists = async {
+            ytm::subscribed_artists(api).await.inspect_err(|e| log::warn!("subscribed artists didn't load: {e:#}"))
+        };
+        let (pls, albums, podcasts, artists) = tokio::join!(ytm::saved_playlists(api), ytm::saved_albums(api), podcasts, artists);
         let pls = match (pls, &albums) {
             (Err(e), Err(_)) => return Err(e),
             (pls, _) => pls,
@@ -1074,9 +1097,11 @@ impl Backend {
         Ok(Resp::Library(Library {
             playlists_failed: pls.is_err(),
             albums_failed: albums.is_err(),
+            artists_failed: artists.is_err(),
             playlists: pls.map(|p| p.into_iter().filter(saved_playlist_visible).collect()).unwrap_or_default(),
             albums: albums.unwrap_or_default(),
             podcasts,
+            artists: artists.unwrap_or_default(),
         }))
     }
 

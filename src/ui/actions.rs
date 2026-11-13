@@ -99,11 +99,22 @@ impl App {
             }
             Action::ToggleVideo => {
                 self.show_video = !self.show_video;
-                // Its song is playing: a video only stays in time with its own audio.
-                if self.show_video {
+                // Its song is playing: a video only stays in time with its own audio. A
+                // song's music video goes with Video off; Video on leaves a song be.
+                if self.show_video == self.current().is_some_and(Track::has_video) {
                     self.play_listed_upload();
-                } else if self.current().is_some_and(|t| t.music_video) && self.play_songs && !self.jam.active() {
+                } else if !self.show_video && self.current().is_some_and(|t| t.music_video) && self.play_songs && !self.jam.active() {
                     self.play_song_version();
+                }
+            }
+            // Picked on a song's switch, Video or Song sticks for videos too, as their own
+            // switch does.
+            Action::SongVideo(video) => {
+                self.show_video = video;
+                if video {
+                    self.play_music_video();
+                } else {
+                    self.play_listed_upload();
                 }
             }
             Action::Seek(secs) => {
@@ -163,7 +174,7 @@ impl App {
             Action::Download(track) => {
                 self.toast(format!("Downloading \u{201c}{}\u{201d}", track.title));
                 // The song version playing for a music video: that video plays the file too.
-                let for_video = if self.playing_as().is_some_and(|s| s.id == track.id) { self.current_id().map(str::to_owned) } else { None };
+                let for_video = if self.playing_as().is_some_and(|s| s.id == track.id && !s.has_video()) { self.current_id().map(str::to_owned) } else { None };
                 self.backend.request(Req::Download { track, for_video });
             }
             Action::DownloadMany(target, title, tracks) => {
@@ -385,7 +396,7 @@ impl App {
             return;
         }
         // With a video on show, the mini player is that video (picture in picture).
-        let video = on && self.np_open && self.current().is_some_and(|t| self.video_mode(t));
+        let video = on && self.np_open && self.shown_video().is_some();
         self.mini.toggle(ctx, now, video);
     }
 

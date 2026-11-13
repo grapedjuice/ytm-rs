@@ -127,7 +127,8 @@ impl App {
         if !lastfm && !listenbrainz {
             return;
         }
-        let Some(t) = self.playing_track().filter(|_| self.playing() && !self.buffering) else { return };
+        // A song's music video picked on its switch is still that song.
+        let Some(t) = self.heard_song().filter(|_| self.playing() && !self.buffering) else { return };
         let pos = self.audio.status.position();
         let dur = Duration::from_millis(self.audio.status.duration_ms.load(Ordering::Relaxed));
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;

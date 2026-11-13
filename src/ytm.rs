@@ -252,15 +252,48 @@ pub async fn paired_song(api: &Api, video_id: &str) -> anyhow::Result<Option<Tra
 }
 
 fn parse_paired_song(v: &Value, video_id: &str) -> Option<Track> {
-    counterparts(v, video_id).find(|r| video_type(&[&r["navigationEndpoint"]]) == Some("MUSIC_VIDEO_TYPE_ATV")).and_then(panel_item)
+    counterparts(v, video_id).map(half).find(|r| video_type(&[&r["navigationEndpoint"]]) == Some("MUSIC_VIDEO_TYPE_ATV")).and_then(panel_item)
+}
+
+/// A song's music video, and where the song's start comes in it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MusicVideo {
+    pub video: Track,
+    /// The video's place at the song's start, in milliseconds: later for an intro before
+    /// the song, earlier for a song that opens with what the video cut. 0 when not known.
+    pub offset_ms: i64,
+}
+
+/// The music video of a song from YouTube's own pair, as [`paired_song`] the other way
+/// round: Premium accounts only, `None` for others.
+pub async fn paired_video(api: &Api, song_id: &str) -> anyhow::Result<Option<MusicVideo>> {
+    let body = json!({"videoId": song_id, "isAudioOnly": true, "enablePersistentPlaylistPanel": true});
+    let v = api.call_signed_in("next", body).await?;
+    Ok(parse_paired_video(&v, song_id))
+}
+
+fn parse_paired_video(v: &Value, song_id: &str) -> Option<MusicVideo> {
+    let c = counterparts(v, song_id).find(|c| music_video(&[&half(c)["navigationEndpoint"]]))?;
+    let video = panel_item(half(c))?;
+    // The pair lines the two up: this far into the song is that far into the video.
+    let seg = &c["segmentMap"]["segment"][0];
+    let ms = |key: &str| seg[key].as_str().and_then(|n| n.parse::<i64>().ok());
+    let offset_ms = ms("counterpartVideoStartTimeMilliseconds").zip(ms("primaryVideoStartTimeMilliseconds")).map_or(0, |(video, song)| video - song);
+    Some(MusicVideo { video, offset_ms })
 }
 
 /// The song of a music video, or the music video of a song.
 fn parse_other_half(v: &Value, video_id: &str) -> Option<String> {
-    counterparts(v, video_id).find_map(|r| r["videoId"].as_str()).map(str::to_owned)
+    counterparts(v, video_id).find_map(|c| half(c)["videoId"].as_str()).map(str::to_owned)
 }
 
-/// What a `next` answer pairs with `video_id`: its other version, on Premium accounts.
+/// The other version itself, in a pair from [`counterparts`].
+fn half(counterpart: &Value) -> &Value {
+    &counterpart["counterpartRenderer"]["playlistPanelVideoRenderer"]
+}
+
+/// What a `next` answer pairs with `video_id`: its other version, on Premium accounts,
+/// with the `segmentMap` that lines the two up.
 fn counterparts<'a>(v: &'a Value, video_id: &str) -> impl Iterator<Item = &'a Value> {
     let panel = &v["contents"]["singleColumnMusicWatchNextResultsRenderer"]["tabbedRenderer"]["watchNextTabbedResultsRenderer"]["tabs"][0]
         ["tabRenderer"]["content"]["musicQueueRenderer"]["content"]["playlistPanelRenderer"];
@@ -270,7 +303,6 @@ fn counterparts<'a>(v: &'a Value, video_id: &str) -> impl Iterator<Item = &'a Va
         .map(|i| &i["playlistPanelVideoWrapperRenderer"])
         .filter(move |w| w["primaryRenderer"]["playlistPanelVideoRenderer"]["videoId"] == id.as_str())
         .flat_map(|w| arr(&w["counterpart"]))
-        .map(|c| &c["counterpartRenderer"]["playlistPanelVideoRenderer"])
 }
 
 /// The song version of a music video, by a signed-out search (a signed-in one would
@@ -284,6 +316,20 @@ pub async fn searched_song(api: &Api, video: &Track, clean: bool) -> anyhow::Res
     };
     let hits = search_songs(api, &query, false).await?;
     Ok(hits.into_iter().take(5).find(|h| same_song(video, h) && !(clean && h.explicit)))
+}
+
+/// The music video of a song, by a signed-out videos search (signed in, it would land in
+/// the account's search history). Only an official music video that's a sure match
+/// counts: [`same_song`], the other way round.
+pub async fn searched_video(api: &Api, song: &Track) -> anyhow::Result<Option<Track>> {
+    let Some(artist) = song.artists.first().filter(|_| song.duration.is_some() && !song.has_video()) else { return Ok(None) };
+    let hits = search_videos(api, &format!("{} {}", song.title, artist.name), false).await?;
+    Ok(sure_video(song, hits))
+}
+
+/// Among the first few hits only: further down, a match is more likely another recording.
+fn sure_video(song: &Track, hits: Vec<Track>) -> Option<Track> {
+    hits.into_iter().take(5).find(|h| h.music_video && same_song(h, song))
 }
 
 /// Whether `hit` (a song from a search) is the song of the music video `video`: the same
@@ -2532,6 +2578,36 @@ mod tests {
         assert_eq!(parse_paired_song(&v, "raBobo3GZYA"), None);
         // Not in the queue (or a free account's queue, which has no pairs).
         assert_eq!(parse_paired_song(&v, "BeyEGebJ1l4"), None);
+        // A song's music video, lined up with it: the song's start is 0.927 s into the video.
+        let found = parse_paired_video(&v, "raBobo3GZYA").unwrap();
+        assert_eq!((found.video.id.as_str(), found.video.music_video, found.offset_ms), ("BeyEGebJ1l4", true, 927));
+        // A music video's counterpart is its song: no music video of a music video.
+        assert_eq!(parse_paired_video(&v, "dQw4w9WgXcQ"), None);
+        assert_eq!(parse_paired_video(&v, "not-in-the-queue"), None);
+        // Without the map, the two start together.
+        let mut bare = v.clone();
+        let pair = &mut bare["contents"]["singleColumnMusicWatchNextResultsRenderer"]["tabbedRenderer"]["watchNextTabbedResultsRenderer"]["tabs"][0]["tabRenderer"]["content"]
+            ["musicQueueRenderer"]["content"]["playlistPanelRenderer"]["contents"][0]["playlistPanelVideoWrapperRenderer"]["counterpart"][0];
+        pair.as_object_mut().unwrap().remove("segmentMap");
+        assert_eq!(parse_paired_video(&bare, "raBobo3GZYA").map(|m| m.offset_ms), Some(0));
+    }
+
+    #[test]
+    fn the_music_video_of_a_song_is_found_by_a_sure_match_only() {
+        let song_of = song("Take On Me", &["a-ha"], 226);
+        let official = video("a-ha - Take On Me (Official Video) [4K]", &["a-ha"], 244);
+        let not_official = Track { music_video: false, video: true, ..official.clone() };
+        assert_eq!(sure_video(&song_of, vec![not_official.clone(), official.clone()]).map(|v| v.id), Some(official.id.clone()));
+        // A fan's upload of the same song isn't its music video.
+        assert_eq!(sure_video(&song_of, vec![not_official]), None);
+        // Nor is a live video, another song's, or one past the first few hits.
+        assert_eq!(sure_video(&song_of, vec![video("Take On Me (Live From MTV Unplugged)", &["a-ha"], 240)]), None);
+        assert_eq!(sure_video(&song_of, vec![video("The Sun Always Shines on T.V.", &["a-ha"], 300)]), None);
+        let others = (0..5).map(|i| video(&format!("Other {i}"), &["a-ha"], 244));
+        assert_eq!(sure_video(&song_of, others.chain([official]).collect()), None);
+        // Everyone on the video is on the song too.
+        assert_eq!(sure_video(&song("Duet", &["Singer A"], 200), vec![video("Duet", &["Singer A", "Singer B"], 200)]), None);
+        assert!(sure_video(&song("Duet", &["Singer A", "Singer B"], 200), vec![video("Duet", &["Singer A"], 200)]).is_some());
     }
 
     #[test]
@@ -2594,6 +2670,23 @@ mod tests {
         ] {
             let found = searched_song(&api, &v, false).await.unwrap();
             println!("{} -> {:?}", v.title, found.as_ref().map(|s| (&s.id, &s.title, s.artist_line(), s.duration)));
+        }
+    }
+
+    /// A signed-out search for the music videos of a few songs. Run alone:
+    /// `cargo test --bin ytm-rs -- --ignored ytm::tests::searched_video_live --exact --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn searched_video_live() {
+        let api = crate::ytmapi::Api::new(&std::env::temp_dir().join("ytm-rs-album-songs-test"));
+        for s in [
+            song("Never Gonna Give You Up", &["Rick Astley"], 214),
+            song("Take On Me", &["a-ha"], 226),
+            song("bad guy", &["Billie Eilish"], 195),
+            song("Bohemian Rhapsody", &["Queen"], 355),
+        ] {
+            let found = searched_video(&api, &s).await.unwrap();
+            println!("{} -> {:?}", s.title, found.as_ref().map(|v| (&v.id, &v.title, v.artist_line(), v.duration)));
         }
     }
 }

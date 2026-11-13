@@ -502,6 +502,9 @@ impl App {
                     }
                 }
             }
+            Resp::MusicVideo { song, video } => {
+                self.music_videos.insert(song, video);
+            }
             Resp::PlayError { generation, msg } => self.on_play_error(generation, msg),
             Resp::ServerQueue(q) => self.adopt_server_queue(q),
             Resp::Account { name, photo } => {

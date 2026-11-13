@@ -89,6 +89,8 @@ pub enum Req {
     Play { video_id: String, generation: u64, at: std::time::Duration, report: bool, song_of: Option<Track>, song: Option<Track> },
     /// A video's stream, for showing it: the tallest at most `max_height`.
     VideoStream { video_id: String, max_height: u32 },
+    /// A song's music video, for Now playing's Song/Video switch.
+    MusicVideo(Track),
     /// The animated cover standing in for a song's cover, if it has one.
     Canvas(Track),
     /// Resolve and download a track ahead of time so skipping to it is instant.
@@ -149,7 +151,7 @@ impl Req {
             Req::PlayCollection { .. } => "Playback",
             Req::Play { .. } => "Playback",
             Req::Prefetch { .. } => "Prefetch",
-            Req::VideoStream { .. } => "Video",
+            Req::VideoStream { .. } | Req::MusicVideo(_) => "Video",
             Req::Canvas(_) => "Animated cover",
             Req::Like { .. } | Req::LikeMany { .. } | Req::UnlikeBoth { .. } => "Like",
             Req::Dislike(_) => "Dislike",
@@ -171,7 +173,7 @@ impl Req {
 
     /// Background requests fail quietly (logged, no toast).
     fn quiet(&self) -> bool {
-        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::Art { .. } | Req::Prefetch { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::LyricsExtras { .. } | Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. })
+        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::Art { .. } | Req::Prefetch { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::MusicVideo(_) | Req::LyricsExtras { .. } | Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. })
     }
 }
 
@@ -395,6 +397,8 @@ pub enum Resp {
     /// Play `generation` is the song version of the music video that was asked for
     /// (`None`: that song wouldn't start, and the music video plays after all).
     PlayingAs { generation: u64, listed: String, song: Option<Track> },
+    /// The song `song`'s music video (`None`: it has none, or none was sure).
+    MusicVideo { song: String, video: Option<ytm::MusicVideo> },
     LoggedIn(bool),
     /// A past search left the account's history; the list already shows it gone.
     SearchForgotten,
@@ -1114,6 +1118,7 @@ impl Backend {
                     }
                     Resp::VideoStream { video_id, max_height, stream: found.ok() }
                 }
+                Req::MusicVideo(song) => Resp::MusicVideo { video: self.music_video(&song).await?, song: song.id },
                 Req::Canvas(track) => Resp::Canvas { clip: crate::canvas::find(&self.http(), &self.data_dir, &track).await, video_id: track.id },
                 Req::Prefetch { video_id, song_of } => {
                     self.prefetch(video_id, song_of).await?;
@@ -1549,7 +1554,7 @@ impl Backend {
         // If the song's audio won't start after all, the music video plays instead.
         let fallback = song.is_some().then(|| (self.clone(), listed.to_owned(), report));
         if let Some(song) = song {
-            log::info!("play {listed} as its song {video_id}");
+            log::info!("play {listed} as its {} {video_id}", if song.has_video() { "music video" } else { "song" });
             // Carried over, the UI has it already.
             if !was_carried {
                 let _ = self.tx.send(Resp::PlayingAs { generation, listed: listed.to_owned(), song: Some(song) });
@@ -1760,6 +1765,28 @@ impl Backend {
             }
         }
         ytm::searched_song(&self.api, video, clean).await
+    }
+
+    /// A song's music video: YouTube's own pair (Premium), or a sure signed-out search
+    /// match, which doesn't know how the two line up.
+    async fn music_video(&self, song: &Track) -> anyhow::Result<Option<ytm::MusicVideo>> {
+        let premium = match self.api.account() {
+            Some(session) => self.is_premium(&session).await,
+            None => false,
+        };
+        if premium {
+            match ytm::paired_video(&self.api, &song.id).await {
+                // YouTube pairs every song that has a music video; trust it when it says none.
+                Ok(found) => return Ok(found),
+                Err(e) => log::debug!("video pair of {}: {e:#}; searching instead", song.id),
+            }
+        }
+        let found = ytm::searched_video(&self.api, song).await?;
+        match &found {
+            Some(v) => log::info!("music video of {} \"{}\": {} \"{}\"", song.id, song.title, v.id, v.title),
+            None => log::info!("music video of {} \"{}\": none found", song.id, song.title),
+        }
+        Ok(found.map(|video| ytm::MusicVideo { video, offset_ms: 0 }))
     }
 
     async fn open_stream(&self, video_id: &str, prefetch: bool) -> anyhow::Result<Arc<Shared>> {

@@ -194,6 +194,9 @@ pub enum Action {
     Seek(f32),
     /// Moving video or the picture, for music videos.
     ToggleVideo,
+    /// The Song/Video switch on a song: its music video in its place (`true`), or the
+    /// song again.
+    SongVideo(bool),
     Like(Track, bool),
     /// The heart of what's playing, in the player bar, the mini player and Now playing's menu.
     LikeHeard(bool),
@@ -468,8 +471,12 @@ pub struct App {
     show_comments: bool,
     /// With them, ask YouTube for its Restricted Mode too.
     restricted_mode: bool,
-    /// The song version playing in place of the current music video.
+    /// The song version playing in place of the current music video, or the music video
+    /// playing in place of the current song.
     playing_as: Option<PlayingAs>,
+    /// Songs' music videos, for the Song/Video switch: looked up once each (`None`: it has
+    /// none, or the answer hasn't come yet).
+    music_videos: std::collections::HashMap<String, Option<crate::ytm::MusicVideo>>,
     /// The output device picked in settings (cpal's id and its name, for when it's not
     /// connected), and the devices last listed there.
     output_device: Option<(String, String)>,
@@ -794,6 +801,7 @@ impl App {
             show_comments,
             restricted_mode,
             playing_as: None,
+            music_videos: Default::default(),
             output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
             output_devices: Vec::new(),
             updater: None,
@@ -1242,7 +1250,7 @@ impl eframe::App for App {
         }
         // No sleep while playing, and the screen stays on for a video on show: this song's
         // (picture in picture keeps the last one's player for a song after it).
-        let video = self.current().filter(|t| self.video_mode(t)).is_some_and(|t| {
+        let video = self.shown_video().is_some_and(|t| {
             self.video.as_ref().is_some_and(|(id, p)| *id == t.id && p.as_ref().is_some_and(|p| !p.failed()))
         });
         if let Some(a) = &mut self.awake {
@@ -1837,12 +1845,14 @@ struct Session {
     duration_ms: u64,
     #[serde(default)]
     listened_at: u64,
-    /// The song version that was playing for the current music video: the position is its.
+    /// The song version that was playing for the current music video (or the music video
+    /// for the current song): the position is its.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     playing_as: Option<Track>,
 }
 
-/// The song version playing in place of the music video `listed`, in play `generation`.
+/// The song version playing in place of the music video `listed`, in play `generation`;
+/// or the music video playing in place of the song `listed`, picked on its switch.
 struct PlayingAs {
     generation: u64,
     listed: String,

@@ -159,7 +159,7 @@ pub(super) fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: 
     for o in &b.overlays {
         super::shell::overlay_light(&painter, rect, o, app.accent_color());
     }
-    if app.ambient_light && app.current().cloned().is_some_and(|track| app.video_mode(&track)) {
+    if app.ambient_light && app.shown_video().is_some() {
         paint_glow(app, ui, rect, clip, step_glow);
     }
 }
@@ -193,7 +193,8 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     let Some(track) = app.current().cloned() else { return };
     let look = app.look();
     let area = ui.max_rect();
-    let video_mode = app.video_mode(&track);
+    let video = app.shown_video().cloned();
+    let video_mode = video.is_some();
     let video_lyrics = video_mode && look.now_playing.video_lyrics && !app.no_lyrics() && content_wide(area);
     let no_lyrics = app.no_lyrics() || (video_mode && !video_lyrics);
     // Header: on the window buttons' line, when the app draws them.
@@ -221,8 +222,9 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     if app.fullscreen && look.now_playing.fullscreen_progress_px > 0.0 {
         fullscreen_progress(app, ui, ui.ctx().content_rect(), look.now_playing.fullscreen_progress_px);
     }
-    np_content(app, ui, content, &track, video_mode, video_lyrics, no_lyrics, now);
-    if track.has_video() && !app.jam.active() && look.now_playing.show_video_switch {
+    np_content(app, ui, content, &track, video.as_ref(), video_lyrics, no_lyrics, now);
+    // A song gets the switch too once its music video is found (or is playing).
+    if look.now_playing.show_video_switch && !app.jam.active() && (track.has_video() || app.playing_as().is_some() || app.song_video().is_some()) {
         song_video_switch(app, ui, header);
     }
     let mut hui = ui.new_child(egui::UiBuilder::new().max_rect(header).layout(egui::Layout::left_to_right(egui::Align::Center)));
@@ -305,24 +307,24 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
 
 /// What's under the header: the video, or the cover and the panel beside it.
 #[allow(clippy::too_many_arguments)]
-fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::Track, video_mode: bool, video_lyrics: bool, no_lyrics: bool, now: f64) {
+fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::Track, video: Option<&crate::model::Track>, video_lyrics: bool, no_lyrics: bool, now: f64) {
     use crate::preset::{Layout, Side};
     let look = app.look();
     let cs = &look.cover;
     let layout = cs.layout_in(app.fullscreen);
     let cover_side = cs.fullscreen.filter(|_| app.fullscreen).and_then(|f| f.side).unwrap_or(cs.side);
-    if video_mode {
+    if let Some(video) = video {
         // Lyrics beside the video, with the video keeping the rest of the view.
         if video_lyrics && app.np_tab == NpTab::Lyrics {
             let share = look.now_playing.video_panel_frac.map_or(0.63, |[win, full]| if app.fullscreen { full } else { win });
             let split = content.left() + content.width() * share;
-            video_stage(app, ui, Rect::from_min_max(content.min, pos2(split - 24.0, content.bottom())), track);
+            video_stage(app, ui, Rect::from_min_max(content.min, pos2(split - 24.0, content.bottom())), video);
             let r = Rect::from_min_max(pos2(split, content.top()), content.max);
             let mut rui = ui.new_child(egui::UiBuilder::new().max_rect(r));
             rui.set_clip_rect(r.intersect(ui.clip_rect()));
             lyrics_panel(app, &mut rui, r, now, false);
         } else {
-            video_stage(app, ui, content, track);
+            video_stage(app, ui, content, video);
         }
         return;
     }
@@ -926,8 +928,9 @@ fn song_video_switch(app: &mut App, ui: &mut Ui, header: Rect) {
             ui.painter().rect_stroke(back, radius, egui::Stroke::new(1.0, theme::with_alpha(Color32::WHITE, look.stroke)), egui::StrokeKind::Inside);
         }
     }
+    let picked = app.video_picked();
     if let Some(a) = look.selected {
-        let cell = Rect::from_center_size(header.center() + vec2(if app.show_video { 34.0 } else { -36.0 }, 0.0), vec2(68.0, 34.0));
+        let cell = Rect::from_center_size(header.center() + vec2(if picked { 34.0 } else { -36.0 }, 0.0), vec2(68.0, 34.0));
         ui.painter().rect_filled(cell, look.radius.unwrap_or(17.0), theme::with_alpha(Color32::WHITE, a));
     }
     let (song, video) = if look.plain {
@@ -942,12 +945,13 @@ fn song_video_switch(app: &mut App, ui: &mut Ui, header: Rect) {
             widgets::focus_ring(ui, &resp, r, look.radius.unwrap_or(17.0));
             resp.clicked()
         };
-        (word(ui, "Song", -36.0, !app.show_video), word(ui, "Video", 34.0, app.show_video))
+        (word(ui, "Song", -36.0, !picked), word(ui, "Video", 34.0, picked))
     } else {
-        (widgets::chip(&mut row, "Song", !app.show_video).clicked(), widgets::chip(&mut row, "Video", app.show_video).clicked())
+        (widgets::chip(&mut row, "Song", !picked).clicked(), widgets::chip(&mut row, "Video", picked).clicked())
     };
-    if (song && app.show_video) || (video && !app.show_video) {
-        app.actions.push(Action::ToggleVideo);
+    if (song && picked) || (video && !picked) {
+        let on_song = app.current().is_some_and(|t| !t.has_video());
+        app.actions.push(if on_song { Action::SongVideo(!picked) } else { Action::ToggleVideo });
     }
 }
 

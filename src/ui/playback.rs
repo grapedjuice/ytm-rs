@@ -65,8 +65,9 @@ impl App {
         self.current().map(|t| t.id.as_str())
     }
 
-    /// The song version standing in for the current music video. Only for the play it
-    /// came with: a new play, or a queue that changed under it, leaves it behind.
+    /// The song version standing in for the current music video, or the music video
+    /// standing in for the current song. Only for the play it came with: a new play, or a
+    /// queue that changed under it, leaves it behind.
     pub(super) fn playing_as(&self) -> Option<&Track> {
         self.playing_as.as_ref().filter(|p| p.generation == self.generation && self.current_id() == Some(p.listed.as_str())).map(|p| &p.song)
     }
@@ -89,13 +90,20 @@ impl App {
         self.playing_track().map(|t| t.id.as_str())
     }
 
-    /// Play the current music video as itself again, from where its song is now: a jam
-    /// plays everyone the host's exact upload.
+    /// The song of what's playing, for scrobbles: the song version standing in for a
+    /// music video, or the song a music video stands in for.
+    pub(super) fn heard_song(&self) -> Option<&Track> {
+        self.playing_as().filter(|t| !t.has_video()).or(self.current())
+    }
+
+    /// Play the current track as itself again, from where its stand-in is now: a music
+    /// video rather than its song (a jam plays everyone the host's exact upload), or a
+    /// song rather than its music video.
     pub(super) fn play_listed_upload(&mut self) {
         if self.playing_as().is_none() {
             return;
         }
-        let at = self.audio.status.position();
+        let at = shifted(self.current_at(), -self.video_offset());
         self.playing_as = None;
         if self.playing() || self.buffering {
             self.play_current_at(at, false);
@@ -256,10 +264,49 @@ impl App {
         self.start_current(at, report, false);
     }
 
-    /// Whether a video is what's on show for `t`: lyrics are timed to its song, so they
-    /// don't go with it.
-    pub(super) fn video_mode(&self, t: &Track) -> bool {
-        self.show_video && t.has_video() && self.playing_as().is_none() && !self.jam.active()
+    /// The video on show, when one is: the music video playing, or the one picked on a
+    /// song's switch. Lyrics are timed to the song, so they don't go with it.
+    pub(super) fn shown_video(&self) -> Option<&Track> {
+        let t = self.playing_track().filter(|t| t.has_video() && !self.jam.active())?;
+        (self.show_video || self.playing_as().is_some()).then_some(t)
+    }
+
+    /// What the Song/Video switch shows picked: on a song, whether its music video plays
+    /// in its place; on a video, the Video preference.
+    pub(super) fn video_picked(&self) -> bool {
+        match self.current() {
+            Some(t) if !t.has_video() => self.playing_as().is_some(),
+            _ => self.show_video,
+        }
+    }
+
+    /// The current song's music video, for its Song/Video switch. Asked for the first
+    /// time it's wanted, once per song.
+    pub(super) fn song_video(&mut self) -> Option<&crate::ytm::MusicVideo> {
+        let t = self.current().filter(|t| !t.has_video() && !self.jam.active())?;
+        if !self.music_videos.contains_key(&t.id) {
+            let t = t.clone();
+            if self.music_videos.len() >= 1000 {
+                self.music_videos.clear();
+            }
+            self.music_videos.insert(t.id.clone(), None);
+            self.backend.request(Req::MusicVideo(t));
+            return None;
+        }
+        let found = self.music_videos.get(&t.id)?.as_ref()?;
+        (!(self.hide_explicit && found.video.explicit)).then_some(found)
+    }
+
+    /// Where the current track is: where it's to start from when it's waiting to (a
+    /// switch made while paused), or the player's position.
+    fn current_at(&self) -> Duration {
+        self.resume_at.unwrap_or_else(|| self.audio.status.position())
+    }
+
+    /// How far the music video playing for the current song runs ahead of the song.
+    fn video_offset(&self) -> i64 {
+        let (Some(song), Some(video)) = (self.current(), self.playing_as()) else { return 0 };
+        self.music_videos.get(&song.id).and_then(Option::as_ref).filter(|m| m.video.id == video.id).map_or(0, |m| m.offset_ms)
     }
 
     /// From its video to its song version, at about the same place.
@@ -272,11 +319,30 @@ impl App {
         }
     }
 
-    fn start_current(&mut self, at: Duration, report: bool, as_song: bool) {
+    /// From a song to its music video, at the same place in the song: the video stands
+    /// in for it as a song version does for a video, so it's the same play.
+    pub(super) fn play_music_video(&mut self) {
+        if self.playing_as().is_some() {
+            return;
+        }
+        let Some(found) = self.song_video().cloned() else { return };
+        let Some(listed) = self.current_id().map(str::to_owned) else { return };
+        let at = shifted(self.current_at(), found.offset_ms);
+        self.playing_as = Some(PlayingAs { generation: self.generation, listed, song: found.video });
+        if self.playing() || self.buffering {
+            self.start_current(at, false, true);
+        } else {
+            self.resume_at = Some(at);
+        }
+    }
+
+    /// `swap`: the same play going on as its song version or its music video, from `at`.
+    fn start_current(&mut self, at: Duration, report: bool, swap: bool) {
         let Some(track) = self.current().cloned() else { return };
         // Picking up mid-song (a resume, a download that broke off): the position is the
         // song version's when one was playing, so that goes on; a music video stays one.
-        let carried = if at.is_zero() || self.jam.active() { None } else { self.playing_as().cloned() };
+        // Likewise a song's music video.
+        let carried = if (at.is_zero() && !swap) || self.jam.active() { None } else { self.playing_as().cloned() };
         self.queue.started();
         self.resume_at = None;
         self.resume_counts = false;
@@ -300,7 +366,7 @@ impl App {
         self.buffering = true;
         self.seek_drag = None;
         // A carried song version goes with its music video, which plays if the song won't.
-        let song_of = if carried.is_none() && (at.is_zero() || as_song) { self.song_of(&track) } else { None };
+        let song_of = if carried.is_none() && (at.is_zero() || swap) { self.song_of(&track) } else { None };
         self.playing_as = carried.clone().map(|song| PlayingAs { generation: self.generation, listed: track.id.clone(), song });
         self.backend.request(Req::Play { video_id: track.id.clone(), generation: self.generation, at, report, song_of, song: carried });
         self.show_in_media(&shown);
@@ -523,6 +589,11 @@ impl App {
             self.prefetch_next();
         }
     }
+}
+
+/// `at` moved by `ms`, not before the start.
+fn shifted(at: Duration, ms: i64) -> Duration {
+    Duration::from_millis((at.as_millis() as i64).saturating_add(ms).max(0) as u64)
 }
 
 fn unix_now() -> u64 {

@@ -1720,14 +1720,19 @@ fn list_item(r: &Value) -> Option<Track> {
     for c in 1..cols.len() {
         for (i, run) in runs(col(c)?).enumerate() {
             let name = run["text"].as_str().unwrap_or_default();
-            let kind = page_type(run);
+            // Uploads link their artist and album to the account's own uploads pages,
+            // which the artist and album pages can't open: keep the names, not the links.
+            let (kind, id) = match upload_page(run) {
+                Some(kind) => (Some(kind), None),
+                None => (page_type(run), browse_id(run)),
+            };
             if c == 1 && in_artists {
                 match name.trim() {
                     "•" => in_artists = false,
                     "" | "," | "&" => {}
                     "Song" | "Video" | "Episode" if i == 0 => {}
                     n if kind.is_none_or(|k| k == "MUSIC_PAGE_TYPE_ARTIST" || k == "MUSIC_PAGE_TYPE_USER_CHANNEL") && !looks_like_duration(n) && !n.ends_with(" plays") => {
-                        artists.push(Link { name: n.to_owned(), id: browse_id(run) })
+                        artists.push(Link { name: n.to_owned(), id: id.clone() })
                     }
                     _ => {}
                 }
@@ -1737,9 +1742,9 @@ fn list_item(r: &Value) -> Option<Track> {
             }
             match kind {
                 Some("MUSIC_PAGE_TYPE_ARTIST" | "MUSIC_PAGE_TYPE_USER_CHANNEL") if !artists.iter().any(|a| a.name == name) => {
-                    artists.push(Link { name: name.to_owned(), id: browse_id(run) })
+                    artists.push(Link { name: name.to_owned(), id })
                 }
-                Some("MUSIC_PAGE_TYPE_ALBUM") => album = Some(Link { name: name.to_owned(), id: browse_id(run) }),
+                Some("MUSIC_PAGE_TYPE_ALBUM") => album = Some(Link { name: name.to_owned(), id }),
                 // Search rows put the length in the text ("Artist • Album • 3:22").
                 _ if duration.is_none() && looks_like_duration(name) => duration = parse_duration(name),
                 _ if name.ends_with(" plays") => plays = count(name),
@@ -1857,6 +1862,20 @@ fn page_type(v: &Value) -> Option<&str> {
 
 fn browse_id(run: &Value) -> Option<String> {
     run["navigationEndpoint"]["browseEndpoint"]["browseId"].as_str().map(str::to_owned)
+}
+
+/// An uploaded song's artist or album run, read as the artist or album it names. They lead
+/// to the account's uploads ("FEmusic_library_privately_owned_artist_detail…",
+/// "…_release_detail…"), whatever page type they carry.
+fn upload_page(run: &Value) -> Option<&'static str> {
+    let rest = run["navigationEndpoint"]["browseEndpoint"]["browseId"].as_str()?.strip_prefix("FEmusic_library_privately_owned_")?;
+    if rest.starts_with("artist") {
+        Some("MUSIC_PAGE_TYPE_ARTIST")
+    } else if rest.starts_with("release") {
+        Some("MUSIC_PAGE_TYPE_ALBUM")
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -2067,6 +2086,24 @@ mod tests {
         let t = list_item(&row(ALBUM_ROW)).unwrap();
         assert_eq!((t.title.as_str(), t.track_nr, t.duration), ("Alone Again", Some(1), Some(251)));
         assert!(t.artists.is_empty());
+    }
+
+    // Library › Uploads row, shaped like a real answer (November 2026): the artist and album lead
+    // to the account's uploads, the artist's page type UNKNOWN and the album's ALBUM.
+    const UPLOAD_ROW: &str = r#"{"musicResponsiveListItemRenderer":{"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"A Sky Full Of Stars","navigationEndpoint":{"watchEndpoint":{"videoId":"FDpg6FxVQZU"}}}]}}},{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Coldplay","navigationEndpoint":{"browseEndpoint":{"browseId":"FEmusic_library_privately_owned_artist_detaila_po_CICr2crg7OWpchIIY29sZHBsYXk","browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_UNKNOWN"}}}}}]}}},{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Ghost Stories","navigationEndpoint":{"browseEndpoint":{"browseId":"FEmusic_library_privately_owned_release_detailb_po_CICr2crg7OWpchIOZ2hvc3Qgc3Rvcmllcw","browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ALBUM"}}}}}]}}}],"fixedColumns":[{"musicResponsiveListItemFixedColumnRenderer":{"text":{"runs":[{"text":"4:28"}]}}}]}}"#;
+
+    #[test]
+    fn upload_row_keeps_its_artist_and_album_unlinked() {
+        let t = list_item(&row(UPLOAD_ROW)).unwrap();
+        assert_eq!(names(&t), ["Coldplay"]);
+        assert_eq!(t.artists[0].id, None);
+        assert_eq!(t.album.as_ref().map(|a| (a.name.as_str(), a.id.as_deref())), Some(("Ghost Stories", None)));
+        assert_eq!(t.duration, Some(268));
+        // Whatever page type the run carries: none, or a plain artist's.
+        let bare = UPLOAD_ROW.replace(r#","browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_UNKNOWN"}}"#, "");
+        assert_eq!(names(&list_item(&row(&bare)).unwrap()), ["Coldplay"]);
+        let plain = UPLOAD_ROW.replace("MUSIC_PAGE_TYPE_UNKNOWN", "MUSIC_PAGE_TYPE_ARTIST");
+        assert_eq!(list_item(&row(&plain)).unwrap().artists[0].id, None);
     }
 
     #[test]

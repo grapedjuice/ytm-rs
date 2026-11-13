@@ -207,6 +207,11 @@ pub enum Action {
     /// A song of your own playlist dragged to the gap between rows, if `id` is still at `from`.
     PlaylistMove { from: usize, gap: usize, id: String },
     Download(Track),
+    /// Download an album or playlist (fetched whole when the songs are `None`), or a
+    /// selection (no target), by its name.
+    DownloadMany(Option<Target>, String, Option<Vec<Track>>),
+    /// Stop a download of many songs, by its `DownloadRun::key`.
+    CancelDownload(String),
     NewPlaylist(Vec<Track>),
     EditPlaylist,
     /// Save one of your playlist's sort orders to it: (playlist id, what to send).
@@ -232,6 +237,8 @@ enum Dialog {
     NewPlaylist { title: String, tracks: Vec<Track> },
     EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
     ConfirmDelete { id: String, title: String },
+    /// A large download (`count` songs to go) asked about before it starts.
+    ConfirmDownload { target: Option<Target>, title: String, tracks: Vec<Track>, count: usize },
     /// `info` until it loads; `busy` while a change is on its way; `confirm_off` asks
     /// before turning collaboration off (that removes the collaborators).
     Collaborate { id: String, info: Option<crate::ytm::Collaboration>, busy: bool, confirm_off: bool },
@@ -397,6 +404,13 @@ pub struct App {
     uploads: Option<Vec<Track>>,
     /// Library › Downloads, read from the download index when the tab opens.
     downloads: Option<Vec<Track>>,
+    /// How many of this session's saves `downloads` has (`downloads::saved_since`).
+    downloads_seen: usize,
+    /// Albums, playlists and selections downloading now.
+    download_runs: Vec<crate::backend::DownloadRun>,
+    /// Whether a collection's songs are all downloaded, by its id, as its page last
+    /// found (with how many songs it had then); cleared when a download finishes.
+    all_downloaded: HashMap<String, (u64, bool)>,
     /// Files chosen in the upload dialog, handed over from its thread.
     picked_uploads: Arc<std::sync::Mutex<Option<Vec<std::path::PathBuf>>>>,
     liked: HashSet<String>,
@@ -738,6 +752,9 @@ impl App {
             history: None,
             uploads: None,
             downloads: None,
+            downloads_seen: 0,
+            download_runs: Vec::new(),
+            all_downloaded: HashMap::new(),
             picked_uploads: Default::default(),
             liked: HashSet::new(),
             unliking: HashMap::new(),
@@ -1071,7 +1088,8 @@ impl App {
             }
             // On this computer: no request, and the files are read again on each visit.
             Page::Library(LibTab::Downloads) => {
-                self.downloads = Some(crate::downloads::all());
+                self.read_downloads();
+                self.all_downloaded.clear();
                 None
             }
             Page::Library(_) if self.logged_in => Some(Req::Library),
@@ -1380,6 +1398,9 @@ impl eframe::App for App {
         }
         let accent = self.accent_color();
         ctx.data_mut(|d| d.insert_temp(egui::Id::unique("accent"), accent));
+        // How far each album or playlist being downloaded has got, for its cover's veil.
+        let progress: Arc<Vec<(String, f32)>> = Arc::new(self.download_runs.iter().filter(|r| !r.title.is_empty()).map(|r| (r.key.clone(), r.done as f32 / r.total.max(1) as f32)).collect());
+        ctx.data_mut(|d| d.insert_temp(egui::Id::unique("download-progress"), progress));
         // The file can change with nothing else going on here.
         if self.accent_source == AccentSource::File {
             ctx.request_repaint_after(Duration::from_secs(2));

@@ -470,6 +470,9 @@ fn selection_bar(app: &mut App, ctx: &egui::Context, page: &Page, area: Rect) {
                             if button(ui, "Add to queue", icon::LIST_MUSIC, false).clicked() {
                                 acts.extend(picked.iter().cloned().map(Action::Enqueue));
                             }
+                            if !matches!(page, Page::Library(LibTab::Downloads)) && button(ui, "Download", icon::DOWNLOAD, false).clicked() {
+                                acts.push(Action::DownloadMany(None, String::new(), Some(picked.clone())));
+                            }
                         }
                         toggle_all = button(ui, if all { "Select none" } else { "Select all" }, icon::LIST_CHECKS, false).clicked();
                         done |= widgets::icon_button(ui, icon::X, 18.0, "Done selecting", false).clicked();
@@ -822,6 +825,8 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         return;
     }
     let rows = Rows::new(app, now);
+    let downloaded = all_downloaded(app, id);
+    let run = app.download_runs.iter().find(|r| r.key == id).map(|r| (r.done, r.total, r.cancelled));
     let Some(o) = app.lists.get(id) else { return };
     // Sorted once all of it is here: until then it plays as it arrives.
     app.find.hold(&app.page, !o.complete);
@@ -853,6 +858,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         let [sy, sb, sa] = look.app.header_art_shadow.unwrap_or([0.0, 40.0, 0.5]);
         widgets::soft_shadow(ui, img.translate(vec2(0.0, sy)), 10.0, sb, sa);
         paint_cover(ui, img, &c.thumbs, theme::card_radius() + 2.0, 1.0);
+        widgets::download_veil(ui, img, theme::card_radius() + 2.0, id);
         ui.add_space(26.0);
         ui.vertical(|ui| {
             let full = ui.available_width();
@@ -879,7 +885,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             ui.add_space(16.0);
             // The most these buttons take (Save to library's the widest); below that, the
             // find box takes a line of its own.
-            const BUTTONS_W: f32 = 660.0;
+            const BUTTONS_W: f32 = 820.0;
             let tools_w = super::find::BOX_W + if is_album { 0.0 } else { SORT_W };
             let beside = full >= BUTTONS_W + tools_w;
             let page = &app.page;
@@ -918,6 +924,19 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                                 acts.push(Action::SaveCollection(save_id, !saved));
                             }
                     }
+                    if let Some((.., true)) = run {
+                        // Cancelled: the songs on their way finish first.
+                        pill(ui, "Stopping\u{2026}", None, false);
+                    } else if let Some((done, total, _)) = run {
+                        if pill(ui, &format!("Downloading {done} of {total}"), Some(icon::X), false).on_hover_text("Cancel download").clicked() {
+                            acts.push(Action::CancelDownload(id.to_owned()));
+                        }
+                    } else if downloaded {
+                        pill(ui, "Downloaded", Some(icon::CHECK), false).on_hover_text(format!("All {} are on this computer", c.things()));
+                    } else if !tracks.is_empty() && pill(ui, "Download", Some(icon::DOWNLOAD), false).clicked() {
+                        // A whole list goes as it is; a partial one is fetched in full by the backend.
+                        acts.push(Action::DownloadMany(Some(target.clone()), c.title.clone(), o.complete.then(|| tracks.clone())));
+                    }
                     // Only your own playlists can be edited or deleted (mixes and others' playlists can't).
                     let own = app.logged_in && !auto && !is_album && c.owned;
                     let more = widgets::more_pill(ui, "More options");
@@ -953,6 +972,73 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     if more {
         widgets::skeleton_rows(ui, now, 3);
     }
+}
+
+/// Whether every song of a fully loaded album or playlist is downloaded; worked out once
+/// per list (its songs and the downloads folder) and kept until a download changes it.
+fn all_downloaded(app: &mut App, id: &str) -> bool {
+    use std::hash::{Hash, Hasher};
+    let Some(o) = app.lists.get(id).filter(|o| o.complete) else { return false };
+    // Not while it downloads: its files land one by one, and the run says how far it is.
+    if app.download_runs.iter().any(|r| r.key == id) {
+        return false;
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    crate::downloads::folder().hash(&mut h);
+    crate::downloads::looks().hash(&mut h);
+    o.c.tracks.iter().for_each(|t| t.id.hash(&mut h));
+    let seen = h.finish();
+    if let Some(&(s, all)) = app.all_downloaded.get(id)
+        && s == seen
+    {
+        return all;
+    }
+    let all = !o.c.tracks.is_empty() && crate::downloads::all_listed(&o.c.tracks);
+    app.all_downloaded.insert(id.to_owned(), (seen, all));
+    all
+}
+
+/// The cover of an album or playlist being downloaded, from its kept copy or its card.
+fn run_thumbs<'a>(app: &'a App, key: &str) -> &'a [crate::model::Thumb] {
+    if let Some(o) = app.opened(key) {
+        return &o.c.thumbs;
+    }
+    let lib = app.library.iter().flat_map(|l| l.playlists.iter().chain(&l.albums));
+    lib.chain(app.sidebar_cache.iter().flatten())
+        .find(|c| matches!(&c.target, Target::Album(id) | Target::Playlist(id) if id == key))
+        .map_or(&[], |c| &c.thumbs)
+}
+
+/// A download of many songs in Library › Downloads: its cover (veiled as it goes), its
+/// name, how far it's got, and a button to cancel it. True when cancelled.
+fn download_run(ui: &mut Ui, r: &crate::backend::DownloadRun, thumbs: &[crate::model::Thumb], width: f32) -> bool {
+    let (rect, _) = ui.allocate_exact_size(vec2(width, 64.0), Sense::hover());
+    let p = ui.painter();
+    p.rect_filled(rect, 10.0, theme::glass(0.04));
+    let img = Rect::from_min_size(rect.min + vec2(10.0, 10.0), Vec2::splat(44.0));
+    if r.title.is_empty() {
+        p.rect_filled(img, theme::thumb_radius(), theme::glass_panel(0.07));
+        widgets::icon_at(ui, img.center(), icon::DOWNLOAD, 20.0, theme::text_dim());
+    } else {
+        paint_cover(ui, img, thumbs, theme::thumb_radius(), 1.0);
+        widgets::download_veil(ui, img, theme::thumb_radius(), &r.key);
+    }
+    let close = Rect::from_center_size(pos2(rect.right() - 26.0, rect.center().y), Vec2::splat(32.0));
+    let x = img.right() + 14.0;
+    let w = close.left() - 14.0 - x;
+    let title = if r.title.is_empty() { "Selected songs" } else { &r.title };
+    widgets::text_at(ui, pos2(x, rect.top() + 11.0), title, theme::semibold(14.0), theme::text(), w);
+    widgets::text_at(ui, pos2(x, rect.top() + 30.0), &if r.cancelled { "Stopping\u{2026}".to_owned() } else { format!("{} of {} songs", r.done, r.total) }, theme::regular(12.5), theme::text_dim(), w);
+    let bar = Rect::from_min_size(pos2(x, rect.bottom() - 12.0), vec2(w, 3.0));
+    let f = theme::anim(ui.ctx(), ("download-run-bar", &r.key), r.done as f32 / r.total.max(1) as f32, 0.4);
+    let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
+    p.rect_filled(bar, 1.5, theme::glass(0.1));
+    p.rect_filled(Rect::from_min_size(bar.min, vec2(w * f, bar.height())), 1.5, accent);
+    if r.cancelled {
+        return false;
+    }
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(close));
+    widgets::icon_button(&mut child, icon::X, 16.0, "Cancel download", false).clicked()
 }
 
 // ------------------------------------------------------------------ artist
@@ -1180,6 +1266,25 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                     find_box_right(ui, &mut app.find, &mut app.selection, &app.page, songs);
                 }
             });
+            // Side by side, as many to a line as fit at 280 wide or more.
+            let mut cancel = None;
+            let (gap, full) = (8.0, ui.available_width());
+            let cols = (((full + gap) / (280.0 + gap)).floor() as usize).max(1);
+            let w = (full - gap * (cols - 1) as f32) / cols as f32;
+            for line in app.download_runs.chunks(cols) {
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = gap;
+                    for r in line {
+                        if download_run(ui, r, run_thumbs(app, &r.key), w) {
+                            cancel = Some(r.key.clone());
+                        }
+                    }
+                });
+            }
+            if let Some(key) = cancel {
+                app.actions.push(Action::CancelDownload(key));
+            }
             ui.add_space(6.0);
             ui.label(
                 RichText::new("Songs saved on this computer. They play from their files, so they work offline and without signing in.")
@@ -1189,7 +1294,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
             ui.add_space(12.0);
             if songs.is_empty() {
                 ui.add_space(20.0);
-                ui.label(RichText::new("No downloads yet. Download a song from its ⋯ menu.").color(theme::text_dim()));
+                ui.label(RichText::new("No downloads yet. Download a song from its ⋯ menu, or a whole album or playlist from its page.").color(theme::text_dim()));
                 return;
             }
             list(ui, &rows, &app.liked, songs, true, plain, ListCtx { sel: &mut app.selection, find: &app.find, drag: &mut app.row_drag, movable: false, page: &app.page, own: false }, &mut app.actions);
@@ -1729,7 +1834,7 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
 
 /// Settings › Downloads.
 fn settings_downloads(ui: &mut Ui) {
-    settings_section(ui, "Downloads", None, Some("Download songs from their menu. They're saved at the best quality your account gets, tagged with their cover art, and play from the file, even offline."), |ui| {
+    settings_section(ui, "Downloads", None, Some("Download songs from their menu, or whole albums and playlists from their page. They're saved at the best quality your account gets, tagged with their cover art, and play from the file, even offline."), |ui| {
         let folder = crate::downloads::folder().display().to_string();
         setting_row(ui, "Download folder", Some(&folder), |ui| {
             if pill(ui, "Change", None, false).clicked() {

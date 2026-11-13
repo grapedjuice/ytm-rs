@@ -30,6 +30,7 @@ impl App {
             Dialog::NewPlaylist { .. } => "New playlist",
             Dialog::EditPlaylist { .. } => "Edit playlist",
             Dialog::ConfirmDelete { .. } => "Delete playlist",
+            Dialog::ConfirmDownload { .. } => "Download",
             Dialog::Collaborate { .. } => "Collaborate",
         };
         // The same modal card as "Delete playlist?" and the update dialog.
@@ -90,6 +91,18 @@ impl App {
                             done = true;
                         }
                         done |= cancel;
+                    }
+                    Dialog::ConfirmDownload { target, title, tracks, count } => {
+                        let what = if target.is_some() { format!("\u{201c}{title}\u{201d} has {count} songs") } else { format!("{count} songs are") };
+                        let body = format!("{what} not downloaded yet. They download in the background, and the song that's playing goes first.");
+                        ui.add(egui::Label::new(egui::RichText::new(body).font(theme::regular(14.0)).color(theme::text_dim())).wrap());
+                        ui.add_space(22.0);
+                        let (ok, cancel) = dialog_buttons(ui, &format!("Download {count} songs"), true, accent);
+                        if ok {
+                            let (target, title, tracks) = (target.clone(), title.clone(), Some(std::mem::take(tracks)));
+                            self.backend.request(Req::DownloadMany { target, title, tracks, confirmed: true });
+                        }
+                        done = ok || cancel;
                     }
                     Dialog::Collaborate { info, busy, confirm_off, .. } => done = self.collaborate_dialog(ui, info, busy, confirm_off, accent),
                     Dialog::ConfirmDelete { .. } => unreachable!("drawn by confirm_delete"),

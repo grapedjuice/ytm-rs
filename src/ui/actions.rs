@@ -166,6 +166,10 @@ impl App {
                 let for_video = if self.playing_as().is_some_and(|s| s.id == track.id) { self.current_id().map(str::to_owned) } else { None };
                 self.backend.request(Req::Download { track, for_video });
             }
+            Action::DownloadMany(target, title, tracks) => {
+                self.backend.request(Req::DownloadMany { target, title, tracks, confirmed: false });
+            }
+            Action::CancelDownload(key) => self.backend.cancel_downloads(&key),
             Action::AddToPlaylist(tracks) => {
                 if self.logged_in { self.dialog = Some(Dialog::PickPlaylist(tracks)); }
                 else { self.toast("Sign in to edit playlists"); }

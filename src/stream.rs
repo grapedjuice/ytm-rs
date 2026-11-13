@@ -609,9 +609,12 @@ pub fn decoder(shared: Arc<Shared>, seekable: bool) -> anyhow::Result<TrackDecod
         return Ok(TrackDecoder::Opus(Box::new(crate::opus::OpusSource::new(StreamReader::new(shared), size, duration_ms)?)));
     }
     let feed = shared.feed;
-    let builder = rodio::Decoder::builder().with_data(StreamReader::new(shared)).with_byte_len(size).with_seekable(seekable);
-    // A feed's file is probed for what it is: MP3, or AAC in MP4.
-    let builder = if feed { builder.with_coarse_seek(true) } else { builder.with_mime_type("audio/mp4").with_hint("m4a") };
+    // A feed's file is probed for what it is: MP3, or AAC in an MP4 whose index may
+    // follow the audio (only a seekable reader gets to it). Without a VBR header, an
+    // MP3's length is guessed from its first frames, and gapless trimming would cut
+    // whatever runs past the guess.
+    let builder = rodio::Decoder::builder().with_data(StreamReader::new(shared)).with_byte_len(size).with_seekable(seekable || feed);
+    let builder = if feed { builder.with_coarse_seek(true).with_gapless(false) } else { builder.with_mime_type("audio/mp4").with_hint("m4a") };
     Ok(TrackDecoder::Aac(builder.build()?))
 }
 

@@ -78,7 +78,8 @@ pub async fn resolve(http: &reqwest::Client, data_dir: &Path, cookie: &str, vide
     let mut s = tokio::task::spawn_blocking(move || run(&bin, &data_dir, &video_id, &cookie)).await??;
     // The range downloader needs the exact size; yt-dlp sometimes only estimates it.
     if s.size == 0 {
-        let head = http.head(&s.url).header("User-Agent", &s.user_agent).send().await?.error_for_status()?;
+        // Errors leave the URL out: it carries the client's IP address and signatures (logs).
+        let head = http.head(&s.url).header("User-Agent", &s.user_agent).send().await.and_then(reqwest::Response::error_for_status).map_err(reqwest::Error::without_url)?;
         // Not `content_length()`: for a HEAD response that reports the empty body.
         let len = head.headers().get(reqwest::header::CONTENT_LENGTH).and_then(|v| v.to_str().ok()?.parse::<u64>().ok());
         s.size = len.filter(|&n| n > 0).ok_or_else(|| anyhow::anyhow!("unknown stream size"))?;

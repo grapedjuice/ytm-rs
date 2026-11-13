@@ -247,26 +247,30 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
     widgets::visible_rows(ui, n, |ui, k| {
         let i = shown.as_ref().map_or(k, |s| s[k]);
         let t = &tracks[i];
-        // Any song can be dragged onto a playlist in the sidebar.
-        row_drag::grip(ui, drag, drag_list, k, t);
-        let o = RowOpts {
-            selected: selecting.then(|| sel.rows.contains(&i)),
-            remove: own.then_some(i),
-            plays_col,
-            ..rows.opts(liked, t, number(i, t), show_album)
-        };
-        if track_row(ui, t, &o, acts).clicked() {
-            if selecting || mods.command || mods.shift {
-                // A run of picks is of the rows on show, in their order on screen.
-                sel.pick(page, i, mods.shift, shown.as_deref());
-            } else if let Some(s) = shown.as_ref().filter(|_| reordered || find.searching(page)) {
-                // What's on show plays, in its order. (Hidden explicit songs alone: the queue
-                // leaves those out.)
-                acts.push(Action::PlayFound(s.iter().map(|&r| tracks[r].clone()).collect(), k));
-            } else {
-                acts.push(Action::Play(tracks.to_vec(), i));
+        // Keyed on the song as well as the place: a song's open menu closes when the order
+        // changes under it, instead of turning into another song's.
+        ui.push_id(&t.id, |ui| {
+            // Any song can be dragged onto a playlist in the sidebar.
+            row_drag::grip(ui, drag, drag_list, k, t);
+            let o = RowOpts {
+                selected: selecting.then(|| sel.rows.contains(&i)),
+                remove: own.then_some(i),
+                plays_col,
+                ..rows.opts(liked, t, number(i, t), show_album)
+            };
+            if track_row(ui, t, &o, acts).clicked() {
+                if selecting || mods.command || mods.shift {
+                    // A run of picks is of the rows on show, in their order on screen.
+                    sel.pick(page, i, mods.shift, shown.as_deref());
+                } else if let Some(s) = shown.as_ref().filter(|_| reordered || find.searching(page)) {
+                    // What's on show plays, in its order. (Hidden explicit songs alone: the queue
+                    // leaves those out.)
+                    acts.push(Action::PlayFound(s.iter().map(|&r| tracks[r].clone()).collect(), k));
+                } else {
+                    acts.push(Action::Play(tracks.to_vec(), i));
+                }
             }
-        }
+        });
     });
     if !movable {
         row_drag::carry(ui, drag, drag_list);
@@ -280,20 +284,21 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
 /// The Sort button and the box that narrow a page's song list, against the right edge of
 /// its row of buttons.
 fn find_box_right(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track]) {
-    find_tools(ui, find, sel, page, tracks, &[], &mut Vec::new(), true);
+    find_tools(ui, find, sel, page, tracks, &[], false, &mut Vec::new(), true);
 }
 
 /// The Sort button, then the find box; `right`: against the right edge of the row. Your own
-/// playlist (`saved` has its orders) gets YouTube Music's Sort, the rest the app's own.
+/// playlist (`saved` has its orders) gets YouTube Music's Sort, the rest the app's own;
+/// `busy`: a sort of it is under way.
 #[allow(clippy::too_many_arguments)]
-fn find_tools(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track], saved: &[PlaylistSort], acts: &mut Vec<Action>, right: bool) {
+fn find_tools(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track], saved: &[PlaylistSort], busy: bool, acts: &mut Vec<Action>, right: bool) {
     let layout = if right { egui::Layout::right_to_left(egui::Align::Center) } else { egui::Layout::left_to_right(egui::Align::Center) };
     ui.with_layout(layout, |ui| {
         if right {
             find_field(ui, find, sel, page, tracks);
         }
         match page {
-            Page::Playlist(id) if !saved.is_empty() => saved_sort_pill(ui, find, page, id, saved, acts),
+            Page::Playlist(id) if !saved.is_empty() => saved_sort_pill(ui, find, page, id, saved, busy, acts),
             _ => sort_pill(ui, find, page),
         }
         if !right {
@@ -361,7 +366,7 @@ fn sort_pill(ui: &mut Ui, find: &mut ListFind, page: &Page) {
 
 /// Your own playlist's Sort button: YouTube Music's orders, saved to the playlist as there,
 /// which then loads again in the new order. Away while the list is still coming in.
-fn saved_sort_pill(ui: &mut Ui, find: &mut ListFind, page: &Page, id: &str, saved: &[PlaylistSort], acts: &mut Vec<Action>) {
+fn saved_sort_pill(ui: &mut Ui, find: &mut ListFind, page: &Page, id: &str, saved: &[PlaylistSort], busy: bool, acts: &mut Vec<Action>) {
     if find.holding(page) {
         return;
     }
@@ -369,11 +374,13 @@ fn saved_sort_pill(ui: &mut Ui, find: &mut ListFind, page: &Page, id: &str, save
     if find.sort(page) != Sort::Default {
         find.set_sort(page, Sort::Default);
     }
+    // One sort at a time: what's ticked is stale until the playlist has loaded again.
     let label = match saved.iter().find(|s| s.on && !s.manual) {
+        _ if busy => "Sorting…".to_owned(),
         Some(s) => format!("Sort: {}", s.name),
         None => "Sort".to_owned(),
     };
-    let resp = pill(ui, &label, None, false);
+    let resp = ui.add_enabled_ui(!busy, |ui| pill(ui, &label, None, false)).inner;
     widgets::menu_popup(&resp).show(|ui| {
         widgets::menu_body(ui, 190.0);
         for s in saved {
@@ -415,7 +422,11 @@ fn selection_bar(app: &mut App, ctx: &egui::Context, page: &Page, area: Rect) {
     // With a list narrowed by find, "all" is what's on show.
     let shown = app.find.rows(page, tracks);
     let n = shown.as_ref().map_or(tracks.len(), Vec::len);
-    let picked: Vec<Track> = app.selection.rows.iter().filter_map(|&i| tracks.get(i).cloned()).collect();
+    // In the order on screen.
+    let picked: Vec<Track> = match &shown {
+        Some(s) => s.iter().filter(|i| app.selection.rows.contains(i)).map(|&i| tracks[i].clone()).collect(),
+        None => app.selection.rows.iter().filter_map(|&i| tracks.get(i).cloned()).collect(),
+    };
     let all = !picked.is_empty() && picked.len() == n;
     let all_liked = !picked.is_empty() && picked.iter().all(|t| app.liked.contains(&t.id));
     // Labelled buttons when there's room, icons with tooltips when the window is narrow.
@@ -812,6 +823,8 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     // Sorted once all of it is here: until then it plays as it arrives.
     app.find.hold(&app.page, !o.complete);
     let (c, more) = (&o.c, app.receiving(id));
+    // A sort of it is under way, until it has loaded again in the new order.
+    let sorting = app.sorting.contains(id) || app.lists.loading(id);
     let acts = &mut app.actions;
     let tracks = &c.tracks;
     let is_album = c.is_album;
@@ -916,12 +929,12 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                     });
                 });
                 if beside {
-                    find_tools(ui, find, selection, page, tracks, &c.sorts, acts, true);
+                    find_tools(ui, find, selection, page, tracks, &c.sorts, sorting, acts, true);
                 }
             });
             if !beside {
                 ui.add_space(10.0);
-                find_tools(ui, find, selection, page, tracks, &c.sorts, acts, false);
+                find_tools(ui, find, selection, page, tracks, &c.sorts, sorting, acts, false);
             }
         });
     });

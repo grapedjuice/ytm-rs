@@ -379,6 +379,8 @@ pub struct App {
     /// Albums and playlists opened lately, so going back to one shows it at once (and
     /// refreshes it quietly), and their loads under way.
     lists: Lists,
+    /// Playlists a sort was asked of, until YouTube Music has answered.
+    sorting: HashSet<String>,
     artist: Option<ArtistPage>,
     library: Option<Library>,
     /// When the library was last requested; the sidebar spinner gives up after a while.
@@ -721,6 +723,7 @@ impl App {
             mood: None,
             search: None,
             lists: Lists::default(),
+            sorting: HashSet::new(),
             artist: None,
             library: None,
             library_requested: std::time::Instant::now(),

@@ -955,10 +955,14 @@ impl Backend {
                     ytm::edit_playlist(api, &id, &title, &description, privacy.as_deref()).await?;
                     Resp::PlaylistChanged { id, message: "Playlist updated" }
                 }
-                Req::SortPlaylist { id, actions } => {
-                    ytm::sort_playlist(api, &id, actions).await?;
-                    Resp::PlaylistChanged { id, message: "Playlist sorted" }
-                }
+                // A failure is answered too, so the Sort button comes back.
+                Req::SortPlaylist { id, actions } => match ytm::sort_playlist(api, &id, actions).await {
+                    Ok(()) => Resp::PlaylistChanged { id, message: "Playlist sorted" },
+                    Err(e) => {
+                        log::warn!("sort playlist failed: {e:#}");
+                        Resp::PlaylistChanged { id, message: "Couldn't sort the playlist" }
+                    }
+                },
                 Req::AddToPlaylist { playlist_id, video_ids } => {
                     // A failure says which songs too, so they stop showing in the playlist.
                     let error = ytm::add_videos(api, &playlist_id, &video_ids).await.err().map(|e| {

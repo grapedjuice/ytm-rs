@@ -552,6 +552,7 @@ impl App {
     /// A playlist was edited, added to, removed from, saved or deleted; `message` says which.
     fn on_playlist_changed(&mut self, id: String, message: &'static str) {
         self.request_library();
+        self.sorting.remove(&id);
         if message == "Playlist deleted" {
             // Its load is dropped too, and the queue stops waiting for it.
             self.lists.forget(&id);

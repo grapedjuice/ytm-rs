@@ -352,9 +352,8 @@ fn sort_pill(ui: &mut Ui, find: &mut ListFind, page: &Page) {
     widgets::menu_popup(&resp).show(|ui| {
         widgets::menu_body(ui, 190.0);
         for (s, name) in options {
-            if option_row(ui, name, s == now).clicked() {
+            if widgets::menu_choice(ui, name, s == now) {
                 find.set_sort(page, s);
-                ui.close();
             }
         }
     });
@@ -378,11 +377,8 @@ fn saved_sort_pill(ui: &mut Ui, find: &mut ListFind, page: &Page, id: &str, save
     widgets::menu_popup(&resp).show(|ui| {
         widgets::menu_body(ui, 190.0);
         for s in saved {
-            if option_row(ui, &s.name, s.on).clicked() {
-                if !s.on {
-                    acts.push(Action::SortPlaylist(id.to_owned(), s.actions.clone()));
-                }
-                ui.close();
+            if widgets::menu_choice(ui, &s.name, s.on) && !s.on {
+                acts.push(Action::SortPlaylist(id.to_owned(), s.actions.clone()));
             }
         }
     });

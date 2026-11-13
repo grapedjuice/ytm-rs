@@ -2,7 +2,7 @@ name: Release
 
 # Builds an installer and a portable download for every platform from the tagged source:
 # Windows (setup exe and portable zip, x64 and ARM64), Linux (install.sh tarball, .deb,
-# portable tarball and Arch .pkg.tar.zst) and macOS (disk image and portable zip, Apple silicon and Intel), then attaches them all to the GitHub release for that tag.
+# portable tarball, and an Arch .pkg.tar.zst when it builds) and macOS (disk image and portable zip, Apple silicon and Intel), then attaches them all to the GitHub release for that tag.
 # Releases are written as drafts (with notes) and published here only once every
 # file is attached, so the app's updater, which reads the latest published release,
 # never sees one without them. If no release exists yet, one is created as a draft
@@ -205,11 +205,14 @@ jobs:
             out/ytm-rs_*_amd64.deb
           if-no-files-found: error
 
+  # Built on archlinux:latest, which moves under it: if this fails, the release and the
+  # nightly still go out, just without the Arch package.
   arch:
     needs: prepare
     if: needs.prepare.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    continue-on-error: true
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       YTM_NIGHTLY: ${{ needs.prepare.outputs.nightly }}
@@ -217,8 +220,9 @@ jobs:
       - uses: actions/checkout@v5
 
       # Build against Arch's current libraries, rather than repackaging the
-      # Ubuntu binary. makepkg produces a pacman-installable .pkg.tar.zst.
-      - name: Build Arch package and portable Zstandard archive
+      # Ubuntu binary. makepkg produces a pacman-installable .pkg.tar.zst
+      # (ytm-rs-<version>-1-x86_64.pkg.tar.zst, a nightly's as <version>.nightly.<date>).
+      - name: Build the Arch package
         run: |
           docker run --rm \
             -v "$PWD:/src" -w /src \
@@ -228,9 +232,7 @@ jobs:
       - uses: actions/upload-artifact@v5
         with:
           name: arch
-          path: |
-            out/*.pkg.tar.zst
-            out/ytm-rs-portable-*-linux-x86_64.tar.zst
+          path: out/ytm-rs-*-x86_64.pkg.tar.zst
           if-no-files-found: error
           compression-level: 0
 
@@ -297,8 +299,11 @@ jobs:
             out/ytm-rs-portable-${{ env.VERSION }}-macos-x86_64.zip
           if-no-files-found: error
 
+  # Waits for the Arch package, but goes ahead without it if it failed.
   attach:
-    if: github.ref_type == 'tag' && needs.prepare.outputs.nightly == ''
+    if: >-
+      !cancelled() && github.ref_type == 'tag' && needs.prepare.outputs.nightly == '' &&
+      needs.windows.result == 'success' && needs.linux.result == 'success' && needs.macos.result == 'success'
     needs: [prepare, windows, linux, arch, macos]
     runs-on: ubuntu-latest
     steps:
@@ -321,7 +326,9 @@ jobs:
           fi
 
   nightly:
-    if: needs.prepare.outputs.nightly != ''
+    if: >-
+      !cancelled() && needs.prepare.outputs.nightly != '' &&
+      needs.windows.result == 'success' && needs.linux.result == 'success' && needs.macos.result == 'success'
     needs: [prepare, windows, linux, arch, macos]
     runs-on: ubuntu-latest
     steps:

@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
-# Build Arch Linux packages inside archlinux:latest, mounted at /src.
-# Usage: bash linux/arch.sh <release-version>
+# Build the Arch package inside archlinux:latest, with the checkout mounted at /src:
+# the app in /usr/lib/ytm-rs, a `ytm-rs` command, and a menu entry with its icon. A new
+# package installs over the old one.
+#
+#   bash linux/arch.sh <release-version>
 set -euo pipefail
 
 version="${1:?usage: bash linux/arch.sh <version>}"
+# pkgver can't have a hyphen. A nightly (0.3.0-nightly.20261111) becomes
+# 0.3.0.nightly.20261111, which pacman puts after 0.3.0 and before the next version,
+# as in the app's own updater.
 pkg_version="${version//-/.}"
 
 if [[ ! "$pkg_version" =~ ^[0-9][0-9A-Za-z.+_]*$ ]]; then
@@ -13,7 +19,7 @@ fi
 
 pacman -Syu --noconfirm --needed \
   base-devel git rust pkgconf clang cmake nasm \
-  openssl alsa-lib gtk3 webkit2gtk-4.1 xdotool \
+  openssl alsa-lib gtk3 webkit2gtk-4.1 \
   libayatana-appindicator dbus zstd
 
 # makepkg refuses to run as root. Use the checkout's UID so its build
@@ -23,7 +29,7 @@ useradd -m -u "$repo_uid" builder
 
 runuser -u builder -- cargo build --release --locked
 
-mkdir -p _archpkg out _portable
+mkdir -p _archpkg out
 cat > _archpkg/PKGBUILD <<'PKGBUILD'
 pkgname=ytm-rs
 pkgver=0.0.0
@@ -32,7 +38,8 @@ pkgdesc='Native YouTube Music client'
 arch=('x86_64')
 url='https://github.com/grapedjuice/ytm-rs'
 license=('GPL-3.0-only')
-depends=('alsa-lib' 'gtk3' 'webkit2gtk-4.1' 'libayatana-appindicator' 'xdotool' 'dbus' 'openssl')
+# The libraries it links. The tray's appindicator is loaded at run time.
+depends=('alsa-lib' 'gtk3' 'webkit2gtk-4.1' 'libayatana-appindicator' 'dbus' 'openssl')
 options=('!debug')
 
 package() {
@@ -55,13 +62,6 @@ chown -R builder:builder _archpkg
 runuser -u builder -- bash -c \
   'cd /src/_archpkg && makepkg --force --noconfirm --nodeps'
 
-cp _archpkg/*.pkg.tar.zst out/
-
-portable="ytm-rs-portable-${version}-linux-x86_64"
-mkdir -p "_portable/$portable"
-install -m755 target/release/ytm-rs "_portable/$portable/ytm-rs"
-cp linux/portable.txt README.md LICENSE "_portable/$portable/"
-tar -I 'zstd -T0 -19' -cf "out/$portable.tar.zst" \
-  -C _portable "$portable"
-
-ls -lh out/*.zst
+pkg="ytm-rs-$pkg_version-1-x86_64.pkg.tar.zst"
+cp "_archpkg/$pkg" out/
+ls -lh "out/$pkg"

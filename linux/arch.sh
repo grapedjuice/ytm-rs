@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build the Arch package inside archlinux:latest, with the checkout mounted at /src:
-# the app in /usr/lib/ytm-rs, a `ytm-rs` command, and a menu entry with its icon. A new
-# package installs over the old one.
+# the app in /usr/lib/ytm-rs, a `ytm-rs` command, and a menu entry with its icon. Beside
+# the app goes pacman.txt, which has it tell you when a new version is out instead of
+# updating itself (pacman owns the files). A new package installs over the old one.
 #
 #   bash linux/arch.sh <release-version>
 set -euo pipefail
@@ -9,7 +10,7 @@ set -euo pipefail
 version="${1:?usage: bash linux/arch.sh <version>}"
 # pkgver can't have a hyphen. A nightly (0.3.0-nightly.20261111) becomes
 # 0.3.0.nightly.20261111, which pacman puts after 0.3.0 and before the next version,
-# as in the app's own updater.
+# as in the app's own updater. The app looks for this name in the release.
 pkg_version="${version//-/.}"
 
 if [[ ! "$pkg_version" =~ ^[0-9][0-9A-Za-z.+_]*$ ]]; then
@@ -45,6 +46,9 @@ options=('!debug')
 package() {
   install -Dm755 /src/target/release/ytm-rs \
     "$pkgdir/usr/lib/ytm-rs/ytm-rs"
+  echo "Installed from the Arch package. This file has ytm-rs tell you about new versions instead of updating itself." \
+    > "$pkgdir/usr/lib/ytm-rs/pacman.txt"
+  chmod 644 "$pkgdir/usr/lib/ytm-rs/pacman.txt"
   install -d "$pkgdir/usr/bin"
   ln -s ../lib/ytm-rs/ytm-rs "$pkgdir/usr/bin/ytm-rs"
 

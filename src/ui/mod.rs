@@ -1905,12 +1905,12 @@ pub fn shuffle<T>(v: &mut [T]) {
     }
 }
 
-/// Whether this is the installed or the portable app, or the .deb (which only says a
-/// new version is out): updates only apply there. It
+/// Whether this is the installed or the portable app, or the .deb or the Arch package
+/// (which only say a new version is out): updates only apply there. It
 /// can't change while running, and the check touches the disk, so it runs once.
 fn updatable() -> bool {
     static UPDATABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *UPDATABLE.get_or_init(|| crate::update::installed() || crate::update::portable_dir().is_some() || crate::update::deb())
+    *UPDATABLE.get_or_init(|| crate::update::installed() || crate::update::portable_dir().is_some() || crate::update::packaged())
 }
 
 pub fn fmt_time(secs: u32) -> String {

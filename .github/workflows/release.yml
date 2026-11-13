@@ -221,7 +221,8 @@ jobs:
 
       # Build against Arch's current libraries, rather than repackaging the
       # Ubuntu binary. makepkg produces a pacman-installable .pkg.tar.zst
-      # (ytm-rs-<version>-1-x86_64.pkg.tar.zst, a nightly's as <version>.nightly.<date>).
+      # (ytm-rs-<version>-1-x86_64.pkg.tar.zst, a nightly's as <version>.nightly.<date>),
+      # which tells you about new versions rather than updating itself.
       - name: Build the Arch package
         run: |
           docker run --rm \

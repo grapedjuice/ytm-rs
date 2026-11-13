@@ -2173,12 +2173,12 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
                 Some(State::UpToDate) => format!("You're on the latest version ({}).", crate::update::current_version()),
                 Some(State::Downloading { version, percent }) => format!("Downloading {version}… {percent}%"),
                 Some(State::Ready { version, .. }) => format!("Version {version} is ready. It installs when you close ytm-rs."),
-                Some(State::Available { version, .. }) => format!("Version {version} is out. Download the new .deb and open it to install it over this one."),
+                Some(State::Available { version, .. }) => format!("Version {version} is out. {}", crate::update::package_step()),
                 Some(State::Failed(e)) => format!("Couldn't check for updates: {e}"),
                 _ => format!("Version {}.", crate::update::current_version()),
             }
         };
-        let auto_desc = if crate::update::deb() {
+        let auto_desc = if crate::update::packaged() {
             "Check for new versions and tell you when one is out."
         } else {
             "Download new versions in the background and install them when you close the app."
@@ -2221,9 +2221,8 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
             }
         });
         // The other kind of Linux install, still there beside this one.
-        if let Some(cmd) = crate::update::other_copy() {
+        if let Some((kind, cmd)) = crate::update::other_copy() {
             divider(ui);
-            let kind = if crate::update::deb() { "install.sh" } else { "the .deb" };
             setting_row(ui, "Another copy", Some(&format!("ytm-rs is also installed from {kind}. To remove that copy, run {cmd}")), |_| {});
         }
         // Release notes for the version that's ready, else the one running.

@@ -51,6 +51,8 @@ pub struct ListFind {
     held: Option<Page>,
     /// The last answer: looking through thousands of songs every frame shows.
     memo: RefCell<Option<Memo>>,
+    /// The Library grid's last order, the same way: its sort, its cards and their order.
+    card_memo: RefCell<Option<(Sort, ListKey, Vec<usize>)>>,
 }
 
 struct Memo {
@@ -152,11 +154,24 @@ impl ListFind {
     /// The Library grid on `page` in its sorted order, as indices into `cards`.
     pub fn cards(&self, page: &Page, cards: &[Card]) -> Vec<usize> {
         let mut rows: Vec<usize> = (0..cards.len()).collect();
-        match self.sort(page) {
-            Sort::Title => rows.sort_by_cached_key(|&i| fold(&cards[i].title)),
-            Sort::TitleDesc => rows.sort_by_cached_key(|&i| std::cmp::Reverse(fold(&cards[i].title))),
-            _ => {}
+        let sort = self.sort(page);
+        if !matches!(sort, Sort::Title | Sort::TitleDesc) {
+            return rows;
         }
+        let mut titles = DefaultHasher::new();
+        for c in cards {
+            c.title.hash(&mut titles);
+        }
+        let list = (cards.as_ptr() as usize, cards.len(), titles.finish());
+        let mut memo = self.card_memo.borrow_mut();
+        if let Some((_, _, rows)) = memo.as_ref().filter(|(s, l, _)| *s == sort && *l == list) {
+            return rows.clone();
+        }
+        match sort {
+            Sort::Title => rows.sort_by_cached_key(|&i| fold(&cards[i].title)),
+            _ => rows.sort_by_cached_key(|&i| std::cmp::Reverse(fold(&cards[i].title))),
+        }
+        *memo = Some((sort, list, rows.clone()));
         rows
     }
 
@@ -281,7 +296,7 @@ fn matches(t: &Track, words: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{KEEP_SORTS, LibTab, ListFind, Page, Sort, Track, run};
-    use crate::model::Link;
+    use crate::model::{Card, Link, Target};
 
     fn link(name: &str) -> Link {
         Link { name: name.into(), id: None }
@@ -439,5 +454,24 @@ mod tests {
         assert_eq!(run(Some(&shown), 1, 5), vec![5, 0, 3, 1]);
         // From a row no longer on show: just the one clicked.
         assert_eq!(run(Some(&shown), 2, 3), vec![3]);
+    }
+
+    fn card(title: &str) -> Card {
+        Card { title: title.into(), subtitle: String::new(), thumbs: vec![], target: Target::Playlist(title.into()), round: false, links: vec![] }
+    }
+
+    #[test]
+    fn library_grids_sort_and_follow_their_cards() {
+        let page = Page::Library(LibTab::Playlists);
+        let mut f = ListFind::default();
+        let mut cards = vec![card("chill"), card("Été"), card("bangers")];
+        assert_eq!(f.cards(&page, &cards), vec![0, 1, 2]);
+        f.set_sort(&page, Sort::Title);
+        assert_eq!(f.cards(&page, &cards), vec![2, 0, 1]);
+        f.set_sort(&page, Sort::TitleDesc);
+        assert_eq!(f.cards(&page, &cards), vec![1, 0, 2]);
+        // A renamed playlist isn't left in its old place.
+        cards[1].title = "Aardvark".into();
+        assert_eq!(f.cards(&page, &cards), vec![0, 2, 1]);
     }
 }

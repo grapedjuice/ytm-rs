@@ -213,14 +213,30 @@ async fn player(http: &reqwest::Client, video_id: &str, visitor_data: &str) -> a
 
     let status = &resp["playabilityStatus"];
     if status["status"] != "OK" {
-        anyhow::bail!(
-            "{}: {}",
-            status["status"].as_str().unwrap_or("UNPLAYABLE"),
-            status["reason"].as_str().unwrap_or("no reason given")
-        );
+        return Err(Refused {
+            status: status["status"].as_str().unwrap_or("UNPLAYABLE").to_owned(),
+            reason: status["reason"].as_str().unwrap_or("no reason given").to_owned(),
+        }
+        .into());
     }
     Ok(resp)
 }
+
+/// The player's `playabilityStatus` when it won't play the video: `status` is
+/// LOGIN_REQUIRED, UNPLAYABLE, ERROR and so on, `reason` the words it gives.
+#[derive(Debug)]
+pub struct Refused {
+    pub status: String,
+    pub reason: String,
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.status, self.reason)
+    }
+}
+
+impl std::error::Error for Refused {}
 
 #[cfg(test)]
 mod tests {

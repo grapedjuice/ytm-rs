@@ -887,7 +887,10 @@ impl Backend {
                 }
                 Req::Play { video_id, generation, at, report, song_of, song } => match self.start_playback(&video_id, song_of.as_ref(), song, generation, at, report).await {
                     Ok(()) => return Ok(None),
-                    Err(e) => Resp::PlayError { generation, msg: format!("{e:#}") },
+                    Err(e) => {
+                        log::warn!("play {video_id}: {e:#}");
+                        Resp::PlayError { generation, msg: format!("{e:#}") }
+                    }
                 },
                 Req::VideoStream { video_id, max_height } => {
                     let found = async { innertube::video_stream(&self.http(), &video_id, &api.visitor_data(false).await?, max_height.into()).await }.await;
@@ -1535,10 +1538,10 @@ impl Backend {
         let (source, s) = self.resolve(video_id, false).await?;
         match &s.starts {
             Some(starts) => log::info!("stream {video_id}: {} HLS segments from {source:?}", starts.len()),
-            None => log::info!("stream {video_id}: {} bytes {} from {source:?}", s.size, if s.opus { "Opus" } else { "AAC" }),
+            None => log::info!("stream {video_id}: {} bytes {} from {source:?}", s.size, s.kind()),
         }
         let shared = s.buffer(prefetch);
-        let refresh = Some(self.refresher(source, video_id, s.opus));
+        let refresh = Some(self.refresher(source, video_id, s.opus, s.size));
         let (this, buffer) = (self.clone(), shared.clone());
         self.rt.spawn(async move {
             stream::download(this.http(), s.media, s.user_agent, buffer.clone(), refresh).await;
@@ -1553,7 +1556,7 @@ impl Backend {
     }
 
     /// Resolves a fresh URL from the same source and format, for a download that got a 403.
-    fn refresher(&self, source: Source, video_id: &str, opus: bool) -> stream::Refresh {
+    fn refresher(&self, source: Source, video_id: &str, opus: bool, size: u64) -> stream::Refresh {
         let (this, id) = (self.clone(), video_id.to_owned());
         Arc::new(move || {
             let (this, id) = (this.clone(), id.clone());
@@ -1561,6 +1564,8 @@ impl Backend {
                 let s = this.resolve_from(source, &id, opus).await?;
                 // The buffer is laid out for the format it started with.
                 anyhow::ensure!(s.opus == opus, "the stream changed format");
+                // A podcast host may put other ads in, which makes another file.
+                anyhow::ensure!(s.size == size, "the stream changed size");
                 Ok(s.media)
             })
         })
@@ -1571,8 +1576,10 @@ impl Backend {
         let (source, s) = self.resolve(&t.id, true).await?;
         log::info!("download {}: {} bytes from {source:?}", t.id, s.size);
         anyhow::ensure!(s.starts.is_none(), "downloads need the file stream");
+        // Saved as a tagged .m4a, which a feed's MP3 isn't.
+        anyhow::ensure!(!matches!(s.media, stream::Media::Feed(_)), "episodes of podcasts added by RSS can't be downloaded");
         let shared = s.buffer(false);
-        stream::download(self.http(), s.media, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus))).await;
+        stream::download(self.http(), s.media, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus, s.size))).await;
         if let Some(e) = shared.error() {
             anyhow::bail!("{e}");
         }
@@ -1646,9 +1653,38 @@ impl Backend {
                         Err(e) => log::warn!("web music player failed ({e:#}); using yt-dlp"),
                     }
                 }
+                // Should visionOS ask to sign in for an episode of a podcast added by RSS
+                // (it says those aren't available, below), the web player has its file.
+                if let Some(s) = self.rss_episode(&session, video_id).await? {
+                    return Ok((Source::Feed, s));
+                }
                 Ok((Source::YtDlp, self.resolve_from(Source::YtDlp, video_id, false).await?))
             }
+            // An episode of a podcast added by RSS: YouTube doesn't have its audio, and
+            // visionOS answers as for a video that's gone. Only the signed-in web player
+            // tells the two apart (Premium or not), and plays the episode from its feed.
+            Err(e) if not_available(&e) => match self.api.account() {
+                Some(session) => match self.rss_episode(&session, video_id).await? {
+                    Some(s) => Ok((Source::Feed, s)),
+                    None => Err(e),
+                },
+                None => Err(e),
+            },
             Err(e) => Err(e),
+        }
+    }
+
+    /// The feed's file when `video_id` is an episode of a podcast added by RSS, `None`
+    /// for anything else. The web player's refusal is only logged: the caller has its own
+    /// error to give.
+    async fn rss_episode(&self, session: &webmusic::Session, video_id: &str) -> anyhow::Result<Option<ResolvedStream>> {
+        match session.feed(&self.http(), &self.jsc, video_id).await {
+            Ok(Some(feed)) => self.feed_stream(feed).await.map(Some),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                log::info!("{video_id}: web player: {e:#}");
+                Ok(None)
+            }
         }
     }
 
@@ -1673,7 +1709,15 @@ impl Backend {
             }
             Source::WebMusic => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
-                plain(session.audio_stream(&self.http(), &self.jsc, video_id, opus).await?, webmusic::UA)
+                match session.audio_stream(&self.http(), &self.jsc, video_id, opus).await? {
+                    webmusic::Audio::YouTube(s) => plain(s, webmusic::UA),
+                    webmusic::Audio::Feed(feed) => self.feed_stream(feed).await?,
+                }
+            }
+            Source::Feed => {
+                let session = self.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
+                let feed = session.feed(&self.http(), &self.jsc, video_id).await?.ok_or_else(|| anyhow::anyhow!("not an RSS podcast episode"))?;
+                self.feed_stream(feed).await?
             }
             Source::YtDlp => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("sign in to play this song"))?;
@@ -1683,6 +1727,22 @@ impl Backend {
                 // yt-dlp's JSON doesn't carry YouTube's loudness figure.
                 ResolvedStream { media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
             }
+        })
+    }
+
+    /// An RSS podcast episode's file, fetched from where its redirects (trackers, mostly)
+    /// end, so they aren't followed again for every range.
+    async fn feed_stream(&self, feed: webmusic::Feed) -> anyhow::Result<ResolvedStream> {
+        let (url, size) = stream::probe_feed(&self.http(), &feed.url, webmusic::UA).await?;
+        log::info!("podcast feed file on {}", reqwest::Url::parse(&url).ok().as_ref().and_then(reqwest::Url::host_str).unwrap_or("?"));
+        Ok(ResolvedStream {
+            media: stream::Media::Feed(url),
+            starts: None,
+            size,
+            duration_ms: feed.duration_ms,
+            user_agent: webmusic::UA.to_owned(),
+            loudness_db: None,
+            opus: false,
         })
     }
 
@@ -1833,6 +1893,8 @@ enum Source {
     /// The visionOS player's HLS segments: where its file URLs are cut off at 1 MiB.
     VisionOsHls,
     WebMusic,
+    /// An RSS podcast episode's file, which the web player finds without Premium.
+    Feed,
     YtDlp,
 }
 
@@ -1845,16 +1907,26 @@ struct ResolvedStream {
     duration_ms: u64,
     user_agent: String,
     loudness_db: Option<f32>,
-    /// Opus in WebM; otherwise AAC in MP4.
+    /// Opus in WebM; otherwise AAC in MP4, or a podcast feed's file.
     opus: bool,
 }
 
 impl ResolvedStream {
     /// A buffer laid out for this stream. `head_only`: a prefetch's.
     fn buffer(&self, head_only: bool) -> Arc<Shared> {
-        match &self.starts {
-            Some(starts) => Shared::segmented(starts.clone(), self.duration_ms, self.loudness_db, head_only),
-            None => Shared::new(self.size, self.duration_ms, self.loudness_db, self.opus, head_only),
+        match (&self.starts, &self.media) {
+            (Some(starts), _) => Shared::segmented(starts.clone(), self.duration_ms, self.loudness_db, head_only),
+            (None, stream::Media::Feed(_)) => Shared::feed(self.size, self.duration_ms, head_only),
+            (None, _) => Shared::new(self.size, self.duration_ms, self.loudness_db, self.opus, head_only),
+        }
+    }
+
+    /// For the log.
+    fn kind(&self) -> &'static str {
+        match (&self.media, self.opus) {
+            (stream::Media::Feed(_), _) => "podcast feed file",
+            (_, true) => "Opus",
+            _ => "AAC",
         }
     }
 }
@@ -1864,6 +1936,13 @@ impl ResolvedStream {
 fn needs_account(e: &anyhow::Error) -> bool {
     let msg = e.to_string();
     msg.contains("LOGIN_REQUIRED") || msg.contains("Premium")
+}
+
+/// The anonymous visionOS player says the video isn't there ("ERROR: This video is not
+/// available"), which is also its answer for an episode of a podcast added by RSS.
+/// Nothing in that answer tells the two apart.
+fn not_available(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<innertube::Refused>().is_some_and(|r| matches!(r.status.as_str(), "ERROR" | "UNPLAYABLE"))
 }
 
 /// Keep the signed-in release feed's order, using US charts and the user's home artists.
@@ -1934,5 +2013,53 @@ mod explore_tests {
         assert!(!saved_playlist_visible(&item("SE", "Auto playlist • 0 episodes")));
         assert!(saved_playlist_visible(&item("SE", "Auto playlist • 2 episodes")));
         assert!(saved_playlist_visible(&item("PLcustom", "Playlist")));
+    }
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+
+    fn refused(status: &str, reason: &str) -> anyhow::Error {
+        innertube::Refused { status: status.into(), reason: reason.into() }.into()
+    }
+
+    #[test]
+    fn a_video_visionos_says_isnt_there_may_be_an_rss_episode() {
+        // What visionOS answers for an episode of a podcast added by RSS.
+        assert!(not_available(&refused("ERROR", "This video is not available")));
+        assert!(not_available(&refused("UNPLAYABLE", "This video is unavailable")));
+        assert!(not_available(&refused("ERROR", "x").context("visionOS player")));
+        // Those that need an account keep their own route.
+        assert!(!not_available(&refused("LOGIN_REQUIRED", "Sign in to confirm your age")));
+        assert!(needs_account(&refused("LOGIN_REQUIRED", "Sign in to confirm your age")));
+        assert!(!needs_account(&refused("ERROR", "This video is not available")));
+        // Only the player's own answer, not an error that reads like one.
+        assert!(!not_available(&anyhow::anyhow!("ERROR: This video is not available")));
+    }
+
+    /// Read-only, signed in to an account with a podcast added by RSS (NPR's Planet
+    /// Money): visionOS says the episode isn't available, and the web player gives its
+    /// feed's file, which is reachable.
+    /// `YTM_DATA_DIR=<profile> cargo test --release -- --ignored rss_episode_live --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn rss_episode_live() {
+        let dir = PathBuf::from(std::env::var("YTM_DATA_DIR").unwrap());
+        let api = ytmapi::Api::new(&dir);
+        let session = api.account().expect("no session in the vault");
+        let (http, solver) = (reqwest::Client::new(), jsc::Solver::new(&dir));
+        let id = std::env::var("YTM_RSS_EPISODE").unwrap_or_else(|_| "M77cW_SUPm4".into());
+        let vd = api.visitor_data(false).await.unwrap();
+        let Err(e) = innertube::audio_stream(&http, &id, &vd, false).await else { panic!("visionOS played {id}") };
+        println!("visionOS: {e:#}");
+        assert!(not_available(&e), "{e:#}");
+        let t = std::time::Instant::now();
+        let feed = session.feed(&http, &solver, &id).await.unwrap().expect("not an RSS episode");
+        println!("web player: {} ms, {} (in {:?})", feed.duration_ms, feed.url, t.elapsed());
+        assert!(feed.duration_ms > 0);
+        let (file, size) = stream::probe_feed(&http, &feed.url, webmusic::UA).await.unwrap();
+        println!("  -> {file}: {size} bytes");
+        assert!(size > 0);
     }
 }

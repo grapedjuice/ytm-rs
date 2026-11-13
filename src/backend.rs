@@ -108,6 +108,7 @@ pub enum Req {
     Collaboration(String),
     SetCollaboration { info: ytm::Collaboration, change: ytm::CollabChange },
     SaveCollection { id: String, save: bool },
+    Subscribe { channel_id: String, on: bool },
     SetCookie(String),
     Logout,
 }
@@ -157,6 +158,7 @@ impl Req {
             Req::Collaboration(_) => "Loading collaboration",
             Req::SetCollaboration { .. } => "Collaboration",
             Req::SaveCollection { .. } => "Save to library",
+            Req::Subscribe { .. } => "Subscribe",
             Req::SetCookie(_) => "Sign in",
             Req::Logout => "Sign out",
         }
@@ -284,6 +286,12 @@ pub struct ArtistPage {
     pub name: String,
     pub banner: Vec<Thumb>,
     pub subscribers: Option<u64>,
+    /// The account subscribes to it (false signed out).
+    pub subscribed: bool,
+    /// What subscribing takes; it isn't always the page's id.
+    pub channel_id: Option<String>,
+    /// When it was asked for: a subscribe change answered since outranks `subscribed`.
+    pub asked: std::time::Instant,
     pub description: Option<String>,
     pub top: Vec<Track>,
     /// "Top songs" playlist behind the shelf's Show all button.
@@ -298,9 +306,12 @@ pub struct Library {
     pub albums: Vec<Card>,
     /// Saved podcast shows, when podcasts are shown.
     pub podcasts: Vec<Card>,
-    /// That half didn't load (YouTube Music refused it, say): the one shown stays.
+    /// Subscribed artists.
+    pub artists: Vec<Card>,
+    /// That part didn't load (YouTube Music refused it, say): the one shown stays.
     pub playlists_failed: bool,
     pub albums_failed: bool,
+    pub artists_failed: bool,
 }
 
 /// The signed-in account's channels.
@@ -358,6 +369,8 @@ pub enum Resp {
     LikeProgress { taken: Vec<String>, done: usize, total: usize, like: bool },
     /// The songs YouTube Music took, and the ones it refused.
     LikedMany { video_ids: Vec<String>, failed: Vec<String>, like: bool, others: Vec<String> },
+    /// A subscribe or unsubscribe went through (`ok`), or didn't.
+    Subscribed { channel_id: String, on: bool, ok: bool },
     PlaylistCreated { id: String, songs: usize },
     PlaylistChanged { id: String, message: &'static str },
     /// Songs weren't taken out of this playlist, though they've left it here already.
@@ -396,6 +409,8 @@ impl Resp {
                 | Resp::LikeProgress { .. }
                 | Resp::LikedMany { .. }
                 | Resp::AddedToPlaylist { .. }
+                | Resp::Artist(_)
+                | Resp::Subscribed { .. }
         )
     }
 
@@ -712,6 +727,11 @@ impl Backend {
             Req::Album { id, load } | Req::Playlist { id, load, .. } => Some((id.clone(), *load)),
             _ => None,
         };
+        // A subscribe always answers as `Resp::Subscribed`, which lets the next one go.
+        let subscribe = match &req {
+            Req::Subscribe { channel_id, on } => Some((channel_id.clone(), *on)),
+            _ => None,
+        };
         let this = self.clone();
         let t0 = std::time::Instant::now();
         let epoch = self.api.epoch();
@@ -728,9 +748,10 @@ impl Backend {
                 Ok(resp) => resp,
                 Err(e) if e.is_panic() => {
                     log::error!("{what}: request panicked");
-                    match play_gen {
-                        Some(generation) => Some(Resp::PlayError { generation, msg: "YouTube didn't respond properly".into() }),
-                        None => (!quiet).then(|| Resp::Error(format!("{what} failed: YouTube didn't respond properly"))),
+                    match (play_gen, subscribe) {
+                        (Some(generation), _) => Some(Resp::PlayError { generation, msg: "YouTube didn't respond properly".into() }),
+                        (_, Some((channel_id, on))) => Some(Resp::Subscribed { channel_id, on, ok: false }),
+                        _ => (!quiet).then(|| Resp::Error(format!("{what} failed: YouTube didn't respond properly"))),
                     }
                 }
                 Err(_) => None,
@@ -786,7 +807,7 @@ impl Backend {
                 Req::Album { id, load } => Resp::Collection { load, c: ytm::album(api, &id).await?, more: false },
                 Req::Playlist { id, load, stream: false } => Resp::Collection { load, c: ytm::playlist(api, &id, me, None).await?, more: false },
                 Req::Playlist { id, load, stream: true } => self.stream_playlist(id, load, me).await?,
-                Req::Artist(id) => Resp::Artist(ytm::artist(api, &id).await?),
+                Req::Artist(id) => Resp::Artist(ytm::artist(api, &id, me).await?),
                 Req::Library => self.library().await?,
                 Req::History => Resp::History(ytm::history(api).await?),
                 Req::Uploads => Resp::Uploads(ytm::uploads(api).await?),
@@ -867,7 +888,7 @@ impl Backend {
                     let (title, tracks) = match &target {
                         Target::Album(id) => ytm::album(api, id).await.map(|c| (c.title, c.tracks))?,
                         Target::Playlist(id) => ytm::playlist(api, id, me, None).await.map(|c| (c.title, c.tracks))?,
-                        Target::Artist(id) => ytm::artist(api, id).await.map(|a| (a.name, a.top))?,
+                        Target::Artist(id) => ytm::artist(api, id, false).await.map(|a| (a.name, a.top))?,
                         Target::Song(t) => (t.title.clone(), vec![t.clone()]),
                     };
                     Resp::PlayQueue { target, title, tracks }
@@ -884,7 +905,10 @@ impl Backend {
                 }
                 Req::Play { video_id, generation, at, report, song_of, song } => match self.start_playback(&video_id, song_of.as_ref(), song, generation, at, report).await {
                     Ok(()) => return Ok(None),
-                    Err(e) => Resp::PlayError { generation, msg: format!("{e:#}") },
+                    Err(e) => {
+                        log::warn!("play {video_id}: {e:#}");
+                        Resp::PlayError { generation, msg: format!("{e:#}") }
+                    }
                 },
                 Req::VideoStream { video_id, max_height } => {
                     let found = async { innertube::video_stream(&self.http(), &video_id, &api.visitor_data(false).await?, max_height.into()).await }.await;
@@ -1007,6 +1031,13 @@ impl Backend {
                     ytm::save_collection(api, &id, save).await?;
                     Resp::PlaylistChanged { id, message: if save { "Saved to library" } else { "Removed from library" } }
                 }
+                Req::Subscribe { channel_id, on } => {
+                    let result = ytm::set_subscribed(api, &channel_id, on).await;
+                    if let Err(e) = &result {
+                        log::warn!("subscribe={on} {channel_id}: {e:#}");
+                    }
+                    Resp::Subscribed { channel_id, on, ok: result.is_ok() }
+                }
                 Req::SetCookie(input) => {
                     self.set_cookie(&input).await?;
                     *self.premium.lock().await = Err(None);
@@ -1086,7 +1117,10 @@ impl Backend {
                 Vec::new()
             })
         };
-        let (pls, albums, podcasts) = tokio::join!(ytm::saved_playlists(api), ytm::saved_albums(api), podcasts);
+        let artists = async {
+            ytm::subscribed_artists(api).await.inspect_err(|e| log::warn!("subscribed artists didn't load: {e:#}"))
+        };
+        let (pls, albums, podcasts, artists) = tokio::join!(ytm::saved_playlists(api), ytm::saved_albums(api), podcasts, artists);
         let pls = match (pls, &albums) {
             (Err(e), Err(_)) => return Err(e),
             (pls, _) => pls,
@@ -1100,9 +1134,11 @@ impl Backend {
         Ok(Resp::Library(Library {
             playlists_failed: pls.is_err(),
             albums_failed: albums.is_err(),
+            artists_failed: artists.is_err(),
             playlists: pls.map(|p| p.into_iter().filter(saved_playlist_visible).collect()).unwrap_or_default(),
             albums: albums.unwrap_or_default(),
             podcasts,
+            artists: artists.unwrap_or_default(),
         }))
     }
 
@@ -1528,10 +1564,10 @@ impl Backend {
         let (source, s) = self.resolve(video_id, false).await?;
         match &s.starts {
             Some(starts) => log::info!("stream {video_id}: {} HLS segments from {source:?}", starts.len()),
-            None => log::info!("stream {video_id}: {} bytes {} from {source:?}", s.size, if s.opus { "Opus" } else { "AAC" }),
+            None => log::info!("stream {video_id}: {} bytes {} from {source:?}", s.size, s.kind()),
         }
         let shared = s.buffer(prefetch);
-        let refresh = Some(self.refresher(source, video_id, s.opus));
+        let refresh = Some(self.refresher(source, video_id, s.opus, s.size));
         let (this, buffer) = (self.clone(), shared.clone());
         self.rt.spawn(async move {
             stream::download(this.http(), s.media, s.user_agent, buffer.clone(), refresh).await;
@@ -1546,7 +1582,7 @@ impl Backend {
     }
 
     /// Resolves a fresh URL from the same source and format, for a download that got a 403.
-    fn refresher(&self, source: Source, video_id: &str, opus: bool) -> stream::Refresh {
+    fn refresher(&self, source: Source, video_id: &str, opus: bool, size: u64) -> stream::Refresh {
         let (this, id) = (self.clone(), video_id.to_owned());
         Arc::new(move || {
             let (this, id) = (this.clone(), id.clone());
@@ -1554,6 +1590,8 @@ impl Backend {
                 let s = this.resolve_from(source, &id, opus).await?;
                 // The buffer is laid out for the format it started with.
                 anyhow::ensure!(s.opus == opus, "the stream changed format");
+                // A podcast host may put other ads in, which makes another file.
+                anyhow::ensure!(s.size == size, "the stream changed size");
                 Ok(s.media)
             })
         })
@@ -1564,8 +1602,10 @@ impl Backend {
         let (source, s) = self.resolve(&t.id, true).await?;
         log::info!("download {}: {} bytes from {source:?}", t.id, s.size);
         anyhow::ensure!(s.starts.is_none(), "downloads need the file stream");
+        // Saved as a tagged .m4a, which a feed's MP3 isn't.
+        anyhow::ensure!(!matches!(s.media, stream::Media::Feed(_)), "episodes of podcasts added by RSS can't be downloaded");
         let shared = s.buffer(false);
-        stream::download(self.http(), s.media, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus))).await;
+        stream::download(self.http(), s.media, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus, s.size))).await;
         if let Some(e) = shared.error() {
             anyhow::bail!("{e}");
         }
@@ -1639,9 +1679,38 @@ impl Backend {
                         Err(e) => log::warn!("web music player failed ({e:#}); using yt-dlp"),
                     }
                 }
+                // Should visionOS ask to sign in for an episode of a podcast added by RSS
+                // (it says those aren't available, below), the web player has its file.
+                if let Some(s) = self.rss_episode(&session, video_id).await? {
+                    return Ok((Source::Feed, s));
+                }
                 Ok((Source::YtDlp, self.resolve_from(Source::YtDlp, video_id, false).await?))
             }
+            // An episode of a podcast added by RSS: YouTube doesn't have its audio, and
+            // visionOS answers as for a video that's gone. Only the signed-in web player
+            // tells the two apart (Premium or not), and plays the episode from its feed.
+            Err(e) if not_available(&e) => match self.api.account() {
+                Some(session) => match self.rss_episode(&session, video_id).await? {
+                    Some(s) => Ok((Source::Feed, s)),
+                    None => Err(e),
+                },
+                None => Err(e),
+            },
             Err(e) => Err(e),
+        }
+    }
+
+    /// The feed's file when `video_id` is an episode of a podcast added by RSS, `None`
+    /// for anything else. The web player's refusal is only logged: the caller has its own
+    /// error to give.
+    async fn rss_episode(&self, session: &webmusic::Session, video_id: &str) -> anyhow::Result<Option<ResolvedStream>> {
+        match session.feed(&self.http(), &self.jsc, video_id).await {
+            Ok(Some(feed)) => self.feed_stream(feed).await.map(Some),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                log::info!("{video_id}: web player: {e:#}");
+                Ok(None)
+            }
         }
     }
 
@@ -1666,7 +1735,15 @@ impl Backend {
             }
             Source::WebMusic => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
-                plain(session.audio_stream(&self.http(), &self.jsc, video_id, opus).await?, webmusic::UA)
+                match session.audio_stream(&self.http(), &self.jsc, video_id, opus).await? {
+                    webmusic::Audio::YouTube(s) => plain(s, webmusic::UA),
+                    webmusic::Audio::Feed(feed) => self.feed_stream(feed).await?,
+                }
+            }
+            Source::Feed => {
+                let session = self.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
+                let feed = session.feed(&self.http(), &self.jsc, video_id).await?.ok_or_else(|| anyhow::anyhow!("not an RSS podcast episode"))?;
+                self.feed_stream(feed).await?
             }
             Source::YtDlp => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("sign in to play this song"))?;
@@ -1676,6 +1753,22 @@ impl Backend {
                 // yt-dlp's JSON doesn't carry YouTube's loudness figure.
                 ResolvedStream { media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
             }
+        })
+    }
+
+    /// An RSS podcast episode's file, fetched from where its redirects (trackers, mostly)
+    /// end, so they aren't followed again for every range.
+    async fn feed_stream(&self, feed: webmusic::Feed) -> anyhow::Result<ResolvedStream> {
+        let (url, size) = stream::probe_feed(&self.http(), &feed.url, webmusic::UA).await?;
+        log::info!("podcast feed file on {}", reqwest::Url::parse(&url).ok().as_ref().and_then(reqwest::Url::host_str).unwrap_or("?"));
+        Ok(ResolvedStream {
+            media: stream::Media::Feed(url),
+            starts: None,
+            size,
+            duration_ms: feed.duration_ms,
+            user_agent: webmusic::UA.to_owned(),
+            loudness_db: None,
+            opus: false,
         })
     }
 
@@ -1826,6 +1919,8 @@ enum Source {
     /// The visionOS player's HLS segments: where its file URLs are cut off at 1 MiB.
     VisionOsHls,
     WebMusic,
+    /// An RSS podcast episode's file, which the web player finds without Premium.
+    Feed,
     YtDlp,
 }
 
@@ -1838,16 +1933,26 @@ struct ResolvedStream {
     duration_ms: u64,
     user_agent: String,
     loudness_db: Option<f32>,
-    /// Opus in WebM; otherwise AAC in MP4.
+    /// Opus in WebM; otherwise AAC in MP4, or a podcast feed's file.
     opus: bool,
 }
 
 impl ResolvedStream {
     /// A buffer laid out for this stream. `head_only`: a prefetch's.
     fn buffer(&self, head_only: bool) -> Arc<Shared> {
-        match &self.starts {
-            Some(starts) => Shared::segmented(starts.clone(), self.duration_ms, self.loudness_db, head_only),
-            None => Shared::new(self.size, self.duration_ms, self.loudness_db, self.opus, head_only),
+        match (&self.starts, &self.media) {
+            (Some(starts), _) => Shared::segmented(starts.clone(), self.duration_ms, self.loudness_db, head_only),
+            (None, stream::Media::Feed(_)) => Shared::feed(self.size, self.duration_ms, head_only),
+            (None, _) => Shared::new(self.size, self.duration_ms, self.loudness_db, self.opus, head_only),
+        }
+    }
+
+    /// For the log.
+    fn kind(&self) -> &'static str {
+        match (&self.media, self.opus) {
+            (stream::Media::Feed(_), _) => "podcast feed file",
+            (_, true) => "Opus",
+            _ => "AAC",
         }
     }
 }
@@ -1857,6 +1962,13 @@ impl ResolvedStream {
 fn needs_account(e: &anyhow::Error) -> bool {
     let msg = e.to_string();
     msg.contains("LOGIN_REQUIRED") || msg.contains("Premium")
+}
+
+/// The anonymous visionOS player says the video isn't there ("ERROR: This video is not
+/// available"), which is also its answer for an episode of a podcast added by RSS.
+/// Nothing in that answer tells the two apart.
+fn not_available(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<innertube::Refused>().is_some_and(|r| matches!(r.status.as_str(), "ERROR" | "UNPLAYABLE"))
 }
 
 /// Keep the signed-in release feed's order, using US charts and the user's home artists.
@@ -1927,5 +2039,53 @@ mod explore_tests {
         assert!(!saved_playlist_visible(&item("SE", "Auto playlist • 0 episodes")));
         assert!(saved_playlist_visible(&item("SE", "Auto playlist • 2 episodes")));
         assert!(saved_playlist_visible(&item("PLcustom", "Playlist")));
+    }
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+
+    fn refused(status: &str, reason: &str) -> anyhow::Error {
+        innertube::Refused { status: status.into(), reason: reason.into() }.into()
+    }
+
+    #[test]
+    fn a_video_visionos_says_isnt_there_may_be_an_rss_episode() {
+        // What visionOS answers for an episode of a podcast added by RSS.
+        assert!(not_available(&refused("ERROR", "This video is not available")));
+        assert!(not_available(&refused("UNPLAYABLE", "This video is unavailable")));
+        assert!(not_available(&refused("ERROR", "x").context("visionOS player")));
+        // Those that need an account keep their own route.
+        assert!(!not_available(&refused("LOGIN_REQUIRED", "Sign in to confirm your age")));
+        assert!(needs_account(&refused("LOGIN_REQUIRED", "Sign in to confirm your age")));
+        assert!(!needs_account(&refused("ERROR", "This video is not available")));
+        // Only the player's own answer, not an error that reads like one.
+        assert!(!not_available(&anyhow::anyhow!("ERROR: This video is not available")));
+    }
+
+    /// Read-only, signed in to an account with a podcast added by RSS (NPR's Planet
+    /// Money): visionOS says the episode isn't available, and the web player gives its
+    /// feed's file, which is reachable.
+    /// `YTM_DATA_DIR=<profile> cargo test --release -- --ignored rss_episode_live --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn rss_episode_live() {
+        let dir = PathBuf::from(std::env::var("YTM_DATA_DIR").unwrap());
+        let api = ytmapi::Api::new(&dir);
+        let session = api.account().expect("no session in the vault");
+        let (http, solver) = (reqwest::Client::new(), jsc::Solver::new(&dir));
+        let id = std::env::var("YTM_RSS_EPISODE").unwrap_or_else(|_| "M77cW_SUPm4".into());
+        let vd = api.visitor_data(false).await.unwrap();
+        let Err(e) = innertube::audio_stream(&http, &id, &vd, false).await else { panic!("visionOS played {id}") };
+        println!("visionOS: {e:#}");
+        assert!(not_available(&e), "{e:#}");
+        let t = std::time::Instant::now();
+        let feed = session.feed(&http, &solver, &id).await.unwrap().expect("not an RSS episode");
+        println!("web player: {} ms, {} (in {:?})", feed.duration_ms, feed.url, t.elapsed());
+        assert!(feed.duration_ms > 0);
+        let (file, size) = stream::probe_feed(&http, &feed.url, webmusic::UA).await.unwrap();
+        println!("  -> {file}: {size} bytes");
+        assert!(size > 0);
     }
 }

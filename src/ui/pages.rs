@@ -333,7 +333,7 @@ fn sort_options(page: &Page) -> Vec<(Sort, &'static str)> {
         Page::Library(LibTab::History) => ("Recently played", true),
         Page::Library(LibTab::Uploads) => ("Recently added", true),
         Page::Library(LibTab::Downloads) => ("Newest first", true),
-        Page::Library(LibTab::Playlists | LibTab::Albums | LibTab::Podcasts) => return vec![(Sort::Default, "Recent"), (Sort::Title, "A–Z"), (Sort::TitleDesc, "Z–A")],
+        Page::Library(LibTab::Playlists | LibTab::Albums | LibTab::Artists | LibTab::Podcasts) => return vec![(Sort::Default, "Recent"), (Sort::Title, "A–Z"), (Sort::TitleDesc, "Z–A")],
         _ => return Vec::new(),
     };
     let mut options = vec![(Sort::Default, own)];
@@ -965,6 +965,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let rows = Rows::new(app, now);
     let accent = app.accent_color();
     let Some(a) = &app.artist else { return };
+    let subscribing = app.subscriptions.busy();
     let acts = &mut app.actions;
     let drag = &mut app.row_drag;
     let top: Vec<Track> = a.top.iter().filter(|t| rows.shows(t)).cloned().collect();
@@ -1004,6 +1005,12 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
             && pill(ui, "Radio", Some(icon::RADIO), false).clicked() {
                 acts.push(Action::Radio(first.clone()));
             }
+        // Greyed out while a subscribe or unsubscribe runs: a click then wouldn't count.
+        if a.channel_id.is_some()
+            && ui.add_enabled_ui(!subscribing, |ui| pill(ui, if a.subscribed { "Subscribed" } else { "Subscribe" }, None, false)).inner.clicked()
+        {
+            acts.push(Action::Subscribe(!a.subscribed));
+        }
     });
     if !top.is_empty() {
         ui.add_space(26.0);
@@ -1071,6 +1078,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
             (LibTab::Playlists, "Playlists"),
             (LibTab::Songs, "Liked songs"),
             (LibTab::Albums, "Albums"),
+            (LibTab::Artists, "Artists"),
             (LibTab::Podcasts, "Podcasts"),
             (LibTab::History, "History"),
             (LibTab::Uploads, "Uploads"),
@@ -1226,6 +1234,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
             let cards = match tab {
                 LibTab::Playlists => &lib.playlists,
                 LibTab::Albums => &lib.albums,
+                LibTab::Artists => &lib.artists,
                 LibTab::Podcasts => &lib.podcasts,
                 LibTab::Songs | LibTab::History | LibTab::Uploads | LibTab::Downloads => unreachable!(),
             };
@@ -2301,12 +2310,12 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
                 Some(State::UpToDate) => format!("You're on the latest version ({}).", crate::update::current_version()),
                 Some(State::Downloading { version, percent }) => format!("Downloading {version}… {percent}%"),
                 Some(State::Ready { version, .. }) => format!("Version {version} is ready. It installs when you close ytm-rs."),
-                Some(State::Available { version, .. }) => format!("Version {version} is out. Download the new .deb and open it to install it over this one."),
+                Some(State::Available { version, .. }) => format!("Version {version} is out. {}", crate::update::package_step()),
                 Some(State::Failed(e)) => format!("Couldn't check for updates: {e}"),
                 _ => format!("Version {}.", crate::update::current_version()),
             }
         };
-        let auto_desc = if crate::update::deb() {
+        let auto_desc = if crate::update::packaged() {
             "Check for new versions and tell you when one is out."
         } else {
             "Download new versions in the background and install them when you close the app."
@@ -2349,9 +2358,8 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
             }
         });
         // The other kind of Linux install, still there beside this one.
-        if let Some(cmd) = crate::update::other_copy() {
+        if let Some((kind, cmd)) = crate::update::other_copy() {
             divider(ui);
-            let kind = if crate::update::deb() { "install.sh" } else { "the .deb" };
             setting_row(ui, "Another copy", Some(&format!("ytm-rs is also installed from {kind}. To remove that copy, run {cmd}")), |_| {});
         }
         // Release notes for the version that's ready, else the one running.

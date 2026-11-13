@@ -31,6 +31,7 @@ mod titlebar;
 pub use titlebar::{custom as custom_titlebar, init as init_titlebar, set_hwnd as set_titlebar_hwnd};
 mod transfer;
 mod vector;
+mod wheel;
 mod widgets;
 
 use std::collections::{HashMap, HashSet};
@@ -78,6 +79,8 @@ pub enum LibTab {
     Playlists,
     Songs,
     Albums,
+    /// Subscribed artists.
+    Artists,
     /// Saved podcast shows (with Settings › Playback › Show podcasts on).
     Podcasts,
     History,
@@ -99,12 +102,13 @@ pub use mini::{init_pill, set_hwnd as set_mini_hwnd};
 
 /// Settings › General › Window › Open on: the pages the app can start on, as saved and
 /// as listed.
-pub(super) const START_PAGES: [(&str, &str, Page); 9] = [
+pub(super) const START_PAGES: [(&str, &str, Page); 10] = [
     ("home", "Home", Page::Home),
     ("explore", "Explore", Page::Explore),
     ("library", "Library › Playlists", Page::Library(LibTab::Playlists)),
     ("liked", "Library › Liked songs", Page::Library(LibTab::Songs)),
     ("albums", "Library › Albums", Page::Library(LibTab::Albums)),
+    ("artists", "Library › Artists", Page::Library(LibTab::Artists)),
     ("podcasts", "Library › Podcasts", Page::Library(LibTab::Podcasts)),
     ("history", "Library › History", Page::Library(LibTab::History)),
     ("uploads", "Library › Uploads", Page::Library(LibTab::Uploads)),
@@ -211,6 +215,8 @@ pub enum Action {
     Collaborate,
     DeletePlaylist,
     SaveCollection(String, bool),
+    /// Subscribe to the open artist (true), or unsubscribe.
+    Subscribe(bool),
     HomeChip(Option<String>),
     OpenNowPlaying(bool),
     /// Into the mini player (true) or back to the full window.
@@ -382,6 +388,8 @@ pub struct App {
     /// Playlists a sort was asked of, until they load in that order (or it fails).
     sorting: HashMap<String, lists::SortWait>,
     artist: Option<ArtistPage>,
+    /// Subscribes and unsubscribes: the one under way, and what they settled.
+    subscriptions: actions::Subscriptions,
     library: Option<Library>,
     /// When the library was last requested; the sidebar spinner gives up after a while.
     library_requested: std::time::Instant,
@@ -511,9 +519,8 @@ pub struct App {
     forget_held: bool,
     /// The past search being removed (its token) and when: it folds away first.
     forgetting: Option<(String, f64)>,
-    /// Mouse-wheel distance still to be scrolled (smooth scrolling).
-    wheel_pending: egui::Vec2,
-    wheel_mods: egui::Modifiers,
+    /// Smooth scrolling: wheel distance still to be scrolled, or a touchpad coast.
+    wheel: wheel::Glide,
 
     // now playing
     np_open: bool,
@@ -659,7 +666,7 @@ impl App {
         let start_choice = start_choice(&get("start_page").unwrap_or_default());
         let start = start_page(&start_choice, logged_in, show_podcasts);
         // Opening on the Library asks for it below, as visiting the page does.
-        let start_asks_library = matches!(start, Page::Library(LibTab::Playlists | LibTab::Albums | LibTab::Podcasts));
+        let start_asks_library = matches!(start, Page::Library(LibTab::Playlists | LibTab::Albums | LibTab::Artists | LibTab::Podcasts));
         if logged_in {
             if !start_asks_library {
                 backend.request(Req::Library);
@@ -725,6 +732,7 @@ impl App {
             lists: Lists::default(),
             sorting: HashMap::new(),
             artist: None,
+            subscriptions: actions::Subscriptions::default(),
             library: None,
             library_requested: std::time::Instant::now(),
             history: None,
@@ -846,8 +854,7 @@ impl App {
             search_refocus: false,
             forget_held: false,
             forgetting: None,
-            wheel_pending: egui::Vec2::ZERO,
-            wheel_mods: egui::Modifiers::NONE,
+            wheel: wheel::Glide::default(),
             np_open: false,
             np_tab: if get("np_art").is_some_and(|v| v == "1") { NpTab::Art } else { NpTab::Lyrics },
             queue_open: false,
@@ -909,6 +916,7 @@ impl App {
             Ok("home") => app.go(Page::Home),
             Ok("explore") => app.go(Page::Explore),
             Ok("library") => app.go(Page::Library(LibTab::Playlists)),
+            Ok("artists") => app.go(Page::Library(LibTab::Artists)),
             Ok("uploads") => app.go(Page::Library(LibTab::Uploads)),
             Ok("liked") => app.go(Page::Library(LibTab::Songs)),
             Ok("history") => app.go(Page::Library(LibTab::History)),
@@ -1620,7 +1628,16 @@ impl eframe::App for App {
                 ctx.request_repaint_after(Duration::from_millis(100));
             }
         }
-        smooth_wheel(self, ctx, raw);
+        // Dev hook: YTM_LOG_WHEEL=1 logs the wheel events the window sends.
+        if dev_var("YTM_LOG_WHEEL").is_some() {
+            for e in raw.events.iter().filter(|e| matches!(e, egui::Event::MouseWheel { .. })) {
+                log::info!("wheel t={:.3} {e:?}", raw.time.unwrap_or(0.0));
+            }
+        }
+        let viewport_h = raw.screen_rect.map_or(800.0, |r| r.height());
+        if self.wheel.filter(&mut raw.events, raw.time.unwrap_or(0.0), raw.predicted_dt, viewport_h) {
+            ctx.request_repaint();
+        }
         frame_pace(raw);
         if let Some((x, y)) = dev_var("YTM_FAKE_POINTER").and_then(|v| {
             let (x, y) = v.split_once(',')?;
@@ -1861,48 +1878,6 @@ fn too_big(size: egui::Vec2, monitor: egui::Vec2) -> bool {
     size.x > monitor.x + 24.0 || size.y > monitor.y + 24.0
 }
 
-/// Smooth scrolling: mouse-wheel notches (line units) are collected and replayed as
-/// small pixel steps with an exponential ease-out (~0.3 s glide), like browsers do.
-/// Touchpads already report smooth pixel deltas and pass through untouched, as does
-/// Ctrl+wheel zoom.
-fn smooth_wheel(app: &mut App, ctx: &egui::Context, raw: &mut egui::RawInput) {
-    const NOTCH_PX: f32 = 70.0;
-    const GLIDE: f32 = 0.06; // time constant, seconds (settles in ~0.18 s)
-    let viewport_h = raw.screen_rect.map_or(800.0, |r| r.height());
-    raw.events.retain(|e| match e {
-        egui::Event::MouseWheel { unit, delta, modifiers, .. } if !modifiers.command && !modifiers.ctrl => {
-            let px = match unit {
-                egui::MouseWheelUnit::Line => *delta * NOTCH_PX,
-                egui::MouseWheelUnit::Page => *delta * viewport_h * 0.8,
-                egui::MouseWheelUnit::Point => return true,
-            };
-            // Reversing direction cancels the remaining glide instead of fighting it.
-            if app.wheel_pending.y * px.y < 0.0 || app.wheel_pending.x * px.x < 0.0 {
-                app.wheel_pending = egui::Vec2::ZERO;
-            }
-            app.wheel_pending += px;
-            app.wheel_mods = *modifiers;
-            false
-        }
-        _ => true,
-    });
-    if app.wheel_pending.length() < 0.5 {
-        app.wheel_pending = egui::Vec2::ZERO;
-        return;
-    }
-    let dt = raw.predicted_dt.clamp(0.001, 0.05);
-    let step = app.wheel_pending * (1.0 - (-dt / GLIDE).exp());
-    app.wheel_pending -= step;
-    raw.events.push(egui::Event::MouseWheel {
-        unit: egui::MouseWheelUnit::Point,
-        delta: step,
-        phase: egui::TouchPhase::Move,
-        modifiers: app.wheel_mods,
-        source: egui::MouseWheelSource::Wheel,
-    });
-    ctx.request_repaint();
-}
-
 /// Fisher-Yates with a clock-seeded xorshift; shuffling doesn't need a real RNG crate.
 pub fn shuffle<T>(v: &mut [T]) {
     let mut x = std::time::SystemTime::now()
@@ -1917,12 +1892,12 @@ pub fn shuffle<T>(v: &mut [T]) {
     }
 }
 
-/// Whether this is the installed or the portable app, or the .deb (which only says a
-/// new version is out): updates only apply there. It
+/// Whether this is the installed or the portable app, or the .deb or the Arch package
+/// (which only say a new version is out): updates only apply there. It
 /// can't change while running, and the check touches the disk, so it runs once.
 fn updatable() -> bool {
     static UPDATABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *UPDATABLE.get_or_init(|| crate::update::installed() || crate::update::portable_dir().is_some() || crate::update::deb())
+    *UPDATABLE.get_or_init(|| crate::update::installed() || crate::update::portable_dir().is_some() || crate::update::packaged())
 }
 
 pub fn fmt_time(secs: u32) -> String {

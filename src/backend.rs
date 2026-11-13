@@ -55,6 +55,11 @@ pub enum Req {
     /// Save a song's audio to the downloads folder. `for_video`: the music video it's the
     /// song version of, which then plays it from the file (offline too).
     Download { track: Track, for_video: Option<String> },
+    /// Download the songs of an album or playlist (`target`; fetched whole when `tracks`
+    /// is `None`) or of a selection (`target` `None`). Songs already downloaded are
+    /// skipped. More than `LARGE_DOWNLOAD` to go asks first (`Resp::ConfirmDownload`)
+    /// unless `confirmed`.
+    DownloadMany { target: Option<Target>, title: String, tracks: Option<Vec<Track>>, confirmed: bool },
     Lyrics(Track),
     /// SponsorBlock's parts of a video to skip.
     Segments { video_id: String },
@@ -131,7 +136,7 @@ impl Req {
             Req::SwitchChannel { .. } => "Switching channel",
             Req::ServerQueue => "Queue from other devices",
             Req::Upload(_) => "Upload",
-            Req::Download { .. } => "Download",
+            Req::Download { .. } | Req::DownloadMany { .. } => "Download",
             Req::Lyrics(_) => "Lyrics",
             Req::Segments { .. } => "SponsorBlock",
             Req::LyricsExtras { .. } => "Translation",
@@ -322,6 +327,12 @@ pub enum Resp {
     /// Upload finished: how many files went up, and which failed.
     Uploaded { done: usize, failed: Vec<String> },
     Downloaded { title: String, path: PathBuf },
+    /// Every album, playlist or selection being downloaded, after one of them moved on.
+    /// A finished one (`DownloadRun::finished`) is listed this once.
+    Downloads(Vec<DownloadRun>),
+    /// More than `LARGE_DOWNLOAD` songs (`count`) aren't downloaded yet: asked before
+    /// sending the same `Req::DownloadMany` again, `confirmed`.
+    ConfirmDownload { target: Option<Target>, title: String, tracks: Vec<Track>, count: usize },
     /// Every source's lyrics for a song (empty when nobody has them).
     Lyrics { video_id: String, lyrics: LyricsSet },
     Segments { video_id: String, segments: Vec<crate::sponsorblock::Segment> },
@@ -512,6 +523,76 @@ pub async fn like_many(api: &ytmapi::Api, ids: Vec<String>, like: bool, mut prog
     (done, failed, others)
 }
 
+/// Songs of an album or playlist downloaded at once (each over `stream::WORKERS`
+/// connections, behind the playing song).
+const DOWNLOADS_AT_ONCE: usize = 2;
+/// More songs than this to download in one go are asked about first.
+pub const LARGE_DOWNLOAD: usize = 100;
+
+/// An album, playlist or selection being downloaded.
+#[derive(Clone, Debug, Default)]
+pub struct DownloadRun {
+    /// The album's or playlist's id, or `selection-N` for a selection.
+    pub key: String,
+    /// Empty for a selection.
+    pub title: String,
+    /// All its songs (those downloaded already count as done from the start), and how many are through.
+    pub total: usize,
+    pub done: usize,
+    pub saved: usize,
+    /// Already downloaded (or already on the way for another run).
+    pub skipped: usize,
+    /// Titles of the songs that couldn't be downloaded.
+    pub failed: Vec<String>,
+    pub cancelled: bool,
+}
+
+impl DownloadRun {
+    pub fn finished(&self) -> bool {
+        self.done >= self.total
+    }
+}
+
+/// Songs waiting to download, one queue for every run, worked through by up to
+/// `DOWNLOADS_AT_ONCE` tasks.
+#[derive(Default)]
+struct DownloadQueue {
+    waiting: std::collections::VecDeque<Track>,
+    /// Each song waiting or downloading, with the keys of the runs that want it: it
+    /// downloads once, for all of them.
+    wanted: std::collections::HashMap<String, Vec<String>>,
+    /// Unfinished runs.
+    runs: Vec<DownloadRun>,
+    workers: usize,
+    /// Songs being saved now, by any download.
+    saving: std::collections::HashSet<String>,
+    /// Selections queued this session, for their keys.
+    selections: usize,
+}
+
+impl DownloadQueue {
+    /// Every run as it stands; a finished one is listed this once.
+    fn snapshot(&mut self) -> Resp {
+        let runs = self.runs.clone();
+        self.runs.retain(|r| !r.finished());
+        Resp::Downloads(runs)
+    }
+}
+
+/// A song claimed for saving (`DownloadQueue::saving`), let go when dropped.
+struct Saving(Arc<std::sync::Mutex<DownloadQueue>>, String);
+
+impl Drop for Saving {
+    fn drop(&mut self) {
+        self.0.lock().unwrap().saving.remove(&self.1);
+    }
+}
+
+/// Downloaded already: the song, or a music video's song version.
+pub fn is_downloaded(t: &Track) -> bool {
+    crate::downloads::path(&t.id).is_some() || (t.music_video && crate::downloads::song_for(&t.id).is_some())
+}
+
 /// A video id and its stream buffer.
 type StreamSlot = Arc<std::sync::Mutex<Option<(String, Arc<Shared>)>>>;
 type SongCell = Arc<tokio::sync::OnceCell<Option<Track>>>;
@@ -552,6 +633,8 @@ pub struct Backend {
     /// video and whether the account has Premium (which gets YouTube's own pairs). One
     /// cell each, so a prefetch and the play of the same video share a lookup.
     songs: Arc<std::sync::Mutex<std::collections::HashMap<String, SongCell>>>,
+    /// Albums and playlists being downloaded.
+    batch: Arc<std::sync::Mutex<DownloadQueue>>,
 }
 
 impl Backend {
@@ -579,7 +662,7 @@ impl Backend {
         {
             log::warn!("proxy relay: {e:#}");
         }
-        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), clean: Default::default(), visionos_hls: Default::default(), songs: Default::default() };
+        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), clean: Default::default(), visionos_hls: Default::default(), songs: Default::default(), batch: Default::default() };
         backend.keep_signed_in();
         Ok(backend)
     }
@@ -855,7 +938,7 @@ impl Backend {
                     Resp::PlayQueue { target, title, tracks }
                 }
                 Req::Download { track: t, for_video } => {
-                    let path = self.download(&t, for_video).await?;
+                    let (path, _) = self.download(&t, for_video, false).await?;
                     // Its lyrics too, for offline; the download is done without waiting for them.
                     let (this, song) = (self.clone(), t.clone());
                     tokio::spawn(async move {
@@ -864,6 +947,10 @@ impl Backend {
                     });
                     Resp::Downloaded { title: t.title, path }
                 }
+                Req::DownloadMany { target, title, tracks, confirmed } => match self.queue_downloads(target, title, tracks, confirmed, me).await? {
+                    Some(r) => r,
+                    None => return Ok(None),
+                },
                 Req::Play { video_id, generation, at, report, song_of, song } => match self.start_playback(&video_id, song_of.as_ref(), song, generation, at, report).await {
                     Ok(()) => return Ok(None),
                     Err(e) => Resp::PlayError { generation, msg: format!("{e:#}") },
@@ -1534,12 +1621,31 @@ impl Backend {
     }
 
     /// Download a song into the downloads folder, at the best quality the account gets.
-    async fn download(&self, t: &Track, for_video: Option<String>) -> anyhow::Result<PathBuf> {
+    /// `behind_player`: each part waits while the playing song still needs some of its own.
+    /// Returns the file, and whether this saved it (false: it was there already).
+    async fn download(&self, t: &Track, for_video: Option<String>, behind_player: bool) -> anyhow::Result<(PathBuf, bool)> {
+        // One save of a song at a time: one on its way already, this waits and takes its file.
+        let _saving = loop {
+            if self.batch.lock().unwrap().saving.insert(t.id.clone()) {
+                break Saving(self.batch.clone(), t.id.clone());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        };
+        if let Some(path) = crate::downloads::path(&t.id) {
+            if let Some(v) = &for_video {
+                crate::downloads::link_video(&t.id, v);
+            }
+            return Ok((path, false));
+        }
         let (source, s) = self.resolve(&t.id, true).await?;
         log::info!("download {}: {} bytes from {source:?}", t.id, s.size);
         anyhow::ensure!(s.starts.is_none(), "downloads need the file stream");
         let shared = s.buffer(false);
-        stream::download(self.http(), s.media, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus))).await;
+        let ahead: Option<stream::Ahead> = behind_player.then(|| {
+            let current = self.current.clone();
+            Arc::new(move || current.lock().unwrap().as_ref().map(|(_, s)| s.clone())) as stream::Ahead
+        });
+        stream::download_behind(self.http(), s.media, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus)), ahead).await;
         if let Some(e) = shared.error() {
             anyhow::bail!("{e}");
         }
@@ -1556,7 +1662,176 @@ impl Backend {
                 Err(e) => log::debug!("download {}: no play count: {e:#}", t.id),
             }
         }
-        tokio::task::spawn_blocking(move || crate::downloads::save(&t, &audio, duration_ms, loudness, cover, for_video)).await?
+        let path = tokio::task::spawn_blocking(move || crate::downloads::save(&t, &audio, duration_ms, loudness, cover, for_video)).await??;
+        Ok((path, true))
+    }
+
+    /// Queue the songs of an album, playlist or selection that aren't downloaded yet (see
+    /// `Req::DownloadMany`) and start downloading them. Every run as it stands goes to the
+    /// UI from here, in order with the workers' updates; a large one is asked about first.
+    async fn queue_downloads(&self, target: Option<Target>, title: String, tracks: Option<Vec<Track>>, confirmed: bool, me: bool) -> anyhow::Result<Option<Resp>> {
+        let (title, tracks) = match (tracks, &target) {
+            (Some(tracks), _) => (title, tracks),
+            (None, Some(Target::Album(id))) => ytm::album(&self.api, id).await.map(|c| (c.title, c.tracks))?,
+            (None, Some(Target::Playlist(id))) => ytm::playlist(&self.api, id, me, None).await.map(|c| (c.title, c.tracks))?,
+            (None, _) => anyhow::bail!("nothing to download"),
+        };
+        // An empty playlist (from its card, which can't tell): nothing to run.
+        if tracks.is_empty() {
+            let _ = self.tx.send(Resp::Error(format!("\u{201c}{title}\u{201d} has no songs to download")));
+            return Ok(None);
+        }
+        let key = match &target {
+            Some(Target::Album(id) | Target::Playlist(id)) => Some(id.clone()),
+            _ => None,
+        };
+        // Each song once. Looking for their files is disk work.
+        let (listed, todo) = tokio::task::spawn_blocking(move || {
+            let mut seen = std::collections::HashSet::new();
+            let listed: Vec<Track> = tracks.into_iter().filter(|t| seen.insert(t.id.clone())).collect();
+            let todo: Vec<Track> = listed.iter().filter(|t| !is_downloaded(t)).cloned().collect();
+            (listed, todo)
+        })
+        .await?;
+        if !confirmed {
+            // Those on their way for this run already aren't asked about again.
+            let new = {
+                let q = self.batch.lock().unwrap();
+                todo.iter().filter(|t| key.as_ref().is_none_or(|k| !q.wanted.get(&t.id).is_some_and(|ks| ks.contains(k)))).count()
+            };
+            if new > LARGE_DOWNLOAD {
+                return Ok(Some(Resp::ConfirmDownload { target, title, count: new, tracks: listed }));
+            }
+        }
+        let skipped = listed.len() - todo.len();
+        let mut q = self.batch.lock().unwrap();
+        let key = key.unwrap_or_else(|| {
+            q.selections += 1;
+            format!("selection-{}", q.selections)
+        });
+        // One on its way for another run already downloads for this one too.
+        let mut added = 0;
+        for t in todo {
+            match q.wanted.get_mut(&t.id) {
+                Some(keys) if keys.contains(&key) => {}
+                Some(keys) => {
+                    keys.push(key.clone());
+                    added += 1;
+                }
+                None => {
+                    q.wanted.insert(t.id.clone(), vec![key.clone()]);
+                    q.waiting.push_back(t);
+                    added += 1;
+                }
+            }
+        }
+        // The ones on disk already count as done, so the progress (and the cover's veil)
+        // starts from how much of the list is there. Queued again, a run takes on just
+        // the songs it didn't have.
+        match q.runs.iter_mut().find(|r| r.key == key) {
+            Some(run) => {
+                run.total += added;
+                run.cancelled = false;
+            }
+            None => q.runs.push(DownloadRun { key: key.clone(), title, total: added + skipped, done: skipped, skipped, ..Default::default() }),
+        }
+        log::info!("download {key}: {added} songs queued, {skipped} downloaded already");
+        let start = DOWNLOADS_AT_ONCE.min(q.workers + q.waiting.len()).saturating_sub(q.workers);
+        q.workers += start;
+        for _ in 0..start {
+            let this = self.clone();
+            tokio::spawn(async move { this.download_worker().await });
+        }
+        let _ = self.tx.send(q.snapshot());
+        drop(q);
+        self.wake();
+        Ok(None)
+    }
+
+    /// Download queued songs, one after another, until none are left.
+    async fn download_worker(&self) {
+        loop {
+            let next = {
+                let mut q = self.batch.lock().unwrap();
+                let next = q.waiting.pop_front();
+                if next.is_none() {
+                    q.workers -= 1;
+                }
+                next
+            };
+            let Some(t) = next else { return };
+            // On a task of its own, so a panic in it fails this song, not the whole queue.
+            let (this, song) = (self.clone(), t.clone());
+            let result = tokio::spawn(async move { this.download_listed(&song).await }).await.unwrap_or_else(|e| Err(anyhow::anyhow!("{e}")));
+            if let Err(e) = &result {
+                log::warn!("download {}: {e:#}", t.id);
+            }
+            {
+                let mut q = self.batch.lock().unwrap();
+                for key in q.wanted.remove(&t.id).unwrap_or_default() {
+                    let Some(run) = q.runs.iter_mut().find(|r| r.key == key) else { continue };
+                    run.done += 1;
+                    match result {
+                        Ok(true) => run.saved += 1,
+                        Ok(false) => run.skipped += 1,
+                        Err(_) => run.failed.push(t.title.clone()),
+                    }
+                }
+                let _ = self.tx.send(q.snapshot());
+            }
+            self.wake();
+        }
+    }
+
+    /// One song of a run, behind the playing song, unless it's downloaded by now. A music
+    /// video saves its song version (with none found it isn't downloaded). True once saved.
+    async fn download_listed(&self, t: &Track) -> anyhow::Result<bool> {
+        let (song, for_video) = match t.music_video {
+            true => (self.song_version(&t.id, Some(t), PREFETCH_SONG_WAIT).await.ok_or_else(|| anyhow::anyhow!("no song version of this music video"))?, Some(t.id.clone())),
+            false => (t.clone(), None),
+        };
+        if crate::downloads::path(&song.id).is_some() {
+            // Its song is downloaded already: the video plays that file too.
+            if let Some(v) = &for_video {
+                crate::downloads::link_video(&song.id, v);
+            }
+            return Ok(false);
+        }
+        if !self.download(&song, for_video, true).await?.1 {
+            // Saved meanwhile by another download, lyrics and all.
+            return Ok(false);
+        }
+        // Its lyrics too, for offline: before the next song, so a long run doesn't pile them up.
+        let found = self.lyrics_for(&song).await.sources.len();
+        log::info!("download {}: lyrics from {found} source(s) kept", song.id);
+        Ok(true)
+    }
+
+    /// Stop downloading the run `key`: its waiting songs are dropped (unless another run
+    /// wants them too), and the ones downloading now finish.
+    pub fn cancel_downloads(&self, key: &str) {
+        {
+            let mut q = self.batch.lock().unwrap();
+            let mut dropped = 0;
+            let DownloadQueue { waiting, wanted, .. } = &mut *q;
+            waiting.retain(|t| {
+                let Some(keys) = wanted.get_mut(&t.id) else { return true };
+                let before = keys.len();
+                keys.retain(|k| k != key);
+                dropped += before - keys.len();
+                let keep = !keys.is_empty();
+                if !keep {
+                    wanted.remove(&t.id);
+                }
+                keep
+            });
+            let Some(run) = q.runs.iter_mut().find(|r| r.key == key) else { return };
+            run.total -= dropped;
+            run.cancelled = true;
+            let _ = self.tx.send(q.snapshot());
+        }
+        log::info!("download {key}: cancelled");
+        self.wake();
     }
 
     /// Find a stream URL, trying the fastest source that can play the song. `best`

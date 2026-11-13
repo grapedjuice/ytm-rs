@@ -209,6 +209,13 @@ impl Shared {
         self.inner.lock().unwrap().refused
     }
 
+    /// A block a reader may need now is still to come (a windowed file counts only its
+    /// window): downloads in the background make way for it.
+    pub fn filling(&self) -> bool {
+        let inner = self.inner.lock().unwrap();
+        !inner.cancelled && inner.error.is_none() && (0..inner.limit).any(|i| inner.blocks[i].is_none() && inner.in_window(i))
+    }
+
     /// Stop downloading (e.g. a prefetch that was superseded).
     pub fn cancel(&self) {
         self.inner.lock().unwrap().cancelled = true;
@@ -317,16 +324,30 @@ impl UrlSlot {
     }
 }
 
+/// The buffer a background download makes way for (the playing song's), if any.
+pub type Ahead = Arc<dyn Fn() -> Option<Arc<Shared>> + Send + Sync>;
+
 /// Download into `shared` with parallel range requests; returns when complete,
 /// failed, or every reader was dropped.
 pub async fn download(http: reqwest::Client, media: Media, ua: String, shared: Arc<Shared>, refresh: Option<Refresh>) {
+    download_behind(http, media, ua, shared, refresh, None).await;
+}
+
+/// `download`, but before each block it waits while `ahead`'s buffer still has blocks
+/// to come that a reader may need: the playing song gets the bandwidth first.
+pub async fn download_behind(http: reqwest::Client, media: Media, ua: String, shared: Arc<Shared>, refresh: Option<Refresh>, ahead: Option<Ahead>) {
     let segments = shared.segments.as_ref().map(|s| s.len());
     let slot = Arc::new(UrlSlot { url: tokio::sync::Mutex::new((media, 0)), refresh, segments });
     let mut set = tokio::task::JoinSet::new();
     for _ in 0..WORKERS {
-        let (http, ua, shared, slot) = (http.clone(), ua.clone(), shared.clone(), slot.clone());
+        let (http, ua, shared, slot, ahead) = (http.clone(), ua.clone(), shared.clone(), slot.clone(), ahead.clone());
         set.spawn(async move {
             loop {
+                if let Some(ahead) = &ahead {
+                    while ahead().is_some_and(|s| !Arc::ptr_eq(&s, &shared) && s.filling()) {
+                        tokio::time::sleep(Duration::from_millis(250)).await;
+                    }
+                }
                 // Registered before claiming, so a change in between isn't missed.
                 let changed = shared.changed.notified();
                 tokio::pin!(changed);

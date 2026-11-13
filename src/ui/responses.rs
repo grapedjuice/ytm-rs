@@ -262,10 +262,13 @@ impl App {
             Resp::Downloaded { title, path } => {
                 log::info!("downloaded to {}", path.display());
                 self.toast(format!("Downloaded \u{201c}{title}\u{201d}"));
+                self.all_downloaded.clear();
                 if self.page == Page::Library(LibTab::Downloads) {
                     self.downloads = Some(crate::downloads::all());
                 }
             }
+            Resp::Downloads(runs) => self.on_download_runs(runs),
+            Resp::ConfirmDownload { target, title, tracks, count } => self.dialog = Some(Dialog::ConfirmDownload { target, title, tracks, count }),
             Resp::Uploaded { done, failed } => {
                 let songs = |n: usize| if n == 1 { "1 song".to_owned() } else { format!("{n} songs") };
                 self.toast(match (done, failed.len()) {
@@ -520,6 +523,50 @@ impl App {
         }
     }
 
+    /// Downloads of albums, playlists and selections moved on. One toast as each starts
+    /// and one as it ends, not one per song: their pages and Library › Downloads show
+    /// how far they are.
+    /// Library › Downloads read again. New files come first, so the picked rows move:
+    /// the same songs stay picked.
+    fn reload_downloads(&mut self) {
+        let new = crate::downloads::all();
+        if let Some(old) = &self.downloads
+            && self.selection.page == Some(Page::Library(LibTab::Downloads))
+        {
+            let id = |i: usize| old.get(i).map(|t| t.id.as_str());
+            let at = |id: &str| new.iter().position(|t| t.id == id);
+            let picked: HashSet<&str> = self.selection.rows.iter().filter_map(|&i| id(i)).collect();
+            self.selection.rows = new.iter().enumerate().filter(|(_, t)| picked.contains(t.id.as_str())).map(|(i, _)| i).collect();
+            self.selection.anchor = self.selection.anchor.and_then(id).and_then(at);
+        }
+        self.downloads = Some(new);
+    }
+
+    fn on_download_runs(&mut self, runs: Vec<crate::backend::DownloadRun>) {
+        let mut notes = Vec::new();
+        for r in &runs {
+            let name = if r.title.is_empty() { String::new() } else { format!(" \u{201c}{}\u{201d}", r.title) };
+            if r.finished() {
+                notes.push(download_summary(r, &name));
+            } else if !self.download_runs.iter().any(|o| o.key == r.key) {
+                notes.push(format!("Downloading {}{}", songs(r.total - r.done), if name.is_empty() { String::new() } else { format!(" from{name}") }));
+            }
+        }
+        // Lists that finished are looked at again for their "Downloaded".
+        if runs.iter().any(|r| r.finished()) {
+            self.all_downloaded.clear();
+        }
+        let saved = |rs: &[crate::backend::DownloadRun], key: &str| rs.iter().find(|r| r.key == key).map_or(0, |r| r.saved);
+        let more = runs.iter().any(|r| r.saved > saved(&self.download_runs, &r.key));
+        self.download_runs = runs.into_iter().filter(|r| !r.finished()).collect();
+        if !notes.is_empty() {
+            self.toast(notes.join(" \u{b7} "));
+        }
+        if more && self.page == Page::Library(LibTab::Downloads) {
+            self.reload_downloads();
+        }
+    }
+
     /// Liking or unliking many songs at once has finished: `failed` are the ones YouTube
     /// Music refused.
     fn on_liked_many(&mut self, video_ids: Vec<String>, failed: Vec<String>, like: bool) {
@@ -675,6 +722,54 @@ impl App {
 
 /// Unplayable songs skipped in a row before playback stops.
 const MAX_SKIPS: u32 = 3;
+
+fn songs(n: usize) -> String {
+    if n == 1 { "1 song".to_owned() } else { format!("{n} songs") }
+}
+
+/// What a finished download of many songs did; `name` is " “its title”", or empty for a selection.
+fn download_summary(r: &crate::backend::DownloadRun, name: &str) -> String {
+    let mut msg = if r.cancelled {
+        format!("Stopped downloading{name}: {} saved", songs(r.saved))
+    } else if r.saved == 0 && r.failed.is_empty() {
+        return if name.is_empty() { "Downloaded already".to_owned() } else { format!("{} is downloaded already", name.trim_start()) };
+    } else {
+        format!("Downloaded{name}: {}", songs(r.saved))
+    };
+    if r.skipped > 0 && !r.cancelled {
+        msg += &format!(", {} already there", r.skipped);
+    }
+    if !r.failed.is_empty() {
+        let few: Vec<&str> = r.failed.iter().take(3).map(String::as_str).collect();
+        let more = if r.failed.len() > 3 { ", …" } else { "" };
+        msg += &format!("; {} couldn't be downloaded ({}{more})", r.failed.len(), few.join(", "));
+    }
+    msg
+}
+
+#[cfg(test)]
+mod download_summary_tests {
+    use super::download_summary;
+    use crate::backend::DownloadRun;
+
+    fn run(saved: usize, skipped: usize, failed: &[&str], cancelled: bool) -> DownloadRun {
+        let failed: Vec<String> = failed.iter().map(|s| s.to_string()).collect();
+        DownloadRun { key: "PL1".into(), title: "Mix".into(), total: saved + failed.len(), done: saved + failed.len(), saved, skipped, failed, cancelled }
+    }
+
+    #[test]
+    fn says_what_a_run_did() {
+        let name = " \u{201c}Mix\u{201d}";
+        assert_eq!(download_summary(&run(37, 3, &[], false), name), "Downloaded \u{201c}Mix\u{201d}: 37 songs, 3 already there");
+        assert_eq!(download_summary(&run(0, 12, &[], false), name), "\u{201c}Mix\u{201d} is downloaded already");
+        assert_eq!(download_summary(&run(0, 2, &[], false), ""), "Downloaded already");
+        assert_eq!(download_summary(&run(5, 0, &[], true), name), "Stopped downloading \u{201c}Mix\u{201d}: 5 songs saved");
+        assert_eq!(
+            download_summary(&run(1, 0, &["A", "B", "C", "D"], false), ""),
+            "Downloaded: 1 song; 4 couldn't be downloaded (A, B, C, …)"
+        );
+    }
+}
 
 /// When a song failed because of the account (Premium-only, or needs signing in),
 /// the message to show instead of skipping: the rest of an album like that fails the

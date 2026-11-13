@@ -2361,10 +2361,6 @@ fn settings_connections(app: &mut App, ui: &mut Ui) {
         if disconnect {
             app.lastfm_sign_out();
         }
-    });
-    if discord_enabled != app.discord_enabled {
-        app.set_discord_enabled(discord_enabled);
-    }
         divider(ui);
         let busy = app.listenbrainz_busy.load(Ordering::Relaxed);
         let desc = match &app.listenbrainz_user {
@@ -2397,6 +2393,10 @@ fn settings_connections(app: &mut App, ui: &mut Ui) {
         if disconnect {
             app.listenbrainz_sign_out();
         }
+    });
+    if discord_enabled != app.discord_enabled {
+        app.set_discord_enabled(discord_enabled);
+    }
     app.remote_enabled = remote_enabled;
 }
 

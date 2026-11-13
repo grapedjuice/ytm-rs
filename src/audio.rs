@@ -515,6 +515,20 @@ impl Output {
     }
 }
 
+/// Empties the player. rodio's `clear` waits for the device to skip what's in it, which
+/// never happens while the device is let go (a song paused that long): a new player then.
+/// The old one's song ends the next time the mixer is pulled.
+fn clear(player: &mut Player, output: &Output) {
+    if output.sink.is_some() {
+        player.clear();
+        return;
+    }
+    let fresh = Player::connect_new(&output.mixer);
+    fresh.set_volume(player.volume());
+    fresh.pause();
+    *player = fresh;
+}
+
 /// The picked device if it's connected, else the system default.
 fn target(preferred: Option<&str>) -> Option<rodio::cpal::Device> {
     let host = rodio::cpal::default_host();
@@ -688,7 +702,7 @@ fn run(
                 if output.sink.is_none() || output.default_changed() {
                     output.open(tx.clone(), &status);
                 }
-                player.clear();
+                clear(&mut player, &output);
                 let gain = norm_gain(&status, Some(&s));
                 log::info!("audio: loudness {:?} dB, normalization gain {gain:.3}", s.loudness_db);
                 player.set_volume(slider_gain(&status, f32::from_bits(status.volume.load(Ordering::Relaxed))) * gain);
@@ -739,7 +753,7 @@ fn run(
                 log::debug!("audio: seek to {at:?} via new decoder (seekable: {s})");
                 seekable = s;
                 let paused = player.is_paused();
-                player.clear();
+                clear(&mut player, &output);
                 fade_out = Arc::new(AtomicU32::new(0));
                 song_ms = Arc::new(AtomicU64::new(0));
                 player.append(Meter::new(tempo(decoder, at, &song_ms), status.clone(), 0, fade_out.clone()));
@@ -806,10 +820,10 @@ fn run(
                         let old = std::mem::replace(&mut player, Player::connect_new(&output.mixer));
                         fading.push(Fading { player: old, shared: shared.take(), out: fade_out.clone(), waiting: None });
                     } else {
-                        player.clear();
+                        clear(&mut player, &output);
                     }
                 } else {
-                    player.clear();
+                    clear(&mut player, &output);
                     fading.clear();
                 }
                 current = 0;
@@ -1031,6 +1045,24 @@ mod tests {
         assert!((b[50] - 0.5).abs() < 1e-4);
         assert_eq!(incoming.next(), Some(1.0));
         assert_eq!(outgoing.next(), None);
+    }
+
+    #[test]
+    fn emptying_the_player_doesnt_wait_on_a_device_let_go() {
+        use std::num::NonZero;
+        let (mixer, source) = rodio::mixer::mixer(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap());
+        // Let go of while paused: nothing pulls the mixer.
+        let output = Output { mixer, slot: Arc::new(std::sync::Mutex::new(Some(source))), sink: None, device: None, preferred: None, lost: Default::default(), checked: Instant::now() };
+        let mut player = Player::connect_new(&output.mixer);
+        player.set_volume(0.5);
+        player.append(rodio::buffer::SamplesBuffer::new(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap(), vec![0.0; 96_000]));
+        player.pause();
+        let (done, finished) = crossbeam_channel::bounded(1);
+        std::thread::spawn(move || {
+            clear(&mut player, &output);
+            let _ = done.send((player.empty(), player.is_paused(), player.volume()));
+        });
+        assert_eq!(finished.recv_timeout(Duration::from_secs(2)).ok(), Some((true, true, 0.5)));
     }
 
     #[test]

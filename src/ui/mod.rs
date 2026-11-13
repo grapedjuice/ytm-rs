@@ -209,6 +209,8 @@ pub enum Action {
     Download(Track),
     NewPlaylist(Vec<Track>),
     EditPlaylist,
+    /// Save one of your playlist's sort orders to it: (playlist id, what to send).
+    SortPlaylist(String, serde_json::Value),
     /// The open playlist's collaboration settings.
     Collaborate,
     DeletePlaylist,
@@ -262,13 +264,14 @@ impl Selection {
         *self = Self { page: Some(page.clone()), active: true, ..Self::default() };
     }
 
-    /// Toggle row `i`, or with `range` pick every row from the last one toggled to it.
-    pub fn pick(&mut self, page: &Page, i: usize, range: bool) {
+    /// Toggle row `i`, or with `range` pick every row from the last one toggled to it, as
+    /// they're `shown` (a list found in or sorted; `None` is the whole list in its order).
+    pub fn pick(&mut self, page: &Page, i: usize, range: bool, shown: Option<&[usize]>) {
         if self.page.as_ref() != Some(page) {
             *self = Self { page: Some(page.clone()), ..Self::default() };
         }
         match self.anchor.filter(|_| range) {
-            Some(a) => self.rows.extend(a.min(i)..=a.max(i)),
+            Some(a) => self.rows.extend(find::run(shown, a, i)),
             None => {
                 if !self.rows.remove(&i) {
                     self.rows.insert(i);
@@ -382,6 +385,8 @@ pub struct App {
     /// Albums and playlists opened lately, so going back to one shows it at once (and
     /// refreshes it quietly), and their loads under way.
     lists: Lists,
+    /// Playlists a sort was asked of, until they load in that order (or it fails).
+    sorting: HashMap<String, lists::SortWait>,
     artist: Option<ArtistPage>,
     /// Subscribes and unsubscribes: the one under way, and what they settled.
     subscriptions: actions::Subscriptions,
@@ -725,6 +730,7 @@ impl App {
             mood: None,
             search: None,
             lists: Lists::default(),
+            sorting: HashMap::new(),
             artist: None,
             subscriptions: actions::Subscriptions::default(),
             library: None,
@@ -880,6 +886,7 @@ impl App {
         };
         app.queue.hide_explicit = hide_explicit;
         app.find.hide_explicit = hide_explicit;
+        app.find.sorts = get("list_sorts").and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
         app.request_liked(false);
         // Settings › Open on: in place, not a visit (nothing to go back to), and without
         // the page transition.
@@ -1196,6 +1203,10 @@ impl eframe::App for App {
         let now = ctx.input(|i| i.time);
         self.sync_look();
         self.pump(now);
+        // A sorted playlist that loads again in a while, for its new order.
+        if let Some(t) = self.sorting.values().filter_map(lists::SortWait::due).reduce(f64::min) {
+            ctx.request_repaint_after(Duration::from_secs_f64((t - now).max(0.0)));
+        }
         self.skip_segments(ctx, now);
         hotkeys::poll(self, ctx, frame);
         // System media controls and taskbar buttons follow the player however it changed.
@@ -1666,6 +1677,7 @@ impl eframe::App for App {
         storage.set_string("animated_covers", b(self.animated_covers));
         storage.set_string("hide_search_videos", b(self.hide_search_videos));
         storage.set_string("hide_explicit", b(self.hide_explicit));
+        storage.set_string("list_sorts", serde_json::to_string(&self.find.sorts).unwrap_or_default());
         storage.set_string("podcasts", b(self.show_podcasts));
         storage.set_string("comments", b(self.show_comments));
         storage.set_string("restricted_mode", b(self.restricted_mode));

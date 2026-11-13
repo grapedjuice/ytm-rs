@@ -96,6 +96,8 @@ pub enum Req {
     Dislike(String),
     CreatePlaylist { title: String, video_ids: Vec<String> },
     EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
+    /// Save one of your playlist's sort orders to it ([`PlaylistSort::actions`]).
+    SortPlaylist { id: String, actions: serde_json::Value },
     AddToPlaylist { playlist_id: String, video_ids: Vec<String> },
     /// `(videoId, setVideoId)` entries to take out of the playlist.
     RemoveFromPlaylist { playlist_id: String, items: Vec<(String, String)> },
@@ -148,6 +150,7 @@ impl Req {
             Req::Dislike(_) => "Dislike",
             Req::CreatePlaylist { .. } => "Create playlist",
             Req::EditPlaylist { .. } => "Edit playlist",
+            Req::SortPlaylist { .. } => "Sort playlist",
             Req::AddToPlaylist { .. } => "Add to playlist",
             Req::RemoveFromPlaylist { .. } => "Remove from playlist",
             Req::MoveInPlaylist { .. } => "Move in playlist",
@@ -208,6 +211,21 @@ pub struct Collection {
     pub count: Option<u64>,
     /// The account's own playlist (editable), not one saved from someone else.
     pub owned: bool,
+    /// Your own playlist's sort orders, from YouTube Music's menu. Empty for anything else.
+    pub sorts: Vec<PlaylistSort>,
+}
+
+/// One of YouTube Music's orders for your own playlist. Picking one saves it to the
+/// playlist, as YouTube Music does, so it loads in that order everywhere. Manual ordering
+/// brings the custom order back as it was.
+pub struct PlaylistSort {
+    pub name: String,
+    /// The order it loads in now.
+    pub on: bool,
+    /// The custom order, the one songs can be dragged around in.
+    pub manual: bool,
+    /// What picking it sends to `browse/edit_playlist`.
+    pub actions: serde_json::Value,
 }
 
 impl Collection {
@@ -961,6 +979,14 @@ impl Backend {
                     ytm::edit_playlist(api, &id, &title, &description, privacy.as_deref()).await?;
                     Resp::PlaylistChanged { id, message: "Playlist updated" }
                 }
+                // A failure is answered too, so the Sort button comes back.
+                Req::SortPlaylist { id, actions } => match ytm::sort_playlist(api, &id, actions).await {
+                    Ok(()) => Resp::PlaylistChanged { id, message: "Playlist sorted" },
+                    Err(e) => {
+                        log::warn!("sort playlist failed: {e:#}");
+                        Resp::PlaylistChanged { id, message: "Couldn't sort the playlist" }
+                    }
+                },
                 Req::AddToPlaylist { playlist_id, video_ids } => {
                     // A failure says which songs too, so they stop showing in the playlist.
                     let error = ytm::add_videos(api, &playlist_id, &video_ids).await.err().map(|e| {

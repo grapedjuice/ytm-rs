@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use crate::backend::Collection;
+use crate::backend::{Collection, PlaylistSort};
 use crate::model::Track;
 
 /// Liked Music's playlist id.
@@ -164,6 +164,11 @@ impl Lists {
         m.pending.insert(self.move_ids);
         m.last_sent = Instant::now();
         self.move_ids
+    }
+
+    /// Moves of it are still being told to YouTube Music: a load of it waits for them.
+    pub fn moving(&self, id: &str) -> bool {
+        self.moves.get(id).is_some_and(|m| m.last_sent.elapsed() < MOVE_UNANSWERED)
     }
 
     /// This move's answer is still awaited.
@@ -554,11 +559,83 @@ impl RecentEdits {
     }
 }
 
+/// How many times a sorted playlist loads again for its new order, after the load right
+/// after YouTube Music took it; each waits [`SORT_WAIT`] longer than the last.
+const SORT_TRIES: u32 = 4;
+const SORT_WAIT: f64 = 2.0;
+
+/// One of YouTube Music's sorts asked of your own playlist, until the playlist loads in
+/// that order. Its answer comes before its reads have caught up: a load right after it
+/// can still bring the old order (with the old one ticked), so it loads again a little
+/// later, a few times at most.
+pub struct SortWait {
+    /// What was sent: the order that's ticked once it's in.
+    actions: serde_json::Value,
+    /// YouTube Music took it; the loads from then on are looked at.
+    taken: bool,
+    /// Loads asked for since, after the first.
+    tries: u32,
+    /// When to load it again; `None` while a load is awaited.
+    due: Option<f64>,
+}
+
+impl SortWait {
+    pub fn new(actions: serde_json::Value) -> Self {
+        Self { actions, taken: false, tries: 0, due: None }
+    }
+
+    /// YouTube Music took the sort; the playlist is loading again.
+    pub fn taken(&mut self) {
+        self.taken = true;
+    }
+
+    /// The playlist's first page came in, with its sorts: true when it's in the order
+    /// asked for, or when it's been tried enough (it stays as YouTube Music lists it).
+    /// Otherwise it's to load again at [`Self::due`].
+    pub fn arrived(&mut self, sorts: &[PlaylistSort], now: f64) -> bool {
+        if !self.taken {
+            return false;
+        }
+        if sorts.iter().any(|s| s.on && s.actions == self.actions) {
+            return true;
+        }
+        // Another load meanwhile (going back to it) leaves the one waiting as it was.
+        if self.due.is_some() {
+            return false;
+        }
+        if self.tries >= SORT_TRIES {
+            return true;
+        }
+        self.tries += 1;
+        self.due = Some(now + SORT_WAIT * self.tries as f64);
+        false
+    }
+
+    /// Taken, and a load of it is awaited, not waiting to load again.
+    pub fn awaiting(&self) -> bool {
+        self.taken && self.due.is_none()
+    }
+
+    /// When it's to load again, if it's waiting to.
+    pub fn due(&self) -> Option<f64> {
+        self.due
+    }
+
+    /// It's time (`now`) to load it again: true once, and it awaits that load.
+    pub fn take_due(&mut self, now: f64) -> bool {
+        let ready = self.due.is_some_and(|d| now >= d);
+        if ready {
+            self.due = None;
+        }
+        ready
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::{Arrival, Collection, Done, LIKED_MUSIC, Lists, RecentEdits, Start, Track};
+    use super::{Arrival, Collection, Done, LIKED_MUSIC, Lists, PlaylistSort, RecentEdits, SORT_TRIES, SortWait, Start, Track};
 
     fn track(id: &str) -> Track {
         Track { id: id.into(), title: id.into(), artists: vec![], ..Default::default() }
@@ -578,6 +655,7 @@ mod tests {
             set_ids: songs.iter().map(|s| Some(format!("set-{s}"))).collect(),
             count: Some(songs.len() as u64),
             owned: true,
+            sorts: Vec::new(),
         }
     }
 
@@ -1097,5 +1175,62 @@ mod tests {
         lists.added("PL1", &[track("b")]);
         let o = lists.get("PL1").unwrap();
         assert_eq!((o.c.tracks.len(), o.c.count), (2, None));
+    }
+
+    fn sorts(on: u64) -> Vec<PlaylistSort> {
+        [(0, "Manual"), (3, "Title")]
+            .into_iter()
+            .map(|(order, name)| PlaylistSort {
+                name: name.into(),
+                on: order == on,
+                manual: order == 0,
+                actions: serde_json::json!([{"action": "ACTION_SET_PLAYLIST_VIDEO_ORDER", "playlistVideoOrder": order}]),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_sorted_playlist_loads_again_until_it_comes_in_that_order() {
+        let mut wait = SortWait::new(sorts(3)[1].actions.clone());
+        // A load from before YouTube Music took it doesn't count.
+        assert!(!wait.arrived(&sorts(0), 0.0));
+        assert_eq!(wait.due(), None);
+        wait.taken();
+        // Right after: still the old order. It loads again in a while, once.
+        assert!(!wait.arrived(&sorts(0), 10.0));
+        let due = wait.due().unwrap();
+        assert!(due > 10.0);
+        assert!(!wait.take_due(due - 0.1));
+        assert!(wait.take_due(due));
+        assert!(!wait.take_due(due + 1.0));
+        // Then it's in.
+        assert!(wait.arrived(&sorts(3), due + 1.0));
+    }
+
+    #[test]
+    fn a_sorted_playlist_stops_loading_again_after_a_few_tries() {
+        let mut wait = SortWait::new(sorts(3)[1].actions.clone());
+        wait.taken();
+        let mut now = 0.0;
+        let mut waits = Vec::new();
+        for _ in 0..SORT_TRIES {
+            assert!(!wait.arrived(&sorts(0), now));
+            let due = wait.due().unwrap();
+            waits.push(due - now);
+            assert!(wait.take_due(due));
+            now = due;
+        }
+        assert!(wait.arrived(&sorts(0), now));
+        // Each wait is longer than the last.
+        assert!(waits.windows(2).all(|w| w[1] > w[0]));
+    }
+
+    #[test]
+    fn manual_order_counts_as_in_once_it_is_ticked() {
+        let mut wait = SortWait::new(sorts(0)[0].actions.clone());
+        wait.taken();
+        assert!(!wait.arrived(&sorts(3), 0.0));
+        assert!(wait.take_due(wait.due().unwrap()));
+        assert!(wait.arrived(&sorts(0), 5.0));
     }
 }

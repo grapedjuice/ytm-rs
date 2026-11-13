@@ -515,14 +515,12 @@ impl Output {
     }
 }
 
-/// Empties the player. rodio's `clear` waits for the device to skip what's in it, which
-/// never happens while the device is let go (a song paused that long): a new player then.
-/// The old one's song ends the next time the mixer is pulled.
+/// Empties the player without waiting on the device. rodio's `clear` waits for the device
+/// to skip what's in it, which never happens while the device is let go (a song paused that
+/// long), nor while a device that's gone still looks open (until `DeviceLost` arrives): a new
+/// player instead, at the same volume and paused, as `clear` leaves it. The old one's song
+/// ends the next time the mixer is pulled.
 fn clear(player: &mut Player, output: &Output) {
-    if output.sink.is_some() {
-        player.clear();
-        return;
-    }
     let fresh = Player::connect_new(&output.mixer);
     fresh.set_volume(player.volume());
     fresh.pause();
@@ -1063,6 +1061,28 @@ mod tests {
             let _ = done.send((player.empty(), player.is_paused(), player.volume()));
         });
         assert_eq!(finished.recv_timeout(Duration::from_secs(2)).ok(), Some((true, true, 0.5)));
+    }
+
+    #[test]
+    fn emptying_the_player_doesnt_wait_on_a_stalled_device() {
+        use std::num::NonZero;
+        let (mixer, source) = rodio::mixer::mixer(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap());
+        // Playing, through a device that stopped pulling before it reported itself gone.
+        let output = Output { mixer, slot: Arc::new(std::sync::Mutex::new(None)), sink: None, device: None, preferred: None, lost: Default::default(), checked: Instant::now() };
+        let mut player = Player::connect_new(&output.mixer);
+        player.set_volume(0.25);
+        player.append(rodio::buffer::SamplesBuffer::new(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap(), vec![0.5; 96_000]));
+        player.play();
+        let (done, finished) = crossbeam_channel::bounded(1);
+        std::thread::spawn(move || {
+            clear(&mut player, &output);
+            let _ = done.send((player.empty(), player.is_paused(), player.volume()));
+        });
+        assert_eq!(finished.recv_timeout(Duration::from_secs(2)).ok(), Some((true, true, 0.25)));
+        // Once the device pulls again, the old song is gone within rodio's 5 ms check.
+        let mut source = source;
+        let tail: Vec<f32> = source.by_ref().take(9_600).skip(4_800).collect();
+        assert!(tail.iter().all(|s| *s == 0.0));
     }
 
     #[test]

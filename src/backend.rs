@@ -544,6 +544,8 @@ pub struct DownloadRun {
     pub skipped: usize,
     /// Titles of the songs that couldn't be downloaded.
     pub failed: Vec<String>,
+    /// Their ids, in the same order: queued again, the run tries them again.
+    pub failed_ids: Vec<String>,
     pub cancelled: bool,
 }
 
@@ -577,6 +579,107 @@ impl DownloadQueue {
         self.runs.retain(|r| !r.finished());
         Resp::Downloads(runs)
     }
+
+    /// Queue the songs `todo` of a list of `listed` songs (the others are downloaded
+    /// already) for the run `key`, or a new selection's. One on its way for another run
+    /// already downloads for this one too; one on its way for this run isn't queued
+    /// twice. Queued again, a run takes on just the songs it didn't have, and tries again
+    /// the ones that failed (they're its songs already: not counted twice). Returns the
+    /// run's key and how many songs were queued for it.
+    fn add(&mut self, key: Option<String>, title: String, listed: usize, todo: Vec<Track>) -> (String, usize) {
+        let skipped = listed.saturating_sub(todo.len());
+        let key = key.unwrap_or_else(|| {
+            self.selections += 1;
+            format!("selection-{}", self.selections)
+        });
+        let at = self.runs.iter().position(|r| r.key == key);
+        let (mut queued, mut added) = (0, 0);
+        for t in todo {
+            match self.wanted.get_mut(&t.id) {
+                Some(keys) if keys.contains(&key) => continue,
+                Some(keys) => keys.push(key.clone()),
+                None => {
+                    self.wanted.insert(t.id.clone(), vec![key.clone()]);
+                    self.waiting.push_back(t.clone());
+                }
+            }
+            queued += 1;
+            let run = at.map(|i| &mut self.runs[i]);
+            match run.and_then(|r| Some((r.failed_ids.iter().position(|id| *id == t.id)?, r))) {
+                Some((n, run)) => {
+                    run.failed_ids.remove(n);
+                    run.failed.remove(n);
+                    run.done -= 1;
+                }
+                None => added += 1,
+            }
+        }
+        // The ones on disk already count as done, so the progress (and the cover's veil)
+        // starts from how much of the list is there.
+        match at.map(|i| &mut self.runs[i]) {
+            Some(run) => {
+                run.total += added;
+                run.cancelled = false;
+            }
+            None => self.runs.push(DownloadRun { key: key.clone(), title, total: added + skipped, done: skipped, skipped, ..Default::default() }),
+        }
+        (key, queued)
+    }
+
+    /// The next song to download, or none: then the worker asking stops.
+    fn next(&mut self) -> Option<Track> {
+        let next = self.waiting.pop_front();
+        if next.is_none() {
+            self.workers -= 1;
+        }
+        next
+    }
+
+    /// How many more workers to start for the songs waiting.
+    fn more_workers(&mut self) -> usize {
+        let start = DOWNLOADS_AT_ONCE.min(self.workers + self.waiting.len()).saturating_sub(self.workers);
+        self.workers += start;
+        start
+    }
+
+    /// A song is through, for every run that wanted it: `saved`, there already
+    /// (`Ok(false)`), or failed.
+    fn finish<E>(&mut self, t: &Track, result: &Result<bool, E>) {
+        for key in self.wanted.remove(&t.id).unwrap_or_default() {
+            let Some(run) = self.runs.iter_mut().find(|r| r.key == key) else { continue };
+            run.done += 1;
+            match result {
+                Ok(true) => run.saved += 1,
+                Ok(false) => run.skipped += 1,
+                Err(_) => {
+                    run.failed.push(t.title.clone());
+                    run.failed_ids.push(t.id.clone());
+                }
+            }
+        }
+    }
+
+    /// Stop the run `key`: its waiting songs are dropped (unless another run wants them
+    /// too); the ones downloading now finish. False when there's no such run.
+    fn cancel(&mut self, key: &str) -> bool {
+        let mut dropped = 0;
+        let DownloadQueue { waiting, wanted, .. } = self;
+        waiting.retain(|t| {
+            let Some(keys) = wanted.get_mut(&t.id) else { return true };
+            let before = keys.len();
+            keys.retain(|k| k != key);
+            dropped += before - keys.len();
+            let keep = !keys.is_empty();
+            if !keep {
+                wanted.remove(&t.id);
+            }
+            keep
+        });
+        let Some(run) = self.runs.iter_mut().find(|r| r.key == key) else { return false };
+        run.total -= dropped;
+        run.cancelled = true;
+        true
+    }
 }
 
 /// A song claimed for saving (`DownloadQueue::saving`), let go when dropped.
@@ -586,6 +689,13 @@ impl Drop for Saving {
     fn drop(&mut self) {
         self.0.lock().unwrap().saving.remove(&self.1);
     }
+}
+
+/// The song's file if it's downloaded already (and then, given `for_video`, that music
+/// video plays it too): disk work, off the async workers.
+async fn reuse_download(song_id: &str, for_video: Option<String>) -> Option<PathBuf> {
+    let id = song_id.to_owned();
+    tokio::task::spawn_blocking(move || crate::downloads::reuse(&id, for_video.as_deref())).await.ok().flatten()
 }
 
 /// Downloaded already: the song, or a music video's song version.
@@ -1631,10 +1741,7 @@ impl Backend {
             }
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         };
-        if let Some(path) = crate::downloads::path(&t.id) {
-            if let Some(v) = &for_video {
-                crate::downloads::link_video(&t.id, v);
-            }
+        if let Some(path) = reuse_download(&t.id, for_video.clone()).await {
             return Ok((path, false));
         }
         let (source, s) = self.resolve(&t.id, true).await?;
@@ -1705,40 +1812,9 @@ impl Backend {
         }
         let skipped = listed.len() - todo.len();
         let mut q = self.batch.lock().unwrap();
-        let key = key.unwrap_or_else(|| {
-            q.selections += 1;
-            format!("selection-{}", q.selections)
-        });
-        // One on its way for another run already downloads for this one too.
-        let mut added = 0;
-        for t in todo {
-            match q.wanted.get_mut(&t.id) {
-                Some(keys) if keys.contains(&key) => {}
-                Some(keys) => {
-                    keys.push(key.clone());
-                    added += 1;
-                }
-                None => {
-                    q.wanted.insert(t.id.clone(), vec![key.clone()]);
-                    q.waiting.push_back(t);
-                    added += 1;
-                }
-            }
-        }
-        // The ones on disk already count as done, so the progress (and the cover's veil)
-        // starts from how much of the list is there. Queued again, a run takes on just
-        // the songs it didn't have.
-        match q.runs.iter_mut().find(|r| r.key == key) {
-            Some(run) => {
-                run.total += added;
-                run.cancelled = false;
-            }
-            None => q.runs.push(DownloadRun { key: key.clone(), title, total: added + skipped, done: skipped, skipped, ..Default::default() }),
-        }
-        log::info!("download {key}: {added} songs queued, {skipped} downloaded already");
-        let start = DOWNLOADS_AT_ONCE.min(q.workers + q.waiting.len()).saturating_sub(q.workers);
-        q.workers += start;
-        for _ in 0..start {
+        let (key, queued) = q.add(key, title, listed.len(), todo);
+        log::info!("download {key}: {queued} songs queued, {skipped} downloaded already");
+        for _ in 0..q.more_workers() {
             let this = self.clone();
             tokio::spawn(async move { this.download_worker().await });
         }
@@ -1751,14 +1827,7 @@ impl Backend {
     /// Download queued songs, one after another, until none are left.
     async fn download_worker(&self) {
         loop {
-            let next = {
-                let mut q = self.batch.lock().unwrap();
-                let next = q.waiting.pop_front();
-                if next.is_none() {
-                    q.workers -= 1;
-                }
-                next
-            };
+            let next = self.batch.lock().unwrap().next();
             let Some(t) = next else { return };
             // On a task of its own, so a panic in it fails this song, not the whole queue.
             let (this, song) = (self.clone(), t.clone());
@@ -1768,15 +1837,7 @@ impl Backend {
             }
             {
                 let mut q = self.batch.lock().unwrap();
-                for key in q.wanted.remove(&t.id).unwrap_or_default() {
-                    let Some(run) = q.runs.iter_mut().find(|r| r.key == key) else { continue };
-                    run.done += 1;
-                    match result {
-                        Ok(true) => run.saved += 1,
-                        Ok(false) => run.skipped += 1,
-                        Err(_) => run.failed.push(t.title.clone()),
-                    }
-                }
+                q.finish(&t, &result);
                 let _ = self.tx.send(q.snapshot());
             }
             self.wake();
@@ -1790,11 +1851,8 @@ impl Backend {
             true => (self.song_version(&t.id, Some(t), PREFETCH_SONG_WAIT).await.ok_or_else(|| anyhow::anyhow!("no song version of this music video"))?, Some(t.id.clone())),
             false => (t.clone(), None),
         };
-        if crate::downloads::path(&song.id).is_some() {
-            // Its song is downloaded already: the video plays that file too.
-            if let Some(v) = &for_video {
-                crate::downloads::link_video(&song.id, v);
-            }
+        // Its song is downloaded already: the video plays that file too.
+        if reuse_download(&song.id, for_video.clone()).await.is_some() {
             return Ok(false);
         }
         if !self.download(&song, for_video, true).await?.1 {
@@ -1812,22 +1870,9 @@ impl Backend {
     pub fn cancel_downloads(&self, key: &str) {
         {
             let mut q = self.batch.lock().unwrap();
-            let mut dropped = 0;
-            let DownloadQueue { waiting, wanted, .. } = &mut *q;
-            waiting.retain(|t| {
-                let Some(keys) = wanted.get_mut(&t.id) else { return true };
-                let before = keys.len();
-                keys.retain(|k| k != key);
-                dropped += before - keys.len();
-                let keep = !keys.is_empty();
-                if !keep {
-                    wanted.remove(&t.id);
-                }
-                keep
-            });
-            let Some(run) = q.runs.iter_mut().find(|r| r.key == key) else { return };
-            run.total -= dropped;
-            run.cancelled = true;
+            if !q.cancel(key) {
+                return;
+            }
             let _ = self.tx.send(q.snapshot());
         }
         log::info!("download {key}: cancelled");
@@ -2144,6 +2189,113 @@ pub fn compact(n: u64) -> String {
 // Larger art URL for the background / now-playing view.
 pub fn art_url(t: &Track) -> Option<String> {
     model::pick(&t.thumbs, 120).map(|u| sized(u, 544))
+}
+
+#[cfg(test)]
+mod download_queue_tests {
+    use super::*;
+
+    fn song(id: &str) -> Track {
+        Track { id: id.into(), title: id.to_uppercase(), ..Default::default() }
+    }
+
+    fn songs(ids: &[&str]) -> Vec<Track> {
+        ids.iter().map(|id| song(id)).collect()
+    }
+
+    fn run<'a>(q: &'a DownloadQueue, key: &str) -> &'a DownloadRun {
+        q.runs.iter().find(|r| r.key == key).unwrap()
+    }
+
+    fn waiting(q: &DownloadQueue) -> Vec<&str> {
+        q.waiting.iter().map(|t| t.id.as_str()).collect()
+    }
+
+    #[test]
+    fn a_song_two_runs_want_downloads_once_for_both() {
+        let mut q = DownloadQueue::default();
+        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2"])), ("A".to_owned(), 2));
+        assert_eq!(q.add(Some("B".into()), "B".into(), 2, songs(&["2", "3"])), ("B".to_owned(), 2));
+        assert_eq!(waiting(&q), ["1", "2", "3"]);
+        let (a, b) = (run(&q, "A"), run(&q, "B"));
+        assert_eq!((a.total, a.done, a.skipped), (3, 1, 1));
+        assert_eq!((b.total, b.done), (2, 0));
+
+        let two = q.waiting[1].clone();
+        q.finish(&two, &Ok::<_, ()>(true));
+        assert_eq!((run(&q, "A").done, run(&q, "A").saved), (2, 1));
+        assert_eq!((run(&q, "B").done, run(&q, "B").saved), (1, 1));
+    }
+
+    #[test]
+    fn queued_again_a_run_takes_on_only_what_it_lacks() {
+        let mut q = DownloadQueue::default();
+        q.add(Some("A".into()), "A".into(), 2, songs(&["1", "2"]));
+        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"])).1, 1);
+        assert_eq!(waiting(&q), ["1", "2", "3"]);
+        assert_eq!(run(&q, "A").total, 3);
+    }
+
+    #[test]
+    fn queued_again_a_failed_song_is_retried_not_counted_twice() {
+        let mut q = DownloadQueue::default();
+        q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"]));
+        let one = q.next().unwrap();
+        q.finish(&one, &Err::<bool, _>(()));
+        assert_eq!((run(&q, "A").done, run(&q, "A").failed.clone()), (1, vec!["1".to_owned()]));
+
+        // Queued again from the card's menu while 2 and 3 are still to go: 1 failed, so
+        // it isn't downloaded and comes back; 2 and 3 are on their way already.
+        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"])).1, 1);
+        let a = run(&q, "A");
+        assert_eq!((a.total, a.done), (3, 0));
+        assert!(a.failed.is_empty() && a.failed_ids.is_empty());
+        assert_eq!(waiting(&q), ["2", "3", "1"]);
+
+        // It fails again: listed once.
+        for _ in 0..3 {
+            let t = q.next().unwrap();
+            let failed = t.id == "1";
+            q.finish(&t, &if failed { Err(()) } else { Ok(true) });
+        }
+        let a = run(&q, "A");
+        assert_eq!((a.total, a.done, a.saved), (3, 3, 2));
+        assert_eq!(a.failed, ["1"]);
+        assert!(a.finished());
+    }
+
+    #[test]
+    fn cancelling_drops_only_the_songs_no_other_run_wants() {
+        let mut q = DownloadQueue::default();
+        q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"]));
+        q.add(Some("B".into()), "B".into(), 1, songs(&["3"]));
+        // 1 is on its way: it finishes.
+        let one = q.next().unwrap();
+        assert!(q.cancel("A"));
+        assert!(!q.cancel("nothing"));
+        assert_eq!(waiting(&q), ["3"]);
+        assert_eq!(q.wanted["3"], ["B"]);
+        let a = run(&q, "A");
+        assert_eq!((a.total, a.done, a.cancelled), (1, 0, true));
+        q.finish(&one, &Ok::<_, ()>(true));
+        assert!(run(&q, "A").finished());
+
+        // A finished run is listed once more, then let go.
+        let Resp::Downloads(runs) = q.snapshot() else { panic!() };
+        assert_eq!(runs.len(), 2);
+        assert_eq!(q.runs.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), ["B"]);
+    }
+
+    #[test]
+    fn selections_get_keys_of_their_own_and_workers_are_capped() {
+        let mut q = DownloadQueue::default();
+        assert_eq!(q.add(None, String::new(), 1, songs(&["1"])).0, "selection-1");
+        assert_eq!(q.add(None, String::new(), 2, songs(&["2", "3"])).0, "selection-2");
+        assert_eq!(q.more_workers(), DOWNLOADS_AT_ONCE.min(3));
+        assert_eq!(q.more_workers(), 0);
+        while q.next().is_some() {}
+        assert_eq!(q.workers, DOWNLOADS_AT_ONCE.min(3) - 1);
+    }
 }
 
 #[cfg(test)]

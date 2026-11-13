@@ -264,7 +264,7 @@ impl App {
                 self.toast(format!("Downloaded \u{201c}{title}\u{201d}"));
                 self.all_downloaded.clear();
                 if self.page == Page::Library(LibTab::Downloads) {
-                    self.downloads = Some(crate::downloads::all());
+                    self.reload_downloads();
                 }
             }
             Resp::Downloads(runs) => self.on_download_runs(runs),
@@ -523,16 +523,28 @@ impl App {
         }
     }
 
-    /// Downloads of albums, playlists and selections moved on. One toast as each starts
-    /// and one as it ends, not one per song: their pages and Library › Downloads show
-    /// how far they are.
-    /// Library › Downloads read again. New files come first, so the picked rows move:
-    /// the same songs stay picked.
+    /// Library › Downloads read whole: every file looked at (disk work, so on a visit,
+    /// not as each song lands).
+    pub(super) fn read_downloads(&mut self) {
+        // Counted first: a song saved meanwhile is taken on again next time, not missed.
+        self.downloads_seen = crate::downloads::saves();
+        self.downloads = Some(crate::downloads::all());
+    }
+
+    /// Library › Downloads takes on the songs saved since it was read, at the top, from
+    /// the index (no look at the other files). New files come first, so the picked rows
+    /// move: the same songs stay picked.
     fn reload_downloads(&mut self) {
-        let new = crate::downloads::all();
-        if let Some(old) = &self.downloads
-            && self.selection.page == Some(Page::Library(LibTab::Downloads))
-        {
+        let Some(old) = self.downloads.take() else { return self.read_downloads() };
+        let (seen, mut new) = crate::downloads::saved_since(self.downloads_seen);
+        self.downloads_seen = seen;
+        if new.is_empty() {
+            self.downloads = Some(old);
+            return;
+        }
+        let fresh: HashSet<String> = new.iter().map(|t| t.id.clone()).collect();
+        new.extend(old.iter().filter(|t| !fresh.contains(&t.id)).cloned());
+        if self.selection.page == Some(Page::Library(LibTab::Downloads)) {
             let id = |i: usize| old.get(i).map(|t| t.id.as_str());
             let at = |id: &str| new.iter().position(|t| t.id == id);
             let picked: HashSet<&str> = self.selection.rows.iter().filter_map(|&i| id(i)).collect();
@@ -542,6 +554,9 @@ impl App {
         self.downloads = Some(new);
     }
 
+    /// Downloads of albums, playlists and selections moved on. One toast as each starts
+    /// and one as it ends, not one per song: their pages and Library › Downloads show
+    /// how far they are.
     fn on_download_runs(&mut self, runs: Vec<crate::backend::DownloadRun>) {
         let mut notes = Vec::new();
         for r in &runs {
@@ -754,7 +769,7 @@ mod download_summary_tests {
 
     fn run(saved: usize, skipped: usize, failed: &[&str], cancelled: bool) -> DownloadRun {
         let failed: Vec<String> = failed.iter().map(|s| s.to_string()).collect();
-        DownloadRun { key: "PL1".into(), title: "Mix".into(), total: saved + failed.len(), done: saved + failed.len(), saved, skipped, failed, cancelled }
+        DownloadRun { key: "PL1".into(), title: "Mix".into(), total: saved + failed.len(), done: saved + failed.len(), saved, skipped, failed, cancelled, ..Default::default() }
     }
 
     #[test]

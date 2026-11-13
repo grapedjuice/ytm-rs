@@ -391,6 +391,8 @@ pub struct App {
     uploads: Option<Vec<Track>>,
     /// Library › Downloads, read from the download index when the tab opens.
     downloads: Option<Vec<Track>>,
+    /// How many of this session's saves `downloads` has (`downloads::saved_since`).
+    downloads_seen: usize,
     /// Albums, playlists and selections downloading now.
     download_runs: Vec<crate::backend::DownloadRun>,
     /// Whether a collection's songs are all downloaded, by its id, as its page last
@@ -736,6 +738,7 @@ impl App {
             history: None,
             uploads: None,
             downloads: None,
+            downloads_seen: 0,
             download_runs: Vec::new(),
             all_downloaded: HashMap::new(),
             picked_uploads: Default::default(),
@@ -1070,7 +1073,7 @@ impl App {
             }
             // On this computer: no request, and the files are read again on each visit.
             Page::Library(LibTab::Downloads) => {
-                self.downloads = Some(crate::downloads::all());
+                self.read_downloads();
                 self.all_downloaded.clear();
                 None
             }

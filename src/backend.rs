@@ -27,6 +27,8 @@ pub enum Req {
     /// A Moods & genres category, by its browse params.
     Mood(String),
     Search(String),
+    /// A search of only your library or only your uploads.
+    SearchIn { query: String, scope: ytm::Scope },
     /// Suggestions for a query; `round` comes back with them, so stale ones can be dropped.
     Suggest { query: String, round: u64 },
     /// Remove a past search (its token) from the account's history.
@@ -127,7 +129,7 @@ impl Req {
             Req::MoreQuickPicks(_) => "Loading more picks",
             Req::Explore(_) => "Loading explore",
             Req::Mood(_) => "Loading the category",
-            Req::Search(_) => "Search",
+            Req::Search(_) | Req::SearchIn { .. } => "Search",
             Req::Suggest { .. } => "Suggest",
             Req::ForgetSearch(_) => "Removing the search",
             Req::Album { .. } => "Loading album",
@@ -187,6 +189,8 @@ pub struct Explore {
 
 pub struct SearchResults {
     pub query: String,
+    /// All of YouTube Music, or just your library or your uploads.
+    pub scope: ytm::Scope,
     pub tracks: Vec<Track>,
     /// Videos, including uploads that have no song version (remixes, live sets).
     pub videos: Vec<Track>,
@@ -337,6 +341,8 @@ pub enum Resp {
     Explore(Explore),
     Mood(ytm::MoodPage),
     Search(SearchResults),
+    /// A search of your library or your uploads (`SearchResults::scope`).
+    SearchIn(SearchResults),
     /// `None`: this video can't be shown; the picture stays.
     VideoStream { video_id: String, max_height: u32, stream: Option<innertube::VideoStream> },
     /// `clip`: the HLS playlist of the song's animated cover; `None`: it has none.
@@ -414,6 +420,7 @@ impl Resp {
                 | Resp::HomeMore(_)
                 | Resp::QuickPicksMore { .. }
                 | Resp::Suggest { .. }
+                | Resp::SearchIn(_)
                 | Resp::Library(_)
                 | Resp::History(_)
                 | Resp::Uploads(_)
@@ -434,6 +441,23 @@ impl Resp {
     fn ended(id: String, load: u64) -> Self {
         Resp::CollectionMore { id, load, tracks: Vec::new(), set_ids: Vec::new(), more: false, failed: true }
     }
+}
+
+/// A search of your library or uploads, laid out as the search page shows any search:
+/// songs apart from videos, and the pages it found by kind.
+fn search_in(found: ytm::ScopedResults, query: String, scope: ytm::Scope) -> SearchResults {
+    let (videos, tracks) = found.tracks.into_iter().partition(|t| t.video);
+    let mut r = SearchResults { query, scope, tracks, videos, albums: Vec::new(), artists: Vec::new(), playlists: Vec::new(), podcasts: Vec::new(), episodes: found.episodes };
+    for c in found.cards {
+        match &c.target {
+            Target::Artist(_) => r.artists.push(c),
+            Target::Album(_) => r.albums.push(c),
+            Target::Playlist(id) if ytm::list_id(id) != id => r.podcasts.push(c),
+            Target::Playlist(_) => r.playlists.push(c),
+            Target::Song(_) => {}
+        }
+    }
+    r
 }
 
 /// Likes and unlikes go one after another, this far apart. YouTube Music answers faster
@@ -993,6 +1017,7 @@ impl Backend {
                 Req::Explore(preferred_artists) => self.explore(&preferred_artists, me).await?,
                 Req::Mood(params) => Resp::Mood(ytm::mood(api, &params, me).await?),
                 Req::Search(query) => self.search(query, me).await?,
+                Req::SearchIn { query, scope } => Resp::SearchIn(search_in(ytm::search_in(api, &query, scope).await?, query, scope)),
                 Req::Suggest { query, round } => {
                     let terms = ytm::suggestions(api, &query, me).await?.into_iter().take(8).collect();
                     Resp::Suggest { query, round, terms }
@@ -1302,6 +1327,7 @@ impl Backend {
             podcasts,
             episodes,
             query,
+            scope: ytm::Scope::Everywhere,
         }))
     }
 

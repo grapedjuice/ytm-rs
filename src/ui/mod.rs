@@ -50,6 +50,7 @@ use crate::media::Media;
 use crate::model::{Card, Chip, Shelf, Target, Track};
 use crate::shader::Background;
 use crate::theme;
+use crate::ytm::Scope;
 use lists::{LIKED_MUSIC, Lists};
 use queue::Queue;
 use dev::{dev_screenshot, dev_var};
@@ -392,6 +393,11 @@ pub struct App {
     /// The Moods & genres category last opened.
     mood: Option<crate::ytm::MoodPage>,
     search: Option<SearchResults>,
+    /// The search tab picked (YT Music, Library, Uploads) and the search it was picked on:
+    /// another search starts on YT Music.
+    search_scope: (String, Scope),
+    /// Library and Uploads results for the search shown, each loaded when its tab is first picked.
+    scoped: Vec<SearchResults>,
     /// Albums and playlists opened lately, so going back to one shows it at once (and
     /// refreshes it quietly), and their loads under way.
     lists: Lists,
@@ -750,6 +756,8 @@ impl App {
             explore: None,
             mood: None,
             search: None,
+            search_scope: Default::default(),
+            scoped: Vec::new(),
             lists: Lists::default(),
             sorting: HashMap::new(),
             artist: None,
@@ -1043,10 +1051,14 @@ impl App {
         {
             self.start_load(s);
         }
-        if let Page::Search(q) = &self.page
-            && self.search.as_ref().is_some_and(|s| &s.query == q)
-        {
-            self.backend.request(Req::Search(q.clone()));
+        // The search tab shown; one not in yet is asked for by the page's load.
+        if let Page::Search(q) = &self.page {
+            match self.scope_for(q) {
+                Scope::Everywhere if self.search.as_ref().is_some_and(|s| &s.query == q) => self.backend.request(Req::Search(q.clone())),
+                Scope::Everywhere => {}
+                scope if self.scoped.iter().any(|r| &r.query == q && r.scope == scope) => self.backend.request(Req::SearchIn { query: q.clone(), scope }),
+                _ => {}
+            }
         }
         let changed = self.page_changed;
         self.page_loaded();
@@ -1124,6 +1136,24 @@ impl App {
             Some(Req::Library) => self.request_library(),
             Some(r) => self.backend.request(r),
             None => {}
+        }
+        // The Library or Uploads tab of a search: only asked for once it's picked.
+        if let Page::Search(q) = &self.page {
+            let q = q.clone();
+            self.scoped.retain(|r| r.query == q);
+            let scope = self.scope_for(&q);
+            if scope != Scope::Everywhere && !self.scoped.iter().any(|r| r.scope == scope) {
+                self.loading = true;
+                self.backend.request(Req::SearchIn { query: q, scope });
+            }
+        }
+    }
+
+    /// The search tab shown for the search `q`: the one picked on it, while signed in.
+    fn scope_for(&self, q: &str) -> Scope {
+        match &self.search_scope {
+            (on, scope) if on == q && self.logged_in => *scope,
+            _ => Scope::Everywhere,
         }
     }
 

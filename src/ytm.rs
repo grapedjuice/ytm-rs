@@ -191,6 +191,55 @@ pub async fn search_cards(api: &Api, query: &str, filter: Filter, auth: bool) ->
     Ok(search_as(api, query, filter, auth).await?.iter().filter_map(|i| list_card(&i["musicResponsiveListItemRenderer"])).collect())
 }
 
+/// Where a search looks, as the tabs over music.youtube.com's results do: all of YouTube
+/// Music, or only the signed-in account's library or its uploads.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Scope {
+    #[default]
+    Everywhere,
+    Library,
+    Uploads,
+}
+
+/// What a search of your library or your uploads found: rows that play (episodes apart,
+/// with podcasts shown) and the pages it can open.
+#[derive(Default)]
+pub struct ScopedResults {
+    pub tracks: Vec<Track>,
+    pub episodes: Vec<Track>,
+    pub cards: Vec<Card>,
+}
+
+/// Search only your library or only your uploads, as the account (so the query goes into
+/// its search history, as on the website).
+pub async fn search_in(api: &Api, query: &str, scope: Scope) -> anyhow::Result<ScopedResults> {
+    let params = match scope {
+        Scope::Everywhere => anyhow::bail!("not a search of your own music"),
+        Scope::Library => "agIYBA%3D%3D",
+        Scope::Uploads => "agIYAw%3D%3D",
+    };
+    let v = api.call_signed_in("search", json!({ "query": query, "params": params })).await?;
+    Ok(parse_scoped(&v))
+}
+
+fn parse_scoped(v: &Value) -> ScopedResults {
+    let mut out = ScopedResults::default();
+    // Only the picked tab holds results; the others are links to their own search.
+    let tabs = arr(&v["contents"]["tabbedSearchResultsRenderer"]["tabs"]);
+    let Some(tab) = tabs.iter().map(|t| &t["tabRenderer"]).find(|t| t["selected"] == true) else { return out };
+    let sections = arr(&tab["content"]["sectionListRenderer"]["contents"]);
+    for r in sections.iter().flat_map(|s| arr(&s["musicShelfRenderer"]["contents"])).map(|i| &i["musicResponsiveListItemRenderer"]) {
+        if !r["navigationEndpoint"].is_null() {
+            out.cards.extend(list_card(r));
+        } else if video_type(&[&r["overlay"], &r["flexColumns"][0]]) == Some("MUSIC_VIDEO_TYPE_PODCAST_EPISODE") {
+            out.episodes.extend(episode_row(r).filter(|_| podcasts()));
+        } else {
+            out.tracks.extend(list_item(r));
+        }
+    }
+    out
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Suggestion {
     pub text: String,
@@ -1648,9 +1697,15 @@ fn two_row(r: &Value) -> Option<Card> {
 /// What a browse endpoint opens.
 fn target(nav: &Value) -> Option<Target> {
     let id = nav["browseEndpoint"]["browseId"].as_str()?.to_owned();
+    // Your uploads' own artist and album pages, which the app can't open.
+    if id.starts_with("FEmusic_library_privately_owned_") {
+        return None;
+    }
     Some(match page_type(nav)? {
         "MUSIC_PAGE_TYPE_ALBUM" | "MUSIC_PAGE_TYPE_AUDIOBOOK" => Target::Album(id),
         "MUSIC_PAGE_TYPE_ARTIST" | "MUSIC_PAGE_TYPE_USER_CHANNEL" => Target::Artist(id),
+        // An artist's songs in your library ("MPLA" and their channel): their own page opens.
+        "MUSIC_PAGE_TYPE_LIBRARY_ARTIST" => Target::Artist(id.strip_prefix("MPLA").unwrap_or(&id).to_owned()),
         "MUSIC_PAGE_TYPE_PLAYLIST" => Target::Playlist(id.strip_prefix("VL").unwrap_or(&id).to_owned()),
         // A show opens as the playlist it is, by its own page (see `list_id`).
         "MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE" if podcasts() => Target::Playlist(id),
@@ -2172,6 +2227,48 @@ mod tests {
         assert_eq!(names(&list_item(&row(&bare)).unwrap()), ["Coldplay"]);
         let plain = UPLOAD_ROW.replace("MUSIC_PAGE_TYPE_UNKNOWN", "MUSIC_PAGE_TYPE_ARTIST");
         assert_eq!(list_item(&row(&plain)).unwrap().artists[0].id, None);
+    }
+
+    // A search of your uploads and one of your library, trimmed from real answers (November
+    // 2026). Only the picked tab holds results. Uploads come in one untitled shelf: your
+    // uploads' artist and album (leading to pages of your own), then the songs.
+    const UPLOADS_SEARCH: &str = r#"{"contents":{"tabbedSearchResultsRenderer":{"tabs":[{"tabRenderer":{"title":"YT Music","selected":false,"endpoint":{"searchEndpoint":{"params":"agIYAQ%3D%3D","query":"kaede"}}}},{"tabRenderer":{"title":"Library","selected":false,"endpoint":{"searchEndpoint":{"params":"agIYBA%3D%3D","query":"kaede"}}}},{"tabRenderer":{"title":"Uploads","selected":true,"content":{"sectionListRenderer":{"contents":[{"musicShelfRenderer":{"contents":[{"musicResponsiveListItemRenderer":{"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Kaede"}]}}},{"musicResponsiveListItemFlexColumnRenderer":{"text":{}}}],"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ARTIST"}},"browseId":"FEmusic_library_privately_owned_artist_detaila_po_CJD2uP34k9CPgQESBWthZWRl"}}}},{"musicResponsiveListItemRenderer":{"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Stardust in Blue"}]}}},{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Album"},{"text":" • "},{"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_UNKNOWN"}},"browseId":"FEmusic_library_privately_owned_artist_detaila_po_CJD2uP34k9CPgQESBWthZWRl"}},"text":"Kaede"}]}}}],"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ALBUM"}},"browseId":"FEmusic_library_privately_owned_release_detailb_po_CJD2uP34k9CPgQESEHN0YXJkdXN0IGluIGJsdWUaBWthZWRlIg1odHRwIHVwbG9hZGVy"}}}},{"musicResponsiveListItemRenderer":{"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"navigationEndpoint":{"watchEndpoint":{"videoId":"pQlgsq6hpWE","watchEndpointMusicSupportedConfigs":{"watchEndpointMusicConfig":{"musicVideoType":"MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK"}}}},"text":"さよならはハート仕掛け - Farewell Is A Heartwork"}]}}},{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_UNKNOWN"}},"browseId":"FEmusic_library_privately_owned_artist_detaila_po_CJD2uP34k9CPgQESBWthZWRl"}},"text":"Kaede"},{"text":" • "},{"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ALBUM"}},"browseId":"FEmusic_library_privately_owned_release_detailb_po_CJD2uP34k9CPgQESEHN0YXJkdXN0IGluIGJsdWUaBWthZWRlIg1odHRwIHVwbG9hZGVy"}},"text":"Stardust in Blue"}]}}}],"playlistItemData":{"videoId":"pQlgsq6hpWE"}}}]}}]}}}}]}}}"#;
+    // Library results come in titled shelves; its artists lead to "MPLA" and their channel.
+    const LIBRARY_SEARCH: &str = r#"{"contents":{"tabbedSearchResultsRenderer":{"tabs":[{"tabRenderer":{"title":"YT Music","selected":false,"endpoint":{"searchEndpoint":{"params":"agIYAQ%3D%3D","query":"kaede"}}}},{"tabRenderer":{"title":"Library","selected":true,"content":{"sectionListRenderer":{"contents":[{"musicShelfRenderer":{"title":{"runs":[{"text":"Artists"}]},"contents":[{"musicResponsiveListItemRenderer":{"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Kaede"}]}}},{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"3.8K subscribers"}]}}}],"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_LIBRARY_ARTIST"}},"browseId":"MPLAUCMJIUyOLyBdal5XpZW3-96w"}}}}]}},{"musicShelfRenderer":{"title":{"runs":[{"text":"Albums"}]},"contents":[{"musicResponsiveListItemRenderer":{"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Stardust in Blue"}]}}},{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Album"},{"text":" • "},{"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ARTIST"}},"browseId":"UCMJIUyOLyBdal5XpZW3-96w"}},"text":"Kaede"},{"text":" & "},{"text":"Lamp"},{"text":" • "},{"text":"2020"}]}}}],"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ALBUM"}},"browseId":"MPREb_54uxDZG0XOp"}}}}]}},{"musicShelfRenderer":{"title":{"runs":[{"text":"Songs"}]},"contents":[{"musicResponsiveListItemRenderer":{"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"navigationEndpoint":{"watchEndpoint":{"videoId":"G0BLtNsvMP8","watchEndpointMusicSupportedConfigs":{"watchEndpointMusicConfig":{"musicVideoType":"MUSIC_VIDEO_TYPE_ATV"}}}},"text":"When We Were Young"}]}}},{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ARTIST"}},"browseId":"UCMJIUyOLyBdal5XpZW3-96w"}},"text":"Kaede"},{"text":" & "},{"text":"Lamp"},{"text":" • "},{"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ALBUM"}},"browseId":"MPREb_54uxDZG0XOp"}},"text":"Stardust in Blue"}]}}}],"playlistItemData":{"videoId":"G0BLtNsvMP8"}}}]}}]}}}},{"tabRenderer":{"title":"Uploads","selected":false,"endpoint":{"searchEndpoint":{"params":"agIYAw%3D%3D","query":"kaede"}}}}]}}}"#;
+
+    #[test]
+    fn uploads_search_finds_your_songs_and_no_pages_it_cant_open() {
+        let r = parse_scoped(&serde_json::from_str(UPLOADS_SEARCH).unwrap());
+        assert!(r.cards.is_empty());
+        assert_eq!(r.tracks.len(), 1);
+        let t = &r.tracks[0];
+        assert_eq!((t.id.as_str(), t.title.as_str()), ("pQlgsq6hpWE", "さよならはハート仕掛け - Farewell Is A Heartwork"));
+        assert_eq!(names(t), ["Kaede"]);
+        assert_eq!(t.artists[0].id, None);
+        assert_eq!(t.album.as_ref().map(|a| (a.name.as_str(), a.id.as_deref())), Some(("Stardust in Blue", None)));
+        assert!(!t.video);
+    }
+
+    #[test]
+    fn library_search_opens_its_artists_and_albums() {
+        let r = parse_scoped(&serde_json::from_str(LIBRARY_SEARCH).unwrap());
+        let cards: Vec<_> = r.cards.iter().map(|c| (c.title.as_str(), c.subtitle.as_str(), &c.target)).collect();
+        assert_eq!(
+            cards,
+            [
+                ("Kaede", "3.8K subscribers", &Target::Artist("UCMJIUyOLyBdal5XpZW3-96w".into())),
+                ("Stardust in Blue", "Album • Kaede & Lamp • 2020", &Target::Album("MPREb_54uxDZG0XOp".into())),
+            ]
+        );
+        assert_eq!(r.tracks.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(), ["When We Were Young"]);
+        assert_eq!(r.tracks[0].album.as_ref().and_then(|a| a.id.as_deref()), Some("MPREb_54uxDZG0XOp"));
+    }
+
+    #[test]
+    fn a_search_without_a_picked_tab_finds_nothing() {
+        let v = json!({"contents": {"tabbedSearchResultsRenderer": {"tabs": [{"tabRenderer": {"title": "Library"}}]}}});
+        let r = parse_scoped(&v);
+        assert!(r.tracks.is_empty() && r.cards.is_empty());
     }
 
     #[test]

@@ -10,9 +10,10 @@ use super::widgets::{self, RowOpts, card, chip, h_scroll, named, paint_cover, pi
 use super::find::{ListFind, Sort};
 use super::row_drag::{self, RowDrag};
 use super::{Action, App, LibTab, Page, Selection};
-use crate::backend::{PlaylistSort, compact};
+use crate::backend::{PlaylistSort, SearchResults, compact};
 use crate::model::{Card, ShelfKind, Target, Track};
 use crate::theme::{self, icon};
+use crate::ytm::Scope;
 
 const CARD: f32 = 180.0;
 
@@ -657,7 +658,11 @@ pub(super) fn page_title(ui: &mut Ui, title: &str) {
 
 fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     let pick = super::transfer::pick_banner(app, ui);
-    if app.search.as_ref().is_none_or(|r| r.query != q) {
+    if app.logged_in {
+        scope_tabs(app, ui, q);
+    }
+    let scope = app.scope_for(q);
+    if shown_results(&app.search, &app.scoped, q, scope).is_none() {
         placeholder(app, ui, now, 2, CARD);
         return;
     }
@@ -674,7 +679,7 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
             Action::Radio(t.clone())
         }
     };
-    let Some(r) = &app.search else { return };
+    let Some(r) = shown_results(&app.search, &app.scoped, q, scope) else { return };
     let acts = &mut app.actions;
     let liked = &app.liked;
     // Songs here can be dragged onto a playlist in the sidebar, but not into another order.
@@ -684,7 +689,14 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     let videos: Vec<&Track> = r.videos.iter().filter(|t| rows.shows(t)).collect();
     let episodes: Vec<&Track> = r.episodes.iter().filter(|t| rows.shows(t)).collect();
     if tracks.is_empty() && videos.is_empty() && r.artists.is_empty() && r.albums.is_empty() && r.playlists.is_empty() && r.podcasts.is_empty() && episodes.is_empty() {
-        page_title(ui, "No results");
+        page_title(
+            ui,
+            match scope {
+                Scope::Everywhere => "No results",
+                Scope::Library => "No results in your library",
+                Scope::Uploads => "No results in your uploads",
+            },
+        );
         return;
     }
     ui.add_space(8.0);
@@ -775,6 +787,40 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
             });
         }
         row_drag::carry(ui, drag, ids("episodes"));
+    }
+}
+
+/// YT Music, Library and Uploads over a search's results, as on music.youtube.com: all of
+/// YouTube Music, or only what's in your library or what you uploaded. Like the library's
+/// tabs they swap in place, and the one shown refreshes.
+fn scope_tabs(app: &mut App, ui: &mut Ui, q: &str) {
+    let shown = app.scope_for(q);
+    let mut picked = None;
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 10.0;
+        for (scope, label) in [(Scope::Everywhere, "YT Music"), (Scope::Library, "Library"), (Scope::Uploads, "Uploads")] {
+            if chip(ui, label, scope == shown).clicked() {
+                picked = Some(scope);
+            }
+        }
+    });
+    ui.add_space(6.0);
+    match picked {
+        Some(scope) if scope == shown => app.refresh(),
+        Some(scope) => {
+            app.search_scope = (q.to_owned(), scope);
+            app.page_loaded();
+        }
+        None => {}
+    }
+}
+
+/// The results of the search tab shown, once they're in.
+fn shown_results<'a>(search: &'a Option<SearchResults>, scoped: &'a [SearchResults], q: &str, scope: Scope) -> Option<&'a SearchResults> {
+    match scope {
+        Scope::Everywhere => search.as_ref().filter(|r| r.query == q),
+        _ => scoped.iter().find(|r| r.query == q && r.scope == scope),
     }
 }
 

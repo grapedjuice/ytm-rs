@@ -202,6 +202,15 @@ impl App {
                 self.search = Some(r);
                 self.loading = false;
             }
+            // Kept while its search is the page shown.
+            Resp::SearchIn(r) if self.page == Page::Search(r.query.clone()) => {
+                if self.scope_for(&r.query) == r.scope {
+                    self.loading = false;
+                }
+                self.scoped.retain(|s| s.scope != r.scope);
+                self.scoped.push(r);
+            }
+            Resp::SearchIn(_) => {}
             Resp::SearchForgotten => {
                 // Replies dropped meanwhile left the list behind what's typed: ask again.
                 self.forgets_pending = self.forgets_pending.saturating_sub(1);
@@ -744,6 +753,7 @@ impl App {
         self.library = None;
         self.history = None;
         self.uploads = None;
+        self.scoped.clear();
         // Whether it's subscribed is this account's (or channel's) to say.
         self.artist = None;
         self.subscriptions = Default::default();

@@ -293,7 +293,9 @@ fn find_box_right(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &
 #[allow(clippy::too_many_arguments)]
 fn find_tools(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track], saved: &[PlaylistSort], busy: bool, sorting: bool, acts: &mut Vec<Action>, right: bool) {
     let layout = if right { egui::Layout::right_to_left(egui::Align::Center) } else { egui::Layout::left_to_right(egui::Align::Center) };
-    ui.with_layout(layout, |ui| {
+    // A row of its own height: on a line of its own (under the page's buttons) the rest of
+    // the page's height would be taken, with the row centred in it.
+    ui.allocate_ui_with_layout(vec2(ui.available_width(), 38.0), layout, |ui| {
         if right {
             find_field(ui, find, sel, page, tracks);
         }

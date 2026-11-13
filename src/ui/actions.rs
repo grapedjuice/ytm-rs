@@ -209,6 +209,7 @@ impl App {
                 if self.logged_in { self.dialog = Some(Dialog::NewPlaylist { title: String::new(), tracks }); }
                 else { self.toast("Sign in to create playlists"); }
             }
+            Action::SortPlaylist(id, actions) => self.backend.request(Req::SortPlaylist { id, actions }),
             Action::EditPlaylist => {
                 if let Some(c) = self.current_collection().filter(|c| !c.is_album) {
                     self.dialog = Some(Dialog::EditPlaylist {

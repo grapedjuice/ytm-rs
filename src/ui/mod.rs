@@ -205,6 +205,8 @@ pub enum Action {
     Download(Track),
     NewPlaylist(Vec<Track>),
     EditPlaylist,
+    /// Save one of your playlist's sort orders to it: (playlist id, what to send).
+    SortPlaylist(String, serde_json::Value),
     /// The open playlist's collaboration settings.
     Collaborate,
     DeletePlaylist,

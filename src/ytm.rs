@@ -574,6 +574,7 @@ fn parse_album(v: &Value, id: &str) -> Option<(Collection, Vec<usize>)> {
         set_ids: Vec::new(),
         count: None,
         owned: false,
+        sorts: Vec::new(),
     };
     Some((a, videos))
 }
@@ -661,10 +662,36 @@ fn parse_playlist(v: &Value, id: &str) -> Option<(Collection, Option<String>, Op
             tracks,
             set_ids,
             owned: owned(two),
+            sorts: sorts(shelf),
         },
         token,
         count,
     ))
+}
+
+/// Your own playlist's sort menu, with what each order sends to save it. Other lists'
+/// menus (Liked Music's, others' playlists') can't be saved, so they're left out.
+fn sorts(shelf: &Value) -> Vec<crate::backend::PlaylistSort> {
+    let menu = &shelf["header"]["musicSideAlignedItemRenderer"]["startItems"][0]["sortFilterSubMenuRenderer"]["subMenuItems"];
+    arr(menu)
+        .iter()
+        .filter_map(|item| {
+            let actions = &item["serviceEndpoint"]["playlistEditEndpoint"]["actions"];
+            Some(crate::backend::PlaylistSort {
+                name: item["title"].as_str()?.to_owned(),
+                on: item["selected"].as_bool() == Some(true),
+                manual: actions[0]["playlistVideoOrder"] == 0,
+                actions: actions.is_array().then(|| actions.clone())?,
+            })
+        })
+        .collect()
+}
+
+/// Save one of a playlist's sort orders to it (see [`crate::backend::PlaylistSort`]).
+pub async fn sort_playlist(api: &Api, id: &str, actions: Value) -> anyhow::Result<()> {
+    let answer = write(api, "browse/edit_playlist", json!({"playlistId": id, "actions": actions})).await?;
+    anyhow::ensure!(answer["status"].as_str().is_some_and(|s| s.contains("SUCCEEDED")), "YouTube Music didn't confirm the order");
+    Ok(())
 }
 
 /// The header of an album or playlist page; your own playlists wrap it in an editable one.
@@ -1755,6 +1782,23 @@ fn browse_id(run: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn own_playlist_sorts_come_from_the_menu() {
+        let item = |title: &str, on: bool, action: Value| json!({"title": title, "selected": on, "serviceEndpoint": {"playlistEditEndpoint": {"playlistId": "PL1", "actions": [action]}}});
+        let shelf = json!({"header": {"musicSideAlignedItemRenderer": {"startItems": [{"sortFilterSubMenuRenderer": {"subMenuItems": [
+            item("Manual ordering", false, json!({"action": "ACTION_SET_PLAYLIST_VIDEO_ORDER", "playlistVideoOrder": 0})),
+            item("Newest first", true, json!({"action": "ACTION_SET_PLAYLIST_VIDEO_ORDER", "playlistVideoOrder": 1})),
+            item("Title", false, json!({"action": "ACTION_SET_PLAYLIST_DYNAMIC_SORT_PREFERENCE", "playlistDynamicSortPreference": 1})),
+        ]}}]}}});
+        let s = sorts(&shelf);
+        let got: Vec<(&str, bool, bool)> = s.iter().map(|s| (s.name.as_str(), s.on, s.manual)).collect();
+        assert_eq!(got, [("Manual ordering", false, true), ("Newest first", true, false), ("Title", false, false)]);
+        assert_eq!(s[1].actions[0]["playlistVideoOrder"], 1);
+        // Liked Music's menu has nothing to send: no Sort of YouTube Music's there.
+        let liked = json!({"header": {"musicSideAlignedItemRenderer": {"startItems": [{"sortFilterSubMenuRenderer": {"subMenuItems": [{"title": "Newest first", "selected": true}]}}]}}});
+        assert!(sorts(&liked).is_empty());
+    }
 
     #[test]
     fn moods_and_genres_are_read_with_their_categories() {

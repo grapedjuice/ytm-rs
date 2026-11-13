@@ -578,6 +578,7 @@ mod tests {
             set_ids: songs.iter().map(|s| Some(format!("set-{s}"))).collect(),
             count: Some(songs.len() as u64),
             owned: true,
+            sorts: Vec::new(),
         }
     }
 

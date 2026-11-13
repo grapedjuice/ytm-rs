@@ -10,7 +10,7 @@ use super::widgets::{self, RowOpts, card, chip, h_scroll, named, paint_cover, pi
 use super::find::{ListFind, Sort};
 use super::row_drag::{self, RowDrag};
 use super::{Action, App, LibTab, Page, Selection};
-use crate::backend::compact;
+use crate::backend::{PlaylistSort, compact};
 use crate::model::{Card, ShelfKind, Target, Track};
 use crate::theme::{self, icon};
 
@@ -277,20 +277,28 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
     }
 }
 
-/// The Sort button and the box that narrow a page's song list, at the end of its row of
-/// buttons.
-fn find_box(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track]) {
-    ui.horizontal(|ui| {
-        sort_pill(ui, find, page);
-        find_field(ui, find, sel, page, tracks);
-    });
+/// The Sort button and the box that narrow a page's song list, against the right edge of
+/// its row of buttons.
+fn find_box_right(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track]) {
+    find_tools(ui, find, sel, page, tracks, &[], &mut Vec::new(), true);
 }
 
-/// [`find_box`] against the right edge of a row.
-fn find_box_right(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track]) {
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        find_field(ui, find, sel, page, tracks);
-        sort_pill(ui, find, page);
+/// The Sort button, then the find box; `right`: against the right edge of the row. Your own
+/// playlist (`saved` has its orders) gets YouTube Music's Sort, the rest the app's own.
+#[allow(clippy::too_many_arguments)]
+fn find_tools(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page, tracks: &[Track], saved: &[PlaylistSort], acts: &mut Vec<Action>, right: bool) {
+    let layout = if right { egui::Layout::right_to_left(egui::Align::Center) } else { egui::Layout::left_to_right(egui::Align::Center) };
+    ui.with_layout(layout, |ui| {
+        if right {
+            find_field(ui, find, sel, page, tracks);
+        }
+        match page {
+            Page::Playlist(id) if !saved.is_empty() => saved_sort_pill(ui, find, page, id, saved, acts),
+            _ => sort_pill(ui, find, page),
+        }
+        if !right {
+            find_field(ui, find, sel, page, tracks);
+        }
     });
 }
 
@@ -303,14 +311,14 @@ fn find_field(ui: &mut Ui, find: &mut ListFind, sel: &mut Selection, page: &Page
 }
 
 /// The room [`sort_pill`] takes, at its widest.
-const SORT_W: f32 = 150.0;
+const SORT_W: f32 = 175.0;
 
 /// The orders `page`'s list can be shown in, its own first under its name there. None for
 /// an album, which keeps its track order.
 fn sort_options(page: &Page) -> Vec<(Sort, &'static str)> {
-    // Lists that come newest first can turn around. YouTube Music's own date sorts can't be
-    // used: past the first 100 songs its pages come back unsorted, and on your own playlists
-    // the menu saves the order to the playlist itself.
+    // Lists that come newest first can turn around. Loading YouTube Music's own sorts just to
+    // look can't be used: past the first 100 songs its pages come back unsorted. (Your own
+    // playlists use its menu instead, which saves the order: see `saved_sort_pill`.)
     let (own, newest_first) = match page {
         Page::Playlist(id) if id == super::LIKED_MUSIC => ("Recently liked", true),
         Page::Playlist(_) => ("Custom order", false),
@@ -346,6 +354,34 @@ fn sort_pill(ui: &mut Ui, find: &mut ListFind, page: &Page) {
         for (s, name) in options {
             if option_row(ui, name, s == now).clicked() {
                 find.set_sort(page, s);
+                ui.close();
+            }
+        }
+    });
+}
+
+/// Your own playlist's Sort button: YouTube Music's orders, saved to the playlist as there,
+/// which then loads again in the new order. Away while the list is still coming in.
+fn saved_sort_pill(ui: &mut Ui, find: &mut ListFind, page: &Page, id: &str, saved: &[PlaylistSort], acts: &mut Vec<Action>) {
+    if find.holding(page) {
+        return;
+    }
+    // It comes in the order picked here: none of the app's own sorts on top.
+    if find.sort(page) != Sort::Default {
+        find.set_sort(page, Sort::Default);
+    }
+    let label = match saved.iter().find(|s| s.on && !s.manual) {
+        Some(s) => format!("Sort: {}", s.name),
+        None => "Sort".to_owned(),
+    };
+    let resp = pill(ui, &label, None, false);
+    widgets::menu_popup(&resp).show(|ui| {
+        widgets::menu_body(ui, 190.0);
+        for s in saved {
+            if option_row(ui, &s.name, s.on).clicked() {
+                if !s.on {
+                    acts.push(Action::SortPlaylist(id.to_owned(), s.actions.clone()));
+                }
                 ui.close();
             }
         }
@@ -884,12 +920,12 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                     });
                 });
                 if beside {
-                    find_box_right(ui, find, selection, page, tracks);
+                    find_tools(ui, find, selection, page, tracks, &c.sorts, acts, true);
                 }
             });
             if !beside {
                 ui.add_space(10.0);
-                find_box(ui, find, selection, page, tracks);
+                find_tools(ui, find, selection, page, tracks, &c.sorts, acts, false);
             }
         });
     });
@@ -897,7 +933,8 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let number = |i: usize, t: &Track| is_album.then(|| t.track_nr.map_or(i + 1, |n| n as usize));
     let own = app.logged_in && c.owned && !is_album;
     // Only with all of it here and no load that would bring the old order back.
-    let movable = own && o.complete && !app.lists.loading(id) && !matches!(id, "LM" | "SE");
+    // And in the custom order, not one of YouTube Music's sorts.
+    let movable = own && o.complete && !app.lists.loading(id) && !matches!(id, "LM" | "SE") && c.sorts.iter().all(|s| !s.on || s.manual);
     list(ui, &rows, &app.liked, tracks, !is_album, number, ListCtx { sel: &mut app.selection, find: &app.find, drag: &mut app.row_drag, movable, page: &app.page, own }, acts);
     if more {
         widgets::skeleton_rows(ui, now, 3);

@@ -64,6 +64,180 @@ pub struct Track {
     default_duration: u32,
     /// The presentation time of the first sample, in timescale units.
     start: i64,
+    colors: Colors,
+}
+
+/// How a picture's numbers turn into colours, as its stream's header says: the range black
+/// and white are at, and the matrix. A stream that doesn't say gets YouTube's own: TV range
+/// (black at 16, white at 235) and BT.709, which its H.264 is at every size.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Colors {
+    full_range: bool,
+    /// BT.601's matrix, as SD broadcasts have, rather than BT.709's.
+    bt601: bool,
+}
+
+/// [`Colors`] as sums, in 65536ths: light from `y` less `black`, red from v, green from both,
+/// blue from u.
+struct ToRgb {
+    black: i32,
+    y: i32,
+    rv: i32,
+    gu: i32,
+    gv: i32,
+    bu: i32,
+}
+
+impl Colors {
+    fn to_rgb(self) -> ToRgb {
+        let (kr, kb) = if self.bt601 { (0.299, 0.114) } else { (0.2126, 0.0722) };
+        let kg = 1.0 - kr - kb;
+        // TV range spreads 16..=235 (and colour's ±112) out over all of 0..=255.
+        let (black, y, c) = if self.full_range { (0, 1.0, 1.0) } else { (16, 255.0 / 219.0, 255.0 / 224.0) };
+        let f = |x: f64| (x * 65536.0).round() as i32;
+        ToRgb { black, y: f(y), rv: f(2.0 * (1.0 - kr) * c), gu: f(2.0 * (1.0 - kb) * kb / kg * c), gv: f(2.0 * (1.0 - kr) * kr / kg * c), bu: f(2.0 * (1.0 - kb) * c) }
+    }
+}
+
+impl ToRgb {
+    #[inline]
+    fn rgb(&self, y: i32, u: u8, v: u8) -> egui::Color32 {
+        let l = (y - self.black) * self.y + 32768;
+        let (u, v) = (u as i32 - 128, v as i32 - 128);
+        let c = |x: i32| (x >> 16).clamp(0, 255) as u8;
+        egui::Color32::from_rgb(c(l + self.rv * v), c(l - self.gu * u - self.gv * v), c(l + self.bu * u))
+    }
+}
+
+/// What a sequence parameter set (an SPS NAL unit, header byte and all) says of colours, from
+/// its video usability information; `None` if it's cut short.
+fn sps_colors(nal: &[u8]) -> Option<Colors> {
+    if nal.first()? & 0x1f != 7 {
+        return None;
+    }
+    // Without the bytes that keep start codes out of it: a 3 after two zeros.
+    let mut rbsp = Vec::with_capacity(nal.len());
+    let mut zeros = 0;
+    for &b in nal.get(1..)? {
+        if zeros >= 2 && b == 3 {
+            zeros = 0;
+            continue;
+        }
+        zeros = if b == 0 { zeros + 1 } else { 0 };
+        rbsp.push(b);
+    }
+    let mut r = Bits { b: &rbsp, at: 0 };
+    let profile = r.bits(8)?;
+    r.bits(16)?; // constraint flags, level
+    r.ue()?; // id
+    if matches!(profile, 100 | 110 | 122 | 244 | 44 | 83 | 86 | 118 | 128 | 138 | 139 | 134 | 135) {
+        let chroma = r.ue()?;
+        if chroma == 3 {
+            r.bit()?;
+        }
+        r.ue()?; // bit depths
+        r.ue()?;
+        r.bit()?;
+        if r.bit()? == 1 {
+            // Scaling lists: read through for their length.
+            for i in 0..if chroma == 3 { 12 } else { 8 } {
+                if r.bit()? == 1 {
+                    let (mut last, mut next) = (8, 8);
+                    for _ in 0..if i < 6 { 16 } else { 64 } {
+                        if next != 0 {
+                            next = (last + r.se()? + 256) % 256;
+                        }
+                        if next != 0 {
+                            last = next;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    r.ue()?; // frame number size
+    match r.ue()? {
+        0 => {
+            r.ue()?;
+        }
+        1 => {
+            r.bit()?;
+            r.se()?;
+            r.se()?;
+            for _ in 0..r.ue()? {
+                r.se()?;
+            }
+        }
+        _ => {}
+    }
+    r.ue()?; // reference frames
+    r.bit()?;
+    r.ue()?; // size in macroblocks
+    r.ue()?;
+    if r.bit()? == 0 {
+        r.bit()?;
+    }
+    r.bit()?;
+    if r.bit()? == 1 {
+        // Cropping.
+        for _ in 0..4 {
+            r.ue()?;
+        }
+    }
+    // No VUI, or no video signal type in it: nothing said.
+    if r.bit()? == 0 {
+        return Some(Colors::default());
+    }
+    if r.bit()? == 1 && r.bits(8)? == 255 {
+        r.bits(32)?; // the pixels' own aspect ratio
+    }
+    if r.bit()? == 1 {
+        r.bit()?; // overscan
+    }
+    if r.bit()? == 0 {
+        return Some(Colors::default());
+    }
+    r.bits(3)?; // video format
+    let full_range = r.bit()? == 1;
+    // Primaries and transfer, then the matrix: 5 and 6 are BT.601's, 1 (and unsaid) BT.709's.
+    let matrix = if r.bit()? == 1 { r.bits(24)? & 0xff } else { 2 };
+    Some(Colors { full_range, bt601: matches!(matrix, 5 | 6) })
+}
+
+/// Reads an SPS bit by bit.
+struct Bits<'a> {
+    b: &'a [u8],
+    at: usize,
+}
+
+impl Bits<'_> {
+    fn bit(&mut self) -> Option<u32> {
+        let byte = *self.b.get(self.at / 8)?;
+        let bit = byte >> (7 - self.at % 8) & 1;
+        self.at += 1;
+        Some(bit as u32)
+    }
+
+    fn bits(&mut self, n: u32) -> Option<u32> {
+        (0..n).try_fold(0, |v, _| Some(v << 1 | self.bit()?))
+    }
+
+    /// Exp-Golomb: as many zeros as bits to follow, a one, then those bits.
+    fn ue(&mut self) -> Option<u32> {
+        let mut zeros = 0;
+        while self.bit()? == 0 {
+            zeros += 1;
+            if zeros > 31 {
+                return None;
+            }
+        }
+        Some(((1u64 << zeros) - 1 + self.bits(zeros)? as u64).min(u32::MAX as u64) as u32)
+    }
+
+    fn se(&mut self) -> Option<i32> {
+        let k = self.ue()? as i64;
+        Some(if k & 1 == 1 { (k + 1) / 2 } else { -(k / 2) } as i32)
+    }
 }
 
 fn parse_track(moov: &[u8]) -> Option<Track> {
@@ -74,6 +248,8 @@ fn parse_track(moov: &[u8]) -> Option<Track> {
     let at = stsd.windows(4).position(|w| w == b"avcC")? + 4;
     let c = stsd.get(at..)?;
     let nal_len = (*c.get(4)? & 3) as usize + 1;
+    // The first SPS's: the one a stream starts with.
+    let colors = c.get(6..8).and_then(|n| c.get(8..8 + u16::from_be_bytes([n[0], n[1]]) as usize)).and_then(sps_colors).unwrap_or_default();
     let mut params = Vec::new();
     let mut o = 6;
     let mut copy = |count: usize, o: &mut usize| -> Option<()> {
@@ -92,7 +268,7 @@ fn parse_track(moov: &[u8]) -> Option<Track> {
     let default_duration = find(moov, &["mvex", "trex"]).and_then(|t| be32(t, 12)).unwrap_or(0);
     // With B-frames the first frame shows late; the edit list takes that back out.
     let start = find(moov, &["trak", "edts", "elst"]).and_then(|e| if e[0] == 1 { be64(e, 16).map(|v| v as i64) } else { be32(e, 12).map(|v| v as i32 as i64) }).filter(|v| *v > 0).unwrap_or(0);
-    Some(Track { params, nal_len, timescale, default_duration, start })
+    Some(Track { params, nal_len, timescale, default_duration, start, colors })
 }
 
 /// One piece of the file, from its index.
@@ -346,11 +522,19 @@ impl Ord for Pts {
     }
 }
 
-fn to_image(yuv: &openh264::decoder::DecodedYUV) -> egui::ColorImage {
+/// The picture in `colors`. Not openh264's own `write_rgba8`, which takes every stream for
+/// full range and BT.601: on YouTube's that lifts black to grey.
+fn to_image(yuv: &openh264::decoder::DecodedYUV, colors: Colors) -> egui::ColorImage {
     let (w, h) = yuv.dimensions();
-    let mut rgba = vec![0u8; w * h * 4];
-    yuv.write_rgba8(&mut rgba);
-    egui::ColorImage::from_rgba_unmultiplied([w, h], &rgba)
+    let (ys, us, vs) = yuv.strides();
+    let (y, u, v) = (yuv.y(), yuv.u(), yuv.v());
+    let m = colors.to_rgb();
+    let mut pixels = Vec::with_capacity(w * h);
+    for row in 0..h {
+        let (yr, ur, vr) = (&y[row * ys..], &u[row / 2 * us..], &v[row / 2 * vs..]);
+        pixels.extend((0..w).map(|x| m.rgb(yr[x] as i32, ur[x / 2], vr[x / 2])));
+    }
+    egui::ColorImage { size: [w, h], source_size: egui::vec2(w as f32, h as f32), pixels }
 }
 
 fn run(stream: &VideoStream, http: &reqwest::Client, status: &AudioStatus, shared: &Shared) -> anyhow::Result<()> {
@@ -418,7 +602,7 @@ fn run(stream: &VideoStream, http: &reqwest::Client, status: &AudioStatus, share
                 if pts < clock - LATE {
                     continue;
                 }
-                let frame = Frame { pts, image: to_image(&yuv) };
+                let frame = Frame { pts, image: to_image(&yuv, track.colors) };
                 // Paused, or decoding ahead: wait with this frame for room.
                 loop {
                     if shared.stop.load(Ordering::Relaxed) {
@@ -536,9 +720,10 @@ const LOOP_READY: usize = 3;
 /// `yuv` at 1/`step` of its size, as [`to_image`] has its colours. Smaller in the
 /// conversion itself: it costs as much as decoding at full size, and the cover shows no
 /// more than its own size. Each pixel's light is the average of the 2×2 it starts.
-fn scaled_image(yuv: &openh264::decoder::DecodedYUV, step: usize) -> egui::ColorImage {
+fn scaled_image(yuv: &openh264::decoder::DecodedYUV, step: usize, colors: Colors) -> egui::ColorImage {
     let (w, h) = yuv.dimensions();
     let step = step.max(1);
+    let m = colors.to_rgb();
     let (ow, oh) = (w / step, h / step);
     let (ys, us, vs) = yuv.strides();
     let (y, u, v) = (yuv.y(), yuv.u(), yuv.v());
@@ -550,10 +735,7 @@ fn scaled_image(yuv: &openh264::decoder::DecodedYUV, step: usize) -> egui::Color
         for ox in 0..ow {
             let sx = ox * step;
             let l = if step > 1 { (row[sx] as i32 + row[sx + 1] as i32 + below[sx] as i32 + below[sx + 1] as i32 + 2) >> 2 } else { row[sx] as i32 };
-            let (cu, cv) = (ur[sx / 2] as i32 - 128, vr[sx / 2] as i32 - 128);
-            // write_rgba8's 1.402, 0.344, 0.714 and 1.772, in 1024ths.
-            let c = |x: i32| x.clamp(0, 255) as u8;
-            pixels.push(egui::Color32::from_rgb(c(l + ((1436 * cv) >> 10)), c(l - ((352 * cu + 731 * cv) >> 10)), c(l + ((1815 * cu) >> 10))));
+            pixels.push(m.rgb(l, ur[sx / 2], vr[sx / 2]));
         }
     }
     egui::ColorImage { size: [ow, oh], source_size: egui::vec2(ow as f32, oh as f32), pixels }
@@ -674,14 +856,14 @@ fn run_loop(url: &str, http: &reqwest::Client, side: u32, shared: &Shared) -> an
             pending.push(Pts(*pts));
             let Ok(Some(yuv)) = decoder.decode(data) else { continue };
             let Some(Pts(pts)) = pending.pop() else { continue };
-            let image = scaled_image(&yuv, (yuv.dimensions().0 / side as usize).max(1));
+            let image = scaled_image(&yuv, (yuv.dimensions().0 / side as usize).max(1), track.colors);
             if !room() {
                 return Ok(());
             }
             shared.frames.lock().unwrap().push_back(Frame { pts: at(pts), image });
         }
         // The last few, which the decoder holds back for reordering.
-        let rest: Vec<egui::ColorImage> = decoder.flush_remaining().unwrap_or_default().iter().map(|yuv| scaled_image(yuv, (yuv.dimensions().0 / side as usize).max(1))).collect();
+        let rest: Vec<egui::ColorImage> = decoder.flush_remaining().unwrap_or_default().iter().map(|yuv| scaled_image(yuv, (yuv.dimensions().0 / side as usize).max(1), track.colors)).collect();
         for image in rest {
             let Some(Pts(pts)) = pending.pop() else { break };
             if !room() {
@@ -709,7 +891,7 @@ mod tests {
     }
 
     fn track() -> Track {
-        Track { params: vec![], nal_len: 4, timescale: 1000, default_duration: 40, start: 80 }
+        Track { params: vec![], nal_len: 4, timescale: 1000, default_duration: 40, start: 80, colors: Colors::default() }
     }
 
     #[test]
@@ -843,7 +1025,7 @@ mod tests {
         let second = boxed(b"trun", &u32s(&[0, 3]));
         let traf = boxed(b"traf", &[tfhd, tfdt, first, second].concat());
         let moof = boxed(b"moof", &traf);
-        let track = Track { params: vec![], nal_len: 4, timescale: 30, default_duration: 0, start: 0 };
+        let track = Track { params: vec![], nal_len: 4, timescale: 30, default_duration: 0, start: 0, colors: Colors::default() };
         let samples = parse_fragment(&moof, &track);
         assert_eq!(samples.len(), 5);
         assert_eq!(samples.iter().map(|s| s.at).collect::<Vec<_>>(), [200, 210, 220, 230, 240]);
@@ -853,7 +1035,7 @@ mod tests {
     #[test]
     fn a_clip_frame_shrinks_with_the_colours_of_the_full_one() {
         // A 4×4 frame through the real decoder would need a whole H.264 stream; the
-        // conversion is checked on its own against write_rgba8 instead.
+        // conversion is checked on its own against the full-size one instead.
         let (w, h) = (64usize, 32usize);
         let mut enc = openh264::encoder::Encoder::with_api_config(OpenH264API::from_source(), openh264::encoder::EncoderConfig::new()).unwrap();
         let rgb: Vec<u8> = (0..w * h).flat_map(|i| if i % w < w / 2 { [220u8, 40, 30] } else { [30, 60, 200] }).collect();
@@ -861,14 +1043,48 @@ mod tests {
         let stream = enc.encode(&yuv).unwrap().to_vec();
         let mut dec = Decoder::new().unwrap();
         let frame = dec.decode(&stream).unwrap().expect("a frame");
-        let full = to_image(&frame);
-        let half = scaled_image(&frame, 2);
+        let full = to_image(&frame, Colors::default());
+        let half = scaled_image(&frame, 2, Colors::default());
         assert_eq!(half.size, [w / 2, h / 2]);
-        assert_eq!(scaled_image(&frame, 1).size, [w, h]);
+        assert_eq!(scaled_image(&frame, 1, Colors::default()).size, [w, h]);
         let near = |a: egui::Color32, b: egui::Color32| a.to_array().iter().zip(b.to_array()).all(|(x, y)| (*x as i32 - y as i32).abs() <= 4);
         for (x, y) in [(4, 4), (28, 10), (40, 12), (60, 28)] {
             assert!(near(half.pixels[(y / 2) * (w / 2) + x / 2], full.pixels[y * w + x]), "at {x},{y}");
         }
+    }
+
+    // SPS NAL units from YouTube's H.264 (a 360p Main and a 1080p High stream), which say
+    // TV range and BT.709.
+    const SPS_360: [u8; 29] = [0x67, 0x4d, 0x40, 0x1e, 0xe8, 0x80, 0x50, 0x17, 0xfc, 0xb8, 0x0b, 0x50, 0x10, 0x10, 0x14, 0x00, 0x00, 0x03, 0x00, 0x04, 0x00, 0x00, 0x03, 0x00, 0xc8, 0x3c, 0x58, 0xb4, 0x48];
+    const SPS_1080: [u8; 30] = [0x67, 0x64, 0x00, 0x28, 0xac, 0xd1, 0x00, 0x78, 0x02, 0x27, 0xe5, 0xc0, 0x5a, 0x80, 0x80, 0x80, 0xa0, 0x00, 0x00, 0x03, 0x00, 0x20, 0x00, 0x00, 0x06, 0x41, 0xe3, 0x06, 0x22, 0x40];
+
+    #[test]
+    fn a_streams_header_says_what_range_and_matrix_its_colours_are_in() {
+        let tv_709 = Colors { full_range: false, bt601: false };
+        assert_eq!(sps_colors(&SPS_360), Some(tv_709));
+        assert_eq!(sps_colors(&SPS_1080), Some(tv_709));
+        // The same header with its full-range bit set.
+        let mut full = SPS_360;
+        full[11] |= 0x20;
+        assert_eq!(sps_colors(&full), Some(Colors { full_range: true, bt601: false }));
+        // Cut off before it gets there; not an SPS at all.
+        assert_eq!(sps_colors(&SPS_360[..8]), None);
+        assert_eq!(sps_colors(&[0x68, 0xee, 0x3c, 0x80]), None);
+    }
+
+    #[test]
+    fn tv_range_black_and_white_are_black_and_white() {
+        let tv = Colors::default().to_rgb();
+        assert_eq!(tv.rgb(16, 128, 128), egui::Color32::BLACK);
+        assert_eq!(tv.rgb(235, 128, 128), egui::Color32::WHITE);
+        assert_eq!(tv.rgb(126, 128, 128), egui::Color32::from_gray(128));
+        // BT.709's pure red: Y 63, U 102, V 240.
+        let [r, g, b, _] = tv.rgb(63, 102, 240).to_array();
+        assert!(r >= 253 && g <= 2 && b <= 2, "{r} {g} {b}");
+        // Full range is as it was.
+        let full = Colors { full_range: true, bt601: true }.to_rgb();
+        assert_eq!(full.rgb(0, 128, 128), egui::Color32::BLACK);
+        assert_eq!(full.rgb(255, 128, 128), egui::Color32::WHITE);
     }
 
     #[test]

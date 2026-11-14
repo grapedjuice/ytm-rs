@@ -782,6 +782,12 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     if cover.clicked() && on_art { app.actions.push(Action::TogglePlay); }
     // Previous and next on the cover too, for themes that put the transport there. The bar still has them.
     let near_cover = ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| art.contains(p));
+    // Increase/Decrease volume when scrolling on song cover image
+    let scroll = ui.input(|i| i.smooth_scroll_delta().y);
+    if near_cover && scroll != 0.0 {
+        let vol = app.audio.volume();
+        app.audio.set_volume((vol + scroll / 600.0).clamp(0.0, 1.0));
+    } 
     if np.cover_progress && near_cover {
         let status = app.audio.status.clone();
         let total = status.duration().map_or(0.0, |d| d.as_secs_f32());

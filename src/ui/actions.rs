@@ -330,9 +330,14 @@ impl App {
                     matches!(e, egui::Event::Key { key, pressed: true, repeat: false, modifiers, .. }
                         if !editing && (*key == egui::Key::F5 || (*key == egui::Key::R && modifiers.ctrl)))
                 }),
+                // Quits for real, with Close to tray on too: GNOME has no tray to quit from (#143).
+                i.modifiers.command && i.key_pressed(egui::Key::Q),
             )
         });
-        let (space, back, fwd, next, prev, lyr, full, esc, vol_up, vol_down, mini, refresh) = i;
+        let (space, back, fwd, next, prev, lyr, full, esc, vol_up, vol_down, mini, refresh, quit) = i;
+        if quit {
+            self.quit(ctx);
+        }
         if mini {
             self.actions.push(Action::Mini(!self.mini.target()));
         }

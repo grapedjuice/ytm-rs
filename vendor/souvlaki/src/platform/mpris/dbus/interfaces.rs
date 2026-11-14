@@ -20,6 +20,7 @@ pub fn register_methods<F>(
     state: &Arc<Mutex<ServiceState>>,
     event_handler: &Arc<Mutex<F>>,
     friendly_name: String,
+    desktop_entry: Option<String>,
     seeked_signal: SeekedSignal,
 ) -> Crossroads
 where
@@ -32,6 +33,12 @@ where
         move |b| {
             b.property("Identity")
                 .get(move |_, _| Ok(friendly_name.clone()));
+            // ytm-rs: which app this is, for GNOME to bring up when its media controls
+            // are clicked (it asks for Raise only without one, which Wayland won't allow).
+            if let Some(desktop_entry) = desktop_entry {
+                b.property("DesktopEntry")
+                    .get(move |_, _| Ok(desktop_entry.clone()));
+            }
 
             register_method(b, &event_handler, "Raise", MediaControlEvent::Raise);
             register_method(b, &event_handler, "Quit", MediaControlEvent::Quit);

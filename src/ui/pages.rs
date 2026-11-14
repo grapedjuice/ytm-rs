@@ -2194,7 +2194,7 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
         divider(ui);
         // Linux tray icons only open their menu on click.
         let how = if cfg!(target_os = "linux") {
-            "Keeps an icon in the tray. Clicking × hides the window there and keeps the music playing. The icon's menu brings it back, hides it or quits."
+            "Keeps an icon in the tray. Clicking × hides the window there and keeps the music playing. The icon's menu brings it back, hides it or quits. Clicking the song in the system's media controls brings it back too, and Ctrl+Q quits."
         } else {
             "Keeps an icon in the tray. Clicking × hides the window there and keeps the music playing. Click the icon to bring it back, or right-click it to hide, show or quit."
         };

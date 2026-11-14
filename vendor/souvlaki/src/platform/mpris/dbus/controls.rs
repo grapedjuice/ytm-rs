@@ -19,6 +19,7 @@ pub struct MediaControls {
     thread: Option<ServiceThreadHandle>,
     dbus_name: String,
     friendly_name: String,
+    desktop_entry: Option<String>,
 }
 
 struct ServiceThreadHandle {
@@ -125,6 +126,7 @@ impl MediaControls {
         let PlatformConfig {
             dbus_name,
             display_name,
+            desktop_entry,
             ..
         } = config;
 
@@ -132,6 +134,7 @@ impl MediaControls {
             thread: None,
             dbus_name: dbus_name.to_string(),
             friendly_name: display_name.to_string(),
+            desktop_entry: desktop_entry.map(str::to_string),
         })
     }
 
@@ -144,6 +147,7 @@ impl MediaControls {
 
         let dbus_name = self.dbus_name.clone();
         let friendly_name = self.friendly_name.clone();
+        let desktop_entry = self.desktop_entry.clone();
         let (event_channel, rx) = mpsc::channel();
 
         // Check if the connection can be created BEFORE spawning the new thread
@@ -153,7 +157,7 @@ impl MediaControls {
 
         self.thread = Some(ServiceThreadHandle {
             event_channel,
-            thread: thread::spawn(move || run_service(conn, friendly_name, event_handler, rx)),
+            thread: thread::spawn(move || run_service(conn, friendly_name, desktop_entry, event_handler, rx)),
         });
         Ok(())
     }
@@ -202,6 +206,7 @@ impl MediaControls {
 fn run_service<F>(
     conn: Connection,
     friendly_name: String,
+    desktop_entry: Option<String>,
     event_handler: F,
     event_channel: mpsc::Receiver<InternalEvent>,
 ) -> Result<(), Error>
@@ -218,7 +223,7 @@ where
     let seeked_signal = Arc::new(Mutex::new(None));
 
     let mut cr =
-        super::interfaces::register_methods(&state, &event_handler, friendly_name, seeked_signal);
+        super::interfaces::register_methods(&state, &event_handler, friendly_name, desktop_entry, seeked_signal);
 
     conn.start_receive(
         dbus::message::MatchRule::new_method_call(),

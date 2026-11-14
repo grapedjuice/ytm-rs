@@ -458,8 +458,9 @@ impl Appearance {
     }
 }
 
-/// Windows' "app mode" (Settings › Personalization › Colors), read again every couple
-/// of seconds so switching it there shows without a restart. `None` off Windows.
+/// Windows' "app mode" (Settings › Personalization › Colors), or the Linux desktop's
+/// style, read again every couple of seconds so switching it there shows without a
+/// restart. `None` elsewhere, or when it can't be told.
 fn system_light() -> Option<bool> {
     use std::time::{Duration, Instant};
     static MODE: std::sync::Mutex<Option<(Instant, Option<bool>)>> = std::sync::Mutex::new(None);
@@ -488,7 +489,62 @@ fn read_system_light() -> Option<bool> {
     }
 }
 
-#[cfg(not(windows))]
+/// The desktop's light or dark style, from the settings portal's `color-scheme` (GNOME,
+/// KDE and others): the window can't tell on Wayland. Asked on a thread of its own every
+/// couple of seconds, so a slow bus never holds up a frame; this is its last answer.
+/// GNOME's light style is its "default", which elsewhere means no preference.
+#[cfg(target_os = "linux")]
+fn read_system_light() -> Option<bool> {
+    use std::sync::atomic::{AtomicU8, Ordering};
+    use std::time::Duration;
+    // 0: no answer (yet), 1: dark, 2: light.
+    static SCHEME: AtomicU8 = AtomicU8::new(0);
+    static ASKER: std::sync::Once = std::sync::Once::new();
+    ASKER.call_once(|| {
+        let gnome = std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|d| d.split(':').any(|d| d.eq_ignore_ascii_case("GNOME")));
+        let _ = std::thread::Builder::new().name("color-scheme".into()).spawn(move || {
+            let Ok(bus) = dbus::blocking::Connection::new_session() else { return };
+            let portal = bus.with_proxy("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", Duration::from_secs(2));
+            loop {
+                let scheme = match portal_color_scheme(&portal) {
+                    Some(1) => 1,
+                    Some(2) => 2,
+                    Some(0) if gnome => 2,
+                    Some(_) => 0,
+                    // No portal, or one without the setting: nothing more to learn from it.
+                    None => break,
+                };
+                SCHEME.store(scheme, Ordering::Relaxed);
+                std::thread::sleep(Duration::from_secs(2));
+            }
+            SCHEME.store(0, Ordering::Relaxed);
+        });
+    });
+    match SCHEME.load(Ordering::Relaxed) {
+        1 => Some(false),
+        2 => Some(true),
+        _ => None,
+    }
+}
+
+/// `org.freedesktop.appearance` `color-scheme`: 0 no preference, 1 dark, 2 light. Older
+/// portals have only `Read`, which wraps the value in a second variant.
+#[cfg(target_os = "linux")]
+fn portal_color_scheme(portal: &dbus::blocking::Proxy<&dbus::blocking::Connection>) -> Option<u64> {
+    use dbus::arg::{RefArg, Variant};
+    const SETTINGS: &str = "org.freedesktop.portal.Settings";
+    let key = ("org.freedesktop.appearance", "color-scheme");
+    let (v,): (Variant<Box<dyn RefArg>>,) = portal.method_call(SETTINGS, "ReadOne", key).or_else(|_| portal.method_call(SETTINGS, "Read", key)).ok()?;
+    variant_number(&v)
+}
+
+/// The number in a variant, however many variants deep.
+#[cfg(target_os = "linux")]
+fn variant_number(a: &dyn dbus::arg::RefArg) -> Option<u64> {
+    a.as_u64().or_else(|| a.as_iter()?.next().and_then(variant_number))
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 fn read_system_light() -> Option<bool> {
     None
 }
@@ -1517,6 +1573,17 @@ fn visuals() -> egui::Visuals {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_portals_color_scheme_reads_from_one_variant_or_two() {
+        use dbus::arg::{RefArg, Variant};
+        let once: Box<dyn RefArg> = Box::new(2u32);
+        let twice: Box<dyn RefArg> = Box::new(Variant(Box::new(1u32) as Box<dyn RefArg>));
+        assert_eq!(variant_number(&Variant(once)), Some(2));
+        assert_eq!(variant_number(&Variant(twice)), Some(1));
+        assert_eq!(variant_number(&Variant(Box::new("dark".to_owned()) as Box<dyn RefArg>)), None);
+    }
 
     #[test]
     fn glyphs_on_accents_take_the_better_contrast() {

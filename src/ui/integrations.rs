@@ -388,11 +388,9 @@ impl App {
         let want = self.close_to_tray && !self.exiting && !self.tray_failed;
         if want && self.tray.is_none() {
             let c = ctx.clone();
+            self.tray_error = None;
             match crate::tray::Tray::new(crate::appicon::get(self.app_icon), move || c.request_repaint()) {
-                Ok(t) => {
-                    self.tray = Some(t);
-                    self.tray_error = None;
-                }
+                Ok(t) => self.tray = Some(t),
                 // Without an icon there'd be no way back: × just closes.
                 Err(e) => {
                     log::warn!("tray icon unavailable: {e:#}");

@@ -158,7 +158,7 @@ pub struct Card {
     pub links: Vec<Link>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ShelfKind {
     /// Square/round cards in one horizontal row.
     Cards(Vec<Card>),
@@ -166,7 +166,7 @@ pub enum ShelfKind {
     Songs { tracks: Vec<Track>, rows: usize },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Shelf {
     pub title: String,
     /// Small line above the title ("GRAPE JUICE" on Listen again).
@@ -175,7 +175,7 @@ pub struct Shelf {
     pub kind: ShelfKind,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Chip {
     pub title: String,
     /// Browse params selecting this mood; `None` clears the filter.

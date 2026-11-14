@@ -32,6 +32,8 @@ pub enum AudioCmd {
     /// stopping it, and fade the next one in when it starts.
     Handoff,
     Seek(Duration),
+    /// A song was asked for: open the device now, while its stream is still on the way.
+    Warm,
     /// Seek to where `pos` will have moved on to by the time the seek lands (`pos` was
     /// current at `at`): following someone else's playback (listen together).
     SeekLive { pos: Duration, at: std::time::Instant },
@@ -437,16 +439,17 @@ struct Output {
 }
 
 impl Output {
-    fn new(tx: Sender<AudioCmd>, status: &AudioStatus, preferred: Option<String>) -> Self {
+    /// Doesn't open the device: the first song does. Also whether there's one to open.
+    fn new(preferred: Option<String>) -> (Self, bool) {
         // Mix at the device's own format, so the usual case needs no conversion.
-        let config = target(preferred.as_deref()).and_then(|d| d.default_output_config().ok());
+        let device = target(preferred.as_deref());
+        let found = device.is_some();
+        let config = device.and_then(|d| d.default_output_config().ok());
         let channels = config.as_ref().and_then(|c| std::num::NonZero::new(c.channels())).unwrap_or(std::num::NonZero::new(2).unwrap());
         let rate = config.as_ref().and_then(|c| std::num::NonZero::new(c.sample_rate())).unwrap_or(std::num::NonZero::new(48_000).unwrap());
         let (mixer, source) = rodio::mixer::mixer(channels, rate);
         let lost = Arc::new(AtomicBool::new(false));
-        let mut out = Self { mixer, slot: Arc::new(std::sync::Mutex::new(Some(source))), sink: None, device: None, preferred, lost, checked: Instant::now() };
-        out.open(tx, status);
-        out
+        (Self { mixer, slot: Arc::new(std::sync::Mutex::new(Some(source))), sink: None, device: None, preferred, lost, checked: Instant::now() }, found)
     }
 
     /// Opens the picked device, or the default one. False if there's none to open.
@@ -633,8 +636,10 @@ fn run(
     events: Sender<AudioEvent>,
     wake: impl Fn(),
 ) {
-    let mut output = Output::new(tx.clone(), &status, device);
-    if output.sink.is_none() {
+    // An open device costs CPU even while silent, and keeps Windows awake: it waits for
+    // the first song, as after `IDLE_CLOSE`.
+    let (mut output, found) = Output::new(device);
+    if !found {
         let _ = events.send(AudioEvent::Error("No audio output device".into()));
         wake();
     }
@@ -685,8 +690,9 @@ fn run(
                     continue;
                 }
                 log::debug!("audio: start generation {generation}");
-                if output.sink.is_none() || output.default_changed() {
-                    output.open(tx.clone(), &status);
+                if (output.sink.is_none() || output.default_changed()) && !output.open(tx.clone(), &status) {
+                    let _ = events.send(AudioEvent::Error("No audio output device".into()));
+                    wake();
                 }
                 player.clear();
                 let gain = norm_gain(&status, Some(&s));
@@ -873,6 +879,13 @@ fn run(
                             }
                         });
                     }
+                }
+            }
+            // Failing here is `Start`'s to report. Opened while idle, the device gets the
+            // full `IDLE_CLOSE` again, in case the song never comes.
+            Ok(AudioCmd::Warm) => {
+                if output.sink.is_none() && output.open(tx.clone(), &status) {
+                    idle_since = idle_since.map(|_| Instant::now());
                 }
             }
             Ok(AudioCmd::DeviceLost) => {

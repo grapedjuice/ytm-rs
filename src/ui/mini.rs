@@ -1475,22 +1475,22 @@ pub fn video_pip(app: &mut App, ui: &mut Ui, now: f64) {
     }
     ui.painter().rect_filled(r, 0.0, Color32::BLACK);
     let track = app.current().cloned();
-    let video = track.as_ref().filter(|t| app.video_mode(t));
-    let frame = video.and_then(|t| super::nowplaying::video_frame(app, &ctx, t));
+    let video = app.shown_video().cloned();
+    let frame = video.as_ref().and_then(|t| super::nowplaying::video_frame(app, &ctx, t));
     // The window takes its shape (see `keep_shape`); a song without a video leaves it be.
     app.mini.video_shape = frame.as_ref().map(|tex| tex.size_vec2()).filter(|s| s.x > 0.0 && s.y > 0.0).map(|s| s.x / s.y);
-    match (&frame, &track) {
-        (Some(tex), _) => {
+    match (&frame, &video, &track) {
+        (Some(tex), _, _) => {
             let size = tex.size_vec2();
             let fit = size * (r.width() / size.x).min(r.height() / size.y);
             egui::Image::from_texture((tex.id(), fit)).paint_at(ui, Rect::from_center_size(r.center(), fit));
         }
-        (None, Some(t)) if video.is_some() => {
+        (None, Some(v), _) => {
             let fit = vec2(16.0, 9.0) * (r.width() / 16.0).min(r.height() / 9.0);
-            super::nowplaying::video_placeholder(ui, Rect::from_center_size(r.center(), fit), t, 0.0);
+            super::nowplaying::video_placeholder(ui, Rect::from_center_size(r.center(), fit), v, 0.0);
         }
-        (None, Some(t)) => paint_cover(ui, Rect::from_center_size(r.center(), Vec2::splat(r.height() - 24.0)), &t.thumbs, theme::thumb_radius() + 2.0, 1.0),
-        (None, None) => icon_at(ui, r.center(), icon::MUSIC, 32.0, theme::text_faint()),
+        (None, None, Some(t)) => paint_cover(ui, Rect::from_center_size(r.center(), Vec2::splat(r.height() - 24.0)), &t.thumbs, theme::thumb_radius() + 2.0, 1.0),
+        (None, None, None) => icon_at(ui, r.center(), icon::MUSIC, 32.0, theme::text_faint()),
     }
 
     // The controls, while pointed at (or one has the keyboard).

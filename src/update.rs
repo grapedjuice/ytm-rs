@@ -10,7 +10,8 @@
 //! installed from the disk image downloads the new one and puts the app from it in
 //! place of its own as it closes. A copy from the Linux .deb (a `deb.txt` beside the
 //! binary, in /usr/lib/ytm-rs) can't replace itself: it only says a new version is out
-//! ([`State::Available`]), and the new .deb installs over it. Every platform has a portable build too (a
+//! ([`State::Available`]), and the new .deb installs over it. The Arch package (a
+//! `pacman.txt` there instead) does the same with the new package. Every platform has a portable build too (a
 //! `portable.txt` marker; inside the app bundle on macOS), which updates from the
 //! portable download. Dev builds never update themselves.
 //!
@@ -126,20 +127,46 @@ pub fn deb() -> bool {
     *DEB.get_or_init(|| cfg!(target_os = "linux") && std::env::current_exe().ok().and_then(|e| Some(e.parent()?.join("deb.txt").exists())).unwrap_or(false))
 }
 
-/// On Linux, the command that removes another copy installed the other way (one from
-/// install.sh beside the .deb's, or the other way round), which would otherwise be left
-/// behind: the menu and the `ytm-rs` command open the install.sh one.
-pub fn other_copy() -> Option<&'static str> {
+/// Whether this copy was installed from the Arch package, which marks it with
+/// `pacman.txt` beside the binary. Pacman owns it, so like the .deb it never replaces
+/// itself.
+pub fn pacman() -> bool {
+    static PACMAN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *PACMAN.get_or_init(|| cfg!(target_os = "linux") && std::env::current_exe().ok().and_then(|e| Some(e.parent()?.join("pacman.txt").exists())).unwrap_or(false))
+}
+
+/// Whether a package manager owns this copy (the .deb or the Arch package): it only
+/// says a new version is out.
+pub fn packaged() -> bool {
+    deb() || pacman()
+}
+
+/// What to do with the new version, for a copy a package manager owns.
+pub fn package_step() -> &'static str {
+    if pacman() {
+        "Download the new package and install it over this one with sudo pacman -U."
+    } else {
+        "Download the new .deb and open it to install it over this one."
+    }
+}
+
+/// On Linux, another copy installed the other way (one from install.sh beside the
+/// .deb's or the Arch package's, or the other way round), which would otherwise be left
+/// behind: the menu and the `ytm-rs` command open the install.sh one. What it's from,
+/// and the command that removes it.
+pub fn other_copy() -> Option<(&'static str, &'static str)> {
     if !cfg!(target_os = "linux") {
         return None;
     }
     let home = std::env::var_os("HOME").map(PathBuf::from)?;
-    if deb() {
-        home.join(".local/lib/ytm-rs/install.txt").exists().then_some("~/.local/lib/ytm-rs/install.sh --uninstall")
-    } else if installed() {
-        Path::new("/usr/lib/ytm-rs/deb.txt").exists().then_some("sudo apt remove ytm-rs")
-    } else {
+    if packaged() {
+        home.join(".local/lib/ytm-rs/install.txt").exists().then_some(("install.sh", "~/.local/lib/ytm-rs/install.sh --uninstall"))
+    } else if !installed() {
         None
+    } else if Path::new("/usr/lib/ytm-rs/deb.txt").exists() {
+        Some(("the .deb", "sudo apt remove ytm-rs"))
+    } else {
+        Path::new("/usr/lib/ytm-rs/pacman.txt").exists().then_some(("the Arch package", "sudo pacman -R ytm-rs"))
     }
 }
 
@@ -147,6 +174,13 @@ pub fn other_copy() -> Option<&'static str> {
 /// version there too (`0.3.0+nightly.20261111`).
 pub fn deb_version(version: &str) -> String {
     version.replacen(NIGHTLY, "+nightly.", 1)
+}
+
+/// The Arch package's file, as linux/arch.sh builds it: pkgver can't have a hyphen, so
+/// a nightly (`0.3.0-nightly.20261111`) is `0.3.0.nightly.20261111`, which pacman puts
+/// after its version too.
+fn pacman_package(version: &str, arch: &str) -> String {
+    format!("ytm-rs-{}-1-{arch}.pkg.tar.zst", version.replace('-', "."))
 }
 
 /// The `.app` bundle a binary is in (`X.app/Contents/MacOS/ytm-rs`).
@@ -158,6 +192,9 @@ fn bundle_of(exe: &Path) -> Option<&Path> {
 fn asset_name(version: &str) -> String {
     let portable = portable_dir().is_some();
     let arch = std::env::consts::ARCH;
+    if cfg!(target_os = "linux") && pacman() {
+        return pacman_package(version, arch);
+    }
     if cfg!(target_os = "linux") && deb() {
         let arch = if arch == "x86_64" { "amd64" } else if arch == "aarch64" { "arm64" } else { arch };
         return format!("ytm-rs_{}_{arch}.deb", deb_version(version));
@@ -534,7 +571,7 @@ impl Updater {
             return Ok(State::UpToDate);
         };
         let url = asset["browser_download_url"].as_str().ok_or_else(|| anyhow::anyhow!("asset has no URL"))?;
-        if deb() {
+        if packaged() {
             log::info!("update: {version} is out");
             return Ok(State::Available { version, url: url.to_owned() });
         }
@@ -815,7 +852,7 @@ fn client() -> anyhow::Result<reqwest::Client> {
 
 #[cfg(test)]
 mod tests {
-    use super::{deb_version, newer, pick_release, wanted};
+    use super::{deb_version, newer, pacman_package, pick_release, wanted};
     use serde_json::json;
 
     #[test]
@@ -823,6 +860,14 @@ mod tests {
         assert_eq!(deb_version("0.3.0"), "0.3.0");
         assert_eq!(deb_version("0.3.0-nightly.20261111"), "0.3.0+nightly.20261111");
         assert_eq!(deb_version("0.3.0-nightly.20261111.2"), "0.3.0+nightly.20261111.2");
+    }
+
+    /// The names makepkg gives linux/arch.sh's package, which the Arch copy looks for.
+    #[test]
+    fn pacman_packages() {
+        assert_eq!(pacman_package("0.3.0", "x86_64"), "ytm-rs-0.3.0-1-x86_64.pkg.tar.zst");
+        assert_eq!(pacman_package("0.3.0-nightly.20261111", "x86_64"), "ytm-rs-0.3.0.nightly.20261111-1-x86_64.pkg.tar.zst");
+        assert_eq!(pacman_package("0.3.0-nightly.20261111.2", "x86_64"), "ytm-rs-0.3.0.nightly.20261111.2-1-x86_64.pkg.tar.zst");
     }
 
     #[test]

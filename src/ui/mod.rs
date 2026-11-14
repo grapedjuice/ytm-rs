@@ -31,6 +31,7 @@ mod titlebar;
 pub use titlebar::{custom as custom_titlebar, init as init_titlebar, set_hwnd as set_titlebar_hwnd};
 mod transfer;
 mod vector;
+mod wheel;
 mod widgets;
 
 use std::collections::{HashMap, HashSet};
@@ -49,6 +50,7 @@ use crate::media::Media;
 use crate::model::{Card, Chip, Shelf, Target, Track};
 use crate::shader::Background;
 use crate::theme;
+use crate::ytm::Scope;
 use lists::{LIKED_MUSIC, Lists};
 use queue::Queue;
 use dev::{dev_screenshot, dev_var};
@@ -78,6 +80,8 @@ pub enum LibTab {
     Playlists,
     Songs,
     Albums,
+    /// Subscribed artists.
+    Artists,
     /// Saved podcast shows (with Settings › Playback › Show podcasts on).
     Podcasts,
     History,
@@ -99,12 +103,13 @@ pub use mini::{init_pill, set_hwnd as set_mini_hwnd};
 
 /// Settings › General › Window › Open on: the pages the app can start on, as saved and
 /// as listed.
-pub(super) const START_PAGES: [(&str, &str, Page); 9] = [
+pub(super) const START_PAGES: [(&str, &str, Page); 10] = [
     ("home", "Home", Page::Home),
     ("explore", "Explore", Page::Explore),
     ("library", "Library › Playlists", Page::Library(LibTab::Playlists)),
     ("liked", "Library › Liked songs", Page::Library(LibTab::Songs)),
     ("albums", "Library › Albums", Page::Library(LibTab::Albums)),
+    ("artists", "Library › Artists", Page::Library(LibTab::Artists)),
     ("podcasts", "Library › Podcasts", Page::Library(LibTab::Podcasts)),
     ("history", "Library › History", Page::Library(LibTab::History)),
     ("uploads", "Library › Uploads", Page::Library(LibTab::Uploads)),
@@ -190,6 +195,9 @@ pub enum Action {
     Seek(f32),
     /// Moving video or the picture, for music videos.
     ToggleVideo,
+    /// The Song/Video switch on a song: its music video in its place (`true`), or the
+    /// song again.
+    SongVideo(bool),
     Like(Track, bool),
     /// The heart of what's playing, in the player bar, the mini player and Now playing's menu.
     LikeHeard(bool),
@@ -203,12 +211,21 @@ pub enum Action {
     /// A song of your own playlist dragged to the gap between rows, if `id` is still at `from`.
     PlaylistMove { from: usize, gap: usize, id: String },
     Download(Track),
+    /// Download an album or playlist (fetched whole when the songs are `None`), or a
+    /// selection (no target), by its name.
+    DownloadMany(Option<Target>, String, Option<Vec<Track>>),
+    /// Stop a download of many songs, by its `DownloadRun::key`.
+    CancelDownload(String),
     NewPlaylist(Vec<Track>),
     EditPlaylist,
+    /// Save one of your playlist's sort orders to it: (playlist id, what to send).
+    SortPlaylist(String, serde_json::Value),
     /// The open playlist's collaboration settings.
     Collaborate,
     DeletePlaylist,
     SaveCollection(String, bool),
+    /// Subscribe to the open artist (true), or unsubscribe.
+    Subscribe(bool),
     HomeChip(Option<String>),
     OpenNowPlaying(bool),
     /// Into the mini player (true) or back to the full window.
@@ -224,6 +241,8 @@ enum Dialog {
     NewPlaylist { title: String, tracks: Vec<Track> },
     EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
     ConfirmDelete { id: String, title: String },
+    /// A large download (`count` songs to go) asked about before it starts.
+    ConfirmDownload { target: Option<Target>, title: String, tracks: Vec<Track>, count: usize },
     /// `info` until it loads; `busy` while a change is on its way; `confirm_off` asks
     /// before turning collaboration off (that removes the collaborators).
     Collaborate { id: String, info: Option<crate::ytm::Collaboration>, busy: bool, confirm_off: bool },
@@ -256,13 +275,14 @@ impl Selection {
         *self = Self { page: Some(page.clone()), active: true, ..Self::default() };
     }
 
-    /// Toggle row `i`, or with `range` pick every row from the last one toggled to it.
-    pub fn pick(&mut self, page: &Page, i: usize, range: bool) {
+    /// Toggle row `i`, or with `range` pick every row from the last one toggled to it, as
+    /// they're `shown` (a list found in or sorted; `None` is the whole list in its order).
+    pub fn pick(&mut self, page: &Page, i: usize, range: bool, shown: Option<&[usize]>) {
         if self.page.as_ref() != Some(page) {
             *self = Self { page: Some(page.clone()), ..Self::default() };
         }
         match self.anchor.filter(|_| range) {
-            Some(a) => self.rows.extend(a.min(i)..=a.max(i)),
+            Some(a) => self.rows.extend(find::run(shown, a, i)),
             None => {
                 if !self.rows.remove(&i) {
                     self.rows.insert(i);
@@ -375,10 +395,19 @@ pub struct App {
     /// The Moods & genres category last opened.
     mood: Option<crate::ytm::MoodPage>,
     search: Option<SearchResults>,
+    /// The search tab picked (YT Music, Library, Uploads) and the search it was picked on:
+    /// another search starts on YT Music.
+    search_scope: (String, Scope),
+    /// Library and Uploads results for the search shown, each loaded when its tab is first picked.
+    scoped: Vec<SearchResults>,
     /// Albums and playlists opened lately, so going back to one shows it at once (and
     /// refreshes it quietly), and their loads under way.
     lists: Lists,
+    /// Playlists a sort was asked of, until they load in that order (or it fails).
+    sorting: HashMap<String, lists::SortWait>,
     artist: Option<ArtistPage>,
+    /// Subscribes and unsubscribes: the one under way, and what they settled.
+    subscriptions: actions::Subscriptions,
     library: Option<Library>,
     /// When the library was last requested; the sidebar spinner gives up after a while.
     library_requested: std::time::Instant,
@@ -386,6 +415,13 @@ pub struct App {
     uploads: Option<Vec<Track>>,
     /// Library › Downloads, read from the download index when the tab opens.
     downloads: Option<Vec<Track>>,
+    /// How many of this session's saves `downloads` has (`downloads::saved_since`).
+    downloads_seen: usize,
+    /// Albums, playlists and selections downloading now.
+    download_runs: Vec<crate::backend::DownloadRun>,
+    /// Whether a collection's songs are all downloaded, by its id, as its page last
+    /// found (with how many songs it had then); cleared when a download finishes.
+    all_downloaded: HashMap<String, (u64, bool)>,
     /// Files chosen in the upload dialog, handed over from its thread.
     picked_uploads: Arc<std::sync::Mutex<Option<Vec<std::path::PathBuf>>>>,
     liked: HashSet<String>,
@@ -443,8 +479,12 @@ pub struct App {
     show_comments: bool,
     /// With them, ask YouTube for its Restricted Mode too.
     restricted_mode: bool,
-    /// The song version playing in place of the current music video.
+    /// The song version playing in place of the current music video, or the music video
+    /// playing in place of the current song.
     playing_as: Option<PlayingAs>,
+    /// Songs' music videos, for the Song/Video switch: looked up once each (`None`: it has
+    /// none, or the answer hasn't come yet).
+    music_videos: std::collections::HashMap<String, Option<crate::ytm::MusicVideo>>,
     /// The output device picked in settings (cpal's id and its name, for when it's not
     /// connected), and the devices last listed there.
     output_device: Option<(String, String)>,
@@ -508,9 +548,8 @@ pub struct App {
     forget_held: bool,
     /// The past search being removed (its token) and when: it folds away first.
     forgetting: Option<(String, f64)>,
-    /// Mouse-wheel distance still to be scrolled (smooth scrolling).
-    wheel_pending: egui::Vec2,
-    wheel_mods: egui::Modifiers,
+    /// Smooth scrolling: wheel distance still to be scrolled, or a touchpad coast.
+    wheel: wheel::Glide,
 
     // now playing
     np_open: bool,
@@ -658,7 +697,7 @@ impl App {
         let start_choice = start_choice(&get("start_page").unwrap_or_default());
         let start = start_page(&start_choice, logged_in, show_podcasts);
         // Opening on the Library asks for it below, as visiting the page does.
-        let start_asks_library = matches!(start, Page::Library(LibTab::Playlists | LibTab::Albums | LibTab::Podcasts));
+        let start_asks_library = matches!(start, Page::Library(LibTab::Playlists | LibTab::Albums | LibTab::Artists | LibTab::Podcasts));
         if logged_in {
             if !start_asks_library {
                 backend.request(Req::Library);
@@ -721,13 +760,20 @@ impl App {
             explore: None,
             mood: None,
             search: None,
+            search_scope: Default::default(),
+            scoped: Vec::new(),
             lists: Lists::default(),
+            sorting: HashMap::new(),
             artist: None,
+            subscriptions: actions::Subscriptions::default(),
             library: None,
             library_requested: std::time::Instant::now(),
             history: None,
             uploads: None,
             downloads: None,
+            downloads_seen: 0,
+            download_runs: Vec::new(),
+            all_downloaded: HashMap::new(),
             picked_uploads: Default::default(),
             liked: HashSet::new(),
             unliking: HashMap::new(),
@@ -767,6 +813,7 @@ impl App {
             show_comments,
             restricted_mode,
             playing_as: None,
+            music_videos: Default::default(),
             output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
             output_devices: Vec::new(),
             updater: None,
@@ -844,8 +891,7 @@ impl App {
             search_refocus: false,
             forget_held: false,
             forgetting: None,
-            wheel_pending: egui::Vec2::ZERO,
-            wheel_mods: egui::Modifiers::NONE,
+            wheel: wheel::Glide::default(),
             np_open: false,
             np_tab: if get("np_art").is_some_and(|v| v == "1") { NpTab::Art } else { NpTab::Lyrics },
             queue_open: false,
@@ -879,6 +925,7 @@ impl App {
         };
         app.queue.hide_explicit = hide_explicit;
         app.find.hide_explicit = hide_explicit;
+        app.find.sorts = get("list_sorts").and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
         app.request_liked(false);
         // Settings › Open on: in place, not a visit (nothing to go back to), and without
         // the page transition.
@@ -908,6 +955,7 @@ impl App {
             Ok("home") => app.go(Page::Home),
             Ok("explore") => app.go(Page::Explore),
             Ok("library") => app.go(Page::Library(LibTab::Playlists)),
+            Ok("artists") => app.go(Page::Library(LibTab::Artists)),
             Ok("uploads") => app.go(Page::Library(LibTab::Uploads)),
             Ok("liked") => app.go(Page::Library(LibTab::Songs)),
             Ok("history") => app.go(Page::Library(LibTab::History)),
@@ -1017,10 +1065,14 @@ impl App {
         {
             self.start_load(s);
         }
-        if let Page::Search(q) = &self.page
-            && self.search.as_ref().is_some_and(|s| &s.query == q)
-        {
-            self.backend.request(Req::Search(q.clone()));
+        // The search tab shown; one not in yet is asked for by the page's load.
+        if let Page::Search(q) = &self.page {
+            match self.scope_for(q) {
+                Scope::Everywhere if self.search.as_ref().is_some_and(|s| &s.query == q) => self.backend.request(Req::Search(q.clone())),
+                Scope::Everywhere => {}
+                scope if self.scoped.iter().any(|r| &r.query == q && r.scope == scope) => self.backend.request(Req::SearchIn { query: q.clone(), scope }),
+                _ => {}
+            }
         }
         let changed = self.page_changed;
         self.page_loaded();
@@ -1071,7 +1123,8 @@ impl App {
             }
             // On this computer: no request, and the files are read again on each visit.
             Page::Library(LibTab::Downloads) => {
-                self.downloads = Some(crate::downloads::all());
+                self.read_downloads();
+                self.all_downloaded.clear();
                 None
             }
             Page::Library(_) if self.logged_in => Some(Req::Library),
@@ -1098,6 +1151,24 @@ impl App {
             Some(Req::Library) => self.request_library(),
             Some(r) => self.backend.request(r),
             None => {}
+        }
+        // The Library or Uploads tab of a search: only asked for once it's picked.
+        if let Page::Search(q) = &self.page {
+            let q = q.clone();
+            self.scoped.retain(|r| r.query == q);
+            let scope = self.scope_for(&q);
+            if scope != Scope::Everywhere && !self.scoped.iter().any(|r| r.scope == scope) {
+                self.loading = true;
+                self.backend.request(Req::SearchIn { query: q, scope });
+            }
+        }
+    }
+
+    /// The search tab shown for the search `q`: the one picked on it, while signed in.
+    fn scope_for(&self, q: &str) -> Scope {
+        match &self.search_scope {
+            (on, scope) if on == q && self.logged_in => *scope,
+            _ => Scope::Everywhere,
         }
     }
 
@@ -1202,7 +1273,11 @@ impl eframe::App for App {
         self.lyric_view.release_hidden(ctx.cumulative_pass_nr());
         let now = ctx.input(|i| i.time);
         self.sync_look();
-        self.pump(now);
+        self.pump(ctx, now);
+        // A sorted playlist that loads again in a while, for its new order.
+        if let Some(t) = self.sorting.values().filter_map(lists::SortWait::due).reduce(f64::min) {
+            ctx.request_repaint_after(Duration::from_secs_f64((t - now).max(0.0)));
+        }
         self.skip_segments(ctx, now);
         hotkeys::poll(self, ctx, frame);
         // System media controls and taskbar buttons follow the player however it changed.
@@ -1220,7 +1295,7 @@ impl eframe::App for App {
         }
         // No sleep while playing, and the screen stays on for a video on show: this song's
         // (picture in picture keeps the last one's player for a song after it).
-        let video = self.current().filter(|t| self.video_mode(t)).is_some_and(|t| {
+        let video = self.shown_video().is_some_and(|t| {
             self.video.as_ref().is_some_and(|(id, p)| *id == t.id && p.as_ref().is_some_and(|p| !p.failed()))
         });
         if let Some(a) = &mut self.awake {
@@ -1376,6 +1451,9 @@ impl eframe::App for App {
         }
         let accent = self.accent_color();
         ctx.data_mut(|d| d.insert_temp(egui::Id::unique("accent"), accent));
+        // How far each album or playlist being downloaded has got, for its cover's veil.
+        let progress: Arc<Vec<(String, f32)>> = Arc::new(self.download_runs.iter().filter(|r| !r.title.is_empty()).map(|r| (r.key.clone(), r.done as f32 / r.total.max(1) as f32)).collect());
+        ctx.data_mut(|d| d.insert_temp(egui::Id::unique("download-progress"), progress));
         // The file can change with nothing else going on here.
         if self.accent_source == AccentSource::File {
             ctx.request_repaint_after(Duration::from_secs(2));
@@ -1625,7 +1703,16 @@ impl eframe::App for App {
                 ctx.request_repaint_after(Duration::from_millis(100));
             }
         }
-        smooth_wheel(self, ctx, raw);
+        // Dev hook: YTM_LOG_WHEEL=1 logs the wheel events the window sends.
+        if dev_var("YTM_LOG_WHEEL").is_some() {
+            for e in raw.events.iter().filter(|e| matches!(e, egui::Event::MouseWheel { .. })) {
+                log::info!("wheel t={:.3} {e:?}", raw.time.unwrap_or(0.0));
+            }
+        }
+        let viewport_h = raw.screen_rect.map_or(800.0, |r| r.height());
+        if self.wheel.filter(&mut raw.events, raw.time.unwrap_or(0.0), raw.predicted_dt, viewport_h) {
+            ctx.request_repaint();
+        }
         frame_pace(raw);
         if let Some((x, y)) = dev_var("YTM_FAKE_POINTER").and_then(|v| {
             let (x, y) = v.split_once(',')?;
@@ -1674,6 +1761,7 @@ impl eframe::App for App {
         storage.set_string("animated_covers", b(self.animated_covers));
         storage.set_string("hide_search_videos", b(self.hide_search_videos));
         storage.set_string("hide_explicit", b(self.hide_explicit));
+        storage.set_string("list_sorts", serde_json::to_string(&self.find.sorts).unwrap_or_default());
         storage.set_string("podcasts", b(self.show_podcasts));
         storage.set_string("comments", b(self.show_comments));
         storage.set_string("restricted_mode", b(self.restricted_mode));
@@ -1849,12 +1937,14 @@ struct Session {
     duration_ms: u64,
     #[serde(default)]
     listened_at: u64,
-    /// The song version that was playing for the current music video: the position is its.
+    /// The song version that was playing for the current music video (or the music video
+    /// for the current song): the position is its.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     playing_as: Option<Track>,
 }
 
-/// The song version playing in place of the music video `listed`, in play `generation`.
+/// The song version playing in place of the music video `listed`, in play `generation`;
+/// or the music video playing in place of the song `listed`, picked on its switch.
 struct PlayingAs {
     generation: u64,
     listed: String,
@@ -1911,48 +2001,6 @@ fn too_big(size: egui::Vec2, monitor: egui::Vec2) -> bool {
     size.x > monitor.x + 24.0 || size.y > monitor.y + 24.0
 }
 
-/// Smooth scrolling: mouse-wheel notches (line units) are collected and replayed as
-/// small pixel steps with an exponential ease-out (~0.3 s glide), like browsers do.
-/// Touchpads already report smooth pixel deltas and pass through untouched, as does
-/// Ctrl+wheel zoom.
-fn smooth_wheel(app: &mut App, ctx: &egui::Context, raw: &mut egui::RawInput) {
-    const NOTCH_PX: f32 = 70.0;
-    const GLIDE: f32 = 0.06; // time constant, seconds (settles in ~0.18 s)
-    let viewport_h = raw.screen_rect.map_or(800.0, |r| r.height());
-    raw.events.retain(|e| match e {
-        egui::Event::MouseWheel { unit, delta, modifiers, .. } if !modifiers.command && !modifiers.ctrl => {
-            let px = match unit {
-                egui::MouseWheelUnit::Line => *delta * NOTCH_PX,
-                egui::MouseWheelUnit::Page => *delta * viewport_h * 0.8,
-                egui::MouseWheelUnit::Point => return true,
-            };
-            // Reversing direction cancels the remaining glide instead of fighting it.
-            if app.wheel_pending.y * px.y < 0.0 || app.wheel_pending.x * px.x < 0.0 {
-                app.wheel_pending = egui::Vec2::ZERO;
-            }
-            app.wheel_pending += px;
-            app.wheel_mods = *modifiers;
-            false
-        }
-        _ => true,
-    });
-    if app.wheel_pending.length() < 0.5 {
-        app.wheel_pending = egui::Vec2::ZERO;
-        return;
-    }
-    let dt = raw.predicted_dt.clamp(0.001, 0.05);
-    let step = app.wheel_pending * (1.0 - (-dt / GLIDE).exp());
-    app.wheel_pending -= step;
-    raw.events.push(egui::Event::MouseWheel {
-        unit: egui::MouseWheelUnit::Point,
-        delta: step,
-        phase: egui::TouchPhase::Move,
-        modifiers: app.wheel_mods,
-        source: egui::MouseWheelSource::Wheel,
-    });
-    ctx.request_repaint();
-}
-
 /// Fisher-Yates with a clock-seeded xorshift; shuffling doesn't need a real RNG crate.
 pub fn shuffle<T>(v: &mut [T]) {
     let mut x = std::time::SystemTime::now()
@@ -1967,12 +2015,12 @@ pub fn shuffle<T>(v: &mut [T]) {
     }
 }
 
-/// Whether this is the installed or the portable app, or the .deb (which only says a
-/// new version is out): updates only apply there. It
+/// Whether this is the installed or the portable app, or the .deb or the Arch package
+/// (which only say a new version is out): updates only apply there. It
 /// can't change while running, and the check touches the disk, so it runs once.
 fn updatable() -> bool {
     static UPDATABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *UPDATABLE.get_or_init(|| crate::update::installed() || crate::update::portable_dir().is_some() || crate::update::deb())
+    *UPDATABLE.get_or_init(|| crate::update::installed() || crate::update::portable_dir().is_some() || crate::update::packaged())
 }
 
 pub fn fmt_time(secs: u32) -> String {

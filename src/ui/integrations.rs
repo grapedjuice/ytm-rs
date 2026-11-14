@@ -127,7 +127,8 @@ impl App {
         if !lastfm && !listenbrainz {
             return;
         }
-        let Some(t) = self.playing_track().filter(|_| self.playing() && !self.buffering) else { return };
+        // A song's music video picked on its switch is still that song.
+        let Some(t) = self.heard_song().filter(|_| self.playing() && !self.buffering) else { return };
         let pos = self.audio.status.position();
         let dur = Duration::from_millis(self.audio.status.duration_ms.load(Ordering::Relaxed));
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
@@ -359,16 +360,25 @@ impl App {
         }
         // Minimized counts as hidden: "Show" is what brings it back.
         let shown = |app: &Self| !app.in_tray && ctx.input(|i| i.viewport().minimized) != Some(true);
-        match crate::tray::take().into_iter().next() {
-            Some(crate::tray::Cmd::Show) => show(self),
-            Some(crate::tray::Cmd::Toggle) if shown(self) => hide(self),
-            Some(crate::tray::Cmd::Toggle) => show(self),
-            Some(crate::tray::Cmd::Quit) => self.quit(ctx),
-            None => {}
+        for cmd in crate::tray::take() {
+            match cmd {
+                crate::tray::Cmd::Show => show(self),
+                crate::tray::Cmd::Toggle if shown(self) => hide(self),
+                crate::tray::Cmd::Toggle => show(self),
+                // As the media keys do.
+                crate::tray::Cmd::PlayPause => self.toggle(),
+                crate::tray::Cmd::Next => self.next(),
+                crate::tray::Cmd::Prev => self.prev(),
+                crate::tray::Cmd::Quit => self.quit(ctx),
+            }
         }
         let shown = shown(self);
+        // "Pause" while a song is starting too, as the media controls have it.
+        let playing = self.playing() || self.buffering;
+        let song = self.current().map(|t| (t.title.clone(), t.artist_line()));
         if let Some(t) = &mut self.tray {
             t.set_shown(shown);
+            t.set_now(song.as_ref().map(|(title, artist)| (title.as_str(), artist.as_str())), playing);
         }
     }
 

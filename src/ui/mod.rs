@@ -626,6 +626,8 @@ pub struct App {
     app_icon: &'static str,
     /// The tray icon, while "Close to tray" is on.
     tray: Option<crate::tray::Tray>,
+    /// The window's title as last set (`sync_title`).
+    window_title: String,
     /// The tray icon couldn't be made (e.g. no GTK): don't try again, × quits.
     tray_failed: bool,
     /// × has hidden the window behind the tray icon.
@@ -824,6 +826,7 @@ impl App {
             wgpu_renderer,
             app_icon,
             tray: None,
+            window_title: "YT Music".to_owned(),
             tray_failed: false,
             in_tray: false,
             tray_left_focus: false,
@@ -1363,6 +1366,7 @@ impl eframe::App for App {
         }
         self.mini.tick(ctx, now);
         self.tray_window(ctx, frame);
+        self.sync_title(ctx);
         self.window_hidden = self.in_tray || ctx.input(|i| i.viewport().minimized == Some(true));
         // Nothing takes a video's frames now, while its decoder would go on working in bursts.
         if self.window_hidden || self.mini.busy() {

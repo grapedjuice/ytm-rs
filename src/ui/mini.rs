@@ -685,11 +685,7 @@ impl Mini {
         if to_mini {
             VIDEO.store(video, std::sync::atomic::Ordering::Relaxed);
         }
-        // Named like a browser's picture in picture while it's one. Wayland lets no app put
-        // itself above others: a KDE window rule for this title (and the app, ytm-rs) can.
-        if video_active() {
-            ctx.send_viewport_cmd(ViewportCommand::Title(if to_mini { "Picture in picture" } else { "YT Music" }.into()));
-        }
+        // The window's title follows (`App::sync_title`).
         let mut step = Step::Resize;
         self.card = false;
         if to_mini {

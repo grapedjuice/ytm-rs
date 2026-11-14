@@ -55,6 +55,22 @@ impl App {
         self.discord_sent = want;
     }
 
+    /// The window's title, which the taskbar and Alt+Tab show: the current song, or the
+    /// app's name with none. Named like a browser's picture in picture while the mini
+    /// player is the video: Wayland lets no app put itself above others, but a KDE window
+    /// rule for that title (and the app, ytm-rs) can.
+    pub(super) fn sync_title(&mut self, ctx: &egui::Context) {
+        let want = if self.mini.active() && super::mini::video_active() {
+            "Picture in picture".to_owned()
+        } else {
+            window_title(self.current().map(|t| (t.title.as_str(), t.artist_line())))
+        };
+        if want != self.window_title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(want.clone()));
+            self.window_title = want;
+        }
+    }
+
     /// Mirror playback to a Stream Deck plugin, and keep the socket open only while the
     /// setting is on. Cheap every frame: clients are told only when the snapshot changes.
     pub(super) fn sync_remote(&mut self, ctx: &egui::Context) {
@@ -416,6 +432,15 @@ impl App {
     }
 }
 
+/// "Title – Artist" for a song, the app's name without one.
+fn window_title(song: Option<(&str, String)>) -> String {
+    match song {
+        Some((title, artist)) if !artist.is_empty() => format!("{title} – {artist}"),
+        Some((title, _)) if !title.is_empty() => title.to_owned(),
+        _ => "YT Music".to_owned(),
+    }
+}
+
 pub(super) fn is_wayland(frame: &eframe::Frame) -> bool {
     use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
     frame.display_handle().is_ok_and(|h| matches!(h.as_raw(), RawDisplayHandle::Wayland(_)))
@@ -440,6 +465,14 @@ fn back_from_tray(focused: bool, left_focus: &mut bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_title_is_the_song() {
+        assert_eq!(window_title(Some(("Get Lucky", "Daft Punk".to_owned()))), "Get Lucky – Daft Punk");
+        assert_eq!(window_title(Some(("Get Lucky", String::new()))), "Get Lucky");
+        assert_eq!(window_title(Some(("", String::new()))), "YT Music");
+        assert_eq!(window_title(None), "YT Music");
+    }
 
     #[test]
     fn wayland_minimizes_because_it_cannot_hide() {

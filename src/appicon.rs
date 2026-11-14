@@ -604,7 +604,7 @@ mod desktop {
     mod tests {
         use super::*;
 
-        const ENTRY: &str = "[Desktop Entry]\nType=Application\nName=YT Music\nExec=EXE\nIcon=ytm-rs\nStartupWMClass=ytm-rs\n\n[Desktop Action x]\nIcon=other\n";
+        const ENTRY: &str = "[Desktop Entry]\nType=Application\nName=YT Music\nExec=EXE\nIcon=ytm-rs\nStartupWMClass=ytm-rs\nMimeType=x-scheme-handler/ytm-rs;\n\n[Desktop Action x]\nIcon=other\n";
 
         fn scratch(name: &str) -> PathBuf {
             let dir = std::env::temp_dir().join(format!("ytm-desktop-{name}-{}", std::process::id()));
@@ -614,7 +614,7 @@ mod desktop {
         }
 
         fn entry(exe: &Path) -> String {
-            ENTRY.replace("EXE", &format!("\"{}\" %U", exe.display()))
+            ENTRY.replace("EXE", &format!("\"{}\" %u", exe.display()))
         }
 
         fn icon_line(f: &str) -> String {

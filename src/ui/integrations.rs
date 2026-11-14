@@ -443,9 +443,8 @@ impl App {
         }
     }
 
-    /// Bring the window back (from the tray, or minimized) and to the front.
     /// The window back for the tray's Show or a later launch. Wayland ignores Visible,
-    /// Minimized and Focus, so there it can only ask for attention (see `tray_window`).
+    /// un-minimizing and Focus, so there it can only ask for attention (see `tray_window`).
     pub(super) fn bring_back(&mut self, ctx: &egui::Context, wayland: bool) {
         if wayland {
             ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
@@ -454,6 +453,7 @@ impl App {
         }
     }
 
+    /// Bring the window back (from the tray, or minimized) and to the front.
     pub(super) fn show_window(&mut self, ctx: &egui::Context) {
         self.in_tray = false;
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));

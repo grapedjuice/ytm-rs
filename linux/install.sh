@@ -68,7 +68,7 @@ appindicator=$("$ldconfig" -p 2>/dev/null | grep -c 'libayatana-appindicator3\|l
 if [ -n "$missing" ] || [ "$appindicator" = 0 ]; then
     sudo=""
     [ "$(id -u)" = 0 ] || sudo=sudo
-    echo "Installing the libraries ytm-rs needs${missing:+ ($missing)}"
+    echo "Installing what ytm-rs needs${missing:+ (${missing% })}"
     if command -v apt-get >/dev/null; then
         $sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 libasound2 desktop-file-utils
     elif command -v dnf >/dev/null; then
@@ -78,8 +78,8 @@ if [ -n "$missing" ] || [ "$appindicator" = 0 ]; then
     elif command -v zypper >/dev/null; then
         $sudo zypper --non-interactive install libwebkit2gtk-4_1-0 libgtk-3-0 libayatana-appindicator3-1 alsa desktop-file-utils
     else
-        echo "Install these with your package manager: $missing"
-    fi
+        false
+    fi || echo "Install these with your package manager: ${missing% }"
     # The MIME cache, now that update-desktop-database is there.
     refresh
 fi

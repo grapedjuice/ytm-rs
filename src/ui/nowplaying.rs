@@ -224,9 +224,10 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     }
     np_content(app, ui, content, &track, video.as_ref(), video_lyrics, no_lyrics, now);
     // A song gets the switch too once its music video is found (or is playing). Songs, not
-    // music videos, with videos off: no switch, and no music video looked up for it.
+    // music videos, with videos off: no switch on a song, and no music video looked up for
+    // it. A music video keeps its own: it's the only way from its song back to the video.
     let songs_only = app.play_songs && !app.show_video;
-    if look.now_playing.show_video_switch && !app.jam.active() && !songs_only && (track.has_video() || app.playing_as().is_some() || app.song_video().is_some()) {
+    if look.now_playing.show_video_switch && !app.jam.active() && (track.has_video() || (!songs_only && (app.playing_as().is_some() || app.song_video().is_some()))) {
         song_video_switch(app, ui, header);
     }
     let mut hui = ui.new_child(egui::UiBuilder::new().max_rect(header).layout(egui::Layout::left_to_right(egui::Align::Center)));
@@ -740,7 +741,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
             ui.painter().rect_filled(art, cr, theme::shade(1.0 - brightness));
         }
         if let Some([from, to]) = cs.overlay_gradient {
-            super::shell::vgradient(ui.painter(), art.shrink(radius.min(art.width() / 4.0) * 0.3), theme::shade(from), theme::shade(to));
+            super::shell::cover_vgradient(ui.painter(), art, cr, radius, theme::shade(from), theme::shade(to));
         }
     }
     if cs.opacity < 1.0 {

@@ -344,6 +344,9 @@ pub struct App {
     resume_at: Option<Duration>,
     /// That song came from another device's queue, so playing it here is a new play.
     resume_counts: bool,
+    /// Song picked on a music video's switch while it was paused: Play starts its song
+    /// version, as the switch does while it plays.
+    resume_as_song: bool,
     /// When something last played here (unix seconds), to tell whether another
     /// device has played since. When the cross-device queue was last asked for (`now`).
     listened_at: u64,
@@ -636,6 +639,9 @@ pub struct App {
     notified: Option<(u64, String)>,
     /// The tray icon couldn't be made (e.g. no GTK): don't try again, × quits.
     tray_failed: bool,
+    /// Why the tray can't work on this system (`tray::Unsupported`), shown under the
+    /// setting, which turned itself off.
+    tray_error: Option<String>,
     /// × has hidden the window behind the tray icon.
     in_tray: bool,
     /// Wayland: the minimized window has lost focus, so focus means it's back.
@@ -735,6 +741,7 @@ impl App {
             scrobble: None,
             resume_at: None,
             resume_counts: false,
+            resume_as_song: false,
             listened_at: 0,
             listenbrainz_user: crate::listenbrainz::user(),
             listenbrainz_token: String::new(),
@@ -837,6 +844,7 @@ impl App {
             notifier: None,
             notified: None,
             tray_failed: false,
+            tray_error: None,
             in_tray: false,
             tray_left_focus: false,
             exiting: false,

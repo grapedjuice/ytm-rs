@@ -316,6 +316,7 @@ impl App {
             self.start_current(at, false, true);
         } else {
             self.resume_at = Some(at);
+            self.resume_as_song = true;
         }
     }
 
@@ -338,6 +339,7 @@ impl App {
 
     /// `swap`: the same play going on as its song version or its music video, from `at`.
     fn start_current(&mut self, at: Duration, report: bool, swap: bool) {
+        let swap = std::mem::take(&mut self.resume_as_song) || swap;
         let Some(track) = self.current().cloned() else { return };
         // Picking up mid-song (a resume, a download that broke off): the position is the
         // song version's when one was playing, so that goes on; a music video stays one.

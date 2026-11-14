@@ -65,22 +65,35 @@ command -v update-desktop-database >/dev/null || missing="${missing}desktop-file
 # (Loaded at run time, so ldd doesn't list it. ldconfig is in /sbin, off a user's PATH on Debian.)
 ldconfig=$(command -v ldconfig || echo /sbin/ldconfig)
 appindicator=$("$ldconfig" -p 2>/dev/null | grep -c 'libayatana-appindicator3\|libappindicator3' || true)
-if [ -n "$missing" ] || [ "$appindicator" = 0 ]; then
+if [ "$appindicator" = 0 ]; then
+    missing="${missing}libayatana-appindicator3.so.1 (the tray icon) "
+fi
+if [ -n "$missing" ]; then
     sudo=""
     [ "$(id -u)" = 0 ] || sudo=sudo
-    echo "Installing what ytm-rs needs${missing:+ (${missing% })}"
-    if command -v apt-get >/dev/null; then
-        $sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 libasound2 desktop-file-utils
+    echo "ytm-rs needs these, which aren't installed: $missing"
+    installed=1
+    if [ -e /run/ostree-booted ] && command -v rpm-ostree >/dev/null; then
+        # Fedora Atomic (Silverblue, Kinoite, Bazzite...): dnf can't change the system,
+        # packages are layered on it with rpm-ostree, which takes a restart.
+        echo "On this system they're added with rpm-ostree, then a restart: for the tray icon,"
+        echo "  rpm-ostree install libayatana-appindicator-gtk3"
+        echo "(The others come from webkit2gtk4.1, gtk3, alsa-lib and desktop-file-utils.)"
+    elif command -v apt-get >/dev/null; then
+        $sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 libasound2 desktop-file-utils || installed=0
     elif command -v dnf >/dev/null; then
-        $sudo dnf install -y webkit2gtk4.1 gtk3 libayatana-appindicator-gtk3 alsa-lib desktop-file-utils
+        $sudo dnf install -y webkit2gtk4.1 gtk3 libayatana-appindicator-gtk3 alsa-lib desktop-file-utils || installed=0
     elif command -v pacman >/dev/null; then
-        $sudo pacman -S --needed --noconfirm webkit2gtk-4.1 gtk3 libayatana-appindicator alsa-lib desktop-file-utils
+        $sudo pacman -S --needed --noconfirm webkit2gtk-4.1 gtk3 libayatana-appindicator alsa-lib desktop-file-utils || installed=0
     elif command -v zypper >/dev/null; then
-        $sudo zypper --non-interactive install libwebkit2gtk-4_1-0 libgtk-3-0 libayatana-appindicator3-1 alsa desktop-file-utils
+        $sudo zypper --non-interactive install libwebkit2gtk-4_1-0 libgtk-3-0 libayatana-appindicator3-1 alsa desktop-file-utils || installed=0
     else
-        false
-    fi || echo "Install these with your package manager: ${missing% }"
-    # The MIME cache, now that update-desktop-database is there.
+        installed=0
+    fi
+    if [ "$installed" = 0 ]; then
+        echo "Couldn't install them: install them with your package manager, then open ytm-rs."
+    fi
+    # The MIME cache, now that update-desktop-database may be there.
     refresh
 fi
 

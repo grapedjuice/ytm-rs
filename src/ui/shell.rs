@@ -17,6 +17,23 @@ pub fn vgradient(painter: &egui::Painter, rect: Rect, top: Color32, bottom: Colo
     gradient(painter, rect, [top, top, bottom, bottom]);
 }
 
+/// `vgradient` in a cover's shape, so it covers the picture exactly, edges and all: corners
+/// rounded by `cr`, or, as `widgets::paint_remote` draws them, a squircle of `radius`.
+pub fn cover_vgradient(painter: &egui::Painter, rect: Rect, cr: egui::CornerRadius, radius: f32, top: Color32, bottom: Color32) {
+    let ctx = painter.ctx();
+    let mut tess = egui::epaint::Tessellator::new(ctx.pixels_per_point(), ctx.tessellation_options(|o| *o), [1, 1], Vec::new());
+    let mut mesh = egui::Mesh::default();
+    let squircle = crate::preset::active().app.squircle && radius >= 6.0 && cr == egui::CornerRadius::same(cr.nw);
+    let shape = if squircle { egui::Shape::convex_polygon(widgets::squircle(rect, radius), Color32::WHITE, egui::Stroke::NONE) } else { egui::epaint::RectShape::filled(rect, cr, Color32::WHITE).into() };
+    tess.tessellate_shape(shape, &mut mesh);
+    // White in, the gradient out; the anti-aliased rim keeps its fade.
+    for v in &mut mesh.vertices {
+        let t = (v.pos.y - rect.top()) / rect.height().max(1.0);
+        v.color = theme::lerp_color(top, bottom, t).gamma_multiply(v.color.a() as f32 / 255.0);
+    }
+    painter.add(egui::Shape::mesh(mesh));
+}
+
 /// Horizontal gradient (left colour → right colour) over `rect`.
 pub fn hgradient(painter: &egui::Painter, rect: Rect, left: Color32, right: Color32) {
     gradient(painter, rect, [left, right, left, right]);
@@ -1780,21 +1797,11 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
             if movable && (i > start || !has_current) {
                 row_drag::grip(ui, drag, list, i, t);
             }
-            let o = widgets::RowOpts { current, added_by: by.get(&t.id).cloned(), ..rows.opts(liked, t, None, false) };
-            let resp = widgets::track_row(ui, t, &o, acts);
-            if resp.clicked() {
+            let queue_remove = (!current && drag.is_none()).then_some(i);
+            let o = widgets::RowOpts { current, added_by: by.get(&t.id).cloned(), queue_remove, ..rows.opts(liked, t, None, false) };
+            if widgets::track_row(ui, t, &o, acts).clicked() {
                 // The playing row pauses/resumes instead of doing nothing.
                 acts.push(if current { Action::TogglePlay } else { Action::QueueJump(i) });
-            }
-            if !current && drag.is_none() && ui.rect_contains_pointer(Rect::from_min_max(resp.rect.min, pos2(resp.rect.right() + 42.0, resp.rect.bottom()))) {
-                // Remove button over the duration column.
-                let x = Rect::from_center_size(resp.rect.right_center() - vec2(26.0, 0.0), Vec2::splat(28.0));
-                let xr = named(ui.interact(x, resp.id.with("rm"), Sense::click()), "Remove from queue").on_hover_cursor(egui::CursorIcon::PointingHand);
-                ui.painter().circle_filled(x.center(), 14.0, theme::panel(0.6));
-                icon_at(ui, x.center(), icon::X, 14.0, theme::text());
-                if xr.clicked() {
-                    acts.push(Action::QueueRemove(i));
-                }
             }
         });
         let lowest = if has_current { start + 1 } else { start };

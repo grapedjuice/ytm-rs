@@ -179,6 +179,9 @@ fn main() -> eframe::Result {
 
             // Jam links from later launches arrive over a pipe (first instance only).
             deeplink::listen(wake);
+            // Before the first frame, which then draws in the desktop's light or dark style.
+            #[cfg(target_os = "linux")]
+            theme::follow_system_scheme(wake);
             // Whether song notifications can show here (Windows: a Start menu entry).
             notify::look_up();
             // Keep `ytm-rs:` links pointing at this copy; dev builds leave it alone
@@ -216,8 +219,10 @@ fn main() -> eframe::Result {
             if let Some(h) = hwnd(cc) {
                 appicon::set_hwnd(h);
                 fullscreen::set_hwnd(h);
-                if let Some(window) = cc.winit_window().cloned() {
-                    fullscreen::set_drag(move || window.has_focus() && window.drag_window().is_ok());
+                // Weak: a strong hold kept the window from closing, and eframe ends its loop
+                // only once it has, so Quit from the tray left the process running (#153).
+                if let Some(window) = cc.winit_window().map(Arc::downgrade) {
+                    fullscreen::set_drag(move || window.upgrade().is_some_and(|w| w.has_focus() && w.drag_window().is_ok()));
                 }
                 ui::set_titlebar_hwnd(h);
                 ui::set_mini_hwnd(h);
@@ -306,6 +311,13 @@ fn init_logging() {
         }
     }
     builder.init();
+    // Panics in the log too: the default hook only writes to stderr, which an app opened
+    // from the menu doesn't have, and some panics end the app.
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log::error!("thread '{}' {info}", std::thread::current().name().unwrap_or("<unnamed>"));
+        default(info);
+    }));
 }
 
 /// Settings, caches and the sign-in: `data` beside the portable build's exe, else the

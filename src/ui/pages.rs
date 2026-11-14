@@ -123,6 +123,7 @@ impl Rows {
             pick: false,
             selected: None,
             remove: None,
+            queue_remove: None,
         }
     }
 }
@@ -1835,7 +1836,7 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             toggle(ui, &mut app.play_songs, "Play songs, not music videos");
         });
         divider(ui);
-        setting_row(ui, "Show music videos", Some("Music videos play as moving video, with their own sound and no lyrics. Turned off while songs play in their place, Now playing has no Song and Video switch."), |ui| {
+        setting_row(ui, "Show music videos", Some("Music videos play as moving video, with their own sound and no lyrics. Turned off while songs play in their place, songs have no Song and Video switch in Now playing; music videos keep theirs."), |ui| {
             let mut on = app.show_video;
             if toggle(ui, &mut on, "Show music videos").changed() {
                 app.actions.push(Action::ToggleVideo);
@@ -2201,6 +2202,10 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
         setting_row(ui, "Close to tray", Some(how), |ui| {
             toggle(ui, &mut app.close_to_tray, "Close to tray");
         });
+        if let Some(e) = &app.tray_error {
+            ui.label(RichText::new(e).font(theme::regular(12.5)).color(theme::RED));
+            ui.add_space(8.0);
+        }
         if crate::notify::SUPPORTED {
             divider(ui);
             let ok = crate::notify::available();

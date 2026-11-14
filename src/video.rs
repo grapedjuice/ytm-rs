@@ -454,10 +454,12 @@ struct Shared {
 pub struct Player {
     shared: Arc<Shared>,
     status: Arc<AudioStatus>,
+    height: u32,
 }
 
 impl Player {
     pub fn start(stream: VideoStream, http: reqwest::Client, status: Arc<AudioStatus>) -> Self {
+        let height = stream.height;
         let shared = Arc::new(Shared::default());
         let (s, clock) = (shared.clone(), status.clone());
         std::thread::Builder::new()
@@ -469,7 +471,12 @@ impl Player {
                 }
             })
             .expect("a thread for the video");
-        Self { shared, status }
+        Self { shared, status, height }
+    }
+
+    /// How tall the stream it plays is: the quality it plays at.
+    pub fn height(&self) -> u32 {
+        self.height
     }
 
     /// The frame to show now, if a newer one than the last is due.

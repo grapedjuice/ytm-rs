@@ -564,6 +564,8 @@ pub struct App {
     settings_tab: pages::SettingsTab,
     settings_query: String,
     fullscreen: bool,
+    /// Full screen is the video alone, its controls showing while the pointer moves.
+    video_full: bool,
     /// The mini player: the window shrunk to a strip.
     mini: mini::Mini,
     /// Every source's lyrics for the current song (by video ID).
@@ -920,6 +922,7 @@ impl App {
             settings_query: String::new(),
             // Dev hook: the full screen layout, leaving the window where it is.
             fullscreen: dev_var("YTM_FAKE_FULLSCREEN").is_some(),
+            video_full: false,
             mini: mini::Mini::load(get),
             lyrics: None,
             lyrics_extras: None,

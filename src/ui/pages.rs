@@ -1852,9 +1852,7 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
                 widgets::menu_body(ui, 120.0);
                 for h in super::VIDEO_QUALITIES {
                     if option_row(ui, &label(h), h == app.video_quality).clicked() {
-                        // Nothing to switch over: a video only plays in Now playing, which
-                        // covers this page. The next one asks for the new quality.
-                        app.video_quality = h;
+                        super::nowplaying::set_video_quality(app, h);
                         ui.close();
                     }
                 }
@@ -2593,7 +2591,7 @@ fn settings_shortcuts(ui: &mut Ui) {
             ("Search", &["Ctrl", "F"]),
             ("Find in a song list", &["Ctrl", "Shift", "F"]),
             ("Lyrics and now playing", &["L"]),
-            ("Full-screen lyrics (in now playing)", &["F"]),
+            ("Full screen in now playing: the lyrics, or a video", &["F / F11"]),
             ("Mini player on / off", &["Ctrl", "M"]),
             ("Back / forward", &["Alt", "← / →"]),
             ("Back / forward with the mouse", &["Side buttons"]),
@@ -3111,7 +3109,7 @@ fn dropdown_list(ui: &mut Ui, max_height: f32, add: impl FnOnce(&mut Ui)) {
 }
 
 /// A dropdown option: hover glass, and a check on the chosen one.
-fn option_row(ui: &mut Ui, label: &str, selected: bool) -> egui::Response {
+pub(super) fn option_row(ui: &mut Ui, label: &str, selected: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
     let resp = widgets::named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.12);

@@ -320,7 +320,7 @@ impl App {
                 ctrl(egui::Key::ArrowRight),
                 ctrl(egui::Key::ArrowLeft),
                 k(egui::Key::L),
-                k(egui::Key::F),
+                k(egui::Key::F) || k(egui::Key::F11),
                 i.key_pressed(egui::Key::Escape),
                 ctrl(egui::Key::ArrowUp),
                 ctrl(egui::Key::ArrowDown),
@@ -369,7 +369,14 @@ impl App {
             self.np_tab = NpTab::Lyrics;
         }
         if full && self.np_open {
-            self.set_fullscreen(ctx, !self.fullscreen);
+            // With a video on show, full screen is the video's, as F is on YouTube.
+            if self.fullscreen {
+                self.set_fullscreen(ctx, false);
+            } else if self.shown_video().is_some() {
+                self.set_video_fullscreen(ctx, true);
+            } else {
+                self.set_fullscreen(ctx, true);
+            }
         }
         // A menu or dialog that's open takes this Esc for itself.
         if esc && !egui::Popup::is_any_open(ctx) && ctx.memory(|m| m.top_modal_layer()).is_none() {
@@ -406,8 +413,16 @@ impl App {
         self.mini.toggle(ctx, now, video);
     }
 
+    /// Full screen with just the video, as on YouTube. Leaving it is leaving full screen.
+    pub(super) fn set_video_fullscreen(&mut self, ctx: &egui::Context, on: bool) {
+        self.set_fullscreen(ctx, on);
+        self.video_full = on;
+        super::nowplaying::wake_video_controls(ctx);
+    }
+
     pub(super) fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {
         self.fullscreen = on;
+        self.video_full = false;
         // Windows: in one step, without winit's unthemed-frame flash.
         if !crate::fullscreen::set(on) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(on));

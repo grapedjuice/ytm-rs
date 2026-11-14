@@ -34,12 +34,18 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
     let full = if app.fullscreen { screen } else { Rect::from_min_max(screen.min, pos2(screen.right(), screen.bottom() - app.bar_height())) };
     let rect = full.translate(vec2(0.0, full.height() * (1.0 - t)));
     let look = app.look();
+    let video_only = app.fullscreen && app.video_full;
+    let video_only = video_only.then(|| app.shown_video().cloned()).flatten();
     egui::Area::new(egui::Id::unique("now-playing"))
         .order(egui::Order::Middle)
         .fixed_pos(rect.min)
         .show(ctx, |ui| {
             // Swallow input so the page underneath doesn't react.
             ui.allocate_rect(rect, Sense::click_and_drag());
+            if let Some(video) = &video_only {
+                video_fullscreen(app, ui, rect, video, now);
+                return;
+            }
             // It covers the window's top too: that still moves the window.
             let top = Rect::from_min_size(rect.min, vec2(rect.width(), super::titlebar::HEIGHT));
             if !app.fullscreen {
@@ -992,21 +998,24 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
         ui.painter().circle_filled(picture.center(), 38.0, theme::shade(0.58 * hover));
         widgets::icon_at(ui, picture.center(), if app.playing() || app.buffering { icon::PAUSE } else { icon::PLAY }, 37.0, theme::with_alpha(Color32::WHITE, hover));
     }
-    if cover.clicked() {
+    if cover.double_clicked() {
+        // The first of the two clicks paused it, or played it: back as it was.
+        app.actions.push(Action::TogglePlay);
+        app.set_video_fullscreen(ui.ctx(), true);
+    } else if cover.clicked() {
         app.actions.push(Action::TogglePlay);
     }
-    // Picture in picture, at the video's top right while it's pointed at.
+    // Picture in picture at the video's top right while it's pointed at, full screen at
+    // its bottom right.
     if ui.rect_contains_pointer(picture) || hover > 0.0 {
-        let c = pos2(picture.right() - 30.0, picture.top() + 30.0);
-        let b = Rect::from_center_size(c, Vec2::splat(40.0));
-        let resp = named(ui.interact(b, ui.scope_id().with("pip"), Sense::click()), "Picture in picture (Ctrl+M)")
-            .on_hover_text("Picture in picture (Ctrl+M)")
-            .on_hover_cursor(egui::CursorIcon::PointingHand);
-        let shown = if resp.hovered() { 1.0 } else { hover.max(if ui.rect_contains_pointer(picture) { 1.0 } else { 0.0 }) };
-        ui.painter().circle_filled(c, 20.0, theme::shade(if resp.hovered() { 0.75 } else { 0.5 } * shown));
-        widgets::icon_at(ui, c, icon::PICTURE_IN_PICTURE, 18.0, theme::with_alpha(Color32::WHITE, shown));
-        if resp.clicked() {
+        let over = if ui.rect_contains_pointer(picture) { 1.0 } else { hover };
+        let pip = pos2(picture.right() - 30.0, picture.top() + 30.0);
+        if corner_button(ui, pip, icon::PICTURE_IN_PICTURE, "Picture in picture (Ctrl+M)", over).clicked() {
             app.actions.push(Action::Mini(true));
+        }
+        let full = pos2(picture.right() - 30.0, picture.bottom() - 30.0);
+        if corner_button(ui, full, icon::EXPAND, "Full screen (F)", over).clicked() {
+            app.set_video_fullscreen(ui.ctx(), true);
         }
     }
     let y = picture.bottom() + 12.0;
@@ -1035,6 +1044,204 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
             super::comments::panel(app, &mut q);
         } else {
             super::shell::queue_list(app, &mut q, "np");
+        }
+    }
+}
+
+/// A round button over the video, as bright as `shown` (the pointer's on the video).
+fn corner_button(ui: &Ui, c: egui::Pos2, glyph: char, name: &str, shown: f32) -> egui::Response {
+    let b = Rect::from_center_size(c, Vec2::splat(40.0));
+    let resp = named(ui.interact(b, ui.scope_id().with(("video-corner", name)), Sense::click()), name).on_hover_text(name).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let shown = if resp.hovered() { 1.0 } else { shown };
+    ui.painter().circle_filled(c, 20.0, theme::shade(if resp.hovered() { 0.75 } else { 0.5 } * shown));
+    widgets::icon_at(ui, c, glyph, 18.0, theme::with_alpha(Color32::WHITE, shown));
+    resp
+}
+
+/// Since when the pointer has been still over the full-screen video.
+fn still_since_id() -> egui::Id {
+    egui::Id::unique("video-full-still-since")
+}
+
+/// Going into the video's full screen: its controls come up at first.
+pub(super) fn wake_video_controls(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<f64>(still_since_id()));
+}
+
+/// Full screen with just the video, on black, as on YouTube: the song's title and the
+/// controls come up while the pointer moves, and go, the pointer with them, once it has
+/// been still a moment away from them. A click plays or pauses, a double-click leaves.
+fn video_fullscreen(app: &mut App, ui: &mut Ui, rect: Rect, track: &crate::model::Track, now: f64) {
+    let ctx = ui.ctx().clone();
+    ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
+    let frame = video_frame(app, &ctx, track);
+    let (w, h) = frame.as_ref().map_or((16.0, 9.0), |t| (t.size()[0] as f32, t.size()[1] as f32));
+    let scale = (rect.width() / w.max(1.0)).min(rect.height() / h.max(1.0));
+    let picture = Rect::from_center_size(rect.center(), vec2(w * scale, h * scale));
+    match &frame {
+        Some(tex) => {
+            egui::Image::from_texture((tex.id(), picture.size())).paint_at(ui, picture);
+        }
+        None => video_placeholder(ui, picture, track, 0.0),
+    }
+    let stage = named(ui.interact(rect, ui.scope_id().with("video-full-stage"), Sense::click()), if app.playing() { "Pause" } else { "Play" });
+    if stage.double_clicked() {
+        // The first of the two clicks paused it, or played it: back as it was.
+        app.actions.push(Action::TogglePlay);
+        app.set_fullscreen(&ctx, false);
+        return;
+    } else if stage.clicked() {
+        app.actions.push(Action::TogglePlay);
+    }
+    let bar_h = 104.0;
+    let pointer = ui.input(|i| i.pointer.hover_pos());
+    let on_controls = pointer.is_some_and(|p| p.y >= rect.bottom() - bar_h || p.y <= rect.top() + 88.0);
+    let moved = ui.input(|i| i.pointer.delta() != Vec2::ZERO || !i.events.is_empty());
+    let since = ctx.data(|d| d.get_temp::<f64>(still_since_id()));
+    let since = match since {
+        Some(t) if !moved => t,
+        _ => {
+            ctx.data_mut(|d| d.insert_temp(still_since_id(), now));
+            now
+        }
+    };
+    let busy = on_controls || app.seek_drag.is_some() || egui::Popup::is_any_open(&ctx) || !app.playing();
+    let quiet = !busy && now - since > 2.5;
+    let shown = theme::anim_bool(&ctx, "video-full-controls", !quiet, 0.25);
+    if !quiet {
+        // To see the pointer has been still long enough.
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    } else if pointer.is_some() {
+        ctx.set_cursor_icon(egui::CursorIcon::None);
+    }
+    if shown <= 0.02 {
+        return;
+    }
+    let painter = ui.painter();
+    let top = Rect::from_min_size(rect.min, vec2(rect.width(), 120.0));
+    super::shell::vgradient(painter, top, theme::shade(0.6 * shown), Color32::TRANSPARENT);
+    let bottom = Rect::from_min_max(pos2(rect.left(), rect.bottom() - 160.0), rect.max);
+    super::shell::vgradient(painter, bottom, Color32::TRANSPARENT, theme::shade(0.75 * shown));
+    let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+    cui.multiply_opacity(shown);
+    let ui = &mut cui;
+    let text_w = rect.width() - 56.0;
+    widgets::title_at(ui, pos2(rect.left() + 28.0, rect.top() + 22.0), &track.title, track.explicit, theme::bold(20.0), Color32::WHITE, text_w);
+    let line = track.artist_line();
+    widgets::linked_text(ui, pos2(rect.left() + 28.0, rect.top() + 50.0), &line, &track.artists, theme::regular(15.0), theme::text_dim(), text_w, &mut app.actions);
+
+    // The seek bar, thickening with a knob while pointed at or dragged.
+    let status = app.audio.status.clone();
+    let total = status.duration().map(|d| d.as_secs_f32()).or(track.duration.map(|d| d as f32)).unwrap_or(0.0);
+    let pos = app.seek_drag.unwrap_or(status.position_smooth().as_secs_f32()).min(total.max(0.0));
+    let line_y = rect.bottom() - 66.0;
+    let hit = Rect::from_min_max(pos2(rect.left() + 20.0, line_y - 8.0), pos2(rect.right() - 20.0, line_y + 8.0));
+    let seek = ui.interact(hit, ui.scope_id().with("video-full-seek"), Sense::click_and_drag());
+    let seek = if total > 0.0 { seek.on_hover_cursor(egui::CursorIcon::PointingHand) } else { seek };
+    seek.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
+    let lit = theme::anim_bool(&ctx, "video-full-seek-h", seek.hovered() || seek.dragged(), 0.15);
+    let thick = 3.0 + 2.0 * lit;
+    let track_r = Rect::from_center_size(pos2(hit.center().x, line_y), vec2(hit.width(), thick));
+    ui.painter().rect_filled(track_r, thick / 2.0, theme::with_alpha(Color32::WHITE, 0.25));
+    let frac = if total > 0.0 { pos / total } else { 0.0 };
+    let filled = Rect::from_min_size(track_r.min, vec2(track_r.width() * frac, thick));
+    let accent = app.accent_color();
+    ui.painter().rect_filled(filled, thick / 2.0, accent);
+    if lit > 0.0 && total > 0.0 {
+        ui.painter().circle_filled(pos2(filled.right(), line_y), 6.5 * lit, accent);
+        if let Some(p) = seek.hover_pos() {
+            let t = ((p.x - track_r.left()) / track_r.width()).clamp(0.0, 1.0) * total;
+            let g = widgets::galley(ui, &super::fmt_time(t as u32), theme::semibold(12.0), Color32::WHITE, 80.0);
+            let tip = Rect::from_center_size(pos2(p.x, line_y - 22.0), g.size() + vec2(12.0, 6.0));
+            ui.painter().rect_filled(tip, 6.0, theme::shade(0.75));
+            ui.painter().galley(tip.min + vec2(6.0, 3.0), g, Color32::WHITE);
+        }
+    }
+    if total > 0.0
+        && let Some(p) = seek.interact_pointer_pos()
+    {
+        let t = ((p.x - track_r.left()) / track_r.width()).clamp(0.0, 1.0) * total;
+        if seek.dragged() {
+            app.seek_drag = Some(t);
+        }
+        if seek.drag_stopped() || seek.clicked() {
+            app.seek_drag = None;
+            app.actions.push(Action::Seek(t));
+        }
+    }
+
+    // The buttons under it: playing and the volume on the left, the rest on the right.
+    let row = Rect::from_min_max(pos2(rect.left() + 12.0, line_y + 10.0), pos2(rect.right() - 12.0, rect.bottom() - 6.0));
+    let mut left = ui.new_child(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    left.spacing_mut().item_spacing.x = 2.0;
+    if icon_button(&mut left, icon::SKIP_BACK, 20.0, "Previous", false).clicked() {
+        app.prev();
+    }
+    let playing = app.playing() || app.buffering;
+    if icon_button(&mut left, if playing { icon::PAUSE } else { icon::PLAY }, 24.0, if playing { "Pause" } else { "Play" }, false).clicked() {
+        app.actions.push(Action::TogglePlay);
+    }
+    if icon_button(&mut left, icon::SKIP_FORWARD, 20.0, "Next", false).clicked() {
+        app.next();
+    }
+    let vol = app.audio.volume();
+    let vglyph = if vol == 0.0 { icon::VOLUME_X } else if vol < 0.5 { icon::VOLUME_1 } else { icon::VOLUME_2 };
+    if icon_button(&mut left, vglyph, 19.0, if vol > 0.0 { "Mute" } else { "Unmute" }, false).clicked() {
+        let stash = super::shell::unmute_id();
+        if vol > 0.0 {
+            left.data_mut(|d| d.insert_temp(stash, vol));
+            app.audio.set_volume(0.0);
+        } else {
+            let v = left.data(|d| d.get_temp::<f32>(stash)).unwrap_or(0.6);
+            app.audio.set_volume(v);
+        }
+    }
+    let (slider, _) = left.allocate_exact_size(vec2(90.0, 20.0), Sense::hover());
+    super::shell::volume_slider(app, &mut left, slider, "video-full-vol");
+    left.add_space(14.0);
+    if total > 0.0 {
+        let time = format!("{} / {}", super::fmt_time(pos as u32), super::fmt_time(total as u32));
+        left.label(egui::RichText::new(time).font(theme::regular(13.5)).color(Color32::WHITE));
+    }
+    let mut right = ui.new_child(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::right_to_left(egui::Align::Center)));
+    right.spacing_mut().item_spacing.x = 2.0;
+    if icon_button(&mut right, icon::SHRINK, 20.0, "Exit full screen (Esc)", false).clicked() {
+        app.set_fullscreen(&ctx, false);
+    }
+    if icon_button(&mut right, icon::PICTURE_IN_PICTURE, 19.0, "Picture in picture (Ctrl+M)", false).clicked() {
+        app.actions.push(Action::Mini(true));
+    }
+    right.add_space(6.0);
+    // What it plays at: a video may not come as sharp as asked.
+    let playing_at = app.video.as_ref().and_then(|(_, p)| p.as_ref()).map(crate::video::Player::height).filter(|&h| h > 0);
+    quality_button(app, &mut right, playing_at);
+}
+
+/// The video's quality, a menu of the others above it.
+fn quality_button(app: &mut App, ui: &mut Ui, playing_at: Option<u32>) {
+    let label = format!("{}p", playing_at.unwrap_or(app.video_quality));
+    let g = widgets::galley(ui, &label, theme::semibold(13.0), Color32::WHITE, 80.0);
+    let (rect, resp) = ui.allocate_exact_size(vec2(g.size().x + 44.0, 32.0), Sense::click());
+    let resp = named(resp, "Video quality").on_hover_text("Video quality").on_hover_cursor(egui::CursorIcon::PointingHand);
+    let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered() || open, 0.12);
+    ui.painter().rect_filled(rect, 16.0, theme::glass(0.10 + 0.08 * h));
+    widgets::icon_at(ui, pos2(rect.left() + 17.0, rect.center().y), icon::SETTINGS, 15.0, Color32::WHITE);
+    ui.painter().galley(pos2(rect.left() + 30.0, rect.center().y - g.size().y / 2.0), g, Color32::WHITE);
+    widgets::focus_ring(ui, &resp, rect, 16.0);
+    widgets::menu_popup(&resp).align(egui::RectAlign::TOP_END).show(|ui| {
+        widgets::menu_body(ui, 170.0);
+        quality_rows(app, ui);
+    });
+}
+
+/// The video qualities to pick from, in a menu. Settings › Music videos has the same.
+fn quality_rows(app: &mut App, ui: &mut Ui) {
+    menu_caption(ui, "VIDEO QUALITY");
+    for q in super::VIDEO_QUALITIES {
+        if super::pages::option_row(ui, &format!("{q}p"), q == app.video_quality).clicked() {
+            set_video_quality(app, q);
+            ui.close();
         }
     }
 }
@@ -1157,6 +1364,19 @@ fn cover_clip(app: &mut App, ctx: &egui::Context, track: &crate::model::Track, p
     c.frame.as_ref().map(|(tex, _)| (tex.clone(), shown))
 }
 
+/// Play videos at most `height` tall, the one on show too: it carries on from where the
+/// song is, at the new quality, once that has loaded.
+pub(super) fn set_video_quality(app: &mut App, height: u32) {
+    if app.video_quality == height {
+        return;
+    }
+    app.video_quality = height;
+    if let Some((id, player)) = &mut app.video {
+        *player = None;
+        app.backend.request(crate::backend::Req::VideoStream { video_id: id.clone(), max_height: height });
+    }
+}
+
 /// The video's latest frame in a texture. Keeps the player, and the glow's colours, in
 /// step with what's playing.
 pub(super) fn video_frame(app: &mut App, ctx: &egui::Context, track: &crate::model::Track) -> Option<egui::TextureHandle> {
@@ -1170,7 +1390,8 @@ pub(super) fn video_frame(app: &mut App, ctx: &egui::Context, track: &crate::mod
         app.glow = None;
         app.backend.request(crate::backend::Req::VideoStream { video_id: track.id.clone(), max_height: app.video_quality });
     }
-    let player = app.video.as_ref()?.1.as_ref()?;
+    // On its way at another quality: the last picture stays up meanwhile.
+    let Some(player) = app.video.as_ref()?.1.as_ref() else { return app.video_frame.clone() };
     if player.failed() {
         return None;
     }
@@ -1439,6 +1660,10 @@ fn options_menu(app: &mut App, ui: &mut Ui, track: &crate::model::Track, lyrics:
         widgets::menu_body(ui, 270.0);
         if lyrics {
             lyric_options(app, ui);
+            menu_divider(ui);
+        }
+        if app.shown_video().is_some() {
+            quality_rows(app, ui);
             menu_divider(ui);
         }
         let liked = app.heard_liked();

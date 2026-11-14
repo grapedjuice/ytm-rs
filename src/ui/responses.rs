@@ -184,6 +184,8 @@ impl App {
                     let none = stream.is_none();
                     *player = stream.map(|s| crate::video::Player::start(s, self.backend.http(), self.audio.status.clone()));
                     if none {
+                        // Not the picture from before a change of quality, frozen.
+                        self.video_frame = None;
                         self.toast("This video can't be shown");
                     }
                 }

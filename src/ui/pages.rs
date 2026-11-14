@@ -1193,6 +1193,11 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         row_drag::carry(ui, drag, list);
     }
     card_row(ui, "a-albums", "Albums & singles", &a.albums, acts);
+    // Their songs you've saved, less those hidden as explicit.
+    let library: Vec<&Card> = a.library.iter().filter(|c| !matches!(&c.target, Target::Song(t) if !rows.shows(t))).collect();
+    if !library.is_empty() {
+        cards_shelf(ui, &app.liked, acts, "a-lib", "From your library", None, None, &library);
+    }
     card_row(ui, "a-pl", "Featured on", &a.playlists, acts);
     card_row(ui, "a-sim", "Fans might also like", &a.similar, acts);
     if let Some(d) = a.description.as_deref().filter(|d| !d.trim().is_empty()) {

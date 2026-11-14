@@ -308,6 +308,8 @@ pub struct ArtistPage {
     /// "Top songs" playlist behind the shelf's Show all button.
     pub top_playlist: Option<String>,
     pub albums: Vec<Card>,
+    /// Their songs in your library ("From your library"); signed in only.
+    pub library: Vec<Card>,
     pub playlists: Vec<Card>,
     pub similar: Vec<Card>,
 }

@@ -889,6 +889,7 @@ fn parse_artist(v: &Value, id: &str) -> Option<ArtistPage> {
         top: Vec::new(),
         top_playlist: None,
         albums: Vec::new(),
+        library: Vec::new(),
         playlists: Vec::new(),
         similar: Vec::new(),
         name,
@@ -905,7 +906,14 @@ fn parse_artist(v: &Value, id: &str) -> Option<ArtistPage> {
             page.description = text(&s["musicDescriptionShelfRenderer"]["description"]);
         }
         let carousel = &s["musicCarouselShelfRenderer"];
-        let title = text(&carousel["header"]["musicCarouselShelfBasicHeaderRenderer"]["title"]).unwrap_or_default();
+        let header = &carousel["header"]["musicCarouselShelfBasicHeaderRenderer"];
+        // "From your library": its title leads to the artist's songs in your library ("MPLA"
+        // and their channel), whatever language it's in.
+        if header["title"]["runs"][0]["navigationEndpoint"]["browseEndpoint"]["browseId"].as_str().is_some_and(|b| b.starts_with("MPLA")) {
+            page.library = arr(&carousel["contents"]).iter().filter_map(|i| two_row(&i["musicTwoRowItemRenderer"])).collect();
+            continue;
+        }
+        let title = text(&header["title"]).unwrap_or_default();
         // Release shelves list just the year; spell out the kind and artist like elsewhere.
         let kind = if title.starts_with("Single") { "Single" } else { "Album" };
         for card in arr(&carousel["contents"]).iter().filter_map(|i| two_row(&i["musicTwoRowItemRenderer"])) {
@@ -1443,6 +1451,7 @@ fn parse_upload_artist(v: &Value, id: &str) -> Option<(ArtistPage, Option<String
         top,
         top_playlist: None,
         albums: Vec::new(),
+        library: Vec::new(),
         playlists: Vec::new(),
         similar: Vec::new(),
     };
@@ -2742,6 +2751,37 @@ mod tests {
         unknown_subscription(&mut p);
         assert!(!p.subscribed);
         assert_eq!(p.channel_id, None);
+    }
+
+    #[test]
+    fn artist_songs_from_your_library() {
+        let song = |id: &str, title: &str| json!({"musicTwoRowItemRenderer": {
+            "title": {"runs": [{"text": title}]},
+            "subtitle": {"runs": [{"text": "Song"}, {"text": " • "}, {"text": "Ashe", "navigationEndpoint": {"browseEndpoint": {"browseId": "UCa",
+                "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}}}}}]},
+            "navigationEndpoint": {"watchEndpoint": {"videoId": id, "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"}}}}
+        }});
+        let shelf = |title: Value, items: Vec<Value>| json!({"musicCarouselShelfRenderer": {"header": {"musicCarouselShelfBasicHeaderRenderer": {"title": title}}, "contents": items}});
+        // Its title leads to the account's library page for the artist, in any language.
+        let library = json!({"runs": [{"text": "Aus deiner Mediathek", "navigationEndpoint": {"browseEndpoint": {"browseId": "MPLAUCa", "params": "ggMCCAI%3D"}}}]});
+        let v = json!({
+            "header": {"musicImmersiveHeaderRenderer": {"title": {"runs": [{"text": "Ashe"}]}}},
+            "contents": {"singleColumnBrowseResultsRenderer": {"tabs": [{"tabRenderer": {"content": {"sectionListRenderer": {"contents": [
+                shelf(json!({"runs": [{"text": "Videos"}]}), vec![song("vvvvvvvvvvv", "A video")]),
+                shelf(library, vec![song("aaaaaaaaaaa", "Moral of the Story"), song("bbbbbbbbbbb", "Till Forever Falls Apart")]),
+            ]}}}}]}}
+        });
+        let page = parse_artist(&v, "UCa").unwrap();
+        let ids: Vec<&str> = page.library.iter().filter_map(|c| if let Target::Song(t) = &c.target { Some(t.id.as_str()) } else { None }).collect();
+        assert_eq!(ids, ["aaaaaaaaaaa", "bbbbbbbbbbb"]);
+        assert_eq!(page.library[0].title, "Moral of the Story");
+        assert_eq!(page.library[0].links.first().and_then(|l| l.id.as_deref()), Some("UCa"));
+        // Other song shelves (Videos) stay out of it.
+        assert!(page.albums.is_empty() && page.playlists.is_empty() && page.similar.is_empty());
+        // Signed out there's no such shelf.
+        let mut out = v.clone();
+        out["contents"]["singleColumnBrowseResultsRenderer"]["tabs"][0]["tabRenderer"]["content"]["sectionListRenderer"]["contents"].as_array_mut().unwrap().pop();
+        assert!(parse_artist(&out, "UCa").unwrap().library.is_empty());
     }
 
     #[test]

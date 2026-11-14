@@ -1817,9 +1817,13 @@ fn two_row(r: &Value) -> Option<Card> {
 /// What a browse endpoint opens.
 fn target(nav: &Value) -> Option<Target> {
     let id = nav["browseEndpoint"]["browseId"].as_str()?.to_owned();
-    // Your uploads' own artist and album pages, which the app can't open.
-    if id.starts_with("FEmusic_library_privately_owned_") {
-        return None;
+    // Your uploads' own artist and album pages, whatever page type their links carry; Library
+    // › Uploads' own tabs open another way.
+    if id.starts_with(UPLOADS) {
+        return match upload_kind(&id)? {
+            "MUSIC_PAGE_TYPE_ALBUM" => Some(Target::Album(id)),
+            _ => Some(Target::Artist(id)),
+        };
     }
     Some(match page_type(nav)? {
         "MUSIC_PAGE_TYPE_ALBUM" | "MUSIC_PAGE_TYPE_AUDIOBOOK" => Target::Album(id),
@@ -2022,7 +2026,7 @@ fn panel_item(r: &Value) -> Option<Track> {
 
 fn artist_links(v: &Value) -> Vec<Link> {
     runs(v)
-        .filter(|run| matches!(page_type(run), Some("MUSIC_PAGE_TYPE_ARTIST" | "MUSIC_PAGE_TYPE_USER_CHANNEL")))
+        .filter(|run| matches!(upload_page(run).or_else(|| page_type(run)), Some("MUSIC_PAGE_TYPE_ARTIST" | "MUSIC_PAGE_TYPE_USER_CHANNEL")))
         .map(|run| Link { name: run["text"].as_str().unwrap_or_default().to_owned(), id: browse_id(run) })
         .collect()
 }
@@ -2440,9 +2444,25 @@ mod tests {
     const LIBRARY_SEARCH: &str = r#"{"contents":{"tabbedSearchResultsRenderer":{"tabs":[{"tabRenderer":{"title":"YT Music","selected":false,"endpoint":{"searchEndpoint":{"params":"agIYAQ%3D%3D","query":"kaede"}}}},{"tabRenderer":{"title":"Library","selected":true,"content":{"sectionListRenderer":{"contents":[{"musicShelfRenderer":{"title":{"runs":[{"text":"Artists"}]},"contents":[{"musicResponsiveListItemRenderer":{"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Kaede"}]}}},{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"3.8K subscribers"}]}}}],"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_LIBRARY_ARTIST"}},"browseId":"MPLAUCMJIUyOLyBdal5XpZW3-96w"}}}}]}},{"musicShelfRenderer":{"title":{"runs":[{"text":"Albums"}]},"contents":[{"musicResponsiveListItemRenderer":{"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Stardust in Blue"}]}}},{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Album"},{"text":" • "},{"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ARTIST"}},"browseId":"UCMJIUyOLyBdal5XpZW3-96w"}},"text":"Kaede"},{"text":" & "},{"text":"Lamp"},{"text":" • "},{"text":"2020"}]}}}],"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ALBUM"}},"browseId":"MPREb_54uxDZG0XOp"}}}}]}},{"musicShelfRenderer":{"title":{"runs":[{"text":"Songs"}]},"contents":[{"musicResponsiveListItemRenderer":{"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"navigationEndpoint":{"watchEndpoint":{"videoId":"G0BLtNsvMP8","watchEndpointMusicSupportedConfigs":{"watchEndpointMusicConfig":{"musicVideoType":"MUSIC_VIDEO_TYPE_ATV"}}}},"text":"When We Were Young"}]}}},{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ARTIST"}},"browseId":"UCMJIUyOLyBdal5XpZW3-96w"}},"text":"Kaede"},{"text":" & "},{"text":"Lamp"},{"text":" • "},{"navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ALBUM"}},"browseId":"MPREb_54uxDZG0XOp"}},"text":"Stardust in Blue"}]}}}],"playlistItemData":{"videoId":"G0BLtNsvMP8"}}}]}}]}}}},{"tabRenderer":{"title":"Uploads","selected":false,"endpoint":{"searchEndpoint":{"params":"agIYAw%3D%3D","query":"kaede"}}}}]}}}"#;
 
     #[test]
-    fn uploads_search_finds_your_songs_and_no_pages_it_cant_open() {
+    fn uploads_search_finds_your_songs_albums_and_artists() {
         let r = parse_scoped(&serde_json::from_str(UPLOADS_SEARCH).unwrap());
-        assert!(r.cards.is_empty());
+        let cards: Vec<_> = r.cards.iter().map(|c| (c.title.as_str(), c.subtitle.as_str(), &c.target, c.round)).collect();
+        assert_eq!(
+            cards,
+            [
+                ("Kaede", "Artist", &Target::Artist("FEmusic_library_privately_owned_artist_detaila_po_CJD2uP34k9CPgQESBWthZWRl".into()), true),
+                (
+                    "Stardust in Blue",
+                    "Album • Kaede",
+                    &Target::Album("FEmusic_library_privately_owned_release_detailb_po_CJD2uP34k9CPgQESEHN0YXJkdXN0IGluIGJsdWUaBWthZWRlIg1odHRwIHVwbG9hZGVy".into()),
+                    false
+                ),
+            ]
+        );
+        // The album's artist leads to their uploads page, whatever its page type.
+        assert_eq!(r.cards[1].links, [Link { name: "Kaede".into(), id: Some("FEmusic_library_privately_owned_artist_detaila_po_CJD2uP34k9CPgQESBWthZWRl".into()) }]);
+        // Library › Uploads' own tabs aren't pages to open.
+        assert_eq!(target(&json!({"browseEndpoint": {"browseId": "FEmusic_library_privately_owned_releases"}})), None);
         assert_eq!(r.tracks.len(), 1);
         let t = &r.tracks[0];
         assert_eq!((t.id.as_str(), t.title.as_str()), ("pQlgsq6hpWE", "さよならはハート仕掛け - Farewell Is A Heartwork"));

@@ -1079,6 +1079,11 @@ fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32,
 
 pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let full = ui.max_rect();
+    // A click on the bar's empty space opens Now playing, or closes it, as on the website.
+    // Registered first, so everything on the bar keeps its own clicks.
+    if ui.interact(full, ui.scope_id().with("bar-np"), Sense::click()).clicked() {
+        app.actions.push(Action::OpenNowPlaying(!app.np_open));
+    }
     // A floating bar is rounded: keep the progress line clear of its corners.
     let look = app.look();
     let inset = if look.chrome.player_bar == crate::preset::PlayerBar::Floating { look.chrome.bar_radius.min(full.height() / 2.0) } else { 0.0 };
@@ -1282,6 +1287,10 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         // same menu below.
         let song_area = Rect::from_min_max(art.left_top(), pos2(x + w + 48.0, art.bottom()));
         let song_menu = ui.interact(song_area, ui.scope_id().with("song-menu"), Sense::click());
+        // Between the art, the title and the artists, a click is on the bar's empty space.
+        if song_menu.clicked() {
+            app.actions.push(Action::OpenNowPlaying(!app.np_open));
+        }
         let mut menu_on = vec![song_menu];
         if let Some(secs) = look.chrome.disc_secs {
             // A record peeking out from behind the thumbnail, spinning while it plays.

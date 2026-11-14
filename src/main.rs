@@ -216,8 +216,10 @@ fn main() -> eframe::Result {
             if let Some(h) = hwnd(cc) {
                 appicon::set_hwnd(h);
                 fullscreen::set_hwnd(h);
-                if let Some(window) = cc.winit_window().cloned() {
-                    fullscreen::set_drag(move || window.has_focus() && window.drag_window().is_ok());
+                // Weak: a strong hold kept the window from closing, and eframe ends its loop
+                // only once it has, so Quit from the tray left the process running (#153).
+                if let Some(window) = cc.winit_window().map(Arc::downgrade) {
+                    fullscreen::set_drag(move || window.upgrade().is_some_and(|w| w.has_focus() && w.drag_window().is_ok()));
                 }
                 ui::set_titlebar_hwnd(h);
                 ui::set_mini_hwnd(h);

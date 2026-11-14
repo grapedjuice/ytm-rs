@@ -344,6 +344,9 @@ pub struct App {
     resume_at: Option<Duration>,
     /// That song came from another device's queue, so playing it here is a new play.
     resume_counts: bool,
+    /// Song picked on a music video's switch while it was paused: Play starts its song
+    /// version, as the switch does while it plays.
+    resume_as_song: bool,
     /// When something last played here (unix seconds), to tell whether another
     /// device has played since. When the cross-device queue was last asked for (`now`).
     listened_at: u64,
@@ -735,6 +738,7 @@ impl App {
             scrobble: None,
             resume_at: None,
             resume_counts: false,
+            resume_as_song: false,
             listened_at: 0,
             listenbrainz_user: crate::listenbrainz::user(),
             listenbrainz_token: String::new(),

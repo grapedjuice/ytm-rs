@@ -2359,8 +2359,14 @@ fn settings_backdrop(app: &mut App, ui: &mut Ui) {
 
 /// Settings › App icon.
 fn settings_app_icon(app: &mut App, ui: &mut Ui) {
-    settings_section(ui, "App icon", Some(crate::appicon::get(app.app_icon).name), Some("Changes the icon on the window, taskbar, tray and Start menu. A pinned taskbar icon can take a moment to catch up."), |ui| {
-        if filter_show(ui, "Changes the icon on the window, taskbar, tray and Start menu") {
+    // Linux desktops take the icon from the app's menu entry.
+    let (what, more) = if cfg!(target_os = "linux") {
+        ("Changes the icon in the app menu, on the window and in the tray", "")
+    } else {
+        ("Changes the icon on the window, taskbar, tray and Start menu", " A pinned taskbar icon can take a moment to catch up.")
+    };
+    settings_section(ui, "App icon", Some(crate::appicon::get(app.app_icon).name), Some(&format!("{what}.{more}")), |ui| {
+        if filter_show(ui, what) {
             ui.add_space(14.0);
             app_icons(app, ui);
             ui.add_space(14.0);

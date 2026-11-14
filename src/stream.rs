@@ -19,6 +19,9 @@ use std::time::Duration;
 use bytes::Bytes;
 
 const BLOCK: u64 = 256 * 1024;
+/// The first block is smaller: a decoder opens after a few hundred bytes, so playback
+/// waits on this one alone, and it still holds seconds of audio while the next arrive.
+const FIRST: u64 = 64 * 1024;
 const WORKERS: usize = 4;
 /// Tries per block before the download gives up, waiting a little longer each time
 /// (about half a minute in all): long enough to ride out a dropped connection.
@@ -29,8 +32,9 @@ const STALL: Duration = Duration::from_secs(20);
 /// googlevideo occasionally starts rejecting a URL partway through (HTTP 403);
 /// a freshly resolved URL for the same video resumes the download.
 const MAX_REFRESHES: u32 = 2;
-/// A prefetch only fetches this much (~16 s of audio) until playback actually opens it:
-/// enough to start at once, without holding a whole extra song in memory.
+/// A prefetch only fetches this much (~10 s of audio at 256 kbps, two HLS segments)
+/// until playback actually opens it: enough to start at once, without holding a whole
+/// extra song in memory.
 const HEAD_BLOCKS: usize = 2;
 /// Files larger than this (about 20 minutes at 256 kbps: long mixes, whole albums in
 /// one video) aren't kept whole. Each reader keeps a window around where it reads,
@@ -40,9 +44,24 @@ const WINDOWED_FROM: u64 = 40 * 1024 * 1024;
 const AHEAD: usize = 40;
 const BEHIND: usize = 8;
 
+/// Block `idx`'s first byte in a file.
+fn block_start(idx: usize) -> u64 {
+    if idx == 0 { 0 } else { FIRST + (idx as u64 - 1) * BLOCK }
+}
+
+/// The block holding byte `pos` of a file.
+fn block_of(pos: u64) -> usize {
+    if pos < FIRST { 0 } else { 1 + ((pos - FIRST) / BLOCK) as usize }
+}
+
+/// How many blocks a file of `total` bytes takes.
+fn block_count(total: u64) -> usize {
+    if total == 0 { 0 } else { block_of(total - 1) + 1 }
+}
+
 /// What a download fetches.
 pub enum Media {
-    /// One file, in `BLOCK`-sized ranges.
+    /// One file, in ranges: `FIRST` bytes, then `BLOCK`s.
     File(String),
     /// A podcast feed's file on its own server: the same ranges, asked for in a
     /// `Range` header (googlevideo's `&range=` means nothing there).
@@ -125,12 +144,12 @@ impl Shared {
     /// A buffer for `total` bytes. `head_only` (a prefetch) fetches just the start until
     /// a reader opens it.
     pub fn new(total: u64, duration_ms: u64, loudness_db: Option<f32>, opus: bool, head_only: bool) -> Arc<Self> {
-        Self::build(total.div_ceil(BLOCK) as usize, total, total > WINDOWED_FROM, duration_ms, loudness_db, opus, false, None, head_only)
+        Self::build(block_count(total), total, total > WINDOWED_FROM, duration_ms, loudness_db, opus, false, None, head_only)
     }
 
     /// A buffer for a podcast feed's file of `total` bytes.
     pub fn feed(total: u64, duration_ms: u64, head_only: bool) -> Arc<Self> {
-        Self::build(total.div_ceil(BLOCK) as usize, total, total > WINDOWED_FROM, duration_ms, None, false, true, None, head_only)
+        Self::build(block_count(total), total, total > WINDOWED_FROM, duration_ms, None, false, true, None, head_only)
     }
 
     /// A buffer for an HLS stream's segments, starting at `starts` (s).
@@ -175,11 +194,10 @@ impl Shared {
     pub fn from_bytes(data: Vec<u8>, duration_ms: u64, loudness_db: Option<f32>) -> Arc<Self> {
         let total = data.len() as u64;
         let data = Bytes::from(data);
-        let blocks: Vec<Option<Bytes>> =
-            (0..total.div_ceil(BLOCK)).map(|i| Some(data.slice(i as usize * BLOCK as usize..((i + 1) * BLOCK).min(total) as usize))).collect();
-        let n = blocks.len();
         // Saved songs are AAC (downloads take that stream).
         let shared = Self::new(total, duration_ms, loudness_db, false, false);
+        let n = shared.inner.lock().unwrap().blocks.len();
+        let blocks: Vec<Option<Bytes>> = (0..n).map(|i| Some(data.slice(block_start(i) as usize..block_start(i + 1).min(total) as usize))).collect();
         {
             let mut inner = shared.inner.lock().unwrap();
             inner.blocks = blocks;
@@ -288,8 +306,7 @@ impl Shared {
     }
 
     fn range(&self, idx: usize) -> (u64, u64) {
-        let start = idx as u64 * BLOCK;
-        (start, (start + BLOCK).min(self.total) - 1)
+        (block_start(idx), block_start(idx + 1).min(self.total) - 1)
     }
 }
 
@@ -447,7 +464,7 @@ impl std::error::Error for SimulatedRefusal {}
 static FAIL_FROM: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(usize::MAX);
 
 /// Dev hook: YTM_STREAM_REFUSE=<block> answers every file stream's ranges from that
-/// block on with HTTP 403, fresh URLs too, as YouTube does past 1 MiB (block 4) where
+/// block on with HTTP 403, fresh URLs too, as YouTube does past 1 MiB (in block 4) where
 /// it wants a PO token for the visionOS player's URLs. HLS segments get through.
 static REFUSE_FROM: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(usize::MAX);
 
@@ -590,9 +607,9 @@ impl Read for StreamReader {
         if out.is_empty() || self.pos >= self.shared.total {
             return Ok(0);
         }
-        let idx = (self.pos / BLOCK) as usize;
+        let idx = block_of(self.pos);
         let block = self.block_at(idx)?;
-        let off = (self.pos - idx as u64 * BLOCK) as usize;
+        let off = (self.pos - block_start(idx)) as usize;
         let n = out.len().min(block.len() - off);
         out[..n].copy_from_slice(&block[off..off + n]);
         self.pos += n as u64;

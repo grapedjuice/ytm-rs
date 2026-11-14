@@ -363,6 +363,7 @@ impl App {
         // A song running into the next crossfades (so does Next, when that's switched
         // on); going back or picking a song cuts over.
         self.audio.send(if self.handoff && at.is_zero() { AudioCmd::Handoff } else { AudioCmd::Stop });
+        self.audio.send(AudioCmd::Warm);
         self.buffering = true;
         self.seek_drag = None;
         // A carried song version goes with its music video, which plays if the song won't.
@@ -455,6 +456,7 @@ impl App {
             self.page = super::Page::Library(super::LibTab::Playlists);
         }
         self.search = None;
+        self.home_mood = false;
         self.backend.request(Req::Home(None));
         if self.logged_in {
             self.backend.request(Req::Library);

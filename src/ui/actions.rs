@@ -272,6 +272,7 @@ impl App {
                         c.selected = false;
                     }
                 }
+                self.home_mood = params.is_some();
                 self.backend.request(Req::Home(params));
             }
             Action::OpenNowPlaying(open) => {

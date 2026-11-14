@@ -85,10 +85,26 @@ jobs:
           echo "version=$cargo_ver-nightly.$build" >> "$GITHUB_OUTPUT"
           echo "nightly=$build" >> "$GITHUB_OUTPUT"
 
+  # One job per architecture, side by side: each build takes most of the job.
+  # ARM64 is cross-compiled on the x64 runner, whose Visual Studio has the ARM64 tools.
   windows:
     needs: prepare
     if: needs.prepare.outputs.skip != 'true'
     runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - name: x64
+            target: ""
+            bin: target\release
+            iscc: ""
+            suffix: ""
+          - name: arm64
+            target: aarch64-pc-windows-msvc
+            bin: target\aarch64-pc-windows-msvc\release
+            iscc: /DArm64
+            suffix: -arm64
+    name: windows (${{ matrix.name }})
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       YTM_NIGHTLY: ${{ needs.prepare.outputs.nightly }}
@@ -97,9 +113,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-pc-windows-msvc
+          targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
 
       - name: Check versions match
         shell: bash
@@ -112,42 +130,34 @@ jobs:
             echo "tag $GITHUB_REF_NAME does not match v$cargo_ver"; exit 1
           fi
 
+      # x64 builds for the runner itself, into target\release, where the installer
+      # script looks for it.
       - name: Build
-        run: cargo build --release --locked
-
-      # Cross-compiled on the x64 runner, whose Visual Studio has the ARM64 tools.
-      - name: Build ARM64
-        run: cargo build --release --locked --target aarch64-pc-windows-msvc
+        run: cargo build --release --locked ${{ matrix.target && format('--target {0}', matrix.target) }}
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
       - name: Build installer
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$env:VERSION" installer\ytm-rs.iss
-          if ($LASTEXITCODE) { exit 1 }
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q /DArm64 "/DAppVersion=$env:VERSION" installer\ytm-rs.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q ${{ matrix.iscc }} "/DAppVersion=$env:VERSION" installer\ytm-rs.iss
           if ($LASTEXITCODE) { exit 1 }
 
-      # The portable zips: the exe, the marker that makes it portable, README and LICENSE.
-      - name: Build portable zips
+      # The portable zip: the exe, the marker that makes it portable, README and LICENSE.
+      - name: Build portable zip
         run: |
-          foreach ($b in @(@{ dir = "target\release"; suffix = "" }, @{ dir = "target\aarch64-pc-windows-msvc\release"; suffix = "-arm64" })) {
-            $out = "installer\Output\portable$($b.suffix)"
-            New-Item -ItemType Directory -Force $out | Out-Null
-            Copy-Item "$($b.dir)\ytm-rs.exe", installer\portable.txt, README.md, LICENSE $out
-            & "$env:SystemRoot\System32\tar.exe" -a -c -f "installer\Output\ytm-rs-portable-$env:VERSION$($b.suffix).zip" -C $out ytm-rs.exe portable.txt README.md LICENSE
-            if ($LASTEXITCODE) { exit 1 }
-          }
+          $out = "installer\Output\portable${{ matrix.suffix }}"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          Copy-Item "${{ matrix.bin }}\ytm-rs.exe", installer\portable.txt, README.md, LICENSE $out
+          & "$env:SystemRoot\System32\tar.exe" -a -c -f "installer\Output\ytm-rs-portable-$env:VERSION${{ matrix.suffix }}.zip" -C $out ytm-rs.exe portable.txt README.md LICENSE
+          if ($LASTEXITCODE) { exit 1 }
 
       - uses: actions/upload-artifact@v5
         with:
-          name: windows
+          name: windows-${{ matrix.name }}
           path: |
-            installer/Output/ytm-rs-setup-${{ env.VERSION }}.exe
-            installer/Output/ytm-rs-portable-${{ env.VERSION }}.zip
-            installer/Output/ytm-rs-setup-${{ env.VERSION }}-arm64.exe
-            installer/Output/ytm-rs-portable-${{ env.VERSION }}-arm64.zip
+            installer/Output/ytm-rs-setup-${{ env.VERSION }}${{ matrix.suffix }}.exe
+            installer/Output/ytm-rs-portable-${{ env.VERSION }}${{ matrix.suffix }}.zip
           if-no-files-found: error
 
   linux:
@@ -237,10 +247,16 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
+  # One job per architecture, side by side, as on Windows. Both run on the Apple
+  # silicon runner; the Intel build is cross-compiled there.
   macos:
     needs: prepare
     if: needs.prepare.outputs.skip != 'true'
     runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [aarch64, x86_64]
+    name: macos (${{ matrix.arch }})
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -250,54 +266,52 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: ${{ matrix.arch }}-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.arch }}
 
       # The tests run on the Apple silicon runner itself; a release isn't published
       # without them passing.
       - name: Test
+        if: matrix.arch == 'aarch64'
         run: cargo test --locked --target aarch64-apple-darwin
 
-      # The Intel build is cross-compiled on the Apple silicon runner.
       - name: Build
-        run: |
-          cargo build --release --locked --target aarch64-apple-darwin
-          cargo build --release --locked --target x86_64-apple-darwin
+        run: cargo build --release --locked --target ${{ matrix.arch }}-apple-darwin
 
-      # Per architecture, the installer: a disk image with the app and an Applications
-      # link to drag it to. And the portable zip: the app with the portable marker,
-      # README and LICENSE. The updater on macOS reads them too.
-      - name: Build installers and portable zips
+      # The installer: a disk image with the app and an Applications link to drag it
+      # to. And the portable zip: the app with the portable marker, README and LICENSE.
+      # The updater on macOS reads them too.
+      - name: Build installer and portable zip
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
-          for arch in aarch64 x86_64; do
-            bin="target/$arch-apple-darwin/release/ytm-rs"
-            stage="out/dmg-$arch"
-            dmg="out/ytm-rs-setup-$VERSION-macos-$arch.dmg"
-            mkdir -p "$stage"
-            sh macos/bundle.sh "$bin" "$VERSION" "$stage"
-            ln -s /Applications "$stage/Applications"
-            # hdiutil on the hosted runners sometimes fails with "Resource busy"; retry.
-            for try in 1 2 3; do
-              hdiutil create -volname "YT Music" -srcfolder "$stage" -ov -format UDZO "$dmg" && break
-              sleep 10
-            done
-            [ -f "$dmg" ]
-            dir="ytm-rs-portable-$VERSION-macos-$arch"
-            mkdir -p "out/$dir"
-            sh macos/bundle.sh "$bin" "$VERSION" "out/$dir" portable
-            cp README.md LICENSE "out/$dir/"
-            ditto -c -k --norsrc --keepParent "out/$dir" "out/$dir.zip"
+          bin="target/$ARCH-apple-darwin/release/ytm-rs"
+          stage="out/dmg-$ARCH"
+          dmg="out/ytm-rs-setup-$VERSION-macos-$ARCH.dmg"
+          mkdir -p "$stage"
+          sh macos/bundle.sh "$bin" "$VERSION" "$stage"
+          ln -s /Applications "$stage/Applications"
+          # hdiutil on the hosted runners sometimes fails with "Resource busy"; retry.
+          for try in 1 2 3; do
+            hdiutil create -volname "YT Music" -srcfolder "$stage" -ov -format UDZO "$dmg" && break
+            sleep 10
           done
+          [ -f "$dmg" ]
+          dir="ytm-rs-portable-$VERSION-macos-$ARCH"
+          mkdir -p "out/$dir"
+          sh macos/bundle.sh "$bin" "$VERSION" "out/$dir" portable
+          cp README.md LICENSE "out/$dir/"
+          ditto -c -k --norsrc --keepParent "out/$dir" "out/$dir.zip"
 
       - uses: actions/upload-artifact@v5
         with:
-          name: macos
+          name: macos-${{ matrix.arch }}
           path: |
-            out/ytm-rs-setup-${{ env.VERSION }}-macos-aarch64.dmg
-            out/ytm-rs-portable-${{ env.VERSION }}-macos-aarch64.zip
-            out/ytm-rs-setup-${{ env.VERSION }}-macos-x86_64.dmg
-            out/ytm-rs-portable-${{ env.VERSION }}-macos-x86_64.zip
+            out/ytm-rs-setup-${{ env.VERSION }}-macos-${{ matrix.arch }}.dmg
+            out/ytm-rs-portable-${{ env.VERSION }}-macos-${{ matrix.arch }}.zip
           if-no-files-found: error
 
   # Waits for the Arch package, but goes ahead without it if it failed.

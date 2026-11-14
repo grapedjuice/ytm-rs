@@ -509,15 +509,15 @@ const SETTINGS: &str = "org.freedesktop.portal.Settings";
 const APPEARANCE: (&str, &str) = ("org.freedesktop.appearance", "color-scheme");
 
 /// Follow the desktop's light or dark style, from the settings portal's `color-scheme`
-/// (GNOME, KDE and others): the window can't tell on Wayland. A thread of its own asks
-/// once, then hears each change the moment the desktop makes it and `wake`s the UI to
-/// draw it (an idle window draws nothing otherwise). Waits a moment for the first answer,
-/// so the first frame already has the desktop's style.
+/// (GNOME, KDE and others): the window can't tell on Wayland. A thread of its own hears
+/// each change the moment the desktop makes it and `wake`s the UI to draw it (an idle
+/// window draws nothing otherwise). Waits a moment for the first answer, so the first
+/// frame already has the desktop's style.
 #[cfg(target_os = "linux")]
 pub fn follow_system_scheme(wake: impl Fn() + Copy + Send + 'static) {
     use dbus::arg::{RefArg, Variant};
     use std::sync::atomic::Ordering;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
     let gnome = std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|d| d.split(':').any(|d| d.eq_ignore_ascii_case("GNOME")));
     let set = move |v: Option<u64>| {
         let s = scheme(v, gnome);
@@ -529,6 +529,16 @@ pub fn follow_system_scheme(wake: impl Fn() + Copy + Send + 'static) {
     let spawned = std::thread::Builder::new().name("color-scheme".into()).spawn(move || {
         let Ok(bus) = dbus::blocking::Connection::new_session() else { return };
         let portal = bus.with_proxy("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", Duration::from_secs(2));
+        // Listening before the first read, so a change between the two isn't missed.
+        let rule = dbus::message::MatchRule::new_signal(SETTINGS, "SettingChanged").with_path("/org/freedesktop/portal/desktop");
+        let heard = bus
+            .add_match(rule, move |(namespace, key, v): (String, String, Variant<Box<dyn RefArg>>), _, _| {
+                if (namespace.as_str(), key.as_str()) == APPEARANCE {
+                    set(variant_number(&v));
+                }
+                true
+            })
+            .is_ok();
         let first = portal_color_scheme(&portal);
         set(first);
         let _ = asked.send(());
@@ -536,20 +546,23 @@ pub fn follow_system_scheme(wake: impl Fn() + Copy + Send + 'static) {
         if first.is_none() {
             return;
         }
-        let rule = dbus::message::MatchRule::new_signal(SETTINGS, "SettingChanged").with_path("/org/freedesktop/portal/desktop");
-        let heard = bus.add_match(rule, move |(namespace, key, v): (String, String, Variant<Box<dyn RefArg>>), _, _| {
-            if (namespace.as_str(), key.as_str()) == APPEARANCE {
-                set(variant_number(&v));
-            }
-            true
-        });
-        if heard.is_ok() {
-            while bus.process(Duration::from_secs(3600)).is_ok() {}
-        } else {
-            // Can't listen: ask again every couple of seconds instead.
-            loop {
-                std::thread::sleep(Duration::from_secs(2));
-                set(portal_color_scheme(&portal));
+        // Asked again now and then too: a portal that restarts doesn't tell what changed
+        // while it was gone. Every couple of seconds if it can't be listened to.
+        let every = Duration::from_secs(if heard { 30 } else { 2 });
+        let mut read = Instant::now();
+        loop {
+            match every.checked_sub(read.elapsed()) {
+                Some(left) => {
+                    if bus.process(left).is_err() {
+                        return;
+                    }
+                }
+                None => {
+                    if let Some(v) = portal_color_scheme(&portal) {
+                        set(Some(v));
+                    }
+                    read = Instant::now();
+                }
             }
         }
     });

@@ -1103,6 +1103,8 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let drag = &mut app.row_drag;
     let top: Vec<Track> = a.top.iter().filter(|t| rows.shows(t)).cloned().collect();
     let top = &top;
+    // An artist of your uploads: all your songs by them, as on the website.
+    let uploaded = crate::ytm::uploaded(id);
     // Hero banner fading into the page.
     let w = ui.available_width();
     let hero_h = (w * 0.34).clamp(240.0, 380.0);
@@ -1148,7 +1150,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     if !top.is_empty() {
         ui.add_space(26.0);
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Top songs").font(theme::bold(24.0)).color(theme::text()));
+            ui.label(RichText::new(if uploaded { "Songs" } else { "Top songs" }).font(theme::bold(24.0)).color(theme::text()));
             if let Some(pl) = &a.top_playlist {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if pill(ui, "Show all", None, false).clicked() {
@@ -1163,7 +1165,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         let list = egui::Id::unique(("artist-top", id));
         // Two columns on a wide page, in the themes that have them.
         let cols = crate::preset::active().app.top_songs_cols.clamp(1, 2) as usize;
-        if cols == 2 && ui.available_width() >= 900.0 {
+        if cols == 2 && !uploaded && ui.available_width() >= 900.0 {
             let shown = top.len().min(8);
             ui.columns(2, |c| {
                 for (i, t) in top.iter().enumerate().take(shown) {
@@ -1177,7 +1179,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                 }
             });
         } else {
-        for (i, t) in top.iter().enumerate().take(5) {
+        for (i, t) in top.iter().enumerate().take(if uploaded { top.len() } else { 5 }) {
             // Its own scope, so a picked-up row dims alone.
             ui.push_id(i, |ui| {
                 row_drag::grip(ui, drag, list, i, t);

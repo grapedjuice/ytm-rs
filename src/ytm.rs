@@ -281,6 +281,9 @@ pub async fn forget_search(api: &Api, token: &str) -> anyhow::Result<()> {
 // ------------------------------------------------------------- albums, playlists
 
 pub async fn album(api: &Api, id: &str) -> anyhow::Result<Collection> {
+    if uploaded(id) {
+        return upload_album(api, id).await;
+    }
     let v = api.call("browse", json!({ "browseId": id }), false).await?;
     let (mut a, videos) = parse_album(&v, id).ok_or_else(|| anyhow::anyhow!("YouTube Music returned an empty album"))?;
     if !videos.is_empty() {
@@ -634,20 +637,7 @@ fn parse_album(v: &Value, id: &str) -> Option<(Collection, Vec<usize>)> {
     let rows = arr(&two["secondaryContents"]["sectionListRenderer"]["contents"]).iter().flat_map(|s| arr(&s["musicShelfRenderer"]["contents"]));
     let rows: Vec<(Track, bool)> = rows.filter_map(|i| Some((list_item(&i["musicResponsiveListItemRenderer"])?, is_video(i)))).collect();
     let videos = rows.iter().enumerate().filter(|(_, (_, video))| *video).map(|(i, _)| i).collect();
-    let tracks = rows
-        .into_iter()
-        .map(|(mut t, _)| {
-            // Album rows leave out what the header already says.
-            if t.thumbs.is_empty() {
-                t.thumbs = thumbs.clone();
-            }
-            if t.artists.is_empty() {
-                t.artists = artists.clone();
-            }
-            t.album.get_or_insert_with(|| link.clone());
-            t
-        })
-        .collect();
+    let tracks = rows.into_iter().map(|(t, _)| album_song(t, &thumbs, &artists, &link)).collect();
     // The album's playlist ID, which saving it to the library needs.
     let save_id = arr(&h["buttons"]).iter().find_map(|b| {
         let play = &b["musicPlayButtonRenderer"]["playNavigationEndpoint"];
@@ -672,6 +662,18 @@ fn parse_album(v: &Value, id: &str) -> Option<(Collection, Vec<usize>)> {
         sorts: Vec::new(),
     };
     Some((a, videos))
+}
+
+/// An album's row, with what it leaves out because the header already says it.
+fn album_song(mut t: Track, thumbs: &[Thumb], artists: &[Link], album: &Link) -> Track {
+    if t.thumbs.is_empty() {
+        t.thumbs = thumbs.to_vec();
+    }
+    if t.artists.is_empty() {
+        t.artists = artists.to_vec();
+    }
+    t.album.get_or_insert_with(|| album.clone());
+    t
 }
 
 /// A playlist (including mixes and Liked Music), with up to `limit` tracks (`None`: all of them).
@@ -835,6 +837,9 @@ fn list_page(items: &[Value]) -> (Vec<Track>, Vec<Option<String>>, Option<String
 
 /// `auth`: ask as the account, so the page says whether it's subscribed.
 pub async fn artist(api: &Api, id: &str, auth: bool) -> anyhow::Result<ArtistPage> {
+    if uploaded(id) {
+        return upload_artist(api, id).await;
+    }
     let asked = std::time::Instant::now();
     let body = json!({ "browseId": id });
     // The page is anyone's to see: a session YouTube turns away gets it signed out, the
@@ -1305,16 +1310,37 @@ pub async fn history(api: &Api) -> anyhow::Result<Vec<Track>> {
 
 /// Songs the account uploaded (Library > Uploads on music.youtube.com).
 pub async fn uploads(api: &Api) -> anyhow::Result<Vec<Track>> {
-    let v = api.call_signed_in("browse", json!({ "browseId": "FEmusic_library_privately_owned_tracks" })).await?;
-    let tabs = arr(&v["contents"]["singleColumnBrowseResultsRenderer"]["tabs"]);
-    let shelf = tabs
-        .iter()
-        .flat_map(|t| arr(&t["tabRenderer"]["content"]["sectionListRenderer"]["contents"]))
-        .map(|c| &c["musicShelfRenderer"])
-        .find(|s| !s.is_null());
-    let Some(shelf) = shelf else { return Ok(Vec::new()) };
+    let v = api.call_signed_in("browse", json!({ "browseId": format!("{UPLOADS}tracks") })).await?;
+    let Some(shelf) = upload_shelf(&v) else { return Ok(Vec::new()) };
     let mut tracks = upload_rows(shelf);
-    let mut token = continuation(shelf);
+    tracks.extend(more_uploads(api, continuation(shelf)).await?);
+    Ok(tracks)
+}
+
+/// One of your uploaded albums (opened from its songs, or a search of your uploads). Only
+/// the account sees it, so it's asked for as the account.
+async fn upload_album(api: &Api, id: &str) -> anyhow::Result<Collection> {
+    let v = api.call_signed_in("browse", json!({ "browseId": id })).await?;
+    let (mut a, token) = parse_upload_album(&v, id).ok_or_else(|| anyhow::anyhow!("YouTube Music returned an empty album"))?;
+    let link = Link { name: a.title.clone(), id: Some(id.to_owned()) };
+    for t in more_uploads(api, token).await? {
+        let t = album_song(t, &a.thumbs, &a.artists, &link);
+        a.tracks.push(t);
+    }
+    Ok(a)
+}
+
+/// One of your uploads' artists: the page lists your songs by them, as on the website.
+async fn upload_artist(api: &Api, id: &str) -> anyhow::Result<ArtistPage> {
+    let v = api.call_signed_in("browse", json!({ "browseId": id })).await?;
+    let (mut page, token) = parse_upload_artist(&v, id).ok_or_else(|| anyhow::anyhow!("YouTube Music returned an empty artist page"))?;
+    page.top.extend(more_uploads(api, token).await?);
+    Ok(page)
+}
+
+/// The songs after `token` on a page of your uploads, up to 20 pages more.
+async fn more_uploads(api: &Api, mut token: Option<String>) -> anyhow::Result<Vec<Track>> {
+    let mut tracks = Vec::new();
     for _ in 0..20 {
         let Some(t) = token.take() else { break };
         let v = api.call_signed_in("browse", json!({ "continuation": t })).await?;
@@ -1325,8 +1351,102 @@ pub async fn uploads(api: &Api) -> anyhow::Result<Vec<Track>> {
     Ok(tracks)
 }
 
+/// The songs shelf of a page of your uploads: Library › Uploads, an uploaded artist's or
+/// album's. In one column (as ytmusicapi reads them), or beside the header as other albums now are.
+fn upload_shelf(v: &Value) -> Option<&Value> {
+    let single = arr(&v["contents"]["singleColumnBrowseResultsRenderer"]["tabs"]).iter().flat_map(|t| arr(&t["tabRenderer"]["content"]["sectionListRenderer"]["contents"]));
+    let beside = arr(&v["contents"]["twoColumnBrowseResultsRenderer"]["secondaryContents"]["sectionListRenderer"]["contents"]);
+    single.chain(beside).map(|c| &c["musicShelfRenderer"]).find(|s| !s.is_null())
+}
+
 fn upload_rows(shelf: &Value) -> Vec<Track> {
-    arr(&shelf["contents"]).iter().filter_map(|i| list_item(&i["musicResponsiveListItemRenderer"])).collect()
+    arr(&shelf["contents"]).iter().filter_map(|i| upload_row(&i["musicResponsiveListItemRenderer"])).collect()
+}
+
+/// An uploaded song's row. Some may name the song only in their menu (Play next, Add to
+/// queue), which is where ytmusicapi reads it from.
+fn upload_row(r: &Value) -> Option<Track> {
+    list_item(r).or_else(|| {
+        let id = arr(&r["menu"]["menuRenderer"]["items"]).iter().find_map(|i| {
+            let queued = &i["menuServiceItemRenderer"]["serviceEndpoint"]["queueAddEndpoint"]["queueTarget"]["videoId"];
+            queued.as_str().or_else(|| i["menuNavigationItemRenderer"]["navigationEndpoint"]["watchEndpoint"]["videoId"].as_str())
+        })?;
+        let mut r = r.clone();
+        r["playlistItemData"] = json!({ "videoId": id });
+        list_item(&r)
+    })
+}
+
+fn is_year(s: &str) -> bool {
+    s.len() == 4 && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// An uploaded album and the token for more of its songs. Its header is the one albums had
+/// before 2024 ("Album • Artist • 2020" under the title), or the one they have now.
+fn parse_upload_album(v: &Value, id: &str) -> Option<(Collection, Option<String>)> {
+    let h = std::iter::once(&v["header"]["musicDetailHeaderRenderer"]).chain(header(&v["contents"]["twoColumnBrowseResultsRenderer"])).find(|h| !h.is_null())?;
+    let title = text(&h["title"])?;
+    let mut parts = links(&h["subtitle"]);
+    let kind = match parts.first() {
+        Some(p) if p.id.is_none() && !is_year(&p.name) => parts.remove(0).name,
+        _ => "Album".to_owned(),
+    };
+    let year = parts.iter().position(|p| is_year(&p.name)).map(|i| parts.remove(i).name);
+    let strapline = links(&h["straplineTextOne"]);
+    let artists = if strapline.is_empty() { parts } else { strapline };
+    let names = artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", ");
+    let subtitle = [Some(kind), (!names.is_empty()).then_some(names), year].into_iter().flatten().collect::<Vec<_>>().join(" • ");
+    let thumb = &h["thumbnail"];
+    let thumbs = thumbs(if thumb["croppedSquareThumbnailRenderer"].is_null() { &thumb["musicThumbnailRenderer"] } else { &thumb["croppedSquareThumbnailRenderer"] });
+    let link = Link { name: title.clone(), id: Some(id.to_owned()) };
+    let shelf = upload_shelf(v);
+    let tracks = shelf.map(upload_rows).unwrap_or_default().into_iter().map(|t| album_song(t, &thumbs, &artists, &link)).collect();
+    let a = Collection {
+        id: id.to_owned(),
+        is_album: true,
+        // Not one to save to the library: it's in your uploads.
+        save_id: None,
+        title,
+        subtitle,
+        artists,
+        description: text(&h["description"]).or_else(|| text(&h["description"]["musicDescriptionShelfRenderer"]["description"])),
+        thumbs,
+        tracks,
+        set_ids: Vec::new(),
+        count: None,
+        owned: false,
+        sorts: Vec::new(),
+    };
+    Some((a, shelf.and_then(continuation)))
+}
+
+/// An uploaded artist's page and the token for more of its songs: their name, and your
+/// songs by them.
+fn parse_upload_artist(v: &Value, id: &str) -> Option<(ArtistPage, Option<String>)> {
+    let shelf = upload_shelf(v);
+    let top = shelf.map(upload_rows).unwrap_or_default();
+    // The header's title, or the name the songs give the artist.
+    let name = v["header"]
+        .as_object()
+        .and_then(|h| h.values().find_map(|h| text(&h["title"])))
+        .or_else(|| top.iter().flat_map(|t| &t.artists).find(|a| a.id.as_deref() == Some(id)).map(|a| a.name.clone()))
+        .or_else(|| top.first()?.artists.first().map(|a| a.name.clone()))?;
+    let page = ArtistPage {
+        id: id.to_owned(),
+        name,
+        banner: Vec::new(),
+        subscribers: None,
+        subscribed: false,
+        channel_id: None,
+        asked: std::time::Instant::now(),
+        description: None,
+        top,
+        top_playlist: None,
+        albums: Vec::new(),
+        playlists: Vec::new(),
+        similar: Vec::new(),
+    };
+    Some((page, shelf.and_then(continuation)))
 }
 
 // -------------------------------------------------------------------------- edits
@@ -1832,12 +1952,8 @@ fn list_item(r: &Value) -> Option<Track> {
     for c in 1..cols.len() {
         for (i, run) in runs(col(c)?).enumerate() {
             let name = run["text"].as_str().unwrap_or_default();
-            // Uploads link their artist and album to the account's own uploads pages,
-            // which the artist and album pages can't open: keep the names, not the links.
-            let (kind, id) = match upload_page(run) {
-                Some(kind) => (Some(kind), None),
-                None => (page_type(run), browse_id(run)),
-            };
+            // Uploads link their artist and album to the account's own pages of them.
+            let (kind, id) = (upload_page(run).or_else(|| page_type(run)), browse_id(run));
             if c == 1 && in_artists {
                 match name.trim() {
                     "•" => in_artists = false,
@@ -1976,18 +2092,33 @@ fn browse_id(run: &Value) -> Option<String> {
     run["navigationEndpoint"]["browseEndpoint"]["browseId"].as_str().map(str::to_owned)
 }
 
-/// An uploaded song's artist or album run, read as the artist or album it names. They lead
-/// to the account's uploads ("FEmusic_library_privately_owned_artist_detail…",
-/// "…_release_detail…"), whatever page type they carry.
-fn upload_page(run: &Value) -> Option<&'static str> {
-    let rest = run["navigationEndpoint"]["browseEndpoint"]["browseId"].as_str()?.strip_prefix("FEmusic_library_privately_owned_")?;
-    if rest.starts_with("artist") {
+/// The account's uploads pages: Library › Uploads and its tabs, and an uploaded artist's
+/// or album's own page.
+const UPLOADS: &str = "FEmusic_library_privately_owned_";
+
+/// Which of your uploads' pages a browse id opens: an uploaded artist's
+/// ("FEmusic_library_privately_owned_artist_detail…") or album's ("…_release_detail…"),
+/// as the page type their links should carry. They don't always (an artist's is often
+/// UNKNOWN).
+fn upload_kind(id: &str) -> Option<&'static str> {
+    let rest = id.strip_prefix(UPLOADS)?;
+    if rest.starts_with("artist_detail") {
         Some("MUSIC_PAGE_TYPE_ARTIST")
-    } else if rest.starts_with("release") {
+    } else if rest.starts_with("release_detail") {
         Some("MUSIC_PAGE_TYPE_ALBUM")
     } else {
         None
     }
+}
+
+/// An uploaded artist's or album's page, which only the account that uploaded it can see.
+pub fn uploaded(id: &str) -> bool {
+    upload_kind(id).is_some()
+}
+
+/// An uploaded song's artist or album run, read as the artist or album it names.
+fn upload_page(run: &Value) -> Option<&'static str> {
+    upload_kind(run["navigationEndpoint"]["browseEndpoint"]["browseId"].as_str()?)
 }
 
 #[cfg(test)]
@@ -2216,17 +2347,89 @@ mod tests {
     const UPLOAD_ROW: &str = r#"{"musicResponsiveListItemRenderer":{"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"A Sky Full Of Stars","navigationEndpoint":{"watchEndpoint":{"videoId":"FDpg6FxVQZU"}}}]}}},{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Coldplay","navigationEndpoint":{"browseEndpoint":{"browseId":"FEmusic_library_privately_owned_artist_detaila_po_CICr2crg7OWpchIIY29sZHBsYXk","browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_UNKNOWN"}}}}}]}}},{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Ghost Stories","navigationEndpoint":{"browseEndpoint":{"browseId":"FEmusic_library_privately_owned_release_detailb_po_CICr2crg7OWpchIOZ2hvc3Qgc3Rvcmllcw","browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ALBUM"}}}}}]}}}],"fixedColumns":[{"musicResponsiveListItemFixedColumnRenderer":{"text":{"runs":[{"text":"4:28"}]}}}]}}"#;
 
     #[test]
-    fn upload_row_keeps_its_artist_and_album_unlinked() {
+    fn upload_row_links_its_artist_and_album_to_their_uploads_pages() {
+        const ARTIST: &str = "FEmusic_library_privately_owned_artist_detaila_po_CICr2crg7OWpchIIY29sZHBsYXk";
+        const ALBUM: &str = "FEmusic_library_privately_owned_release_detailb_po_CICr2crg7OWpchIOZ2hvc3Qgc3Rvcmllcw";
         let t = list_item(&row(UPLOAD_ROW)).unwrap();
         assert_eq!(names(&t), ["Coldplay"]);
-        assert_eq!(t.artists[0].id, None);
-        assert_eq!(t.album.as_ref().map(|a| (a.name.as_str(), a.id.as_deref())), Some(("Ghost Stories", None)));
+        assert_eq!(t.artists[0].id.as_deref(), Some(ARTIST));
+        assert_eq!(t.album.as_ref().map(|a| (a.name.as_str(), a.id.as_deref())), Some(("Ghost Stories", Some(ALBUM))));
         assert_eq!(t.duration, Some(268));
         // Whatever page type the run carries: none, or a plain artist's.
         let bare = UPLOAD_ROW.replace(r#","browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_UNKNOWN"}}"#, "");
-        assert_eq!(names(&list_item(&row(&bare)).unwrap()), ["Coldplay"]);
+        assert_eq!(list_item(&row(&bare)).unwrap().artists, t.artists);
         let plain = UPLOAD_ROW.replace("MUSIC_PAGE_TYPE_UNKNOWN", "MUSIC_PAGE_TYPE_ARTIST");
-        assert_eq!(list_item(&row(&plain)).unwrap().artists[0].id, None);
+        assert_eq!(list_item(&row(&plain)).unwrap().artists, t.artists);
+        // Those pages open in the app; Library › Uploads' own tabs aren't one of them.
+        assert!(uploaded(ARTIST) && uploaded(ALBUM));
+        assert!(!uploaded("FEmusic_library_privately_owned_tracks") && !uploaded("MPREb_54uxDZG0XOp"));
+    }
+
+    // An uploaded album's page as ytmusicapi reads one (not checked against a live answer):
+    // the header albums had before 2024, then the songs in one column.
+    fn upload_album_page() -> Value {
+        let row: Value = serde_json::from_str(UPLOAD_ROW).unwrap();
+        // A row that names its song only in its menu, and one with no song (Shuffle all).
+        let menu_only = json!({"musicResponsiveListItemRenderer": {
+            "flexColumns": [{"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Midnight City"}]}}}],
+            "menu": {"menuRenderer": {"items": [{"menuServiceItemRenderer": {"serviceEndpoint": {"queueAddEndpoint": {"queueTarget": {"videoId": "dX3k_QDnzHE"}}}}}]}},
+        }});
+        let shuffle = json!({"musicResponsiveListItemRenderer": {"flexColumns": [{"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Shuffle all"}]}}}]}});
+        json!({
+            "header": {"musicDetailHeaderRenderer": {
+                "title": {"runs": [{"text": "Ghost Stories"}]},
+                "subtitle": {"runs": [{"text": "Album"}, {"text": " • "}, {"text": "Coldplay", "navigationEndpoint": {"browseEndpoint": {"browseId": "FEmusic_library_privately_owned_artist_detaila_po_CICr2crg7OWpchIIY29sZHBsYXk"}}}, {"text": " • "}, {"text": "2014"}]},
+                "thumbnail": {"croppedSquareThumbnailRenderer": {"thumbnail": {"thumbnails": [{"url": "https://lh3.googleusercontent.com/gs=w226-h226", "width": 226, "height": 226}]}}},
+            }},
+            "contents": {"singleColumnBrowseResultsRenderer": {"tabs": [{"tabRenderer": {"content": {"sectionListRenderer": {"contents": [{"musicShelfRenderer": {
+                "contents": [shuffle, row, menu_only],
+                "continuations": [{"nextContinuationData": {"continuation": "more"}}],
+            }}]}}}}]}},
+        })
+    }
+
+    #[test]
+    fn uploaded_album_page_lists_its_songs() {
+        let id = "FEmusic_library_privately_owned_release_detailb_po_CICr2crg7OWpchIOZ2hvc3Qgc3Rvcmllcw";
+        let (a, token) = parse_upload_album(&upload_album_page(), id).unwrap();
+        assert_eq!((a.title.as_str(), a.subtitle.as_str(), a.is_album, a.save_id.as_deref()), ("Ghost Stories", "Album • Coldplay • 2014", true, None));
+        assert_eq!(a.artists[0].id.as_deref(), Some("FEmusic_library_privately_owned_artist_detaila_po_CICr2crg7OWpchIIY29sZHBsYXk"));
+        assert_eq!(a.thumbs.len(), 1);
+        assert_eq!(a.tracks.iter().map(|t| (t.id.as_str(), t.title.as_str())).collect::<Vec<_>>(), [("FDpg6FxVQZU", "A Sky Full Of Stars"), ("dX3k_QDnzHE", "Midnight City")]);
+        // What a row leaves out, the header says.
+        let last = &a.tracks[1];
+        assert_eq!((names(last), last.album.as_ref().and_then(|l| l.id.as_deref()), last.thumbs.len()), (vec!["Coldplay"], Some(id), 1));
+        assert_eq!(token.as_deref(), Some("more"));
+    }
+
+    #[test]
+    fn uploaded_album_page_reads_the_newer_header_too() {
+        let v = upload_album_page();
+        let shelf = v["contents"]["singleColumnBrowseResultsRenderer"]["tabs"][0]["tabRenderer"]["content"]["sectionListRenderer"]["contents"][0].clone();
+        let v = json!({"contents": {"twoColumnBrowseResultsRenderer": {
+            "tabs": [{"tabRenderer": {"content": {"sectionListRenderer": {"contents": [{"musicResponsiveHeaderRenderer": {
+                "title": {"runs": [{"text": "Ghost Stories"}]},
+                "subtitle": {"runs": [{"text": "Album"}, {"text": " • "}, {"text": "2014"}]},
+                "straplineTextOne": {"runs": [{"text": "Coldplay"}]},
+            }}]}}}}],
+            "secondaryContents": {"sectionListRenderer": {"contents": [shelf]}},
+        }}});
+        let (a, _) = parse_upload_album(&v, "FEmusic_library_privately_owned_release_detailb").unwrap();
+        assert_eq!((a.subtitle.as_str(), a.tracks.len()), ("Album • Coldplay • 2014", 2));
+    }
+
+    #[test]
+    fn uploaded_artist_page_lists_all_your_songs_by_them() {
+        let id = "FEmusic_library_privately_owned_artist_detaila_po_CICr2crg7OWpchIIY29sZHBsYXk";
+        let mut v = upload_album_page();
+        v["header"] = Value::Null;
+        let (page, token) = parse_upload_artist(&v, id).unwrap();
+        // No header: the name its songs give it.
+        assert_eq!((page.id.as_str(), page.name.as_str(), page.top.len(), page.channel_id.as_deref()), (id, "Coldplay", 2, None));
+        assert_eq!(token.as_deref(), Some("more"));
+        v["header"] = json!({"musicHeaderRenderer": {"title": {"runs": [{"text": "Coldplay (uploads)"}]}}});
+        assert_eq!(parse_upload_artist(&v, id).unwrap().0.name, "Coldplay (uploads)");
+        assert!(parse_upload_artist(&json!({}), id).is_none());
     }
 
     // A search of your uploads and one of your library, trimmed from real answers (November
@@ -2244,8 +2447,9 @@ mod tests {
         let t = &r.tracks[0];
         assert_eq!((t.id.as_str(), t.title.as_str()), ("pQlgsq6hpWE", "さよならはハート仕掛け - Farewell Is A Heartwork"));
         assert_eq!(names(t), ["Kaede"]);
-        assert_eq!(t.artists[0].id, None);
-        assert_eq!(t.album.as_ref().map(|a| (a.name.as_str(), a.id.as_deref())), Some(("Stardust in Blue", None)));
+        assert_eq!(t.artists[0].id.as_deref(), Some("FEmusic_library_privately_owned_artist_detaila_po_CJD2uP34k9CPgQESBWthZWRl"));
+        let album = "FEmusic_library_privately_owned_release_detailb_po_CJD2uP34k9CPgQESEHN0YXJkdXN0IGluIGJsdWUaBWthZWRlIg1odHRwIHVwbG9hZGVy";
+        assert_eq!(t.album.as_ref().map(|a| (a.name.as_str(), a.id.as_deref())), Some(("Stardust in Blue", Some(album))));
         assert!(!t.video);
     }
 

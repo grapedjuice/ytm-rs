@@ -10,3 +10,4 @@ server/.wrangler/
 server/node_modules/
 .playwright-cli/
 target-bisect/
+result

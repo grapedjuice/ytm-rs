@@ -1780,21 +1780,11 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
             if movable && (i > start || !has_current) {
                 row_drag::grip(ui, drag, list, i, t);
             }
-            let o = widgets::RowOpts { current, added_by: by.get(&t.id).cloned(), ..rows.opts(liked, t, None, false) };
-            let resp = widgets::track_row(ui, t, &o, acts);
-            if resp.clicked() {
+            let queue_remove = (!current && drag.is_none()).then_some(i);
+            let o = widgets::RowOpts { current, added_by: by.get(&t.id).cloned(), queue_remove, ..rows.opts(liked, t, None, false) };
+            if widgets::track_row(ui, t, &o, acts).clicked() {
                 // The playing row pauses/resumes instead of doing nothing.
                 acts.push(if current { Action::TogglePlay } else { Action::QueueJump(i) });
-            }
-            if !current && drag.is_none() && ui.rect_contains_pointer(Rect::from_min_max(resp.rect.min, pos2(resp.rect.right() + 42.0, resp.rect.bottom()))) {
-                // Remove button over the duration column.
-                let x = Rect::from_center_size(resp.rect.right_center() - vec2(26.0, 0.0), Vec2::splat(28.0));
-                let xr = named(ui.interact(x, resp.id.with("rm"), Sense::click()), "Remove from queue").on_hover_cursor(egui::CursorIcon::PointingHand);
-                ui.painter().circle_filled(x.center(), 14.0, theme::panel(0.6));
-                icon_at(ui, x.center(), icon::X, 14.0, theme::text());
-                if xr.clicked() {
-                    acts.push(Action::QueueRemove(i));
-                }
             }
         });
         let lowest = if has_current { start + 1 } else { start };

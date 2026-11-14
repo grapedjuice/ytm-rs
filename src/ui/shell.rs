@@ -17,12 +17,15 @@ pub fn vgradient(painter: &egui::Painter, rect: Rect, top: Color32, bottom: Colo
     gradient(painter, rect, [top, top, bottom, bottom]);
 }
 
-/// `vgradient` with corners rounded by `cr`, so it covers a rounded image exactly, edges and all.
-pub fn rounded_vgradient(painter: &egui::Painter, rect: Rect, cr: egui::CornerRadius, top: Color32, bottom: Color32) {
+/// `vgradient` in a cover's shape, so it covers the picture exactly, edges and all: corners
+/// rounded by `cr`, or, as `widgets::paint_remote` draws them, a squircle of `radius`.
+pub fn cover_vgradient(painter: &egui::Painter, rect: Rect, cr: egui::CornerRadius, radius: f32, top: Color32, bottom: Color32) {
     let ctx = painter.ctx();
     let mut tess = egui::epaint::Tessellator::new(ctx.pixels_per_point(), ctx.tessellation_options(|o| *o), [1, 1], Vec::new());
     let mut mesh = egui::Mesh::default();
-    tess.tessellate_rect(&egui::epaint::RectShape::filled(rect, cr, Color32::WHITE), &mut mesh);
+    let squircle = crate::preset::active().app.squircle && radius >= 6.0 && cr == egui::CornerRadius::same(cr.nw);
+    let shape = if squircle { egui::Shape::convex_polygon(widgets::squircle(rect, radius), Color32::WHITE, egui::Stroke::NONE) } else { egui::epaint::RectShape::filled(rect, cr, Color32::WHITE).into() };
+    tess.tessellate_shape(shape, &mut mesh);
     // White in, the gradient out; the anti-aliased rim keeps its fade.
     for v in &mut mesh.vertices {
         let t = (v.pos.y - rect.top()) / rect.height().max(1.0);

@@ -740,7 +740,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
             ui.painter().rect_filled(art, cr, theme::shade(1.0 - brightness));
         }
         if let Some([from, to]) = cs.overlay_gradient {
-            super::shell::rounded_vgradient(ui.painter(), art, cr, theme::shade(from), theme::shade(to));
+            super::shell::cover_vgradient(ui.painter(), art, cr, radius, theme::shade(from), theme::shade(to));
         }
     }
     if cs.opacity < 1.0 {

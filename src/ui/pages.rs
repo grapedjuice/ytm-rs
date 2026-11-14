@@ -123,6 +123,7 @@ impl Rows {
             pick: false,
             selected: None,
             remove: None,
+            queue_remove: None,
         }
     }
 }

@@ -1191,6 +1191,8 @@ pub struct RowOpts {
     pub selected: Option<bool>,
     /// The row's index in your own open playlist, so its menu can take it out.
     pub remove: Option<usize>,
+    /// The row's index in the queue: on hover, an × takes the duration's place to take it out.
+    pub queue_remove: Option<usize>,
 }
 
 
@@ -1368,8 +1370,25 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
             }
         }
     }
-    if let Some(d) = t.duration {
-        digits_at(ui, pos2(right, cy), &super::fmt_time(d), theme::regular(13.0), dim);
+    // Not `hovered`: the queue's drag grip counts as dragged from the press, which would hide
+    // the × before the click lands. The queue leaves it out once a drag has really started.
+    match o.queue_remove.filter(|_| base.contains_pointer()) {
+        Some(i) => {
+            let x = Rect::from_center_size(pos2(right - 14.0, cy), Vec2::splat(28.0));
+            let xr = named(ui.interact(x, base.id.with("rm"), Sense::click()), "Remove from queue").on_hover_cursor(egui::CursorIcon::PointingHand);
+            if xr.hovered() {
+                ui.painter().circle_filled(x.center(), 14.0, theme::glass(0.16));
+            }
+            icon_at(ui, x.center(), icon::X, 15.0, if xr.hovered() { theme::text() } else { theme::text_dim() });
+            if xr.clicked() {
+                acts.push(Action::QueueRemove(i));
+            }
+        }
+        None => {
+            if let Some(d) = t.duration {
+                digits_at(ui, pos2(right, cy), &super::fmt_time(d), theme::regular(13.0), dim);
+            }
+        }
     }
     let more_rect = Rect::from_center_size(pos2(rect.right() - 20.0, cy), Vec2::splat(30.0));
     // Hidden at rest in some themes, not gone: it's there on hover, and right click opens the same menu.

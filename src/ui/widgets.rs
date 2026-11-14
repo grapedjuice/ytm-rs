@@ -833,7 +833,7 @@ pub fn card_menu_contents(ui: &mut Ui, c: &Card, liked: bool, acts: &mut Vec<Act
     }
 }
 
-fn more_button(ui: &mut Ui, rect: Rect, id: egui::Id, label: &str) -> Response {
+pub fn more_button(ui: &mut Ui, rect: Rect, id: egui::Id, label: &str) -> Response {
     let response = named(ui.interact(rect, id, Sense::click()), label)
         .on_hover_cursor(egui::CursorIcon::PointingHand);
     if response.hovered() || egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response)) {

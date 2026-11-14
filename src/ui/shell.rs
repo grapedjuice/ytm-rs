@@ -1077,6 +1077,9 @@ fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32,
     });
 }
 
+/// After the song's title: room for the heart and the song menu button.
+const SONG_TAIL: f32 = 80.0;
+
 pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let full = ui.max_rect();
     // A click on the bar's empty space opens Now playing, or closes it, as on the website.
@@ -1251,7 +1254,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     });
     let art_x = if song_middle {
         // The song centred in the bar, never under the transport to its left.
-        let block = art_side + 14.0 + song_text.min((row.width() * 0.3 - 110.0).max(80.0)) + 48.0;
+        let block = art_side + 14.0 + song_text.min((row.width() * 0.3 - 110.0).max(80.0)) + SONG_TAIL;
         (row.center().x - block / 2.0 + art_side / 2.0).max(row.left() + 300.0)
     } else {
         row.left() + 30.0
@@ -1259,10 +1262,10 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     // A record peeking out of the thumbnail takes room before the title.
     let song_x = art_x + art_side / 2.0 + 14.0 + chrome.disc_secs.map_or(0.0, |_| art_side * 0.46);
     let title_w = |room: f32| (row.width() * 0.3 - 110.0).max(80.0).min(room).max(40.0);
-    // With the song in the middle, what's left is from where its title and heart (about 48 px) end.
+    // With the song in the middle, what's left is from where its title, heart and menu button (SONG_TAIL) end.
     // The speed button, when shown, takes 44 px.
     let speed_w = if app.tempo_on { 44.0 } else { 0.0 };
-    let song_end = song_x + if track.is_some() { song_text.min(title_w(row.right() - 244.0 - speed_w - song_x)) + 48.0 } else { 0.0 };
+    let song_end = song_x + if track.is_some() { song_text.min(title_w(row.right() - 244.0 - speed_w - song_x)) + SONG_TAIL } else { 0.0 };
     // Room between the repeat button's edge (plus a gap) and the speed/lyrics/queue/expand/
     // mini player buttons. The volume with its slider takes 140 px plus the time; the icon alone, 36.
     let free = |half: f32| row.right() - 160.0 - speed_w - if song_middle { song_end } else { row.center().x + half + 12.0 };
@@ -1279,13 +1282,13 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         // Under the song, sized once the title and heart have been placed.
         let block_slot = chrome.track_block.map(|_| ui.painter().add(egui::Shape::Noop));
         let x = song_x;
-        // Title, artists and the heart (about 48 px) end before the shuffle button.
-        let room = if song_middle { row.right() - 244.0 - speed_w - x } else { row.center().x - half - 18.0 - 14.0 - 48.0 - x };
+        // Title, artists and the heart and menu button (SONG_TAIL) end before the shuffle button.
+        let room = if song_middle { row.right() - 244.0 - speed_w - x } else { row.center().x - half - 18.0 - 14.0 - SONG_TAIL - x };
         let w = title_w(room);
         // Right click on the song has everything about it, like on any song's row. Registered
         // first, so the art, title and artist links above it keep their clicks; they get the
         // same menu below.
-        let song_area = Rect::from_min_max(art.left_top(), pos2(x + w + 48.0, art.bottom()));
+        let song_area = Rect::from_min_max(art.left_top(), pos2(x + w + SONG_TAIL, art.bottom()));
         let song_menu = ui.interact(song_area, ui.scope_id().with("song-menu"), Sense::click());
         // Between the art, the title and the artists, a click is on the bar's empty space.
         if song_menu.clicked() {
@@ -1404,8 +1407,10 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let text_end = tr.right().max(ax).min(x + w);
         let lpos = pos2(text_end + 24.0, cy);
         let lr = Rect::from_center_size(lpos, Vec2::splat(36.0));
+        // The song's menu, right of the heart, as on the website.
+        let kr = Rect::from_center_size(pos2(lpos.x + 34.0, cy), Vec2::splat(30.0));
         if let (Some(slot), Some([a, r])) = (block_slot, chrome.track_block) {
-            let block = Rect::from_min_max(art.min - Vec2::splat(4.0), pos2(lr.right() + 4.0, art.bottom() + 4.0));
+            let block = Rect::from_min_max(art.min - Vec2::splat(4.0), pos2(kr.right() + 4.0, art.bottom() + 4.0));
             ui.painter().set(slot, egui::epaint::RectShape::filled(block, r, theme::glass(a)));
         }
         for r in &menu_on {
@@ -1427,6 +1432,16 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         }
         if lresp.clicked() {
             app.actions.push(Action::LikeHeard(!liked));
+        }
+        // Hidden at rest with the heart in the same themes; kept while its menu is open.
+        let kid = ui.scope_id().with("song-more");
+        let open_id = kid.with("open");
+        if !chrome.like_on_hover || on_song || ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false)) {
+            let more = widgets::more_button(ui, kr, kid, "Song options");
+            // Up from the bar: below it is the window's edge.
+            widgets::menu_popup(&more).align(egui::RectAlign::TOP_START).show(|ui| widgets::song_menu(ui, t, liked, None, &mut app.actions));
+            let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&more));
+            ui.data_mut(|d| d.insert_temp(open_id, open));
         }
     }
 

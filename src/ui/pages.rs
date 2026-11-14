@@ -2201,6 +2201,10 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
         setting_row(ui, "Close to tray", Some(how), |ui| {
             toggle(ui, &mut app.close_to_tray, "Close to tray");
         });
+        if let Some(e) = &app.tray_error {
+            ui.label(RichText::new(e).font(theme::regular(12.5)).color(theme::RED));
+            ui.add_space(8.0);
+        }
         if crate::notify::SUPPORTED {
             divider(ui);
             let ok = crate::notify::available();

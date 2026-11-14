@@ -30,6 +30,20 @@ pub enum Cmd {
 
 static PENDING: Mutex<Vec<Cmd>> = Mutex::new(Vec::new());
 
+/// The tray can't work on this system (no AppIndicator library, or GTK won't start):
+/// the setting turns itself off and says why under it.
+#[derive(Debug)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub struct Unsupported(pub String);
+
+impl std::fmt::Display for Unsupported {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Unsupported {}
+
 pub struct Tray {
     #[cfg(not(target_os = "linux"))]
     icon: Icon,
@@ -188,10 +202,13 @@ fn build(png: image::RgbaImage) -> anyhow::Result<Icon> {
 #[cfg(target_os = "linux")]
 mod gtk_thread {
     use std::cell::RefCell;
+    use std::panic::AssertUnwindSafe;
     use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc::RecvTimeoutError;
     use std::time::Duration;
 
-    use super::Icon;
+    use super::{Icon, Unsupported};
 
     thread_local! {
         static ICON: RefCell<Option<Icon>> = const { RefCell::new(None) };
@@ -218,21 +235,71 @@ mod gtk_thread {
                 rx.recv().map_err(|e| e.to_string())?
             })
             .clone()
-            .map_err(|e| anyhow::anyhow!("GTK: {e}"))
+            .map_err(|e| Unsupported(format!("The tray icon needs GTK, which couldn't start ({e}).")).into())
+    }
+
+    /// The names libappindicator-sys 0.9.0 loads the AppIndicator library by, in its
+    /// order (its `LIB`, with the `backcompat` names it has by default).
+    const APPINDICATOR: [&std::ffi::CStr; 4] =
+        [c"libayatana-appindicator3.so.1", c"libappindicator3.so.1", c"libayatana-appindicator3.so", c"libappindicator3.so"];
+
+    /// Load the AppIndicator library before tray-icon does: libappindicator-sys panics if
+    /// it can't, and that panic, on GTK's thread, would end the app. Loaded the same way
+    /// (same names, order and flags, from the same executable), so its own load then finds
+    /// this one, which stays loaded. A failure isn't remembered: installing the library
+    /// and turning the setting on again tries again.
+    fn load_appindicator() -> Result<(), String> {
+        static LOADED: AtomicBool = AtomicBool::new(false);
+        if LOADED.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        let mut errors = Vec::new();
+        for name in APPINDICATOR {
+            // SAFETY: `name` is a C string. This is the library tray-icon loads anyway
+            // (running its initializers); the handle is never closed.
+            if !unsafe { libc::dlopen(name.as_ptr(), libc::RTLD_LAZY | libc::RTLD_LOCAL) }.is_null() {
+                LOADED.store(true, Ordering::Relaxed);
+                return Ok(());
+            }
+            // SAFETY: dlerror's message is a C string, valid until the next dl* call on this thread.
+            let e = unsafe { libc::dlerror() };
+            errors.push(if e.is_null() { name.to_string_lossy().into_owned() } else { unsafe { std::ffi::CStr::from_ptr(e) }.to_string_lossy().into_owned() });
+        }
+        Err(errors.join("; "))
+    }
+
+    /// Run `f` on GTK's thread. A panic can't unwind out of GLib's callback (it would end
+    /// the app), so it stops here; the panic hook has logged it.
+    fn invoke(f: impl FnOnce() + Send + 'static) {
+        gtk::glib::MainContext::default().invoke(move || {
+            let _ = std::panic::catch_unwind(AssertUnwindSafe(f));
+        });
     }
 
     pub fn show(png: image::RgbaImage) -> anyhow::Result<()> {
+        if let Err(e) = load_appindicator() {
+            log::warn!("tray: no AppIndicator library: {e}");
+            return Err(Unsupported(
+                "The tray icon needs the AppIndicator library, which isn't installed: libayatana-appindicator3-1 on Debian and Ubuntu, libayatana-appindicator-gtk3 on Fedora (on Bazzite, Silverblue and other atomic systems: rpm-ostree install libayatana-appindicator-gtk3, then restart the computer), libayatana-appindicator on Arch."
+                    .to_owned(),
+            )
+            .into());
+        }
         start()?;
         let (tx, rx) = std::sync::mpsc::channel();
-        gtk::glib::MainContext::default().invoke(move || {
+        invoke(move || {
             let res = super::build(png).map(|icon| ICON.with(|i| *i.borrow_mut() = Some(icon)));
             let _ = tx.send(res.map_err(|e| e.to_string()));
         });
-        rx.recv_timeout(Duration::from_secs(5))?.map_err(|e| anyhow::anyhow!(e))
+        match rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(res) => res.map_err(|e| anyhow::anyhow!(e)),
+            Err(RecvTimeoutError::Timeout) => Err(anyhow::anyhow!("GTK didn't make the icon within 5 s")),
+            Err(RecvTimeoutError::Disconnected) => Err(anyhow::anyhow!("making the icon panicked")),
+        }
     }
 
     pub fn set_shown(shown: bool) {
-        gtk::glib::MainContext::default().invoke(move || {
+        invoke(move || {
             ICON.with(|i| {
                 if let Some(i) = &*i.borrow() {
                     i.set_shown(shown);
@@ -242,7 +309,7 @@ mod gtk_thread {
     }
 
     pub fn set_now(now: super::Now) {
-        gtk::glib::MainContext::default().invoke(move || {
+        invoke(move || {
             ICON.with(|i| {
                 if let Some(i) = &*i.borrow() {
                     i.set_now(&now);
@@ -252,7 +319,7 @@ mod gtk_thread {
     }
 
     pub fn hide() {
-        gtk::glib::MainContext::default().invoke(|| ICON.with(|i| drop(i.borrow_mut().take())));
+        invoke(|| ICON.with(|i| drop(i.borrow_mut().take())));
     }
 }
 
@@ -282,5 +349,14 @@ mod tests {
         let emoji = tooltip(Some(&"😀".repeat(100)));
         assert_eq!(emoji, format!("YT Music\n{}…", "😀".repeat(58)));
         assert!(emoji.encode_utf16().count() <= 127);
+    }
+
+    /// `gtk_thread::APPINDICATOR` is libappindicator-sys 0.9.0's list of names: another
+    /// version must be read again before this is changed.
+    #[test]
+    fn appindicator_names_are_from_the_locked_version() {
+        let lock: Vec<&str> = include_str!("../Cargo.lock").lines().map(str::trim).collect();
+        let versions: Vec<&str> = lock.windows(2).filter(|w| w[0] == "name = \"libappindicator-sys\"").map(|w| w[1]).collect();
+        assert_eq!(versions, ["version = \"0.9.0\""]);
     }
 }

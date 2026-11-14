@@ -636,6 +636,9 @@ pub struct App {
     notified: Option<(u64, String)>,
     /// The tray icon couldn't be made (e.g. no GTK): don't try again, × quits.
     tray_failed: bool,
+    /// Why the tray can't work on this system (`tray::Unsupported`), shown under the
+    /// setting, which turned itself off.
+    tray_error: Option<String>,
     /// × has hidden the window behind the tray icon.
     in_tray: bool,
     /// Wayland: the minimized window has lost focus, so focus means it's back.
@@ -837,6 +840,7 @@ impl App {
             notifier: None,
             notified: None,
             tray_failed: false,
+            tray_error: None,
             in_tray: false,
             tray_left_focus: false,
             exiting: false,

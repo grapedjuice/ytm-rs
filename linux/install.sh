@@ -63,20 +63,33 @@ missing=$(ldd "$lib/ytm-rs" 2>/dev/null | awk '/not found/ { print $1 }' | tr '\
 # (Loaded at run time, so ldd doesn't list it. ldconfig is in /sbin, off a user's PATH on Debian.)
 ldconfig=$(command -v ldconfig || echo /sbin/ldconfig)
 appindicator=$("$ldconfig" -p 2>/dev/null | grep -c 'libayatana-appindicator3\|libappindicator3' || true)
-if [ -n "$missing" ] || [ "$appindicator" = 0 ]; then
+if [ "$appindicator" = 0 ]; then
+    missing="${missing}libayatana-appindicator3.so.1 (the tray icon) "
+fi
+if [ -n "$missing" ]; then
     sudo=""
     [ "$(id -u)" = 0 ] || sudo=sudo
-    echo "Installing the libraries ytm-rs needs${missing:+ ($missing)}"
-    if command -v apt-get >/dev/null; then
-        $sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 libasound2
+    echo "ytm-rs needs libraries that aren't installed: $missing"
+    installed=1
+    if [ -e /run/ostree-booted ] && command -v rpm-ostree >/dev/null; then
+        # Fedora Atomic (Silverblue, Kinoite, Bazzite...): dnf can't change the system,
+        # packages are layered on it with rpm-ostree, which takes a restart.
+        echo "On this system they're added with rpm-ostree, then a restart: for the tray icon,"
+        echo "  rpm-ostree install libayatana-appindicator-gtk3"
+        echo "(The others come from webkit2gtk4.1, gtk3 and alsa-lib.)"
+    elif command -v apt-get >/dev/null; then
+        $sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 libasound2 || installed=0
     elif command -v dnf >/dev/null; then
-        $sudo dnf install -y webkit2gtk4.1 gtk3 libayatana-appindicator-gtk3 alsa-lib
+        $sudo dnf install -y webkit2gtk4.1 gtk3 libayatana-appindicator-gtk3 alsa-lib || installed=0
     elif command -v pacman >/dev/null; then
-        $sudo pacman -S --needed --noconfirm webkit2gtk-4.1 gtk3 libayatana-appindicator alsa-lib
+        $sudo pacman -S --needed --noconfirm webkit2gtk-4.1 gtk3 libayatana-appindicator alsa-lib || installed=0
     elif command -v zypper >/dev/null; then
-        $sudo zypper --non-interactive install libwebkit2gtk-4_1-0 libgtk-3-0 libayatana-appindicator3-1 alsa
+        $sudo zypper --non-interactive install libwebkit2gtk-4_1-0 libgtk-3-0 libayatana-appindicator3-1 alsa || installed=0
     else
-        echo "Install these with your package manager: $missing"
+        installed=0
+    fi
+    if [ "$installed" = 0 ]; then
+        echo "Couldn't install them: install them with your package manager, then open ytm-rs."
     fi
 fi
 

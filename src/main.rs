@@ -306,6 +306,13 @@ fn init_logging() {
         }
     }
     builder.init();
+    // Panics in the log too: the default hook only writes to stderr, which an app opened
+    // from the menu doesn't have, and some panics end the app.
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log::error!("thread '{}' {info}", std::thread::current().name().unwrap_or("<unnamed>"));
+        default(info);
+    }));
 }
 
 /// Settings, caches and the sign-in: `data` beside the portable build's exe, else the

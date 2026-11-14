@@ -179,6 +179,9 @@ fn main() -> eframe::Result {
 
             // Jam links from later launches arrive over a pipe (first instance only).
             deeplink::listen(wake);
+            // Before the first frame, which then draws in the desktop's light or dark style.
+            #[cfg(target_os = "linux")]
+            theme::follow_system_scheme(wake);
             // Whether song notifications can show here (Windows: a Start menu entry).
             notify::look_up();
             // Keep `ytm-rs:` links pointing at this copy; dev builds leave it alone

@@ -458,9 +458,9 @@ impl Appearance {
     }
 }
 
-/// Windows' "app mode" (Settings › Personalization › Colors), or the Linux desktop's
-/// style, read again every couple of seconds so switching it there shows without a
-/// restart. `None` elsewhere, or when it can't be told.
+/// Windows' "app mode" (Settings › Personalization › Colors), read again every couple of
+/// seconds so switching it there shows without a restart. `None` when it can't be told.
+#[cfg(windows)]
 fn system_light() -> Option<bool> {
     use std::time::{Duration, Instant};
     static MODE: std::sync::Mutex<Option<(Instant, Option<bool>)>> = std::sync::Mutex::new(None);
@@ -489,52 +489,93 @@ fn read_system_light() -> Option<bool> {
     }
 }
 
-/// The desktop's light or dark style, from the settings portal's `color-scheme` (GNOME,
-/// KDE and others): the window can't tell on Wayland. Asked on a thread of its own every
-/// couple of seconds, so a slow bus never holds up a frame; this is its last answer.
-/// GNOME's light style is its "default", which elsewhere means no preference.
+/// The Linux desktop's light or dark style, as `follow_system_scheme` last heard it.
 #[cfg(target_os = "linux")]
-fn read_system_light() -> Option<bool> {
-    use std::sync::atomic::{AtomicU8, Ordering};
-    use std::time::Duration;
-    // 0: no answer (yet), 1: dark, 2: light.
-    static SCHEME: AtomicU8 = AtomicU8::new(0);
-    static ASKER: std::sync::Once = std::sync::Once::new();
-    ASKER.call_once(|| {
-        let gnome = std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|d| d.split(':').any(|d| d.eq_ignore_ascii_case("GNOME")));
-        let _ = std::thread::Builder::new().name("color-scheme".into()).spawn(move || {
-            let Ok(bus) = dbus::blocking::Connection::new_session() else { return };
-            let portal = bus.with_proxy("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", Duration::from_secs(2));
-            loop {
-                let scheme = match portal_color_scheme(&portal) {
-                    Some(1) => 1,
-                    Some(2) => 2,
-                    Some(0) if gnome => 2,
-                    Some(_) => 0,
-                    // No portal, or one without the setting: nothing more to learn from it.
-                    None => break,
-                };
-                SCHEME.store(scheme, Ordering::Relaxed);
-                std::thread::sleep(Duration::from_secs(2));
-            }
-            SCHEME.store(0, Ordering::Relaxed);
-        });
-    });
-    match SCHEME.load(Ordering::Relaxed) {
+fn system_light() -> Option<bool> {
+    match SCHEME.load(std::sync::atomic::Ordering::Relaxed) {
         1 => Some(false),
         2 => Some(true),
         _ => None,
     }
 }
 
-/// `org.freedesktop.appearance` `color-scheme`: 0 no preference, 1 dark, 2 light. Older
-/// portals have only `Read`, which wraps the value in a second variant.
+/// 0: no answer (yet), 1: dark, 2: light.
+#[cfg(target_os = "linux")]
+static SCHEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+#[cfg(target_os = "linux")]
+const SETTINGS: &str = "org.freedesktop.portal.Settings";
+#[cfg(target_os = "linux")]
+const APPEARANCE: (&str, &str) = ("org.freedesktop.appearance", "color-scheme");
+
+/// Follow the desktop's light or dark style, from the settings portal's `color-scheme`
+/// (GNOME, KDE and others): the window can't tell on Wayland. A thread of its own asks
+/// once, then hears each change the moment the desktop makes it and `wake`s the UI to
+/// draw it (an idle window draws nothing otherwise). Waits a moment for the first answer,
+/// so the first frame already has the desktop's style.
+#[cfg(target_os = "linux")]
+pub fn follow_system_scheme(wake: impl Fn() + Copy + Send + 'static) {
+    use dbus::arg::{RefArg, Variant};
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+    let gnome = std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|d| d.split(':').any(|d| d.eq_ignore_ascii_case("GNOME")));
+    let set = move |v: Option<u64>| {
+        let s = scheme(v, gnome);
+        if SCHEME.swap(s, Ordering::Relaxed) != s {
+            wake();
+        }
+    };
+    let (asked, answer) = std::sync::mpsc::channel();
+    let spawned = std::thread::Builder::new().name("color-scheme".into()).spawn(move || {
+        let Ok(bus) = dbus::blocking::Connection::new_session() else { return };
+        let portal = bus.with_proxy("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", Duration::from_secs(2));
+        let first = portal_color_scheme(&portal);
+        set(first);
+        let _ = asked.send(());
+        // No portal, or one without the setting: nothing more to learn from it.
+        if first.is_none() {
+            return;
+        }
+        let rule = dbus::message::MatchRule::new_signal(SETTINGS, "SettingChanged").with_path("/org/freedesktop/portal/desktop");
+        let heard = bus.add_match(rule, move |(namespace, key, v): (String, String, Variant<Box<dyn RefArg>>), _, _| {
+            if (namespace.as_str(), key.as_str()) == APPEARANCE {
+                set(variant_number(&v));
+            }
+            true
+        });
+        if heard.is_ok() {
+            while bus.process(Duration::from_secs(3600)).is_ok() {}
+        } else {
+            // Can't listen: ask again every couple of seconds instead.
+            loop {
+                std::thread::sleep(Duration::from_secs(2));
+                set(portal_color_scheme(&portal));
+            }
+        }
+    });
+    if spawned.is_ok() {
+        let _ = answer.recv_timeout(Duration::from_millis(250));
+    }
+}
+
+/// `SCHEME` for the portal's `color-scheme`: 0 no preference, 1 dark, 2 light. GNOME's
+/// light style is its "default", which elsewhere means no preference.
+#[cfg(target_os = "linux")]
+fn scheme(color_scheme: Option<u64>, gnome: bool) -> u8 {
+    match color_scheme {
+        Some(1) => 1,
+        Some(2) => 2,
+        Some(0) if gnome => 2,
+        _ => 0,
+    }
+}
+
+/// `org.freedesktop.appearance` `color-scheme`. Older portals have only `Read`, which
+/// wraps the value in a second variant.
 #[cfg(target_os = "linux")]
 fn portal_color_scheme(portal: &dbus::blocking::Proxy<&dbus::blocking::Connection>) -> Option<u64> {
     use dbus::arg::{RefArg, Variant};
-    const SETTINGS: &str = "org.freedesktop.portal.Settings";
-    let key = ("org.freedesktop.appearance", "color-scheme");
-    let (v,): (Variant<Box<dyn RefArg>>,) = portal.method_call(SETTINGS, "ReadOne", key).or_else(|_| portal.method_call(SETTINGS, "Read", key)).ok()?;
+    let (v,): (Variant<Box<dyn RefArg>>,) = portal.method_call(SETTINGS, "ReadOne", APPEARANCE).or_else(|_| portal.method_call(SETTINGS, "Read", APPEARANCE)).ok()?;
     variant_number(&v)
 }
 
@@ -545,7 +586,7 @@ fn variant_number(a: &dyn dbus::arg::RefArg) -> Option<u64> {
 }
 
 #[cfg(not(any(windows, target_os = "linux")))]
-fn read_system_light() -> Option<bool> {
+fn system_light() -> Option<bool> {
     None
 }
 
@@ -1583,6 +1624,16 @@ mod tests {
         assert_eq!(variant_number(&Variant(once)), Some(2));
         assert_eq!(variant_number(&Variant(twice)), Some(1));
         assert_eq!(variant_number(&Variant(Box::new("dark".to_owned()) as Box<dyn RefArg>)), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn gnomes_default_style_is_light_and_no_preference_elsewhere() {
+        assert_eq!(scheme(Some(1), true), 1);
+        assert_eq!(scheme(Some(2), false), 2);
+        assert_eq!(scheme(Some(0), true), 2);
+        assert_eq!(scheme(Some(0), false), 0);
+        assert_eq!(scheme(None, true), 0);
     }
 
     #[test]

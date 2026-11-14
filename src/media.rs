@@ -18,12 +18,12 @@ const SEEK_STEP: Duration = Duration::from_secs(10);
 const DRIFT: Duration = Duration::from_secs(1);
 
 /// The same where the OS keeps it still: there it falls behind as the song goes, and
-/// souvlaki's MPRIS only takes about one update a second.
+/// each resend tells every media widget about it.
 const STILL_DRIFT: Duration = Duration::from_secs(5);
 
 /// How long the volume has to stay put before it's reported, so a slider drag, here or
-/// in the OS's own, sends only where it ends: souvlaki's MPRIS takes about one update a
-/// second, and the OS's slider would jump back to a value from mid-drag.
+/// in the OS's own, sends only where it ends: otherwise the OS's slider would jump back
+/// to a value from mid-drag.
 const VOLUME_SETTLE: Duration = Duration::from_millis(500);
 
 /// Linux and the BSDs, where souvlaki goes through MPRIS.

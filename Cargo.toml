@@ -95,5 +95,8 @@ winresource = "0.1.31"
 
 # egui's text layout with one change for right-to-left text (#141): see the ytm-rs notes
 # in vendor/epaint/src/text/text_layout.rs.
+# souvlaki with its Linux media controls sending changes as they happen, not one a
+# second (#144): see the ytm-rs notes in vendor/souvlaki/src/platform/mpris/dbus/controls.rs.
 [patch.crates-io]
 epaint = { path = "vendor/epaint" }
+souvlaki = { path = "vendor/souvlaki" }

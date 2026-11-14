@@ -26,6 +26,7 @@ mod listenbrainz;
 mod lyrics;
 mod media;
 mod model;
+mod notify;
 mod opus;
 mod preset;
 mod remote;
@@ -178,6 +179,8 @@ fn main() -> eframe::Result {
 
             // Jam links from later launches arrive over a pipe (first instance only).
             deeplink::listen(wake);
+            // Whether song notifications can show here (Windows: a Start menu entry).
+            notify::look_up();
             // Keep `ytm-rs:` links pointing at this copy; dev builds leave it alone
             // (even with YTM_UPDATE_FORCE).
             if update::installed() && !cfg!(debug_assertions) {

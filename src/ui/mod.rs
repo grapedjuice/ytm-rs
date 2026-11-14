@@ -628,6 +628,12 @@ pub struct App {
     tray: Option<crate::tray::Tray>,
     /// The window's title as last set (`sync_title`).
     window_title: String,
+    /// Settings › Window: a notification for each new song while the window is in the background.
+    song_notifications: bool,
+    /// Made when first needed.
+    notifier: Option<crate::notify::Notifier>,
+    /// The playback generation last looked at for a notification, and its song.
+    notified: Option<(u64, String)>,
     /// The tray icon couldn't be made (e.g. no GTK): don't try again, × quits.
     tray_failed: bool,
     /// × has hidden the window behind the tray icon.
@@ -827,6 +833,9 @@ impl App {
             app_icon,
             tray: None,
             window_title: "YT Music".to_owned(),
+            song_notifications: get("song_notifications").is_some_and(|v| v == "1"),
+            notifier: None,
+            notified: None,
             tray_failed: false,
             in_tray: false,
             tray_left_focus: false,
@@ -1381,6 +1390,7 @@ impl eframe::App for App {
         self.sync_remote(ctx);
         self.sync_tempo();
         self.sync_discord();
+        self.sync_song_notification(ctx);
         self.sync_scrobbles();
         self.sync_server_queue(ctx, now);
         self.tick_updates(ctx, now);
@@ -1792,6 +1802,7 @@ impl eframe::App for App {
             self.good_window = Some(w);
         }
         storage.set_string("close_to_tray", b(self.close_to_tray));
+        storage.set_string("song_notifications", b(self.song_notifications));
         let start = START_PAGES.iter().find(|(.., p)| *p == self.start_page).map_or("home", |(k, ..)| k);
         storage.set_string("start_page", start.to_owned());
         storage.set_string("sidebar_collapsed", b(self.sidebar_collapsed));

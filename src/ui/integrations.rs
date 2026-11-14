@@ -71,6 +71,57 @@ impl App {
         }
     }
 
+    /// A notification when a new song starts while the window is hidden, minimized or
+    /// behind other windows (the mini player on show counts as seen). Not for the song
+    /// picked in the app, nor the same song again (Repeat one).
+    pub(super) fn sync_song_notification(&mut self, ctx: &egui::Context) {
+        if !self.song_notifications || !self.playing() || self.buffering || !crate::notify::available() {
+            return;
+        }
+        if self.notified.as_ref().is_some_and(|(g, _)| *g == self.generation) {
+            return;
+        }
+        let Some(t) = self.current().cloned() else { return };
+        let again = self.notified.as_ref().is_some_and(|(_, id)| *id == t.id);
+        self.notified = Some((self.generation, t.id.clone()));
+        let focused = ctx.input(|i| i.viewport().focused) != Some(false);
+        let seen = !self.window_hidden && (focused || self.mini.showing());
+        if again || seen {
+            return;
+        }
+        if self.notifier.is_none() {
+            self.notifier = crate::notify::Notifier::spawn();
+        }
+        let Some(n) = self.notifier.clone() else { return };
+        let song = crate::notify::Song {
+            title: t.title.clone(),
+            artist: t.artist_line(),
+            cover: None,
+        };
+        let (art, id, generation) = (backend::art_url(&t), t.id, self.generation);
+        n.expect(generation);
+        let dir = self.backend.data_dir().join("notification-cover");
+        let http = self.backend.http();
+        self.backend.spawn(async move {
+            let cover = match art {
+                Some(url) => async {
+                    let bytes = http.get(&url).timeout(Duration::from_secs(5)).send().await?.error_for_status()?.bytes().await?;
+                    // A new name per song: Windows keeps showing an older picture by its path.
+                    let _ = std::fs::remove_dir_all(&dir);
+                    std::fs::create_dir_all(&dir)?;
+                    let path = dir.join(format!("{id}.jpg"));
+                    std::fs::write(&path, &bytes)?;
+                    anyhow::Ok(path)
+                }
+                .await
+                .inspect_err(|e| log::debug!("notification cover: {e:#}"))
+                .ok(),
+                None => None,
+            };
+            n.show(generation, crate::notify::Song { cover, ..song });
+        });
+    }
+
     /// Mirror playback to a Stream Deck plugin, and keep the socket open only while the
     /// setting is on. Cheap every frame: clients are told only when the snapshot changes.
     pub(super) fn sync_remote(&mut self, ctx: &egui::Context) {

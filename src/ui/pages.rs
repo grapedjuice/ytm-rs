@@ -2201,6 +2201,20 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
         setting_row(ui, "Close to tray", Some(how), |ui| {
             toggle(ui, &mut app.close_to_tray, "Close to tray");
         });
+        if crate::notify::SUPPORTED {
+            divider(ui);
+            let ok = crate::notify::available();
+            let desc = if ok {
+                "When a new song starts while the window is minimized, in the tray or behind other windows, show its title, artist and cover in a notification."
+            } else {
+                "Needs the installed app: Windows only shows notifications from apps in the Start menu."
+            };
+            ui.add_enabled_ui(ok, |ui| {
+                setting_row(ui, "Song notifications", Some(desc), |ui| {
+                    toggle(ui, &mut app.song_notifications, "Song notifications");
+                });
+            });
+        }
         // A Wayland window can only be minimized, and can't bring itself back: from the
         // next start the app opens an X11 window instead while this is on.
         if app.close_to_tray && crate::wayland_window() {

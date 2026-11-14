@@ -480,7 +480,14 @@ mod desktop {
         let dirs = std::env::var("XDG_DATA_DIRS").ok().filter(|d| !d.is_empty()).unwrap_or_else(|| "/usr/local/share:/usr/share".into());
         let system: Vec<PathBuf> = dirs.split(':').filter(|d| !d.is_empty()).map(|d| Path::new(d).join("applications")).collect();
         let icon = if v.id == super::CLASSIC { None } else { Some(icon_png(v, data_dir)?) };
-        Ok(sync_at(icon.as_deref(), &data_home.join("applications"), &system, &std::env::current_exe()?)? as usize)
+        let apps = data_home.join("applications");
+        let changed = sync_at(icon.as_deref(), &apps, &system, &std::env::current_exe()?)?;
+        if changed {
+            // GLib finds the `ytm-rs://` handler in the MIME cache of the entry's own
+            // folder, and a copy here hides the system's entry along with its cache line.
+            let _ = std::process::Command::new("update-desktop-database").arg("-q").arg(&apps).status();
+        }
+        Ok(changed as usize)
     }
 
     /// The icon as a PNG next to the settings, a file per icon so the desktop doesn't
@@ -597,7 +604,7 @@ mod desktop {
     mod tests {
         use super::*;
 
-        const ENTRY: &str = "[Desktop Entry]\nType=Application\nName=YT Music\nExec=EXE\nIcon=ytm-rs\nStartupWMClass=ytm-rs\n\n[Desktop Action x]\nIcon=other\n";
+        const ENTRY: &str = "[Desktop Entry]\nType=Application\nName=YT Music\nExec=EXE\nIcon=ytm-rs\nStartupWMClass=ytm-rs\nMimeType=x-scheme-handler/ytm-rs;\n\n[Desktop Action x]\nIcon=other\n";
 
         fn scratch(name: &str) -> PathBuf {
             let dir = std::env::temp_dir().join(format!("ytm-desktop-{name}-{}", std::process::id()));
@@ -607,7 +614,7 @@ mod desktop {
         }
 
         fn entry(exe: &Path) -> String {
-            ENTRY.replace("EXE", &format!("\"{}\" %U", exe.display()))
+            ENTRY.replace("EXE", &format!("\"{}\" %u", exe.display()))
         }
 
         fn icon_line(f: &str) -> String {

@@ -421,13 +421,7 @@ impl App {
             app.in_tray = true;
             app.tray_left_focus = false;
         };
-        let show = |app: &mut Self| {
-            if wayland {
-                ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
-            } else {
-                app.show_window(ctx);
-            }
-        };
+        let show = |app: &mut Self| app.bring_back(ctx, wayland);
         if ctx.input(|i| i.viewport().close_requested()) && !self.exiting {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             hide(self);
@@ -453,6 +447,16 @@ impl App {
         if let Some(t) = &mut self.tray {
             t.set_shown(shown);
             t.set_now(song.as_ref().map(|(title, artist)| (title.as_str(), artist.as_str())), playing);
+        }
+    }
+
+    /// The window back for the tray's Show or a later launch. Wayland ignores Visible,
+    /// un-minimizing and Focus, so there it can only ask for attention (see `tray_window`).
+    pub(super) fn bring_back(&mut self, ctx: &egui::Context, wayland: bool) {
+        if wayland {
+            ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+        } else {
+            self.show_window(ctx);
         }
     }
 

@@ -37,12 +37,13 @@ install -Dm644 "$root/LICENSE" "$pkg/usr/share/doc/ytm-rs/copyright"
 chmod 644 "$pkg/usr/lib/ytm-rs/deb.txt"
 
 # The libraries it links, at the versions it was built against. The tray's
-# appindicator is loaded at run time, so it's added by hand.
+# appindicator is loaded at run time, so it's added by hand. desktop-file-utils
+# builds the MIME cache that `ytm-rs://` links are found through.
 mkdir -p "$work/debian"
 printf 'Source: ytm-rs\n\nPackage: ytm-rs\nArchitecture: any\n' > "$work/debian/control"
 shlibs=$(cd "$work" && dpkg-shlibdeps -O "$pkg/usr/lib/ytm-rs/ytm-rs" 2>/dev/null | sed -n 's/^shlibs:Depends=//p')
 [ -n "$shlibs" ] || { echo "dpkg-shlibdeps found no libraries"; exit 1; }
-depends="$shlibs, libayatana-appindicator3-1 | libappindicator3-1"
+depends="$shlibs, libayatana-appindicator3-1 | libappindicator3-1, desktop-file-utils"
 
 mkdir -p "$pkg/DEBIAN"
 cat > "$pkg/DEBIAN/control" <<EOF

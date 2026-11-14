@@ -54,12 +54,14 @@ cp "$here/install.sh" "$lib/install.sh"
 chmod 755 "$lib/install.sh"
 echo "Installed by install.sh. This file lets ytm-rs update itself." > "$lib/install.txt"
 ln -sf "$lib/ytm-rs" "$bin/ytm-rs"
-sed "s|^Exec=.*|Exec=$lib/ytm-rs|" "$here/ytm-rs.desktop" > "$desktop"
+sed "s|^Exec=ytm-rs|Exec=$lib/ytm-rs|" "$here/ytm-rs.desktop" > "$desktop"
 cp "$here/ytm-rs.png" "$icon"
 refresh
 
-# Libraries: WebKitGTK (sign-in, lyrics), GTK, the tray's appindicator and ALSA.
+# Libraries: WebKitGTK (sign-in, lyrics), GTK, the tray's appindicator and ALSA. And
+# desktop-file-utils: browsers find the app for `ytm-rs://` links in its MIME cache.
 missing=$(ldd "$lib/ytm-rs" 2>/dev/null | awk '/not found/ { print $1 }' | tr '\n' ' ')
+command -v update-desktop-database >/dev/null || missing="${missing}desktop-file-utils "
 # (Loaded at run time, so ldd doesn't list it. ldconfig is in /sbin, off a user's PATH on Debian.)
 ldconfig=$(command -v ldconfig || echo /sbin/ldconfig)
 appindicator=$("$ldconfig" -p 2>/dev/null | grep -c 'libayatana-appindicator3\|libappindicator3' || true)
@@ -69,28 +71,30 @@ fi
 if [ -n "$missing" ]; then
     sudo=""
     [ "$(id -u)" = 0 ] || sudo=sudo
-    echo "ytm-rs needs libraries that aren't installed: $missing"
+    echo "ytm-rs needs these, which aren't installed: $missing"
     installed=1
     if [ -e /run/ostree-booted ] && command -v rpm-ostree >/dev/null; then
         # Fedora Atomic (Silverblue, Kinoite, Bazzite...): dnf can't change the system,
         # packages are layered on it with rpm-ostree, which takes a restart.
         echo "On this system they're added with rpm-ostree, then a restart: for the tray icon,"
         echo "  rpm-ostree install libayatana-appindicator-gtk3"
-        echo "(The others come from webkit2gtk4.1, gtk3 and alsa-lib.)"
+        echo "(The others come from webkit2gtk4.1, gtk3, alsa-lib and desktop-file-utils.)"
     elif command -v apt-get >/dev/null; then
-        $sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 libasound2 || installed=0
+        $sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 libasound2 desktop-file-utils || installed=0
     elif command -v dnf >/dev/null; then
-        $sudo dnf install -y webkit2gtk4.1 gtk3 libayatana-appindicator-gtk3 alsa-lib || installed=0
+        $sudo dnf install -y webkit2gtk4.1 gtk3 libayatana-appindicator-gtk3 alsa-lib desktop-file-utils || installed=0
     elif command -v pacman >/dev/null; then
-        $sudo pacman -S --needed --noconfirm webkit2gtk-4.1 gtk3 libayatana-appindicator alsa-lib || installed=0
+        $sudo pacman -S --needed --noconfirm webkit2gtk-4.1 gtk3 libayatana-appindicator alsa-lib desktop-file-utils || installed=0
     elif command -v zypper >/dev/null; then
-        $sudo zypper --non-interactive install libwebkit2gtk-4_1-0 libgtk-3-0 libayatana-appindicator3-1 alsa || installed=0
+        $sudo zypper --non-interactive install libwebkit2gtk-4_1-0 libgtk-3-0 libayatana-appindicator3-1 alsa desktop-file-utils || installed=0
     else
         installed=0
     fi
     if [ "$installed" = 0 ]; then
         echo "Couldn't install them: install them with your package manager, then open ytm-rs."
     fi
+    # The MIME cache, now that update-desktop-database may be there.
+    refresh
 fi
 
 echo "ytm-rs is installed. Open YT Music from your app menu, or run ytm-rs."

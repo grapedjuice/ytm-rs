@@ -35,7 +35,7 @@ env:
   # What goes into the downloads: the code, assets, build and packaging. Only changes
   # here make a nightly, or appear in its notes; the site, docs, Markdown, the worker in
   # server/, .github and the like don't change the app.
-  APP_PATHS: "src assets build.rs Cargo.toml Cargo.lock installer linux macos :(exclude)*.md"
+  APP_PATHS: "src assets build.rs Cargo.toml Cargo.lock vendor installer linux macos :(exclude)*.md"
 
 jobs:
   # The version to build, and for a nightly its build number, or whether there's

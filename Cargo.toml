@@ -92,3 +92,8 @@ egui_system_font_provider = "0.37.0"
 
 [build-dependencies]
 winresource = "0.1.31"
+
+# egui's text layout with one change for right-to-left text (#141): see the ytm-rs notes
+# in vendor/epaint/src/text/text_layout.rs.
+[patch.crates-io]
+epaint = { path = "vendor/epaint" }

@@ -2,10 +2,11 @@
 //!
 //! Mouse-wheel notches (line units) are collected and replayed as small pixel steps with
 //! an exponential ease-out, like browsers do. Touchpads report smooth pixel deltas, which
-//! pass through as they come; when the fingers lift mid-swipe the content coasts on at the
-//! swipe's speed and slows to a stop, as in GTK, Firefox and Chromium. Wayland leaves that
-//! to the app (#124: without it, flicking the touchpad barely moved the page); macOS sends
-//! its own momentum events, so it doesn't coast here. Ctrl+wheel zoom passes untouched.
+//! scroll as they come, scaled up like GTK 4 does; when the fingers lift mid-swipe the
+//! content coasts on at the swipe's speed and slows to a stop, as in GTK, Firefox and
+//! Chromium. Wayland leaves both to the app (#124: without them, the touchpad scrolled
+//! slowly and a flick barely moved the page); macOS scales its deltas and sends its own
+//! momentum events, so they pass untouched. Ctrl+wheel zoom passes untouched.
 
 use egui::{Event, Modifiers, MouseWheelSource, MouseWheelUnit, TouchPhase, Vec2};
 
@@ -19,8 +20,15 @@ const COAST: f32 = 0.25;
 /// How much of a swipe's end sets its lift-off speed, seconds (GTK 4 uses 150 ms too).
 const SPEED_WINDOW: f64 = 0.15;
 
-/// The fastest a lift-off can coast at, points per second (a hard flick).
-const MAX_SPEED: f32 = 6000.0;
+/// How far a touchpad's pixel delta scrolls, in points. Wayland sends libinput's scroll
+/// units, which scroll slowly 1:1; GTK 4 scrolls 2.5× them (its `MAGIC_SCROLL_FACTOR`,
+/// coast included), Firefox 4× and Chromium 12× (#124).
+const TOUCHPAD_SCALE: f32 = 2.5;
+/// The fastest a lift-off can coast at, points per second: a hard flick, 6000 touchpad
+/// units a second.
+const MAX_SPEED: f32 = 6000.0 * TOUCHPAD_SCALE;
+/// How long a pause ends a scroll, seconds, as egui's own timeout does.
+const PAUSE: f64 = 0.15;
 
 pub(super) struct Glide {
     /// Points still to scroll, handed out a frame's share at a time.
@@ -35,7 +43,14 @@ pub(super) struct Glide {
     swipe: Vec<(f64, f32, Vec2)>,
     /// The last frame's time.
     last_time: f64,
-    /// Whether a touchpad swipe coasts on after the fingers lift.
+    /// Whether the scroll going on is a mouse wheel's. On Wayland a high-resolution wheel
+    /// sends its part notches as pixel deltas between its whole ones, and winit doesn't say
+    /// which device sent them. A touchpad never sends a notch, so a scroll is the wheel's
+    /// from its first notch until a pause or a touch; its pixels pass unscaled.
+    wheel_spin: bool,
+    /// The last scroll event's frame time.
+    last_scroll: f64,
+    /// Whether a touchpad swipe scales up and coasts on after the fingers lift.
     kinetic: bool,
 }
 
@@ -48,6 +63,8 @@ impl Default for Glide {
             coasting: false,
             swipe: Vec::new(),
             last_time: f64::NEG_INFINITY,
+            wheel_spin: false,
+            last_scroll: f64::NEG_INFINITY,
             kinetic: !cfg!(target_os = "macos"),
         }
     }
@@ -63,6 +80,11 @@ impl Glide {
         let gap = ((time - self.last_time) as f32).clamp(0.001, SPEED_WINDOW as f32);
         let first_gap = gap.min(predicted_dt.max(0.001));
         self.last_time = time;
+        // A notch anywhere in the frame makes it the wheel's, whatever order its events are in.
+        let notched = events.iter().any(|e| {
+            matches!(e, Event::MouseWheel { unit: MouseWheelUnit::Line | MouseWheelUnit::Page, modifiers, .. }
+                if !(modifiers.command || modifiers.ctrl))
+        });
         for e in std::mem::take(events) {
             let Event::MouseWheel { unit, delta, phase, modifiers, source } = e else {
                 // A click or a key press stops a coast. On Wayland, fingers resting on the
@@ -79,6 +101,9 @@ impl Glide {
                 events.push(e);
                 continue;
             }
+            let new_scroll = time - self.last_scroll > PAUSE || phase == TouchPhase::Start;
+            self.wheel_spin = notched || (self.wheel_spin && !new_scroll);
+            self.last_scroll = time;
             let px = match unit {
                 MouseWheelUnit::Line => delta * NOTCH_PX,
                 MouseWheelUnit::Page => delta * viewport_h * 0.8,
@@ -86,7 +111,22 @@ impl Glide {
                     events.push(e);
                     continue;
                 }
+                // A wheel's part notch. egui ignores a Start's delta, so it goes on as a move
+                // too. An End can't be the wheel's; egui would drop this frame's moves with it.
+                MouseWheelUnit::Point if self.wheel_spin => {
+                    match phase {
+                        TouchPhase::End => {}
+                        TouchPhase::Start => {
+                            events.push(e);
+                            events.push(Event::MouseWheel { unit, delta, phase: TouchPhase::Move, modifiers, source });
+                        }
+                        _ => events.push(e),
+                    }
+                    continue;
+                }
                 MouseWheelUnit::Point => {
+                    let delta = delta * TOUCHPAD_SCALE;
+                    let e = Event::MouseWheel { unit, delta, phase, modifiers, source };
                     match phase {
                         TouchPhase::Start => {
                             // Fingers on the touchpad stop a coast (a wheel glide plays
@@ -99,12 +139,18 @@ impl Glide {
                             events.push(Event::MouseWheel { unit, delta, phase: TouchPhase::Move, modifiers, source });
                         }
                         TouchPhase::Move => {
-                            // A swipe right after a mouse-wheel notch comes without a Start.
-                            if self.swipe.is_empty() {
-                                self.stop_coast();
-                            }
+                            // A swipe after a mouse-wheel notch comes without a Start, and
+                            // egui ends a touch that pauses. Either way it stops a coast, and
+                            // starts the touch for egui, which would otherwise smooth its
+                            // bigger moves like a wheel's and lag.
                             self.swipe.retain(|(t, ..)| *t > time - SPEED_WINDOW);
-                            let gap = if self.swipe.is_empty() { first_gap } else { gap };
+                            let gap = if self.swipe.is_empty() {
+                                self.stop_coast();
+                                events.push(Event::MouseWheel { unit, delta: Vec2::ZERO, phase: TouchPhase::Start, modifiers, source });
+                                first_gap
+                            } else {
+                                gap
+                            };
                             self.swipe.push((time, gap, delta));
                             events.push(e);
                         }
@@ -132,6 +178,7 @@ impl Glide {
             // A notch stops a coast rather than speeding up the rest of it. Reversing
             // direction cancels the remaining glide instead of fighting it.
             self.stop_coast();
+            self.swipe.clear();
             if self.pending.y * px.y < 0.0 || self.pending.x * px.x < 0.0 {
                 self.pending = Vec2::ZERO;
             }
@@ -235,7 +282,7 @@ mod tests {
         assert!((total + NOTCH_PX).abs() < 0.5, "{total}");
     }
 
-    /// A quick flick on a window idle for a second: 1200 pt/s, 20 pt a frame for six
+    /// A quick flick on a window idle for a second: 1200 px/s, 20 px a frame for six
     /// frames, with the fingers lifting at `lift` (s) after the last move. Returns
     /// (distance while touching, coast after).
     fn swipe(lift: f64) -> (f32, f32) {
@@ -255,32 +302,32 @@ mod tests {
     #[test]
     fn a_touchpad_swipe_scrolls_every_move_then_coasts() {
         let (touching, coast) = swipe(0.0);
-        // Every move counts, the Start's too: egui would drop that one.
-        assert!((touching + 120.0).abs() < 0.5, "{touching}");
-        // Then about 1200 pt/s × COAST more, in the same direction: the idle second
+        // Every move counts, scaled up, the Start's too: egui would drop that one.
+        assert!((touching + 120.0 * TOUCHPAD_SCALE).abs() < 0.5, "{touching}");
+        // Then the swipe's speed × COAST more, in the same direction: the idle second
         // before the swipe doesn't slow it.
-        assert!((coast + 1200.0 * COAST).abs() < 20.0, "{coast}");
+        assert!((coast + 1200.0 * TOUCHPAD_SCALE * COAST).abs() < 50.0, "{coast}");
     }
 
     #[test]
     fn fingers_that_stop_before_lifting_dont_coast() {
         let (touching, coast) = swipe(0.5);
-        assert!((touching + 120.0).abs() < 0.5, "{touching}");
+        assert!((touching + 120.0 * TOUCHPAD_SCALE).abs() < 0.5, "{touching}");
         assert_eq!(coast, 0.0);
     }
 
     #[test]
     fn a_swipe_held_up_by_a_slow_frame_coasts_at_its_real_speed() {
-        // 25 pt in the first frame, then 125 pt that piled up over a 120 ms frame:
-        // 150 pt over 120 ms and a frame, not 125 pt per 1/60 s.
+        // 25 px in the first frame, then 125 px that piled up over a 120 ms frame:
+        // 150 px over 120 ms and a frame, not 125 px per 1/60 s.
         let mut g = glide();
         let mut moved = frame(&mut g, vec![pad(TouchPhase::Start, -25.0)], 1.0);
         let rest = (0..5).map(|_| pad(TouchPhase::Move, -25.0)).chain([pad(TouchPhase::End, 0.0)]).collect();
         moved += frame(&mut g, rest, 1.12);
-        // Past the fingers' 150 pt, the coast (which starts in the slow frame).
-        let coast = moved + settle(&mut g, 1.12) + 150.0;
-        let speed = 150.0 / (0.12 + FRAME);
-        assert!((coast + speed * COAST).abs() < 20.0, "{coast}");
+        // Past the fingers' 150 px, the coast (which starts in the slow frame).
+        let coast = moved + settle(&mut g, 1.12) + 150.0 * TOUCHPAD_SCALE;
+        let speed = 150.0 * TOUCHPAD_SCALE / (0.12 + FRAME);
+        assert!((coast + speed * COAST).abs() < 50.0, "{coast}");
     }
 
     #[test]
@@ -288,18 +335,18 @@ mod tests {
         // It can't tell how long the swipe took, so it counts a frame: the cap holds it.
         let mut g = glide();
         let swipe = [pad(TouchPhase::Start, -25.0)].into_iter().chain((0..5).map(|_| pad(TouchPhase::Move, -25.0))).chain([pad(TouchPhase::End, 0.0)]).collect();
-        let coast = frame(&mut g, swipe, 1.0) + 150.0 + settle(&mut g, 1.0);
-        assert!((coast + MAX_SPEED * COAST).abs() < 20.0, "{coast}");
+        let coast = frame(&mut g, swipe, 1.0) + 150.0 * TOUCHPAD_SCALE + settle(&mut g, 1.0);
+        assert!((coast + MAX_SPEED * COAST).abs() < 50.0, "{coast}");
     }
 
-    /// A touchpad coasting downwards at time 0.1: 40 pt in a frame and 25 ms, so about
-    /// 150 pt to go.
+    /// A touchpad coasting downwards at time 0.1: 40 px in a frame and 25 ms, so a few
+    /// hundred points to go.
     fn coasting() -> Glide {
         let mut g = glide();
         frame(&mut g, vec![pad(TouchPhase::Start, -20.0)], 0.05);
         frame(&mut g, vec![pad(TouchPhase::Move, -20.0)], 0.075);
         frame(&mut g, vec![pad(TouchPhase::End, 0.0)], 0.1);
-        assert!(g.coasting && g.pending.y < -50.0, "{:?}", g.pending);
+        assert!(g.coasting && g.pending.y < -100.0, "{:?}", g.pending);
         g
     }
 
@@ -342,7 +389,8 @@ mod tests {
 
     #[test]
     fn touching_the_touchpad_leaves_a_wheel_glide_alone() {
-        // A notch, then a swipe starting while it glides: both scroll their whole way.
+        // A notch, then a swipe starting while it glides: both scroll their whole way, the
+        // swipe scaled as a touchpad's (it starts, so it isn't the wheel's).
         let mut g = glide();
         let mut total = frame(&mut g, vec![wheel(MouseWheelUnit::Line, TouchPhase::Move, -1.0)], 1.0);
         let t = 1.0 + f64::from(FRAME);
@@ -350,7 +398,20 @@ mod tests {
         // The fingers stop a while before lifting, so the swipe itself doesn't coast.
         total += frame(&mut g, vec![pad(TouchPhase::End, 0.0)], t + 0.5);
         total += settle(&mut g, t + 0.5);
-        assert!((total + NOTCH_PX + 10.0).abs() < 0.5, "{total}");
+        assert!((total + NOTCH_PX + 10.0 * TOUCHPAD_SCALE).abs() < 0.5, "{total}");
+    }
+
+    #[test]
+    fn a_swipe_without_a_start_starts_the_touch_for_egui() {
+        let mut g = glide();
+        let mut events = vec![pad(TouchPhase::Move, -5.0)];
+        g.filter(&mut events, 1.0, FRAME, 800.0);
+        let phases: Vec<_> = events.iter().map(|e| if let Event::MouseWheel { phase, .. } = e { *phase } else { unreachable!() }).collect();
+        assert_eq!(phases, [TouchPhase::Start, TouchPhase::Move]);
+        // Once it's going, a move is just a move.
+        let mut events = vec![pad(TouchPhase::Move, -5.0)];
+        g.filter(&mut events, 1.0 + f64::from(FRAME), FRAME, 800.0);
+        assert_eq!(events.len(), 1);
     }
 
     #[test]
@@ -358,6 +419,65 @@ mod tests {
         let mut g = coasting();
         let total = frame(&mut g, vec![wheel(MouseWheelUnit::Line, TouchPhase::Move, -1.0)], 0.15) + settle(&mut g, 0.15);
         assert!((total + NOTCH_PX).abs() < 0.5, "{total}");
+    }
+
+    #[test]
+    fn a_high_res_wheels_part_notches_scroll_unscaled() {
+        let mut g = glide();
+        // A part notch ahead of the notch in its frame, then one later in the spin.
+        let spin = vec![pad(TouchPhase::Move, -1.25), wheel(MouseWheelUnit::Line, TouchPhase::Move, -1.0)];
+        let mut out = spin.clone();
+        g.filter(&mut out, 1.0, FRAME, 800.0);
+        assert_eq!(out[0], spin[0]);
+        let part = vec![pad(TouchPhase::Move, -1.25)];
+        let mut out = part.clone();
+        g.filter(&mut out, 1.1, FRAME, 800.0);
+        assert_eq!(out[0], part[0]);
+        // A touchpad after a pause scales up again, with or without a Start.
+        settle(&mut g, 1.1);
+        assert!((frame(&mut g, vec![pad(TouchPhase::Move, -4.0)], 3.0) + 4.0 * TOUCHPAD_SCALE).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_high_res_wheels_first_part_notch_scrolls_too() {
+        // A wheel's first event comes as a Start, here with its first notch in one frame.
+        let mut g = glide();
+        let spin = vec![pad(TouchPhase::Start, -1.25), wheel(MouseWheelUnit::Line, TouchPhase::Move, -1.0)];
+        let total = frame(&mut g, spin, 1.0) + settle(&mut g, 1.0);
+        assert!((total + 1.25 + NOTCH_PX).abs() < 0.5, "{total}");
+    }
+
+    /// Runs frames of events through the glide and into egui; returns how far egui
+    /// scrolls in each.
+    fn egui_scroll(g: &mut Glide, frames: Vec<(f64, Vec<Event>)>) -> Vec<f32> {
+        let ctx = egui::Context::default();
+        frames.into_iter().map(|(time, mut events)| {
+            g.filter(&mut events, time, FRAME, 800.0);
+            let raw = egui::RawInput { time: Some(time), predicted_dt: FRAME, events, ..Default::default() };
+            let mut scrolled = 0.0;
+            ctx.run_pass(raw, |ctx| scrolled = ctx.input(|i| i.smooth_scroll_delta.y)).textures_delta.clear();
+            scrolled
+        }).collect()
+    }
+
+    #[test]
+    fn a_swipe_that_pauses_scrolls_without_lag_when_it_goes_on() {
+        // egui ends the touch while the fingers rest; the next move starts it again, so
+        // egui doesn't smooth it like a wheel's.
+        let mut g = glide();
+        let f = f64::from(FRAME);
+        let s = egui_scroll(&mut g, vec![(1.0, vec![pad(TouchPhase::Start, -10.0)]), (1.0 + f, vec![pad(TouchPhase::Move, -10.0)]), (1.3, vec![pad(TouchPhase::Move, -10.0)])]);
+        assert!((s[2] + 10.0 * TOUCHPAD_SCALE).abs() < 0.01, "{s:?}");
+    }
+
+    #[test]
+    fn a_swipe_taken_for_the_wheels_keeps_its_last_moves() {
+        // A touchpad right after a notch: its moves pass as the wheel's, and its End
+        // stays out of egui, which would drop the moves in its frame.
+        let notch = (1.0, vec![wheel(MouseWheelUnit::Line, TouchPhase::Move, -1.0)]);
+        let glide_alone = egui_scroll(&mut glide(), vec![notch.clone(), (1.05, vec![])]);
+        let with_swipe = egui_scroll(&mut glide(), vec![notch, (1.05, vec![pad(TouchPhase::Move, -4.0), pad(TouchPhase::End, 0.0)])]);
+        assert!((with_swipe[1] - glide_alone[1] + 4.0).abs() < 0.01, "{with_swipe:?} vs {glide_alone:?}");
     }
 
     #[test]

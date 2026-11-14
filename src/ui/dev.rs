@@ -113,7 +113,7 @@ pub(super) fn dev_screenshot(ctx: &egui::Context, now: f64) {
 
 /// Dev hook: `YTM_SCRIPT="<secs>:<step>;…"` drives a test window that has no mouse or
 /// keyboard, with seconds from the first frame. Steps: `m:x,y` moves the pointer, `c:x,y`
-/// clicks, `r:w,h` resizes, `t:text` types, `k:esc` presses Esc (`k:f` F, and so on), `w:n` scrolls n lines (down), `f:n` flicks a touchpad n points (down) over 0.1 s, as Wayland sends it, `s:name` saves `<YTM_SCRIPT_DIR>/name.png`, `q` quits.
+/// clicks, `r:w,h` resizes, `t:text` types, `k:esc` presses Esc (`k:f` F, and so on), `w:n` scrolls n lines (down), `f:n` flicks a touchpad n pixels (down) over 0.1 s, as Wayland sends it, `s:name` saves `<YTM_SCRIPT_DIR>/name.png`, `q` quits.
 pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
     use std::sync::OnceLock;
     use std::time::Instant;

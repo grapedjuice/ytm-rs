@@ -1076,11 +1076,18 @@ fn video_fullscreen(app: &mut App, ui: &mut Ui, rect: Rect, track: &crate::model
     ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
     let frame = video_frame(app, &ctx, track);
     let (w, h) = frame.as_ref().map_or((16.0, 9.0), |t| (t.size()[0] as f32, t.size()[1] as f32));
-    let scale = (rect.width() / w.max(1.0)).min(rect.height() / h.max(1.0));
-    let picture = Rect::from_center_size(rect.center(), vec2(w * scale, h * scale));
+    if ui.input(|i| i.key_pressed(egui::Key::Z) && !i.modifiers.any()) {
+        set_video_fill(app, !app.video_fill);
+    }
+    // Filling: the picture inside its own bars, as large as covers the screen, its edges cut.
+    let content = if app.video_fill { app.video_content.unwrap_or(Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0))) } else { Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)) };
+    let (cw, ch) = ((w * content.width()).max(1.0), (h * content.height()).max(1.0));
+    let scale = if app.video_fill { (rect.width() / cw).max(rect.height() / ch) } else { (rect.width() / cw).min(rect.height() / ch) };
+    let uv = Rect::from_center_size(content.center(), vec2((rect.width() / scale / w).min(content.width()), (rect.height() / scale / h).min(content.height())));
+    let picture = Rect::from_center_size(rect.center(), vec2(uv.width() * w * scale, uv.height() * h * scale));
     match &frame {
         Some(tex) => {
-            egui::Image::from_texture((tex.id(), picture.size())).paint_at(ui, picture);
+            ui.painter().image(tex.id(), picture, uv, Color32::WHITE);
         }
         None => video_placeholder(ui, picture, track, 0.0),
     }
@@ -1211,10 +1218,21 @@ fn video_fullscreen(app: &mut App, ui: &mut Ui, rect: Rect, track: &crate::model
     if icon_button(&mut right, icon::PICTURE_IN_PICTURE, 19.0, "Picture in picture (Ctrl+M)", false).clicked() {
         app.actions.push(Action::Mini(true));
     }
+    let fill_tip = if app.video_fill { "Fit to screen (Z)" } else { "Fill the screen (Z)" };
+    if icon_button(&mut right, icon::MAXIMIZE_2, 18.0, fill_tip, app.video_fill).clicked() {
+        set_video_fill(app, !app.video_fill);
+    }
     right.add_space(6.0);
     // What it plays at: a video may not come as sharp as asked.
     let playing_at = app.video.as_ref().and_then(|(_, p)| p.as_ref()).map(crate::video::Player::height).filter(|&h| h > 0);
     quality_button(app, &mut right, playing_at);
+}
+
+/// Full screen fills the screen with the video, or fits it whole. Looks for its bars afresh.
+fn set_video_fill(app: &mut App, on: bool) {
+    app.video_fill = on;
+    app.video_content = None;
+    app.video_content_at = 0.0;
 }
 
 /// The video's quality, a menu of the others above it.
@@ -1387,6 +1405,7 @@ pub(super) fn video_frame(app: &mut App, ctx: &egui::Context, track: &crate::mod
     if app.video.as_ref().is_none_or(|(id, _)| *id != track.id) {
         app.video = Some((track.id.clone(), None));
         app.video_frame = None;
+        app.video_content = None;
         app.glow = None;
         app.backend.request(crate::backend::Req::VideoStream { video_id: track.id.clone(), max_height: app.video_quality });
     }
@@ -1419,6 +1438,15 @@ pub(super) fn video_frame(app: &mut App, ctx: &egui::Context, track: &crate::mod
                     let tex = ctx.load_texture("video-glow", image, egui::TextureOptions::LINEAR);
                     app.glow = Some(Glow { current: colors.clone(), target: colors, tex });
                 }
+            }
+        }
+        // Where its own black bars are, for filling the screen: a few times a second, the
+        // picture widening as brighter frames show more of it.
+        let now = ctx.input(|i| i.time);
+        if app.video_fill && app.video_full && now - app.video_content_at > 0.5 {
+            app.video_content_at = now;
+            if let Some(seen) = crate::video::content_uv(&frame.image) {
+                app.video_content = Some(app.video_content.map_or(seen, |c| c.union(seen)));
             }
         }
         match &mut app.video_frame {

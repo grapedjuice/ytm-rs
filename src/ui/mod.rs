@@ -466,6 +466,12 @@ pub struct App {
     /// The video on show or on its way, by id.
     video: Option<(String, Option<crate::video::Player>)>,
     video_frame: Option<egui::TextureHandle>,
+    /// Full screen fills the screen with the video, past the black bars that came with it.
+    video_fill: bool,
+    /// The video's picture inside those bars, as a fraction of the frame, widened frame by
+    /// frame, and when it was last looked at.
+    video_content: Option<egui::Rect>,
+    video_content_at: f64,
     /// The glow around a video, from its colours.
     ambient_light: bool,
     glow: Option<nowplaying::Glow>,
@@ -820,6 +826,9 @@ impl App {
             video_quality: get("video_quality").and_then(|v| v.parse().ok()).filter(|h| VIDEO_QUALITIES.contains(h)).unwrap_or(720),
             video: None,
             video_frame: None,
+            video_fill: get("video_fill").is_some_and(|v| v == "1"),
+            video_content: None,
+            video_content_at: 0.0,
             ambient_light: get("ambient_light").is_none_or(|v| v == "1"),
             glow: None,
             animated_covers: std::env::var_os("YTM_CANVAS").is_some() || get("animated_covers").is_some_and(|v| v == "1"),
@@ -1783,6 +1792,7 @@ impl eframe::App for App {
         storage.set_string("play_songs", b(self.play_songs));
         storage.set_string("show_video", b(self.show_video));
         storage.set_string("video_quality", self.video_quality.to_string());
+        storage.set_string("video_fill", b(self.video_fill));
         storage.set_string("ambient_light", b(self.ambient_light));
         storage.set_string("animated_covers", b(self.animated_covers));
         storage.set_string("hide_search_videos", b(self.hide_search_videos));

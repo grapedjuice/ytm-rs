@@ -2592,6 +2592,7 @@ fn settings_shortcuts(ui: &mut Ui) {
             ("Find in a song list", &["Ctrl", "Shift", "F"]),
             ("Lyrics and now playing", &["L"]),
             ("Full screen in now playing: the lyrics, or a video", &["F / F11"]),
+            ("A full screen video: fill the screen, or fit it", &["Z"]),
             ("Mini player on / off", &["Ctrl", "M"]),
             ("Back / forward", &["Alt", "← / →"]),
             ("Back / forward with the mouse", &["Side buttons"]),

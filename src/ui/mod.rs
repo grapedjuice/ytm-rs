@@ -1321,11 +1321,12 @@ impl eframe::App for App {
             self.upload_files(files);
         }
         transfer::poll(self, ctx, now);
+        let wayland = integrations::is_wayland(frame);
         if crate::deeplink::take_show() {
-            self.show_window(ctx);
+            self.bring_back(ctx, wayland);
         }
         for code in crate::deeplink::take() {
-            self.show_window(ctx);
+            self.bring_back(ctx, wayland);
             jam::open_link(self, code);
         }
         for a in std::mem::take(&mut self.actions) {

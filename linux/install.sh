@@ -54,7 +54,7 @@ cp "$here/install.sh" "$lib/install.sh"
 chmod 755 "$lib/install.sh"
 echo "Installed by install.sh. This file lets ytm-rs update itself." > "$lib/install.txt"
 ln -sf "$lib/ytm-rs" "$bin/ytm-rs"
-sed "s|^Exec=.*|Exec=$lib/ytm-rs|" "$here/ytm-rs.desktop" > "$desktop"
+sed "s|^Exec=ytm-rs|Exec=$lib/ytm-rs|" "$here/ytm-rs.desktop" > "$desktop"
 cp "$here/ytm-rs.png" "$icon"
 refresh
 

@@ -414,13 +414,7 @@ impl App {
             app.in_tray = true;
             app.tray_left_focus = false;
         };
-        let show = |app: &mut Self| {
-            if wayland {
-                ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
-            } else {
-                app.show_window(ctx);
-            }
-        };
+        let show = |app: &mut Self| app.bring_back(ctx, wayland);
         if ctx.input(|i| i.viewport().close_requested()) && !self.exiting {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             hide(self);
@@ -450,6 +444,16 @@ impl App {
     }
 
     /// Bring the window back (from the tray, or minimized) and to the front.
+    /// The window back for the tray's Show or a later launch. Wayland ignores Visible,
+    /// Minimized and Focus, so there it can only ask for attention (see `tray_window`).
+    pub(super) fn bring_back(&mut self, ctx: &egui::Context, wayland: bool) {
+        if wayland {
+            ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+        } else {
+            self.show_window(ctx);
+        }
+    }
+
     pub(super) fn show_window(&mut self, ctx: &egui::Context) {
         self.in_tray = false;
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));

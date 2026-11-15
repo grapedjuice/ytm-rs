@@ -702,7 +702,7 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     }
     ui.add_space(8.0);
     // Top result: the first artist when the query names one, otherwise the first song.
-    ui.horizontal_top(|ui| {
+    let top_card = |ui: &mut Ui, acts: &mut Vec<Action>| {
         if let Some(top) = r.artists.first().filter(|a| a.title.eq_ignore_ascii_case(q.trim())) {
             top_result(ui, top, false, acts);
         } else if let Some(t) = tracks.first().copied() {
@@ -716,7 +716,8 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
             };
             top_result(ui, &c, pick, acts);
         }
-        ui.add_space(24.0);
+    };
+    let mut songs = |ui: &mut Ui, acts: &mut Vec<Action>| {
         ui.vertical(|ui| {
             ui.label(RichText::new("Songs").font(theme::bold(24.0)));
             ui.add_space(8.0);
@@ -733,7 +734,21 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
             }
             row_drag::carry(ui, drag, ids("songs"));
         });
-    });
+    };
+    // Songs beside it while there's room for their rows, else under it.
+    if ui.available_width() >= TOP_RESULT_W + TOP_RESULT_GAP + SONGS_MIN_W {
+        ui.horizontal_top(|ui| {
+            top_card(ui, acts);
+            ui.add_space(TOP_RESULT_GAP);
+            songs(ui, acts);
+        });
+    } else {
+        top_card(ui, acts);
+        if !tracks.is_empty() {
+            ui.add_space(26.0);
+            songs(ui, acts);
+        }
+    }
     card_row(ui, "s-artists", "Artists", &r.artists, acts);
     card_row(ui, "s-albums", "Albums", &r.albums, acts);
     if !videos.is_empty() && !app.hide_search_videos {
@@ -825,12 +840,20 @@ fn shown_results<'a>(search: &'a Option<SearchResults>, scoped: &'a [SearchResul
     }
 }
 
+/// The Top result card's width, and the gap after it when Songs are beside it.
+const TOP_RESULT_W: f32 = 420.0;
+const TOP_RESULT_GAP: f32 = 24.0;
+/// The narrowest Songs column shown beside Top result: below it, Songs go under it.
+const SONGS_MIN_W: f32 = 320.0;
+
 /// `pick`: choosing a transfer match, so clicking a song picks it.
 fn top_result(ui: &mut Ui, c: &Card, pick: bool, acts: &mut Vec<Action>) {
     ui.vertical(|ui| {
         ui.label(RichText::new("Top result").font(theme::bold(24.0)));
         ui.add_space(8.0);
-        let (rect, resp) = ui.allocate_exact_size(vec2(420.0, 236.0), Sense::click());
+        // Narrower in a window too narrow for it.
+        let w = ui.available_width().clamp(260.0, TOP_RESULT_W);
+        let (rect, resp) = ui.allocate_exact_size(vec2(w, 236.0), Sense::click());
         let resp = named(resp, &c.title).on_hover_cursor(egui::CursorIcon::PointingHand);
         let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.contains_pointer(), 0.2);
         ui.painter().rect_filled(rect, 14.0, theme::glass(0.07 + 0.05 * h));

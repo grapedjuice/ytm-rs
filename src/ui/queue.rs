@@ -11,6 +11,17 @@ pub enum Repeat {
     One,
 }
 
+impl Repeat {
+    /// Where a Repeat button goes next: off, all, one, off.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Off => Self::All,
+            Self::All => Self::One,
+            Self::One => Self::Off,
+        }
+    }
+}
+
 /// A playlist's load whose next pages also go to the queue, and whether that queue
 /// is shuffled (they're then mixed into what's still to come). `ran_out`: playback
 /// reached the end of what had come, and carries on when more does (or the load ends).

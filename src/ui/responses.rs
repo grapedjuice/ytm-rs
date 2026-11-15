@@ -145,11 +145,7 @@ impl App {
                     Some(RepeatMode::Off) => Repeat::Off,
                     Some(RepeatMode::All) => Repeat::All,
                     Some(RepeatMode::One) => Repeat::One,
-                    None => match self.queue.repeat {
-                        Repeat::Off => Repeat::All,
-                        Repeat::All => Repeat::One,
-                        Repeat::One => Repeat::Off,
-                    },
+                    None => self.queue.repeat.next(),
                 };
             }
         }

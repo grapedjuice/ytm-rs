@@ -809,6 +809,11 @@ pub fn anim_bool(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug
     eased(ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED * fade()))
 }
 
+/// [`anim_bool`] eased in and out, never overshooting: for a slow, gentle change such as a dimming.
+pub fn anim_bool_soft(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, on: bool, secs: f32) -> f32 {
+    ease_in_out(ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED * fade()))
+}
+
 /// [`anim_bool`] for a transition whose length the theme sets itself, so `ui_fade_secs` leaves it alone.
 pub fn anim_bool_timed(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, on: bool, secs: f32) -> f32 {
     eased(ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED))

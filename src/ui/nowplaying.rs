@@ -637,6 +637,195 @@ fn info_card(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::Tr
     widgets::linked_text(ui, pos2(art.right() + 12.0, r.top() + 40.0), &line, &track.artists, theme::weighted(card_artist, np.artist_px.min(14.0)), theme::text_dim(), w, &mut app.actions);
 }
 
+/// Since when the pointer has been still over full screen's cover.
+fn cover_still_id() -> egui::Id {
+    egui::Id::unique("np-cover-still-since")
+}
+
+/// Back to showing full screen's cover player, as if the pointer had just moved.
+pub(super) fn wake_cover_player(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<f64>(cover_still_id()));
+}
+
+/// Full screen's cover as the player, while the pointer's on it: the seek bar, then
+/// shuffle, previous, play, next and repeat along its bottom, and the volume up its right
+/// edge, to drag, click or scroll, mute under it. A disc keeps them inside its circle. All
+/// of it goes, the pointer with it, once the pointer has rested a moment away from them;
+/// while paused it stays. Otherwise a hairline along the bottom shows how far in the song is.
+#[allow(clippy::too_many_arguments)]
+fn cover_player(app: &mut App, ui: &mut Ui, track: &crate::model::Track, art: Rect, hit: Rect, (cr, radius): (egui::CornerRadius, f32), round: bool, on_art: bool, now: f64) {
+    let ctx = ui.ctx().clone();
+    let side = art.width();
+    let s = (side / 520.0).clamp(0.75, 1.2);
+    let (c, r) = (art.center(), side / 2.0);
+    // How far either side of the middle a line at `y` may reach: inside the disc on a round cover.
+    let half_w = |y: f32, inset: f32| if round { (r * r - (y - c.y).powi(2)).max(0.0).sqrt() - inset } else { r - inset };
+    let row_y = if round { c.y + r * 0.6 } else { art.bottom() - 44.0 * s };
+    let seek_y = row_y - 50.0 * s;
+    let label_y = seek_y - 16.0 * s;
+    let seek_w = half_w(label_y, 30.0 * s);
+    let seek_hit = Rect::from_center_size(pos2(c.x, seek_y), vec2(seek_w * 2.0, 24.0));
+    // The volume, mute under it, kept clear of the song's length over the seek bar's end.
+    let (vol_x, vol_top, vol_h) = if round { (c.x + r * 0.76, c.y - r * 0.4, r * 0.6) } else { (art.right() - 32.0 * s, c.y - side * 0.26, side * 0.38) };
+    let mute_at = pos2(vol_x, (vol_top + vol_h + 22.0 * s).min(label_y - 32.0 * s));
+    let bar = Rect::from_min_max(pos2(vol_x - 16.0 * s, vol_top), pos2(vol_x + 16.0 * s, mute_at.y - 22.0 * s));
+    // A glyph's disc, `px` across: what `cover_glyph` answers on.
+    let disc = |px: f32| px + 22.0;
+    // Spread no wider than a disc's chord at the row.
+    let gap = (66.0 * s).min(half_w(row_y, disc(20.0 * s) / 2.0 + 4.0) / 2.0);
+    let row = Rect::from_center_size(pos2(c.x, row_y), vec2(gap * 4.0, 0.0)).expand(disc(36.0 * s) / 2.0 + 4.0);
+    let vol_id = ui.scope_id().with("np-cover-volume");
+
+    // Up while the pointer moves over the cover, and while it's on a control, dragging the
+    // volume, a menu's open, or nothing's playing.
+    let pointer = ui.input(|i| i.pointer.hover_pos());
+    let over = on_art && ui.rect_contains_pointer(hit);
+    let on_controls = pointer.is_some_and(|p| row.contains(p) || seek_hit.expand(8.0).contains(p) || bar.expand(8.0).contains(p) || p.distance(mute_at) < disc(17.0 * s) / 2.0 + 4.0);
+    let dragging = ctx.is_being_dragged(vol_id) || app.seek_drag.is_some();
+    let moved = ui.input(|i| i.pointer.delta() != Vec2::ZERO || !i.events.is_empty());
+    let since = match ctx.data(|d| d.get_temp::<f64>(cover_still_id())) {
+        Some(t) if !moved => t,
+        _ => {
+            ctx.data_mut(|d| d.insert_temp(cover_still_id(), now));
+            now
+        }
+    };
+    let busy = on_controls || dragging || egui::Popup::is_any_open(&ctx) || !app.playing();
+    let quiet = !busy && now - since > 2.5;
+    // Eased in and out, the dimming and the controls together.
+    let shown = theme::anim_bool_soft(&ctx, "np-cover-player", (over || dragging) && !quiet, 0.4);
+    if over && !quiet {
+        // To see the pointer has been still long enough.
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    } else if over {
+        ctx.set_cursor_icon(egui::CursorIcon::None);
+    }
+
+    // Dimmed just enough for the white controls: on a square cover from nothing at the top to
+    // most at the row, a disc evenly.
+    if shown > 0.01 {
+        if round {
+            ui.painter().circle_filled(c, r, theme::shade(0.22 * shown));
+        } else {
+            super::shell::cover_vgradient(ui.painter(), art, cr, radius, theme::shade(0.0), theme::shade(0.42 * shown));
+        }
+    }
+    // Always, how far into the song it is: a hairline along the cover's bottom that rises into
+    // the seek bar as the controls come up, and settles back as they go. Not where the theme
+    // has its own along the screen's bottom.
+    let times = song_times(app, track);
+    let morphing = shown < 0.99 && times.1 > 0.0 && app.look().now_playing.fullscreen_progress_px <= 0.0;
+    if morphing {
+        let rest_y = if round { c.y + r * 0.86 } else { art.bottom() - 12.0 * s };
+        let rest_w = half_w(rest_y, radius.max(12.0 * s).min(r * 0.3));
+        let y = egui::lerp(rest_y..=seek_y, shown);
+        let w = egui::lerp(rest_w..=seek_w, shown);
+        let thick = egui::lerp(2.0..=3.0, shown);
+        let line = Rect::from_center_size(pos2(c.x, y), vec2(w * 2.0, thick));
+        // Edged in dark at rest, to stay seen on a light cover; the seek bar's own track as it rises.
+        ui.painter().rect_filled(line.expand(1.0), thick / 2.0 + 1.0, theme::shade(0.3 * (1.0 - shown)));
+        ui.painter().rect_filled(line, thick / 2.0, theme::with_alpha(Color32::WHITE, 0.25 * shown));
+        let filled = Rect::from_min_size(line.min, vec2(line.width() * times.0 / times.1, thick));
+        ui.painter().rect_filled(filled, thick / 2.0, theme::with_alpha(Color32::WHITE, egui::lerp(0.9..=1.0, shown)));
+    }
+    if shown <= 0.01 {
+        return;
+    }
+    let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(art));
+    cui.multiply_opacity(shown);
+    let ui = &mut cui;
+
+    let playing = app.playing() || app.buffering;
+    let (rep_glyph, rep_on) = match app.queue.repeat {
+        super::Repeat::Off => (icon::REPEAT, false),
+        super::Repeat::All => (icon::REPEAT, true),
+        super::Repeat::One => (icon::REPEAT_1, true),
+    };
+    // The seek bar over the row, the time so far and the song's length above its ends.
+    if times.1 > 0.0 {
+        let font = theme::semibold(12.0 * s);
+        let dim = theme::with_alpha(Color32::WHITE, 0.75);
+        ui.painter().text(pos2(seek_hit.left(), label_y), egui::Align2::LEFT_CENTER, super::fmt_time(times.0 as u32), font.clone(), dim);
+        ui.painter().text(pos2(seek_hit.right(), label_y), egui::Align2::RIGHT_CENTER, super::fmt_time(times.1 as u32), font, dim);
+    }
+    // Taking over from the rising hairline once it's arrived, in the same place and size.
+    if !morphing {
+        seek_line(app, ui, seek_hit, ui.scope_id().with("np-cover-seek"), times, Color32::WHITE);
+    }
+
+    let at = |k: f32| pos2(c.x + gap * k, row_y);
+    if cover_glyph(ui, at(-2.0), icon::SHUFFLE, 20.0 * s, "shuffle", "Shuffle up next", true).clicked() {
+        app.shuffle_upcoming();
+    }
+    if cover_glyph(ui, at(-1.0), icon::SKIP_BACK, 26.0 * s, "prev", "Previous", true).clicked() {
+        app.prev();
+    }
+    if cover_glyph(ui, at(0.0), if playing { icon::PAUSE } else { icon::PLAY }, 36.0 * s, "play", if playing { "Pause" } else { "Play" }, true).clicked() {
+        app.actions.push(Action::TogglePlay);
+    }
+    if cover_glyph(ui, at(1.0), icon::SKIP_FORWARD, 26.0 * s, "next", "Next", true).clicked() {
+        app.next();
+    }
+    if cover_glyph(ui, at(2.0), rep_glyph, 20.0 * s, "repeat", "Repeat", rep_on).clicked() {
+        app.queue.repeat = app.queue.repeat.next();
+    }
+    if rep_on {
+        ui.painter().circle_filled(at(2.0) + vec2(0.0, 19.0 * s), 2.0, Color32::WHITE);
+    }
+
+    // The volume: a slim bar that widens inwards under the pointer, its outer edge staying
+    // put, filled from the bottom.
+    let vol = app.audio.volume();
+    let vresp = ui.interact(bar, vol_id, Sense::click_and_drag()).on_hover_cursor(egui::CursorIcon::PointingHand);
+    vresp.widget_info(|| egui::WidgetInfo::slider(true, vol as f64, "Volume"));
+    let lit = theme::anim_bool(&ctx, vol_id.with("h"), vresp.hovered() || vresp.dragged(), 0.15);
+    let w = (6.0 + 5.0 * lit) * s;
+    let outer = vol_x + 3.0 * s;
+    let track_r = Rect::from_min_max(pos2(outer - w, bar.top()), pos2(outer, bar.bottom()));
+    ui.painter().rect_filled(track_r.expand(1.0), w / 2.0 + 1.0, theme::shade(0.2));
+    ui.painter().rect_filled(track_r, w / 2.0, theme::with_alpha(Color32::WHITE, 0.28));
+    let fill = Rect::from_min_max(pos2(track_r.left(), track_r.bottom() - track_r.height() * vol), track_r.max);
+    ui.painter().rect_filled(fill, w / 2.0, Color32::WHITE);
+    if lit > 0.0 {
+        let y = fill.top().clamp(track_r.top() + 8.0, track_r.bottom() - 8.0);
+        let pct = format!("{}%", (vol * 100.0).round());
+        ui.painter().text(pos2(track_r.left() - 10.0 * s, y), egui::Align2::RIGHT_CENTER, pct, theme::semibold(12.0 * s), theme::with_alpha(Color32::WHITE, lit));
+    }
+    if let Some(p) = vresp.interact_pointer_pos()
+        && (vresp.dragged() || vresp.clicked())
+    {
+        app.audio.set_volume(((track_r.bottom() - p.y) / track_r.height()).clamp(0.0, 1.0));
+    }
+    let vglyph = if vol == 0.0 { icon::VOLUME_X } else if vol < 0.5 { icon::VOLUME_1 } else { icon::VOLUME_2 };
+    let mute = cover_glyph(ui, mute_at, vglyph, 17.0 * s, "mute", if vol > 0.0 { "Mute" } else { "Unmute" }, true);
+    if mute.clicked() {
+        super::mini::toggle_mute(app, ui);
+    }
+    if vresp.hovered() || mute.hovered() {
+        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+        if scroll != 0.0 {
+            app.audio.set_volume((app.audio.volume() + scroll / 600.0).clamp(0.0, 1.0));
+        }
+    }
+}
+
+/// A white glyph on full screen's cover, a soft disc behind it under the pointer. `on`:
+/// fully white; off (as Repeat is), a little dimmer. `key` keeps its id while `name` changes.
+fn cover_glyph(ui: &Ui, c: egui::Pos2, glyph: char, px: f32, key: &str, name: &str, on: bool) -> egui::Response {
+    let d = px + 22.0;
+    let rect = Rect::from_center_size(c, Vec2::splat(d));
+    let resp = named(ui.interact(rect, ui.scope_id().with(("np-cover-player", key)), Sense::click()), name).on_hover_text(name).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.12);
+    if h > 0.0 {
+        ui.painter().circle_filled(c, d / 2.0, theme::with_alpha(Color32::WHITE, 0.14 * h));
+    }
+    widgets::focus_ring(ui, &resp, rect, d / 2.0);
+    let press = if resp.is_pointer_button_down_on() { 0.9 } else { 1.0 + 0.08 * h };
+    let a = if on { 1.0 } else { 0.6 + 0.4 * h };
+    widgets::icon_at(ui, c, glyph, px * press, theme::with_alpha(Color32::WHITE, a));
+    resp
+}
+
 /// Artwork with the title and artists under it, laid out in `col`. `px`: the size to
 /// fetch the image at (fixed while the column animates).
 #[allow(clippy::too_many_arguments)]
@@ -766,7 +955,9 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     let cover = named(ui.interact(hit, ui.scope_id().with(("cover-playback", &track.id)), Sense::click()), if app.playing() { "Pause" } else { "Play" });
     let on_art = !round || ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| p.distance(art.center()) <= art.width() / 2.0);
     let cover = if on_art { cover.on_hover_cursor(egui::CursorIcon::PointingHand) } else { cover };
-    let hover = theme::anim_bool(ui.ctx(), ("cover-playback-hover", &track.id), cover.hovered() && on_art, 0.16);
+    // Full screen has no player bar: the cover is the player there, its own buttons and dimming.
+    let player = app.fullscreen && art.width() >= 280.0;
+    let hover = theme::anim_bool(ui.ctx(), ("cover-playback-hover", &track.id), !player && cover.hovered() && on_art, 0.16);
     if hover > 0.0 {
         if round {
             ui.painter().circle_filled(art.center(), art.width() / 2.0, theme::shade(cs.hover_dim * hover));
@@ -780,9 +971,12 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         widgets::icon_at(ui, art.center(), if app.playing() || app.buffering { icon::PAUSE } else { icon::PLAY }, np.cover_play_px * 0.49 * grown, theme::with_alpha(Color32::WHITE, hover));
     }
     if cover.clicked() && on_art { app.actions.push(Action::TogglePlay); }
+    if player {
+        cover_player(app, ui, track, art, hit, (cr, radius), round, on_art, now);
+    }
     // Previous and next on the cover too, for themes that put the transport there. The bar still has them.
     let near_cover = ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| art.contains(p));
-    if np.cover_progress && near_cover {
+    if !player && np.cover_progress && near_cover {
         let status = app.audio.status.clone();
         let total = status.duration().map_or(0.0, |d| d.as_secs_f32());
         let pos = status.position_smooth().as_secs_f32().min(total.max(0.0));
@@ -807,7 +1001,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         }
     }
     let fs_buttons = np.fullscreen_cover_buttons.filter(|_| app.fullscreen);
-    if (np.cover_controls || fs_buttons.is_some()) && near_cover {
+    if !player && (np.cover_controls || fs_buttons.is_some()) && near_cover {
         let [btn_px, btn_a, btn_grow] = fs_buttons.unwrap_or(np.cover_buttons);
         let btn_px = btn_px.max(36.0);
         for (dx, glyph, name, next) in [(-74.0, icon::SKIP_BACK, "Previous", false), (74.0, icon::SKIP_FORWARD, "Next", true)] {
@@ -1068,6 +1262,52 @@ pub(super) fn wake_video_controls(ctx: &egui::Context) {
     ctx.data_mut(|d| d.remove::<f64>(still_since_id()));
 }
 
+/// How far into `track` it's playing, a seek being dragged counted, and its length, in seconds.
+fn song_times(app: &App, track: &crate::model::Track) -> (f32, f32) {
+    let status = app.audio.status.clone();
+    let total = status.duration().map(|d| d.as_secs_f32()).or(track.duration.map(|d| d as f32)).unwrap_or(0.0);
+    (app.seek_drag.unwrap_or(status.position_smooth().as_secs_f32()).min(total.max(0.0)), total)
+}
+
+/// A seek bar on dark, its line through the middle of `hit`, filled in `fill`, thickening
+/// with a knob and the time under the pointer above it while pointed at or dragged.
+fn seek_line(app: &mut App, ui: &mut Ui, hit: Rect, id: egui::Id, (pos, total): (f32, f32), fill: Color32) -> egui::Response {
+    let line_y = hit.center().y;
+    let seek = ui.interact(hit, id, Sense::click_and_drag());
+    let seek = if total > 0.0 { seek.on_hover_cursor(egui::CursorIcon::PointingHand) } else { seek };
+    seek.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
+    let lit = theme::anim_bool(ui.ctx(), id.with("h"), seek.hovered() || seek.dragged(), 0.15);
+    let thick = 3.0 + 2.0 * lit;
+    let track_r = Rect::from_center_size(pos2(hit.center().x, line_y), vec2(hit.width(), thick));
+    ui.painter().rect_filled(track_r, thick / 2.0, theme::with_alpha(Color32::WHITE, 0.25));
+    let frac = if total > 0.0 { pos / total } else { 0.0 };
+    let filled = Rect::from_min_size(track_r.min, vec2(track_r.width() * frac, thick));
+    ui.painter().rect_filled(filled, thick / 2.0, fill);
+    if lit > 0.0 && total > 0.0 {
+        ui.painter().circle_filled(pos2(filled.right(), line_y), 6.5 * lit, fill);
+        if let Some(p) = seek.hover_pos() {
+            let t = ((p.x - track_r.left()) / track_r.width()).clamp(0.0, 1.0) * total;
+            let g = widgets::galley(ui, &super::fmt_time(t as u32), theme::semibold(12.0), Color32::WHITE, 80.0);
+            let tip = Rect::from_center_size(pos2(p.x, line_y - 22.0), g.size() + vec2(12.0, 6.0));
+            ui.painter().rect_filled(tip, 6.0, theme::shade(0.75));
+            ui.painter().galley(tip.min + vec2(6.0, 3.0), g, Color32::WHITE);
+        }
+    }
+    if total > 0.0
+        && let Some(p) = seek.interact_pointer_pos()
+    {
+        let t = ((p.x - track_r.left()) / track_r.width()).clamp(0.0, 1.0) * total;
+        if seek.dragged() {
+            app.seek_drag = Some(t);
+        }
+        if seek.drag_stopped() || seek.clicked() {
+            app.seek_drag = None;
+            app.actions.push(Action::Seek(t));
+        }
+    }
+    seek
+}
+
 /// Full screen with just the video, on black, as on YouTube: the song's title and the
 /// controls come up while the pointer moves, and go, the pointer with them, once it has
 /// been still a moment away from them. A click plays or pauses, a double-click leaves.
@@ -1137,45 +1377,11 @@ fn video_fullscreen(app: &mut App, ui: &mut Ui, rect: Rect, track: &crate::model
     let line = track.artist_line();
     widgets::linked_text(ui, pos2(rect.left() + 28.0, rect.top() + 50.0), &line, &track.artists, theme::regular(15.0), theme::text_dim(), text_w, &mut app.actions);
 
-    // The seek bar, thickening with a knob while pointed at or dragged.
-    let status = app.audio.status.clone();
-    let total = status.duration().map(|d| d.as_secs_f32()).or(track.duration.map(|d| d as f32)).unwrap_or(0.0);
-    let pos = app.seek_drag.unwrap_or(status.position_smooth().as_secs_f32()).min(total.max(0.0));
+    let (pos, total) = song_times(app, track);
     let line_y = rect.bottom() - 66.0;
     let hit = Rect::from_min_max(pos2(rect.left() + 20.0, line_y - 8.0), pos2(rect.right() - 20.0, line_y + 8.0));
-    let seek = ui.interact(hit, ui.scope_id().with("video-full-seek"), Sense::click_and_drag());
-    let seek = if total > 0.0 { seek.on_hover_cursor(egui::CursorIcon::PointingHand) } else { seek };
-    seek.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
-    let lit = theme::anim_bool(&ctx, "video-full-seek-h", seek.hovered() || seek.dragged(), 0.15);
-    let thick = 3.0 + 2.0 * lit;
-    let track_r = Rect::from_center_size(pos2(hit.center().x, line_y), vec2(hit.width(), thick));
-    ui.painter().rect_filled(track_r, thick / 2.0, theme::with_alpha(Color32::WHITE, 0.25));
-    let frac = if total > 0.0 { pos / total } else { 0.0 };
-    let filled = Rect::from_min_size(track_r.min, vec2(track_r.width() * frac, thick));
     let accent = app.accent_color();
-    ui.painter().rect_filled(filled, thick / 2.0, accent);
-    if lit > 0.0 && total > 0.0 {
-        ui.painter().circle_filled(pos2(filled.right(), line_y), 6.5 * lit, accent);
-        if let Some(p) = seek.hover_pos() {
-            let t = ((p.x - track_r.left()) / track_r.width()).clamp(0.0, 1.0) * total;
-            let g = widgets::galley(ui, &super::fmt_time(t as u32), theme::semibold(12.0), Color32::WHITE, 80.0);
-            let tip = Rect::from_center_size(pos2(p.x, line_y - 22.0), g.size() + vec2(12.0, 6.0));
-            ui.painter().rect_filled(tip, 6.0, theme::shade(0.75));
-            ui.painter().galley(tip.min + vec2(6.0, 3.0), g, Color32::WHITE);
-        }
-    }
-    if total > 0.0
-        && let Some(p) = seek.interact_pointer_pos()
-    {
-        let t = ((p.x - track_r.left()) / track_r.width()).clamp(0.0, 1.0) * total;
-        if seek.dragged() {
-            app.seek_drag = Some(t);
-        }
-        if seek.drag_stopped() || seek.clicked() {
-            app.seek_drag = None;
-            app.actions.push(Action::Seek(t));
-        }
-    }
+    seek_line(app, ui, hit, ui.scope_id().with("video-full-seek"), (pos, total), accent);
 
     // The buttons under it: playing and the volume on the left, the rest on the right.
     let row = Rect::from_min_max(pos2(rect.left() + 12.0, line_y + 10.0), pos2(rect.right() - 12.0, rect.bottom() - 6.0));
@@ -1194,14 +1400,7 @@ fn video_fullscreen(app: &mut App, ui: &mut Ui, rect: Rect, track: &crate::model
     let vol = app.audio.volume();
     let vglyph = if vol == 0.0 { icon::VOLUME_X } else if vol < 0.5 { icon::VOLUME_1 } else { icon::VOLUME_2 };
     if icon_button(&mut left, vglyph, 19.0, if vol > 0.0 { "Mute" } else { "Unmute" }, false).clicked() {
-        let stash = super::shell::unmute_id();
-        if vol > 0.0 {
-            left.data_mut(|d| d.insert_temp(stash, vol));
-            app.audio.set_volume(0.0);
-        } else {
-            let v = left.data(|d| d.get_temp::<f32>(stash)).unwrap_or(0.6);
-            app.audio.set_volume(v);
-        }
+        super::mini::toggle_mute(app, &left);
     }
     let (slider, _) = left.allocate_exact_size(vec2(90.0, 20.0), Sense::hover());
     super::shell::volume_slider(app, &mut left, slider, "video-full-vol");

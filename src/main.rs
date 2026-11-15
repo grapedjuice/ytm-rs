@@ -110,6 +110,7 @@ fn main() -> eframe::Result {
     }
     init_logging();
     settle_window_system();
+    trim_heap_periodically();
     update::clean_portable();
     stream::init_dev_hooks();
     proxy::init(&data_dir());
@@ -348,6 +349,22 @@ fn x11_for_tray(wayland: bool, x11: bool, close_to_tray: bool, keep_wayland: boo
 /// decided before the window, and so the settings, exist.
 fn close_to_tray_saved(app_ron: &str) -> bool {
     app_ron.split_whitespace().collect::<String>().contains("\"close_to_tray\":\"1\"")
+}
+
+/// Linux: every few minutes, give the system back the memory glibc keeps after it's freed
+/// (#107). Two heaps and the early release of big blocks (`main`) leave the small pieces:
+/// glibc only shrinks a heap from its end, so a freed page between live ones stays with
+/// the app until a trim. A trim is glibc walking its heaps, on its own thread.
+fn trim_heap_periodically() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    std::thread::Builder::new()
+        .name("heap-trim".into())
+        .spawn(|| loop {
+            std::thread::sleep(std::time::Duration::from_secs(180));
+            // SAFETY: takes no pointers; glibc locks each heap while it trims it.
+            unsafe { libc::malloc_trim(0) };
+        })
+        .ok();
 }
 
 /// Linux: note what the session is, and pick the window system for this run. Called

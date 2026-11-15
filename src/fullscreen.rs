@@ -1,8 +1,7 @@
 //! Full screen on Windows, in one step. winit takes the title bar off first and
 //! resizes the window afterwards; in between Windows paints the frame unthemed (the
 //! old Windows 7 look) and the new area black until the app draws a frame at the new
-//! size. Here the style and size change together with painting held off, and the
-//! window erases to a dark background instead of black.
+//! size. Here the style and size change together with painting held off.
 //!
 //! The window is also made one pixel taller than the monitor: graphics drivers treat
 //! an OpenGL window that exactly covers it as exclusive full screen, and blank the
@@ -103,15 +102,15 @@ pub fn on_a_monitor(rect: egui::Rect) -> bool {
 mod imp {
     use std::sync::{Mutex, OnceLock};
 
-    use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, RECT, WPARAM};
+    use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
     use windows::Win32::Graphics::Gdi::{
-        CreateSolidBrush, DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTONULL, MONITORINFO, MONITORINFOEXW, MonitorFromRect,
+        DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTONULL, MONITORINFO, MONITORINFOEXW, MonitorFromRect,
         MonitorFromWindow, RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE, RedrawWindow,
     };
     use windows::core::PCWSTR;
     use windows::Win32::UI::WindowsAndMessaging::{
-        GCLP_HBRBACKGROUND, GWL_EXSTYLE, GWL_STYLE, GetWindowLongW, GetWindowPlacement, IsZoomed, SW_RESTORE, ShowWindow, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-        SendMessageW, SetClassLongPtrW, SetWindowLongW, SetWindowPlacement, SetWindowPos, WINDOWPLACEMENT, WM_SETREDRAW, WS_CAPTION, WS_EX_CLIENTEDGE,
+        GWL_EXSTYLE, GWL_STYLE, GetWindowLongW, GetWindowPlacement, IsZoomed, SW_RESTORE, ShowWindow, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+        SendMessageW, SetWindowLongW, SetWindowPlacement, SetWindowPos, WINDOWPLACEMENT, WM_SETREDRAW, WS_CAPTION, WS_EX_CLIENTEDGE,
         WS_EX_DLGMODALFRAME, WS_EX_STATICEDGE, WS_EX_WINDOWEDGE, WS_MAXIMIZE, WS_THICKFRAME,
     };
 
@@ -129,16 +128,12 @@ mod imp {
 
     static SAVED: Mutex<Option<Saved>> = Mutex::new(None);
 
+    /// The window keeps winit's class without a background brush. With one, Windows
+    /// erased the whole window to it at every repaint, over the OpenGL frame the app had
+    /// just shown and until the next: it flashed while resized (#100). Vulkan's frames
+    /// don't go through that window surface, so they never did.
     pub fn init(hwnd: usize) {
-        if WINDOW.set(hwnd).is_err() {
-            return;
-        }
-        // Area the app hasn't drawn yet (just after a resize) shows this, not black.
-        // SAFETY: a brush for the window's own class, kept for the process's lifetime.
-        unsafe {
-            let brush = CreateSolidBrush(COLORREF(0x000F_0B0D));
-            SetClassLongPtrW(HWND(hwnd as *mut _), GCLP_HBRBACKGROUND, brush.0 as isize);
-        }
+        let _ = WINDOW.set(hwnd);
     }
 
     pub fn work_area() -> Option<egui::Rect> {
@@ -246,8 +241,8 @@ mod imp {
                 SetWindowLongW(hwnd, GWL_STYLE, style & !((WS_CAPTION | WS_THICKFRAME | WS_MAXIMIZE).0 as i32));
                 let edges = WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE;
                 SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style & !(edges.0 as i32));
-                // No copying the old picture to its old spot: until the app draws a frame
-                // at the new size, the window shows its plain dark background.
+                // No copying the old picture to its old spot: the app draws a frame at
+                // the new size.
                 let flags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_NOCOPYBITS;
                 let _ = SetWindowPos(hwnd, None, r.left, r.top, r.right - r.left, r.bottom - r.top + 1, flags);
                 *saved = Some(Saved { style, ex_style, placement });

@@ -39,6 +39,10 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
     egui::Area::new(egui::Id::unique("now-playing"))
         .order(egui::Order::Middle)
         .fixed_pos(rect.min)
+        // Sliding in or out it runs over the player bar: until it's in place, the pointer
+        // stays with what's under it, so a click on the bar doesn't flash the hand of
+        // whatever slides past.
+        .interactable(t >= 1.0)
         .show(ctx, |ui| {
             // Swallow input so the page underneath doesn't react.
             ui.allocate_rect(rect, Sense::click_and_drag());

@@ -53,10 +53,20 @@ pub fn backends() -> wgpu::Backends {
 }
 
 /// eframe's wgpu settings: only [`backends`], so "Vulkan" never quietly means DX12 or GL.
+/// And memory over speed (#154): wgpu's default sets aside big blocks of video memory up
+/// front, and eframe's keeps three window-sized images in flight. At a Retina window's
+/// size that was over 1.2 GB of video memory, which a Mac counts as the app's own; the
+/// UI needs neither.
 pub fn wgpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
     let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
     setup.instance_descriptor.backends = backends();
-    eframe::egui_wgpu::WgpuConfiguration { wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(setup), ..Default::default() }
+    let device = setup.device_descriptor.clone();
+    setup.device_descriptor = std::sync::Arc::new(move |adapter| wgpu::DeviceDescriptor { memory_hints: wgpu::MemoryHints::MemoryUsage, ..device(adapter) });
+    eframe::egui_wgpu::WgpuConfiguration {
+        surface: eframe::egui_wgpu::SurfaceConfig::LOW_LATENCY,
+        wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(setup),
+        ..Default::default()
+    }
 }
 
 fn available() -> bool {

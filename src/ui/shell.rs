@@ -113,6 +113,9 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64, only: Opti
     // Light pages are the art at full strength under a white wash, a pale tint of the cover.
     let light = theme::light();
     let dim = if light { 1.0 } else { look.app.page_dim.unwrap_or(b.page_dim).clamp(0.02, 1.0) };
+    // Darker still where bright art would show through too bright for white text (the
+    // shade drawn over it below takes about a third off).
+    let dim = if light || !app.dim_bright { dim } else { dim * crate::art::readable_dim(app.art_brightness * dim * (1.0 - 0.335)) };
     let painter = match only {
         Some(r) => ui.painter().with_clip_rect(r),
         None => ui.painter().clone(),

@@ -522,6 +522,8 @@ pub struct App {
     /// Panels frost what's behind them, in themes that have them do so.
     glass_on: bool,
     reactive_bg: bool,
+    /// Bright album art is darkened behind now playing and the pages, for the text over it.
+    dim_bright: bool,
     /// Skip the parts of music videos SponsorBlock marks as not music.
     sponsorblock: bool,
     /// Crossfade between songs, and over how many seconds.
@@ -908,6 +910,7 @@ impl App {
             anim_bg: get("anim_bg").is_none_or(|v| v == "1"),
             glass_on: get("glass_on").is_none_or(|v| v == "1"),
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
+            dim_bright: get("dim_bright").is_none_or(|v| v == "1"),
             sponsorblock: get("sponsorblock").is_some_and(|v| v == "1"),
             crossfade: get("crossfade").is_some_and(|v| v == "1"),
             handoff: false,
@@ -1862,6 +1865,7 @@ impl eframe::App for App {
         storage.set_string("anim_bg", b(self.anim_bg));
         storage.set_string("glass_on", b(self.glass_on));
         storage.set_string("reactive_bg", b(self.reactive_bg));
+        storage.set_string("dim_bright", b(self.dim_bright));
         storage.set_string("sponsorblock", b(self.sponsorblock));
         storage.set_string("crossfade", b(self.crossfade));
         storage.set_string("crossfade_secs", self.crossfade_secs.to_string());

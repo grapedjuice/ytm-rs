@@ -2162,6 +2162,10 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
             toggle(ui, &mut app.reactive_bg, "Pulse with the music");
         });
         divider(ui);
+        setting_row(ui, "Dim bright covers", Some("Darkens the background when the album art is bright, so the lyrics and titles over it stay easy to read. Dark covers are left as they are."), |ui| {
+            toggle(ui, &mut app.dim_bright, "Dim bright covers");
+        });
+        divider(ui);
         setting_row(ui, "Font", Some("For the whole app and the lyrics. Any font installed on this PC works, e.g. one made for your language."), |ui| {
             if let Some(name) = font_picker(ui) {
                 theme::set_font_choice(&name);

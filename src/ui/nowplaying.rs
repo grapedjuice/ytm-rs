@@ -88,6 +88,10 @@ pub(super) fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: 
     let on_video = (b.video_backdrop && app.video.as_ref().is_some_and(|(_, player)| player.is_some())).then_some(());
     let over = ((app.art_brightness - b.auto_dim_from) / (1.0 - b.auto_dim_from).max(0.01)).max(0.0);
     let auto_dim = 1.0 - on_video.and(b.video.auto_dim).unwrap_or(b.auto_dim) * over;
+    let fullbleed_level = b.fullscreen_fullbleed.filter(|_| app.fullscreen).unwrap_or(b.np_dim).clamp(0.0, 1.0);
+    // Then darker still where the art would show too bright for the white text over it.
+    let readable = if app.dim_bright { crate::art::readable_dim(app.art_brightness * shown_level(b, art, fullbleed_level, app.fullscreen, auto_dim)) } else { 1.0 };
+    let auto_dim = auto_dim * readable;
     if let (Some(layer), Some(bg)) = (b.layer, app.bg.as_ref()) {
         // The theme's still cover under everything, pulsing if it does.
         let pulse = if layer.pulse_secs > 0.0 { (now as f32 * std::f32::consts::TAU / layer.pulse_secs).sin() * layer.pulse } else { 0.0 };
@@ -137,7 +141,7 @@ pub(super) fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: 
             let area = if side_by_side { Rect::from_min_size(rect.min, Vec2::splat(rect.height())) } else { rect };
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area));
             child.set_clip_rect(area.intersect(clip));
-            let tint = Color32::from_gray((b.fullscreen_fullbleed.filter(|_| app.fullscreen).unwrap_or(b.np_dim).clamp(0.0, 1.0) * 255.0) as u8);
+            let tint = Color32::from_gray((fullbleed_level * readable * 255.0) as u8);
             // Over the theme's own background it fades away to show that; alone, into its flat colour.
             let mask = (side_by_side && b.mode != BgMode::CoverFullbleed).then_some(b.fade);
             let fading = b.fullbleed_fade.then(|| fullbleed_fade(&child, &track.id, &track.thumbs, now, b.crossfade_delay as f64, b.crossfade_secs as f64)).flatten();
@@ -172,6 +176,30 @@ pub(super) fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: 
     if app.ambient_light && app.shown_video().is_some() {
         paint_glow(app, ui, rect, clip, step_glow);
     }
+}
+
+/// About how much of the art's own brightness now playing's background shows, after the
+/// theme's dimming (`auto_dim` included) and scrim: `art`, the theme's background is
+/// the art; `fullbleed_level`, the full-screen cover's brightness where there is one.
+fn shown_level(b: &crate::preset::Background, art: bool, fullbleed_level: f32, fullscreen: bool, auto_dim: f32) -> f32 {
+    // Without the art, what's under it is a flat colour (which covers any layer too).
+    let mut level = match b.layer {
+        _ if !art => 0.0,
+        None => b.np_dim * auto_dim,
+        // The art at `np_dim` over the layer.
+        Some(l) => auto_dim * (b.np_dim + (1.0 - b.np_dim) * l.opacity * l.brightness.unwrap_or(1.0)),
+    };
+    if b.fullbleed(fullscreen) {
+        level = level.max(fullbleed_level);
+    }
+    // The scrim's darkening, on average across the screen.
+    let k = b.scrim / 0.3;
+    let scrim = match b.scrim_gradient {
+        Some([from, to]) => (from + to) / 2.0,
+        None if k > 0.0 => ((0.18 * k).min(0.95) + (0.42 * k).min(0.95)) / 2.0,
+        None => 0.0,
+    };
+    level * (1.0 - scrim.clamp(0.0, 1.0))
 }
 
 /// A cover filling `area`. `mask`: it's whole up to the first fraction across and gone by
@@ -1625,7 +1653,7 @@ pub(super) fn video_frame(app: &mut App, ctx: &egui::Context, track: &crate::mod
                 let v = crate::preset::active().background.video;
                 // `from_frame` is about as soft as the art's usual six.
                 crate::art::soften(&mut art, v.blur_passes.map_or(0, |n| n.saturating_sub(6)));
-                if v.auto_dim.is_some() {
+                if v.auto_dim.is_some() || app.dim_bright {
                     app.art_brightness = art.brightness;
                 }
                 bg.set_live(art);

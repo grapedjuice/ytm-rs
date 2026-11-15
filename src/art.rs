@@ -154,3 +154,50 @@ pub fn idle() -> Art {
     }
     Art { rgba, accent: Color32::from_rgb(0xff, 0x4e, 0x6a), brightness: 0.3 }
 }
+
+/// Below this, a background behind white text is left as the theme has it.
+const READABLE_KNEE: f32 = 0.2;
+/// What brighter backgrounds are eased toward and never quite reach.
+const READABLE_CAP: f32 = 0.3;
+
+/// How much to darken a background whose overall brightness, as it would show (0..1),
+/// is `shown`, for white text over it to stay readable (Settings › Appearance › Dim bright
+/// covers). 1 leaves it be: anything up to [`READABLE_KNEE`] is, so dark covers aren't
+/// dulled. Above that the brightness eases toward [`READABLE_CAP`], darkening a bright
+/// cover in proportion to how far over it is.
+pub fn readable_dim(shown: f32) -> f32 {
+    if !shown.is_finite() || shown <= READABLE_KNEE {
+        return 1.0;
+    }
+    let room = READABLE_CAP - READABLE_KNEE;
+    let eased = READABLE_KNEE + room * (1.0 - (-(shown - READABLE_KNEE) / room).exp());
+    eased / shown
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{READABLE_CAP, READABLE_KNEE, readable_dim};
+
+    #[test]
+    fn dark_backgrounds_are_left_alone() {
+        for shown in [0.0, 0.1, 0.2, READABLE_KNEE] {
+            assert_eq!(readable_dim(shown), 1.0);
+        }
+        assert_eq!(readable_dim(f32::NAN), 1.0);
+    }
+
+    #[test]
+    fn bright_backgrounds_are_eased_under_the_cap() {
+        let mut last = READABLE_KNEE;
+        for i in 1..=72 {
+            let shown = READABLE_KNEE + i as f32 * 0.01;
+            let after = shown * readable_dim(shown);
+            // Brighter art still shows brighter, just never past the cap…
+            assert!(after > last && after < READABLE_CAP, "{shown} -> {after}");
+            last = after;
+        }
+        // …and the darkening grows with it: barely over the knee, hardly any.
+        assert!(readable_dim(READABLE_KNEE + 0.01) > 0.98);
+        assert!(readable_dim(1.0) < 0.41);
+    }
+}

@@ -331,12 +331,12 @@ pub fn set_hwnd(hwnd: *mut std::ffi::c_void) {
 
 #[cfg(windows)]
 mod frame {
-    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
     use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
-    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect};
+    use windows::Win32::Graphics::Gdi::{BLACK_BRUSH, ClientToScreen, FillRect, GetMonitorInfoW, GetStockObject, GetWindowDC, HBRUSH, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect, ReleaseDC};
     use windows::Win32::UI::Controls::MARGINS;
     use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
-    use windows::Win32::UI::WindowsAndMessaging::{IsZoomed, NCCALCSIZE_PARAMS, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, WM_NCCALCSIZE};
+    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, GetWindowRect, IsZoomed, NCCALCSIZE_PARAMS, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, WM_NCCALCSIZE, WM_NCPAINT};
 
     pub fn init(hwnd: *mut std::ffi::c_void) {
         let hwnd = HWND(hwnd);
@@ -353,12 +353,42 @@ mod frame {
         }
     }
 
+    /// The reserved row is outside egui's clear. Black lets DWM show the material there.
+    fn clear_edge(hwnd: HWND) {
+        if !crate::backdrop::shows() {
+            return;
+        }
+        // SAFETY: the app's own window; the rectangles are ours, and the DC is released.
+        unsafe {
+            if !IsZoomed(hwnd).as_bool() {
+                return;
+            }
+            let (mut outer, mut client, mut origin) = (RECT::default(), RECT::default(), POINT::default());
+            if GetWindowRect(hwnd, &mut outer).is_err() || GetClientRect(hwnd, &mut client).is_err() || !ClientToScreen(hwnd, &mut origin).as_bool() {
+                return;
+            }
+            let dc = GetWindowDC(Some(hwnd));
+            if dc.is_invalid() {
+                return;
+            }
+            let x = origin.x - outer.left;
+            let y = origin.y - outer.top + client.bottom;
+            let line = RECT { left: x, top: y, right: x + client.right, bottom: y + 1 };
+            FillRect(dc, &line, HBRUSH(GetStockObject(BLACK_BRUSH).0));
+            ReleaseDC(Some(hwnd), dc);
+        }
+    }
+
     unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM, _: usize, _: usize) -> LRESULT {
         // SAFETY: called by Windows with the window's own message; for WM_NCCALCSIZE with
         // wparam set, lparam points at an NCCALCSIZE_PARAMS.
         unsafe {
             if msg != WM_NCCALCSIZE || wparam.0 == 0 {
-                return DefSubclassProc(hwnd, msg, wparam, lparam);
+                let result = DefSubclassProc(hwnd, msg, wparam, lparam);
+                if msg == WM_NCPAINT {
+                    clear_edge(hwnd);
+                }
+                return result;
             }
             let params = &mut *(lparam.0 as *mut NCCALCSIZE_PARAMS);
             let proposed = params.rgrc[0];

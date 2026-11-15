@@ -90,6 +90,8 @@ pub const EASE_OUT: Bezier = Bezier(0.0, 0.0, 0.58, 1.0);
 pub const EASE_IN_OUT: Bezier = Bezier(0.42, 0.0, 0.58, 1.0);
 /// `blyrics-decoration-in`.
 const DECO_EASE: Bezier = Bezier(0.25, 1.0, 0.5, 1.0);
+/// `--blyrics-lyric-scroll-timing-function` when a theme doesn't set its own.
+const SCROLL_EASE: Bezier = Bezier(0.86, 0.0, 0.2, 1.0);
 
 // ------------------------------------------------------------------ theme values
 
@@ -1203,6 +1205,8 @@ pub struct Frame<'a> {
     pub fullscreen: bool,
     /// The break's chip frosts what's behind it.
     pub glass_chip: Option<[f32; 3]>,
+    /// "Quick line changes": lines scroll the extension's own way, not the theme's.
+    pub quick_scroll: bool,
 }
 
 pub struct Out {
@@ -1443,16 +1447,18 @@ impl View {
         }
         // From here on, what `fade_edges` dims: the lines, not the overlays under them.
         let first_shape = ctx.graphics(|g| g.get(painter.layer_id()).map_or(ShapeIdx(0), |l| l.next_idx()));
+        let scroll_ease = if f.quick_scroll { SCROLL_EASE } else { cfg.scroll_ease };
         for (i, b) in layout.blocks.iter().enumerate() {
             let mut dy = 0.0;
             for a in &self.scrolls {
                 let rel = i as isize - a.active as isize;
                 let d = match cfg.scroll_curve {
+                    _ if f.quick_scroll => scroll_duration(rel, a.delta),
                     Some(curve) => curve_duration(rel, a.delta, curve),
                     None => (scroll_duration(rel, a.delta) + cfg.scroll_secs - 0.75) * cfg.scroll_sides[usize::from(rel > 0)] as f64,
                 };
                 let p = ((f.now - a.start) / d.max(0.01)).clamp(0.0, 1.0) as f32;
-                dy += a.delta * (1.0 - cfg.scroll_ease.at(p));
+                dy += a.delta * (1.0 - scroll_ease.at(p));
             }
             if let Some(shifts) = self.shifts.get(i) {
                 for s in shifts {
@@ -3552,7 +3558,7 @@ mod tests {
             let mut animating = false;
             let mut out = ctx.run_ui(input, |ui| {
                 let n = lyrics.lines.len();
-                let f = Frame { lyrics: &lyrics, key: 1, roman: (0..n).map(|_| None).collect(), trans: vec![None; n], t, playing, now, rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 500.0)), style, accent: Color32::RED, centered: false, scale: 1.0, fullscreen: false, glass_chip: None };
+                let f = Frame { lyrics: &lyrics, key: 1, roman: (0..n).map(|_| None).collect(), trans: vec![None; n], t, playing, now, rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 500.0)), style, accent: Color32::RED, centered: false, scale: 1.0, fullscreen: false, glass_chip: None, quick_scroll: false };
                 animating = view.show(ui, f).animating;
             });
             out.textures_delta.clear();

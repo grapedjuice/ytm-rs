@@ -1765,7 +1765,8 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
     let scale = app.lyric_prefs.text_scale;
     let fullscreen = app.fullscreen;
     let glass_chip = app.look().app.glass.instrumental;
-    let frame = karaoke::Frame { lyrics, key, roman, trans, t, playing, now, rect, style, accent, centered, scale, fullscreen, glass_chip };
+    let quick_scroll = app.quick_lyric_scroll;
+    let frame = karaoke::Frame { lyrics, key, roman, trans, t, playing, now, rect, style, accent, centered, scale, fullscreen, glass_chip, quick_scroll };
     // The view lives in `app`; the frame borrows `app` for decorations, so swap it out.
     let mut view = std::mem::take(&mut app.lyric_view);
     let out = if karaoke::dev_off("view") { karaoke::Out { seek: None, animating: true, user_scrolling: false } } else { view.show(ui, frame) };
@@ -1776,8 +1777,14 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
         app.actions.push(Action::Seek(at.max(0.0) as f32));
     }
     if out.animating && !app.window_hidden {
-        // Smooth, without following a fast monitor: frame rate is the main CPU and GPU cost.
-        super::pace::repaint_after(ui.ctx(), std::time::Duration::from_millis(16));
+        if app.lyrics_full_rate {
+            // As fast as the screen shows them: vsync, or `pace::frame`, sets the rate.
+            app.full_rate_frame = true;
+            ui.ctx().request_repaint();
+        } else {
+            // Smooth, without following a fast monitor: frame rate is the main CPU and GPU cost.
+            super::pace::repaint_after(ui.ctx(), std::time::Duration::from_millis(16));
+        }
     }
     // The extension's `.autoscroll-resume-button` (YouTube Music's rem is 10 px): a frosted
     // pill under the top edge in the lyrics font at 600, 1.75rem; padding .5rem 1rem;

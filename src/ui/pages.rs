@@ -1954,6 +1954,14 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
                 *v = ((*v - step) * 10.0).round() / 10.0;
             }
         });
+        divider(ui);
+        setting_row(ui, "Quick line changes", Some("The next line snaps into place quickly, the Better Lyrics way. Off, each theme moves its lines at its own pace."), |ui| {
+            toggle(ui, &mut app.quick_lyric_scroll, "Quick line changes");
+        });
+        divider(ui);
+        setting_row(ui, "Lyrics at the screen's refresh rate", Some("Synced lyrics animate as fast as your screen refreshes, such as 144 fps on a 144 Hz monitor, instead of 60. Smoother on fast screens, for more CPU and graphics work."), |ui| {
+            toggle(ui, &mut app.lyrics_full_rate, "Lyrics at the screen's refresh rate");
+        });
     });
     settings_section(ui, "Lyrics timing", None, None, |ui| {
         // Offsets: seconds taken off the lyrics clock, as the extension's dock sets them.

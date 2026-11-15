@@ -453,8 +453,8 @@ pub struct App {
     /// Times the current song was reopened after its download failed.
     recoveries: u32,
     autoplay: bool,
-    /// Turn loud tracks down to YouTube's loudness target.
-    normalize: bool,
+    /// The level volume normalization brings songs to.
+    normalize: crate::audio::Normalize,
     log_volume: bool,
     high_quality: bool,
     /// Play an official music video as its song version when one is found.
@@ -818,7 +818,7 @@ impl App {
             skip_streak: 0,
             recoveries: 0,
             autoplay: get("autoplay").is_none_or(|v| v == "1"),
-            normalize: get("normalize").is_none_or(|v| v == "1"),
+            normalize: get("normalize").map_or_else(Default::default, |v| crate::audio::Normalize::from_key(&v)),
             log_volume: get("log_volume").is_none_or(|v| v == "1"),
             high_quality: get("high_quality").is_none_or(|v| v == "1"),
             play_songs: get("play_songs").is_none_or(|v| v == "1"),
@@ -1786,7 +1786,7 @@ impl eframe::App for App {
             playlists: self.library.as_ref().map(|l| l.playlists.clone()).or_else(|| self.sidebar_cache.clone()).unwrap_or_default(),
         });
         storage.set_string("account_cache", cache.and_then(|c| serde_json::to_string(&c).ok()).unwrap_or_default());
-        storage.set_string("normalize", b(self.normalize));
+        storage.set_string("normalize", self.normalize.key().to_owned());
         storage.set_string("log_volume", b(self.log_volume));
         storage.set_string("high_quality", b(self.high_quality));
         storage.set_string("play_songs", b(self.play_songs));

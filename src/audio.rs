@@ -3,7 +3,7 @@
 //! The UI talks to it through `AudioHandle`; status flows back through `AudioStatus`
 //! (lock-free reads for the progress bar) plus a `Finished` event for auto-advance.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
@@ -17,6 +17,7 @@ use crate::stream::{self, Shared};
 pub use crate::stream::TrackDecoder;
 
 pub mod eq;
+pub mod limiter;
 pub mod tempo;
 
 pub enum AudioCmd {
@@ -77,8 +78,13 @@ pub struct AudioStatus {
     stream_ms: AtomicU64,
     /// f32 bits
     volume: AtomicU32,
-    /// Turn loud tracks down to YouTube's loudness target.
-    pub normalize: AtomicBool,
+    /// The `Normalize` level songs are brought to.
+    normalize: AtomicU8,
+    /// The limiter's on, for songs normalization turns up.
+    limit: Arc<AtomicBool>,
+    /// What normalization does to the playing song, in dB (f32 bits); NaN when it does
+    /// nothing (off, or YouTube gave no loudness for it).
+    norm_db: AtomicU32,
     /// The volume slider follows loudness (cubic) rather than amplitude.
     log_volume: AtomicBool,
     /// Smoothed output loudness 0..1 (f32 bits), for audio-reactive visuals.
@@ -276,9 +282,16 @@ impl AudioHandle {
         f32::from_bits(self.status.volume.load(Ordering::Relaxed))
     }
 
-    pub fn set_normalize(&self, on: bool) {
-        self.status.normalize.store(on, Ordering::Relaxed);
+    pub fn set_normalize(&self, level: Normalize) {
+        self.status.normalize.store(level as u8, Ordering::Relaxed);
+        self.status.limit.store(level != Normalize::Off, Ordering::Relaxed);
         self.send(AudioCmd::Volume(self.volume()));
+    }
+
+    /// How far normalization turns the playing song up (positive) or down, in dB; None
+    /// when it leaves it as it is (off, or there's no loudness figure for it).
+    pub fn normalization(&self) -> Option<f32> {
+        Some(f32::from_bits(self.status.norm_db.load(Ordering::Relaxed))).filter(|d| !d.is_nan())
     }
 
     /// Switches the slider's curve, moving it so the music stays as loud as it was.
@@ -311,9 +324,6 @@ impl AudioHandle {
     }
 }
 
-/// Volume normalization the way YouTube Music does it: tracks mastered louder than
-/// the -14 LUFS target are turned down by the difference; quieter ones are left alone
-/// (boosting would clip).
 /// A seek that needs a new decoder built over the stream buffer (off the audio thread).
 struct SeekJob {
     shared: Arc<Shared>,
@@ -413,11 +423,74 @@ fn slider_gain(status: &AudioStatus, v: f32) -> f32 {
     if status.log_volume.load(Ordering::Relaxed) { v.powi(3) } else { v }
 }
 
-fn norm_gain(status: &AudioStatus, shared: Option<&Shared>) -> f32 {
-    match shared.and_then(|s| s.loudness_db) {
-        Some(db) if db > 0.0 && status.normalize.load(Ordering::Relaxed) => 10f32.powf(-db / 20.0),
-        _ => 1.0,
+/// The level volume normalization brings songs to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Normalize {
+    Off,
+    /// YouTube's (and Spotify's) -14 LUFS.
+    #[default]
+    Normal,
+    /// -19 LUFS, like Spotify's Quiet: more songs line up without being turned up.
+    Quiet,
+}
+
+impl Normalize {
+    pub const ALL: [Self; 3] = [Self::Off, Self::Normal, Self::Quiet];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Normal => "Normal",
+            Self::Quiet => "Quiet",
+        }
     }
+
+    /// As saved: "1" and "0" are what the on/off switch saved before.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Off => "0",
+            Self::Normal => "1",
+            Self::Quiet => "quiet",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Self {
+        Self::ALL.into_iter().find(|l| l.key() == key).unwrap_or_default()
+    }
+
+    fn from_u8(v: u8) -> Self {
+        Self::ALL.get(v as usize).copied().unwrap_or(Self::Off)
+    }
+
+    /// The level, in dB from YouTube's -14 LUFS target.
+    fn offset_db(self) -> f32 {
+        if self == Self::Quiet { -5.0 } else { 0.0 }
+    }
+}
+
+/// The most normalization turns a quiet song up. Past this the limiter would be holding
+/// it down all the time, which flattens it.
+const MAX_BOOST_DB: f32 = 6.0;
+
+/// What volume normalization does to a song, in dB: brings it from the loudness YouTube
+/// measured to the level picked, turning loud songs down and quiet ones up (up to
+/// `MAX_BOOST_DB`; the limiter keeps their peaks from clipping). None when it leaves it
+/// as it is: off, or no loudness figure (yt-dlp's streams, podcast feeds).
+fn norm_db(status: &AudioStatus, shared: Option<&Shared>) -> Option<f32> {
+    let level = Normalize::from_u8(status.normalize.load(Ordering::Relaxed));
+    if level == Normalize::Off {
+        return None;
+    }
+    Some((level.offset_db() - shared?.loudness_db?).min(MAX_BOOST_DB))
+}
+
+fn norm_gain(status: &AudioStatus, shared: Option<&Shared>) -> f32 {
+    norm_db(status, shared).map_or(1.0, |db| 10f32.powf(db / 20.0))
+}
+
+/// Keeps what normalization does to the playing song, for the UI to show.
+fn show_norm(status: &AudioStatus, shared: Option<&Shared>) {
+    status.norm_db.store(norm_db(status, shared).unwrap_or(f32::NAN).to_bits(), Ordering::Relaxed);
 }
 
 /// The output device. Players play into a mixer of our own that the device pulls
@@ -493,16 +566,19 @@ impl Output {
         let mut sink = sink;
         sink.log_on_drop(false);
         let channels = rodio::Source::channels(&source).get();
-        let eq = eq::Eq::new(status.eq.clone(), rodio::Source::sample_rate(&source).get(), channels);
-        sink.mixer().add(Bridge { inner: Some(source), slot: self.slot.clone(), channels, n: 0, eq });
+        let rate = rodio::Source::sample_rate(&source).get();
+        let eq = eq::Eq::new(status.eq.clone(), rate, channels);
+        let limiter = limiter::Limiter::new(status.limit.clone(), rate, channels);
+        sink.mixer().add(Bridge { inner: Some(source), slot: self.slot.clone(), channels, n: 0, eq, limiter });
         // The position counts samples handed to the device; it plays them a buffer later
-        // (rodio asks for ~50 ms), plus the shared-mode device period (~10 ms).
+        // (rodio asks for ~50 ms), plus the shared-mode device period (~10 ms) and the
+        // limiter's lookahead.
         let rate = sink.config().sample_rate().get().max(1);
         let buffer_ms = match sink.config().buffer_size() {
             rodio::cpal::BufferSize::Fixed(n) => *n as u64 * 1000 / rate as u64,
             rodio::cpal::BufferSize::Default => 0,
         };
-        status.latency_ms.store((buffer_ms + 10) as u32, Ordering::Relaxed);
+        status.latency_ms.store((buffer_ms + 10) as u32 + limiter::LOOKAHEAD_MS, Ordering::Relaxed);
         log::info!("audio: output device {:?} at {} Hz", id, rate);
         self.sink = Some(sink);
         self.device = id;
@@ -577,6 +653,8 @@ struct Bridge {
     /// Here, after the mixer, so one equalizer covers both songs in a crossfade and a
     /// new song or a seek doesn't restart it.
     eq: eq::Eq,
+    /// Last, after the volume, so it only acts on what would really clip.
+    limiter: limiter::Limiter,
 }
 
 impl Iterator for Bridge {
@@ -585,7 +663,7 @@ impl Iterator for Bridge {
         let channel = (self.n % self.channels.max(1) as u64) as usize;
         self.n += 1;
         let s = self.inner.as_mut().and_then(Iterator::next).unwrap_or(0.0);
-        Some(self.eq.process(s, channel))
+        Some(self.limiter.process(self.eq.process(s, channel), channel))
     }
 }
 
@@ -708,6 +786,7 @@ fn run(
                 }
                 clear(&mut player, &output);
                 let gain = norm_gain(&status, Some(&s));
+                show_norm(&status, Some(&s));
                 log::info!("audio: loudness {:?} dB, normalization gain {gain:.3}", s.loudness_db);
                 player.set_volume(slider_gain(&status, f32::from_bits(status.volume.load(Ordering::Relaxed))) * gain);
                 // Fade in only over a song still playing, both over the same length.
@@ -927,6 +1006,10 @@ fn run(
             Ok(AudioCmd::Volume(v)) => {
                 let v = slider_gain(&status, v);
                 player.set_volume(v * norm_gain(&status, shared.as_deref()));
+                // The level may be what changed.
+                if shared.is_some() {
+                    show_norm(&status, shared.as_deref());
+                }
                 for f in &fading {
                     f.player.set_volume(v * norm_gain(&status, f.shared.as_deref()));
                 }
@@ -1104,18 +1187,43 @@ mod tests {
     }
 
     #[test]
-    fn normalization_only_turns_loud_tracks_down() {
-        let status = AudioStatus::default();
+    fn normalization_brings_loud_and_quiet_songs_to_the_level() {
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let audio = AudioHandle { tx, status: Arc::new(AudioStatus::default()) };
+        let status = &audio.status;
         let loud = Shared::new(1, 0, Some(7.29), false, false);
         let quiet = Shared::new(1, 0, Some(-4.0), false, false);
+        let very_quiet = Shared::new(1, 0, Some(-15.0), false, false);
         let unknown = Shared::new(1, 0, None, false, false);
-        status.normalize.store(true, Ordering::Relaxed);
-        assert!((norm_gain(&status, Some(&loud)) - 0.432).abs() < 0.001);
-        assert_eq!(norm_gain(&status, Some(&quiet)), 1.0);
-        assert_eq!(norm_gain(&status, Some(&unknown)), 1.0);
-        assert_eq!(norm_gain(&status, None), 1.0);
-        status.normalize.store(false, Ordering::Relaxed);
-        assert_eq!(norm_gain(&status, Some(&loud)), 1.0);
+        audio.set_normalize(Normalize::Normal);
+        assert!(status.limit.load(Ordering::Relaxed));
+        assert!((norm_gain(status, Some(&loud)) - 0.432).abs() < 0.001);
+        assert!((norm_gain(status, Some(&quiet)) - 1.585).abs() < 0.001);
+        // Up by no more than 6 dB.
+        assert_eq!(norm_db(status, Some(&very_quiet)), Some(MAX_BOOST_DB));
+        assert_eq!(norm_gain(status, Some(&unknown)), 1.0);
+        assert_eq!(norm_gain(status, None), 1.0);
+        // Quiet: 5 dB lower, so a song 4 dB under the target comes down a little.
+        audio.set_normalize(Normalize::Quiet);
+        assert_eq!(norm_db(status, Some(&quiet)), Some(-1.0));
+        assert!((norm_db(status, Some(&loud)).unwrap() + 12.29).abs() < 1e-4);
+        audio.set_normalize(Normalize::Off);
+        assert!(!status.limit.load(Ordering::Relaxed));
+        assert_eq!(norm_gain(status, Some(&loud)), 1.0);
+        assert_eq!(norm_gain(status, Some(&quiet)), 1.0);
+        show_norm(status, Some(&loud));
+        assert_eq!(audio.normalization(), None);
+    }
+
+    #[test]
+    fn the_old_switch_keeps_its_meaning() {
+        assert_eq!(Normalize::from_key("1"), Normalize::Normal);
+        assert_eq!(Normalize::from_key("0"), Normalize::Off);
+        assert_eq!(Normalize::from_key("quiet"), Normalize::Quiet);
+        assert_eq!(Normalize::from_key(""), Normalize::Normal);
+        for l in Normalize::ALL {
+            assert_eq!(Normalize::from_u8(l as u8), l);
+        }
     }
 
     #[test]

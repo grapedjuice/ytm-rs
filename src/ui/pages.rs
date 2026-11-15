@@ -1814,10 +1814,20 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
         });
     });
     settings_section(ui, "Sound", None, None, |ui| {
-        setting_row(ui, "Volume normalization", Some("Turn loud songs down to the same level, like YouTube Music does."), |ui| {
-            if toggle(ui, &mut app.normalize, "Volume normalization").changed() {
-                app.audio.set_normalize(app.normalize);
-            }
+        let desc = normalization_desc(app);
+        setting_row(ui, "Volume normalization", Some(&desc), |ui| {
+            use crate::audio::Normalize;
+            let btn = dropdown_button(ui, app.normalize.label(), 120.0, "Volume normalization");
+            widgets::menu_popup(&btn).show(|ui| {
+                widgets::menu_body(ui, 120.0);
+                for level in Normalize::ALL {
+                    if option_row(ui, level.label(), level == app.normalize).clicked() {
+                        app.normalize = level;
+                        app.audio.set_normalize(level);
+                        ui.close();
+                    }
+                }
+            });
         });
         divider(ui);
         setting_row(ui, "Logarithmic volume", Some("Space the volume slider out the way ears hear loudness, so quiet levels aren't squeezed into its first few pixels."), |ui| {
@@ -3082,6 +3092,20 @@ fn eq_bands(ui: &mut Ui, gains: &mut crate::audio::eq::Gains) -> bool {
         p.text(pos2(x, rect.bottom() - 12.0), Align2::CENTER_CENTER, LABELS[i], theme::regular(12.0), theme::with_alpha(theme::text_dim(), fade));
     }
     changed
+}
+
+/// Volume normalization's description: what the levels do, and what it does to the song playing.
+fn normalization_desc(app: &App) -> String {
+    use crate::audio::Normalize;
+    let what = match app.normalize {
+        Normalize::Off => return "Songs play as loud as they were made. Normal brings them all to the same level, and Quiet to the same, lower one.".to_owned(),
+        Normalize::Normal => "Songs play at the same level: loud ones turned down, as on YouTube Music, and quiet ones up by as much as 6 dB.",
+        Normalize::Quiet => "Songs play at the same, lower level: loud ones turned down further, so quiet ones rarely need turning up.",
+    };
+    match (app.current().is_some(), super::shell::normalization_note(app)) {
+        (true, Some(note)) => format!("{what} This song: {note}."),
+        _ => what.to_owned(),
+    }
 }
 
 /// A dropdown's closed state: the chosen value and a chevron on a glass pill.

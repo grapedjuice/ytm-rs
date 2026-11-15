@@ -1669,7 +1669,20 @@ pub fn unmute_id() -> egui::Id {
     egui::Id::unique("unmute")
 }
 
-/// The volume track: click or drag to set, scroll over it to nudge.
+/// What volume normalization does to the song playing, for its setting. None while it's off.
+pub(super) fn normalization_note(app: &App) -> Option<String> {
+    if app.normalize == crate::audio::Normalize::Off {
+        return None;
+    }
+    Some(match app.audio.normalization() {
+        None => "no loudness figure from YouTube, so it plays as it is".to_owned(),
+        Some(db) if db.abs() < 0.05 => "already at the level".to_owned(),
+        Some(db) => format!("turned {} {:.1} dB", if db > 0.0 { "up" } else { "down" }, db.abs()),
+    })
+}
+
+/// The volume track: click or drag to set, scroll over it to nudge. Pointed at, the
+/// volume shows above the knob.
 pub(super) fn volume_slider(app: &mut App, ui: &mut Ui, slider: Rect, salt: &str) {
     let vol = app.audio.volume();
     let vresp = ui.interact(slider, ui.scope_id().with(salt), Sense::click_and_drag()).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -1692,6 +1705,14 @@ pub(super) fn volume_slider(app: &mut App, ui: &mut Ui, slider: Rect, salt: &str
         if scroll != 0.0 {
             app.audio.set_volume((vol + scroll / 600.0).clamp(0.0, 1.0));
         }
+    }
+    if vh > 0.0 {
+        // Where the volume is now, after this frame's drag or scroll. Above everything,
+        // so the player bar's popup slider doesn't cut it off.
+        let now = app.audio.volume();
+        let at = pos2(track_r.left() + track_r.width() * now, track_r.top() - 12.0);
+        let layer = egui::LayerId::new(egui::Order::Tooltip, ui.scope_id().with((salt, "pct")));
+        ui.ctx().layer_painter(layer).text(at, Align2::CENTER_BOTTOM, format!("{}%", (now * 100.0).round()), theme::semibold(12.0), theme::with_alpha(theme::text(), vh));
     }
 }
 

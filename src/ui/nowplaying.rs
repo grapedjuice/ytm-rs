@@ -1529,6 +1529,7 @@ fn video_line_pill(app: &App, ui: &Ui, picture: Rect) {
 
 /// The video's colours, eased toward the latest frame's, across all of Now playing.
 fn paint_glow(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, step: bool) {
+    let dim_bright = app.dim_bright;
     let Some(Glow { current, target, tex }) = &mut app.glow else { return };
     if step {
         let k = (ui.input(|i| i.stable_dt) * 2.5).clamp(0.0, 1.0);
@@ -1545,7 +1546,15 @@ fn paint_glow(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, step: bool) {
     let full = rect.expand2(rect.size() * 0.08);
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
     let painter = ui.painter_at(clip);
-    painter.image(tex.id(), full, uv, Color32::from_gray(150));
+    // Drawn at 150/255 under a quarter's shade; darker still for a bright picture.
+    const LEVEL: f32 = 150.0 / 255.0 * 0.75;
+    let readable = if dim_bright && !current.is_empty() {
+        let luma = current.iter().map(|c| (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]) / 255.0).sum::<f32>() / current.len() as f32;
+        crate::art::readable_dim(luma * LEVEL)
+    } else {
+        1.0
+    };
+    painter.image(tex.id(), full, uv, Color32::from_gray((150.0 * readable) as u8));
     painter.rect_filled(rect, 0.0, theme::shade(0.25));
 }
 

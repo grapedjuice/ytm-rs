@@ -70,11 +70,12 @@ pub fn from_frame(frame: &egui::ColorImage) -> Option<Art> {
             px.push([c.r() as f32, c.g() as f32, c.b() as f32]);
         }
     }
+    let brightness = px.iter().map(|p| (0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]) / 255.0).sum::<f32>() / px.len() as f32;
     for _ in 0..2 {
         px = box_blur(&px, n, 4);
     }
     let rgba = px.iter().flat_map(|p| [p[0] as u8, p[1] as u8, p[2] as u8, 255]).collect();
-    Some(Art { rgba, accent: Color32::WHITE, brightness: 0.5 })
+    Some(Art { rgba, accent: Color32::WHITE, brightness })
 }
 
 fn smoothstep(a: f32, b: f32, x: f32) -> f32 {

@@ -1596,7 +1596,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let lyrics_on = app.np_open && app.np_tab == NpTab::Lyrics && !app.no_lyrics();
     if right_btn(ui, icon::MIC_VOCAL, "Lyrics", lyrics_on) {
         if lyrics_on {
-            app.np_open = false;
+            app.np_tab = NpTab::Art;
         } else {
             app.np_tab = NpTab::Lyrics;
             app.actions.push(Action::OpenNowPlaying(true));

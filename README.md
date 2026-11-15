@@ -104,7 +104,7 @@ ytm-rs collects nothing about you; see [Privacy](PRIVACY.md) for every service i
 <details open>
 <summary><b>Windows</b></summary>
 
-Download `ytm-rs-setup-<version>.exe` and run it. It installs for the current user without administrator access, and adds a Start menu shortcut and an uninstall entry in Windows Settings.
+Download `ytm-rs-setup-<version>.exe` and run it. Most PCs (Intel or AMD) need this one. The `-arm64` files are only for Windows on ARM PCs, such as Snapdragon laptops, and won't run on any other PC. It installs for the current user without administrator access, and adds a Start menu shortcut and an uninstall entry in Windows Settings.
 
 </details>
 
@@ -145,7 +145,7 @@ Every platform has a portable download that keeps its settings in a `data` folde
 
 | Platform | File | How to run |
 | --- | --- | --- |
-| Windows | `ytm-rs-portable-<version>.zip` (`-arm64` for ARM) | Unzip anywhere and run `ytm-rs.exe`. It stays portable while `portable.txt` is beside it. |
+| Windows | `ytm-rs-portable-<version>.zip`, or `-arm64.zip` only on a Windows on ARM PC | Unzip anywhere and run `ytm-rs.exe`. It stays portable while `portable.txt` is beside it. |
 | macOS | `ytm-rs-portable-<version>-macos-aarch64.zip` or `-macos-x86_64.zip` | Unzip, run `xattr -dr com.apple.quarantine` on the folder, then open `ytm-rs.app`. Without that step macOS runs it from a read-only copy and it uses the normal data location. |
 | Linux | `ytm-rs-portable-<version>-linux-x86_64.tar.gz` | Extract anywhere and run `./ytm-rs`. |
 

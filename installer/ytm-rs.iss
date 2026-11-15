@@ -45,6 +45,13 @@ SetupIconFile=..\assets\icon\icon.ico
 UninstallDisplayIcon={app}\{#AppExe}
 CloseApplications=yes
 
+#ifdef Arm64
+[Messages]
+; Setup shows this when the processor isn't allowed, and on ARM64 that only happens on an
+; Intel or AMD PC, where the default "doesn't support this version of Windows" misleads (#117).
+WindowsVersionNotSupported=This is the ytm-rs installer for Windows on ARM PCs, and this PC has an Intel or AMD processor.%n%nDownload ytm-rs-setup-{#AppVersion}.exe instead, the one without -arm64 in its name.
+#endif
+
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 

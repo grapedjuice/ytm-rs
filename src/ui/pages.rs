@@ -1445,6 +1445,7 @@ pub(super) enum SettingsTab {
     Playback,
     Lyrics,
     Appearance,
+    Discord,
     General,
     Shortcuts,
     About,
@@ -1452,13 +1453,14 @@ pub(super) enum SettingsTab {
 
 impl SettingsTab {
     /// Most used first, which is how they're listed.
-    const ALL: [Self; 7] = [Self::Account, Self::Playback, Self::Lyrics, Self::Appearance, Self::General, Self::Shortcuts, Self::About];
+    const ALL: [Self; 8] = [Self::Account, Self::Playback, Self::Lyrics, Self::Appearance, Self::Discord, Self::General, Self::Shortcuts, Self::About];
 
     fn label(self) -> &'static str {
         match self {
             Self::Playback => "Playback",
             Self::Lyrics => "Lyrics",
             Self::Appearance => "Appearance",
+            Self::Discord => "Discord",
             Self::Account => "Account",
             Self::General => "General",
             Self::Shortcuts => "Keyboard shortcuts",
@@ -1490,7 +1492,7 @@ fn words_match(words: &[String], section: &str, text: &str) -> bool {
     words.iter().all(|w| section.contains(w.as_str()) || text.contains(w.as_str()))
 }
 
-fn filtering() -> bool {
+pub(super) fn filtering() -> bool {
     FILTER.with_borrow(|f| !f.words.is_empty())
 }
 
@@ -1524,7 +1526,7 @@ pub(super) fn filter_show(ui: &mut Ui, text: &str) -> bool {
 const SETTINGS_SIDE_BY_SIDE: f32 = 680.0;
 const SETTINGS_RAIL: f32 = 200.0;
 const SETTINGS_GAP: f32 = 32.0;
-const SETTINGS_COLUMN: f32 = 800.0;
+pub(super) const SETTINGS_COLUMN: f32 = 800.0;
 const SETTINGS_SEARCH_H: f32 = 38.0;
 
 fn settings(app: &mut App, ui: &mut Ui) {
@@ -1563,9 +1565,13 @@ fn settings(app: &mut App, ui: &mut Ui) {
     if let Some(y) = super::dev_var("YTM_SCROLL").and_then(|v| v.parse::<f32>().ok()) {
         area = area.vertical_scroll_offset(y);
     }
+    // Discord's preview stays beside its settings when there's room.
+    let side = (side_by_side && !filtering() && app.settings_tab == SettingsTab::Discord).then(|| super::presence::side_rect(body, SETTINGS_COLUMN)).flatten();
+    let column_w = side.map_or(SETTINGS_COLUMN, |r| r.left() - super::presence::SIDE_GAP - body.left());
+    super::presence::set_side(ui.ctx(), side.is_some());
     let mut column = ui.new_child(egui::UiBuilder::new().max_rect(body).layout(top_down));
     area.show(&mut column, |ui| {
-        ui.set_max_width((ui.available_width() - 20.0).clamp(0.0, SETTINGS_COLUMN));
+        ui.set_max_width((ui.available_width() - 20.0).clamp(0.0, column_w));
         if filtering() {
             for tab in SettingsTab::ALL {
                 FILTER.with_borrow_mut(|f| f.tab = tab.label());
@@ -1580,6 +1586,9 @@ fn settings(app: &mut App, ui: &mut Ui) {
         }
         ui.add_space(40.0);
     });
+    if let Some(r) = side {
+        super::presence::side(app, ui, r);
+    }
     ui.advance_cursor_after_rect(full);
     FILTER.take();
 }
@@ -1599,6 +1608,7 @@ fn settings_tab(app: &mut App, ui: &mut Ui, tab: SettingsTab) {
             settings_mini(app, ui);
             settings_app_icon(app, ui);
         }
+        SettingsTab::Discord => super::presence::settings(app, ui),
         SettingsTab::Account => {
             settings_account(app, ui);
             settings_connections(app, ui);
@@ -2452,7 +2462,7 @@ fn settings_connections(app: &mut App, ui: &mut Ui) {
     let mut discord_enabled = app.discord_enabled;
     let mut remote_enabled = app.remote_enabled;
     settings_section(ui, "Connections", None, None, |ui| {
-        setting_row(ui, "Discord", Some("Show what you're playing on your Discord profile."), |ui| {
+        setting_row(ui, "Discord", Some("Show what you're playing on your Discord profile. Settings › Discord sets what the card shows."), |ui| {
             toggle(ui, &mut discord_enabled, "Discord");
         });
         divider(ui);
@@ -3144,7 +3154,7 @@ fn normalization_desc(app: &App) -> String {
 }
 
 /// A dropdown's closed state: the chosen value and a chevron on a glass pill.
-fn dropdown_button(ui: &mut Ui, value: &str, width: f32, name: &str) -> egui::Response {
+pub(super) fn dropdown_button(ui: &mut Ui, value: &str, width: f32, name: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 36.0), Sense::click());
     let resp = widgets::named(resp, name).on_hover_cursor(egui::CursorIcon::PointingHand);
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
@@ -3273,11 +3283,16 @@ pub(super) fn settings_section(ui: &mut Ui, title: &str, value: Option<&str>, no
 /// A settings row: title and description on the left, the control on the right. A search
 /// that doesn't find it leaves it out.
 pub(super) fn setting_row(ui: &mut Ui, title: &str, desc: Option<&str>, control: impl FnOnce(&mut Ui)) {
+    setting_row_wide(ui, title, desc, 210.0, control);
+}
+
+/// A settings row whose controls take `control_w` rather than one control's 210.
+pub(super) fn setting_row_wide(ui: &mut Ui, title: &str, desc: Option<&str>, control_w: f32, control: impl FnOnce(&mut Ui)) {
     if !filter_show(ui, &format!("{title} {}", desc.unwrap_or_default())) {
         return;
     }
     let w = ui.available_width();
-    let text_w = (w - 230.0).max(200.0);
+    let text_w = (w - control_w - 20.0).max(200.0);
     let title_g = widgets::galley(ui, title, theme::semibold(14.5), theme::text(), text_w);
     // Up to three lines, and as many again for each line the description starts itself.
     let desc_g = desc.map(|d| widgets::galley_wrapped(ui, d, theme::regular(12.5), theme::text_dim(), text_w, 3 * (1 + d.matches('\n').count())));

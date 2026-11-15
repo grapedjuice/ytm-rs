@@ -23,36 +23,54 @@ impl App {
         }
     }
 
-    /// Mirror playback into Discord. Cheap enough to run every frame: it only sends on a
-    /// new song, play/pause, a seek, or a newly learned duration.
-    pub(super) fn sync_discord(&mut self) {
-        let Some(d) = &self.discord else { return };
-        let track = self.playing_track().filter(|_| self.playing() && !self.buffering);
+    /// What's playing, as Discord would get it, paused or not.
+    pub(super) fn discord_presence(&self) -> Option<crate::discord::Presence> {
+        let t = self.playing_track()?;
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
         // In real time: a song at 2x is over in half its length.
         let speed = self.audio.status.speed() as f64;
         let start_ms = now - (self.audio.status.position().as_millis() as f64 / speed) as i64;
         let dur = (self.audio.status.duration_ms.load(Ordering::Relaxed) as f64 / speed) as i64;
-        // Position ticks every 100 ms; only a jump of 2 s or more is a real seek.
-        let same = match (track, &self.discord_sent) {
-            (Some(t), Some(b)) => b.video_id == t.id && (start_ms - b.start_ms).abs() < 2000 && b.end_ms.map_or(dur <= 0, |e| (e - (start_ms + dur)).abs() < 2000),
-            (None, None) => true,
-            _ => false,
-        };
-        if same {
-            return;
-        }
-        let want = track.map(|t| crate::discord::Presence {
+        Some(crate::discord::Presence {
             video_id: t.id.clone(),
             title: t.title.clone(),
             artist: t.artist_line(),
+            artist_id: t.first_artist_id().map(str::to_owned),
             album: t.album.as_ref().map(|a| a.name.clone()),
+            album_id: t.album.as_ref().and_then(|a| a.id.clone()),
             art: backend::art_url(t),
             start_ms,
             end_ms: (dur > 0).then_some(start_ms + dur),
-        });
-        d.set(want.clone());
-        self.discord_sent = want;
+            paused: !self.playing() || self.buffering,
+            jam: self.jam.code().map(crate::jam::share_link),
+        })
+    }
+
+    /// Mirror playback into Discord. Cheap enough to run every frame: it only sends when
+    /// the card would look different, as on a new song, play/pause, a seek or new settings.
+    pub(super) fn sync_discord(&mut self, ctx: &egui::Context) {
+        let Some(d) = &self.discord else { return };
+        // A name is sent once it's typed, not a letter at a time: Discord limits how often
+        // the card may change.
+        let typing = ctx.memory(|m| m.has_focus(super::presence::name_id()));
+        let prefs = &self.discord_prefs;
+        let typed;
+        let prefs = if typing {
+            let name = self.discord_sent.as_ref().and_then(|c| c.name.clone()).unwrap_or_default();
+            typed = crate::discord::Prefs { app_name: name, ..prefs.clone() };
+            &typed
+        } else {
+            prefs
+        };
+        let want = self.discord_presence().filter(|p| !p.paused || prefs.when_paused).map(|p| crate::discord::Card::new(&p, prefs));
+        let same = match (&want, &self.discord_sent) {
+            (Some(a), Some(b)) => a.same(b),
+            (a, b) => a.is_none() && b.is_none(),
+        };
+        if !same {
+            d.set(want.clone());
+            self.discord_sent = want;
+        }
     }
 
     /// The window's title, which the taskbar and Alt+Tab show: the current song, or the

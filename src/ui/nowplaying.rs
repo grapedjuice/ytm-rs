@@ -88,9 +88,11 @@ pub(super) fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: 
     let on_video = (b.video_backdrop && app.video.as_ref().is_some_and(|(_, player)| player.is_some())).then_some(());
     let over = ((app.art_brightness - b.auto_dim_from) / (1.0 - b.auto_dim_from).max(0.01)).max(0.0);
     let auto_dim = 1.0 - on_video.and(b.video.auto_dim).unwrap_or(b.auto_dim) * over;
-    let fullbleed_level = b.fullscreen_fullbleed.filter(|_| app.fullscreen).unwrap_or(b.np_dim).clamp(0.0, 1.0);
-    // Then darker still where the art would show too bright for the white text over it.
-    let readable = if app.dim_bright { crate::art::readable_dim(app.art_brightness * shown_level(b, art, fullbleed_level, app.fullscreen, auto_dim)) } else { 1.0 };
+    let theme_fullscreen = b.fullscreen_fullbleed.filter(|_| app.fullscreen);
+    let fullbleed_level = theme_fullscreen.unwrap_or(b.np_dim).clamp(0.0, 1.0);
+    // Then darker still where the art would show too bright for the white text over it,
+    // unless the theme sets how bright its full-screen cover is (reCover: at full).
+    let readable = if app.dim_bright && theme_fullscreen.is_none() { crate::art::readable_dim(app.art_brightness * shown_level(b, art, fullbleed_level, app.fullscreen, auto_dim)) } else { 1.0 };
     let auto_dim = auto_dim * readable;
     if let (Some(layer), Some(bg)) = (b.layer, app.bg.as_ref()) {
         // The theme's still cover under everything, pulsing if it does.

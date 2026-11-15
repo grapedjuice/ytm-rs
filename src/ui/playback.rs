@@ -237,9 +237,10 @@ impl App {
     /// stream, rather than letting it end early and skip to the next one. If that keeps
     /// failing, stay on the song, ready to resume from there.
     pub(super) fn recover(&mut self, at: Duration, reason: &str) {
-        const MAX_RECOVERIES: u32 = 3;
-        if self.recoveries < MAX_RECOVERIES {
-            self.recoveries += 1;
+        let attempt = recovery_attempt(self.recoveries, self.recovery_at, at);
+        self.recovery_at = Some(at);
+        if let Some(attempt) = attempt {
+            self.recoveries = attempt;
             log::warn!("playback interrupted at {at:?} ({reason}); reopening (try {})", self.recoveries);
             self.play_current_at(at, false);
             return;
@@ -255,6 +256,7 @@ impl App {
 
     pub(super) fn play_current(&mut self) {
         self.recoveries = 0;
+        self.recovery_at = None;
         self.play_current_at(Duration::ZERO, true);
     }
 
@@ -341,6 +343,11 @@ impl App {
     fn start_current(&mut self, at: Duration, report: bool, swap: bool) {
         let swap = std::mem::take(&mut self.resume_as_song) || swap;
         let Some(track) = self.current().cloned() else { return };
+        // A stand-in swap can use another upload's clock within this same play.
+        // A failed reopen must retain this attempt's target, not an old interruption.
+        if self.recovery_at.is_some() {
+            self.recovery_at = Some(at);
+        }
         // Picking up mid-song (a resume, a download that broke off): the position is the
         // song version's when one was playing, so that goes on; a music video stays one.
         // Likewise a song's music video.
@@ -364,7 +371,7 @@ impl App {
         self.audio.status.duration_ms.store(shown.duration.map_or(0, |d| d as u64 * 1000), Ordering::Relaxed);
         // A song running into the next crossfades (so does Next, when that's switched
         // on); going back or picking a song cuts over.
-        self.audio.send(if self.handoff && at.is_zero() { AudioCmd::Handoff } else { AudioCmd::Stop });
+        self.audio.send(if !at.is_zero() { AudioCmd::StopAt(at) } else if self.handoff { AudioCmd::Handoff } else { AudioCmd::Stop });
         self.audio.send(AudioCmd::Warm);
         self.buffering = true;
         self.seek_drag = None;
@@ -573,6 +580,9 @@ impl App {
             return jam::request(self, crate::jam::Cmd::Toggle);
         }
         if let Some(at) = self.resume_at {
+            // Explicit retry starts a fresh bounded recovery episode.
+            self.recoveries = 0;
+            self.recovery_at = Some(at);
             // Last session's song, already counted when it started then (unless it was
             // another device's).
             let report = std::mem::take(&mut self.resume_counts);
@@ -595,6 +605,14 @@ impl App {
     }
 }
 
+/// Reopening the same frozen position does not earn a fresh automatic retry budget.
+/// Only at least five seconds of forward progress separates recovery episodes.
+fn recovery_attempt(attempts: u32, previous: Option<Duration>, at: Duration) -> Option<u32> {
+    let progressed = previous.is_some_and(|before| at.saturating_sub(before) >= Duration::from_secs(5));
+    let attempts = if progressed { 0 } else { attempts };
+    (attempts < 3).then_some(attempts + 1)
+}
+
 /// `at` moved by `ms`, not before the start.
 fn shifted(at: Duration, ms: i64) -> Duration {
     Duration::from_millis((at.as_millis() as i64).saturating_add(ms).max(0) as u64)
@@ -602,4 +620,28 @@ fn shifted(at: Duration, ms: i64) -> Duration {
 
 fn unix_now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+#[cfg(test)]
+mod recovery_budget_tests {
+    use super::recovery_attempt;
+    use std::time::Duration;
+
+    #[test]
+    fn frozen_or_backward_positions_do_not_reset_the_recovery_budget() {
+        let at = Duration::from_millis(113_195);
+        let (mut attempts, mut previous) = (0, None);
+        for expected in 1..=3 {
+            let next = recovery_attempt(attempts, previous, at);
+            assert_eq!(next, Some(expected));
+            attempts = next.unwrap();
+            previous = Some(at);
+        }
+        assert_eq!(recovery_attempt(attempts, previous, at), None);
+        assert_eq!(recovery_attempt(attempts, previous, at - Duration::from_secs(1)), None);
+        assert_eq!(recovery_attempt(attempts, previous, at + Duration::from_millis(4999)), None);
+        assert_eq!(recovery_attempt(attempts, previous, at + Duration::from_secs(5)), Some(1));
+        // Manual retry explicitly rearms the count at the retained timestamp.
+        assert_eq!(recovery_attempt(0, Some(at), at), Some(1));
+    }
 }

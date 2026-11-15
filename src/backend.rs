@@ -421,6 +421,7 @@ impl Resp {
             Resp::Home(_)
                 | Resp::HomeMore(_)
                 | Resp::QuickPicksMore { .. }
+                | Resp::Radio { .. }
                 | Resp::Suggest { .. }
                 | Resp::SearchIn(_)
                 | Resp::Library(_)
@@ -768,6 +769,77 @@ pub fn is_downloaded(t: &Track) -> bool {
 
 /// A video id and its stream buffer.
 type StreamSlot = Arc<std::sync::Mutex<Option<(String, Arc<Shared>)>>>;
+/// Owns only a decoder being opened, never a source handed to the audio engine.
+/// Serializes generation changes with publication of a ready decoder.
+#[derive(Default)]
+struct PlaybackLoads {
+    state: std::sync::Mutex<PlaybackLoad>,
+}
+
+#[derive(Default)]
+struct PlaybackLoad {
+    generation: u64,
+    pending: Option<Arc<Shared>>,
+}
+
+impl PlaybackLoads {
+    fn begin(&self, generation: u64, wanted: &std::sync::atomic::AtomicU64) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if wanted.load(Ordering::Relaxed) != generation || generation < state.generation {
+            return false;
+        }
+        state.generation = generation;
+        if let Some(old) = state.pending.take() {
+            old.cancel();
+        }
+        true
+    }
+
+    fn current<T>(&self, generation: u64, wanted: &std::sync::atomic::AtomicU64, action: impl FnOnce() -> T) -> Option<T> {
+        let state = self.state.lock().unwrap();
+        (state.generation == generation && wanted.load(Ordering::Relaxed) == generation).then(action)
+    }
+
+    fn register(&self, generation: u64, wanted: &std::sync::atomic::AtomicU64, shared: &Arc<Shared>) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if state.generation != generation || wanted.load(Ordering::Relaxed) != generation {
+            shared.cancel();
+            return false;
+        }
+        state.pending = Some(shared.clone());
+        true
+    }
+
+    fn finish(&self, generation: u64, wanted: &std::sync::atomic::AtomicU64, shared: &Arc<Shared>, publish: impl FnOnce()) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if state.generation != generation || wanted.load(Ordering::Relaxed) != generation
+            || !state.pending.as_ref().is_some_and(|s| Arc::ptr_eq(s, shared))
+        {
+            shared.cancel();
+            return false;
+        }
+        state.pending = None;
+        publish();
+        true
+    }
+}
+
+#[derive(Debug)]
+struct DecoderPanicked;
+
+impl std::fmt::Display for DecoderPanicked {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Audio decoder failed while opening the stream")
+    }
+}
+
+impl std::error::Error for DecoderPanicked {}
+
+fn open_decoder_guarded<T>(open: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(open))
+        .map_err(|_| anyhow::Error::new(DecoderPanicked))?
+}
+
 type SongCell = Arc<tokio::sync::OnceCell<Option<Track>>>;
 
 /// A music video's stream opened while its song was looked up. Left unused, it stops.
@@ -795,6 +867,85 @@ const EARLY_VIDEO_AFTER: std::time::Duration = std::time::Duration::from_millis(
 /// A prefetch has until the song before it ends.
 const PREFETCH_SONG_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 
+const RADIO_HISTORY_SEEDS: usize = 32;
+const RADIO_HISTORY_IDS: usize = 200;
+
+/// Recent server recommendations, only in RAM and only for this account/channel epoch.
+/// The async mutex is held through each radio fetch and reservation, so simultaneous
+/// requests cannot both select against the same old history.
+#[derive(Default)]
+struct RadioHistory {
+    epoch: u64,
+    seeds: std::collections::VecDeque<(String, std::collections::VecDeque<String>)>,
+}
+
+impl RadioHistory {
+    fn scope(&mut self, epoch: u64) {
+        if self.epoch != epoch {
+            self.seeds.clear();
+            self.epoch = epoch;
+        }
+    }
+
+    fn exclusions(&mut self, epoch: u64, seed: &str) -> std::collections::HashSet<String> {
+        self.scope(epoch);
+        let mut avoid: std::collections::HashSet<_> = self.seeds.iter().find(|(id, _)| id == seed)
+            .into_iter().flat_map(|(_, ids)| ids.iter().cloned()).collect();
+        avoid.insert(seed.to_owned());
+        avoid
+    }
+
+    fn remember(&mut self, epoch: u64, seed: &str, returned: impl IntoIterator<Item = String>) {
+        self.scope(epoch);
+        let old = self.seeds.iter().position(|(id, _)| id == seed).and_then(|i| self.seeds.remove(i));
+        let mut ids = old.map_or_else(std::collections::VecDeque::new, |(_, ids)| ids);
+        for id in returned {
+            if let Some(i) = ids.iter().position(|old| old == &id) {
+                ids.remove(i);
+            }
+            ids.push_back(id);
+            while ids.len() > RADIO_HISTORY_IDS {
+                ids.pop_front();
+            }
+        }
+        if !ids.is_empty() {
+            self.seeds.push_back((seed.to_owned(), ids));
+        }
+        while self.seeds.len() > RADIO_HISTORY_SEEDS {
+            self.seeds.pop_front();
+        }
+    }
+}
+
+#[cfg(test)]
+mod radio_history_tests {
+    use super::*;
+
+    #[test]
+    fn history_excludes_returned_ids_per_seed_and_resets_at_account_epoch() {
+        let mut h = RadioHistory::default();
+        h.remember(2, "seed-a", ["a".into(), "b".into()]);
+        assert_eq!(h.exclusions(2, "seed-a"), ["seed-a", "a", "b"].map(str::to_owned).into_iter().collect());
+        assert_eq!(h.exclusions(2, "seed-b"), ["seed-b"].map(str::to_owned).into_iter().collect());
+        assert_eq!(h.exclusions(3, "seed-a"), ["seed-a"].map(str::to_owned).into_iter().collect());
+        assert!(h.seeds.is_empty());
+    }
+
+    #[test]
+    fn radio_history_bounds_ids_and_seeds_without_erasing_latest_results() {
+        let mut h = RadioHistory::default();
+        h.remember(1, "seed", (0..250).map(|i| format!("track-{i}")));
+        let avoid = h.exclusions(1, "seed");
+        assert_eq!(avoid.len(), RADIO_HISTORY_IDS + 1);
+        assert!(!avoid.contains("track-49") && avoid.contains("track-50") && avoid.contains("track-249"));
+        for i in 0..RADIO_HISTORY_SEEDS {
+            h.remember(1, &format!("seed-{i}"), ["candidate".into()]);
+        }
+        assert_eq!(h.seeds.len(), RADIO_HISTORY_SEEDS);
+        assert_eq!(h.exclusions(1, "seed").len(), 1);
+        assert!(h.exclusions(1, "seed-31").contains("candidate"));
+    }
+}
 #[derive(Clone)]
 pub struct Backend {
     rt: Arc<Runtime>,
@@ -810,6 +961,7 @@ pub struct Backend {
     /// The stream most recently started, kept so a replay of a fully downloaded song
     /// (repeat one, restart) doesn't download it again.
     current: StreamSlot,
+    loads: Arc<PlaybackLoads>,
     jsc: Arc<jsc::Solver>,
     /// Whether the signed-in account has Premium; checked once per sign-in. A failed
     /// check is retried no sooner than `PREMIUM_RETRY` later.
@@ -828,6 +980,7 @@ pub struct Backend {
     songs: Arc<std::sync::Mutex<std::collections::HashMap<String, SongCell>>>,
     /// Albums and playlists being downloaded.
     batch: Arc<std::sync::Mutex<DownloadQueue>>,
+    radios: Arc<tokio::sync::Mutex<RadioHistory>>,
 }
 
 impl Backend {
@@ -855,7 +1008,7 @@ impl Backend {
         {
             log::warn!("proxy relay: {e:#}");
         }
-        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), clean: Default::default(), visionos_hls: Default::default(), songs: Default::default(), batch: Default::default() };
+        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), loads: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), clean: Default::default(), visionos_hls: Default::default(), songs: Default::default(), batch: Default::default(), radios: Default::default() };
         backend.keep_signed_in();
         Ok(backend)
     }
@@ -966,6 +1119,11 @@ impl Backend {
             Req::Play { generation, .. } => Some(*generation),
             _ => None,
         };
+        if let Some(generation) = play_gen
+            && !self.loads.begin(generation, &self.audio.status.wanted_gen)
+        {
+            return;
+        }
         let collection = match &req {
             Req::Album { id, load } | Req::Playlist { id, load, .. } => Some((id.clone(), *load)),
             _ => None,
@@ -1119,13 +1277,25 @@ impl Backend {
                     Resp::Art { key, art }
                 }
                 Req::Radio { seed, song_of } => {
-                    // A music video's radio is music videos; its song's is songs, as from the
-                    // song itself. The lookup is shared with its play's (one per video).
+                    let epoch = api.epoch();
+                    let mut history = self.radios.lock().await;
+                    if api.epoch() != epoch {
+                        return Ok(None);
+                    }
+                    // A music video's song version keeps the radio in the song domain.
                     let song = self.song_version(&seed, song_of.as_ref(), PREFETCH_SONG_WAIT).await;
                     let from = song.as_ref().map_or(&seed, |s| &s.id);
-                    let mut tracks = ytm::radio(api, from, false, 50).await?;
-                    // The radio starts with its seed, which is playing already.
-                    tracks.retain(|t| t.id != *from);
+                    let mut avoid = history.exclusions(epoch, from);
+                    avoid.insert(seed.clone());
+                    if api.epoch() != epoch {
+                        return Ok(None);
+                    }
+                    let tracks = ytm::radio_with_recent(api, from, self.is_logged_in(), 50, &avoid).await?;
+                    if api.epoch() != epoch {
+                        return Ok(None);
+                    }
+                    history.remember(epoch, from, tracks.iter().map(|t| t.id.clone()));
+                    log::debug!("radio: seed_count=1 recent_count={} returned_count={}", avoid.len(), tracks.len());
                     Resp::Radio { seed, tracks }
                 }
                 Req::PlayCollection { target } => {
@@ -1456,7 +1626,7 @@ impl Backend {
             return Ok(());
         }
         log::debug!("prefetch {video_id}");
-        let shared = self.start_stream(&video_id, found?, true);
+        let shared = self.start_stream(&video_id, found?, true)?;
         if let Some((_, old)) = self.prefetched.lock().unwrap().replace((video_id, shared)) {
             old.cancel();
         }
@@ -1580,46 +1750,51 @@ impl Backend {
             return Ok(());
         }
         let mut video_id = song.as_ref().map_or(listed, |s| s.id.as_str()).to_owned();
-        let prefetched = self.prefetched.lock().unwrap().take();
-        let replay = self.current.lock().unwrap().take().filter(|(id, s)| *id == video_id && s.is_complete()).map(|(_, s)| s);
-        let ready = match prefetched {
-            // Not one whose download failed (refused, say): that opens afresh.
-            // Nor a file stream fetched before file streams turned out to be cut off.
-            Some((id, s)) if id == video_id && s.error().is_none() && !(self.visionos_hls.load(Ordering::Relaxed) && s.segments.is_none() && !s.is_complete()) => Some(s),
-            // Replaying the current song keeps the next one's prefetch.
-            other if replay.is_some() => {
-                *self.prefetched.lock().unwrap() = other;
-                replay
-            }
-            // Playback went elsewhere: that prefetch is moot.
-            other => {
-                if let Some((_, s)) = other {
-                    s.cancel();
+        let Some(ready) = self.loads.current(generation, &self.audio.status.wanted_gen, || {
+            let prefetched = self.prefetched.lock().unwrap().take().filter(|(_, s)| s.can_reuse());
+            let replay = self.current.lock().unwrap().as_ref().filter(|(id, s)| *id == video_id && s.is_complete()).map(|(_, s)| s.clone());
+            match prefetched {
+                Some((id, s)) if id == video_id && !(self.visionos_hls.load(Ordering::Relaxed) && s.segments.is_none() && !s.is_complete()) => Some(s),
+                // Replaying the current song keeps the next one's prefetch.
+                other if replay.is_some() => {
+                    *self.prefetched.lock().unwrap() = other;
+                    replay
                 }
-                None
+                // Playback went elsewhere: that prefetch is moot.
+                other => {
+                    if let Some((_, s)) = other {
+                        s.cancel();
+                    }
+                    None
+                }
             }
+        }) else {
+            return Ok(());
         };
-        let shared = match ready {
+        let opened = match ready {
             Some(s) => {
                 log::debug!("play {video_id} (gen {generation}): using buffered stream");
-                s
+                OpenedStream { shared: s, decoder: None }
             }
             None => {
                 if self.audio.status.wanted_gen.load(Ordering::Relaxed) != generation {
                     return Ok(());
                 }
                 // Taken only for the video; otherwise dropping `early` stops it.
-                let opened = match early.0.take_if(|_| song.is_none()) {
+                let opened = match early.0.take_if(|_| song.is_none() && at.is_zero()) {
                     Some(open) => {
                         log::debug!("play {video_id} (gen {generation}): stream opened during the song lookup");
-                        open.await.map_err(anyhow::Error::from).flatten()
+                        open.await.map_err(anyhow::Error::from).flatten().map(|shared| OpenedStream { shared, decoder: None })
                     }
-                    None => self.open_stream(&video_id, false).await,
+                    None => self.open_prepared_stream(&video_id, at, generation).await,
                 };
                 match opened {
                     Ok(s) => s,
                     // The song won't play: the music video still does.
-                    Err(e) if song.is_some() => {
+                    Err(e) if song.is_some() && at.is_zero() => {
+                        if self.loads.current(generation, &self.audio.status.wanted_gen, || ()).is_none() {
+                            return Ok(());
+                        }
                         log::warn!("{listed}'s song {video_id} won't play ({e:#}); playing the music video");
                         (song, video_id) = (None, listed.to_owned());
                         // The UI took the song as playing already.
@@ -1631,16 +1806,23 @@ impl Backend {
                             None => None,
                         };
                         match opened {
-                            Some(s) => s,
-                            None => self.open_stream(listed, false).await?,
+                            Some(shared) => OpenedStream { shared, decoder: None },
+                            None => self.open_prepared_stream(listed, at, generation).await?,
                         }
                     }
                     Err(e) => return Err(e),
                 }
             }
         };
+        let OpenedStream { shared, decoder: prepared } = opened;
+        // A skipped resolver must not publish a stream or open another decoder.
+        // Only this pending load is cancelled by the next Play; the audio engine
+        // retains ownership of an outgoing song while it fades out.
+        if !self.loads.register(generation, &self.audio.status.wanted_gen, &shared) {
+            return Ok(());
+        }
         // If the song's audio won't start after all, the music video plays instead.
-        let fallback = song.is_some().then(|| (self.clone(), listed.to_owned(), report));
+        let fallback = (song.is_some() && at.is_zero()).then(|| (self.clone(), listed.to_owned(), report));
         if let Some(song) = song {
             log::info!("play {listed} as its {} {video_id}", if song.has_video() { "music video" } else { "song" });
             // Carried over, the UI has it already.
@@ -1650,7 +1832,6 @@ impl Backend {
             }
         }
         let video_id = video_id.as_str();
-        *self.current.lock().unwrap() = Some((video_id.to_owned(), shared.clone()));
         log::debug!("play {video_id} (gen {generation}): stream open in {:?}", t0.elapsed());
         if self.audio.status.wanted_gen.load(Ordering::Relaxed) != generation {
             shared.cancel();
@@ -1661,22 +1842,31 @@ impl Backend {
         let tx = self.tx.clone();
         let wake = self.wake.clone();
         // Opening the decoder reads the container header, which blocks on the download.
-        // Starting mid-song needs the seekable decoder (it waits for every fragment
-        // header); from the top, the non-seekable one starts sooner.
-        let seek = !at.is_zero();
+        // Incomplete files resume by streaming to the target: building a seek
+        // index first would make an available prefix depend on missing tail data.
         let shared2 = shared.clone();
+        let (loads, current) = (self.loads.clone(), self.current.clone());
+        let playing_id = video_id.to_owned();
         let report = (report && self.is_logged_in() && reports_plays()).then(|| (self.clone(), video_id.to_owned()));
         let open = move || -> anyhow::Result<crate::audio::TrackDecoder> {
-            let mut d = stream::decoder(shared.clone(), seek)?;
-            if seek {
-                rodio::Source::try_seek(&mut d, at).map_err(|e| anyhow::anyhow!("seek: {e}"))?;
+            if let Some(decoder) = prepared {
+                return Ok(decoder);
             }
-            Ok(d)
+            let mut decoder = stream::decoder_at(shared.clone(), at)?;
+            if !at.is_zero() {
+                decoder.prime_frame()?;
+            }
+            Ok(decoder)
         };
-        tokio::task::spawn_blocking(move || match open() {
+        tokio::task::spawn_blocking(move || match open_decoder_guarded(open) {
             Ok(decoder) => {
+                if !loads.finish(generation, &audio.status.wanted_gen, &shared2, || {
+                    *current.lock().unwrap() = Some((playing_id, shared2.clone()));
+                    audio.send(AudioCmd::Start { generation, decoder, shared: shared2.clone(), at });
+                }) {
+                    return;
+                }
                 log::debug!("play gen {generation}: decoder ready at {at:?} in {:?}", t0.elapsed());
-                audio.send(AudioCmd::Start { generation, decoder, shared: shared2, at });
                 // Skipped past before it started: that one doesn't count.
                 if let Some((this, id)) = report.filter(|_| audio.status.wanted_gen.load(Ordering::Relaxed) == generation) {
                     let rt = this.rt.clone();
@@ -1700,18 +1890,26 @@ impl Backend {
                     });
                 }
             }
-            Err(e) => match fallback {
-                Some((this, listed, report)) => {
-                    log::warn!("{listed}'s song won't start ({e}); playing the music video");
-                    let _ = tx.send(Resp::PlayingAs { generation, listed: listed.clone(), song: None });
-                    this.request(Req::Play { video_id: listed, generation, at, report, song_of: None, song: None });
-                    wake();
+            Err(e) => {
+                if !loads.finish(generation, &audio.status.wanted_gen, &shared2, || shared2.cancel()) {
+                    return;
                 }
-                None => {
-                    let _ = tx.send(Resp::PlayError { generation, msg: format!("decode: {e}") });
-                    wake();
+                // A library panic fails this play; don't silently launch another
+                // detached decoder through the song/video fallback.
+                let fallback = fallback.filter(|_| !e.is::<DecoderPanicked>());
+                match fallback {
+                    Some((this, listed, report)) => {
+                        log::warn!("{listed}'s song won't start ({e}); playing the music video");
+                        let _ = tx.send(Resp::PlayingAs { generation, listed: listed.clone(), song: None });
+                        this.request(Req::Play { video_id: listed, generation, at, report, song_of: None, song: None });
+                        wake();
+                    }
+                    None => {
+                        let _ = tx.send(Resp::PlayError { generation, msg: format!("decode: {e}") });
+                        wake();
+                    }
                 }
-            },
+            }
         });
         Ok(())
     }
@@ -1879,7 +2077,7 @@ impl Backend {
 
     async fn open_stream(&self, video_id: &str, prefetch: bool) -> anyhow::Result<Arc<Shared>> {
         let found = self.find_stream(video_id).await?;
-        Ok(self.start_stream(video_id, found, prefetch))
+        self.start_stream(video_id, found, prefetch)
     }
 
     /// The saved download, or a stream URL to download from.
@@ -1889,12 +2087,15 @@ impl Backend {
             return Ok(Found::Saved(shared));
         }
         let (source, s) = self.resolve(video_id, false).await?;
+        let s = if source == Source::VisionOs && s.opus {
+            choose_visionos_stream(&self.http(), s, || self.resolve_from(Source::VisionOs, video_id, false)).await?
+        } else { s };
         Ok(Found::Url(source, s))
     }
 
-    fn start_stream(&self, video_id: &str, found: Found, prefetch: bool) -> Arc<Shared> {
+    fn start_stream(&self, video_id: &str, found: Found, prefetch: bool) -> anyhow::Result<Arc<Shared>> {
         let (source, s) = match found {
-            Found::Saved(shared) => return shared,
+            Found::Saved(shared) => return Ok(shared),
             Found::Url(source, s) => (source, s),
         };
         match &s.starts {
@@ -1902,10 +2103,10 @@ impl Backend {
             None => log::info!("stream {video_id}: {} bytes {} from {source:?}", s.size, s.kind()),
         }
         let shared = s.buffer(prefetch);
-        let refresh = Some(self.refresher(source, video_id, s.opus, s.size));
+        let refresh = Some(self.refresher(source, video_id, StreamIdentity::capture(&s)?));
         let (this, buffer) = (self.clone(), shared.clone());
         self.rt.spawn(async move {
-            stream::download(this.http(), s.media, s.user_agent, buffer.clone(), refresh).await;
+            stream::download_playback(this.http(), s.media, s.user_agent, buffer.clone(), refresh).await;
             // Fresh visionOS file URLs refused too: YouTube wants a PO token for them
             // here, past the first MiB. Its HLS segments play without one; the song
             // reopens where it stopped, and the rest of the session goes that way.
@@ -1913,20 +2114,81 @@ impl Backend {
                 log::warn!("visionOS file streams are refused here past 1 MiB; playing HLS from now on");
             }
         });
-        shared
+        Ok(shared)
     }
 
-    /// Resolves a fresh URL from the same source and format, for a download that got a 403.
-    fn refresher(&self, source: Source, video_id: &str, opus: bool, size: u64) -> stream::Refresh {
+    /// Recovery first tries upstream HLS where a progressive file failed. Every
+    /// candidate still needs a real target decoder before the generation can publish.
+    async fn open_prepared_stream(&self, video_id: &str, at: std::time::Duration, generation: u64) -> anyhow::Result<OpenedStream> {
+        let failed = (!at.is_zero()).then(|| self.current.lock().unwrap().as_ref()
+            .filter(|(id, shared)| id == video_id && shared.error().is_some() && !shared.feed)
+            .map(|(_, shared)| (shared.opus, shared.segments.is_none()))).flatten();
+        let Some((failed_opus, failed_file)) = failed else {
+            return self.open_stream(video_id, false).await.map(|shared| OpenedStream { shared, decoder: None });
+        };
+        let mut lookups = futures_util::stream::FuturesUnordered::new();
+        let hls = async {
+            if failed_file {
+                self.resolve_from(Source::VisionOsHls, video_id, false).await.map(|candidate| vec![candidate])
+            } else { Ok(Vec::new()) }
+        };
+        let files = self.visionos_streams(video_id);
+        lookups.push(std::pin::Pin::from(Box::new(hls) as Box<dyn std::future::Future<Output = anyhow::Result<Vec<ResolvedStream>>> + Send + '_>));
+        lookups.push(std::pin::Pin::from(Box::new(files) as Box<dyn std::future::Future<Output = anyhow::Result<Vec<ResolvedStream>>> + Send + '_>));
+        let collect = async {
+            use futures_util::StreamExt;
+            let mut candidates = Vec::new();
+            let deadline = tokio::time::sleep(std::time::Duration::from_secs(6));
+            tokio::pin!(deadline);
+            loop {
+                tokio::select! {
+                    result = lookups.next() => match result {
+                        Some(Ok(mut found)) => candidates.append(&mut found),
+                        Some(Err(_)) => {},
+                        None => break,
+                    },
+                    _ = &mut deadline => break,
+                    _ = self.wait_superseded(generation) => anyhow::bail!("audio recovery superseded"),
+                }
+            }
+            anyhow::Ok(candidates)
+        };
+        let candidates = collect.await?;
+        drop(lookups); // Cancel a losing resolver before starting actual decoding.
+        if candidates.is_empty() && self.api.account().is_some() {
+            // Age/Premium-only media retain the upstream signed-in resolver path.
+            return self.open_stream(video_id, false).await.map(|shared| OpenedStream { shared, decoder: None });
+        }
+        anyhow::ensure!(!candidates.is_empty(), "no recovery audio candidates resolved");
+        let opened = prepare_recovery_candidates(self.http(), candidates, failed_opus, at, &self.audio.status.wanted_gen, generation,
+            |chosen| {
+                let source = if chosen.starts.is_some() { Source::VisionOsHls } else { Source::VisionOs };
+                Ok(Some(self.refresher(source, video_id, StreamIdentity::capture(chosen)?)))
+            }).await?;
+        if opened.shared.segments.is_some() {
+            self.visionos_hls.store(true, Ordering::Relaxed);
+        }
+        Ok(opened)
+    }
+
+    async fn wait_superseded(&self, generation: u64) {
+        while self.audio.status.wanted_gen.load(Ordering::Relaxed) == generation {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+
+    /// Renew exactly the buffered representation; never splice another quality or
+    /// another HLS segment layout into an existing decoder's Shared.
+    fn refresher(&self, source: Source, video_id: &str, identity: StreamIdentity) -> stream::Refresh {
         let (this, id) = (self.clone(), video_id.to_owned());
         Arc::new(move || {
-            let (this, id) = (this.clone(), id.clone());
+            let (this, id, identity) = (this.clone(), id.clone(), identity.clone());
             Box::pin(async move {
-                let s = this.resolve_from(source, &id, opus).await?;
-                // The buffer is laid out for the format it started with.
-                anyhow::ensure!(s.opus == opus, "the stream changed format");
-                // A podcast host may put other ads in, which makes another file.
-                anyhow::ensure!(s.size == size, "the stream changed size");
+                let s = if source == Source::VisionOs && let Some(itag) = identity.itag() {
+                    this.visionos_streams(&id).await?.into_iter().find(|s| stream_itag(s) == Some(itag))
+                        .ok_or_else(|| anyhow::anyhow!("the buffered audio representation is no longer offered"))?
+                } else { this.resolve_from(source, &id, identity.opus).await? };
+                identity.validate(&s)?;
                 Ok(s.media)
             })
         })
@@ -1947,6 +2209,7 @@ impl Backend {
             return Ok((path, false));
         }
         let (source, s) = self.resolve(&t.id, true).await?;
+        let identity = StreamIdentity::capture(&s)?;
         log::info!("download {}: {} bytes from {source:?}", t.id, s.size);
         anyhow::ensure!(s.starts.is_none(), "downloads need the file stream");
         // Saved as a tagged .m4a, which a feed's MP3 isn't.
@@ -1956,7 +2219,7 @@ impl Backend {
             let current = self.current.clone();
             Arc::new(move || current.lock().unwrap().as_ref().map(|(_, s)| s.clone())) as stream::Ahead
         });
-        stream::download_behind(self.http(), s.media, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus, s.size)), ahead).await;
+        stream::download_behind(self.http(), s.media, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, identity)), ahead).await;
         if let Some(e) = shared.error() {
             anyhow::bail!("{e}");
         }
@@ -2176,6 +2439,7 @@ impl Backend {
     /// the web player); yt-dlp and HLS are AAC.
     async fn resolve_from(&self, source: Source, video_id: &str, opus: bool) -> anyhow::Result<ResolvedStream> {
         let plain = |s: innertube::Stream, ua: &str| ResolvedStream {
+            itag: Some(s.itag),
             media: stream::Media::File(s.url),
             starts: None,
             size: s.size,
@@ -2189,7 +2453,7 @@ impl Backend {
             Source::VisionOsHls => {
                 let s = self.visionos_hls(video_id).await?;
                 let (starts, urls) = s.segments.into_iter().unzip();
-                ResolvedStream { media: stream::Media::Segments(urls), starts: Some(starts), size: 0, duration_ms: s.duration_ms, user_agent: innertube::UA.to_owned(), loudness_db: s.loudness_db, opus: false }
+                ResolvedStream { itag: Some(234), media: stream::Media::Segments(urls), starts: Some(starts), size: 0, duration_ms: s.duration_ms, user_agent: innertube::UA.to_owned(), loudness_db: s.loudness_db, opus: false }
             }
             Source::WebMusic => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
@@ -2209,7 +2473,7 @@ impl Backend {
                 // Cookies Google replaced while yt-dlp used the session.
                 self.api.keep(&session, s.replaced.iter().map(String::as_str));
                 // yt-dlp's JSON doesn't carry YouTube's loudness figure.
-                ResolvedStream { media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
+                ResolvedStream { itag: None, media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
             }
         })
     }
@@ -2220,6 +2484,7 @@ impl Backend {
         let (url, size) = stream::probe_feed(&self.http(), &feed.url, webmusic::UA).await?;
         log::info!("podcast feed file on {}", reqwest::Url::parse(&url).ok().as_ref().and_then(reqwest::Url::host_str).unwrap_or("?"));
         Ok(ResolvedStream {
+            itag: None,
             media: stream::Media::Feed(url),
             starts: None,
             size,
@@ -2299,6 +2564,23 @@ impl Backend {
                 innertube::audio_stream(&self.http(), video_id, &vd, opus).await
             }
         }
+    }
+
+    async fn visionos_streams(&self, video_id: &str) -> anyhow::Result<Vec<ResolvedStream>> {
+        let vd = self.api.visitor_data(false).await?;
+        let streams = match innertube::audio_streams(&self.http(), video_id, &vd, true).await {
+            Ok(streams) => streams,
+            Err(e) if needs_account(&e) => return Err(e),
+            Err(_) => {
+                let vd = self.api.visitor_data(true).await?;
+                innertube::audio_streams(&self.http(), video_id, &vd, true).await?
+            }
+        };
+        Ok(streams.into_iter().filter(|s| matches!(s.itag, 139..=140 | 249..=251)).map(|s| ResolvedStream {
+            itag: Some(s.itag),
+            media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms,
+            user_agent: innertube::UA.to_owned(), loudness_db: s.loudness_db, opus: s.opus,
+        }).collect())
     }
 
     /// Webview profile used by the sign-in window.
@@ -2387,7 +2669,9 @@ enum Found {
     Url(Source, ResolvedStream),
 }
 
+#[derive(Clone)]
 struct ResolvedStream {
+    itag: Option<u64>,
     media: stream::Media,
     /// HLS: each segment's start (s).
     starts: Option<Vec<f64>>,
@@ -2401,6 +2685,13 @@ struct ResolvedStream {
 }
 
 impl ResolvedStream {
+    fn file_url(&self) -> anyhow::Result<&str> {
+        match &self.media {
+            stream::Media::File(url) => Ok(url),
+            _ => anyhow::bail!("this representation is not a progressive file"),
+        }
+    }
+
     /// A buffer laid out for this stream. `head_only`: a prefetch's.
     fn buffer(&self, head_only: bool) -> Arc<Shared> {
         match (&self.starts, &self.media) {
@@ -2417,6 +2708,255 @@ impl ResolvedStream {
             (_, true) => "Opus",
             _ => "AAC",
         }
+    }
+}
+
+struct OpenedStream {
+    shared: Arc<Shared>,
+    decoder: Option<crate::audio::TrackDecoder>,
+}
+
+/// Dropping a timed-out/superseded preparation wakes its blocking decoder and
+/// stops its download. Successful handoff explicitly disarms this guard.
+struct RecoveryBuffer(Option<Arc<Shared>>);
+
+impl Drop for RecoveryBuffer {
+    fn drop(&mut self) {
+        if let Some(shared) = self.0.take() {
+            shared.cancel();
+        }
+    }
+}
+
+async fn prepare_recovery_candidates(
+    http: reqwest::Client, mut candidates: Vec<ResolvedStream>, failed_opus: bool, at: std::time::Duration,
+    wanted: &std::sync::atomic::AtomicU64, generation: u64,
+    refresh: impl Fn(&ResolvedStream) -> anyhow::Result<Option<stream::Refresh>> + Send + Sync,
+) -> anyhow::Result<OpenedStream> {
+    use std::time::Duration;
+    anyhow::ensure!(wanted.load(Ordering::Relaxed) == generation, "audio recovery superseded");
+    let preparation = async {
+        for _ in 0..3 {
+            let chosen = choose_recovery_stream(&http, candidates.clone(), failed_opus, at).await?;
+            let renewal = refresh(&chosen)?;
+            let itag = stream_itag(&chosen);
+            candidates.retain(|candidate| stream_itag(candidate) != itag);
+            let shared = chosen.buffer(false);
+            let mut guard = RecoveryBuffer(Some(shared.clone()));
+            tokio::spawn(stream::download_playback(http.clone(), chosen.media, chosen.user_agent, shared.clone(), renewal));
+            let decode_shared = shared.clone();
+            let decoder = tokio::task::spawn_blocking(move || open_decoder_guarded(|| {
+                let mut decoder = stream::decoder_at(decode_shared, at)?;
+                decoder.prime_frame()?;
+                Ok(decoder)
+            }));
+            match tokio::time::timeout(Duration::from_secs(3), decoder).await {
+                Ok(Ok(Err(error))) if error.is::<DecoderPanicked>() => return Err(error),
+                Ok(Ok(Ok(decoder))) => {
+                    anyhow::ensure!(wanted.load(Ordering::Relaxed) == generation, "audio recovery superseded");
+                    guard.0 = None;
+                    log::info!("recovery: prepared itag={} at {}ms", itag.unwrap_or(0), at.as_millis());
+                    return Ok(OpenedStream { shared, decoder: Some(decoder) });
+                }
+                _ => log::warn!("recovery: itag={} could not decode the target; trying another representation", itag.unwrap_or(0)),
+            }
+        }
+        anyhow::bail!("no audio representation could decode the recovery position")
+    };
+    tokio::pin!(preparation);
+    let deadline = tokio::time::sleep(Duration::from_secs(8));
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            result = &mut preparation => return result,
+            _ = &mut deadline => anyhow::bail!("audio recovery deadline exceeded"),
+            _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                anyhow::ensure!(wanted.load(Ordering::Relaxed) == generation, "audio recovery superseded");
+            }
+        }
+    }
+}
+
+/// Probe candidates before Shared exists; bytes from different formats never mix.
+async fn probe_visionos_stream(http: &reqwest::Client, stream: &ResolvedStream) -> anyhow::Result<()> {
+    anyhow::ensure!(stream.starts.is_none(), "progressive probe requires a file stream");
+    anyhow::ensure!(stream.size > 0, "empty audio stream");
+    let expect = stream.size.min(1024) as usize;
+    let mut url = url::Url::parse(stream.file_url()?).map_err(|_| anyhow::anyhow!("invalid audio stream address"))?;
+    url.query_pairs_mut().append_pair("range", &format!("0-{}", expect - 1));
+    let mut response = http.get(url).header("User-Agent", &stream.user_agent).send().await
+        .and_then(reqwest::Response::error_for_status).map_err(reqwest::Error::without_url)?;
+    let mut received = 0;
+    while received < expect {
+        let chunk = response.chunk().await.map_err(reqwest::Error::without_url)?
+            .ok_or_else(|| anyhow::anyhow!("audio probe ended early"))?;
+        received += chunk.len();
+        anyhow::ensure!(received <= expect, "audio probe returned an unexpected range");
+    }
+    // Exact bytes suffice: a CDN may withhold EOF after delivering the range.
+    Ok(())
+}
+
+/// Healthy Opus avoids another player request. Slow Opus races a bounded AAC
+/// resolve plus exact body probe; merely resolving an AAC URL cannot win.
+async fn choose_visionos_stream<F, Fut>(http: &reqwest::Client, first: ResolvedStream, resolve_aac: F) -> anyhow::Result<ResolvedStream>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<ResolvedStream>>,
+{
+    use std::time::Duration;
+    if !first.opus {
+        return Ok(first);
+    }
+    let opus = tokio::time::timeout(Duration::from_secs(3), probe_visionos_stream(http, &first));
+    tokio::pin!(opus);
+    let opus_failed = match tokio::time::timeout(Duration::from_millis(300), &mut opus).await {
+        Ok(Ok(Ok(()))) => return Ok(first.clone()),
+        Ok(_) => true,
+        Err(_) => false,
+    };
+    let fallback = std::sync::Mutex::new(None);
+    let aac = async {
+        let candidate = resolve_aac().await?;
+        anyhow::ensure!(!candidate.opus, "AAC fallback returned an unexpected representation");
+        *fallback.lock().unwrap() = Some(candidate.clone());
+        probe_visionos_stream(http, &candidate).await?;
+        Ok::<_, anyhow::Error>(candidate)
+    };
+    // Resolution and probe share this budget; a stuck resolver cannot extend it.
+    let aac = tokio::time::timeout(Duration::from_secs(2), aac);
+    tokio::pin!(aac);
+    let unverified_aac = || {
+        let candidate = fallback.lock().unwrap().take()
+            .ok_or_else(|| anyhow::anyhow!("Opus audio probe failed and no AAC stream resolved"))?;
+        log::info!("visionOS audio probes unavailable; leaving unverified AAC to the bounded playback loader");
+        Ok(candidate)
+    };
+    if opus_failed {
+        return match aac.await { Ok(Ok(stream)) => Ok(stream), _ => unverified_aac() };
+    }
+    tokio::select! {
+        result = &mut opus => match result {
+            Ok(Ok(())) => Ok(first.clone()),
+            _ => match aac.await { Ok(Ok(stream)) => Ok(stream), _ => unverified_aac() },
+        },
+        result = &mut aac => match result {
+            Ok(Ok(stream)) => Ok(stream),
+            _ => match opus.await { Ok(Ok(())) => Ok(first.clone()), _ => unverified_aac() },
+        },
+    }
+}
+
+fn stream_itag(stream: &ResolvedStream) -> Option<u64> {
+    if stream.itag.is_some() { return stream.itag; }
+    url::Url::parse(stream.file_url().ok()?).ok()?.query_pairs()
+        .find(|(key, _)| key == "itag").and_then(|(_, value)| value.parse().ok())
+}
+
+/// Recovery checks both the header and a small region near the stopped time.
+/// The byte estimate only rejects obvious CDN failures: decoder_at plus the
+/// retained target PCM frame still verify the actual container position.
+async fn probe_recovery_stream(http: &reqwest::Client, stream: &ResolvedStream, at: std::time::Duration) -> anyhow::Result<()> {
+    // HLS has no progressive byte ranges. Its real decoder/target frame below
+    // validates segment access; this shortlisting step never publishes readiness.
+    if stream.starts.is_some() { return Ok(()); }
+    probe_visionos_stream(http, stream).await?;
+    if at.is_zero() || stream.duration_ms == 0 {
+        return Ok(());
+    }
+    let start = ((stream.size as u128 * at.as_millis().min(stream.duration_ms as u128)) / stream.duration_ms as u128) as u64;
+    let start = start.min(stream.size.saturating_sub(1));
+    let expect = (stream.size - start).min(16 * 1024) as usize;
+    let mut url = url::Url::parse(stream.file_url()?).map_err(|_| anyhow::anyhow!("invalid recovery audio address"))?;
+    url.query_pairs_mut().append_pair("range", &format!("{start}-{}", start + expect as u64 - 1));
+    let mut response = http.get(url).header("User-Agent", &stream.user_agent).send().await
+        .and_then(reqwest::Response::error_for_status).map_err(reqwest::Error::without_url)?;
+    let mut received = 0;
+    while received < expect {
+        let bytes = response.chunk().await.map_err(reqwest::Error::without_url)?
+            .ok_or_else(|| anyhow::anyhow!("recovery audio probe ended early"))?;
+        received += bytes.len();
+        anyhow::ensure!(received <= expect, "recovery probe returned an unexpected range");
+    }
+    Ok(())
+}
+
+/// Prefer another codec after a terminal failure, including the lower bitrate
+/// Opus variants. A freshly resolved former codec can still recover, but only
+/// after its header and target-region bodies pass. No unverified fallback wins.
+async fn choose_recovery_stream(http: &reqwest::Client, mut candidates: Vec<ResolvedStream>, failed_opus: bool, at: std::time::Duration) -> anyhow::Result<ResolvedStream> {
+    use futures_util::{StreamExt, stream::FuturesUnordered};
+    use std::time::Duration;
+    candidates.sort_by_key(|candidate| (candidate.starts.is_none(), candidate.opus == failed_opus));
+    let mut seen = std::collections::HashSet::new();
+    candidates.retain(|candidate| seen.insert(stream_itag(candidate)));
+    let mut probes = FuturesUnordered::new();
+    for (rank, candidate) in candidates.into_iter().take(5).enumerate() {
+        probes.push(async move {
+            // Give the preferred quality a small head start without serially
+            // waiting seconds on every unavailable representation.
+            tokio::time::sleep(Duration::from_millis(rank as u64 * 100)).await;
+            tokio::time::timeout(Duration::from_secs(3), probe_recovery_stream(http, &candidate, at)).await
+                .map_err(|_| anyhow::anyhow!("recovery representation probe timed out"))??;
+            anyhow::Ok(candidate)
+        });
+    }
+    while let Some(result) = probes.next().await {
+        if let Ok(candidate) = result {
+            // Dropping FuturesUnordered cancels the other probes immediately.
+            return Ok(candidate);
+        }
+    }
+    anyhow::bail!("no audio representation could serve the recovery position")
+}
+
+/// Byte representation identity, excluding signatures and routing parameters.
+/// Deliberately not Debug: query values must never enter diagnostic output.
+#[derive(Clone)]
+struct StreamIdentity {
+    itag: Option<u64>,
+    opus: bool,
+    size: u64,
+    duration_ms: u64,
+    query: std::collections::BTreeMap<String, Vec<String>>,
+    kind: u8,
+    starts: Option<Vec<f64>>,
+}
+
+impl StreamIdentity {
+    fn itag(&self) -> Option<u64> {
+        if self.itag.is_some() { return self.itag; }
+        let values = self.query.get("itag")?;
+        (values.len() == 1).then(|| values[0].parse().ok()).flatten()
+    }
+    fn capture(stream: &ResolvedStream) -> anyhow::Result<Self> {
+        let mut query = std::collections::BTreeMap::<String, Vec<String>>::new();
+        let kind = match &stream.media {
+            stream::Media::File(address) => {
+                let url = url::Url::parse(address).map_err(|_| anyhow::anyhow!("the stream changed representation"))?;
+                for (key, value) in url.query_pairs().filter(|(key, _)| matches!(key.as_ref(), "itag" | "lmt" | "clen" | "mime" | "dur")) {
+                    query.entry(key.into_owned()).or_default().push(value.into_owned());
+                }
+                0
+            }
+            stream::Media::Feed(_) => 1,
+            stream::Media::Segments(urls) => {
+                anyhow::ensure!(stream.starts.as_ref().is_some_and(|starts| starts.len() == urls.len()), "invalid HLS segment layout");
+                2
+            }
+        };
+        for values in query.values_mut() { values.sort(); }
+        Ok(Self { itag: stream_itag(stream), opus: stream.opus, size: stream.size, duration_ms: stream.duration_ms, query,
+            kind, starts: stream.starts.clone() })
+    }
+    fn validate(&self, stream: &ResolvedStream) -> anyhow::Result<()> {
+        let next = Self::capture(stream)?;
+        anyhow::ensure!(
+            self.kind == next.kind && self.starts == next.starts && self.itag == next.itag && self.opus == next.opus && self.size == next.size && self.duration_ms == next.duration_ms
+                && self.query.iter().all(|(key, value)| next.query.get(key) == Some(value)),
+            "the stream changed representation"
+        );
+        Ok(())
     }
 }
 
@@ -2652,10 +3192,769 @@ mod resolve_tests {
         assert!(not_available(&e), "{e:#}");
         let t = std::time::Instant::now();
         let feed = session.feed(&http, &solver, &id).await.unwrap().expect("not an RSS episode");
-        println!("web player: {} ms, {} (in {:?})", feed.duration_ms, feed.url, t.elapsed());
+        println!("web player: {} ms (in {:?})", feed.duration_ms, t.elapsed());
         assert!(feed.duration_ms > 0);
-        let (file, size) = stream::probe_feed(&http, &feed.url, webmusic::UA).await.unwrap();
-        println!("  -> {file}: {size} bytes");
+        let (_file, size) = stream::probe_feed(&http, &feed.url, webmusic::UA).await.unwrap();
+        println!("feed file: {size} bytes");
         assert!(size > 0);
+    }
+}
+
+#[cfg(test)]
+mod visionos_fallback_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::sync::atomic::AtomicBool;
+    use std::time::Duration;
+
+    fn resolved(url: String, opus: bool, size: u64) -> ResolvedStream {
+        ResolvedStream { itag: None, media: stream::Media::File(url), starts: None, size, duration_ms: 1000, user_agent: "probe-test".into(), loudness_db: None, opus }
+    }
+
+    fn probe_server(status: u16) -> (String, std::thread::JoinHandle<()>) {
+        delayed_probe_server(status, Duration::ZERO, 1024)
+    }
+
+    fn delayed_probe_server(status: u16, delay: Duration, bytes: usize) -> (String, std::thread::JoinHandle<()>) {
+        probe_response_server(status, delay, bytes, false)
+    }
+
+    fn probe_response_server(status: u16, delay: Duration, bytes: usize, hold_eof: bool) -> (String, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/audio", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let worker = std::thread::spawn(move || {
+            let start = std::time::Instant::now();
+            let (mut socket, _) = loop {
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock && start.elapsed() < Duration::from_secs(4) => std::thread::sleep(Duration::from_millis(5)),
+                    Err(e) => panic!("probe mock did not receive a request: {e}"),
+                }
+            };
+            socket.set_nonblocking(false).unwrap();
+            socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let mut request = [0; 4096];
+            let n = socket.read(&mut request).unwrap();
+            assert!(String::from_utf8_lossy(&request[..n]).contains("range=0-1023"));
+            std::thread::sleep(delay);
+            let body = if status == 200 { vec![1; bytes] } else { vec![] };
+            // A winning alternate may drop the slow connection before its response.
+            if hold_eof {
+                let header = format!("HTTP/1.1 {status} Result\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n", body.len());
+                let _ = socket.write_all(header.as_bytes())
+                    .and_then(|_| socket.write_all(&body))
+                    .and_then(|_| socket.write_all(b"\r\n"));
+                // Deliberately omit the final zero chunk, but keep the mock finite.
+                std::thread::sleep(Duration::from_millis(800));
+            } else {
+                let header = format!("HTTP/1.1 {status} Result\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                let _ = socket.write_all(header.as_bytes()).and_then(|_| socket.write_all(&body));
+            }
+        });
+        (url, worker)
+    }
+
+    #[tokio::test]
+    async fn unavailable_opus_selects_aac_before_creating_a_fresh_buffer() {
+        let (url, server) = probe_server(503);
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let old = Shared::new(1024, 1000, None, true, false);
+        let (aac_url, aac_server) = probe_server(503);
+        let expected_url = aac_url.clone();
+        let chosen = choose_visionos_stream(&http, resolved(url, true, old.total), || async {
+            Ok(resolved(aac_url, false, 2048))
+        }).await.unwrap();
+        // Both body probes failed; the resolved AAC remains an unverified fallback.
+        assert!(!chosen.opus);
+        assert_eq!(chosen.file_url().unwrap(), expected_url);
+        aac_server.join().unwrap();
+        let fresh = Shared::new(chosen.size, chosen.duration_ms, chosen.loudness_db, chosen.opus, false);
+        assert!(!Arc::ptr_eq(&old, &fresh));
+        assert_eq!(fresh.total, 2048);
+        assert!(!fresh.opus);
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn healthy_opus_does_not_resolve_aac() {
+        let (url, server) = probe_server(200);
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let called = AtomicBool::new(false);
+        let chosen = choose_visionos_stream(&http, resolved(url, true, 1024), || async {
+            called.store(true, Ordering::Relaxed);
+            anyhow::bail!("healthy Opus must not resolve AAC")
+        }).await.unwrap();
+        assert!(chosen.opus);
+        assert!(!called.load(Ordering::Relaxed));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn slow_opus_hedges_aac_before_the_opus_timeout() {
+        let (opus_url, opus_server) = delayed_probe_server(200, Duration::from_secs(2), 1024);
+        let (aac_url, aac_server) = probe_server(200);
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let started = std::time::Instant::now();
+        let chosen = choose_visionos_stream(&http, resolved(opus_url, true, 1024), || async {
+            Ok(resolved(aac_url, false, 1024))
+        }).await.unwrap();
+        assert!(!chosen.opus);
+        assert!(started.elapsed() < Duration::from_millis(1500));
+        aac_server.join().unwrap();
+        opus_server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn truncated_aac_cannot_mask_slow_healthy_opus() {
+        let (opus_url, opus_server) = delayed_probe_server(200, Duration::from_millis(650), 1024);
+        let (aac_url, aac_server) = delayed_probe_server(200, Duration::ZERO, 512);
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let called = AtomicBool::new(false);
+        let chosen = choose_visionos_stream(&http, resolved(opus_url, true, 1024), || async {
+            called.store(true, Ordering::Relaxed);
+            Ok(resolved(aac_url, false, 1024))
+        }).await.unwrap();
+        assert!(called.load(Ordering::Relaxed));
+        assert!(chosen.opus);
+        aac_server.join().unwrap();
+        opus_server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_opus_and_failed_aac_resolution_return_a_safe_error() {
+        let (opus_url, opus_server) = probe_server(503);
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let result = choose_visionos_stream(&http, resolved(opus_url, true, 1024), || async {
+            anyhow::bail!("resolver error containing a private address must stay private")
+        }).await;
+        let message = result.err().expect("neither candidate was available").to_string();
+        assert!(message.contains("no AAC stream resolved"));
+        assert!(!message.contains("private address"));
+        assert!(!message.contains("http://"));
+        opus_server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn healthy_opus_drops_the_losing_hung_aac_resolver() {
+        struct DropFlag(Arc<AtomicBool>);
+        impl Drop for DropFlag {
+            fn drop(&mut self) { self.0.store(true, Ordering::Relaxed); }
+        }
+        let (opus_url, opus_server) = delayed_probe_server(200, Duration::from_millis(650), 1024);
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let resolver_dropped = dropped.clone();
+        let chosen = choose_visionos_stream(&http, resolved(opus_url, true, 1024), || async move {
+            let _guard = DropFlag(resolver_dropped);
+            std::future::pending::<anyhow::Result<ResolvedStream>>().await
+        }).await.unwrap();
+        assert!(chosen.opus);
+        assert!(dropped.load(Ordering::Relaxed));
+        opus_server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn exact_probe_prefix_is_available_without_waiting_for_eof() {
+        let (url, server) = probe_response_server(200, Duration::ZERO, 1024, true);
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let called = AtomicBool::new(false);
+        let started = std::time::Instant::now();
+        let chosen = choose_visionos_stream(&http, resolved(url, true, 1024), || async {
+            called.store(true, Ordering::Relaxed);
+            anyhow::bail!("an exact availability prefix must not trigger AAC")
+        }).await.unwrap();
+        assert!(chosen.opus);
+        assert!(!called.load(Ordering::Relaxed));
+        assert!(started.elapsed() < Duration::from_millis(500));
+        // Availability only: Shared's full block downloader remains responsible
+        // for validating the eventual audio representation and complete download.
+        server.join().unwrap();
+    }
+
+    /// Explicit network acceptance for the reported track; no Api, profile, files,
+    /// credentials, hardware output, or account history are involved.
+    #[tokio::test]
+    #[ignore = "live anonymous service test for the reported playback stall"]
+    async fn reported_track_visionos_fallback_decodes_in_memory() -> anyhow::Result<()> {
+        use rodio::Source;
+        let id = std::env::var("YTM_REPORTED_TRACK").unwrap_or_else(|_| "qYxLQ1YNu-g".to_owned());
+        let http = crate::proxy::http();
+        let response = http.get("https://music.youtube.com/").header("User-Agent", innertube::UA)
+            .timeout(Duration::from_secs(20))
+            .send().await.and_then(reqwest::Response::error_for_status).map_err(reqwest::Error::without_url)?;
+        let html = response.text().await.map_err(reqwest::Error::without_url)?;
+        let visitor = html.split_once("\"VISITOR_DATA\":\"").and_then(|(_, tail)| tail.split('"').next()).map(str::to_owned)
+            .filter(|s| !s.is_empty()).ok_or_else(|| anyhow::anyhow!("no anonymous visitor data on page"))?;
+        let convert = |s: innertube::Stream| ResolvedStream {
+            itag: Some(s.itag),
+            media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms, user_agent: innertube::UA.into(), loudness_db: s.loudness_db, opus: s.opus,
+        };
+        let first = convert(innertube::audio_stream(&http, &id, &visitor, true).await?);
+        let chosen = choose_visionos_stream(&http, first, || async {
+            innertube::audio_stream(&http, &id, &visitor, false).await.map(convert)
+        }).await?;
+        let aac = convert(innertube::audio_stream(&http, &id, &visitor, false).await?);
+        anyhow::ensure!(!aac.opus, "AAC check returned an unexpected representation");
+        // Availability can change between runs. Decode the format selected by
+        // the production helper, plus a separately resolved AAC safety path.
+        for chosen in [chosen, aac] {
+            let shared = Shared::new(chosen.size, chosen.duration_ms, chosen.loudness_db, chosen.opus, false);
+            tokio::time::timeout(Duration::from_secs(90), stream::download(http.clone(), chosen.media, chosen.user_agent, shared.clone(), None)).await
+                .map_err(|_| anyhow::anyhow!("reported track download exceeded test deadline"))?;
+            anyhow::ensure!(shared.error().is_none() && shared.is_complete(), "reported track download failed");
+            let mut decoder = stream::decoder(shared, true)?;
+            let channels = decoder.channels().get() as usize;
+            let rate = decoder.sample_rate().get() as f64;
+            let mut samples = 0usize;
+            let max_samples = ((chosen.duration_ms as f64 / 1000.0 + 5.0) * rate * channels as f64) as usize;
+            for sample in decoder.by_ref().take(max_samples + 1) {
+                anyhow::ensure!(sample.is_finite(), "decoder returned a non-finite sample");
+                samples += 1;
+            }
+            anyhow::ensure!(samples > 0 && samples <= max_samples && samples.is_multiple_of(channels), "decoder did not produce a finite sequence of complete frames");
+            let seconds = samples as f64 / (rate * channels as f64);
+            anyhow::ensure!((seconds - chosen.duration_ms as f64 / 1000.0).abs() < 1.0, "decoded duration differs from stream metadata");
+            println!("codec={}, rate={rate}, frames={}, seconds={seconds:.3}", if chosen.opus { "Opus" } else { "AAC" }, samples / channels);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod stream_identity_tests {
+    use super::*;
+
+    fn stream(query: &str) -> ResolvedStream {
+        ResolvedStream {
+            itag: None,
+            media: stream::Media::File(format!("https://media.invalid/audio?{query}")), starts: None,
+            size: 1024,
+            duration_ms: 1000,
+            user_agent: "test".into(),
+            loudness_db: None,
+            opus: true,
+        }
+    }
+
+    #[test]
+    fn same_rep_new_signature_allowed() {
+        let old = stream("itag=251&lmt=123&clen=1024&mime=audio%2Fwebm&dur=1.0&sig=old&expire=1&ip=old&n=old&id=old");
+        let identity = StreamIdentity::capture(&old).unwrap();
+        let mut new = stream("dur=1.0&mime=audio%2Fwebm&clen=1024&lmt=123&itag=251&sig=new&expire=2&ip=new&n=new&id=new");
+        new.media = stream::Media::File(new.file_url().unwrap().replace("media.invalid", "another-media.invalid"));
+        assert!(identity.validate(&new).is_ok());
+    }
+
+    #[test]
+    fn same_codec_changed_size_rejected() {
+        let old = stream("itag=251&lmt=123");
+        let identity = StreamIdentity::capture(&old).unwrap();
+        let mut new = stream("itag=251&lmt=123");
+        new.size += 1;
+        assert_eq!(identity.validate(&new).unwrap_err().to_string(), "the stream changed representation");
+        new.size = old.size;
+        new.duration_ms += 1;
+        assert!(identity.validate(&new).is_err());
+        new.duration_ms = old.duration_ms;
+        new.opus = false;
+        assert!(identity.validate(&new).is_err());
+    }
+
+    #[test]
+    fn itag_or_lmt_changed_or_missing_rejected() {
+        let old = stream("itag=251&lmt=123&clen=1024&mime=audio%2Fwebm&dur=1.0");
+        let identity = StreamIdentity::capture(&old).unwrap();
+        for query in [
+            "itag=140&lmt=123&clen=1024&mime=audio%2Fwebm&dur=1.0",
+            "itag=251&lmt=124&clen=1024&mime=audio%2Fwebm&dur=1.0",
+            "itag=251&clen=1024&mime=audio%2Fwebm&dur=1.0",
+            "lmt=123&clen=1024&mime=audio%2Fwebm&dur=1.0",
+            "itag=251&lmt=123&clen=2048&mime=audio%2Fwebm&dur=1.0",
+            "itag=251&lmt=123&clen=1024&mime=audio%2Fmp4&dur=1.0",
+            "itag=251&lmt=123&clen=1024&mime=audio%2Fwebm&dur=2.0",
+        ] {
+            assert_eq!(identity.validate(&stream(query)).unwrap_err().to_string(), "the stream changed representation");
+        }
+    }
+}
+
+#[cfg(test)]
+mod recovery_stream_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
+    use std::time::Duration;
+
+    struct Server {
+        address: std::net::SocketAddr,
+        stop: Arc<AtomicBool>,
+        target_requests: Arc<AtomicUsize>,
+        worker: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl Server {
+        fn new(target_ok: bool) -> Self {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let target_requests = Arc::new(AtomicUsize::new(0));
+            let (stopped, requests) = (stop.clone(), target_requests.clone());
+            let worker = std::thread::spawn(move || {
+                while !stopped.load(Ordering::Relaxed) {
+                    let (mut socket, _) = match listener.accept() {
+                        Ok(connection) => connection,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(2));
+                            continue;
+                        }
+                        Err(e) => panic!("mock accept failed: {e}"),
+                    };
+                    socket.set_nonblocking(false).unwrap();
+                    socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+                    let mut bytes = Vec::new();
+                    loop {
+                        let mut buffer = [0; 1024];
+                        let count = socket.read(&mut buffer).unwrap();
+                        if count == 0 { break; }
+                        bytes.extend_from_slice(&buffer[..count]);
+                        if bytes.windows(4).any(|w| w == b"\r\n\r\n") { break; }
+                        assert!(bytes.len() < 8192);
+                    }
+                    let request = String::from_utf8(bytes).unwrap();
+                    let target = request.split_whitespace().nth(1).unwrap();
+                    let url = url::Url::parse(&format!("http://localhost{target}")).unwrap();
+                    let range = url.query_pairs().find(|(key, _)| key == "range").unwrap().1.into_owned();
+                    let (a, b) = range.split_once('-').unwrap();
+                    let (a, b) = (a.parse::<usize>().unwrap(), b.parse::<usize>().unwrap());
+                    let is_target = a > 0;
+                    if is_target { requests.fetch_add(1, Ordering::Relaxed); }
+                    let status = if is_target && !target_ok { 503 } else { 200 };
+                    let body = if status == 200 { vec![1; b - a + 1] } else { vec![] };
+                    let header = format!("HTTP/1.1 {status} Result\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                    let _ = socket.write_all(header.as_bytes()).and_then(|_| socket.write_all(&body));
+                }
+            });
+            Self { address, stop, target_requests, worker: Some(worker) }
+        }
+
+        fn stream(&self, itag: u64, opus: bool) -> ResolvedStream {
+            ResolvedStream { itag: Some(itag), media: stream::Media::File(format!("http://{}/audio?itag={itag}", self.address)), starts: None, size: 64 * 1024,
+                duration_ms: 200_000, user_agent: "test".into(), loudness_db: None, opus }
+        }
+    }
+
+    impl Drop for Server {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Relaxed);
+            self.worker.take().unwrap().join().unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn healthy_header_cannot_hide_a_broken_resume_region() {
+        let broken_aac = Server::new(false);
+        let healthy_opus = Server::new(true);
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let chosen = choose_recovery_stream(&http, vec![broken_aac.stream(140, false), healthy_opus.stream(250, true)],
+            true, Duration::from_millis(113195)).await.unwrap();
+        assert_eq!(stream_itag(&chosen), Some(250));
+        assert!(broken_aac.target_requests.load(Ordering::Relaxed) > 0);
+        assert!(healthy_opus.target_requests.load(Ordering::Relaxed) > 0);
+    }
+
+    #[tokio::test]
+    async fn failed_aac_prefers_an_available_opus_representation() {
+        let aac = Server::new(true);
+        let opus = Server::new(true);
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let chosen = choose_recovery_stream(&http, vec![aac.stream(140, false), opus.stream(251, true)],
+            false, Duration::from_secs(113)).await.unwrap();
+        assert_eq!(stream_itag(&chosen), Some(251));
+    }
+
+    #[tokio::test]
+    async fn a_fresh_former_codec_can_recover_only_after_target_body_passes() {
+        let server = Server::new(true);
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let chosen = choose_recovery_stream(&http, vec![server.stream(140, false)],
+            false, Duration::from_secs(113)).await.unwrap();
+        assert_eq!(stream_itag(&chosen), Some(140));
+        assert!(server.target_requests.load(Ordering::Relaxed) > 0);
+    }
+
+    #[tokio::test]
+    async fn no_unverified_fallback_when_every_target_region_fails() {
+        let server = Server::new(false);
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let result = choose_recovery_stream(&http, vec![server.stream(140, false), server.stream(251, true)],
+            false, Duration::from_secs(113)).await;
+        assert!(result.is_err());
+        assert_eq!(server.target_requests.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn renewal_keeps_the_exact_lower_bitrate_itag() {
+        let stream = ResolvedStream { itag: None, media: stream::Media::File("https://media.invalid/audio?itag=250&lmt=123".into()), starts: None, size: 1024,
+            duration_ms: 1000, user_agent: "test".into(), loudness_db: None, opus: true };
+        let identity = StreamIdentity::capture(&stream).unwrap();
+        assert_eq!(identity.itag(), Some(250));
+        let changed = ResolvedStream { media: stream::Media::File("https://media.invalid/audio?itag=251&lmt=123".into()), starts: None, ..stream };
+        assert!(identity.validate(&changed).is_err());
+    }
+
+    /// Distinct actual-body server: probes and the decoder download see the same
+    /// bytes. It has finite socket deadlines and explicit shutdown, never media files.
+    struct BodyServer {
+        address: std::net::SocketAddr,
+        size: usize,
+        downloads: Arc<AtomicUsize>,
+        download_started: Arc<tokio::sync::Notify>,
+        cancelled_connection: Arc<AtomicBool>,
+        worker: Option<tokio::task::JoinHandle<()>>,
+    }
+
+    impl BodyServer {
+        async fn new(body: Vec<u8>, hang_download: bool) -> Self {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let size = body.len();
+            let downloads = Arc::new(AtomicUsize::new(0));
+            let download_started = Arc::new(tokio::sync::Notify::new());
+            let cancelled_connection = Arc::new(AtomicBool::new(false));
+            let count = downloads.clone();
+            let started = download_started.clone();
+            let cancelled = cancelled_connection.clone();
+            let worker = tokio::spawn(async move {
+                // Probe races can revisit a candidate; do not assume exactly 3 GETs.
+                for _ in 0..32 {
+                    let Ok(Ok((mut socket, _))) = tokio::time::timeout(Duration::from_secs(3), listener.accept()).await else { break; };
+                    let mut request = Vec::new();
+                    let read = async {
+                        while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                            let mut buffer = [0; 1024];
+                            let n = socket.read(&mut buffer).await?;
+                            if n == 0 { break; }
+                            request.extend_from_slice(&buffer[..n]);
+                            assert!(request.len() < 8192);
+                        }
+                        Ok::<_, std::io::Error>(())
+                    };
+                    if !matches!(tokio::time::timeout(Duration::from_secs(1), read).await, Ok(Ok(()))) { continue; }
+                    let request = String::from_utf8(request).unwrap();
+                    let target = request.split_whitespace().nth(1).unwrap();
+                    let url = url::Url::parse(&format!("http://localhost{target}")).unwrap();
+                    let range = url.query_pairs().find(|(key, _)| key == "range").unwrap().1.into_owned();
+                    let (a, b) = range.split_once('-').unwrap();
+                    let (a, b) = (a.parse::<usize>().unwrap(), b.parse::<usize>().unwrap());
+                    assert!(a <= b && b < body.len());
+                    let full_download = a == 0 && b + 1 == body.len();
+                    if full_download { count.fetch_add(1, Ordering::Relaxed); }
+                    let header = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", b - a + 1);
+                    if socket.write_all(header.as_bytes()).await.is_err() { continue; }
+                    if full_download && hang_download {
+                        started.notify_one();
+                        let mut byte = [0];
+                        if matches!(tokio::time::timeout(Duration::from_secs(2), socket.read(&mut byte)).await, Ok(Ok(0))) {
+                            cancelled.store(true, Ordering::Relaxed);
+                        }
+                        continue;
+                    }
+                    let _ = tokio::time::timeout(Duration::from_secs(1), socket.write_all(&body[a..=b])).await;
+                }
+            });
+            Self { address, size, downloads, download_started, cancelled_connection, worker: Some(worker) }
+        }
+
+        fn stream(&self, itag: u64) -> ResolvedStream {
+            ResolvedStream { itag: Some(itag), media: stream::Media::File(format!("http://{}/audio?itag={itag}", self.address)), starts: None, size: self.size as u64,
+                duration_ms: 6000, user_agent: "actual-recovery-test".into(), loudness_db: None, opus: false }
+        }
+
+        async fn shutdown(mut self) {
+            let worker = self.worker.take().unwrap();
+            worker.abort();
+            let _ = worker.await;
+        }
+    }
+
+    impl Drop for BodyServer {
+        fn drop(&mut self) {
+            if let Some(worker) = self.worker.take() { worker.abort(); }
+        }
+    }
+
+    #[tokio::test]
+    async fn recovery_rejects_probe_only_aac_then_hands_off_real_target_pcm() {
+        use rodio::Source;
+        let fixture = include_bytes!("testdata/sine6-fragmented-aac.m4a");
+        let bad = BodyServer::new(vec![0x55; fixture.len()], false).await;
+        let good = BodyServer::new(fixture.to_vec(), false).await;
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let wanted = std::sync::atomic::AtomicU64::new(7);
+        let at = Duration::from_secs(2);
+        let mut opened = tokio::time::timeout(Duration::from_secs(5), prepare_recovery_candidates(http,
+            vec![bad.stream(140), good.stream(139)], false, at, &wanted, 7, |_| Ok(None))).await.unwrap().unwrap();
+        assert!(bad.downloads.load(Ordering::Relaxed) > 0, "first candidate passed both probes and reached actual decoding");
+        assert!(good.downloads.load(Ordering::Relaxed) > 0);
+        let mut decoder = opened.decoder.take().expect("only a prepared decoder may be handed off");
+        assert_eq!(decoder.current_span_len(), Some(usize::from(decoder.channels().get())), "the target frame must remain primed");
+        let channels = usize::from(decoder.channels().get());
+        let rate = f64::from(decoder.sample_rate().get());
+        let expected_seconds = 6.0 - at.as_secs_f64();
+        // In-flight forward discard and a completed buffer's native seek can
+        // legitimately use different AAC preroll. Test the actual handoff's
+        // retained frame and complete remaining duration, not cross-path PCM.
+        let sample_limit = ((expected_seconds + 0.5) * rate * channels as f64) as usize;
+        let mut samples = 0;
+        for sample in decoder.by_ref().take(sample_limit + channels) {
+            assert!(sample.is_finite(), "recovered PCM must be finite");
+            samples += 1;
+        }
+        assert!(samples > 0 && samples <= sample_limit, "unexpected recovered PCM sample count: {samples}");
+        assert_eq!(samples % channels, 0, "recovered PCM must contain whole channel frames");
+        let seconds = samples as f64 / (rate * channels as f64);
+        assert!((seconds - expected_seconds).abs() < 0.15,
+            "expected about {expected_seconds:.3}s after recovery, decoded {seconds:.3}s ({samples} samples)");
+        assert!(opened.shared.error().is_none());
+        opened.shared.cancel();
+        bad.shutdown().await;
+        good.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn recovery_never_returns_opened_when_all_probe_passing_containers_fail() {
+        let first = BodyServer::new(vec![0x55; 26795], false).await;
+        let second = BodyServer::new(vec![0x33; 26795], false).await;
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let wanted = std::sync::atomic::AtomicU64::new(9);
+        let result = tokio::time::timeout(Duration::from_secs(5), prepare_recovery_candidates(http,
+            vec![first.stream(140), second.stream(139)], false, Duration::from_secs(2), &wanted, 9, |_| Ok(None))).await.unwrap();
+        assert!(result.is_err(), "probe bytes must not masquerade as decoded readiness");
+        assert!(first.downloads.load(Ordering::Relaxed) > 0);
+        assert!(second.downloads.load(Ordering::Relaxed) > 0);
+        first.shutdown().await;
+        second.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn superseding_recovery_cancels_its_pending_download_and_decoder() {
+        let fixture = include_bytes!("testdata/sine6-fragmented-aac.m4a");
+        let server = BodyServer::new(fixture.to_vec(), true).await;
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let wanted = std::sync::atomic::AtomicU64::new(11);
+        let preparation = prepare_recovery_candidates(http, vec![server.stream(140)], false,
+            Duration::from_secs(2), &wanted, 11, |_| Ok(None));
+        tokio::pin!(preparation);
+        tokio::select! {
+            started = tokio::time::timeout(Duration::from_secs(2), server.download_started.notified()) => started.expect("actual download must start after probes"),
+            result = &mut preparation => panic!("preparation ended before its download was exercised: {}", result.is_ok()),
+        }
+        assert_eq!(server.downloads.load(Ordering::Relaxed), 1);
+        wanted.store(12, Ordering::Relaxed);
+        let result = tokio::time::timeout(Duration::from_millis(700), &mut preparation).await.unwrap();
+        assert!(result.err().expect("superseded prepare must not hand off").to_string().contains("superseded"));
+        tokio::time::timeout(Duration::from_millis(700), async {
+            while !server.cancelled_connection.load(Ordering::Relaxed) { tokio::time::sleep(Duration::from_millis(10)).await; }
+        }).await.expect("dropping the recovery buffer must cancel the in-flight HTTP body");
+        server.shutdown().await;
+    }
+
+    #[test]
+    fn exact_lower_bitrate_identity_survives_a_url_without_an_itag_query() {
+        let original = ResolvedStream { itag: Some(250), media: stream::Media::File("https://media.invalid/audio?lmt=123&clen=1024".into()), starts: None,
+            size: 1024, duration_ms: 1000, user_agent: "test".into(), loudness_db: None, opus: true };
+        let identity = StreamIdentity::capture(&original).unwrap();
+        assert_eq!(identity.itag(), Some(250));
+        let renewed = ResolvedStream { media: stream::Media::File("https://route.invalid/audio?clen=1024&lmt=123&expire=456".into()), starts: None, ..original.clone() };
+        identity.validate(&renewed).unwrap();
+        assert_eq!(stream_itag(&renewed), Some(250));
+        let wrong_quality = ResolvedStream { itag: Some(251), ..renewed.clone() };
+        assert!(identity.validate(&wrong_quality).is_err(), "same codec is not exact representation identity");
+        let metadata_lost = ResolvedStream { itag: None, ..renewed };
+        assert!(identity.validate(&metadata_lost).is_err(), "explicit itag must survive URL renewal when the URL omits it");
+    }
+
+    #[tokio::test]
+    async fn hls_is_ranked_ahead_of_progressive_for_a_known_cutoff() {
+        let hls = ResolvedStream { itag: Some(234), media: stream::Media::Segments(vec!["https://media.invalid/segment".into()]),
+            starts: Some(vec![0.0]), size: 0, duration_ms: 6000, user_agent: "test".into(), loudness_db: None, opus: false };
+        let server = Server::new(true);
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let chosen = choose_recovery_stream(&http, vec![server.stream(250, true), hls], false, Duration::from_secs(2)).await.unwrap();
+        assert_eq!(stream_itag(&chosen), Some(234));
+        assert!(chosen.starts.is_some());
+        // Shortlisting is not readiness: prepare_recovery_candidates still has to
+        // open its real segment decoder and retain a frame before any handoff.
+        assert_eq!(server.target_requests.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn hls_renewal_changes_routes_but_never_the_segment_layout_or_media_kind() {
+        let original = ResolvedStream { itag: Some(234), media: stream::Media::Segments(vec!["https://media.invalid/a".into(), "https://media.invalid/b".into()]),
+            starts: Some(vec![0.0, 3.0]), size: 0, duration_ms: 6000, user_agent: "test".into(), loudness_db: None, opus: false };
+        let identity = StreamIdentity::capture(&original).unwrap();
+        let renewed = ResolvedStream { media: stream::Media::Segments(vec!["https://route.invalid/a".into(), "https://route.invalid/b".into()]), ..original.clone() };
+        identity.validate(&renewed).unwrap();
+        let shifted = ResolvedStream { starts: Some(vec![0.0, 4.0]), ..renewed.clone() };
+        assert!(identity.validate(&shifted).is_err());
+        let missing_segment = ResolvedStream { media: stream::Media::Segments(vec!["https://route.invalid/a".into()]), ..renewed.clone() };
+        assert!(identity.validate(&missing_segment).is_err());
+        let file = ResolvedStream { media: stream::Media::File("https://route.invalid/audio".into()), starts: None, ..renewed };
+        assert!(identity.validate(&file).is_err());
+    }
+
+    /// Native anonymous recovery from the exact user-reported frozen position.
+    /// No profile, account cookies, audio output, history, or media file is used.
+    #[tokio::test]
+    #[ignore = "live recovery acceptance depends on external YouTube CDN"]
+    async fn reported_track_resumes_past_113_seconds_and_decodes_to_end() -> anyhow::Result<()> {
+        use rodio::Source;
+        const ID: &str = "o23rb5dHB5s";
+        let at = Duration::from_millis(113195);
+        let http = crate::proxy::http();
+        let html = http.get("https://music.youtube.com/").header("User-Agent", innertube::UA)
+            .timeout(Duration::from_secs(20)).send().await
+            .and_then(reqwest::Response::error_for_status).map_err(reqwest::Error::without_url)?
+            .text().await.map_err(reqwest::Error::without_url)?;
+        let visitor = html.split_once("\"VISITOR_DATA\":\"").and_then(|(_, tail)| tail.split('"').next())
+            .filter(|s| !s.is_empty()).ok_or_else(|| anyhow::anyhow!("no anonymous visitor data"))?;
+        let candidates = innertube::audio_streams(&http, ID, visitor, true).await?.into_iter().map(|s| ResolvedStream {
+            itag: Some(s.itag),
+            media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms, user_agent: innertube::UA.into(), loudness_db: s.loudness_db, opus: s.opus,
+        }).collect();
+        let wanted = std::sync::atomic::AtomicU64::new(1);
+        let opened = prepare_recovery_candidates(http, candidates, false, at, &wanted, 1, |_| Ok(None)).await?;
+        let shared = opened.shared;
+        let expected_seconds = shared.duration_ms as f64 / 1000.0 - at.as_secs_f64();
+        let mut prepared = opened.decoder.ok_or_else(|| anyhow::anyhow!("recovery decoder was not prepared"))?;
+        let decode_shared = shared.clone();
+        let decoding = tokio::task::spawn_blocking(move || -> anyhow::Result<(usize, f64)> {
+            let decoder = &mut prepared;
+            let channels = decoder.channels().get() as usize;
+            let rate = decoder.sample_rate().get() as f64;
+            let limit = ((expected_seconds + 2.0) * rate * channels as f64) as usize;
+            let mut samples = 0;
+            for sample in decoder.by_ref().take(limit + 1) {
+                anyhow::ensure!(sample.is_finite(), "non-finite recovery PCM");
+                samples += 1;
+            }
+            anyhow::ensure!(decode_shared.error().is_none(), "recovery download failed");
+            anyhow::ensure!(samples > 0 && samples <= limit && samples.is_multiple_of(channels), "invalid resumed PCM frames");
+            let seconds = samples as f64 / (rate * channels as f64);
+            anyhow::ensure!((seconds - expected_seconds).abs() < 1.0, "recovery stopped before the track ended");
+            Ok((samples / channels, seconds))
+        });
+        let (frames, seconds) = tokio::time::timeout(Duration::from_secs(90), decoding).await
+            .map_err(|_| anyhow::anyhow!("live recovery decode exceeded deadline"))???;
+        anyhow::ensure!(shared.is_complete(), "resumed audio did not finish downloading");
+        println!("resumed_from_ms=113195, frames={frames}, decoded_remaining_seconds={seconds:.3}");
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod playback_load_tests {
+    use super::*;
+    use std::io::Read;
+    use std::sync::{atomic::AtomicU64, mpsc};
+    use std::time::Duration;
+
+    fn pending_stream() -> Arc<Shared> {
+        Shared::new(1024, 1000, None, false, false)
+    }
+
+    fn read_in_background(shared: &Arc<Shared>) -> (mpsc::Receiver<std::io::Result<usize>>, std::thread::JoinHandle<()>) {
+        let mut reader = stream::StreamReader::new(shared.clone());
+        let (tx, rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _ = tx.send(reader.read(&mut [0]));
+        });
+        (rx, worker)
+    }
+
+    #[test]
+    fn superseding_a_pending_decoder_wakes_its_blocked_reader() {
+        let loads = PlaybackLoads::default();
+        let wanted = AtomicU64::new(1);
+        let old = pending_stream();
+        assert!(loads.begin(1, &wanted));
+        assert!(loads.register(1, &wanted, &old));
+        let (rx, worker) = read_in_background(&old);
+        wanted.store(2, Ordering::Relaxed);
+        assert!(loads.begin(2, &wanted));
+        let result = rx.recv_timeout(Duration::from_secs(1));
+        old.cancel();
+        worker.join().unwrap();
+        assert!(result.unwrap().is_err());
+        assert!(!loads.finish(1, &wanted, &old, || panic!("stale decoder published")));
+    }
+
+    #[test]
+    fn a_late_old_resolver_cannot_replace_a_new_ready_stream() {
+        let loads = PlaybackLoads::default();
+        let wanted = AtomicU64::new(1);
+        let current: StreamSlot = Default::default();
+        assert!(loads.begin(1, &wanted));
+        // The second resolution and decoder finish before the first resolver.
+        wanted.store(2, Ordering::Relaxed);
+        assert!(loads.begin(2, &wanted));
+        let new = pending_stream();
+        assert!(loads.register(2, &wanted, &new));
+        assert!(loads.finish(2, &wanted, &new, || {
+            *current.lock().unwrap() = Some(("new".into(), new.clone()));
+        }));
+        let old = pending_stream();
+        assert!(!loads.register(1, &wanted, &old));
+        assert!(loads.current(1, &wanted, || panic!("stale resolver changed state")).is_none());
+        assert!(Arc::ptr_eq(&current.lock().unwrap().as_ref().unwrap().1, &new));
+        let (rx, worker) = read_in_background(&old);
+        let result = rx.recv_timeout(Duration::from_secs(1));
+        old.cancel();
+        worker.join().unwrap();
+        assert!(result.unwrap().is_err());
+    }
+
+    #[test]
+    fn handing_a_decoder_to_audio_removes_it_from_pending_cancellation() {
+        let loads = PlaybackLoads::default();
+        let wanted = AtomicU64::new(1);
+        let outgoing = pending_stream();
+        assert!(loads.begin(1, &wanted));
+        assert!(loads.register(1, &wanted, &outgoing));
+        assert!(loads.finish(1, &wanted, &outgoing, || ()));
+        let (rx, worker) = read_in_background(&outgoing);
+        wanted.store(2, Ordering::Relaxed);
+        assert!(loads.begin(2, &wanted));
+        // This reader represents the still-playing outgoing crossfade source.
+        let untouched = rx.recv_timeout(Duration::from_millis(50));
+        outgoing.cancel();
+        let ended = rx.recv_timeout(Duration::from_secs(1));
+        worker.join().unwrap();
+        assert!(matches!(untouched, Err(mpsc::RecvTimeoutError::Timeout)));
+        assert!(ended.unwrap().is_err());
+    }
+
+    #[test]
+    fn decoder_constructor_panic_is_an_error_for_only_the_current_play() {
+        let loads = PlaybackLoads::default();
+        let wanted = AtomicU64::new(1);
+        let shared = pending_stream();
+        assert!(loads.begin(1, &wanted));
+        assert!(loads.register(1, &wanted, &shared));
+        let error = open_decoder_guarded::<()>(|| panic!("synthetic constructor failure")).unwrap_err();
+        assert!(error.is::<DecoderPanicked>());
+        let (tx, rx) = mpsc::channel();
+        assert!(loads.finish(1, &wanted, &shared, || {
+            shared.cancel();
+            tx.send(Resp::PlayError { generation: 1, msg: format!("decode: {error}") }).unwrap();
+        }));
+        assert!(matches!(rx.recv().unwrap(), Resp::PlayError { generation: 1, .. }));
+        wanted.store(2, Ordering::Relaxed);
+        assert!(loads.begin(2, &wanted));
+        assert!(!loads.finish(1, &wanted, &shared, || panic!("stale constructor sent an error")));
+        assert!(open_decoder_guarded(|| Ok(7)).is_ok_and(|n| n == 7));
     }
 }

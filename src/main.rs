@@ -7,6 +7,7 @@ mod proxy;
 mod renderer;
 mod art;
 mod audio;
+mod audio_source;
 mod awake;
 mod backdrop;
 mod backend;

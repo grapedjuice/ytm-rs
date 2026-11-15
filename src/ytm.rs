@@ -934,9 +934,6 @@ fn parse_artist(v: &Value, id: &str) -> Option<ArtistPage> {
 
 // ------------------------------------------------------------- radio and explore
 
-/// Songs to play after `video_id` (its radio), at least `limit` when there are enough.
-/// A music video's radio is music videos only (a song's is songs): then those, rather
-/// than nothing. Its song's radio is the one to ask for.
 /// A song's first page of comments: its Comments tab (Up next, Lyrics, Comments, Related)
 /// holds the token for it. `None`: the song has comments turned off (the tab is then just
 /// a message) or has no such tab.
@@ -957,29 +954,161 @@ fn first_string(v: &Value, key: &str) -> Option<String> {
     }
 }
 
-pub async fn radio(api: &Api, video_id: &str, auth: bool, limit: usize) -> anyhow::Result<Vec<Track>> {    let body = json!({
-        "playlistId": format!("RDAMVM{video_id}"),
-        "params": "wAEB8gECeAE%3D",
-        "enablePersistentPlaylistPanel": true,
-        "isAudioOnly": true,
-        "tunerSettingValue": "AUTOMIX_SETTING_NORMAL",
-    });
-    let v = api.call("next", body, auth).await?;
-    let panel = &v["contents"]["singleColumnMusicWatchNextResultsRenderer"]["tabbedRenderer"]["watchNextTabbedResultsRenderer"]["tabs"][0]
-        ["tabRenderer"]["content"]["musicQueueRenderer"]["content"]["playlistPanelRenderer"];
-    let (mut items, mut token) = panel_page(panel);
-    while radio_tracks(&items).count() < limit {
-        let Some(t) = token.take() else { break };
-        let body = json!({ "continuation": t, "enablePersistentPlaylistPanel": true, "isAudioOnly": true });
-        let v = api.call("next", body, auth).await?;
-        let (more, next) = panel_page(&v["continuationContents"]["playlistPanelContinuation"]);
-        if more.is_empty() {
-            break;
-        }
-        items.extend(more);
-        token = next;
+/// Songs recommended by YouTube for `video_id`, in server order. Each invocation starts
+/// a new radio, not a local shuffle of the same mix. The server may still repeat songs.
+/// Read at most five pages; return fewer than `limit` if the server runs out or loops.
+/// `limit == 0` still reads the first page (the quick-picks caller uses it).
+/// A music video's radio can contain only videos: keep those rather than nothing.
+pub async fn radio(api: &Api, video_id: &str, auth: bool, limit: usize) -> anyhow::Result<Vec<Track>> {
+    let mut radio = RadioSession::new(video_id);
+    while let Some(body) = radio.next_request(limit) {
+        radio.append(&api.call("next", body, auth).await?)?;
     }
-    Ok(radio_tracks(&items).cloned().collect())
+    Ok(radio_tracks(&radio.items).cloned().collect())
+}
+
+/// Fresh recommendations within this seed's server-ranked radio. Recent ids and the
+/// seed itself are excluded; an exhausted pool returns fewer tracks, never unrelated
+/// fillers or a shuffled copy of an earlier queue. The request budget stays bounded.
+pub async fn radio_with_recent(api: &Api, video_id: &str, auth: bool, limit: usize, avoid: &std::collections::HashSet<String>) -> anyhow::Result<Vec<Track>> {
+    let mut radio = RadioSession::avoiding(video_id, avoid);
+    while let Some(body) = radio.next_request(limit) {
+        radio.append(&api.call("next", body, auth).await?)?;
+    }
+    Ok(radio.eligible_tracks().take(limit).cloned().collect())
+}
+
+/// A request budget also bounds malformed / endlessly repeating continuation pages.
+const RADIO_MAX_PAGES: usize = 5;
+
+struct RadioSession {
+    body: Value,
+    items: Vec<(Track, bool)>,
+    token: Option<String>,
+    sent_tokens: std::collections::HashSet<String>,
+    seen_tracks: std::collections::HashSet<String>,
+    avoid: std::collections::HashSet<String>,
+    all_music: bool,
+    seed: String,
+    automix: Option<Value>,
+    sent_automixes: std::collections::HashSet<String>,
+    pages: usize,
+}
+
+impl RadioSession {
+    fn new(video_id: &str) -> Self {
+        Self {
+            // ytmusicapi's get_watch_playlist(videoId=..., radio=True): `wAEB`
+            // starts a radio; the seed is explicit as well as in the playlist id.
+            body: json!({
+                "videoId": video_id,
+                "playlistId": format!("RDAMVM{video_id}"),
+                "params": "wAEB",
+                "enablePersistentPlaylistPanel": true,
+                "isAudioOnly": true,
+                "tunerSettingValue": "AUTOMIX_SETTING_NORMAL",
+            }),
+            items: Vec::new(),
+            token: None,
+            sent_tokens: Default::default(),
+            seen_tracks: Default::default(),
+            avoid: Default::default(),
+            all_music: false,
+            seed: video_id.to_owned(),
+            automix: None,
+            sent_automixes: Default::default(),
+            pages: 0,
+        }
+    }
+
+    fn avoiding(video_id: &str, avoid: &std::collections::HashSet<String>) -> Self {
+        let mut radio = Self::new(video_id);
+        radio.avoid = avoid.clone();
+        radio.avoid.insert(video_id.to_owned());
+        radio.all_music = true;
+        // Ask for the seed, then follow its native server-provided automix endpoint.
+        // A hand-built playlist request is retained only for the Quick Picks caller.
+        radio.body = radio_seed_body(video_id);
+        radio
+    }
+
+    fn eligible_tracks(&self) -> impl Iterator<Item = &Track> {
+        // Playback accepts songs and the audio of music videos/user uploads. A
+        // single ATV (or a non-music episode) must not hide the other music rows.
+        let songs_only = !self.all_music && self.items.iter().any(|(_, video)| !video);
+        self.items.iter().filter(move |(_, video)| !songs_only || !video).map(|(t, _)| t).filter(|t| !self.avoid.contains(&t.id))
+    }
+
+    fn next_request(&mut self, limit: usize) -> Option<Value> {
+        if self.pages >= RADIO_MAX_PAGES || (self.pages != 0 && self.eligible_tracks().count() >= limit) {
+            return None;
+        }
+        // Continuations keep the seed and request/session parameters. Sending only a
+        // token drops that context. Never invent or decode YouTube's opaque token.
+        let mut body = self.body.clone();
+        if self.pages != 0 {
+            if let Some(token) = self.token.take() {
+                if !self.sent_tokens.insert(token.clone()) {
+                    return None;
+                }
+                body["continuation"] = json!(token);
+            } else {
+                let endpoint = self.automix.take()?;
+                if !self.sent_automixes.insert(endpoint.to_string()) {
+                    return None;
+                }
+                body = radio_seed_body(&self.seed);
+                for (key, value) in endpoint.as_object()? {
+                    body[key] = value.clone();
+                }
+                self.body = body.clone();
+            }
+        }
+        self.pages += 1;
+        Some(body)
+    }
+
+    fn append(&mut self, v: &Value) -> anyhow::Result<()> {
+        let initial = &v["contents"]["singleColumnMusicWatchNextResultsRenderer"]["tabbedRenderer"]["watchNextTabbedResultsRenderer"]["tabs"][0]
+            ["tabRenderer"]["content"]["musicQueueRenderer"]["content"]["playlistPanelRenderer"];
+        let continued = &v["continuationContents"]["playlistPanelContinuation"];
+        let panel = if initial.is_object() { initial } else { continued };
+        anyhow::ensure!(self.pages != 1 || panel.is_object(), "YouTube Music returned no radio queue");
+        if self.all_music {
+            // YouTube.js follows currentVideoEndpoint's entire payload for queue
+            // continuations. Replace bootstrap params instead of keeping an old
+            // radio-start mode beside the server's session/index/player parameters.
+            if let Some(endpoint) = v["currentVideoEndpoint"]["watchEndpoint"].as_object().filter(|e| e.get("playlistId").and_then(Value::as_str).is_some()) {
+                self.body = radio_seed_body(&self.seed);
+                for (key, value) in endpoint {
+                    self.body[key] = value.clone();
+                }
+            }
+            self.automix = arr(&panel["contents"]).iter().find_map(|item| {
+                let endpoint = &item["automixPreviewVideoRenderer"]["content"]["automixPlaylistVideoRenderer"]["navigationEndpoint"];
+                [&endpoint["watchPlaylistEndpoint"], &endpoint["watchEndpoint"]].into_iter()
+                    .find(|e| e["playlistId"].is_string()).cloned()
+            });
+        }
+        // Some sessions replace RDAMVM{seed} with a server-generated playlist id.
+        // Keep it for all subsequent requests instead of rebuilding the original id.
+        if let Some(id) = panel["playlistId"].as_str() {
+            self.body["playlistId"] = json!(id);
+        }
+        let (more, token) = panel_page(panel);
+        self.token = token;
+        // Suppress only duplicates among this seed's server recommendations. Do not
+        // fill gaps with home, search, other seeds, or a random local ordering.
+        self.items.extend(more.into_iter().filter(|(t, _)| self.seen_tracks.insert(t.id.clone())));
+        if self.all_music {
+            log::debug!("radio page={} music_rows={} eligible={} continuation={} automix={}", self.pages, self.items.len(), self.eligible_tracks().count(), self.token.is_some(), self.automix.is_some());
+        }
+        Ok(())
+    }
+}
+
+fn radio_seed_body(video_id: &str) -> Value {
+    json!({"videoId": video_id, "enablePersistentPlaylistPanel": true, "isAudioOnly": true, "tunerSettingValue": "AUTOMIX_SETTING_NORMAL"})
 }
 
 /// A radio's songs, without its videos (`is_video`); all of it when it's videos only.
@@ -1028,10 +1157,17 @@ fn panel_page(panel: &Value) -> (Vec<(Track, bool)>, Option<String>) {
         .filter_map(|i| {
             let wrapped = &i["playlistPanelVideoWrapperRenderer"]["primaryRenderer"]["playlistPanelVideoRenderer"];
             let r = if wrapped.is_null() { &i["playlistPanelVideoRenderer"] } else { wrapped };
+            // Exclude an explicitly typed episode before the kind is reduced to
+            // is_video: otherwise one episode looks like a song among music videos.
+            if video_type(&[&r["navigationEndpoint"]]) == Some("MUSIC_VIDEO_TYPE_PODCAST_EPISODE") {
+                return None;
+            }
             Some((panel_item(r)?, is_video(r)))
         })
         .collect();
-    let token = panel["continuations"][0]["nextRadioContinuationData"]["continuation"].as_str().map(str::to_owned);
+    let token = arr(&panel["continuations"]).iter().find_map(|c| {
+        c["nextRadioContinuationData"]["continuation"].as_str().or_else(|| c["nextContinuationData"]["continuation"].as_str()).map(str::to_owned)
+    });
     (tracks, token)
 }
 
@@ -2979,6 +3115,239 @@ mod tests {
         // A music video's radio: music videos only, kept rather than nothing.
         assert_eq!(ids(&[(t("v1"), true), (t("v2"), true)]), ["v1", "v2"]);
         assert!(ids(&[]).is_empty());
+    }
+
+    // Synthetic protocol fixtures: these test requests and pagination, not live taste
+    // or YouTube's recommendation diversity.
+    fn radio_panel_fixture(ids: &[&str], token: &str) -> Value {
+        json!({"continuationContents": {"playlistPanelContinuation": {
+            "playlistId": "RDAMVMserver-session",
+            "contents": ids.iter().map(|id| json!({"playlistPanelVideoRenderer": {
+                "videoId": id, "title": {"runs": [{"text": id}]},
+                "navigationEndpoint": {"watchEndpoint": {"watchEndpointMusicSupportedConfigs": {
+                    "watchEndpointMusicConfig": {"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"}
+                }}}
+            }})).collect::<Vec<_>>(),
+            "continuations": [{"nextRadioContinuationData": {"continuation": token}}]
+        }}})
+    }
+
+    fn radio_initial_fixture(panel: Value, current: Value) -> Value {
+        json!({"currentVideoEndpoint": {"watchEndpoint": current}, "contents": {
+            "singleColumnMusicWatchNextResultsRenderer": {"tabbedRenderer": {"watchNextTabbedResultsRenderer": {
+                "tabs": [{"tabRenderer": {"content": {"musicQueueRenderer": {"content": {"playlistPanelRenderer": panel}}}}}]
+            }}}
+        }})
+    }
+
+    #[test]
+    fn playback_radio_keeps_mixed_music_and_excludes_explicit_podcast_episodes() {
+        let mut v = radio_panel_fixture(&["atv", "omv", "ugc", "podcast"], "unused");
+        let panel = &mut v["continuationContents"]["playlistPanelContinuation"];
+        for (item, kind) in panel["contents"].as_array_mut().unwrap().iter_mut().zip([
+            "MUSIC_VIDEO_TYPE_ATV", "MUSIC_VIDEO_TYPE_OMV", "MUSIC_VIDEO_TYPE_UGC", "MUSIC_VIDEO_TYPE_PODCAST_EPISODE",
+        ]) {
+            item["playlistPanelVideoRenderer"]["navigationEndpoint"]["watchEndpoint"]["watchEndpointMusicSupportedConfigs"]["watchEndpointMusicConfig"]["musicVideoType"] = json!(kind);
+        }
+        let (rows, _) = panel_page(panel);
+        assert_eq!(rows.iter().map(|(t, _)| t.id.as_str()).collect::<Vec<_>>(), ["atv", "omv", "ugc"]);
+        // Quick Picks retains its song-first presentation, without accidental episodes.
+        assert_eq!(radio_tracks(&rows).map(|t| t.id.as_str()).collect::<Vec<_>>(), ["atv"]);
+        let mut session = RadioSession::avoiding("seed", &Default::default());
+        session.next_request(50).unwrap();
+        session.append(&v).unwrap();
+        assert_eq!(session.eligible_tracks().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["atv", "omv", "ugc"]);
+    }
+
+    #[test]
+    fn playback_radio_follows_native_automix_then_the_full_server_session() {
+        let mut session = RadioSession::avoiding("seed", &Default::default());
+        let first = session.next_request(50).unwrap();
+        assert_eq!(first["videoId"], "seed");
+        assert!(first.get("playlistId").is_none() && first.get("params").is_none());
+        let bootstrap = json!({"contents": [
+            {"playlistPanelVideoRenderer": {"videoId": "seed", "title": {"runs": [{"text": "Seed"}]}}},
+            {"automixPreviewVideoRenderer": {"content": {"automixPlaylistVideoRenderer": {"navigationEndpoint": {
+                "watchPlaylistEndpoint": {"playlistId": "RDAMVMnative", "params": "opaque-automix-params"}
+            }}}}}
+        ]});
+        session.append(&radio_initial_fixture(bootstrap, json!({"videoId": "seed", "ustreamerConfig": "not-a-queue-session"}))).unwrap();
+        let automix = session.next_request(50).unwrap();
+        assert_eq!(automix["videoId"], "seed");
+        assert_eq!(automix["playlistId"], "RDAMVMnative");
+        assert_eq!(automix["params"], "opaque-automix-params");
+        assert!(automix.get("ustreamerConfig").is_none());
+        let page = radio_panel_fixture(&["seed", "a", "b"], "opaque-page-2");
+        session.append(&radio_initial_fixture(page["continuationContents"]["playlistPanelContinuation"].clone(), json!({
+            "videoId": "seed", "playlistId": "RDAMVMserver-session", "index": 0,
+            "playerParams": "opaque-player", "playlistSetVideoId": "opaque-set", "loggingContext": {"context": "opaque"}
+        }))).unwrap();
+        let continued = session.next_request(4).unwrap();
+        assert_eq!(continued["continuation"], "opaque-page-2");
+        assert_eq!(continued["index"], 0);
+        assert_eq!(continued["playerParams"], "opaque-player");
+        assert_eq!(continued["playlistSetVideoId"], "opaque-set");
+        assert!(continued.get("params").is_none(), "radio bootstrap params must not override the server session");
+        session.append(&radio_panel_fixture(&["c"], "opaque-page-3")).unwrap();
+        let next = session.next_request(4).unwrap();
+        for key in ["videoId", "playlistId", "index", "playerParams", "playlistSetVideoId", "loggingContext"] {
+            assert_eq!(next[key], continued[key], "continuations without a replacement endpoint keep {key}");
+        }
+        assert_eq!(next["continuation"], "opaque-page-3");
+    }
+    #[test]
+    fn radio_starts_a_seeded_radio_and_preserves_context_on_continuation() {
+        let mut session = RadioSession::new("seed");
+        let first = session.next_request(4).unwrap();
+        assert_eq!(first["videoId"], "seed");
+        assert_eq!(first["playlistId"], "RDAMVMseed");
+        assert_eq!(first["params"], "wAEB"); // radio=True, not playlist shuffle
+        assert!(first.get("continuation").is_none());
+        let fixture = radio_panel_fixture(&["seed", "related-a"], "opaque-page-2");
+        let initial = json!({"contents": {"singleColumnMusicWatchNextResultsRenderer": {"tabbedRenderer": {
+            "watchNextTabbedResultsRenderer": {"tabs": [{"tabRenderer": {"content": {"musicQueueRenderer": {
+                "content": {"playlistPanelRenderer": fixture["continuationContents"]["playlistPanelContinuation"]}
+            }}}}]}
+        }}}});
+        session.append(&initial).unwrap();
+        let next = session.next_request(4).unwrap();
+        assert_eq!(next["continuation"], "opaque-page-2");
+        assert_eq!(next["playlistId"], "RDAMVMserver-session");
+        for key in ["videoId", "params", "isAudioOnly", "enablePersistentPlaylistPanel", "tunerSettingValue"] {
+            assert_eq!(next[key], first[key], "lost request context: {key}");
+        }
+        // Overlapping pages retain the server's ranking, with one copy of each id.
+        session.append(&radio_panel_fixture(&["related-a", "related-b", "related-c"], "opaque-page-3")).unwrap();
+        assert_eq!(radio_tracks(&session.items).map(|t| t.id.as_str()).collect::<Vec<_>>(), ["seed", "related-a", "related-b", "related-c"]);
+        assert!(session.next_request(4).is_none());
+    }
+
+    #[test]
+    fn radio_continuations_stop_on_cycles_and_have_a_finite_page_budget() {
+        let mut cyclic = RadioSession::new("seed");
+        assert!(cyclic.next_request(50).is_some());
+        cyclic.append(&radio_panel_fixture(&["a"], "same-token")).unwrap();
+        assert!(cyclic.next_request(50).is_some());
+        cyclic.append(&radio_panel_fixture(&["a"], "same-token")).unwrap();
+        assert!(cyclic.next_request(50).is_none());
+        assert_eq!(cyclic.items.len(), 1);
+
+        let mut endless = RadioSession::new("seed");
+        for page in 0..RADIO_MAX_PAGES {
+            assert!(endless.next_request(50).is_some());
+            endless.append(&radio_panel_fixture(&["a"], &format!("token-{page}"))).unwrap();
+        }
+        assert!(endless.next_request(50).is_none());
+        let mut first_page_only = RadioSession::new("seed");
+        assert!(first_page_only.next_request(0).is_some());
+        first_page_only.append(&radio_panel_fixture(&["a"], "unused-token")).unwrap();
+        assert!(first_page_only.next_request(0).is_none());
+
+        let mut absent = RadioSession::new("seed");
+        absent.next_request(50).unwrap();
+        assert!(absent.append(&json!({})).is_err());
+    }
+
+    #[test]
+    fn radio_panels_accept_both_server_continuation_types() {
+        let mut v = radio_panel_fixture(&["a"], "radio-token");
+        let panel = &mut v["continuationContents"]["playlistPanelContinuation"];
+        assert_eq!(panel_page(panel).1.as_deref(), Some("radio-token"));
+        panel["continuations"] = json!([{"nextContinuationData": {"continuation": "regular-token"}}]);
+        assert_eq!(panel_page(panel).1.as_deref(), Some("regular-token"));
+        panel["continuations"] = json!([]);
+        assert!(panel_page(panel).1.is_none());
+    }
+
+    #[test]
+    fn repeated_radio_uses_only_novel_seed_candidates_and_stops_on_exhaustion() {
+        use std::collections::HashSet;
+        // Every invocation receives the exact same server pages in the same order.
+        let run = |avoid: &HashSet<String>| {
+            let mut session = RadioSession::avoiding("seed", avoid);
+            let pages = [radio_panel_fixture(&["seed", "a", "b"], "P2"), {
+                let mut last = radio_panel_fixture(&["b", "c", "d"], "unused");
+                last["continuationContents"]["playlistPanelContinuation"]["continuations"] = json!([]);
+                last
+            }];
+            let mut page = 0;
+            while session.next_request(2).is_some() {
+                session.append(&pages[page]).unwrap();
+                page += 1;
+            }
+            (session.eligible_tracks().take(2).map(|t| t.id.clone()).collect::<Vec<_>>(), page)
+        };
+        let (first, pages) = run(&HashSet::new());
+        assert_eq!(first, ["a", "b"]);
+        assert_eq!(pages, 1);
+        let mut recent: HashSet<_> = first.into_iter().collect();
+        let (second, pages) = run(&recent);
+        assert_eq!(second, ["c", "d"]);
+        assert_eq!(pages, 2, "must follow the seed's continuation past repeated first-page tracks");
+        recent.extend(second);
+        assert_eq!(run(&recent), (Vec::new(), 2), "exhaustion must not reintroduce recent songs or unrelated tracks");
+    }
+
+    /// Live anonymous acceptance of cross-launch novelty, without a profile or sound.
+    /// Prints only counts; it must find genuinely different server candidates through
+    /// the same seed's continuations. A finite or unavailable pool fails honestly.
+    #[tokio::test]
+    #[ignore]
+    async fn radio_novelty_anonymous_live_probe() {
+        use std::collections::HashSet;
+        let dir = std::path::PathBuf::from(std::env::var_os("YTM_RADIO_PROBE_DIR").expect("set a separate YTM_RADIO_PROBE_DIR"));
+        assert!(!dir.join("account.json").exists());
+        std::fs::create_dir_all(&dir).unwrap();
+        let api = crate::ytmapi::Api::new(&dir);
+        assert!(api.account().is_none(), "probe directory must be signed out");
+        let seed = std::env::var("YTM_RADIO_PROBE_SEED").unwrap_or_else(|_| "lYBUbBu4W08".into());
+        let first = radio_with_recent(&api, &seed, false, 50, &HashSet::new()).await.unwrap();
+        let avoid: HashSet<_> = first.iter().map(|t| t.id.clone()).chain(std::iter::once(seed.clone())).collect();
+        let second = radio_with_recent(&api, &seed, false, 50, &avoid).await.unwrap();
+        let second_ids: HashSet<_> = second.iter().map(|t| t.id.clone()).collect();
+        let shared = second_ids.intersection(&avoid).count();
+        println!("seed_count=1 first_count={} second_count={} shared_with_recent={shared}", first.len(), second.len());
+        assert!(!first.is_empty() && !second.is_empty(), "the server did not supply a second novel candidate set within the page budget");
+        assert_eq!(shared, 0);
+        assert!(!second_ids.contains(&seed));
+        assert!(first.len() <= 50 && second.len() <= 50);
+    }
+    /// Anonymous, opt-in diagnostic. Uses a separate scratch data directory and never
+    /// sends account cookies, plays audio, or changes the user's queue. Reports set
+    /// overlap; successful requests alone do not establish fresh recommendations.
+    /// Set YTM_RADIO_PROBE_DIR to an empty task scratch directory before running.
+    #[tokio::test]
+    #[ignore]
+    async fn radio_anonymous_live_probe() {
+        use std::collections::HashSet;
+        let dir = std::path::PathBuf::from(std::env::var_os("YTM_RADIO_PROBE_DIR").expect("set a separate YTM_RADIO_PROBE_DIR"));
+        assert!(!dir.join("account.json").exists(), "probe directory must not contain an account");
+        std::fs::create_dir_all(&dir).unwrap();
+        let api = crate::ytmapi::Api::new(&dir);
+        assert!(api.account().is_none(), "probe directory must be signed out");
+        let seed = std::env::var("YTM_RADIO_PROBE_SEED").unwrap_or_else(|_| "lYBUbBu4W08".into());
+        let mut baseline: [Option<HashSet<String>>; 2] = [None, None];
+        for iteration in 0..3 {
+            for (mode, previous) in baseline.iter_mut().enumerate() {
+                let mut session = RadioSession::new(&seed);
+                let mut body = session.next_request(1).unwrap();
+                if mode == 0 {
+                    body.as_object_mut().unwrap().remove("videoId");
+                    body["params"] = json!("wAEB8gECeAE%3D");
+                }
+                let response = api.call("next", body, false).await.expect("anonymous next request failed");
+                session.append(&response).unwrap();
+                let ids: HashSet<String> = radio_tracks(&session.items).map(|t| t.id.clone()).collect();
+                assert!(!ids.is_empty(), "anonymous radio returned no tracks");
+                let label = if mode == 0 { "legacy" } else { "fresh-radio" };
+                if let Some(first) = previous {
+                    println!("mode={label} iteration={iteration} count={} shared_with_first={} identical_set={}", ids.len(), ids.intersection(first).count(), ids == *first);
+                } else {
+                    println!("mode={label} iteration={iteration} count={}", ids.len());
+                    *previous = Some(ids);
+                }
+            }
+        }
     }
 
     #[test]

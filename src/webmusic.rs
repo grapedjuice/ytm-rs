@@ -383,7 +383,7 @@ impl Session {
             pairs.push((sp, sig));
         }
         url.query_pairs_mut().clear().extend_pairs(pairs);
-        Ok(Audio::YouTube(Stream { url: url.into(), size, duration_ms, loudness_db, opus: is_opus(f) }))
+        Ok(Audio::YouTube(Stream { itag: f["itag"].as_u64().unwrap_or(0), url: url.into(), size, duration_ms, loudness_db, opus: is_opus(f) }))
     }
 }
 

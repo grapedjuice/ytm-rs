@@ -522,6 +522,8 @@ impl Cfg {
 struct Word {
     text: String,
     font: FontId,
+    /// Shaping at the layout size; spacing and animated transforms stay separate.
+    galley: Arc<Galley>,
     start: f64,
     dur: f64,
     /// Zero-duration (line-synced) word: fades in instead of sweeping.
@@ -741,8 +743,12 @@ fn flow(fonts: &mut FontsView<'_>, toks: Vec<Tok>, font: &FontId, max_w: f32, li
                 let long = text.chars().count() > LONG_GROUP_CHARS;
                 let rtl_group = crate::bidi::has_rtl(&text);
                 let letters = !joining_script(&text) && !rtl_group;
-                let sizes: Vec<Vec2> = toks.iter().map(|t| text_size(fonts, &t.text, font) + vec2(spacing * t.text.chars().count() as f32, 0.0)).collect();
-                let w: f32 = sizes.iter().map(|s| s.x).sum();
+                let shaped: Vec<_> = toks.iter().map(|t| {
+                    let galley = fonts.layout_no_wrap(t.text.clone(), font.clone(), Color32::WHITE);
+                    let size = galley.size() + vec2(spacing * t.text.chars().count() as f32, 0.0);
+                    (galley, size)
+                }).collect();
+                let w: f32 = shaped.iter().map(|(_, size)| size.x).sum();
                 let sp = if pending_space { space_w } else { 0.0 };
                 pending_space = false;
                 // A group that can't fit even on a row of its own breaks between its parts
@@ -757,7 +763,7 @@ fn flow(fonts: &mut FontsView<'_>, toks: Vec<Tok>, font: &FontId, max_w: f32, li
                 }
                 let gi = groups.len();
                 let first = words.len();
-                for (t, size) in toks.iter().zip(sizes) {
+                for (t, (galley, size)) in toks.iter().zip(shaped) {
                     if breakable && x > 0.0 && x + size.x > max_w {
                         row += 1;
                         x = 0.0;
@@ -766,6 +772,7 @@ fn flow(fonts: &mut FontsView<'_>, toks: Vec<Tok>, font: &FontId, max_w: f32, li
                     words.push(Word {
                         text: t.text.clone(),
                         font: font.clone(),
+                        galley,
                         start: t.start,
                         dur: t.dur,
                         line_synced: t.dur <= 0.0,
@@ -1246,10 +1253,14 @@ impl View {
         let ctx = ui.ctx().clone();
         self.shown_pass = ctx.cumulative_pass_nr();
         let fill = ctx.fonts(|fv| fv.font_atlas_fill_ratio());
-        if fill < self.atlas_fill {
+        let fonts_replaced = self.layout.as_ref().is_some_and(|l| !layout_fonts_current(&ctx, l));
+        if fill < self.atlas_fill || fonts_replaced {
             self.layout = None;
             self.glow.atlas = None;
             self.glow.lines.clear();
+            // A replacement atlas can have the same size/fill. Old glow sources
+            // must not reuse bitmaps made from the old glyph coverage.
+            self.glow.textures.clear();
         }
         self.atlas_fill = fill;
         let (viewport, viewport_h) = (ctx.content_rect().width(), ctx.content_rect().height());
@@ -1272,6 +1283,7 @@ impl View {
         // What a line's own picture depends on. The view's height isn't in it: that only moves
         // the lines, and a new blurred image per line for every step of a resize piled up.
         let image_key = hash((f.key, rect.width().round() as i32, cfg.size.to_bits(), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, cfg.weight as u8, cfg.spacing.to_bits(), cfg.line_height.to_bits(), (cfg.align as u8, cfg.agent_align as u8, cfg.wave.on), theme::fonts_generation()));
+        let image_key = hash((image_key, ctx.pixels_per_point().to_bits()));
         let layout_key = hash((image_key, rect.height().round() as i32));
         if self.layout.as_ref().is_none_or(|l| l.key != layout_key) {
             self.relayout(ui, &cfg, &f, layout_key, rect);
@@ -1758,7 +1770,7 @@ impl View {
                         lit.glow = *c;
                     }
                     let tints = (b.colors.0, dim_tint);
-                    paint_words(&painter, &ctx, &cfg, &b.words, &b.groups, &xf, &lit, dim, opacity, tints, atlas, &mut glow_work, (f.key, i, 0));
+                    paint_words(&painter, &cfg, &b.words, &b.groups, &xf, &lit, dim, opacity, tints, atlas, &mut glow_work, (f.key, i, 0));
                     for (k, d) in b.decos.iter().enumerate() {
                         let born = *self.deco_born.entry(d.id).or_insert(f.now);
                         let [enter_y, enter_x, enter_secs, enter_delay] = cfg.deco_enter;
@@ -1783,7 +1795,7 @@ impl View {
                         }
                         match &d.body {
                             DecoBody::Timed { words, groups } => {
-                                paint_words(&painter, &ctx, &cfg, words, groups, &dxf, &lit, dim, a, tints, atlas, &mut glow_work, (f.key, i, k as u32 + 1));
+                                paint_words(&painter, &cfg, words, groups, &dxf, &lit, dim, a, tints, atlas, &mut glow_work, (f.key, i, k as u32 + 1));
                             }
                             DecoBody::Text(text, font) => {
                                 let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), d.wrap, (cfg.deco_tracking, cfg.deco_lh), b.align));
@@ -1896,6 +1908,22 @@ impl View {
         }
         self.layout = Some(Layout { key, width, blocks, pad_top, content_h: pad_top + content + pad_bottom, richsync });
     }
+}
+
+/// One lookup detects egui replacing its galley cache/atlas, including a same-size
+/// replacement that the atlas fill heuristic cannot see. Every cached word can then
+/// be reshaped before its saved glyph UVs or glow images are used again.
+fn layout_fonts_current(ctx: &egui::Context, layout: &Layout) -> bool {
+    let probe = layout.blocks.iter().find_map(|b| {
+        b.words.first().or_else(|| b.decos.iter().find_map(|d| match &d.body {
+            DecoBody::Timed { words, .. } => words.first(),
+            DecoBody::Text(..) => None,
+        }))
+    });
+    probe.is_none_or(|w| {
+        let current = ctx.fonts_mut(|f| f.layout_no_wrap(w.text.clone(), w.font.clone(), Color32::WHITE));
+        Arc::ptr_eq(&w.galley, &current)
+    })
 }
 
 fn same_lines(l: &Layout, blocks: &[Block]) -> bool {
@@ -2340,8 +2368,8 @@ struct GlyphQuad {
 /// letter floats applied, then the group's wobble. Laid out once, at the font's size,
 /// and scaled with the line: a second size would put a second copy of every glyph in
 /// the shared font atlas, which only ever grows.
-fn word_glyphs(ctx: &egui::Context, w: &Word, lit: &LitState, cfg: &Cfg, wob: Option<(f32, f32, f32)>, atlas: [usize; 2]) -> Vec<GlyphQuad> {
-    let g = ctx.fonts_mut(|fv| fv.layout_no_wrap(w.text.clone(), w.font.clone(), Color32::WHITE));
+fn word_glyphs(w: &Word, lit: &LitState, cfg: &Cfg, wob: Option<(f32, f32, f32)>, atlas: [usize; 2]) -> Vec<GlyphQuad> {
+    let g = &w.galley;
     let n: usize = g.rows.iter().map(|r| r.row.glyphs.len()).sum();
     // From the line's start: until then its letters aren't at their resting scale yet.
     let waves = if w.letters && lit.live && lit.exit.is_none() && lit.t >= lit.line_start { Some(letter_waves(n, w.dur.max(0.0), cfg.wave.secs as f64)) } else { None };
@@ -2450,7 +2478,6 @@ fn lit_gradient(q: &Rect, letter: usize, letters: usize, word: Rect, look: &Word
 #[allow(clippy::too_many_arguments)]
 fn paint_words(
     painter: &egui::Painter,
-    ctx: &egui::Context,
     cfg: &Cfg,
     words: &[Word],
     groups: &[Group],
@@ -2479,7 +2506,7 @@ fn paint_words(
         } else {
             None
         };
-        let quads = word_glyphs(ctx, w, lit, cfg, wob, atlas);
+        let quads = word_glyphs(w, lit, cfg, wob, atlas);
         let dim_c = if w.bg { dim * cfg.bg_alpha } else { dim } * opacity;
         // A soft shadow: two faint copies, so it's no more than a little extra geometry.
         // On words not yet lit, in a theme that keeps it off lit ones.
@@ -2672,6 +2699,8 @@ impl Slot {
 
 /// A blurred line's radius in 1/4 px and scale in 1/1000.
 type LineStep = (i32, i32);
+/// Keep the existing blur/scale quantization, but never reuse a different-DPI bitmap.
+type LineImageStep = (LineStep, u32);
 
 /// What a blurred line's image is kept for. Its scale only matters as far as the blur can
 /// show it: a soft glow is drawn again for each 5% and a slight blur for each 1%, so a line
@@ -2688,7 +2717,7 @@ struct Glow {
     textures: HashMap<(u64, usize, u32, u32), (Slot, f64)>,
     /// Per line: its blurred image, the radius (in 1/4 px) and scale (in 1/1000) it was
     /// drawn at, where it goes.
-    lines: HashMap<(u64, usize), (Slot, LineStep, Rect, f64)>,
+    lines: HashMap<(u64, usize), (Slot, LineImageStep, Rect, f64)>,
     spare: Vec<Slot>,
     scratch: Vec<f32>,
     note: Option<(usize, Arc<Vec<f32>>)>,
@@ -2806,7 +2835,7 @@ impl Glow {
     /// The image `blurred_line` made for `key`, if it's still at this radius and scale.
     fn cached_line(&mut self, ctx: &egui::Context, key: (u64, usize), radius: f32, scale: f32) -> Option<(TextureId, Rect, Rect)> {
         let (s, r, rect, used) = self.lines.get_mut(&key)?;
-        if *r != line_step(radius, scale) {
+        if *r != (line_step(radius, scale), ctx.pixels_per_point().to_bits()) {
             return None;
         }
         *used = ctx.input(|i| i.time);
@@ -2836,7 +2865,7 @@ impl Glow {
             return Some(hit);
         }
         let now = ctx.input(|i| i.time);
-        let step = line_step(radius, scale);
+        let step = (line_step(radius, scale), ppp.to_bits());
         let uv_of = |min: [u16; 2], max: [u16; 2]| {
             Rect::from_min_max(
                 pos2(min[0] as f32 / atlas_size[0] as f32, min[1] as f32 / atlas_size[1] as f32),
@@ -2860,8 +2889,8 @@ impl Glow {
             }
         };
         for (w, weight) in words {
-            let g = ctx.fonts_mut(|fv| fv.layout_no_wrap(w.text.clone(), w.font.clone(), Color32::WHITE));
-            push_galley(&g, w.pos, w.spacing, *weight, &mut quads);
+            let g = &w.galley;
+            push_galley(g, w.pos, w.spacing, *weight, &mut quads);
         }
         for (g, at, weight) in texts {
             push_galley(g, *at, 0.0, *weight, &mut quads);
@@ -3450,6 +3479,102 @@ pub fn dev_off(what: &str) -> bool {
 mod tests {
     use super::*;
 
+    #[test]
+    fn cached_word_shaping_preserves_letter_spacing_and_word_gaps() {
+        let ctx = egui::Context::default();
+        ctx.run_ui(Default::default(), |ui| {
+            let font = FontId::proportional(20.0);
+            let flow = ui.fonts_mut(|f| flow(f, split_part(&Part { start: 0, dur: 1000, text: "word next".into(), bg: false }), &font, 500.0, 27.0, Align::Left, false, 2.0, 3.0));
+            assert_eq!(flow.words.len(), 2);
+            for w in &flow.words {
+                let current = ui.fonts_mut(|f| f.layout_no_wrap(w.text.clone(), font.clone(), Color32::WHITE));
+                assert!(Arc::ptr_eq(&w.galley, &current));
+                assert_eq!(w.w, current.size().x + 2.0 * w.text.chars().count() as f32);
+                assert_eq!(w.h, current.size().y);
+                assert_eq!(w.spacing, 2.0);
+            }
+            let space = ui.fonts_mut(|f| text_size(f, " ", &font).x.max(font.size * 0.25)) + 3.0;
+            assert_eq!(flow.words[1].pos.x, flow.words[0].w + space);
+        }).textures_delta.clear();
+    }
+
+    #[test]
+    fn cached_word_galleys_detect_replaced_fonts_even_at_the_same_dpi() {
+        let ctx = egui::Context::default();
+        let mut saved = None;
+        ctx.run_ui(Default::default(), |ui| {
+            let f = ui.fonts_mut(|fonts| flow(fonts, split_part(&Part { start: 0, dur: 1000, text: "word".into(), bg: false }), &FontId::proportional(20.0), 300.0, 27.0, Align::Left, false, 1.5, 0.0));
+            let layout = Layout { key: 0, width: 300.0, pad_top: 0.0, content_h: f.height, richsync: true,
+                blocks: vec![Block { line: Some(0), start: 0.0, dur: 1.0, instrumental: false, align: Align::Left,
+                    colors: (Color32::WHITE, Color32::WHITE), top: 0.0, height: f.height, words: f.words,
+                    groups: f.groups, decos: vec![], credits: None }] };
+            assert!(layout_fonts_current(ui.ctx(), &layout));
+            saved = Some(layout);
+        }).textures_delta.clear();
+        let mut replacement = egui::FontDefinitions::default();
+        replacement.families.insert(egui::FontFamily::Name("lyrics-cache-test".into()), vec![]);
+        ctx.set_fonts(replacement);
+        ctx.run_ui(Default::default(), |ui| {
+            assert!(!layout_fonts_current(ui.ctx(), saved.as_ref().unwrap()));
+        }).textures_delta.clear();
+    }
+
+    #[test]
+    fn blurred_line_cache_keeps_quantization_but_rejects_another_dpi() {
+        let ctx = egui::Context::default();
+        let mut glow = Glow::default();
+        let key = (7, 0);
+        ctx.run_ui(Default::default(), |ui| {
+            let g = ui.fonts_mut(|f| f.layout_no_wrap("Word".into(), FontId::proportional(20.0), Color32::WHITE));
+            let atlas = ui.fonts(|f| f.font_image_size());
+            let ppp = ui.ctx().pixels_per_point();
+            assert!(glow.blurred_line(ui.ctx(), key, 2.0, &[], &[(g.clone(), Pos2::ZERO, 1.0)], &[], 1.0, atlas, ppp).is_some());
+            glow.scratch = vec![-77.0];
+            assert!(glow.blurred_line(ui.ctx(), key, 2.0, &[], &[(g, Pos2::ZERO, 1.0)], &[], 1.001, atlas, ppp).is_some());
+            assert_eq!(glow.scratch, [-77.0], "the existing scale quantization must keep the same bitmap");
+        }).textures_delta.clear();
+        ctx.set_pixels_per_point(2.0);
+        ctx.run_ui(Default::default(), |ui| {
+            let ppp = ui.ctx().pixels_per_point();
+            assert_eq!(ppp, 2.0);
+            assert!(glow.cached_line(ui.ctx(), key, 2.0, 1.0).is_none());
+            let g = ui.fonts_mut(|f| f.layout_no_wrap("Word".into(), FontId::proportional(20.0), Color32::WHITE));
+            let atlas = ui.fonts(|f| f.font_image_size());
+            assert!(glow.blurred_line(ui.ctx(), key, 2.0, &[], &[(g, Pos2::ZERO, 1.0)], &[], 1.0, atlas, ppp).is_some());
+            assert_ne!(glow.scratch, [-77.0]);
+            assert!(glow.cached_line(ui.ctx(), key, 2.0, 1.0).is_some());
+        }).textures_delta.clear();
+    }
+
+    #[test]
+    fn unchanged_translated_glow_skips_cpu_rasterization_and_blur() {
+        let ctx = egui::Context::default();
+        ctx.run_ui(Default::default(), |ui| {
+            let g = ui.fonts_mut(|f| f.layout_no_wrap("M".into(), FontId::proportional(20.0), Color32::WHITE));
+            let uv = g.rows.iter().flat_map(|r| &r.row.glyphs).find(|g| !g.uv_rect.is_nothing()).unwrap().uv_rect;
+            let atlas = ui.fonts(|f| f.font_image_size());
+            let painter = ui.painter();
+            let job = |shift: Vec2| {
+                let rect = Rect::from_min_size(pos2(10.0, 20.0) + shift, vec2(12.0, 18.0));
+                let uv = Rect::from_min_max(
+                    pos2(uv.min[0] as f32 / atlas[0] as f32, uv.min[1] as f32 / atlas[1] as f32),
+                    pos2(uv.max[0] as f32 / atlas[0] as f32, uv.max[1] as f32 / atlas[1] as f32),
+                );
+                GlowJob { key: (1, 0, 0, 0), quads: vec![(rect, uv, 0, 1, 1.0)], word: rect,
+                    look: WordLook { opacity: 1.0, start: 2.0, end: 3.0, glow: 2.0, glow_alpha: 1.0 },
+                    by_letter: false, rtl: false, radius: 2.0, pills: vec![], color: Color32::WHITE, layer: painter.add(Shape::Noop) }
+            };
+            let mut glow = Glow::default();
+            glow.finish(ui.ctx(), painter, vec![job(Vec2::ZERO)], atlas, 1.0);
+            glow.scratch = vec![-77.0];
+            glow.finish(ui.ctx(), painter, vec![job(vec2(17.5, -3.5))], atlas, 1.0);
+            assert_eq!(glow.scratch, [-77.0], "translation-invariant upstream reuse must happen before rasterization");
+            let mut moving = job(vec2(17.5, -3.5));
+            moving.look.start -= 0.1;
+            glow.finish(ui.ctx(), painter, vec![moving], atlas, 1.0);
+            assert_ne!(glow.scratch, [-77.0]);
+        }).textures_delta.clear();
+    }
     #[test]
     fn slots_are_rewritten_in_place() {
         let ctx = egui::Context::default();

@@ -1,7 +1,8 @@
 //! Animated album-art background, a port of Kawarp (MIT © 2026 Better Lyrics), the
 //! effect behind better-lyrics-shaders: the blurred cover is domain-warped by two
 //! octaves of simplex noise, zoomed, vignetted, saturated and dithered. Tracks
-//! crossfade. Everything runs in one fragment pass over a 64×64 texture. The same
+//! crossfade. A procedural vertex grid computes the smooth warp; the fragment pass
+//! samples the 64×64 texture and applies the theme's color/alpha controls. The same
 //! shader is written twice: GLSL for OpenGL, WGSL for wgpu (see renderer.rs).
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,31 +12,15 @@ use eframe::glow::{self, HasContext};
 
 use crate::art::{Art, SIZE};
 
-const FRAGMENT: &str = r#"
-precision highp float;
-uniform sampler2D u_a;
-uniform sampler2D u_b;
-uniform float u_blend;
-uniform float u_time;
-uniform float u_intensity;
-uniform float u_scale;
-uniform float u_saturation;
-uniform float u_dim;
-uniform float u_contrast;
-uniform float u_dither;
-uniform float u_rotate;
-uniform float u_alpha;
-uniform vec2 u_resolution;
-IN vec2 v_uv;
-#if NEW_SHADER_INTERFACE
-out vec4 frag_color;
-#define FRAG frag_color
-#define TEX texture
-#else
-#define FRAG gl_FragColor
-#define TEX texture2D
-#endif
+const WARP_GRID: u32 = 64;
+const WARP_VERTICES: u32 = WARP_GRID * WARP_GRID * 6;
 
+fn warp_vertex_count(intensity: f32) -> u32 {
+    if intensity == 0.0 { 3 } else { WARP_VERTICES }
+}
+
+const GLSL_NOISE: &str = r#"
+precision highp float;
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec3 permute(vec3 x) { return mod289(((x * 34.0) + 1.0) * x); }
@@ -60,6 +45,34 @@ float snoise(vec2 v) {
   g.yz = a0.yz * x12.xz + h.yz * x12.yw;
   return 130.0 * dot(m, g);
 }
+"#;
+
+const FRAGMENT: &str = r#"
+precision highp float;
+uniform sampler2D u_a;
+uniform sampler2D u_b;
+uniform float u_blend;
+uniform float u_time;
+uniform float u_intensity;
+uniform float u_scale;
+uniform float u_saturation;
+uniform float u_dim;
+uniform float u_contrast;
+uniform float u_dither;
+uniform float u_rotate;
+uniform float u_alpha;
+uniform vec2 u_resolution;
+IN vec2 v_uv;
+IN vec2 v_warped_uv;
+#if NEW_SHADER_INTERFACE
+out vec4 frag_color;
+#define FRAG frag_color
+#define TEX texture
+#else
+#define FRAG gl_FragColor
+#define TEX texture2D
+#endif
+
 float hash(vec3 p) {
   p = fract(p * 0.1031);
   p += dot(p, p.zyx + 31.32);
@@ -67,26 +80,12 @@ float hash(vec3 p) {
 }
 
 void main() {
-  // Zoom in so warped edges never show the clamp.
-  vec2 uv = (v_uv - 0.5) / u_scale + 0.5;
-  if (u_rotate != 0.0) {
-    float s = sin(u_rotate), k = cos(u_rotate);
-    uv = mat2(k, s, -s, k) * (uv - 0.5) + 0.5;
-  }
-  // A still background (intensity 0) skips the noise: that's most of this shader's cost.
-  vec2 w = clamp(uv, 0.0, 1.0);
-  if (u_intensity != 0.0) {
-    float t = u_time * 0.05;
-    float centerWeight = 1.0 - smoothstep(0.0, 0.7, length(uv - 0.5));
-    float n1 = snoise(uv * 0.35 + vec2(t, t * 0.7));
-    float n2 = snoise(uv * 0.35 + vec2(-t * 0.8, t * 0.5) + vec2(50.0, 50.0));
-    float n3 = snoise(uv * 0.9 + vec2(t * 1.2, -t) + vec2(100.0, 0.0));
-    float n4 = snoise(uv * 0.9 + vec2(-t, t * 1.1) + vec2(0.0, 100.0));
-    vec2 warp = vec2(n1 * 0.65 + n3 * 0.35, n2 * 0.65 + n4 * 0.35) * centerWeight;
-    w = clamp(uv + warp * u_intensity, 0.0, 1.0);
-  }
+  vec2 w = clamp(v_warped_uv, 0.0, 1.0);
 
-  vec3 color = mix(TEX(u_b, w).rgb, TEX(u_a, w).rgb, u_blend);
+  vec3 color = TEX(u_a, w).rgb;
+  if (u_blend < 1.0) {
+    color = mix(TEX(u_b, w).rgb, color, u_blend);
+  }
 
   vec2 c = v_uv - 0.5;
   color *= 1.0 - dot(c, c) * 0.3;
@@ -102,18 +101,51 @@ void main() {
 "#;
 
 const VERTEX: &str = r#"
+uniform float u_time;
+uniform float u_intensity;
+uniform float u_scale;
+uniform float u_rotate;
 OUT vec2 v_uv;
+OUT vec2 v_warped_uv;
 void main() {
-  // Full-screen triangle from the vertex index; no vertex buffers needed.
-  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
-  // Texture row 0 is the image's top edge, drawn at the top of the rect.
+  vec2 p;
+  if (u_intensity == 0.0) {
+    // Preserve the exact full-screen triangle for unwarped/static covers.
+    p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  } else {
+    // Two triangles per cell: 00,10,01 and 01,10,11; no vertex buffers.
+    int corner = gl_VertexID % 6;
+    int cell = gl_VertexID / 6;
+    vec2 offset = vec2((corner == 1 || corner >= 4) ? 1.0 : 0.0,
+                       (corner == 2 || corner == 3 || corner == 5) ? 1.0 : 0.0);
+    p = (vec2(float(cell % WARP_GRID), float(cell / WARP_GRID)) + offset) / float(WARP_GRID);
+  }
   v_uv = vec2(p.x, 1.0 - p.y);
   gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+  vec2 uv = (v_uv - 0.5) / u_scale + 0.5;
+  if (u_rotate != 0.0) {
+    float s = sin(u_rotate), k = cos(u_rotate);
+    uv = mat2(k, s, -s, k) * (uv - 0.5) + 0.5;
+  }
+  v_warped_uv = uv;
+  if (u_intensity != 0.0) {
+    float t = u_time * 0.05;
+    float centerWeight = 1.0 - smoothstep(0.0, 0.7, length(uv - 0.5));
+    float n1 = snoise(uv * 0.35 + vec2(t, t * 0.7));
+    float n2 = snoise(uv * 0.35 + vec2(-t * 0.8, t * 0.5) + vec2(50.0, 50.0));
+    float n3 = snoise(uv * 0.9 + vec2(t * 1.2, -t) + vec2(100.0, 0.0));
+    float n4 = snoise(uv * 0.9 + vec2(-t, t * 1.1) + vec2(0.0, 100.0));
+    vec2 warp = vec2(n1 * 0.65 + n3 * 0.35, n2 * 0.65 + n4 * 0.35) * centerWeight;
+    // Clamp after interpolation in the fragment shader, preserving border behavior.
+    v_warped_uv = uv + warp * u_intensity;
+  }
 }
 "#;
 
 /// [`VERTEX`] and [`FRAGMENT`] in WGSL, for wgpu; keep the two in step.
 const WGSL: &str = r#"
+const WARP_GRID: u32 = WARP_GRID_SIZE;
+
 struct U {
   blend: f32,
   time: f32,
@@ -135,15 +167,25 @@ struct U {
 struct VOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) uv: vec2<f32>,
+  @location(1) warped_uv: vec2<f32>,
 };
 
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32) -> VOut {
-  // Full-screen triangle from the vertex index, as in VERTEX.
-  let p = vec2<f32>(f32((vi << 1u) & 2u), f32(vi & 2u));
+  var p: vec2<f32>;
+  if (u.intensity == 0.0) {
+    p = vec2<f32>(f32((vi << 1u) & 2u), f32(vi & 2u));
+  } else {
+    let corner = vi % 6u;
+    let cell = vi / 6u;
+    let offset = vec2<f32>(select(0.0, 1.0, corner == 1u || corner >= 4u),
+                           select(0.0, 1.0, corner == 2u || corner == 3u || corner == 5u));
+    p = (vec2<f32>(f32(cell % WARP_GRID), f32(cell / WARP_GRID)) + offset) / f32(WARP_GRID);
+  }
   var o: VOut;
   o.uv = vec2<f32>(p.x, 1.0 - p.y);
   o.pos = vec4<f32>(p * 2.0 - 1.0, 0.0, 1.0);
+  o.warped_uv = warp_uv(o.uv);
   return o;
 }
 
@@ -177,15 +219,14 @@ fn hash(q: vec3<f32>) -> f32 {
   return fract((p.x + p.y) * p.z);
 }
 
-@fragment
-fn fs_main(in: VOut) -> @location(0) vec4<f32> {
-  var uv = (in.uv - 0.5) / u.scale + 0.5;
+fn warp_uv(input_uv: vec2<f32>) -> vec2<f32> {
+  var uv = (input_uv - 0.5) / u.scale + 0.5;
   if (u.rotate != 0.0) {
     let s = sin(u.rotate);
     let k = cos(u.rotate);
     uv = mat2x2<f32>(k, s, -s, k) * (uv - 0.5) + 0.5;
   }
-  var w = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+  var w = uv;
   if (u.intensity != 0.0) {
     let t = u.time * 0.05;
     let centerWeight = 1.0 - smoothstep(0.0, 0.7, length(uv - 0.5));
@@ -194,10 +235,20 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let n3 = snoise(uv * 0.9 + vec2<f32>(t * 1.2, -t) + vec2<f32>(100.0, 0.0));
     let n4 = snoise(uv * 0.9 + vec2<f32>(-t, t * 1.1) + vec2<f32>(0.0, 100.0));
     let warp = vec2<f32>(n1 * 0.65 + n3 * 0.35, n2 * 0.65 + n4 * 0.35) * centerWeight;
-    w = clamp(uv + warp * u.intensity, vec2<f32>(0.0), vec2<f32>(1.0));
+    w = uv + warp * u.intensity;
   }
 
-  var color = mix(textureSample(tex_b, samp, w).rgb, textureSample(tex_a, samp, w).rgb, u.blend);
+  return w;
+}
+
+@fragment
+fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+  let w = clamp(in.warped_uv, vec2<f32>(0.0), vec2<f32>(1.0));
+
+  var color = textureSample(tex_a, samp, w).rgb;
+  if (u.blend < 1.0) {
+    color = mix(textureSample(tex_b, samp, w).rgb, color, u.blend);
+  }
 
   let c = in.uv - 0.5;
   color = color * (1.0 - dot(c, c) * 0.3);
@@ -277,7 +328,7 @@ pub struct Background {
 impl Background {
     pub fn new_wgpu(rs: &eframe::egui_wgpu::RenderState) -> Self {
         let device = &rs.device;
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("background"), source: wgpu::ShaderSource::Wgsl(WGSL.into()) });
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("background"), source: wgpu::ShaderSource::Wgsl(WGSL.replace("WARP_GRID_SIZE", &WARP_GRID.to_string()).into()) });
         let texture = |binding| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -293,7 +344,7 @@ impl Background {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
                     count: None,
                 },
@@ -387,7 +438,12 @@ impl Background {
             let mut shaders = Vec::new();
             for (kind, src) in [(glow::VERTEX_SHADER, VERTEX), (glow::FRAGMENT_SHADER, FRAGMENT)] {
                 let s = gl.create_shader(kind).map_err(anyhow::Error::msg)?;
-                gl.shader_source(s, &format!("{header}{src}"));
+                let shader = if kind == glow::VERTEX_SHADER {
+                    format!("{header}#define WARP_GRID {WARP_GRID}\n{GLSL_NOISE}{src}")
+                } else {
+                    format!("{header}{src}")
+                };
+                gl.shader_source(s, &shader);
                 gl.compile_shader(s);
                 anyhow::ensure!(gl.get_shader_compile_status(s), "shader: {}", gl.get_shader_info_log(s));
                 gl.attach_shader(program, s);
@@ -481,7 +537,7 @@ impl Background {
                 gl.uniform_1_f32(alpha.as_ref(), p.alpha);
                 let vp = info.viewport_in_pixels();
                 gl.uniform_2_f32(resolution.as_ref(), vp.width_px as f32, vp.height_px as f32);
-                gl.draw_arrays(glow::TRIANGLES, 0, 3);
+                gl.draw_arrays(glow::TRIANGLES, 0, warp_vertex_count(p.intensity) as i32);
             }
         });
         painter.add(egui::PaintCallback { rect, callback: Arc::new(cb) });
@@ -542,7 +598,7 @@ impl eframe::egui_wgpu::CallbackTrait for WgpuPaint {
         pass.set_pipeline(&s.pipeline);
         let draw = &s.draws[self.draw.load(std::sync::atomic::Ordering::Relaxed)];
         pass.set_bind_group(0, &draw.groups[s.cur], &[]);
-        pass.draw(0..3, 0..1);
+        pass.draw(0..warp_vertex_count(self.p.intensity), 0..1);
     }
 }
 
@@ -878,5 +934,95 @@ unsafe fn draw_frost(gl: &glow::Context, g: &mut GlassGl, info: &egui::PaintCall
         gl.uniform_1_f32(fade.as_ref(), f.fade * ppp);
         gl.uniform_1_f32(brightness.as_ref(), bright);
         gl.draw_arrays(glow::TRIANGLES, 0, 3);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // CPU reference for the procedural grid emitted by both vertex shaders.
+    fn grid_vertex(index: u32) -> [f32; 2] {
+        let corner = index % 6;
+        let cell = index / 6;
+        let dx = u32::from(corner == 1 || corner >= 4);
+        let dy = u32::from(corner == 2 || corner == 3 || corner == 5);
+        [(cell % WARP_GRID + dx) as f32 / WARP_GRID as f32,
+         (cell / WARP_GRID + dy) as f32 / WARP_GRID as f32]
+    }
+
+    #[test]
+    fn procedural_warp_grid_covers_viewport_with_consistent_winding() {
+        assert_eq!(warp_vertex_count(0.0), 3);
+        assert_eq!(warp_vertex_count(1.0), WARP_GRID * WARP_GRID * 6);
+        let mut area = 0.0;
+        let mut corners = [false; 4];
+        for first in (0..warp_vertex_count(1.0)).step_by(3) {
+            let [a, b, c] = [grid_vertex(first), grid_vertex(first + 1), grid_vertex(first + 2)];
+            for [x, y] in [a, b, c] {
+                assert!((0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y));
+                for (seen, corner) in corners.iter_mut().zip([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]) {
+                    *seen |= [x, y] == corner;
+                }
+            }
+            let twice_area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+            assert!(twice_area > 0.0, "degenerate or reversed triangle at vertex {first}");
+            assert_eq!(twice_area, 1.0 / (WARP_GRID * WARP_GRID) as f32);
+            area += twice_area * 0.5;
+        }
+        assert_eq!(area, 1.0);
+        assert!(corners.into_iter().all(|seen| seen));
+    }
+
+    #[test]
+    fn warp_runs_before_interpolation_and_sampling_clamps_the_interpolated_uv() {
+        use wgpu::naga::{Expression, MathFunction, ShaderStage};
+        let source = WGSL.replace("WARP_GRID_SIZE", &WARP_GRID.to_string());
+        let module = wgpu::naga::front::wgsl::parse_str(&source).unwrap();
+        let warp = module.functions.iter().find(|(_, f)| f.name.as_deref() == Some("warp_uv")).unwrap().1;
+        assert!(!warp.expressions.iter().any(|(_, e)| matches!(e,
+            Expression::Math { fun: MathFunction::Clamp, .. })), "clamping grid vertices changes interpolated border behavior");
+        let vertex = module.entry_points.iter().find(|e| e.stage == ShaderStage::Vertex).unwrap();
+        assert!(!vertex.function.expressions.iter().any(|(_, e)| matches!(e,
+            Expression::ImageSample { .. })), "vertex warp must not sample live cover textures");
+        let fragment = module.entry_points.iter().find(|e| e.stage == ShaderStage::Fragment).unwrap();
+        let mut samples = 0;
+        for (_, expression) in fragment.function.expressions.iter() {
+            if let Expression::ImageSample { coordinate, .. } = expression {
+                samples += 1;
+                assert!(matches!(&fragment.function.expressions[*coordinate],
+                    Expression::Math { fun: MathFunction::Clamp, .. }), "texture samples must clamp the interpolated varying, not individual vertices");
+            }
+        }
+        assert_eq!(samples, 2, "current cover and conditional previous cover retain their samples");
+        // The GL backend follows the same boundary: GLSL's vertex never clamps.
+        assert!(!VERTEX.contains("clamp("));
+        assert!(FRAGMENT.contains("clamp(v_warped_uv, 0.0, 1.0)"));
+        assert!(VERTEX.contains("uniform float u_rotate;"));
+        assert!(VERTEX.find("uv = mat2(").unwrap() < VERTEX.find("v_warped_uv = uv;").unwrap());
+    }
+
+    #[test]
+    fn wgsl_uniform_layout_keeps_theme_controls_in_host_upload_order() {
+        use wgpu::naga::TypeInner;
+        let source = WGSL.replace("WARP_GRID_SIZE", &WARP_GRID.to_string());
+        let module = wgpu::naga::front::wgsl::parse_str(&source).unwrap();
+        let uniforms = module.types.iter().find(|(_, ty)| ty.name.as_deref() == Some("U")).unwrap().1;
+        let TypeInner::Struct { members, span } = &uniforms.inner else { panic!("uniform U must remain a struct") };
+        let layout: Vec<_> = members.iter().map(|m| (m.name.as_deref().unwrap(), m.offset)).collect();
+        assert_eq!(layout, [("blend", 0), ("time", 4), ("intensity", 8), ("scale", 12),
+            ("saturation", 16), ("dim", 20), ("resolution", 24), ("contrast", 32),
+            ("dither", 36), ("rotate", 40), ("alpha", 44)]);
+        assert_eq!(*span, 12 * std::mem::size_of::<f32>() as u32);
+    }
+
+    #[test]
+    fn grid_wgsl_parses_and_validates_both_shader_stages() {
+        let source = WGSL.replace("WARP_GRID_SIZE", &WARP_GRID.to_string());
+        let module = wgpu::naga::front::wgsl::parse_str(&source)
+            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
+        wgpu::naga::valid::Validator::new(
+            wgpu::naga::valid::ValidationFlags::all(), wgpu::naga::valid::Capabilities::all(),
+        ).validate(&module).expect("grid shader must validate");
     }
 }

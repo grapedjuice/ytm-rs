@@ -452,6 +452,7 @@ pub struct App {
     skip_streak: u32,
     /// Times the current song was reopened after its download failed.
     recoveries: u32,
+    recovery_at: Option<Duration>,
     autoplay: bool,
     /// The level volume normalization brings songs to.
     normalize: crate::audio::Normalize,
@@ -817,6 +818,7 @@ impl App {
             buffering: false,
             skip_streak: 0,
             recoveries: 0,
+            recovery_at: None,
             autoplay: get("autoplay").is_none_or(|v| v == "1"),
             normalize: get("normalize").map_or_else(Default::default, |v| crate::audio::Normalize::from_key(&v)),
             log_volume: get("log_volume").is_none_or(|v| v == "1"),

@@ -13,6 +13,8 @@ use serde_json::{Value, json};
 pub const UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
 
 pub struct Stream {
+    /// Explicit representation identity for exact-format renewal.
+    pub itag: u64,
     pub url: String,
     pub size: u64,
     pub duration_ms: u64,
@@ -69,26 +71,26 @@ pub async fn album_queue(http: &reqwest::Client, playlist_id: &str) -> anyhow::R
         .await?)
 }
 
-/// `opus`: Opus (itag 251, about 130-160 kbps) when the song has it, else AAC.
+const LEGACY_OPUS_ITAGS: &[u64] = &[251, 140, 139];
+const OPUS_ITAGS: &[u64] = &[251, 250, 249, 140, 139];
+const AAC_ITAGS: &[u64] = &[140, 139];
+
+/// Preserve the existing best-quality contract: 251, then 140/139; AAC skips Opus.
 pub async fn audio_stream(http: &reqwest::Client, video_id: &str, visitor_data: &str, opus: bool) -> anyhow::Result<Stream> {
     let resp = player(http, video_id, visitor_data).await?;
-    // Opus in WebM (251) when asked for; AAC-LC in MP4 (140), HE-AAC (139) as fallbacks.
-    let formats = resp["streamingData"]["adaptiveFormats"].as_array().map(Vec::as_slice).unwrap_or_default();
-    let itags: &[u64] = if opus { &[251, 140, 139] } else { &[140, 139] };
-    itags
-        .iter()
-        .find_map(|itag| {
-            let f = formats.iter().find(|f| f["itag"] == *itag)?;
-            log::info!("visionOS: {video_id} itag {itag} ({} kbps)", f["averageBitrate"].as_u64().or(f["bitrate"].as_u64()).unwrap_or(0) / 1000);
-            Some(Stream {
-                url: f["url"].as_str()?.to_owned(),
-                size: f["contentLength"].as_str()?.parse().ok()?,
-                duration_ms: f["approxDurationMs"].as_str().and_then(|d| d.parse().ok()).unwrap_or(0),
-                loudness_db: loudness(&resp, f),
-                opus: *itag == 251,
-            })
-        })
-        .ok_or_else(|| anyhow::anyhow!("no audio stream in visionOS player response"))
+    let stream = parse_audio_formats(&resp, if opus { LEGACY_OPUS_ITAGS } else { AAC_ITAGS })
+        .into_iter().next().ok_or_else(|| anyhow::anyhow!("no audio stream in visionOS player response"))?;
+    log::info!("visionOS: {video_id} itag {}", stream.itag);
+    Ok(stream)
+}
+
+/// Direct candidates in quality order, including lower-bitrate Opus for recovery.
+/// A returned URL is not proof of available bytes; the caller probes its target.
+pub async fn audio_streams(http: &reqwest::Client, video_id: &str, visitor_data: &str, opus: bool) -> anyhow::Result<Vec<Stream>> {
+    let resp = player(http, video_id, visitor_data).await?;
+    let streams = parse_audio_formats(&resp, if opus { OPUS_ITAGS } else { AAC_ITAGS });
+    anyhow::ensure!(!streams.is_empty(), "no audio stream in visionOS player response");
+    Ok(streams)
 }
 
 /// The AAC stream as HLS segments: what plays where YouTube cuts the visionOS player's
@@ -106,8 +108,8 @@ pub async fn hls_audio(http: &reqwest::Client, video_id: &str, visitor_data: &st
     let resp = player(http, video_id, visitor_data).await?;
     let master_url = resp["streamingData"]["hlsManifestUrl"].as_str().ok_or_else(|| anyhow::anyhow!("no HLS manifest in visionOS player response"))?;
     let get = |url: String| async move {
-        let r = http.get(url).header("User-Agent", UA).timeout(std::time::Duration::from_secs(8)).send().await?.error_for_status()?;
-        anyhow::Ok(r.text().await?)
+        let r = http.get(url).header("User-Agent", UA).timeout(std::time::Duration::from_secs(8)).send().await.map_err(reqwest::Error::without_url)?.error_for_status().map_err(reqwest::Error::without_url)?;
+        anyhow::Ok(r.text().await.map_err(reqwest::Error::without_url)?)
     };
     let master = get(master_url.to_owned()).await?;
     let media_url = hls_audio_playlist(&master, "234").ok_or_else(|| anyhow::anyhow!("no AAC audio (234) in the HLS manifest"))?;
@@ -272,5 +274,103 @@ mod tests {
         };
         assert_eq!(pick_video(&[at(298, 60), at(136, 30)], 720).unwrap().url, "u136");
         assert_eq!(pick_video(&[at(136, 30), at(298, 60)], 720).unwrap().url, "u136");
+    }
+}
+
+/// Parsing never prints a stream URL or a format object containing signatures.
+fn parse_audio_formats(resp: &Value, itags: &[u64]) -> Vec<Stream> {
+    let formats = resp["streamingData"]["adaptiveFormats"].as_array().map(Vec::as_slice).unwrap_or_default();
+    itags.iter().flat_map(|itag| {
+        formats.iter().filter(move |f| f["itag"].as_u64() == Some(*itag)).filter_map(move |f| {
+            let address = f["url"].as_str()?;
+            let parsed = url::Url::parse(address).ok()?;
+            if !matches!(parsed.scheme(), "https" | "http") || parsed.host_str().is_none() {
+                return None;
+            }
+            let size = f["contentLength"].as_str().and_then(|n| n.parse::<u64>().ok())
+                .or_else(|| f["contentLength"].as_u64()).filter(|n| *n > 0)?;
+            Some(Stream {
+                itag: *itag,
+                url: address.to_owned(),
+                size,
+                duration_ms: f["approxDurationMs"].as_str().and_then(|d| d.parse().ok())
+                    .or_else(|| f["approxDurationMs"].as_u64()).unwrap_or(0),
+                loudness_db: loudness(resp, f),
+                opus: matches!(*itag, 249..=251),
+            })
+        })
+    }).collect()
+}
+
+
+#[cfg(test)]
+mod audio_candidate_tests {
+    use super::*;
+
+    fn format(itag: u64) -> Value {
+        json!({"itag": itag, "url": format!("https://media.invalid/audio?itag={itag}"),
+            "contentLength": "4096", "approxDurationMs": "197508"})
+    }
+
+    fn response(formats: Vec<Value>) -> Value {
+        json!({"streamingData": {"adaptiveFormats": formats}})
+    }
+
+    #[test]
+    fn recovery_formats_are_quality_ordered_without_changing_legacy_selection() {
+        let resp = response([139, 251, 249, 140, 250].into_iter().map(format).collect());
+        let ids = |order| parse_audio_formats(&resp, order).into_iter().map(|s| s.itag).collect::<Vec<_>>();
+        assert_eq!(ids(OPUS_ITAGS), [251, 250, 249, 140, 139]);
+        assert_eq!(ids(LEGACY_OPUS_ITAGS), [251, 140, 139]);
+        assert_eq!(ids(AAC_ITAGS), [140, 139]);
+        // Lower Opus is recovery-only: the existing selector still prefers AAC.
+        let resp = response([249, 140, 250].into_iter().map(format).collect());
+        assert_eq!(parse_audio_formats(&resp, LEGACY_OPUS_ITAGS)[0].itag, 140);
+    }
+
+    #[test]
+    fn every_opus_bitrate_has_the_opus_decoder_flag() {
+        let resp = response([139, 140, 249, 250, 251].into_iter().map(format).collect());
+        let streams = parse_audio_formats(&resp, OPUS_ITAGS);
+        assert_eq!(streams.iter().map(|s| (s.itag, s.opus)).collect::<Vec<_>>(),
+            [(251, true), (250, true), (249, true), (140, false), (139, false)]);
+    }
+
+    #[test]
+    fn invalid_direct_urls_and_lengths_are_skipped_without_hiding_valid_duplicates() {
+        let mut cipher_only = format(251);
+        cipher_only.as_object_mut().unwrap().remove("url");
+        cipher_only["signatureCipher"] = json!("not-a-direct-url");
+        let mut invalid_url = format(250);
+        invalid_url["url"] = json!("");
+        let mut invalid_length = format(249);
+        invalid_length["contentLength"] = json!("invalid");
+        let mut zero_length = format(140);
+        zero_length["contentLength"] = json!("0");
+        let mut missing_length = format(139);
+        missing_length.as_object_mut().unwrap().remove("contentLength");
+        let mut unsupported_scheme = format(251);
+        unsupported_scheme["url"] = json!("file:///audio");
+        let resp = response(vec![cipher_only, invalid_url, invalid_length, zero_length, missing_length,
+            unsupported_scheme, format(140)]);
+        let streams = parse_audio_formats(&resp, OPUS_ITAGS);
+        assert_eq!(streams.iter().map(|s| s.itag).collect::<Vec<_>>(), [140]);
+        assert_eq!(streams[0].size, 4096);
+    }
+
+    #[test]
+    fn all_direct_variants_keep_metadata_and_loudness() {
+        let mut second = format(250);
+        second["contentLength"] = json!(8192);
+        second["approxDurationMs"] = json!(197481);
+        let mut first = format(250);
+        first["loudnessDb"] = json!(1.5);
+        let mut resp = response(vec![second, first]);
+        resp["playerConfig"] = json!({"audioConfig": {"trackAbsoluteLoudnessLkfs": -10.0, "loudnessTargetLkfs": -14.0}});
+        let streams = parse_audio_formats(&resp, OPUS_ITAGS);
+        assert_eq!(streams.len(), 2);
+        assert_eq!((streams[0].size, streams[0].duration_ms), (8192, 197481));
+        assert_eq!(streams[0].loudness_db, Some(4.0));
+        assert_eq!(streams[1].loudness_db, Some(1.5));
     }
 }

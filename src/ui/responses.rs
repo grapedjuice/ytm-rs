@@ -712,6 +712,24 @@ impl App {
 
     /// A song couldn't play: skip it, or stop when skipping can't help.
     fn on_play_error(&mut self, generation: u64, msg: String) {
+        match play_error_action(generation, self.generation, self.recovery_at) {
+            PlayErrorAction::Ignore => return,
+            PlayErrorAction::KeepTrackAt(at) => {
+                // The interrupted play still owns its queue item and exact target.
+                // Do not let the initial-play handler skip it or mark it ended.
+                self.recovery_at = None;
+                self.buffering = false;
+                self.ended = false;
+                self.resume_at = Some(at);
+                self.audio.status.position_ms.store(at.as_millis() as u64, std::sync::atomic::Ordering::Relaxed);
+                self.audio.status.playing.store(false, std::sync::atomic::Ordering::Relaxed);
+                let title = self.current().map(|t| t.title.clone()).unwrap_or_default();
+                log::warn!("recovery generation {generation} failed at {at:?}: {msg}");
+                self.toast(format!("Couldn't resume \"{title}\": {msg}. Press play to try again from {}.", super::fmt_time(at.as_secs() as u32)));
+                return;
+            }
+            PlayErrorAction::Initial => {}
+        }
         if generation == self.generation {
             self.buffering = false;
             let title = self.current().map(|t| t.title.clone()).unwrap_or_default();
@@ -810,6 +828,47 @@ impl App {
     }
 }
 
+/// Startup failures may skip an unplayable item; recovery failures retain its position.
+#[derive(Debug, PartialEq, Eq)]
+enum PlayErrorAction {
+    Ignore,
+    KeepTrackAt(Duration),
+    Initial,
+}
+
+fn play_error_action(generation: u64, current: u64, recovery_at: Option<Duration>) -> PlayErrorAction {
+    if generation != current {
+        PlayErrorAction::Ignore
+    } else if let Some(at) = recovery_at {
+        PlayErrorAction::KeepTrackAt(at)
+    } else {
+        PlayErrorAction::Initial
+    }
+}
+
+#[cfg(test)]
+mod recovery_error_tests {
+    use super::{PlayErrorAction, play_error_action};
+    use std::time::Duration;
+
+    #[test]
+    fn failed_recovery_keeps_exact_interruption_position_instead_of_skipping() {
+        let at = Duration::from_millis(113_195);
+        assert_eq!(play_error_action(191, 191, Some(at)), PlayErrorAction::KeepTrackAt(at));
+        assert_eq!(play_error_action(192, 192, Some(at)), PlayErrorAction::KeepTrackAt(at));
+    }
+
+    #[test]
+    fn stale_recovery_failure_cannot_change_current_playback() {
+        assert_eq!(play_error_action(191, 192, Some(Duration::from_millis(113_195))), PlayErrorAction::Ignore);
+        assert_eq!(play_error_action(191, 192, None), PlayErrorAction::Ignore);
+    }
+
+    #[test]
+    fn initial_play_failure_keeps_existing_initial_error_policy() {
+        assert_eq!(play_error_action(191, 191, None), PlayErrorAction::Initial);
+    }
+}
 /// Unplayable songs skipped in a row before playback stops.
 const MAX_SKIPS: u32 = 3;
 

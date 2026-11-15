@@ -64,21 +64,25 @@ rustPlatform.buildRustPackage {
     webkitgtk_4_1
   ];
 
-  makeWrapperArgs = [
-    "--prefix LD_LIBRARY_PATH : ${
-      lib.makeLibraryPath [
-        libayatana-appindicator
-        libGL
-        libx11
-        libxkbcommon
-        libxcursor
-        libxi
-        libxrandr
-        vulkan-loader
-        wayland
-      ]
-    }"
-  ];
+  # The app loads these at run time rather than linking them. wrapGAppsHook3 builds the
+  # wrapper from gappsWrapperArgs only (makeWrapperArgs isn't read for a Rust package).
+  preFixup = ''
+    gappsWrapperArgs+=(
+      --prefix LD_LIBRARY_PATH : "${
+        lib.makeLibraryPath [
+          libayatana-appindicator
+          libGL
+          libx11
+          libxkbcommon
+          libxcursor
+          libxi
+          libxrandr
+          vulkan-loader
+          wayland
+        ]
+      }"
+    )
+  '';
 
   postInstall = ''
     install -Dm644 linux/ytm-rs.desktop $out/share/applications/ytm-rs.desktop

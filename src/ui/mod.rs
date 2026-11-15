@@ -582,6 +582,12 @@ pub struct App {
     extras_asked: Option<(String, String, String)>,
     show_roman: bool,
     show_trans: bool,
+    /// Lines move on quickly, the extension's way, whatever the theme's timing.
+    quick_lyric_scroll: bool,
+    /// Synced lyrics animate at the screen's refresh rate rather than 60 fps.
+    lyrics_full_rate: bool,
+    /// The last frame's lyrics asked for the next at the screen's rate: `frame_pace` doesn't hold it.
+    full_rate_frame: bool,
     lyric_prefs: lyric_prefs::Prefs,
     lyric_view: karaoke::View,
     lyric_clock: lyric_prefs::Clock,
@@ -938,6 +944,9 @@ impl App {
             extras_asked: None,
             show_roman: get("show_roman").is_none_or(|v| v == "1"),
             show_trans: get("show_trans").is_none_or(|v| v == "1"),
+            quick_lyric_scroll: get("quick_lyric_scroll").is_some_and(|v| v == "1"),
+            lyrics_full_rate: get("lyrics_full_rate").is_some_and(|v| v == "1"),
+            full_rate_frame: false,
             lyric_prefs: lyric_prefs::Prefs::load(&get),
             lyric_view: Default::default(),
             lyric_clock: Default::default(),
@@ -1432,7 +1441,8 @@ impl eframe::App for App {
         // Frame pacing: idle costs nothing. The background drifts slowly, so ~15 fps
         // reads as smooth on pages; the now-playing view and a page showing the playing
         // row's bars run at 30 fps, and the synced lyrics ask for 60 while they animate
-        // (the karaoke sweep must be smooth). Each egui frame re-lays-out the UI, so frame rate is the main CPU cost.
+        // (the karaoke sweep must be smooth), or the screen's rate with "Lyrics at the
+        // screen's refresh rate" on. Each egui frame re-lays-out the UI, so frame rate is the main CPU cost.
         let playing = self.playing();
         if self.window_hidden {
             // In the tray or minimized: nothing to draw, only the player bookkeeping.
@@ -1748,7 +1758,7 @@ impl eframe::App for App {
         if self.wheel.filter(&mut raw.events, raw.time.unwrap_or(0.0), raw.predicted_dt, viewport_h) {
             ctx.request_repaint();
         }
-        frame_pace(raw);
+        frame_pace(raw, std::mem::take(&mut self.full_rate_frame));
         if let Some((x, y)) = dev_var("YTM_FAKE_POINTER").and_then(|v| {
             let (x, y) = v.split_once(',')?;
             Some((x.trim().parse::<f32>().ok()?, y.trim().parse::<f32>().ok()?))
@@ -1862,6 +1872,8 @@ impl eframe::App for App {
         storage.set_string("tempo", b(self.tempo_on));
         storage.set_string("show_roman", b(self.show_roman));
         storage.set_string("show_trans", b(self.show_trans));
+        storage.set_string("quick_lyric_scroll", b(self.quick_lyric_scroll));
+        storage.set_string("lyrics_full_rate", b(self.lyrics_full_rate));
         // Background test runs mustn't change the listener's sources or per-song picks.
         if std::env::var_os("YTM_BACKGROUND").is_none() || std::env::var_os("YTM_SAVE_SESSION").is_some() {
             self.lyric_prefs.save(storage);
@@ -1901,12 +1913,13 @@ const VIDEO_QUALITIES: [u32; 4] = [1080, 720, 480, 360];
 
 /// The pointer moving wakes a frame per event, up to the monitor's rate, and each of those
 /// asks for more: frames wait for 60 fps unless the listener is doing something that wants
-/// every frame (clicking, typing, scrolling).
-fn frame_pace(raw: &egui::RawInput) {
+/// every frame (clicking, typing, scrolling), or the lyrics run at the screen's rate.
+fn frame_pace(raw: &egui::RawInput, full_rate: bool) {
     use egui::Event as E;
     static LAST: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
     let mut last = LAST.lock().unwrap();
-    let acting = raw.events.iter().any(|e| matches!(e, E::PointerButton { .. } | E::MouseWheel { .. } | E::Key { .. } | E::Text(_) | E::Ime(_) | E::Zoom(_) | E::Touch { .. }));
+    let acting = full_rate
+        || raw.events.iter().any(|e| matches!(e, E::PointerButton { .. } | E::MouseWheel { .. } | E::Key { .. } | E::Text(_) | E::Ime(_) | E::Zoom(_) | E::Touch { .. }));
     if !acting && let Some(wait) = last.and_then(|l| Duration::from_millis(16).checked_sub(l.elapsed())) {
         std::thread::sleep(wait);
     }

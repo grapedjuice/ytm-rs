@@ -1382,11 +1382,7 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
     };
     let rpos = pos2(cx + 104.0, cy);
     if button(ui, rpos, rep_icon, 16.0, "Repeat", rep_on) {
-        app.queue.repeat = match app.queue.repeat {
-            Repeat::Off => Repeat::All,
-            Repeat::All => Repeat::One,
-            Repeat::One => Repeat::Off,
-        };
+        app.queue.repeat = app.queue.repeat.next();
     }
     if rep_on {
         ui.painter().circle_filled(rpos + vec2(0.0, 15.0), 2.0, app.accent_color());
@@ -1414,7 +1410,7 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
 }
 
 /// Mute, keeping the volume to go back to, or go back to it.
-fn toggle_mute(app: &mut App, ui: &Ui) {
+pub(super) fn toggle_mute(app: &mut App, ui: &Ui) {
     let vol = app.audio.volume();
     let stash = super::shell::unmute_id();
     if vol > 0.0 {

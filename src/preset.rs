@@ -996,7 +996,8 @@ pub struct NowPlayingStyle {
     /// Buttons on the cover: `[px, black alpha, hover scale]`.
     pub cover_buttons: [f32; 3],
     /// In full screen, previous and next on the cover when the pointer's over it, as
-    /// `[px, black alpha, hover scale]`, whether `cover_controls` is on or not.
+    /// `[px, black alpha, hover scale]`, whether `cover_controls` is on or not. Only on a
+    /// cover too small to be full screen's player (under 280px).
     pub fullscreen_cover_buttons: Option<[f32; 3]>,
     /// The lyrics' panel in full screen, of the view, and its side padding.
     pub fullscreen_panel_frac: Option<f32>,

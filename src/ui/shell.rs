@@ -1497,11 +1497,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         app.next();
     }
     if ctl(ui, outer, rep_icon, "Repeat", rep_on, 18.0) {
-        app.queue.repeat = match app.queue.repeat {
-            Repeat::Off => Repeat::All,
-            Repeat::All => Repeat::One,
-            Repeat::One => Repeat::Off,
-        };
+        app.queue.repeat = app.queue.repeat.next();
     }
     let play_size = chrome.play_scale.clamp(0.8, 1.5);
     let pr = Rect::from_center_size(center, Vec2::splat(46.0 * play_size));
@@ -1649,14 +1645,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         }
     }
     if mresp.clicked() {
-        let stash = unmute_id();
-        if vol > 0.0 {
-            ui.data_mut(|d| d.insert_temp(stash, vol));
-            app.audio.set_volume(0.0);
-        } else {
-            let v = ui.data(|d| d.get_temp::<f32>(stash)).unwrap_or(0.6);
-            app.audio.set_volume(v);
-        }
+        super::mini::toggle_mute(app, ui);
     }
     if let Some(g) = time_g.filter(|_| show_time) {
         let gap = if compact_vol { 4.0 } else { 10.0 };

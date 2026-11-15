@@ -423,6 +423,9 @@ impl App {
     pub(super) fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {
         self.fullscreen = on;
         self.video_full = false;
+        // A seek dragged when the view changed under it ends, and the cover player starts out shown.
+        self.seek_drag = None;
+        super::nowplaying::wake_cover_player(ctx);
         // Windows: in one step, without winit's unthemed-frame flash.
         if !crate::fullscreen::set(on) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(on));

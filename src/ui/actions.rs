@@ -434,14 +434,6 @@ impl App {
     }
 }
 
-/// A shuffled list about to play: not with the song already playing first, whose Play
-/// would only pause it.
-pub(super) fn not_current_first(t: &mut [Track], current: Option<&Track>) {
-    if t.len() > 1 && current.is_some_and(|c| c.id == t[0].id) {
-        t.swap(0, 1);
-    }
-}
-
 fn share_url(target: &Target) -> String {
     match target {
         Target::Song(t) => format!("https://music.youtube.com/watch?v={}", t.id),

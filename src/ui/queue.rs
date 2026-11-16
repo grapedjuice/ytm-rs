@@ -188,7 +188,8 @@ impl Queue {
         if start >= self.tracks.len() {
             return false;
         }
-        super::shuffle(&mut self.tracks[start..]);
+        let (done, rest) = self.tracks.split_at_mut(start);
+        super::shuffle(rest, done);
         if let Some(fill) = &mut self.fill {
             fill.shuffled = true;
         }
@@ -271,7 +272,8 @@ impl Queue {
         if shuffled {
             // Mixed into what's still to come, past the next song (it may be loading already).
             let from = self.index.map_or(0, |i| i + if was_at_end { 1 } else { 2 }).min(self.tracks.len());
-            super::shuffle(&mut self.tracks[from..]);
+            let (done, rest) = self.tracks.split_at_mut(from);
+            super::shuffle(rest, done);
         }
         Some(Filled { ran_out, was_at_end })
     }

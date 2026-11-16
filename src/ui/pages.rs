@@ -968,8 +968,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                     play_pill(ui, acts, &target, tracks, find, page);
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() && !tracks.is_empty() {
                         let mut t = tracks.clone();
-                        super::shuffle(&mut t);
-                        super::actions::not_current_first(&mut t, app.queue.current());
+                        super::shuffle_to_play(&mut t, &app.queue);
                         acts.push(Action::Play(t, 0));
                     }
                     if let Some(first) = tracks.first()
@@ -1155,8 +1154,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         play_pill(ui, acts, &Target::Artist(id.to_owned()), top, &app.find, &app.page);
         if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() && !top.is_empty() {
             let mut t = top.clone();
-            super::shuffle(&mut t);
-            super::actions::not_current_first(&mut t, app.queue.current());
+            super::shuffle_to_play(&mut t, &app.queue);
             acts.push(Action::Play(t, 0));
         }
         if let Some(first) = top.first()
@@ -1299,8 +1297,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 }
                 if app.uploads.as_ref().is_some_and(|u| !u.is_empty()) && pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() {
                     let mut t = app.uploads.clone().unwrap_or_default();
-                    super::shuffle(&mut t);
-                    super::actions::not_current_first(&mut t, app.queue.current());
+                    super::shuffle_to_play(&mut t, &app.queue);
                     app.actions.push(Action::Play(t, 0));
                 }
                 if let Some(up) = &app.uploads {
@@ -1330,8 +1327,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                     }
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() {
                         let mut t = songs.clone();
-                        super::shuffle(&mut t);
-                        super::actions::not_current_first(&mut t, app.queue.current());
+                        super::shuffle_to_play(&mut t, &app.queue);
                         app.actions.push(Action::Play(t, 0));
                     }
                 }
@@ -1393,8 +1389,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                     }
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() {
                         let mut t = liked.clone();
-                        super::shuffle(&mut t);
-                        super::actions::not_current_first(&mut t, app.queue.current());
+                        super::shuffle_to_play(&mut t, &app.queue);
                         app.actions.push(Action::Play(t, 0));
                     }
                     select_pill(ui, &mut app.selection, &app.page);

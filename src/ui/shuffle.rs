@@ -3,7 +3,8 @@
 //! Spotify's "dithered" shuffle (2014): each artist's songs get evenly spaced places
 //! from a random start, each a little off its spot, and all merge by place.
 
-use std::collections::{HashMap, VecDeque};
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
 
 use super::queue::Queue;
 use crate::model::Track;
@@ -62,32 +63,89 @@ fn spread(v: &mut [Track], before: &[Track], rng: &mut Rng) {
 /// All of `groups`' items: each group's given evenly spaced places (in its order) and
 /// all merged by place, with as few from one group in a row as can be, counting `last`:
 /// the group just before, and how many of its items in a row that ended with.
+///
+/// Heaps keep it quick for a big library: each item costs a few steps whatever the
+/// number of groups, where looking through every group for each item took seconds.
 fn merge(groups: &[Vec<usize>], last: Option<(usize, usize)>, rng: &mut Rng) -> Vec<usize> {
-    let mut queues: Vec<VecDeque<(f64, usize)>> = groups.iter().map(|g| dither(g, rng).into()).collect();
-    let n = queues.iter().map(VecDeque::len).sum::<usize>();
+    let placed: Vec<Vec<(f64, usize)>> = groups.iter().map(|g| dither(g, rng)).collect();
+    let n = placed.iter().map(Vec::len).sum::<usize>();
     // The fewest in a row any order manages: a group's runs (for `last`'s, the first going
     // on from before) need one of the others between each two.
     let ahead = |g| last.filter(|l| l.0 == g).map_or(0, |l| l.1);
-    let most = queues.iter().enumerate().map(|(g, q)| (q.len() + ahead(g)).div_ceil(n - q.len() + 1)).max().unwrap_or(1).max(1);
+    let most = placed.iter().enumerate().map(|(g, q)| (q.len() + ahead(g)).div_ceil(n - q.len() + 1)).max().unwrap_or(1).max(1);
+    // How far into each group, and how many it has left.
+    let mut taken = vec![0; placed.len()];
+    let left_in = |g: usize, taken: &[usize]| placed[g].len() - taken[g];
+    // Each group's next place, earliest first; and each group by how many it has left, most
+    // first. An entry for an item already taken, or a count since changed, is skipped.
+    let mut fronts: BinaryHeap<Reverse<Front>> = placed.iter().enumerate().filter(|(_, q)| !q.is_empty()).map(|(g, q)| Reverse(Front { place: q[0].0, group: g, at: 0 })).collect();
+    let mut sizes: BinaryHeap<(usize, Reverse<usize>)> = placed.iter().enumerate().map(|(g, q)| (q.len(), Reverse(g))).collect();
     let (mut order, mut last) = (Vec::with_capacity(n), last.map(|l| l.0));
     for left in (1..=n).rev() {
-        // A group with too many left for the others to keep its runs that short goes now;
-        // otherwise the earliest place by another group than the last.
-        let tight = queues.iter().position(|q| q.len() > most * (left - q.len()));
-        let next = tight.or_else(|| earliest(&queues, last)).or_else(|| earliest(&queues, None));
-        let Some((g, (_, i))) = next.and_then(|g| Some((g, queues[g].pop_front()?))) else {
+        // A group with too many left for the others to keep its runs that short goes now
+        // (only the biggest can be: two at once would need more than are left); otherwise
+        // the earliest place by another group than the last.
+        while sizes.peek().is_some_and(|&(len, Reverse(g))| len != left_in(g, &taken)) {
+            sizes.pop();
+        }
+        let tight = sizes.peek().filter(|&&(len, _)| len > most * (left - len)).map(|&(_, Reverse(g))| g);
+        let Some(g) = tight.or_else(|| earliest(&mut fronts, &taken, last)).or_else(|| earliest(&mut fronts, &taken, None)) else {
             break;
         };
-        order.push(i);
+        order.push(placed[g][taken[g]].1);
+        taken[g] += 1;
         last = Some(g);
+        if let Some(&(place, _)) = placed[g].get(taken[g]) {
+            fronts.push(Reverse(Front { place, group: g, at: taken[g] }));
+        }
+        sizes.push((left_in(g, &taken), Reverse(g)));
     }
     order
 }
 
+/// A group's next item, by its place (and the group, for a tie).
+struct Front {
+    place: f64,
+    group: usize,
+    /// Which of the group's items: no longer its next once that's taken.
+    at: usize,
+}
+
+impl Ord for Front {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.place.total_cmp(&other.place).then(self.group.cmp(&other.group))
+    }
+}
+
+impl PartialOrd for Front {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for Front {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+
+impl Eq for Front {}
+
 /// The group whose next item has the earliest place, other than `skip`.
-fn earliest(queues: &[VecDeque<(f64, usize)>], skip: Option<usize>) -> Option<usize> {
-    let fronts = queues.iter().enumerate().filter(|&(g, _)| Some(g) != skip);
-    fronts.filter_map(|(g, q)| Some((g, q.front()?.0))).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(g, _)| g)
+fn earliest(fronts: &mut BinaryHeap<Reverse<Front>>, taken: &[usize], skip: Option<usize>) -> Option<usize> {
+    let mut held = None;
+    let found = loop {
+        let Some(Reverse(f)) = fronts.peek() else { break None };
+        if f.at != taken[f.group] {
+            fronts.pop();
+        } else if Some(f.group) == skip && held.is_none() {
+            held = fronts.pop();
+        } else {
+            break Some(f.group);
+        }
+    };
+    fronts.extend(held);
+    found
 }
 
 /// Evenly spaced places in 0..1 for `items`, in their order: from a random start, each up
@@ -147,7 +205,7 @@ impl Rng {
 
 #[cfg(test)]
 mod tests {
-    use super::{Rng, shuffle_to_play, spread};
+    use super::{Rng, dither, merge, shuffle_to_play, spread};
     use crate::model::{Link, Track};
     use crate::ui::queue::{Queue, Repeat};
 
@@ -313,5 +371,51 @@ mod tests {
         assert_eq!(one.len(), 3);
         // Songs with no artist never count as a repeat.
         assert_eq!(repeats(&shuffled(&["/x/1", "/x/2", "/x/3", "a/y/1"], &[], 3)), 0);
+    }
+
+    /// The merge as first written, looking through every group for each item: slow for a
+    /// big library, but plainly right.
+    fn merge_simple(groups: &[Vec<usize>], last: Option<(usize, usize)>, rng: &mut Rng) -> Vec<usize> {
+        use std::collections::VecDeque;
+        let mut queues: Vec<VecDeque<(f64, usize)>> = groups.iter().map(|g| dither(g, rng).into()).collect();
+        let n = queues.iter().map(VecDeque::len).sum::<usize>();
+        let ahead = |g| last.filter(|l| l.0 == g).map_or(0, |l| l.1);
+        let most = queues.iter().enumerate().map(|(g, q)| (q.len() + ahead(g)).div_ceil(n - q.len() + 1)).max().unwrap_or(1).max(1);
+        let earliest = |queues: &[VecDeque<(f64, usize)>], skip: Option<usize>| {
+            let fronts = queues.iter().enumerate().filter(|&(g, _)| Some(g) != skip);
+            fronts.filter_map(|(g, q)| Some((g, q.front()?.0))).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(g, _)| g)
+        };
+        let (mut order, mut last) = (Vec::with_capacity(n), last.map(|l| l.0));
+        for left in (1..=n).rev() {
+            let tight = queues.iter().position(|q| q.len() > most * (left - q.len()));
+            let next = tight.or_else(|| earliest(&queues, last)).or_else(|| earliest(&queues, None));
+            let Some((g, (_, i))) = next.and_then(|g| Some((g, queues[g].pop_front()?))) else {
+                break;
+            };
+            order.push(i);
+            last = Some(g);
+        }
+        order
+    }
+
+    #[test]
+    fn the_quick_merge_gives_the_same_order_as_the_simple_one() {
+        let mut make = Rng::new(5);
+        for seed in 0..3000 {
+            // A few groups to a few hundred, of any sizes, some empty; sometimes a run before.
+            let count = 1 + make.below(if seed % 10 == 0 { 300 } else { 12 });
+            let mut next = 0;
+            let groups: Vec<Vec<usize>> = (0..count)
+                .map(|_| {
+                    let big = make.below(4) == 0;
+                    let len = make.below(if big { 40 } else { 5 });
+                    next += len;
+                    (next - len..next).collect()
+                })
+                .collect();
+            let last = (make.below(2) == 0).then(|| (make.below(count), 1 + make.below(3)));
+            let (quick, simple) = (merge(&groups, last, &mut Rng::new(seed)), merge_simple(&groups, last, &mut Rng::new(seed)));
+            assert_eq!(quick, simple, "seed {seed}: {:?}", groups.iter().map(Vec::len).collect::<Vec<_>>());
+        }
     }
 }

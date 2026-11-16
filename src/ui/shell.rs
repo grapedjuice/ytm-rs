@@ -1330,7 +1330,9 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             ui.painter().circle_filled(dot, 1.6, theme::glass(0.5));
         }
         let ar = ui.interact(art, ui.scope_id().with("np-art"), Sense::click());
-        let ar = named(ar, "Open now playing").on_hover_cursor(egui::CursorIcon::PointingHand);
+        // Like the corner's button: opens now playing, or closes it while it's open.
+        let np_open = app.np_open;
+        let ar = named(ar, if np_open { "Close now playing" } else { "Open now playing" }).on_hover_cursor(egui::CursorIcon::PointingHand);
         menu_on.push(ar.clone());
         let ah = theme::anim_bool(ui.ctx(), ar.id.with("h"), ar.hovered(), 0.15);
         if let Some(secs) = chrome.thumb_disc_secs {
@@ -1353,10 +1355,10 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         }
         if ah > 0.0 {
             ui.painter().rect_filled(art, thumb_r, theme::shade(0.45 * ah));
-            icon_at(ui, art.center(), icon::CHEVRON_UP, 22.0, theme::with_alpha(Color32::WHITE, ah));
+            icon_at(ui, art.center(), if np_open { icon::CHEVRON_DOWN } else { icon::CHEVRON_UP }, 22.0, theme::with_alpha(Color32::WHITE, ah));
         }
         if ar.clicked() {
-            app.actions.push(Action::OpenNowPlaying(true));
+            app.actions.push(Action::OpenNowPlaying(!np_open));
         }
         let tr = widgets::title_at(ui, pos2(x, cy - 19.0), &t.title, t.explicit, theme::weighted(chrome.bar_title_weight, chrome.bar_title_px), theme::text(), w);
         let tresp = ui.interact(tr, ui.scope_id().with("np-title"), Sense::click());

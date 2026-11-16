@@ -33,6 +33,7 @@ mod shuffle;
 mod titlebar;
 pub use titlebar::{custom as custom_titlebar, init as init_titlebar, set_hwnd as set_titlebar_hwnd};
 mod transfer;
+mod undo;
 mod vector;
 mod wheel;
 mod widgets;
@@ -193,6 +194,10 @@ pub enum Action {
     Go(Page),
     QueueJump(usize),
     QueueRemove(usize),
+    /// Everything in the queue but the song playing goes.
+    QueueClear,
+    /// Take back what the toast up now says was done.
+    Undo,
     /// A song to come dragged to the gap between songs (see `Queue::move_track`), if the
     /// song `id` is still at `from`.
     QueueMove { from: usize, gap: usize, id: String },
@@ -619,6 +624,8 @@ pub struct App {
     jam: jam::Session,
     signing_in: Arc<AtomicBool>,
     toast: Option<(String, f64)>,
+    /// What the toast up now can undo.
+    undo: Option<undo::Undo>,
 
     // updates
     updater: Option<crate::update::Updater>,
@@ -985,6 +992,7 @@ impl App {
             xfer: Default::default(),
             jam: Default::default(),
             toast: None,
+            undo: None,
             actions: Vec::new(),
             dialog: None,
             share_pending: None,
@@ -1319,7 +1327,14 @@ impl App {
     }
 
     fn toast(&mut self, msg: impl Into<String>) {
+        self.settle();
         self.toast = Some((msg.into(), -1.0));
+    }
+
+    /// How long the toast stays before it fades: long enough to reach its Undo, if it has one.
+    fn toast_hold(&self) -> f32 {
+        let secs = self.look().app.toast_look.secs.max(1.5);
+        if self.undo.is_some() { secs.max(7.0) } else { secs }
     }
 
     /// Settings › Storage's Clear cache, once asked. An update that's downloading or
@@ -1469,12 +1484,19 @@ impl eframe::App for App {
             playing: self.playing() || self.buffering,
         };
         ctx.data_mut(|d| d.insert_temp(widgets::NowPlaying::id(), np));
+        let hold = f64::from(self.toast_hold()) + 0.4;
         if let Some((_, t)) = &mut self.toast {
             if *t < 0.0 {
                 *t = now;
-            } else if now - *t > 4.5 {
+            } else if now - *t > hold {
                 self.toast = None;
             }
+        }
+        if self.toast.is_none() {
+            self.settle();
+        } else if self.undo.is_some() {
+            // Its time runs out even with the window hidden, when nothing else draws.
+            ctx.request_repaint_after(Duration::from_secs(1));
         }
         // Frame pacing: idle costs nothing. The background drifts slowly, so ~15 fps
         // reads as smooth on pages; the now-playing view and a page showing the playing
@@ -1935,6 +1957,7 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, gl: Option<&eframe::glow::Context>) {
+        self.settle_now();
         if let (Some(bg), Some(gl)) = (&self.bg, gl) {
             bg.destroy(gl);
             crate::shader::destroy_glass(gl);

@@ -84,7 +84,7 @@ fn set(app: &mut App, cmd: Cmd, combo: String) {
     app.hotkeys.bindings.set(cmd, combo);
     if let Err(e) = app.hotkeys.bindings.save(app.backend.data_dir()) {
         log::warn!("could not save the shortcuts: {e}");
-        app.toast = Some(("Couldn't save that shortcut".to_owned(), -1.0));
+        app.toast("Couldn't save that shortcut");
     }
     app.hotkeys.capture = None;
     register(app);

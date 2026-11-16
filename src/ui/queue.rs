@@ -25,6 +25,7 @@ impl Repeat {
 /// A playlist's load whose next pages also go to the queue, and whether that queue
 /// is shuffled (they're then mixed into what's still to come). `ran_out`: playback
 /// reached the end of what had come, and carries on when more does (or the load ends).
+#[derive(Clone)]
 pub struct QueueFill {
     pub id: String,
     pub load: u64,
@@ -53,6 +54,20 @@ pub struct Queue {
     pub fill: Option<QueueFill>,
     /// Explicit songs are hidden: none join, and a queue started with some leaves them out.
     pub hide_explicit: bool,
+}
+
+/// The queue as it was before a removal or a clear, for Undo: it comes back only onto
+/// the queue that change left, untouched since.
+pub struct Saved {
+    tracks: Vec<Track>,
+    elsewhere: std::collections::HashSet<String>,
+    index: Option<usize>,
+    fill: Option<QueueFill>,
+    /// What the change left: its songs and the one playing.
+    left: (Vec<String>, Option<usize>),
+    /// Pages of the playlist it was filling from that came in since (and whether more
+    /// were to come): they join it as it comes back.
+    pages: Vec<(Vec<Track>, bool)>,
 }
 
 /// How many songs before and after the current one a saved session keeps: liked-songs
@@ -219,14 +234,85 @@ impl Queue {
         true
     }
 
-    /// Take song `i` out, unless it's the one playing.
-    pub fn remove(&mut self, i: usize) {
-        if i < self.tracks.len() && Some(i) != self.index {
-            self.tracks.remove(i);
-            if let Some(cur) = self.index.filter(|&c| c > i) {
-                self.index = Some(cur - 1);
-            }
+    /// Take song `i` out, unless it's the one playing: the queue before, for Undo.
+    pub fn remove(&mut self, i: usize) -> Option<Saved> {
+        if i >= self.tracks.len() || Some(i) == self.index {
+            return None;
         }
+        let before = self.save();
+        self.tracks.remove(i);
+        if let Some(cur) = self.index.filter(|&c| c > i) {
+            self.index = Some(cur - 1);
+        }
+        Some(self.left(before))
+    }
+
+    /// Everything but the song playing goes, the songs played before it too, and a
+    /// playlist still coming in stops joining: the queue before, for Undo. `None` when
+    /// there's nothing to take out.
+    pub fn clear(&mut self) -> Option<Saved> {
+        let keep = self.current().cloned();
+        if self.tracks.len() <= usize::from(keep.is_some()) && self.fill.is_none() {
+            return None;
+        }
+        let before = self.save();
+        self.tracks = keep.into_iter().collect();
+        self.index = self.index.map(|_| 0);
+        self.fill = None;
+        Some(self.left(before))
+    }
+
+    /// The queue as it was before a change, if nothing has changed it since: `None`
+    /// (and nothing changes) otherwise. True when playback was waiting at the end for more
+    /// and now has a next song to go on to.
+    /// `playing_it`: what's playing is the playlist it was filling from.
+    pub fn restore(&mut self, s: Saved, playing_it: impl Fn(&str) -> bool) -> Option<bool> {
+        if self.fingerprint() != s.left {
+            return None;
+        }
+        let waiting = self.fill.as_ref().is_some_and(|f| f.ran_out);
+        (self.tracks, self.elsewhere, self.index, self.fill) = (s.tracks, s.elsewhere, s.index, s.fill);
+        for (tracks, more) in s.pages {
+            let Some(f) = &self.fill else { break };
+            let (id, load) = (f.id.clone(), f.load);
+            self.fill_from(&id, load, tracks, more, playing_it(&id));
+        }
+        if !waiting {
+            return Some(false);
+        }
+        if self.at_end() && let Some(f) = &mut self.fill {
+            f.ran_out = true;
+        }
+        Some(!self.at_end())
+    }
+
+    /// [`Self::fill_from`], with `saved` (the queue before a change, for Undo) getting
+    /// the page too when it was filling from that load. Joining this queue then isn't a
+    /// change that keeps it from coming back.
+    pub fn fill_saved(&mut self, saved: Option<&mut Saved>, id: &str, load: u64, tracks: Vec<Track>, more: bool, playing_it: bool) -> Option<Filled> {
+        let Some(s) = saved.filter(|s| s.fill.as_ref().is_some_and(|f| f.id == id && f.load == load)) else {
+            return self.fill_from(id, load, tracks, more, playing_it);
+        };
+        let untouched = self.fingerprint() == s.left;
+        s.pages.push((tracks.clone(), more));
+        let filled = self.fill_from(id, load, tracks, more, playing_it);
+        if untouched {
+            s.left = self.fingerprint();
+        }
+        filled
+    }
+
+    fn save(&self) -> Saved {
+        Saved { tracks: self.tracks.clone(), elsewhere: self.elsewhere.clone(), index: self.index, fill: self.fill.clone(), left: Default::default(), pages: Vec::new() }
+    }
+
+    fn left(&self, mut before: Saved) -> Saved {
+        before.left = self.fingerprint();
+        before
+    }
+
+    fn fingerprint(&self) -> (Vec<String>, Option<usize>) {
+        (self.tracks.iter().map(|t| t.id.clone()).collect(), self.index)
     }
 
     /// Move song `from` to the gap `gap` between songs (0 is above the first), both counted
@@ -476,12 +562,99 @@ mod tests {
 
         // Taking one out keeps the song playing where it is; the one playing stays.
         q.index = Some(2);
-        q.remove(0);
+        assert!(q.remove(0).is_some());
         assert_eq!(ids(&q), ["b", "c"]);
         assert_eq!(q.current().unwrap().id, "c");
-        q.remove(1);
-        q.remove(5);
+        assert!(q.remove(1).is_none());
+        assert!(q.remove(5).is_none());
         assert_eq!(ids(&q), ["b", "c"]);
+    }
+
+    #[test]
+    fn undoing_a_removal_brings_back_the_queue_as_it_was() {
+        // A song played before the current one: the current one moves up a place.
+        let mut q = queue(&["a", "b", "c", "d"], 2, Repeat::Off);
+        q.enqueue(track("e"));
+        let saved = q.remove(0).unwrap();
+        assert_eq!((ids(&q), q.index), (vec!["b", "c", "d", "e"], Some(1)));
+        assert!(q.restore(saved, |_| true).is_some());
+        assert_eq!((ids(&q), q.index), (vec!["a", "b", "c", "d", "e"], Some(2)));
+        // "e" still counts as added, not as what the queue was started from.
+        q.index = Some(4);
+        assert!(q.plays_elsewhere());
+    }
+
+    #[test]
+    fn undoing_a_clear_brings_back_what_played_and_whats_to_come() {
+        let mut q = queue(&["a", "b", "c", "d"], 1, Repeat::Off);
+        q.fill = filling("PL1", 7, true);
+        let saved = q.clear().unwrap();
+        assert_eq!((ids(&q), q.index, q.fill.is_none()), (vec!["b"], Some(0), true));
+        assert!(q.clear().is_none(), "only the song playing is left");
+        assert!(q.restore(saved, |_| true).is_some());
+        assert_eq!((ids(&q), q.index), (vec!["a", "b", "c", "d"], Some(1)));
+        let fill = q.fill.as_ref().unwrap();
+        assert_eq!((fill.id.as_str(), fill.load, fill.shuffled), ("PL1", 7, true));
+        // With nothing playing, all of it goes.
+        q.index = None;
+        q.clear().unwrap();
+        assert!(q.tracks.is_empty() && q.index.is_none());
+        assert!(Queue::new(Repeat::Off).clear().is_none());
+    }
+
+    #[test]
+    fn pages_that_come_in_while_an_undo_waits_join_the_queue_it_brings_back() {
+        // Cleared: the page goes nowhere now, and joins the queue back from Undo.
+        let mut q = queue(&["a", "b"], 0, Repeat::Off);
+        q.fill = filling("PL1", 7, false);
+        let mut saved = q.clear().unwrap();
+        assert!(q.fill_saved(Some(&mut saved), "PL2", 7, vec![track("x")], true, true).is_none());
+        assert!(q.fill_saved(Some(&mut saved), "PL1", 7, vec![track("c")], true, true).is_none());
+        assert!(q.restore(saved, |_| true).is_some());
+        assert_eq!(ids(&q), ["a", "b", "c"]);
+        assert!(q.fill.is_some(), "more is to come");
+        // Taken out of: the page joins now, and isn't a change that stops the Undo.
+        let mut saved = q.remove(1).unwrap();
+        q.fill_saved(Some(&mut saved), "PL1", 7, vec![track("d")], false, true).unwrap();
+        assert_eq!(ids(&q), ["a", "c", "d"]);
+        assert!(q.restore(saved, |_| true).is_some());
+        assert_eq!(ids(&q), ["a", "b", "c", "d"]);
+        assert!(q.fill.is_none(), "that was the last page");
+    }
+
+    #[test]
+    fn playback_waiting_at_the_end_still_waits_or_goes_on_after_an_undo() {
+        // The song after it taken out, then playback reached the end and waits: Undo brings
+        // that song back to go on to.
+        let mut q = queue(&["a", "b", "c"], 1, Repeat::Off);
+        q.fill = filling("PL1", 7, false);
+        let saved = q.remove(2).unwrap();
+        assert!(!q.advance());
+        assert_eq!(q.restore(saved, |_| true), Some(true));
+        assert_eq!(ids(&q), ["a", "b", "c"]);
+        // An earlier song taken out: still at the end, so it waits on for the next page.
+        let mut q = queue(&["a", "b", "c"], 2, Repeat::Off);
+        q.fill = filling("PL1", 7, false);
+        let saved = q.remove(0).unwrap();
+        assert!(!q.advance());
+        assert_eq!(q.restore(saved, |_| true), Some(false));
+        let f = q.fill_from("PL1", 7, vec![track("d")], false, true).unwrap();
+        assert!(f.ran_out);
+    }
+
+    #[test]
+    fn a_queue_changed_since_isnt_undone() {
+        let mut q = queue(&["a", "b", "c"], 0, Repeat::Off);
+        let saved = q.remove(2).unwrap();
+        q.enqueue(track("x"));
+        assert!(q.restore(saved, |_| true).is_none());
+        assert_eq!(ids(&q), ["a", "b", "x"]);
+        // Playback moving on counts too: the song playing would be another.
+        let saved = q.clear().unwrap();
+        q.enqueue(track("y"));
+        q.advance();
+        assert!(q.restore(saved, |_| true).is_none());
+        assert_eq!((ids(&q), q.index), (vec!["a", "y"], Some(1)));
     }
 
     #[test]

@@ -1781,6 +1781,7 @@ fn settings_account(app: &mut App, ui: &mut Ui) {
         app.start_sign_in(ui.ctx());
     }
     if sign_out {
+        app.settle_now();
         app.backend.request(crate::backend::Req::Logout);
     }
 }
@@ -1820,7 +1821,9 @@ fn channel_picker(app: &mut App, ui: &mut Ui) {
     });
     if let Some(c) = pick.filter(|c| c.page_id != *current && !switching) {
         app.switching_to = Some(label(&c));
-        app.backend.request(crate::backend::Req::SwitchChannel { page_id: c.page_id, epoch: *epoch });
+        let epoch = *epoch;
+        app.settle_now();
+        app.backend.request(crate::backend::Req::SwitchChannel { page_id: c.page_id, epoch });
     }
 }
 

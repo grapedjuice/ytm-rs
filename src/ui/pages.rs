@@ -1445,6 +1445,7 @@ pub(super) enum SettingsTab {
     Playback,
     Lyrics,
     Appearance,
+    Connections,
     General,
     Shortcuts,
     About,
@@ -1452,13 +1453,14 @@ pub(super) enum SettingsTab {
 
 impl SettingsTab {
     /// Most used first, which is how they're listed.
-    const ALL: [Self; 7] = [Self::Account, Self::Playback, Self::Lyrics, Self::Appearance, Self::General, Self::Shortcuts, Self::About];
+    const ALL: [Self; 8] = [Self::Account, Self::Playback, Self::Lyrics, Self::Appearance, Self::Connections, Self::General, Self::Shortcuts, Self::About];
 
     fn label(self) -> &'static str {
         match self {
             Self::Playback => "Playback",
             Self::Lyrics => "Lyrics",
             Self::Appearance => "Appearance",
+            Self::Connections => "Connections",
             Self::Account => "Account",
             Self::General => "General",
             Self::Shortcuts => "Keyboard shortcuts",
@@ -1490,7 +1492,7 @@ fn words_match(words: &[String], section: &str, text: &str) -> bool {
     words.iter().all(|w| section.contains(w.as_str()) || text.contains(w.as_str()))
 }
 
-fn filtering() -> bool {
+pub(super) fn filtering() -> bool {
     FILTER.with_borrow(|f| !f.words.is_empty())
 }
 
@@ -1564,7 +1566,7 @@ fn settings(app: &mut App, ui: &mut Ui) {
         area = area.vertical_scroll_offset(y);
     }
     let mut column = ui.new_child(egui::UiBuilder::new().max_rect(body).layout(top_down));
-    area.show(&mut column, |ui| {
+    area.show_viewport(&mut column, |ui, viewport| {
         ui.set_max_width((ui.available_width() - 20.0).clamp(0.0, SETTINGS_COLUMN));
         if filtering() {
             for tab in SettingsTab::ALL {
@@ -1579,9 +1581,51 @@ fn settings(app: &mut App, ui: &mut Ui) {
             settings_tab(app, ui, app.settings_tab);
         }
         ui.add_space(40.0);
+        // A search's results follow what's typed.
+        if !filtering() {
+            let h = ui.min_rect().height();
+            let room = settle_room(ui.ctx(), viewport.bottom() - h, (viewport.height() - h).max(0.0), h);
+            if room > 0.0 {
+                ui.add_space(room);
+            }
+        }
     });
     ui.advance_cursor_after_rect(full);
     FILTER.take();
+}
+
+/// Empty room under the settings, `h` tall now, when a section folds away (Discord's,
+/// switched off) while scrolled down: while the page shrinks, all the room it takes to
+/// stay where it's scrolled to (`needed`), so the section folds up under the pointer
+/// rather than pull the page down; then less and less, so the page glides to its end.
+/// `fill`: what only fills out a page shorter than the window, which moves nothing, so
+/// it isn't part of the glide.
+fn settle_room(ctx: &egui::Context, needed: f32, fill: f32, h: f32) -> f32 {
+    #[derive(Clone, Copy, Default)]
+    struct Settle {
+        h: f32,
+        /// The room that keeps the page where it was, past `fill`.
+        scroll: f32,
+        since: f64,
+    }
+    const SECS: f64 = 0.45;
+    let id = egui::Id::unique("settings-settle");
+    let now = ctx.input(|i| i.time);
+    let mut s = ctx.data(|d| d.get_temp::<Settle>(id)).unwrap_or_default();
+    let needed = needed.max(0.0);
+    if h < s.h - 0.5 {
+        s.scroll = (needed - fill).max(0.0);
+        s.since = now;
+    }
+    s.h = h;
+    ctx.data_mut(|d| d.insert_temp(id, s));
+    let t = ((now - s.since) / SECS) as f32;
+    // Scrolling back up meanwhile gives it back sooner.
+    let room = (fill + s.scroll * (1.0 - theme::ease_in_out(t.clamp(0.0, 1.0)))).min(needed);
+    if t < 1.0 && s.scroll > 0.0 {
+        ctx.request_repaint();
+    }
+    room
 }
 
 /// Picking a category ends a search: it's where you were looking to go.
@@ -1599,9 +1643,10 @@ fn settings_tab(app: &mut App, ui: &mut Ui, tab: SettingsTab) {
             settings_mini(app, ui);
             settings_app_icon(app, ui);
         }
-        SettingsTab::Account => {
-            settings_account(app, ui);
+        SettingsTab::Account => settings_account(app, ui),
+        SettingsTab::Connections => {
             settings_connections(app, ui);
+            super::presence::settings(app, ui);
         }
         SettingsTab::General => {
             settings_window(app, ui);
@@ -2447,15 +2492,10 @@ fn settings_app_icon(app: &mut App, ui: &mut Ui) {
     });
 }
 
-/// Settings › Connections.
+/// Settings › Connections, above Discord's sections (`presence::settings`).
 fn settings_connections(app: &mut App, ui: &mut Ui) {
-    let mut discord_enabled = app.discord_enabled;
     let mut remote_enabled = app.remote_enabled;
     settings_section(ui, "Connections", None, None, |ui| {
-        setting_row(ui, "Discord", Some("Show what you're playing on your Discord profile."), |ui| {
-            toggle(ui, &mut discord_enabled, "Discord");
-        });
-        divider(ui);
         setting_row(ui, "Stream Deck", Some("Let a Stream Deck plugin on this computer control playback."), |ui| {
             toggle(ui, &mut remote_enabled, "Stream Deck");
         });
@@ -2515,9 +2555,6 @@ fn settings_connections(app: &mut App, ui: &mut Ui) {
             app.listenbrainz_sign_out();
         }
     });
-    if discord_enabled != app.discord_enabled {
-        app.set_discord_enabled(discord_enabled);
-    }
     app.remote_enabled = remote_enabled;
 }
 
@@ -3144,7 +3181,7 @@ fn normalization_desc(app: &App) -> String {
 }
 
 /// A dropdown's closed state: the chosen value and a chevron on a glass pill.
-fn dropdown_button(ui: &mut Ui, value: &str, width: f32, name: &str) -> egui::Response {
+pub(super) fn dropdown_button(ui: &mut Ui, value: &str, width: f32, name: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 36.0), Sense::click());
     let resp = widgets::named(resp, name).on_hover_cursor(egui::CursorIcon::PointingHand);
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
@@ -3273,11 +3310,16 @@ pub(super) fn settings_section(ui: &mut Ui, title: &str, value: Option<&str>, no
 /// A settings row: title and description on the left, the control on the right. A search
 /// that doesn't find it leaves it out.
 pub(super) fn setting_row(ui: &mut Ui, title: &str, desc: Option<&str>, control: impl FnOnce(&mut Ui)) {
+    setting_row_wide(ui, title, desc, 210.0, control);
+}
+
+/// A settings row whose controls take `control_w` rather than one control's 210.
+pub(super) fn setting_row_wide(ui: &mut Ui, title: &str, desc: Option<&str>, control_w: f32, control: impl FnOnce(&mut Ui)) {
     if !filter_show(ui, &format!("{title} {}", desc.unwrap_or_default())) {
         return;
     }
     let w = ui.available_width();
-    let text_w = (w - 230.0).max(200.0);
+    let text_w = (w - control_w - 20.0).max(200.0);
     let title_g = widgets::galley(ui, title, theme::semibold(14.5), theme::text(), text_w);
     // Up to three lines, and as many again for each line the description starts itself.
     let desc_g = desc.map(|d| widgets::galley_wrapped(ui, d, theme::regular(12.5), theme::text_dim(), text_w, 3 * (1 + d.matches('\n').count())));

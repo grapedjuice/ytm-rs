@@ -84,6 +84,11 @@ impl Session {
         self.active() && !self.is_host()
     }
 
+    /// The room's code, once it has let you in.
+    pub fn code(&self) -> Option<&str> {
+        self.conn.as_ref().filter(|_| self.welcomed).map(|c| c.code.as_str())
+    }
+
     pub fn member_count(&self) -> usize {
         self.members.len()
     }

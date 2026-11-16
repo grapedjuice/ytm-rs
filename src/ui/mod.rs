@@ -19,6 +19,7 @@ mod lists;
 mod lyric_prefs;
 mod mini;
 mod notes;
+mod presence;
 mod nowplaying;
 mod pace;
 mod pages;
@@ -323,7 +324,12 @@ pub struct App {
     discord: Option<crate::discord::Discord>,
     discord_enabled: bool,
     /// Last state sent to Discord, to send only real changes.
-    discord_sent: Option<crate::discord::Presence>,
+    discord_sent: Option<crate::discord::Card>,
+    /// How the card looks: Settings › Connections › Discord.
+    discord_prefs: crate::discord::Prefs,
+    /// Artists' pictures for the card's badge, by artist id; `None` while asked or when
+    /// there's none.
+    artist_pics: HashMap<String, Option<crate::discord::Badge>>,
     /// Local WebSocket for a Stream Deck plugin. Off until Connections enables it.
     remote: crate::remote::Remote,
     remote_enabled: bool,
@@ -749,6 +755,8 @@ impl App {
             discord: discord_enabled.then(crate::discord::Discord::spawn).flatten(),
             discord_enabled,
             discord_sent: None,
+            discord_prefs: get("discord").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
+            artist_pics: HashMap::new(),
             remote: crate::remote::Remote::new(),
             remote_enabled,
             lastfm_user: crate::lastfm::user(),
@@ -1423,7 +1431,7 @@ impl eframe::App for App {
         }
         self.sync_remote(ctx);
         self.sync_tempo();
-        self.sync_discord();
+        self.sync_discord(ctx);
         self.sync_song_notification(ctx);
         self.sync_scrobbles();
         self.sync_server_queue(ctx, now);
@@ -1850,6 +1858,7 @@ impl eframe::App for App {
             storage.set_string("update_seen", v.clone());
         }
         storage.set_string("discord_enabled", b(self.discord_enabled));
+        storage.set_string("discord", serde_json::to_string(&self.discord_prefs).unwrap_or_default());
         storage.set_string("remote_enabled", b(self.remote_enabled));
         storage.set_string("default_theme", b(false));
         if dev_var("YTM_APPEARANCE").is_none() {

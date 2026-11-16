@@ -20,7 +20,14 @@ pub struct Art {
 
 pub fn process(bytes: &[u8]) -> anyhow::Result<Art> {
     let img = image::load_from_memory(bytes)?.to_rgb8();
-    let small = image::imageops::resize(&img, SIZE, SIZE, image::imageops::FilterType::Triangle);
+    Ok(process_rgb(&img))
+}
+
+/// The still-cover pipeline over a decoded image: resize to SIZE×SIZE with Triangle,
+/// pick the accent, tint the dark areas toward it, then blur. Pulled out of [`process`]
+/// so a frame that's already decoded can run the same path without a JPEG round-trip.
+fn process_rgb(img: &image::RgbImage) -> Art {
+    let small = image::imageops::resize(img, SIZE, SIZE, image::imageops::FilterType::Triangle);
 
     let accent = palette(&small);
     let brightness = small.pixels().map(|p| (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) / 255.0).sum::<f32>() / (SIZE * SIZE) as f32;
@@ -41,7 +48,22 @@ pub fn process(bytes: &[u8]) -> anyhow::Result<Art> {
         px = box_blur(&px, SIZE as usize, 6);
     }
     let rgba = px.iter().flat_map(|p| [p[0] as u8, p[1] as u8, p[2] as u8, 255]).collect();
-    Ok(Art { rgba, accent, brightness })
+    Art { rgba, accent, brightness }
+}
+
+/// A decoded frame through the same pipeline as a still cover ([`process`]): the colours
+/// a still cover would yield, for the first frame of an animated one. Not the cheaper
+/// [`from_frame`] path used for a video's live backdrop, which samples nearest-neighbour
+/// and skips the tint pass — that's for frames that move every tick, this is for the one
+/// frame the cover becomes.
+pub fn process_image(frame: &egui::ColorImage) -> Option<Art> {
+    let [w, h] = frame.size;
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let rgb: Vec<u8> = frame.pixels.iter().flat_map(|p| [p.r(), p.g(), p.b()]).collect();
+    let img = image::RgbImage::from_raw(w as u32, h as u32, rgb)?;
+    Some(process_rgb(&img))
 }
 
 /// `passes` more of the art's blur (a theme's `blurPasses` over the usual).

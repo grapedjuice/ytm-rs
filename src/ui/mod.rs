@@ -245,6 +245,8 @@ enum Dialog {
     NewPlaylist { title: String, tracks: Vec<Track> },
     EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
     ConfirmDelete { id: String, title: String },
+    /// Clearing the cache (Settings › Storage), asked about first.
+    ConfirmClearCache,
     /// A large download (`count` songs to go) asked about before it starts.
     ConfirmDownload { target: Option<Target>, title: String, tracks: Vec<Track>, count: usize },
     /// `info` until it loads; `busy` while a change is on its way; `confirm_off` asks
@@ -618,6 +620,8 @@ pub struct App {
 
     // updates
     updater: Option<crate::update::Updater>,
+    /// The cache Settings › Storage measures and clears.
+    storage: crate::cache::Storage,
     auto_update: bool,
     /// Updates from the nightly channel rather than stable.
     update_nightly: bool,
@@ -863,6 +867,7 @@ impl App {
             output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
             output_devices: Vec::new(),
             updater: None,
+            storage: Default::default(),
             auto_update: get("auto_update").is_none_or(|v| v == "1"),
             // A nightly build stays on nightlies until told otherwise.
             update_nightly: get("update_channel").map_or_else(|| crate::update::is_nightly(&crate::update::build_version()), |v| v == "nightly"),
@@ -1307,6 +1312,14 @@ impl App {
 
     fn toast(&mut self, msg: impl Into<String>) {
         self.toast = Some((msg.into(), -1.0));
+    }
+
+    /// Settings › Storage's Clear cache, once asked. An update that's downloading or
+    /// waiting to install keeps its files.
+    fn clear_cache(&mut self, ctx: &egui::Context) {
+        use crate::update::State;
+        let keep_updates = self.updater.as_ref().is_some_and(|u| matches!(u.state(), State::Downloading { .. } | State::Ready { .. }));
+        self.storage.clear(ctx, self.backend.data_dir(), keep_updates);
     }
 
 

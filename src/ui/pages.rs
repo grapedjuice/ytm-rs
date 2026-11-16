@@ -1646,8 +1646,10 @@ fn settings_tab(app: &mut App, ui: &mut Ui, tab: SettingsTab) {
         SettingsTab::General => {
             settings_window(app, ui);
             settings_downloads(ui);
-            settings_section(ui, "Network", None, None, |ui| network(app, ui));
             super::transfer::settings_section(app, ui);
+            settings_section(ui, "Network", None, None, |ui| network(app, ui));
+            // Last, as most apps keep it.
+            settings_storage(app, ui);
         }
         SettingsTab::Shortcuts => {
             super::hotkeys::settings_section(app, ui);
@@ -1968,6 +1970,28 @@ fn settings_downloads(ui: &mut Ui) {
             ui.add_space(6.0);
             if pill(ui, "Open", Some(icon::FOLDER_OPEN), false).clicked() {
                 crate::downloads::open_folder();
+            }
+        });
+    });
+}
+
+/// Settings › Storage: how much room the cache takes, and clearing it.
+fn settings_storage(app: &mut App, ui: &mut Ui) {
+    if let Some(freed) = app.storage.take_freed() {
+        app.toast(format!("Cache cleared: {} freed", crate::cache::size_text(freed)));
+    }
+    let now = ui.input(|i| i.time);
+    let size = app.storage.size(ui.ctx(), app.backend.data_dir(), now);
+    let clearing = app.storage.clearing();
+    settings_section(ui, "Storage", None, None, |ui| {
+        let desc = match size {
+            _ if clearing => "Clearing…".to_owned(),
+            Some(n) => crate::cache::size_text(n),
+            None => "Measuring…".to_owned(),
+        };
+        setting_row(ui, "Cache", Some(&desc), |ui| {
+            if pill(ui, "Clear cache", None, false).clicked() && !clearing {
+                app.dialog = Some(super::Dialog::ConfirmClearCache);
             }
         });
     });

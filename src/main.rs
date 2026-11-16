@@ -11,6 +11,7 @@ mod awake;
 mod backdrop;
 mod backend;
 mod bidi;
+mod cache;
 mod canvas;
 mod deeplink;
 mod discord;

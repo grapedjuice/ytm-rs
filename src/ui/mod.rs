@@ -497,8 +497,8 @@ pub struct App {
     animated_covers: bool,
     /// The song's animated cover: looked up, then playing.
     cover_clip: Option<nowplaying::CoverClip>,
-    /// The colours of a song's animated cover, once a lap of it has played: the accent
-    /// and background while it's on screen.
+    /// The colours of a song's animated cover: the accent and background while it's on
+    /// screen.
     clip_art: Option<(String, crate::art::Art)>,
     hide_search_videos: bool,
     /// Leave explicit songs out of lists and the queue.
@@ -1328,8 +1328,8 @@ impl App {
         }
     }
 
-    /// The colours of the cover on screen: the animated cover's while it's up and a lap of
-    /// it has been seen, else the still cover's (when it's the song playing's).
+    /// The colours of the cover on screen: the animated cover's while it's up, else the
+    /// still cover's (when it's the song playing's).
     fn cover_colours(&self) -> Option<&crate::art::Art> {
         let id = self.current_id()?;
         self.cover_clip

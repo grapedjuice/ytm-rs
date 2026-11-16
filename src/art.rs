@@ -72,10 +72,6 @@ pub struct ClipColours {
 const HUES: usize = 24;
 
 impl ClipColours {
-    pub fn frames(&self) -> u32 {
-        self.frames
-    }
-
     pub fn add(&mut self, frame: &egui::ColorImage) {
         let [w, h] = frame.size;
         let rgb: Vec<u8> = frame.pixels.iter().flat_map(|p| [p.r(), p.g(), p.b()]).collect();

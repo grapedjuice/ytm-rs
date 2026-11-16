@@ -1582,10 +1582,6 @@ pub(super) struct CoverClip {
     frame: Option<(egui::TextureHandle, f64)>,
     /// Another size the cover has kept since (s), to play at once it has settled.
     resized: Option<(u32, f64)>,
-    /// Frames taken for the clip's colours (see `App::clip_art`), and the clip time (s)
-    /// the next is due.
-    colours: crate::art::ClipColours,
-    next_sample: f64,
 }
 
 impl CoverClip {
@@ -1595,9 +1591,6 @@ impl CoverClip {
     }
 }
 
-/// How many frames, spread over the clip's first lap, its colours come from.
-const CLIP_SAMPLES: u32 = 8;
-
 /// The animated cover's latest frame, and how far it has faded in. Keeps the clip in step
 /// with the song.
 fn cover_clip(app: &mut App, ctx: &egui::Context, track: &crate::model::Track, px: u32, now: f64) -> Option<(egui::TextureHandle, f32)> {
@@ -1606,7 +1599,7 @@ fn cover_clip(app: &mut App, ctx: &egui::Context, track: &crate::model::Track, p
         return None;
     }
     if app.cover_clip.as_ref().is_none_or(|c| c.id != track.id) {
-        app.cover_clip = Some(CoverClip { id: track.id.clone(), px: px.max(1), url: None, player: None, frame: None, resized: None, colours: Default::default(), next_sample: 0.0 });
+        app.cover_clip = Some(CoverClip { id: track.id.clone(), px: px.max(1), url: None, player: None, frame: None, resized: None });
         app.backend.request(crate::backend::Req::Canvas(track.clone()));
     }
     let playing = app.playing();
@@ -1632,27 +1625,20 @@ fn cover_clip(app: &mut App, ctx: &egui::Context, track: &crate::model::Track, p
         c.resized = None;
     }
     let player = c.player.as_mut().filter(|p| !p.failed())?;
-    // The clip is what's on screen, and a song's single and album covers can differ: its
-    // colours lead once its first lap has been seen (kept for the song, for next time).
-    let known = app.clip_art.as_ref().is_some_and(|(id, _)| *id == c.id);
+    // The clip is what's on screen, and a song's single and album covers can differ: from
+    // its first frame its colours lead (worked out from the whole clip before it plays,
+    // and kept for the song).
     let mut recolour = false;
     if let Some(f) = player.take_due(now, playing) {
-        if !known
-            && let Some(len) = player.length()
-            && f.pts >= c.next_sample
-        {
-            c.colours.add(&f.image);
-            c.next_sample = f.pts + len / f64::from(CLIP_SAMPLES);
-            if c.colours.frames() >= CLIP_SAMPLES
-                && let Some(mut art) = c.colours.art()
+        if c.frame.is_none() {
+            if app.clip_art.as_ref().is_none_or(|(id, _)| *id != c.id)
+                && let Some(mut art) = player.colours()
             {
                 crate::art::soften(&mut art, crate::preset::active().background.blur_passes.saturating_sub(6));
                 app.clip_art = Some((c.id.clone(), art));
-                recolour = true;
             }
+            recolour = app.clip_art.as_ref().is_some_and(|(id, _)| *id == c.id);
         }
-        // Up again (Now playing reopened): the colours it had.
-        recolour |= known && c.frame.is_none();
         match &mut c.frame {
             Some((tex, _)) => tex.set(f.image, egui::TextureOptions::LINEAR),
             None => c.frame = Some((ctx.load_texture("cover-clip", f.image, egui::TextureOptions::LINEAR), now)),

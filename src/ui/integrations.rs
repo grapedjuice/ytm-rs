@@ -187,6 +187,7 @@ impl App {
                 super::Repeat::All => crate::remote::RepeatMode::All,
                 super::Repeat::One => crate::remote::RepeatMode::One,
             },
+            shuffle: self.queue.shuffled(),
             volume: (self.audio.volume() * 100.0).round() / 100.0,
             position: self.audio.status.position().as_secs(),
             duration: self.audio.status.duration().map(|d| d.as_secs()).unwrap_or(0),

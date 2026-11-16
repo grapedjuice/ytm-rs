@@ -12,7 +12,7 @@ use crate::ytm::HomePage;
 
 use crate::remote::{Cmd, RepeatMode};
 
-use super::{Action, App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, dev_var, shuffle_to_play};
+use super::{Action, App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, dev_var};
 
 impl App {
     pub(super) fn pump(&mut self, ctx: &egui::Context, now: f64) {
@@ -139,7 +139,7 @@ impl App {
             Cmd::VolumeDown => self.nudge_volume(false),
             Cmd::SetVolume(v) => self.audio.set_volume(v.clamp(0.0, 1.0)),
             Cmd::Like(v) => self.apply(Action::LikeHeard(v.unwrap_or(!self.heard_liked()))),
-            Cmd::Shuffle => self.shuffle_upcoming(),
+            Cmd::Shuffle => self.toggle_shuffle(),
             Cmd::Repeat(mode) => {
                 self.queue.repeat = match mode {
                     Some(RepeatMode::Off) => Repeat::Off,
@@ -375,16 +375,18 @@ impl App {
                 }
             }
             // Unless something else was asked to play meanwhile; shuffled as last asked.
-            Resp::PlayQueue { target, title, mut tracks } => {
+            Resp::PlayQueue { target, title, tracks } => {
                 if let Some((p, shuffled)) = &self.play_pending
                     && *p == target
                 {
-                    if *shuffled {
-                        shuffle_to_play(&mut tracks, &self.queue);
-                    }
+                    let shuffled = *shuffled;
                     self.played_title = Some((target.clone(), title));
                     self.queue_source = Some(target);
-                    self.play_list(tracks, 0);
+                    if shuffled {
+                        self.play_shuffled(tracks, None);
+                    } else {
+                        self.play_list(tracks, 0);
+                    }
                 }
             }
             Resp::Liked { video_id, like, other } => {

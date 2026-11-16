@@ -1273,7 +1273,7 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
         app.actions.push(Action::Mini(false));
     }
     let head_w = rt - 66.0 - l;
-    // A toast ("Shuffled up next", "Sign in to like songs") takes the header's place while
+    // A toast ("Only the host can shuffle the jam", "Sign in to like songs") takes the header's place while
     // it lasts, kept through its fade-out.
     let toast_id = egui::Id::unique("card-toast");
     if let Some((msg, _)) = &app.toast {
@@ -1365,8 +1365,12 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
     // Shuffle, previous, play, next, repeat.
     let cy = top + 192.0;
     let cx = cr.center().x;
-    if button(ui, pos2(cx - 104.0, cy), icon::SHUFFLE, 16.0, "Shuffle up next", false) {
-        app.shuffle_upcoming();
+    let spos = pos2(cx - 104.0, cy);
+    if button(ui, spos, icon::SHUFFLE, 16.0, "Shuffle", app.queue.shuffled()) {
+        app.toggle_shuffle();
+    }
+    if app.queue.shuffled() {
+        ui.painter().circle_filled(spos + vec2(0.0, 15.0), 2.0, app.accent_color());
     }
     if button(ui, pos2(cx - 54.0, cy), icon::SKIP_BACK, 20.0, "Previous", false) && enabled {
         app.prev();

@@ -457,6 +457,8 @@ fn apply_state(app: &mut App, state: RoomState, at: Instant) {
     app.jam.owner = state.owner;
     app.queue_source = None;
     app.queue.fill = None;
+    // The host's queue, in the host's order.
+    app.queue.clear_shuffle();
     app.play_pending = None;
     if state.queue.is_empty() {
         app.queue.tracks.clear();
@@ -588,7 +590,7 @@ pub fn guest_action(app: &mut App, a: Action) -> Option<Action> {
         }
         Action::Open(Target::Song(t)) | Action::Radio(t) | Action::Enqueue(t) => request(app, Cmd::Add { track: t }),
         Action::PlayNext(t) => request(app, Cmd::Next { track: t }),
-        Action::PlayCollection(..) => app.toast("In a jam, add songs one at a time"),
+        Action::PlayCollection(..) | Action::Shuffle(_) => app.toast("In a jam, add songs one at a time"),
         Action::QueueJump(i) => request(app, Cmd::Jump { index: i }),
         Action::QueueRemove(_) => app.toast("Only the host can remove songs"),
         Action::QueueMove { .. } => app.toast("Only the host can reorder the jam"),

@@ -56,6 +56,10 @@ pub struct Track {
     /// Marked explicit (the "E" badge), which can be hidden.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub explicit: bool,
+    /// The video this song stands in for: a video liked on YouTube shows in Liked Music
+    /// as the song YouTube Music matched it to, and the like is the video's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stands_for: Option<String>,
 }
 
 impl Track {

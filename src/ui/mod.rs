@@ -2204,6 +2204,11 @@ mod session_tests {
         let video = Track { music_video: true, explicit: true, ..s.queue[0].clone() };
         let back: Track = serde_json::from_str(&serde_json::to_string(&video).unwrap()).unwrap();
         assert!(back.music_video && back.explicit);
+        // A song standing in for a liked video keeps that video across launches.
+        assert!(!saved.contains("stands_for"), "{saved}");
+        let stand_in = Track { stands_for: Some("u6Pr452s_2s".into()), ..s.queue[0].clone() };
+        let back: Track = serde_json::from_str(&serde_json::to_string(&stand_in).unwrap()).unwrap();
+        assert_eq!(back.stands_for.as_deref(), Some("u6Pr452s_2s"));
     }
 }
 

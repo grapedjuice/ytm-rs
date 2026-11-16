@@ -105,7 +105,7 @@ pub enum Req {
     /// Take away just this like, not the other half's.
     Unlike(String),
     /// Several likes (or unlikes) one after another, for a selection.
-    LikeMany { video_ids: Vec<String>, like: bool },
+    LikeMany { video_ids: Vec<String>, like: bool, stand_ins: std::collections::HashMap<String, String> },
     Dislike(String),
     CreatePlaylist { title: String, video_ids: Vec<String> },
     EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
@@ -493,15 +493,24 @@ pub const LIKE_WAIT: std::time::Duration = std::time::Duration::from_millis(1500
 
 /// Like or unlike one song; whether YouTube Music took it. Refusals are retried by the
 /// API (after its shared pause while the account is limited); one that hangs or fails is
-/// sent again, up to three times in all.
-async fn like_one(api: &ytmapi::Api, id: &str, like: bool, others: &mut Vec<String>) -> bool {
+/// sent again, up to three times in all. An unlike takes the other version's like too:
+/// `stand_in`'s, the video a song in Liked Music stands for, or else YouTube's pair's.
+async fn like_one(api: &ytmapi::Api, id: &str, like: bool, stand_in: Option<&str>, others: &mut Vec<String>) -> bool {
     let epoch = api.epoch();
     for tries in 0..3 {
         match tokio::time::timeout(LIKE_WAIT, ytm::set_like(api, id, like)).await {
             Ok(Ok(())) => {
                 // Outside that wait: it takes longer, and checking Liked Music afterwards
                 // catches a like that's still there.
-                if !like {
+                if !like && let Some(video) = stand_in {
+                    tokio::time::sleep(LIKE_GAP).await;
+                    if let Err(e) = ytm::set_like(api, video, false).await {
+                        // That's the one holding the like: not done, then.
+                        log::warn!("removing the like of the video {id} stands for: {e:#}");
+                        return false;
+                    }
+                    others.push(video.to_owned());
+                } else if !like {
                     match ytm::remove_other_half_like(api, id, epoch).await {
                         Ok(other) => others.extend(other),
                         // Maybe that's the one holding the like: not done, then.
@@ -532,8 +541,15 @@ async fn like_one(api: &ytmapi::Api, id: &str, like: bool, others: &mut Vec<Stri
 /// Returns the ones taken and the ones refused; unlikes still listed once checking stops
 /// getting anywhere count as refused, likes don't (songs that can't be played are liked but not listed).
 /// One run at a time, transfers included (`LIKES`); `progress(None, 0)` while waiting its turn.
-/// Third: the other versions whose likes went with the unlikes (`ytm::remove_other_half_like`).
-pub async fn like_many(api: &ytmapi::Api, ids: Vec<String>, like: bool, mut progress: impl FnMut(Option<&str>, usize)) -> (Vec<String>, Vec<String>, Vec<String>) {
+/// Third: the other versions whose likes went with the unlikes (`ytm::remove_other_half_like`,
+/// or `stand_ins`: songs in Liked Music and the liked videos they stand for).
+pub async fn like_many(
+    api: &ytmapi::Api,
+    ids: Vec<String>,
+    like: bool,
+    stand_ins: &std::collections::HashMap<String, String>,
+    mut progress: impl FnMut(Option<&str>, usize),
+) -> (Vec<String>, Vec<String>, Vec<String>) {
     let epoch = api.epoch();
     let _turn = match LIKES.try_lock() {
         Ok(turn) => turn,
@@ -551,7 +567,7 @@ pub async fn like_many(api: &ytmapi::Api, ids: Vec<String>, like: bool, mut prog
     let mut failed = Vec::new();
     let mut others = Vec::new();
     for (i, id) in ids.iter().enumerate() {
-        let taken = like_one(api, id, like, &mut others).await;
+        let taken = like_one(api, id, like, stand_ins.get(id).map(String::as_str), &mut others).await;
         if !taken {
             failed.push(id.clone());
         }
@@ -587,7 +603,7 @@ pub async fn like_many(api: &ytmapi::Api, ids: Vec<String>, like: bool, mut prog
         }
         // The second go is paced either way.
         for id in &left {
-            like_one(api, id, like, &mut others).await;
+            like_one(api, id, like, stand_ins.get(id).map(String::as_str), &mut others).await;
             tokio::time::sleep(LIKE_GAP).await;
         }
     }
@@ -1243,7 +1259,7 @@ impl Backend {
                         Resp::LikedMany { video_ids: Vec::new(), failed: vec![video_id], like: false, others: Vec::new() }
                     }
                 },
-                Req::LikeMany { video_ids, like } => self.like_many(video_ids, like).await?,
+                Req::LikeMany { video_ids, like, stand_ins } => self.like_many(video_ids, like, stand_ins).await?,
                 Req::Dislike(video_id) => {
                     match ytm::dislike(api, &video_id).await {
                         Ok(_) => Resp::Liked { video_id, like: false, other: None },
@@ -2369,9 +2385,9 @@ impl Backend {
     /// Like or unlike a selection, one at a time, then check Liked Music and try again
     /// what didn't take. Unlikes still listed after that count as refused; likes aren't
     /// counted so (songs that can't be played are liked but not listed).
-    async fn like_many(&self, ids: Vec<String>, like: bool) -> anyhow::Result<Resp> {
+    async fn like_many(&self, ids: Vec<String>, like: bool, stand_ins: std::collections::HashMap<String, String>) -> anyhow::Result<Resp> {
         let total = ids.len();
-        let (done, failed, others) = like_many(&self.api, ids, like, |taken, n| {
+        let (done, failed, others) = like_many(&self.api, ids, like, &stand_ins, |taken, n| {
             let _ = self.tx.send(Resp::LikeProgress { taken: taken.into_iter().map(str::to_owned).collect(), done: n, total, like });
             self.wake();
         })

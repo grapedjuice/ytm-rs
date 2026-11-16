@@ -144,6 +144,16 @@ impl App {
                     return self.undo();
                 }
                 self.rating(|id| id == t.id);
+                // A song standing in for a liked video: the like to take away is the video's.
+                if !like && let Some(video) = t.stands_for.clone() {
+                    let send = Req::UnlikeBoth { song: t.id.clone(), video: video.clone() };
+                    let video = Track { id: video, video: true, stands_for: None, ..t.clone() };
+                    if self.liked.contains(&t.id) || self.liked.contains(&video.id) {
+                        return self.unlike_soon(vec![t, video], send);
+                    }
+                    self.set_liked(&[t, video], false);
+                    return self.backend.request(send);
+                }
                 if !like && self.liked.contains(&t.id) {
                     return self.unlike_soon(vec![t.clone()], Req::Like { video_id: t.id, like });
                 }
@@ -198,7 +208,8 @@ impl App {
                     // One at a time, then checked: a few hundred take a few minutes.
                     self.toast(format!("{} {} songs…", if like { "Liking" } else { "Removing likes from" }, tracks.len()));
                 }
-                self.backend.request(Req::LikeMany { video_ids: tracks.into_iter().map(|t| t.id).collect(), like });
+                let stand_ins = tracks.iter().filter(|_| !like).filter_map(|t| Some((t.id.clone(), t.stands_for.clone()?))).collect();
+                self.backend.request(Req::LikeMany { video_ids: tracks.into_iter().map(|t| t.id).collect(), like, stand_ins });
             }
             Action::Dislike(t) => {
                 if !self.logged_in { self.toast("Sign in to rate songs"); return; }

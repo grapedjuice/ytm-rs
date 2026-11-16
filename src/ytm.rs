@@ -1813,6 +1813,7 @@ fn two_row(r: &Value) -> Option<Card> {
             music_video: music_video(&[nav]),
             video: has_video(&[nav]),
             explicit: explicit(&r["subtitleBadges"]),
+            stands_for: None,
         })
     } else if let Some(playlist) = nav["watchPlaylistEndpoint"]["playlistId"].as_str() {
         Target::Playlist(playlist.to_owned())
@@ -2001,7 +2002,21 @@ fn list_item(r: &Value) -> Option<Track> {
     let track_nr = text(&r["index"]).and_then(|n| n.parse().ok());
     let parts = [&r["overlay"], &r["flexColumns"][0]];
     let (music_video, video) = (music_video(&parts), has_video(&parts));
-    Some(Track { id, title, artists, album, duration, thumbs: thumbs(&r["thumbnail"]["musicThumbnailRenderer"]), track_nr, plays, music_video, video, explicit: explicit(&r["badges"]) })
+    let stands_for = like_target(&r["menu"]).filter(|v| *v != id);
+    Some(Track { id, title, artists, album, duration, thumbs: thumbs(&r["thumbnail"]["musicThumbnailRenderer"]), track_nr, plays, music_video, video, explicit: explicit(&r["badges"]), stands_for })
+}
+
+/// The video a row's menu likes or unlikes. In Liked Music, a video liked on YouTube is
+/// listed as the song YouTube Music matched it to, and its menu still points at the video.
+fn like_target(menu: &Value) -> Option<String> {
+    fn find(v: &Value) -> Option<&str> {
+        match v {
+            Value::Object(m) => m.get("likeEndpoint").and_then(|e| e["target"]["videoId"].as_str()).or_else(|| m.values().find_map(find)),
+            Value::Array(a) => a.iter().find_map(find),
+            _ => None,
+        }
+    }
+    find(menu).map(str::to_owned)
 }
 
 /// A song in a radio / up-next panel.
@@ -2030,6 +2045,7 @@ fn panel_item(r: &Value) -> Option<Track> {
         music_video: music_video(&[&r["navigationEndpoint"]]),
         video: has_video(&[&r["navigationEndpoint"]]),
         explicit: explicit(&r["badges"]),
+        stands_for: None,
     })
 }
 
@@ -2353,6 +2369,35 @@ mod tests {
         let t = list_item(&row(ALBUM_ROW)).unwrap();
         assert_eq!((t.title.as_str(), t.track_nr, t.duration), ("Alone Again", Some(1), Some(251)));
         assert!(t.artists.is_empty());
+    }
+
+    /// A Liked Music row as YouTube Music sends it (November 2026) for a video liked on
+    /// YouTube: the song it matched the video to, whose menu likes the video itself.
+    fn liked_row(id: &str, liked: &str) -> Value {
+        let watch = json!({"watchEndpoint": {"videoId": id, "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"}}}});
+        let unlike = json!({"menuServiceItemRenderer": {"text": {"runs": [{"text": "Remove from playlist"}]}, "serviceEndpoint": {"likeEndpoint": {"status": "INDIFFERENT", "target": {"videoId": liked}}}}});
+        json!({
+            "playlistItemData": {"videoId": id, "playlistSetVideoId": "56B44F6D10557CC6"},
+            "flexColumns": [
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Теплая ночь", "navigationEndpoint": watch}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Гиксекот"}]}}}
+            ],
+            "overlay": {"musicItemThumbnailOverlayRenderer": {"content": {"musicPlayButtonRenderer": {"playNavigationEndpoint": watch}}}},
+            "menu": {"menuRenderer": {"items": [unlike]}}
+        })
+    }
+
+    #[test]
+    fn a_liked_video_listed_as_its_song_knows_its_video() {
+        let t = list_item(&liked_row("R5Wv-eZD1l8", "u6Pr452s_2s")).unwrap();
+        assert_eq!((t.id.as_str(), t.stands_for.as_deref()), ("R5Wv-eZD1l8", Some("u6Pr452s_2s")));
+        // Still the song: it plays as one, with the video a switch away.
+        assert!(!t.has_video());
+    }
+
+    #[test]
+    fn a_liked_song_stands_for_nothing_else() {
+        assert_eq!(list_item(&liked_row("R5Wv-eZD1l8", "R5Wv-eZD1l8")).unwrap().stands_for, None);
     }
 
     // Library › Uploads row, shaped like a real answer (November 2026): the artist and album lead

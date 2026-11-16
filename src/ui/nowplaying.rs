@@ -276,7 +276,8 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     // A song gets the switch too once its music video is found (or is playing). Songs, not
     // music videos, with videos off: no switch on a song, and no music video looked up for
     // it. A music video keeps its own: it's the only way from its song back to the video.
-    let songs_only = app.play_songs && !app.show_video;
+    // A song standing in for a liked video is that video's too, as a music video is.
+    let songs_only = app.play_songs && !app.show_video && track.stands_for.is_none();
     if look.now_playing.show_video_switch && !app.jam.active() && (track.has_video() || (!songs_only && (app.playing_as().is_some() || app.song_video().is_some()))) {
         song_video_switch(app, ui, header);
     }

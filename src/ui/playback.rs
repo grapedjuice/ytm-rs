@@ -304,11 +304,17 @@ impl App {
             if self.music_videos.len() >= 1000 {
                 self.music_videos.clear();
             }
-            self.music_videos.insert(t.id.clone(), None);
-            self.backend.request(Req::MusicVideo(t));
-            return None;
+            if let Some(id) = &t.stands_for {
+                // A video liked on YouTube, listed as its matched song: that video is its own.
+                let video = Track { id: id.clone(), video: true, stands_for: None, ..t.clone() };
+                self.music_videos.insert(t.id, Some(crate::ytm::MusicVideo { video, offset_ms: 0 }));
+            } else {
+                self.music_videos.insert(t.id.clone(), None);
+                self.backend.request(Req::MusicVideo(t));
+                return None;
+            }
         }
-        let found = self.music_videos.get(&t.id)?.as_ref()?;
+        let found = self.current().and_then(|t| self.music_videos.get(&t.id))?.as_ref()?;
         (!(self.hide_explicit && found.video.explicit)).then_some(found)
     }
 

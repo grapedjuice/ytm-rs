@@ -379,7 +379,7 @@ pub enum Resp {
     Lyrics { video_id: String, lyrics: LyricsSet },
     Segments { video_id: String, segments: Vec<crate::sponsorblock::Segment> },
     /// `None`: none was found.
-    ArtistPicture { id: String, pic: Option<crate::discord::ArtistPic> },
+    ArtistPicture { id: String, pic: Option<crate::discord::Badge> },
     /// Romanization/translation for one source's lines, arriving after them.
     LyricsExtras { video_id: String, source: String, target: String, extras: crate::translate::Extras },
     Art { key: String, art: Art },
@@ -2478,10 +2478,10 @@ pub fn compact(n: u64) -> String {
 
 /// The picture of artist `id` among artists found by `name`: the one with that id, or else
 /// one with that very name (a channel's songs can name an id search doesn't list).
-fn artist_pic(found: &[Card], id: &str, name: &str) -> Option<crate::discord::ArtistPic> {
+fn artist_pic(found: &[Card], id: &str, name: &str) -> Option<crate::discord::Badge> {
     let hit = found.iter().find(|c| matches!(&c.target, Target::Artist(a) if a == id)).or_else(|| found.iter().find(|c| c.title.eq_ignore_ascii_case(name)))?;
     let url = sized(model::pick(&hit.thumbs, 120)?, 160);
-    Some(crate::discord::ArtistPic { name: hit.title.clone(), url })
+    Some(crate::discord::Badge { name: hit.title.clone(), url })
 }
 
 // Larger art URL for the background / now-playing view.

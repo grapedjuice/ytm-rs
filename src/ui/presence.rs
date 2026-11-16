@@ -4,7 +4,7 @@ use egui::{Align2, Color32, Id, Layout, Rect, RichText, Sense, Ui, UiBuilder, Ve
 
 use super::pages::{divider, dropdown_button, filtering, option_row, section_label, setting_row, setting_row_wide, settings_card, settings_section, toggle};
 use super::{App, widgets};
-use crate::discord::{self, Card, Page, Prefs, Presence, Show, Status};
+use crate::discord::{self, BadgeShows, Card, Page, Prefs, Presence, Show, Status};
 use crate::theme::{self, icon};
 
 /// Dropdowns and the name box share a width, so the column lines up.
@@ -95,8 +95,8 @@ fn rest(app: &App, ui: &mut Ui, prefs: &mut Prefs) {
             });
             ui.add_enabled_ui(prefs.art, |ui| {
                 divider(ui);
-                setting_row(ui, "Artist picture", Some("Mark the artwork with a small picture of the artist, when YouTube Music has one. Hovered, it shows their name."), |ui| {
-                    toggle(ui, &mut prefs.badge, "Artist picture");
+                setting_row(ui, "Badge", Some("A small picture on the artwork's corner: the artist's, or the app icon picked in Appearance."), |ui| {
+                    dropdown(ui, "Badge", &mut prefs.badge, &BadgeShows::ALL, |b| b.label().to_owned());
                 });
                 divider(ui);
                 setting_row(ui, "Line 3", Some("The last line. Discord also shows it when the artwork is hovered, so it needs the artwork."), |ui| {
@@ -222,7 +222,7 @@ fn now_ms() -> i64 {
 }
 
 /// Shown with nothing playing.
-fn example() -> Presence {
+fn example(app_icon: &'static str) -> Presence {
     let now = now_ms();
     Presence {
         video_id: String::new(),
@@ -233,6 +233,7 @@ fn example() -> Presence {
         album_id: None,
         art: Some(discord::ICON.into()),
         artist_pic: None,
+        app_icon,
         start_ms: now - 79_000,
         end_ms: Some(now + 126_000),
         paused: false,
@@ -303,7 +304,7 @@ fn shown(app: &App) -> (Presence, &'static str) {
         Some(p) if p.paused => "Paused",
         Some(_) => "Now playing",
     };
-    (p.unwrap_or_else(example), state)
+    (p.unwrap_or_else(|| example(app.app_icon)), state)
 }
 
 /// What the preview can't show by itself.
@@ -363,7 +364,11 @@ fn profile_card(ui: &mut Ui, c: &Card, width: f32) {
             let b = Rect::from_center_size(r.right_bottom() - vec2(3.0, 3.0), Vec2::splat(22.0));
             ui.painter().circle_filled(b.center(), 13.5, Color32::from_black_alpha(200));
             ui.painter().circle_filled(b.center(), 11.0, theme::glass(0.12));
-            widgets::paint_remote(ui, &pic.url, b, 11.0, full_uv(), Color32::WHITE);
+            // The app icon's badge is in the app: the website may not serve it yet.
+            match crate::appicon::Variant::by_badge_url(&pic.url) {
+                Some(v) => egui::Image::from_bytes(format!("bytes://discord-badge/{}.png", v.id), v.badge).corner_radius(11.0).paint_at(ui, b),
+                None => widgets::paint_remote(ui, &pic.url, b, 11.0, full_uv(), Color32::WHITE),
+            }
         }
         x += ART + 12.0;
     }

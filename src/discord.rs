@@ -62,6 +62,49 @@ impl Status {
     pub const ALL: [Self; 3] = [Self::Name, Self::Line1, Self::Line2];
 }
 
+/// What the small picture on the artwork's corner shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BadgeShows {
+    #[default]
+    Nothing,
+    Artist,
+    /// The icon picked in Settings › Appearance › App icon.
+    AppIcon,
+}
+
+impl BadgeShows {
+    pub const ALL: [Self; 3] = [Self::Nothing, Self::Artist, Self::AppIcon];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Nothing => "Nothing",
+            Self::Artist => "Artist's picture",
+            Self::AppIcon => "App icon",
+        }
+    }
+}
+
+/// Also reads the on/off switch it was before, which showed the app's icon.
+impl<'de> Deserialize<'de> for BadgeShows {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Saved {
+            Switch(bool),
+            Kind(String),
+        }
+        Ok(match Saved::deserialize(d)? {
+            Saved::Switch(on) => if on { Self::AppIcon } else { Self::Nothing },
+            Saved::Kind(k) => match k.as_str() {
+                "artist" => Self::Artist,
+                "app_icon" => Self::AppIcon,
+                _ => Self::Nothing,
+            },
+        })
+    }
+}
+
 /// A YouTube Music page a button or the artwork opens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -109,7 +152,7 @@ pub struct Prefs {
     pub status: Status,
     pub lines: [Show; 3],
     pub art: bool,
-    pub badge: bool,
+    pub badge: BadgeShows,
     pub progress: bool,
     /// Lines 1 and 2 open what they show.
     pub links: [bool; 2],
@@ -128,7 +171,7 @@ impl Default for Prefs {
             status: Status::Line1,
             lines: [Show::Title, Show::Artist, Show::Album],
             art: true,
-            badge: false,
+            badge: BadgeShows::Nothing,
             progress: true,
             links: [true, false],
             art_link: false,
@@ -149,7 +192,9 @@ pub struct Presence {
     pub album_id: Option<String>,
     pub art: Option<String>,
     /// The artist's picture, for the badge on the artwork.
-    pub artist_pic: Option<ArtistPic>,
+    pub artist_pic: Option<Badge>,
+    /// The app icon picked in Settings (`appicon`), for the badge.
+    pub app_icon: &'static str,
     /// Unix ms when the song (virtually) started, so Discord draws elapsed time.
     pub start_ms: i64,
     pub end_ms: Option<i64>,
@@ -182,9 +227,9 @@ impl Presence {
     }
 }
 
-/// An artist's name and picture.
+/// A small picture, and the name it shows when hovered.
 #[derive(Clone, Debug, PartialEq)]
-pub struct ArtistPic {
+pub struct Badge {
     pub name: String,
     pub url: String,
 }
@@ -205,8 +250,8 @@ pub struct Card {
     pub lines: [Option<Line>; 3],
     pub art: Option<String>,
     pub art_url: Option<String>,
-    /// The artist's picture in the artwork's corner.
-    pub badge: Option<ArtistPic>,
+    /// The small picture in the artwork's corner.
+    pub badge: Option<Badge>,
     /// Start and end, Unix ms.
     pub times: Option<(i64, Option<i64>)>,
     pub buttons: Vec<(&'static str, String)>,
@@ -232,6 +277,12 @@ impl Card {
             s => s,
         };
         let art_url = art.as_ref().filter(|_| prefs.art_link).and_then(|_| p.url(Page::Album).or_else(|| p.url(Page::Song)));
+        let badge = match prefs.badge {
+            BadgeShows::Nothing => None,
+            BadgeShows::Artist => p.artist_pic.clone(),
+            BadgeShows::AppIcon => Some(Badge { name: name.clone().unwrap_or_else(|| APP_NAME.to_owned()), url: crate::appicon::get(p.app_icon).badge_url() }),
+        }
+        .filter(|b| art.is_some() && b.url.len() <= 256);
         let mut buttons: Vec<(&'static str, String)> = Vec::new();
         for page in prefs.buttons.into_iter().filter(|_| prefs.show_buttons) {
             if let Some(url) = p.url(page).filter(|u| buttons.iter().all(|(_, b)| b != u)) {
@@ -242,7 +293,7 @@ impl Card {
             name,
             status,
             lines,
-            badge: p.artist_pic.clone().filter(|b| prefs.badge && art.is_some() && b.url.len() <= 256),
+            badge,
             art,
             art_url,
             times: (prefs.progress && !p.paused).then_some((p.start_ms, p.end_ms)),
@@ -452,7 +503,8 @@ mod tests {
             album: Some("Evolve".into()),
             album_id: None,
             art: Some("https://img/1".into()),
-            artist_pic: Some(ArtistPic { name: "Imagine Dragons".into(), url: "https://img/a".into() }),
+            artist_pic: Some(Badge { name: "Imagine Dragons".into(), url: "https://img/a".into() }),
+            app_icon: "vinyl",
             start_ms: 1000,
             end_ms: Some(200_000),
             paused: false,
@@ -486,14 +538,14 @@ mod tests {
 
     #[test]
     fn line_three_and_badge_need_the_art() {
-        let prefs = Prefs { art: false, badge: true, ..Prefs::default() };
+        let prefs = Prefs { art: false, badge: BadgeShows::Artist, ..Prefs::default() };
         let c = Card::new(&song(), &prefs);
         assert!(c.lines[2].is_none() && c.badge.is_none() && c.art.is_none());
     }
 
     #[test]
     fn badge_is_the_artists_picture() {
-        let prefs = Prefs { badge: true, ..Prefs::default() };
+        let prefs = Prefs { badge: BadgeShows::Artist, ..Prefs::default() };
         let c = Card::new(&song(), &prefs);
         let a = serde_json::to_value(activity(&c)).unwrap();
         assert_eq!(a["assets"]["small_image"], "https://img/a");
@@ -502,6 +554,38 @@ mod tests {
         let c = Card::new(&Presence { artist_pic: None, ..song() }, &prefs);
         let a = serde_json::to_value(activity(&c)).unwrap();
         assert!(a["assets"]["small_image"].is_null() && a["assets"]["large_image"] == "https://img/1");
+    }
+
+    #[test]
+    fn badge_can_be_the_picked_app_icon() {
+        let prefs = Prefs { badge: BadgeShows::AppIcon, ..Prefs::default() };
+        let a = serde_json::to_value(activity(&Card::new(&song(), &prefs))).unwrap();
+        assert_eq!(a["assets"]["small_image"], "https://grapedjuice.github.io/ytm-rs/badge/vinyl.png");
+        assert_eq!(a["assets"]["small_text"], APP_NAME);
+        // Renamed, it's named that way.
+        let c = Card::new(&song(), &Prefs { app_name: "Tunes".into(), ..prefs });
+        assert_eq!(c.badge.unwrap().name, "Tunes");
+        assert!(Card::new(&song(), &Prefs::default()).badge.is_none());
+    }
+
+    #[test]
+    fn every_app_icon_has_its_badge_on_the_website() {
+        for v in crate::appicon::ALL {
+            let url = v.badge_url();
+            assert!(std::path::Path::new(&format!("site/badge/{}.png", v.id)).exists(), "{url}");
+            assert_eq!(crate::appicon::Variant::by_badge_url(&url).map(|b| b.id), Some(v.id));
+            assert!(url.len() <= 256);
+        }
+    }
+
+    #[test]
+    fn badge_switch_saved_before_it_had_choices_still_loads() {
+        let p: Prefs = serde_json::from_str(r#"{"badge":true}"#).unwrap();
+        assert_eq!(p.badge, BadgeShows::AppIcon);
+        let p: Prefs = serde_json::from_str(r#"{"badge":false,"when_paused":true}"#).unwrap();
+        assert_eq!((p.badge, p.when_paused), (BadgeShows::Nothing, true));
+        let p: Prefs = serde_json::from_str(&serde_json::to_string(&Prefs { badge: BadgeShows::Artist, ..Prefs::default() }).unwrap()).unwrap();
+        assert_eq!(p.badge, BadgeShows::Artist);
     }
 
     #[test]

@@ -40,6 +40,7 @@ impl App {
             album_id: t.album.as_ref().and_then(|a| a.id.clone()),
             art: backend::art_url(t),
             artist_pic: t.first_artist_id().and_then(|id| self.artist_pics.get(id).cloned().flatten()),
+            app_icon: self.app_icon,
             start_ms,
             end_ms: (dur > 0).then_some(start_ms + dur),
             paused: !self.playing() || self.buffering,
@@ -81,7 +82,7 @@ impl App {
     /// Look up the playing artist's picture once, when the card's badge shows it.
     fn want_artist_pic(&mut self) {
         let p = &self.discord_prefs;
-        if !p.badge || !p.art || p.hide_details {
+        if p.badge != crate::discord::BadgeShows::Artist || !p.art || p.hide_details {
             return;
         }
         let Some(a) = self.playing_track().and_then(|t| t.artists.iter().find(|a| a.id.is_some())) else { return };

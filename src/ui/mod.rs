@@ -329,7 +329,7 @@ pub struct App {
     discord_prefs: crate::discord::Prefs,
     /// Artists' pictures for the card's badge, by artist id; `None` while asked or when
     /// there's none.
-    artist_pics: HashMap<String, Option<crate::discord::ArtistPic>>,
+    artist_pics: HashMap<String, Option<crate::discord::Badge>>,
     /// Local WebSocket for a Stream Deck plugin. Off until Connections enables it.
     remote: crate::remote::Remote,
     remote_enabled: bool,

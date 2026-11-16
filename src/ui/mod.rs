@@ -490,6 +490,9 @@ pub struct App {
     animated_covers: bool,
     /// The song's animated cover: looked up, then playing.
     cover_clip: Option<nowplaying::CoverClip>,
+    /// The colours of a song's animated cover, once a lap of it has played: the accent
+    /// and background while it's on screen.
+    clip_art: Option<(String, crate::art::Art)>,
     hide_search_videos: bool,
     /// Leave explicit songs out of lists and the queue.
     hide_explicit: bool,
@@ -857,6 +860,7 @@ impl App {
             glow: None,
             animated_covers: std::env::var_os("YTM_CANVAS").is_some() || get("animated_covers").is_some_and(|v| v == "1"),
             cover_clip: None,
+            clip_art: None,
             hide_search_videos: get("hide_search_videos").is_some_and(|v| v == "1"),
             hide_explicit,
             show_podcasts,
@@ -1298,10 +1302,43 @@ impl App {
     /// Back to the cover after a video had the background.
     fn restore_art(&mut self) {
         if self.look().background.video_backdrop
-            && let (Some(bg), Some(art)) = (&self.bg, &self.track_art)
+            && let Some(art) = self.cover_colours().cloned()
+            && let Some(bg) = &self.bg
         {
-            bg.set_live(art.clone());
             self.art_brightness = art.brightness;
+            bg.set_live(art);
+        }
+    }
+
+    /// The colours of the cover on screen: the animated cover's while it's up and a lap of
+    /// it has been seen, else the still cover's (when it's the song playing's).
+    fn cover_colours(&self) -> Option<&crate::art::Art> {
+        let id = self.current_id()?;
+        self.cover_clip
+            .as_ref()
+            .filter(|c| c.id == id && c.showing())
+            .and(self.clip_art.as_ref())
+            .filter(|(clip, _)| clip == id)
+            .map(|(_, art)| art)
+            .or_else(|| self.track_art.as_ref().filter(|_| self.art_key.as_deref() == Some(id)))
+    }
+
+    /// The accent and background to [`Self::cover_colours`], crossfading there.
+    fn show_cover_colours(&mut self, now: f64) {
+        let Some(art) = self.cover_colours().cloned() else { return };
+        self.accent = art.accent;
+        self.art_brightness = art.brightness;
+        if let Some(bg) = &self.bg {
+            bg.set_art(art);
+        }
+        self.art_changed = now;
+    }
+
+    /// The animated cover stops (Now playing closed, the window hidden): the colours go
+    /// back to the still cover's if they were its.
+    fn drop_cover_clip(&mut self, now: f64) {
+        if self.cover_clip.take().is_some_and(|c| c.showing() && self.clip_art.as_ref().is_some_and(|(id, _)| *id == c.id)) {
+            self.show_cover_colours(now);
         }
     }
 
@@ -1439,7 +1476,7 @@ impl eframe::App for App {
         self.window_hidden = self.in_tray || ctx.input(|i| i.viewport().minimized == Some(true));
         // Nothing takes a video's frames now, while its decoder would go on working in bursts.
         if self.window_hidden || self.mini.busy() {
-            self.cover_clip = None;
+            self.drop_cover_clip(now);
         }
         // Picture in picture goes on with the video, on the way there and back included.
         if (self.window_hidden || (self.mini.busy() && !mini::video_active())) && self.video.take().is_some() {
@@ -1728,8 +1765,10 @@ impl eframe::App for App {
         if np > 0.001 {
             theme::set_mode(&ctx, false);
             nowplaying::overlay(self, &ctx, now);
-        } else if self.cover_clip.take().is_some() || self.video.take().is_some() {
+        } else if self.cover_clip.is_some() || self.video.is_some() {
             // Now playing's closed, and its own cleanup only runs while it's drawn.
+            self.drop_cover_clip(now);
+            self.video = None;
             self.video_frame = None;
             self.glow = None;
             self.restore_art();

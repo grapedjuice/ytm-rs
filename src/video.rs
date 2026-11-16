@@ -481,6 +481,8 @@ struct Shared {
     frames: Mutex<VecDeque<Frame>>,
     stop: AtomicBool,
     failed: AtomicBool,
+    /// An animated cover's lap (s), once its frames are counted.
+    length: std::sync::OnceLock<f64>,
 }
 
 /// A video being decoded along with the audio. Stops when dropped.
@@ -832,6 +834,11 @@ impl Loop {
     pub fn failed(&self) -> bool {
         self.shared.failed.load(Ordering::Relaxed)
     }
+
+    /// How long one lap of the clip is (s), once known. Frames' `pts` run on across laps.
+    pub fn length(&self) -> Option<f64> {
+        self.shared.length.get().copied()
+    }
 }
 
 impl Drop for Loop {
@@ -877,6 +884,7 @@ fn run_loop(url: &str, http: &reqwest::Client, side: u32, shared: &Shared) -> an
     let (times, length) = loop_times(&samples.iter().map(|s| s.1).collect::<Vec<_>>());
     let samples: Vec<(Vec<u8>, f64)> = samples.into_iter().zip(times).map(|((data, _), t)| (data, t)).collect();
     log::info!("animated cover: {} frames, {length:.1} s", samples.len());
+    let _ = shared.length.set(length);
     // Waits for room for a frame; false once stopped.
     let room = || loop {
         if shared.stop.load(Ordering::Relaxed) {

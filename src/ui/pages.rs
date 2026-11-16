@@ -1584,7 +1584,7 @@ fn settings(app: &mut App, ui: &mut Ui) {
         // A search's results follow what's typed.
         if !filtering() {
             let h = ui.min_rect().height();
-            let room = settle_room(ui.ctx(), viewport.bottom() - h, h);
+            let room = settle_room(ui.ctx(), viewport.bottom() - h, (viewport.height() - h).max(0.0), h);
             if room > 0.0 {
                 ui.add_space(room);
             }
@@ -1598,28 +1598,31 @@ fn settings(app: &mut App, ui: &mut Ui) {
 /// switched off) while scrolled down: while the page shrinks, all the room it takes to
 /// stay where it's scrolled to (`needed`), so the section folds up under the pointer
 /// rather than pull the page down; then less and less, so the page glides to its end.
-fn settle_room(ctx: &egui::Context, needed: f32, h: f32) -> f32 {
+/// `fill`: what only fills out a page shorter than the window, which moves nothing, so
+/// it isn't part of the glide.
+fn settle_room(ctx: &egui::Context, needed: f32, fill: f32, h: f32) -> f32 {
     #[derive(Clone, Copy, Default)]
     struct Settle {
         h: f32,
-        room: f32,
+        /// The room that keeps the page where it was, past `fill`.
+        scroll: f32,
         since: f64,
     }
-    const SECS: f64 = 0.3;
+    const SECS: f64 = 0.45;
     let id = egui::Id::unique("settings-settle");
     let now = ctx.input(|i| i.time);
     let mut s = ctx.data(|d| d.get_temp::<Settle>(id)).unwrap_or_default();
     let needed = needed.max(0.0);
     if h < s.h - 0.5 {
-        s.room = needed;
+        s.scroll = (needed - fill).max(0.0);
         s.since = now;
     }
     s.h = h;
     ctx.data_mut(|d| d.insert_temp(id, s));
     let t = ((now - s.since) / SECS) as f32;
     // Scrolling back up meanwhile gives it back sooner.
-    let room = (s.room * (1.0 - theme::ease_in_out(t.clamp(0.0, 1.0)))).min(needed);
-    if room > 0.0 {
+    let room = (fill + s.scroll * (1.0 - theme::ease_in_out(t.clamp(0.0, 1.0)))).min(needed);
+    if t < 1.0 && s.scroll > 0.0 {
         ctx.request_repaint();
     }
     room

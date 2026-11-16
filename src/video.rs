@@ -481,8 +481,6 @@ struct Shared {
     frames: Mutex<VecDeque<Frame>>,
     stop: AtomicBool,
     failed: AtomicBool,
-    /// An animated cover's colours, worked out before its first frame.
-    colours: std::sync::OnceLock<crate::art::Art>,
 }
 
 /// A video being decoded along with the audio. Stops when dropped.
@@ -835,10 +833,6 @@ impl Loop {
         self.shared.failed.load(Ordering::Relaxed)
     }
 
-    /// The clip's colours (see `art::ClipColours`), there before its first frame.
-    pub fn colours(&self) -> Option<crate::art::Art> {
-        self.shared.colours.get().cloned()
-    }
 }
 
 impl Drop for Loop {
@@ -867,46 +861,6 @@ fn loop_times(pts: &[f64]) -> (Vec<f64>, f64) {
     (pts.iter().map(|p| p - first).collect(), last - first + step)
 }
 
-/// How many frames, spread over an animated cover, its colours come from.
-const CLIP_SAMPLES: usize = 8;
-
-/// An animated cover's colours, from frames spread over all of it, small. Key frames
-/// decode on their own, so it's a few frames' work; a clip with too few of them is
-/// decoded through once instead.
-fn clip_colours(track: &Track, samples: &[(Vec<u8>, f64)]) -> Option<crate::art::Art> {
-    // About 128 px across is plenty for colours.
-    let small = |yuv: &openh264::decoder::DecodedYUV| scaled_image(yuv, (yuv.dimensions().0 / 128).max(1), track.colors);
-    let mut colours = crate::art::ClipColours::default();
-    let keys: Vec<usize> = (0..samples.len()).filter(|&i| is_idr(&samples[i].0)).collect();
-    if keys.len() >= CLIP_SAMPLES / 2 {
-        let mut picks: Vec<usize> = (0..CLIP_SAMPLES).map(|j| keys[j * keys.len() / CLIP_SAMPLES]).collect();
-        picks.dedup();
-        for i in picks {
-            let Ok(mut d) = new_decoder(track) else { continue };
-            let first = d.decode(&samples[i].0).ok().flatten().map(|yuv| small(&yuv));
-            if let Some(img) = first.or_else(|| d.flush_remaining().ok()?.first().map(small)) {
-                colours.add(&img);
-            }
-        }
-    } else {
-        let every = (samples.len() / CLIP_SAMPLES).max(1);
-        let mut d = new_decoder(track).ok()?;
-        for (n, (data, _)) in samples.iter().enumerate() {
-            if let Ok(Some(yuv)) = d.decode(data)
-                && n % every == 0
-            {
-                colours.add(&small(&yuv));
-            }
-        }
-    }
-    colours.art()
-}
-
-/// Whether a sample (Annex B) holds a key frame, which decodes without the ones before.
-fn is_idr(annex_b: &[u8]) -> bool {
-    annex_b.windows(5).any(|w| w[..4] == [0, 0, 0, 1] && w[4] & 0x1f == 5)
-}
-
 fn run_loop(url: &str, http: &reqwest::Client, side: u32, shared: &Shared) -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     let clip = rt.block_on(crate::canvas::load(http, url, side))?;
@@ -924,11 +878,6 @@ fn run_loop(url: &str, http: &reqwest::Client, side: u32, shared: &Shared) -> an
     let (times, length) = loop_times(&samples.iter().map(|s| s.1).collect::<Vec<_>>());
     let samples: Vec<(Vec<u8>, f64)> = samples.into_iter().zip(times).map(|((data, _), t)| (data, t)).collect();
     log::info!("animated cover: {} frames, {length:.1} s", samples.len());
-    let started = std::time::Instant::now();
-    if let Some(art) = clip_colours(&track, &samples) {
-        let _ = shared.colours.set(art);
-    }
-    log::info!("animated cover: colours in {} ms", started.elapsed().as_millis());
     // Waits for room for a frame; false once stopped.
     let room = || loop {
         if shared.stop.load(Ordering::Relaxed) {
@@ -970,14 +919,6 @@ fn run_loop(url: &str, http: &reqwest::Client, side: u32, shared: &Shared) -> an
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn key_frames_are_told_from_the_rest() {
-        // SPS, PPS, then an IDR slice; and a plain slice.
-        assert!(is_idr(&[0, 0, 0, 1, 0x67, 1, 2, 0, 0, 0, 1, 0x68, 3, 0, 0, 0, 1, 0x65, 9, 9]));
-        assert!(!is_idr(&[0, 0, 0, 1, 0x41, 9, 9, 0, 0, 0, 1, 0x01, 5]));
-        assert!(!is_idr(&[]));
-    }
 
     fn boxed(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
         let mut v = ((body.len() + 8) as u32).to_be_bytes().to_vec();

@@ -497,8 +497,8 @@ pub struct App {
     animated_covers: bool,
     /// The song's animated cover: looked up, then playing.
     cover_clip: Option<nowplaying::CoverClip>,
-    /// The colours of a song's animated cover: the accent and background while it's on
-    /// screen.
+    /// The colours of the animated cover's frame showing (and its song's): the accent and
+    /// background while it's on screen.
     clip_art: Option<(String, crate::art::Art)>,
     hide_search_videos: bool,
     /// Leave explicit songs out of lists and the queue.
@@ -1350,6 +1350,19 @@ impl App {
             bg.set_art(art);
         }
         self.art_changed = now;
+    }
+
+    /// The background and accent to the animated cover's latest frame: the background at
+    /// once, the accent easing there so a clip's changing colours don't flash.
+    fn follow_clip(&mut self) {
+        let Some((_, art)) = &self.clip_art else { return };
+        let [a, b] = [self.accent, art.accent].map(|c| c.to_array().map(f32::from));
+        let eased: [f32; 4] = std::array::from_fn(|i| a[i] + (b[i] - a[i]) * 0.5);
+        self.accent = Color32::from_rgb(eased[0].round() as u8, eased[1].round() as u8, eased[2].round() as u8);
+        self.art_brightness = art.brightness;
+        if let Some(bg) = &self.bg {
+            bg.set_live(art.clone());
+        }
     }
 
     /// The animated cover stops (Now playing closed, the window hidden): the colours go

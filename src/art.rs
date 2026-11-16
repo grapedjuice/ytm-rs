@@ -26,9 +26,28 @@ pub fn process(bytes: &[u8]) -> anyhow::Result<Art> {
 /// The still-cover pipeline over a decoded image: resize to SIZE×SIZE with Triangle,
 /// pick the accent, tint the dark areas toward it, then blur.
 fn process_rgb(img: &image::RgbImage) -> Art {
-    let small = image::imageops::resize(img, SIZE, SIZE, image::imageops::FilterType::Triangle);
-    let accent = palette(&small);
+    process_small(&image::imageops::resize(img, SIZE, SIZE, image::imageops::FilterType::Triangle))
+}
+
+/// The accent, tint and blur of a cover already SIZE×SIZE.
+fn process_small(small: &image::RgbImage) -> Art {
+    let accent = palette(small);
     backdrop(small.pixels().map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]).collect(), accent)
+}
+
+/// A frame of an animated cover as the cover art, as a still cover's would be (accent,
+/// tint and blur), sampled nearest-neighbour like [`from_frame`] so it's cheap enough a
+/// few times a second.
+pub fn from_cover_frame(frame: &egui::ColorImage) -> Option<Art> {
+    let ([w, h], n) = (frame.size, SIZE as usize);
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let small = image::RgbImage::from_fn(SIZE, SIZE, |x, y| {
+        let c = frame.pixels[(y as usize * h / n) * w + x as usize * w / n];
+        image::Rgb([c.r(), c.g(), c.b()])
+    });
+    Some(process_small(&small))
 }
 
 /// SIZE×SIZE pixels (0–255) made into the backdrop, tinted toward `accent`.
@@ -51,60 +70,6 @@ fn backdrop(mut px: Vec<[f32; 3]>, accent: Color32) -> Art {
     }
     let rgba = px.iter().flat_map(|p| [p[0] as u8, p[1] as u8, p[2] as u8, 255]).collect();
     Art { rgba, accent, brightness }
-}
-
-/// An animated cover's colours, from frames spread over its loop. A clip often opens on
-/// a close-up or a fade-in, so no one frame stands for it, and a small vivid detail (an
-/// eye, a logo) that a close-up fills the frame with shouldn't set the accent either:
-/// it's the most vivid colour of the hue that's vivid over the most of the clip. The
-/// backdrop is the frames' average.
-#[derive(Default)]
-pub struct ClipColours {
-    /// Each pixel's sum over the frames, SIZE×SIZE.
-    sum: Vec<[f32; 3]>,
-    frames: u32,
-    /// Per hue: how vivid it is over the clip (its pixels' scores summed), and its most
-    /// vivid pixel with that pixel's score.
-    hues: [(f32, f32, [f32; 3]); HUES],
-}
-
-/// Hue bins a clip's colours are counted in.
-const HUES: usize = 24;
-
-impl ClipColours {
-    pub fn add(&mut self, frame: &egui::ColorImage) {
-        let [w, h] = frame.size;
-        let rgb: Vec<u8> = frame.pixels.iter().flat_map(|p| [p.r(), p.g(), p.b()]).collect();
-        let Some(img) = image::RgbImage::from_raw(w as u32, h as u32, rgb).filter(|_| w > 0 && h > 0) else { return };
-        let small = image::imageops::resize(&img, SIZE, SIZE, image::imageops::FilterType::Triangle);
-        self.sum.resize((SIZE * SIZE) as usize, [0.0; 3]);
-        for (s, p) in self.sum.iter_mut().zip(small.pixels()) {
-            let rgb = [p[0] as f32, p[1] as f32, p[2] as f32];
-            for c in 0..3 {
-                s[c] += rgb[c];
-            }
-            let score = vivid(rgb.map(|v| v / 255.0));
-            let bin = &mut self.hues[(hue(rgb) * HUES as f32) as usize % HUES];
-            bin.0 += score;
-            if score > bin.1 {
-                (bin.1, bin.2) = (score, rgb);
-            }
-        }
-        self.frames += 1;
-    }
-
-    /// The clip's colours, once it has a frame.
-    pub fn art(&self) -> Option<Art> {
-        if self.frames == 0 {
-            return None;
-        }
-        let n = self.frames as f32;
-        let px: Vec<[f32; 3]> = self.sum.iter().map(|s| s.map(|v| v / n)).collect();
-        let avg = px.iter().fold([0.0; 3], |a, p| [a[0] + p[0], a[1] + p[1], a[2] + p[2]]).map(|v| v / px.len() as f32);
-        let best = self.hues.iter().max_by(|a, b| a.0.total_cmp(&b.0)).filter(|b| b.1 > 0.05);
-        let accent = lift(best.map_or(avg, |b| b.2));
-        Some(backdrop(px, accent))
-    }
 }
 
 /// `passes` more of the art's blur (a theme's `blurPasses` over the usual).
@@ -200,17 +165,6 @@ fn vivid(rgb: [f32; 3]) -> f32 {
     sat * sat * (1.0 - (max - 0.75).abs())
 }
 
-/// A colour's hue, 0..1.
-fn hue([r, g, b]: [f32; 3]) -> f32 {
-    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
-    let d = max - min;
-    if d <= 0.0 {
-        return 0.0;
-    }
-    let h = if max == r { ((g - b) / d).rem_euclid(6.0) } else if max == g { (b - r) / d + 2.0 } else { (r - g) / d + 4.0 };
-    h / 6.0
-}
-
 /// Raise brightness so the colour reads on a dark UI.
 fn lift(c: [f32; 3]) -> Color32 {
     let max = c[0].max(c[1]).max(c[2]).max(1.0);
@@ -255,47 +209,18 @@ pub fn readable_dim(shown: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClipColours, READABLE_CAP, READABLE_KNEE, process_rgb, readable_dim};
-
-    fn frame(w: usize, px: impl Fn(usize, usize) -> [u8; 3]) -> egui::ColorImage {
-        let pixels = (0..w * w).map(|i| {
-            let [r, g, b] = px(i % w, i / w);
-            egui::Color32::from_rgb(r, g, b)
-        });
-        egui::ColorImage { size: [w, w], source_size: egui::vec2(w as f32, w as f32), pixels: pixels.collect() }
-    }
+    use super::{READABLE_CAP, READABLE_KNEE, from_cover_frame, process_rgb, readable_dim};
 
     #[test]
-    fn one_frame_of_one_colour_gives_a_still_covers_colours() {
-        let f = frame(200, |_, _| [180, 60, 120]);
-        let rgb: Vec<u8> = f.pixels.iter().flat_map(|p| [p.r(), p.g(), p.b()]).collect();
-        let still = process_rgb(&image::RgbImage::from_raw(200, 200, rgb).unwrap());
-        let mut clip = ClipColours::default();
-        assert!(clip.art().is_none());
-        clip.add(&f);
-        let art = clip.art().unwrap();
-        assert_eq!((art.accent, art.rgba.clone()), (still.accent, still.rgba));
-        assert!((art.brightness - still.brightness).abs() < 1e-5);
+    fn a_cover_frame_gives_a_still_covers_colours() {
+        // Flat colour: sampling it small can't tell nearest from Triangle.
+        let frame = egui::ColorImage::new([300, 300], vec![egui::Color32::from_rgb(180, 60, 120); 300 * 300]);
+        let still = process_rgb(&image::RgbImage::from_pixel(300, 300, image::Rgb([180, 60, 120])));
+        let art = from_cover_frame(&frame).unwrap();
+        assert_eq!((art.accent, art.rgba), (still.accent, still.rgba));
+        assert!(from_cover_frame(&egui::ColorImage::new([0, 0], vec![])).is_none());
     }
 
-    #[test]
-    fn a_clips_accent_is_the_colour_most_of_it_has_not_a_small_detail() {
-        // A pink sky with a small, more vivid blue eye: a still cover's accent would be the
-        // eye; a clip's is the sky, however many close-ups of the eye it has.
-        let sky = |x: usize, y: usize| if x < 12 && y < 12 { [40, 170, 240] } else { [200, 90, 170] };
-        let rgb: Vec<u8> = (0..120 * 120).flat_map(|i| sky(i % 120, i / 120)).collect();
-        let still = process_rgb(&image::RgbImage::from_raw(120, 120, rgb).unwrap()).accent;
-        assert!(still.b() > still.r(), "{still:?}");
-        let mut clip = ClipColours::default();
-        clip.add(&frame(120, sky));
-        clip.add(&frame(120, |x, y| if x < 40 && y < 40 { [40, 170, 240] } else { [200, 90, 170] }));
-        let accent = clip.art().unwrap().accent;
-        assert!(accent.r() > accent.b() && accent.r() > accent.g(), "{accent:?}");
-        // The backdrop is both frames, not the last one.
-        let mut last = ClipColours::default();
-        last.add(&frame(120, |x, y| if x < 40 && y < 40 { [40, 170, 240] } else { [200, 90, 170] }));
-        assert_ne!(clip.art().unwrap().rgba, last.art().unwrap().rgba);
-    }
 
     #[test]
     fn dark_backgrounds_are_left_alone() {

@@ -1740,6 +1740,10 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
             if close.clicked() {
                 app.queue_open = false;
             }
+            // Left of Close, with more in the queue than the song playing.
+            if app.queue.tracks.len() > usize::from(app.queue.index.is_some()) && icon_button(ui, icon::TRASH_2, 15.0, "Clear queue", false).clicked() {
+                app.actions.push(Action::QueueClear);
+            }
         });
     });
     ui.add_space(8.0);
@@ -1828,11 +1832,22 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
     if *shown < 0.0 {
         return;
     }
-    let age = (now - shown) as f32;
+    let (msg, shown) = (msg.clone(), *shown);
+    let mut age = (now - shown) as f32;
     let tl = app.look().app.toast_look.clone();
-    let hold = tl.secs.max(1.5);
+    let hold = app.toast_hold();
+    let undo = app.undo.is_some();
+    // Pointed at, it stays (and comes back if it was fading), to be read or undone.
+    let over = ctx.pointer_hover_pos().zip(ctx.memory(|m| m.area_rect(egui::Id::unique("toast")))).is_some_and(|(p, r)| r.contains(p));
+    if over && age > 0.25 {
+        age = 0.25;
+        if let Some((_, s)) = &mut app.toast {
+            *s = now - 0.25;
+        }
+    }
     let t = theme::ease_out(age / 0.25) * (1.0 - ((age - hold) / 0.4).clamp(0.0, 1.0));
     let screen = ctx.content_rect();
+    let mut clicked = false;
     egui::Area::new(egui::Id::unique("toast"))
         .order(egui::Order::Tooltip)
         .pivot(Align2::CENTER_BOTTOM)
@@ -1859,9 +1874,26 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
                 .show(ui, |ui| {
                     ui.set_max_width(520.0);
                     let color = crate::preset::hex(&tl.text_color).filter(|_| !theme::light()).unwrap_or_else(theme::text);
-                    ui.label(egui::RichText::new(msg.as_str()).font(theme::regular(14.0)).color(color));
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(msg.as_str()).font(theme::regular(14.0)).color(color));
+                        if undo {
+                            ui.add_space(10.0);
+                            let text = ui.painter().layout_no_wrap("Undo".to_owned(), theme::semibold(14.0), color);
+                            let (r, resp) = ui.allocate_exact_size(text.size(), Sense::click());
+                            let resp = named(resp, "Undo").on_hover_text("Undo (Ctrl+Z)").on_hover_cursor(egui::CursorIcon::PointingHand);
+                            if resp.hovered() {
+                                ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, color));
+                            }
+                            widgets::focus_ring(ui, &resp, r.expand(3.0), 4.0);
+                            ui.painter().galley(r.min, text, color);
+                            clicked = resp.clicked();
+                        }
+                    });
                 });
         });
+    if clicked {
+        app.actions.push(Action::Undo);
+    }
     // Frames only while it fades in or out; in between it just waits.
     if (0.25..hold).contains(&age) {
         ctx.request_repaint_after(std::time::Duration::from_secs_f32(hold - age));
@@ -1870,5 +1902,6 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
     } else {
         // Faded out: gone, whatever else would have kept it.
         app.toast = None;
+        app.settle();
     }
 }

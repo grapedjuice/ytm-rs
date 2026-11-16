@@ -221,7 +221,11 @@ impl App {
     /// The next songs of a playlist played before all of it was in join the queue.
     fn fill_queue(&mut self, id: &str, load: u64, tracks: Vec<Track>, more: bool) {
         let playing_it = self.queue_source == Some(Target::Playlist(id.to_owned()));
-        let Some(filled) = self.queue.fill_from(id, load, tracks, more, playing_it) else { return };
+        let saved = match &mut self.undo {
+            Some(super::undo::Undo::Queue(saved)) => Some(saved),
+            _ => None,
+        };
+        let Some(filled) = self.queue.fill_saved(saved, id, load, tracks, more, playing_it) else { return };
         if filled.ran_out {
             self.next();
         } else if filled.was_at_end && !self.buffering {

@@ -30,8 +30,8 @@ impl App {
             let body = format!("\u{201c}{title}\u{201d} will be removed from your YouTube Music library. This can't be undone.");
             match confirm(ctx, "Delete playlist?", &body, "Delete", "Delete playlist") {
                 Some(true) => {
-                    self.backend.request(Req::DeletePlaylist(id));
                     self.dialog = None;
+                    self.delete_soon(id);
                 }
                 Some(false) => self.dialog = None,
                 None => {}

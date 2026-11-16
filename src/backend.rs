@@ -102,6 +102,8 @@ pub enum Req {
     Like { video_id: String, like: bool },
     /// Take away the likes of a music video and the song version standing in for it.
     UnlikeBoth { song: String, video: String },
+    /// Take away just this like, not the other half's.
+    Unlike(String),
     /// Several likes (or unlikes) one after another, for a selection.
     LikeMany { video_ids: Vec<String>, like: bool },
     Dislike(String),
@@ -158,7 +160,7 @@ impl Req {
             Req::Prefetch { .. } => "Prefetch",
             Req::VideoStream { .. } | Req::MusicVideo(_) => "Video",
             Req::Canvas(_) => "Animated cover",
-            Req::Like { .. } | Req::LikeMany { .. } | Req::UnlikeBoth { .. } => "Like",
+            Req::Like { .. } | Req::LikeMany { .. } | Req::UnlikeBoth { .. } | Req::Unlike(_) => "Like",
             Req::Dislike(_) => "Dislike",
             Req::CreatePlaylist { .. } => "Create playlist",
             Req::EditPlaylist { .. } => "Edit playlist",
@@ -401,6 +403,8 @@ pub enum Resp {
     PlaylistChanged { id: String, message: &'static str },
     /// Songs weren't taken out of this playlist, though they've left it here already.
     RemoveFailed { id: String, error: String },
+    /// A playlist wasn't deleted, though it's left the library here already.
+    DeleteFailed { error: String },
     AddedToPlaylist { id: String, video_ids: Vec<String>, error: Option<String> },
     /// YouTube Music answered a song dragged to a new place.
     PlaylistMoved { id: String, move_id: u64, ok: bool },
@@ -1028,6 +1032,16 @@ impl Backend {
         });
     }
 
+    /// A request answered before this returns (or given up on after a few seconds), its
+    /// answer dropped: for the app closing, which can't wait for one.
+    pub fn request_now(&self, req: Req) {
+        let what = req.name();
+        // In the runtime: a timeout made outside it panics.
+        if self.rt.block_on(async { tokio::time::timeout(std::time::Duration::from_secs(3), self.handle(req)).await }).is_err() {
+            log::warn!("{what}: no answer before closing");
+        }
+    }
+
     async fn handle(&self, req: Req) -> Option<Resp> {
         let api = &*self.api;
         // Personalised pages ask as the account when signed in, like music.youtube.com.
@@ -1215,6 +1229,13 @@ impl Backend {
                         Resp::LikedMany { video_ids, failed, like: false, others: Vec::new() }
                     }
                 }
+                Req::Unlike(video_id) => match ytm::set_like(api, &video_id, false).await {
+                    Ok(_) => Resp::Liked { video_id, like: false, other: None },
+                    Err(e) => {
+                        log::warn!("unliking {video_id}: {e:#}");
+                        Resp::LikedMany { video_ids: Vec::new(), failed: vec![video_id], like: false, others: Vec::new() }
+                    }
+                },
                 Req::LikeMany { video_ids, like } => self.like_many(video_ids, like).await?,
                 Req::Dislike(video_id) => {
                     match ytm::dislike(api, &video_id).await {
@@ -1276,10 +1297,13 @@ impl Backend {
                     }
                     Resp::PlaylistMoved { id: playlist_id, move_id, ok: result.is_ok() }
                 }
-                Req::DeletePlaylist(id) => {
-                    ytm::delete_playlist(api, &id).await?;
-                    Resp::PlaylistChanged { id, message: "Playlist deleted" }
-                }
+                Req::DeletePlaylist(id) => match ytm::delete_playlist(api, &id).await {
+                    Ok(_) => Resp::PlaylistChanged { id, message: "Playlist deleted" },
+                    Err(e) => {
+                        log::warn!("deleting playlist {id}: {e:#}");
+                        Resp::DeleteFailed { error: format!("Couldn't delete the playlist: {e}") }
+                    }
+                },
                 Req::Collaboration(id) => Resp::Collaboration(ytm::collaboration(api, &id).await?),
                 Req::SetCollaboration { info, change } => {
                     ytm::set_collaboration(api, &info, change).await?;

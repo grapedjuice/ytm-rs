@@ -1455,7 +1455,7 @@ impl SettingsTab {
     /// Most used first, which is how they're listed.
     const ALL: [Self; 8] = [Self::Account, Self::Playback, Self::Lyrics, Self::Appearance, Self::Connections, Self::General, Self::Shortcuts, Self::About];
 
-    fn label(self) -> &'static str {
+    pub(super) fn label(self) -> &'static str {
         match self {
             Self::Playback => "Playback",
             Self::Lyrics => "Lyrics",
@@ -2675,6 +2675,7 @@ fn settings_shortcuts(ui: &mut Ui) {
             ("Play / pause", &["Space"]),
             ("Next / previous song", &["Ctrl", "→ / ←"]),
             ("Volume up / down", &["Ctrl", "↑ / ↓"]),
+            ("Command palette: pages, settings, playlists and actions", &["Ctrl", "K"]),
             ("Search", &["Ctrl", "F"]),
             ("Find in a song list", &["Ctrl", "Shift", "F"]),
             ("Lyrics and now playing", &["L"]),

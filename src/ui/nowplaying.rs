@@ -1350,7 +1350,8 @@ fn video_fullscreen(app: &mut App, ui: &mut Ui, rect: Rect, track: &crate::model
     ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
     let frame = video_frame(app, &ctx, track);
     let (w, h) = frame.as_ref().map_or((16.0, 9.0), |t| (t.size()[0] as f32, t.size()[1] as f32));
-    if ui.input(|i| i.key_pressed(egui::Key::Z) && !i.modifiers.any()) {
+    // Not while typing: into the command palette, say.
+    if !ctx.egui_wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::Z) && !i.modifiers.any()) {
         set_video_fill(app, !app.video_fill);
     }
     // Filling: the picture inside its own bars, as large as covers the screen, its edges cut.

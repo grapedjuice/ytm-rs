@@ -8,7 +8,7 @@ use crate::model::{Target, Track};
 
 use super::lists::LIKED_MUSIC;
 use super::queue::QueueFill;
-use super::{Action, App, Dialog, LibTab, NpTab, Page, jam, transfer};
+use super::{Action, App, Dialog, LibTab, NpTab, Page, jam, palette, transfer};
 
 impl App {
     pub(super) fn apply(&mut self, a: Action) {
@@ -300,6 +300,7 @@ impl App {
         if self.hotkeys.capturing() {
             return;
         }
+        palette::shortcut(self, ctx);
         let typing = ctx.egui_wants_keyboard_input();
         // In a text box, Ctrl+arrows move the cursor by words (and lines) instead; on a
         // focused button or slider they still skip and change the volume.
@@ -364,19 +365,11 @@ impl App {
         if prev {
             self.prev();
         }
-        if lyr && self.current().is_some() {
-            self.np_open = !self.np_open;
-            self.np_tab = NpTab::Lyrics;
+        if lyr {
+            self.toggle_lyrics();
         }
         if full && self.np_open {
-            // With a video on show, full screen is the video's, as F is on YouTube.
-            if self.fullscreen {
-                self.set_fullscreen(ctx, false);
-            } else if self.shown_video().is_some() {
-                self.set_video_fullscreen(ctx, true);
-            } else {
-                self.set_fullscreen(ctx, true);
-            }
+            self.toggle_fullscreen(ctx);
         }
         // A menu or dialog that's open takes this Esc for itself.
         if esc && !egui::Popup::is_any_open(ctx) && ctx.memory(|m| m.top_modal_layer()).is_none() {
@@ -390,6 +383,39 @@ impl App {
         }
         if vol_up || vol_down {
             self.nudge_volume(vol_up);
+        }
+    }
+
+    /// Now playing with its lyrics, or back out of it (L).
+    pub(super) fn toggle_lyrics(&mut self) {
+        if self.current().is_some() {
+            self.np_open = !self.np_open;
+            self.np_tab = NpTab::Lyrics;
+        }
+    }
+
+    /// Full screen in now playing, or out of it (F).
+    pub(super) fn toggle_fullscreen(&mut self, ctx: &egui::Context) {
+        // With a video on show, full screen is the video's, as F is on YouTube.
+        if self.fullscreen {
+            self.set_fullscreen(ctx, false);
+        } else if self.shown_video().is_some() {
+            self.set_video_fullscreen(ctx, true);
+        } else {
+            self.set_fullscreen(ctx, true);
+        }
+    }
+
+    /// In now playing the queue is its Up next panel; elsewhere, the side panel.
+    pub(super) fn queue_shown(&self) -> bool {
+        if self.np_open { self.np_tab == NpTab::UpNext } else { self.queue_open }
+    }
+
+    pub(super) fn toggle_queue(&mut self) {
+        if self.np_open {
+            self.np_tab = if self.queue_shown() { NpTab::Art } else { NpTab::UpNext };
+        } else {
+            self.queue_open = !self.queue_open;
         }
     }
 

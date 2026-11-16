@@ -296,13 +296,29 @@ impl Shared {
     }
 
     fn fail(&self, err: String, refused: bool) {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.cancelled || inner.error.is_some() { return; }
         log::error!("download failed: {err}");
         FAIL_FROM.store(usize::MAX, std::sync::atomic::Ordering::Relaxed);
-        let mut inner = self.inner.lock().unwrap();
         inner.error = Some(err);
         inner.refused = refused;
         drop(inner);
         self.ready.notify_all();
+        self.changed.notify_waiters();
+    }
+
+    /// Cancellation and terminal failure interrupt HTTP, refreshes and retry waits too.
+    async fn until_stopped(&self) {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            {
+                let inner = self.inner.lock().unwrap();
+                if inner.cancelled || inner.error.is_some() { return; }
+            }
+            changed.await;
+        }
     }
 
     fn range(&self, idx: usize) -> (u64, u64) {
@@ -392,12 +408,16 @@ pub async fn download_behind(http: reqwest::Client, media: Media, ua: String, sh
                 let (a, b) = if segments.is_none() { shared.range(idx) } else { (0, 0) };
                 let what = if segments.is_some() { format!("segment {idx}") } else { format!("range {a}-{b}") };
                 let mut attempt = 0;
+                // Keep a file block's verified prefix across retries. Segments must
+                // restart whole: their URLs do not describe byte ranges.
+                let mut data = bytes::BytesMut::new();
                 loop {
+                    let start = a + data.len() as u64;
                     let (url, range, version) = {
                         let slot = slot.url.lock().await;
                         match &slot.0 {
-                            Media::File(url) => (format!("{url}&range={a}-{b}"), Range::Param(a, b), slot.1),
-                            Media::Feed(url) => (url.clone(), Range::Header(a, b), slot.1),
+                            Media::File(url) => (format!("{url}&range={start}-{b}"), Range::Param(start, b), slot.1),
+                            Media::Feed(url) => (url.clone(), Range::Header(start, b), slot.1),
                             Media::Segments(urls) => (urls[idx].clone(), Range::Whole, slot.1),
                         }
                     };
@@ -409,11 +429,11 @@ pub async fn download_behind(http: reqwest::Client, media: Media, ua: String, sh
                     } else if segments.is_none() && idx >= REFUSE_FROM.load(std::sync::atomic::Ordering::Relaxed) {
                         Err(anyhow::Error::new(SimulatedRefusal))
                     } else {
-                        fetch(&client, &url, &ua, range).await
+                        fetch(&client, &url, &ua, range, shared.total, &mut data).await
                     };
                     match res {
-                        Ok(data) => {
-                            shared.put(idx, data);
+                        Ok(()) => {
+                            shared.put(idx, data.freeze());
                             break;
                         }
                         Err(e) if is_forbidden(&e) && slot.renew(version).await => {}
@@ -436,6 +456,21 @@ pub async fn download_behind(http: reqwest::Client, media: Media, ua: String, sh
             }
         });
     }
+    while !set.is_empty() {
+        tokio::select! {
+            _ = shared.until_stopped() => {
+                set.abort_all();
+                break;
+            }
+            result = set.join_next() => {
+                if let Some(Err(e)) = result {
+                    shared.fail(format!("stream worker stopped: {e}"), false);
+                }
+            }
+        }
+    }
+    // Aborted workers must release their HTTP responses and refresh futures
+    // before callers observe that the download has stopped.
     while set.join_next().await.is_some() {}
     shared.done.send_replace(true);
 }
@@ -488,34 +523,66 @@ enum Range {
     Whole,
 }
 
-/// A range comes back with exactly its length; a segment's isn't known.
-async fn fetch(http: &reqwest::Client, url: &str, ua: &str, range: Range) -> anyhow::Result<Bytes> {
-    let stalled = || anyhow::anyhow!("no data for {} s", STALL.as_secs());
-    let mut req = http.get(url).header("User-Agent", ua);
-    if let Range::Header(a, b) = range {
-        req = req.header("Range", format!("bytes={a}-{b}"));
-    }
-    // Errors leave the URL out: it carries the client's IP address and signatures (logs).
-    let mut resp = tokio::time::timeout(STALL, req.send())
-        .await
-        .map_err(|_| stalled())?
-        .and_then(reqwest::Response::error_for_status)
-        .map_err(reqwest::Error::without_url)?;
-    if matches!(range, Range::Header(..)) {
-        anyhow::ensure!(resp.status() == reqwest::StatusCode::PARTIAL_CONTENT, "the server sent the whole file, not a range");
-    }
+/// A concrete byte range, including the representation's total size.
+fn content_range(value: &str) -> Option<(u64, u64, u64)> {
+    let (range, total) = value.strip_prefix("bytes ")?.split_once('/')?;
+    let (a, b) = range.split_once('-')?;
+    let (a, b, total) = (a.parse().ok()?, b.parse().ok()?, total.parse().ok()?);
+    (a <= b && b < total).then_some((a, b, total))
+}
+
+/// Append a range to a block's verified prefix. A failed transport keeps the bytes
+/// it delivered; malformed responses and whole segments cannot be spliced in.
+async fn fetch(http: &reqwest::Client, url: &str, ua: &str, range: Range, total: u64, buf: &mut bytes::BytesMut) -> anyhow::Result<()> {
+    let base = buf.len();
     let expect = match range {
         Range::Param(a, b) | Range::Header(a, b) => Some(b - a + 1),
         Range::Whole => None,
     };
-    let mut buf = bytes::BytesMut::with_capacity(expect.or(resp.content_length()).unwrap_or(0) as usize);
-    while let Some(chunk) = tokio::time::timeout(STALL, resp.chunk()).await.map_err(|_| stalled())?.map_err(reqwest::Error::without_url)? {
-        buf.extend_from_slice(&chunk);
+    let result = async {
+        let stalled = || anyhow::anyhow!("no data for {} s", STALL.as_secs());
+        let mut req = http.get(url).header("User-Agent", ua);
+        if let Range::Header(a, b) = range {
+            req = req.header("Range", format!("bytes={a}-{b}"));
+        }
+        // Errors leave the URL out: it carries the client's IP address and signatures (logs).
+        let mut resp = tokio::time::timeout(STALL, req.send())
+            .await
+            .map_err(|_| stalled())?
+            .and_then(reqwest::Response::error_for_status)
+            .map_err(reqwest::Error::without_url)?;
+        if matches!(range, Range::Header(..)) {
+            anyhow::ensure!(resp.status() == reqwest::StatusCode::PARTIAL_CONTENT, "the server sent the whole file, not a range");
+        }
+        if let Range::Param(a, b) | Range::Header(a, b) = range {
+            let header = resp.headers().get(reqwest::header::CONTENT_RANGE);
+            // googlevideo's query ranges also return 200 without Content-Range.
+            if header.is_some() || resp.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+                let bounds = header.and_then(|v| v.to_str().ok()).and_then(content_range);
+                anyhow::ensure!(bounds == Some((a, b, total)), "the server sent a different byte range");
+            }
+            if let Some(length) = resp.content_length() {
+                anyhow::ensure!(Some(length) == expect, "the server sent a different range length");
+            }
+        }
+        while let Some(chunk) = tokio::time::timeout(STALL, resp.chunk()).await.map_err(|_| stalled())?.map_err(reqwest::Error::without_url)? {
+            if expect.is_some_and(|n| chunk.len() as u64 > n - (buf.len() - base) as u64) {
+                buf.truncate(base);
+                anyhow::bail!("the server sent more bytes than requested");
+            }
+            buf.extend_from_slice(&chunk);
+        }
+        if let Some(expect) = expect {
+            anyhow::ensure!((buf.len() - base) as u64 == expect, "short read: {} of {expect} bytes", buf.len() - base);
+        }
+        Ok(())
+    }.await;
+    // A full-length response whose framing failed must be retried too, rather
+    // than constructing an empty/inverted suffix range on the next attempt.
+    if result.is_err() && expect.is_none_or(|n| (buf.len() - base) as u64 == n) {
+        buf.truncate(base);
     }
-    if let Some(expect) = expect {
-        anyhow::ensure!(buf.len() as u64 == expect, "short read: {} of {expect} bytes", buf.len());
-    }
-    Ok(buf.freeze())
+    result
 }
 
 /// Where a podcast feed's file ends up after its redirects (trackers, mostly), and its
@@ -531,8 +598,9 @@ pub async fn probe_feed(http: &reqwest::Client, url: &str, ua: &str) -> anyhow::
         .headers()
         .get(reqwest::header::CONTENT_RANGE)
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.rsplit_once('/'))
-        .and_then(|(_, t)| t.parse().ok())
+        .and_then(content_range)
+        .filter(|&(a, b, _)| a == 0 && b == 0)
+        .map(|(_, _, total)| total)
         .ok_or_else(|| anyhow::anyhow!("the podcast's server didn't give the file's size"))?;
     Ok((resp.url().to_string(), total))
 }
@@ -566,7 +634,7 @@ impl Drop for StreamReader {
         inner.readers -= 1;
         inner.wants.retain(|&(id, _)| id != self.id);
         if inner.readers == 0 {
-            // Stops the workers once their current request finishes.
+            // Stops the workers, including their current requests.
             inner.cancelled = true;
         }
         self.shared.changed.notify_waiters();
@@ -754,3 +822,6 @@ mod tests {
         assert!((left - (secs - half.as_secs_f64())).abs() < 5.0, "seek off");
     }
 }
+
+#[cfg(test)]
+mod http_tests;

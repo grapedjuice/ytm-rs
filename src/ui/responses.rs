@@ -12,7 +12,7 @@ use crate::ytm::HomePage;
 
 use crate::remote::{Cmd, RepeatMode};
 
-use super::{Action, App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, dev_var, shuffle};
+use super::{Action, App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, dev_var, shuffle_to_play};
 
 impl App {
     pub(super) fn pump(&mut self, ctx: &egui::Context, now: f64) {
@@ -380,7 +380,7 @@ impl App {
                     && *p == target
                 {
                     if *shuffled {
-                        shuffle(&mut tracks);
+                        shuffle_to_play(&mut tracks, &self.queue);
                     }
                     self.played_title = Some((target.clone(), title));
                     self.queue_source = Some(target);

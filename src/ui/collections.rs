@@ -9,7 +9,7 @@ use crate::model::{ShelfKind, Target, Track};
 use super::lists::{Arrival, Done, LIKED_MUSIC, Opened, Start};
 use super::pages::thousands;
 use super::queue::QueueFill;
-use super::{App, shuffle};
+use super::{App, shuffle_to_play};
 
 impl App {
     /// What the queue was started from, while the song playing is one of it: what kind
@@ -127,7 +127,7 @@ impl App {
         let Some(o) = self.opened(&id).filter(|o| !o.c.tracks.is_empty()) else { return };
         let mut tracks = o.c.tracks.clone();
         if shuffled {
-            shuffle(&mut tracks);
+            shuffle_to_play(&mut tracks, &self.queue);
         }
         let fill = self.receiving(&id).then(|| QueueFill { id: id.clone(), load: o.load, shuffled, ran_out: false });
         self.queue_source = Some(if o.c.is_album { Target::Album(id) } else { Target::Playlist(id) });

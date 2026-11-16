@@ -29,6 +29,7 @@ mod queue;
 mod responses;
 mod row_drag;
 mod shell;
+mod shuffle;
 mod titlebar;
 pub use titlebar::{custom as custom_titlebar, init as init_titlebar, set_hwnd as set_titlebar_hwnd};
 mod transfer;
@@ -55,6 +56,7 @@ use crate::theme;
 use crate::ytm::Scope;
 use lists::{LIKED_MUSIC, Lists};
 use queue::Queue;
+use shuffle::{shuffle, shuffle_to_play};
 use dev::{dev_screenshot, dev_var};
 use dialogs::text_field;
 pub use queue::Repeat;
@@ -2067,20 +2069,6 @@ fn fit_window_to_monitor(ctx: &egui::Context) {
 fn too_big(size: egui::Vec2, monitor: egui::Vec2) -> bool {
     // A little slack for the invisible resize borders Windows adds around the frame.
     size.x > monitor.x + 24.0 || size.y > monitor.y + 24.0
-}
-
-/// Fisher-Yates with a clock-seeded xorshift; shuffling doesn't need a real RNG crate.
-pub fn shuffle<T>(v: &mut [T]) {
-    let mut x = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0x9e37_79b9_7f4a_7c15, |d| d.as_nanos() as u64)
-        | 1;
-    for i in (1..v.len()).rev() {
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        v.swap(i, (x % (i as u64 + 1)) as usize);
-    }
 }
 
 /// Whether this is the installed or the portable app, or the .deb or the Arch package

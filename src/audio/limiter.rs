@@ -20,6 +20,9 @@ const RELEASE_MS: f32 = 100.0;
 pub struct Limiter {
     /// Off, it passes everything through, the same lookahead behind.
     on: Arc<AtomicBool>,
+    /// On as well before this frame: the stage before it turns peaks up (balance,
+    /// crossfeed), and what it turned up is still in the lookahead after it stops.
+    boost_until: u64,
     channels: usize,
     /// The last `lookahead` frames, interleaved; the oldest is the next out.
     delay: Vec<f32>,
@@ -45,6 +48,7 @@ impl Limiter {
         let release = 1.0 - (-1000.0 / (RELEASE_MS * sample_rate.max(1) as f32)).exp();
         Self {
             on,
+            boost_until: 0,
             channels,
             delay: vec![0.0; lookahead as usize * channels],
             at: 0,
@@ -56,6 +60,11 @@ impl Limiter {
             attack,
             release,
         }
+    }
+
+    /// On as well for the frame about to come in, and until it's out.
+    pub fn boost(&mut self) {
+        self.boost_until = self.frame + self.lookahead + 1;
     }
 
     /// One sample in (channel `channel` of the frame), the one from `LOOKAHEAD_MS`
@@ -81,7 +90,7 @@ impl Limiter {
         }
         self.frame += 1;
         let loudest = self.peaks.front().map_or(0.0, |&(_, p)| p);
-        let want = if self.on.load(Ordering::Relaxed) && loudest > CEILING { CEILING / loudest } else { 1.0 };
+        let want = if (self.frame < self.boost_until || self.on.load(Ordering::Relaxed)) && loudest > CEILING { CEILING / loudest } else { 1.0 };
         let k = if want < self.gain { self.attack } else { self.release };
         self.gain += (want - self.gain) * k;
     }
@@ -132,6 +141,23 @@ mod tests {
         // A second of quiet music after: back to as it was.
         let out = run(&mut l, 48_000, |i| sine(i, 0.5));
         assert!((out[47_000 * 2..].iter().fold(0.0f32, |m, s| m.max(s.abs())) - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_boost_covers_its_peaks_until_theyre_out() {
+        let mut l = limiter(false);
+        // Turned up until the click goes in (the balance back in the middle), then not.
+        let out: Vec<f32> = (0..4_800)
+            .flat_map(|i| {
+                if i <= 1_000 {
+                    l.boost();
+                }
+                let s = if i == 1_000 { 2.0 } else { 0.0 };
+                [l.process(s, 0), l.process(s, 1)]
+            })
+            .collect();
+        let max = out.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        assert!(max <= CEILING * 1.01, "peak {max}");
     }
 
     #[test]

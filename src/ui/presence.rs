@@ -272,10 +272,17 @@ fn preview(app: &App, ui: &mut Ui, prefs: &Prefs) {
                 ui.vertical(side);
             });
         } else {
-            caption(ui, "Profile card");
-            profile_card(ui, &card, card_w);
-            ui.add_space(14.0);
-            side(ui);
+            // Stacked, in a column down the middle.
+            ui.horizontal_top(|ui| {
+                ui.add_space(((w - card_w) / 2.0).max(0.0));
+                ui.vertical(|ui| {
+                    ui.set_width(card_w);
+                    caption(ui, "Profile card");
+                    profile_card(ui, &card, card_w);
+                    ui.add_space(14.0);
+                    side(ui);
+                });
+            });
         }
         ui.add_space(16.0);
     });

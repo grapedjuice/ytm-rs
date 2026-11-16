@@ -1561,9 +1561,10 @@ impl eframe::App for App {
         } else {
             shell::background(self, ui, screen, now, covered.then_some(bar_strip));
         }
-        if !self.fullscreen && np >= 0.5 {
+        if !self.fullscreen && (np >= 0.5 || (!light && np > 0.001)) {
             // What shows around and through the player bar carries on from now playing above it,
-            // from the moment the bar turns dark: a light bar keeps the page under it.
+            // from the moment the bar turns dark: a light bar keeps the page under it. On dark
+            // pages that's from the start, as it comes up from behind the bar.
             let pages = theme::set_mode(&ctx, false);
             nowplaying::backdrop(self, ui, screen, bar_strip, now, false);
             theme::set_mode(&ctx, pages);
@@ -1687,7 +1688,10 @@ impl eframe::App for App {
                     let page_rect = egui::Rect::from_min_max(egui::pos2(panel.left(), top), egui::pos2(panel.right(), bottom));
                     self.page_insets = [if under_top { panel.top() + row_h - screen.top() } else { 0.0 }, if under_bar { self.bar_height() } else { 0.0 }];
                     let mut page_ui = ui.new_child(egui::UiBuilder::new().scope_id(page_id).max_rect(page_rect));
-                    page_ui.set_clip_rect(page_rect);
+                    // Now playing comes up from behind the bar: the page stops above it meanwhile,
+                    // or it would show around the floating bar over what's coming up.
+                    let moving = np > 0.001 && (np >= 0.5 || !light);
+                    page_ui.set_clip_rect(if moving { page_rect.intersect(egui::Rect::everything_above(bar_strip.top())) } else { page_rect });
                     pages::page(self, &mut page_ui, now);
                     if under_top {
                         // Dragging the window still works over what's scrolled up there.

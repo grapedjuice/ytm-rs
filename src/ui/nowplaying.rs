@@ -44,8 +44,18 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
         // whatever slides past.
         .interactable(t >= 1.0)
         .show(ctx, |ui| {
+            // It comes up from behind the player bar, which stays over it: what of it is
+            // still below the bar's top isn't drawn.
+            let shown = rect.intersect(full);
+            ui.set_clip_rect(shown.intersect(ui.clip_rect()));
+            // A soft shadow over the page it's covering, so its top edge isn't a hard cut.
+            // Once it's all the way up that's above the window.
+            if !app.fullscreen && t < 1.0 {
+                let band = Rect::from_min_max(pos2(rect.left(), rect.top() - 28.0), pos2(rect.right(), rect.top()));
+                super::shell::vgradient(&ui.ctx().layer_painter(ui.layer_id()).with_clip_rect(full), band, Color32::TRANSPARENT, theme::shade(0.3));
+            }
             // Swallow input so the page underneath doesn't react.
-            ui.allocate_rect(rect, Sense::click_and_drag());
+            ui.allocate_rect(shown, Sense::click_and_drag());
             if let Some(video) = &video_only {
                 video_fullscreen(app, ui, rect, video, now);
                 return;
@@ -68,7 +78,7 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
             }
             // Laid out as if it ran under the player bar, which shows the rest of it.
             let under_bar = Rect::from_min_max(rect.min, rect.max + vec2(0.0, screen.bottom() - full.bottom()));
-            backdrop(app, ui, under_bar, rect, now, true);
+            backdrop(app, ui, under_bar, shown, now, true);
             let [pad_x, pad_y] = look.now_playing.fullscreen_padding.filter(|_| app.fullscreen).unwrap_or([32.0, 20.0]);
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(pad_x, pad_y))));
             body(app, &mut child, now);

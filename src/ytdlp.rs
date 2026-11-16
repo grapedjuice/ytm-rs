@@ -1,9 +1,10 @@
 //! Last-resort stream resolution through yt-dlp: age-restricted songs on accounts
 //! without Premium (whose signed-in web streams need a PO token), or when the native
-//! signed-in path in `webmusic` breaks. yt-dlp solves the URL challenges with Node.
+//! signed-in path in `webmusic` breaks. yt-dlp solves the URL challenges with Node or
+//! Deno; without either, with QuickJS, which it can't get the audio without.
 //!
 //! yt-dlp is downloaded into the app's data folder on first use and refreshed
-//! weekly. The signed-in session is passed as a Netscape cookies file that exists
+//! weekly; QuickJS likewise, only where there's no Node or Deno, and monthly. The signed-in session is passed as a Netscape cookies file that exists
 //! only for the duration of the call.
 
 use std::path::{Path, PathBuf};
@@ -27,6 +28,27 @@ const URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-
 
 const MAX_AGE: Duration = Duration::from_secs(7 * 24 * 3600);
 
+/// QuickJS-ng's interpreter, for yt-dlp to solve the challenges with when there's no Node
+/// or Deno. No build for Windows on Arm: the x64 one runs there.
+#[cfg(windows)]
+const QJS: &str = "qjs.exe";
+#[cfg(not(windows))]
+const QJS: &str = "qjs";
+#[cfg(all(windows, target_arch = "x86"))]
+const QJS_URL: &str = "https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-windows-x86.exe";
+#[cfg(all(windows, not(target_arch = "x86")))]
+const QJS_URL: &str = "https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-windows-x86_64.exe";
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const QJS_URL: &str = "https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-darwin-arm64";
+#[cfg(all(target_os = "macos", not(target_arch = "aarch64")))]
+const QJS_URL: &str = "https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-darwin-x86_64";
+#[cfg(all(unix, not(target_os = "macos"), target_arch = "aarch64"))]
+const QJS_URL: &str = "https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-linux-aarch64";
+#[cfg(all(unix, not(target_os = "macos"), not(target_arch = "aarch64")))]
+const QJS_URL: &str = "https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-linux-x86_64";
+
+const QJS_MAX_AGE: Duration = Duration::from_secs(30 * 24 * 3600);
+
 pub struct Stream {
     pub url: String,
     pub size: u64,
@@ -36,18 +58,19 @@ pub struct Stream {
     pub replaced: Vec<String>,
 }
 
-/// Path to an up-to-date yt-dlp, downloading it if missing or stale.
-async fn ensure(http: &reqwest::Client, data_dir: &Path) -> anyhow::Result<PathBuf> {
-    let bin = data_dir.join(BIN);
+/// Path to an up-to-date `name` in the data folder, downloading it from `url` if missing
+/// or older than `max_age`.
+async fn ensure(http: &reqwest::Client, data_dir: &Path, name: &str, url: &str, max_age: Duration) -> anyhow::Result<PathBuf> {
+    let bin = data_dir.join(name);
     let fresh = std::fs::metadata(&bin)
         .and_then(|m| m.modified())
-        .is_ok_and(|t| SystemTime::now().duration_since(t).unwrap_or_default() < MAX_AGE);
+        .is_ok_and(|t| SystemTime::now().duration_since(t).unwrap_or_default() < max_age);
     if fresh {
         return Ok(bin);
     }
-    log::info!("downloading yt-dlp");
-    let bytes = http.get(URL).timeout(Duration::from_secs(120)).send().await?.error_for_status()?.bytes().await?;
-    anyhow::ensure!(bytes.len() > 1_000_000, "yt-dlp download looks truncated ({} bytes)", bytes.len());
+    log::info!("downloading {name}");
+    let bytes = http.get(url).timeout(Duration::from_secs(120)).send().await?.error_for_status()?.bytes().await?;
+    anyhow::ensure!(bytes.len() > 1_000_000, "{name} download looks truncated ({} bytes)", bytes.len());
     let tmp = bin.with_extension("part");
     std::fs::write(&tmp, &bytes)?;
     #[cfg(unix)]
@@ -71,11 +94,30 @@ pub fn remove_leftover_cookies(data_dir: &Path) {
     }
 }
 
+/// Whether yt-dlp will find a JavaScript runtime of its own: Node or Deno on the `PATH`.
+fn has_runtime() -> bool {
+    let exe = |name: &str| if cfg!(windows) { format!("{name}.exe") } else { name.to_owned() };
+    let Some(path) = std::env::var_os("PATH") else { return false };
+    std::env::split_paths(&path).any(|dir| ["node", "deno"].iter().any(|n| dir.join(exe(n)).is_file()))
+}
+
 pub async fn resolve(http: &reqwest::Client, data_dir: &Path, cookie: &str, video_id: &str) -> anyhow::Result<Stream> {
-    let bin = ensure(http, data_dir).await?;
+    let bin = ensure(http, data_dir, BIN, URL, MAX_AGE).await?;
+    // Signed in, yt-dlp can't get at the audio without solving YouTube's challenges.
+    let qjs = if has_runtime() {
+        None
+    } else {
+        match ensure(http, data_dir, QJS, QJS_URL, QJS_MAX_AGE).await {
+            Ok(p) => Some(p),
+            Err(e) => {
+                log::warn!("no Node or Deno, and QuickJS couldn't be fetched: {e:#}");
+                None
+            }
+        }
+    };
     let data_dir = data_dir.to_owned();
     let (cookie, video_id) = (cookie.to_owned(), video_id.to_owned());
-    let mut s = tokio::task::spawn_blocking(move || run(&bin, &data_dir, &video_id, &cookie)).await??;
+    let mut s = tokio::task::spawn_blocking(move || run(&bin, qjs.as_deref(), &data_dir, &video_id, &cookie)).await??;
     // The range downloader needs the exact size; yt-dlp sometimes only estimates it.
     if s.size == 0 {
         // Errors leave the URL out: it carries the client's IP address and signatures (logs).
@@ -87,7 +129,7 @@ pub async fn resolve(http: &reqwest::Client, data_dir: &Path, cookie: &str, vide
     Ok(s)
 }
 
-fn run(bin: &Path, data_dir: &Path, video_id: &str, cookie: &str) -> anyhow::Result<Stream> {
+fn run(bin: &Path, qjs: Option<&Path>, data_dir: &Path, video_id: &str, cookie: &str) -> anyhow::Result<Stream> {
     // Unique name per call; removed on every exit path by the guard below.
     let nonce = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let jar = data_dir.join(format!("cookies-{nonce}.txt"));
@@ -109,6 +151,7 @@ fn run(bin: &Path, data_dir: &Path, video_id: &str, cookie: &str) -> anyhow::Res
     let mut cmd = Command::new(bin);
     cmd.args(["--js-runtimes", "node", "--no-warnings", "--no-playlist", "--no-cache-dir", "-f", "140/bestaudio[ext=m4a]", "-j", "--cookies"])
         .arg(&jar)
+        .args(qjs.map(|p| format!("quickjs:{}", p.display())).into_iter().flat_map(|q| ["--js-runtimes".to_owned(), q]))
         .args(crate::proxy::ytdlp_args())
         .arg(format!("https://music.youtube.com/watch?v={video_id}"));
     crate::proxy::ytdlp_env(&mut cmd);
@@ -158,6 +201,10 @@ fn run(bin: &Path, data_dir: &Path, video_id: &str, cookie: &str) -> anyhow::Res
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         let line = err.lines().rfind(|l| l.contains("ERROR")).unwrap_or("yt-dlp failed");
+        // No runtime to solve the challenges with: only the video's preview images were left.
+        if line.contains("Requested format is not available") && qjs.is_none() && !has_runtime() {
+            anyhow::bail!("this song needs Node.js (nodejs.org) installed to play");
+        }
         anyhow::bail!("{}", line.trim_start_matches("ERROR: ").trim());
     }
     let v: Value = serde_json::from_slice(&out.stdout)?;

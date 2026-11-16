@@ -1771,6 +1771,7 @@ fn settings_account(app: &mut App, ui: &mut Ui) {
         app.start_sign_in(ui.ctx());
     }
     if sign_out {
+        app.settle_now();
         app.backend.request(crate::backend::Req::Logout);
     }
 }
@@ -1810,7 +1811,9 @@ fn channel_picker(app: &mut App, ui: &mut Ui) {
     });
     if let Some(c) = pick.filter(|c| c.page_id != *current && !switching) {
         app.switching_to = Some(label(&c));
-        app.backend.request(crate::backend::Req::SwitchChannel { page_id: c.page_id, epoch: *epoch });
+        let epoch = *epoch;
+        app.settle_now();
+        app.backend.request(crate::backend::Req::SwitchChannel { page_id: c.page_id, epoch });
     }
 }
 
@@ -1828,7 +1831,7 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
         });
         if app.crossfade {
             divider(ui);
-            setting_row(ui, "Crossfade length", None, |ui| {
+            setting_row_wide(ui, "Crossfade length", None, SLIDER_W, |ui| {
                 if seconds_slider(ui, &mut app.crossfade_secs, 1..=super::CROSSFADE_MAX, "Crossfade length").changed() {
                     app.set_crossfade();
                 }
@@ -1896,6 +1899,8 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
                 app.backend.set_high_quality(app.high_quality);
             }
         });
+        divider(ui);
+        stereo_settings(app, ui);
         divider(ui);
         setting_row(ui, "Output device", Some("Where the music plays. A picked device that isn't connected leaves it to Windows' default until it's back."), |ui| {
             output_device_picker(app, ui);
@@ -3085,7 +3090,7 @@ fn settings_tempo(app: &mut App, ui: &mut Ui) {
         ui.add_enabled_ui(app.tempo_on && !jam, |ui| {
             use crate::audio::tempo::{MAX_SPEED, MIN_SPEED};
             divider(ui);
-            setting_row(ui, "Speed", None, |ui| {
+            setting_row_wide(ui, "Speed", None, SLIDER_W, |ui| {
                 step_slider(ui, &mut app.speed, (MIN_SPEED, MAX_SPEED, 0.05), Some(1.0), times, "Speed");
             });
         });
@@ -3187,6 +3192,47 @@ fn normalization_desc(app: &App) -> String {
     match (app.current().is_some(), super::shell::normalization_note(app)) {
         (true, Some(note)) => format!("{what} This song: {note}."),
         _ => what.to_owned(),
+    }
+}
+
+/// Settings › Sound: crossfeed, mono and balance.
+fn stereo_settings(app: &mut App, ui: &mut Ui) {
+    use crate::audio::stereo::Crossfeed;
+    let before = app.stereo;
+    // Nothing for it to do on mono: it's off (and shown off) until then.
+    ui.add_enabled_ui(!app.stereo.mono, |ui| {
+        setting_row(ui, "Headphone crossfeed", Some("Let each ear hear a little of the other side's bass, as from speakers in front of you, so songs panned hard to one side are easier on the ears over headphones."), |ui| {
+            let shown = if app.stereo.mono { Crossfeed::Off } else { app.stereo.crossfeed };
+            let btn = dropdown_button(ui, shown.label(), 120.0, "Headphone crossfeed");
+            widgets::menu_popup(&btn).show(|ui| {
+                widgets::menu_body(ui, 120.0);
+                for c in Crossfeed::ALL {
+                    if option_row(ui, c.label(), c == app.stereo.crossfeed).clicked() {
+                        app.stereo.crossfeed = c;
+                        ui.close();
+                    }
+                }
+            });
+        });
+    });
+    divider(ui);
+    setting_row(ui, "Mono audio", Some("Play both channels in each ear: for one earbud, or hearing in one ear."), |ui| {
+        toggle(ui, &mut app.stereo.mono, "Mono audio");
+    });
+    divider(ui);
+    setting_row_wide(ui, "Balance", Some("Move the sound towards the left or right ear. It stays as loud overall: the side it moves towards gets louder as the other gets quieter."), SLIDER_W, |ui| {
+        let mut b = app.stereo.balance as f32;
+        let side = |v: f32| match v {
+            0.0 => "Centre".to_owned(),
+            v if v < 0.0 => format!("L {}", -v),
+            v => format!("R {v}"),
+        };
+        if step_slider(ui, &mut b, (-100.0, 100.0, 5.0), Some(0.0), side, "Balance").changed() {
+            app.stereo.balance = b as i8;
+        }
+    });
+    if app.stereo != before {
+        app.audio.set_stereo(app.stereo);
     }
 }
 
@@ -3411,25 +3457,34 @@ fn seconds_slider(ui: &mut Ui, v: &mut u32, range: std::ops::RangeInclusive<u32>
 /// A slider over `lo..=hi` in steps of `step`, for a settings row: the value, then the
 /// track between its ends. It fills from `from` (`lo` when none) to the knob.
 fn step_slider(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), from: Option<f32>, text: impl Fn(f32) -> String, name: &str) -> egui::Response {
-    let label = |ui: &mut Ui, text: String, w: Option<f32>, font: egui::FontId, color: Color32| {
-        let g = widgets::galley(ui, &text, font, color, 60.0);
+    let label = |ui: &mut Ui, g: std::sync::Arc<egui::Galley>, w: Option<f32>, color: Color32| {
         let (rect, _) = ui.allocate_exact_size(vec2(w.unwrap_or(g.size().x), 26.0), Sense::hover());
         ui.painter().galley(pos2(rect.right() - g.size().x, rect.center().y - g.size().y / 2.0), g, color);
     };
-    label(ui, text(*v), Some(40.0), theme::semibold(13.0), theme::text());
+    let end = |ui: &Ui, v: f32| widgets::galley(ui, &text(v), theme::regular(12.0), theme::text_dim(), 60.0);
+    let (hi_g, lo_g) = (end(ui, hi), end(ui, lo));
+    label(ui, widgets::galley(ui, &text(*v), theme::semibold(13.0), theme::text(), 60.0), Some(40.0), theme::text());
     ui.add_space(6.0);
-    label(ui, text(hi), None, theme::regular(12.0), theme::text_dim());
-    let resp = slider_track(ui, v, (lo, hi, step), from, 170.0, name);
-    label(ui, text(lo), None, theme::regular(12.0), theme::text_dim());
+    label(ui, hi_g, None, theme::text_dim());
+    // Shorter where the row hasn't the room (a narrow window), not over its description.
+    let width = (ui.available_width() - lo_g.size().x - 2.0 * ui.spacing().item_spacing.x).clamp(60.0, 170.0);
+    let resp = slider_track(ui, v, (lo, hi, step), from, width, name);
+    label(ui, lo_g, None, theme::text_dim());
     resp
 }
+
+/// Room for a step slider in a settings row: its value, its ends and the track.
+const SLIDER_W: f32 = 310.0;
 
 /// Just the track and knob of a step slider, `width` wide.
 pub(super) fn slider_track(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), from: Option<f32>, width: f32, name: &str) -> egui::Response {
     let (rect, mut resp) = ui.allocate_exact_size(vec2(width, 26.0), Sense::click_and_drag());
     let track = Rect::from_center_size(rect.center(), vec2(rect.width() - 16.0, 4.0));
     let old = *v;
-    if let Some(p) = resp.interact_pointer_pos()
+    // Back home on a double-click, as the equalizer's bands go back to 0.
+    if let Some(home) = from.filter(|_| resp.double_clicked()) {
+        *v = home;
+    } else if let Some(p) = resp.interact_pointer_pos()
         && (resp.dragged() || resp.clicked())
     {
         let t = ((p.x - track.left()) / track.width()).clamp(0.0, 1.0);

@@ -33,6 +33,7 @@ mod shuffle;
 mod titlebar;
 pub use titlebar::{custom as custom_titlebar, init as init_titlebar, set_hwnd as set_titlebar_hwnd};
 mod transfer;
+mod undo;
 mod vector;
 mod wheel;
 mod widgets;
@@ -195,6 +196,10 @@ pub enum Action {
     Go(Page),
     QueueJump(usize),
     QueueRemove(usize),
+    /// Everything in the queue but the song playing goes.
+    QueueClear,
+    /// Take back what the toast up now says was done.
+    Undo,
     /// A song to come dragged to the gap between songs (see `Queue::move_track`), if the
     /// song `id` is still at `from`.
     QueueMove { from: usize, gap: usize, id: String },
@@ -548,6 +553,8 @@ pub struct App {
     eq_on: bool,
     eq_gains: crate::audio::eq::Gains,
     eq_no_clip: bool,
+    /// Crossfeed, mono and balance.
+    stereo: crate::audio::stereo::Settings,
     /// Playback speed: whether it's on (saved, and it puts a button in the player bar),
     /// and the speed (not saved: 1× each launch).
     tempo_on: bool,
@@ -619,6 +626,8 @@ pub struct App {
     jam: jam::Session,
     signing_in: Arc<AtomicBool>,
     toast: Option<(String, f64)>,
+    /// What the toast up now can undo.
+    undo: Option<undo::Undo>,
 
     // updates
     updater: Option<crate::update::Updater>,
@@ -938,6 +947,11 @@ impl App {
             eq_on: get("eq").is_some_and(|v| v == "1"),
             eq_gains: get("eq_gains").and_then(|v| parse_gains(&v)).unwrap_or_default(),
             eq_no_clip: get("eq_no_clip").is_none_or(|v| v == "1"),
+            stereo: crate::audio::stereo::Settings {
+                crossfeed: get("crossfeed").map(|v| crate::audio::stereo::Crossfeed::from_key(&v)).unwrap_or_default(),
+                mono: get("mono").is_some_and(|v| v == "1"),
+                balance: get("balance").and_then(|v| v.parse::<i8>().ok()).unwrap_or(0).clamp(-100, 100),
+            },
             tempo_on: get("tempo").is_some_and(|v| v == "1"),
             speed: 1.0,
             segments: None,
@@ -980,6 +994,7 @@ impl App {
             xfer: Default::default(),
             jam: Default::default(),
             toast: None,
+            undo: None,
             actions: Vec::new(),
             dialog: None,
             share_pending: None,
@@ -1080,6 +1095,7 @@ impl App {
         app.audio.set_normalize(app.normalize);
         app.set_crossfade();
         app.set_eq();
+        app.audio.set_stereo(app.stereo);
         app
     }
 
@@ -1313,7 +1329,14 @@ impl App {
     }
 
     fn toast(&mut self, msg: impl Into<String>) {
+        self.settle();
         self.toast = Some((msg.into(), -1.0));
+    }
+
+    /// How long the toast stays before it fades: long enough to reach its Undo, if it has one.
+    fn toast_hold(&self) -> f32 {
+        let secs = self.look().app.toast_look.secs.max(1.5);
+        if self.undo.is_some() { secs.max(7.0) } else { secs }
     }
 
     /// Settings › Storage's Clear cache, once asked. An update that's downloading or
@@ -1463,12 +1486,19 @@ impl eframe::App for App {
             playing: self.playing() || self.buffering,
         };
         ctx.data_mut(|d| d.insert_temp(widgets::NowPlaying::id(), np));
+        let hold = f64::from(self.toast_hold()) + 0.4;
         if let Some((_, t)) = &mut self.toast {
             if *t < 0.0 {
                 *t = now;
-            } else if now - *t > 4.5 {
+            } else if now - *t > hold {
                 self.toast = None;
             }
+        }
+        if self.toast.is_none() {
+            self.settle();
+        } else if self.undo.is_some() {
+            // Its time runs out even with the window hidden, when nothing else draws.
+            ctx.request_repaint_after(Duration::from_secs(1));
         }
         // Frame pacing: idle costs nothing. The background drifts slowly, so ~15 fps
         // reads as smooth on pages; the now-playing view and a page showing the playing
@@ -1908,6 +1938,9 @@ impl eframe::App for App {
         storage.set_string("eq", b(self.eq_on));
         storage.set_string("eq_gains", self.eq_gains.map(|g| g.to_string()).join(","));
         storage.set_string("eq_no_clip", b(self.eq_no_clip));
+        storage.set_string("crossfeed", self.stereo.crossfeed.key().to_owned());
+        storage.set_string("mono", b(self.stereo.mono));
+        storage.set_string("balance", self.stereo.balance.to_string());
         storage.set_string("tempo", b(self.tempo_on));
         storage.set_string("show_roman", b(self.show_roman));
         storage.set_string("show_trans", b(self.show_trans));
@@ -1926,6 +1959,7 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, gl: Option<&eframe::glow::Context>) {
+        self.settle_now();
         if let (Some(bg), Some(gl)) = (&self.bg, gl) {
             bg.destroy(gl);
             crate::shader::destroy_glass(gl);

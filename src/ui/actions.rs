@@ -6,8 +6,9 @@ use std::time::{Duration, Instant};
 use crate::backend::Req;
 use crate::model::{Target, Track};
 
-use super::lists::LIKED_MUSIC;
+use super::lists::{self, LIKED_MUSIC};
 use super::queue::QueueFill;
+use super::undo::Undo;
 use super::{Action, App, Dialog, LibTab, NpTab, Page, jam, palette, transfer};
 
 impl App {
@@ -92,7 +93,18 @@ impl App {
                 self.queue.drop_explicit();
                 self.play_current();
             }
-            Action::QueueRemove(i) => self.queue.remove(i),
+            Action::QueueRemove(i) => {
+                if let Some(saved) = self.queue.remove(i) {
+                    self.toast_undo("Removed from queue", Undo::Queue(saved));
+                    self.prefetch_next();
+                }
+            }
+            Action::QueueClear => {
+                if let Some(saved) = self.queue.clear() {
+                    self.toast_undo("Queue cleared", Undo::Queue(saved));
+                }
+            }
+            Action::Undo => self.undo(),
             Action::QueueMove { from, gap, id } => {
                 if self.queue.tracks.get(from).is_some_and(|t| t.id == id) && self.queue.move_track(from, gap) {
                     self.prefetch_next();
@@ -127,6 +139,14 @@ impl App {
                     self.toast("Sign in to like songs");
                     return;
                 }
+                // Liked again while its unlike waits: that unlike just doesn't go.
+                if like && self.unliking_soon(&t.id) {
+                    return self.undo();
+                }
+                self.rating(|id| id == t.id);
+                if !like && self.liked.contains(&t.id) {
+                    return self.unlike_soon(vec![t.clone()], Req::Like { video_id: t.id, like });
+                }
                 // Optimistic: update the like state and the cached Liked songs list now.
                 self.set_liked(std::slice::from_ref(&t), like);
                 self.backend.request(Req::Like { video_id: t.id, like });
@@ -135,10 +155,21 @@ impl App {
             // standing in for it: taking it away takes both likes, whichever are there.
             Action::LikeHeard(like) => {
                 let Some(heard) = self.playing_track().cloned() else { return };
-                match self.playing_as().and(self.current()).cloned().filter(|_| !like) {
+                let video = self.playing_as().and(self.current()).cloned();
+                // Liked again while its unlike waits: both come back as they were.
+                if like && [Some(&heard), video.as_ref()].into_iter().flatten().any(|t| self.unliking_soon(&t.id)) {
+                    return self.undo();
+                }
+                match video.filter(|_| !like) {
                     Some(video) if self.logged_in => {
-                        self.set_liked(&[heard.clone(), video.clone()], false);
-                        self.backend.request(Req::UnlikeBoth { song: heard.id, video: video.id });
+                        let send = Req::UnlikeBoth { song: heard.id.clone(), video: video.id.clone() };
+                        if self.liked.contains(&heard.id) || self.liked.contains(&video.id) {
+                            self.unlike_soon(vec![heard, video], send);
+                        } else {
+                            // Neither shows as liked here, so there's nothing to take back.
+                            self.set_liked(&[heard, video], false);
+                            self.backend.request(send);
+                        }
                     }
                     _ => self.apply(Action::Like(heard, like)),
                 }
@@ -147,6 +178,12 @@ impl App {
                 if !self.logged_in {
                     self.toast("Sign in to like songs");
                     return;
+                }
+                // Liking songs whose unlike waits: those stay liked, so it doesn't go.
+                if like && tracks.iter().any(|t| self.unliking_soon(&t.id)) {
+                    self.undo();
+                } else if like {
+                    self.rating(|id| tracks.iter().any(|t| t.id == id));
                 }
                 let tracks: Vec<Track> = tracks.into_iter().filter(|t| self.liked.contains(&t.id) != like).collect();
                 if tracks.is_empty() { return; }
@@ -165,6 +202,7 @@ impl App {
             }
             Action::Dislike(t) => {
                 if !self.logged_in { self.toast("Sign in to rate songs"); return; }
+                self.rating(|id| id == t.id);
                 self.set_liked(std::slice::from_ref(&t), false);
                 self.backend.request(Req::Dislike(t.id));
             }
@@ -197,18 +235,23 @@ impl App {
                 }
                 let items: Vec<(String, String)> = rows.iter().map(|&i| (c.tracks[i].id.clone(), c.set_ids[i].clone().unwrap_or_default())).collect();
                 let playlist = c.id.clone();
-                // Optimistic: drop the rows now; the playlist reloads once YouTube confirms.
+                let taken = lists::taken(c, &rows);
+                // Optimistic: drop the rows now. YouTube Music is told once the Undo is gone,
+                // and the playlist reloads when it confirms.
                 c.remove_rows(&rows);
                 log::debug!("list {playlist}: removing {} entries", items.len());
                 self.lists.edits.remove(&playlist, &items);
                 self.sync_card_count(&playlist);
                 self.selection.clear();
-                self.backend.request(Req::RemoveFromPlaylist { playlist_id: playlist, items });
+                self.toast_undo("Removed from playlist", Undo::Removal { id: playlist, rows: taken });
             }
             Action::PlaylistMove { from, gap, id } => {
                 // A load that started during the drag would answer with the old order.
                 if self.page_list().is_some_and(|p| self.lists.loading(p)) {
                     return self.toast("This playlist is still loading. Try again in a moment.");
+                }
+                if let Some(list) = self.page_list().map(str::to_owned) {
+                    self.settle_removal(&list);
                 }
                 let Some(c) = self.current_collection().filter(|c| c.owned && !c.is_album && c.tracks.get(from).is_some_and(|t| t.id == id)) else { return };
                 let playlist_id = c.id.clone();
@@ -342,9 +385,14 @@ impl App {
                 }),
                 // Quits for real, with Close to tray on too: GNOME has no tray to quit from (#143).
                 i.modifiers.command && i.key_pressed(egui::Key::Q),
+                // The toast's Undo. With Shift it would be redo, which there isn't.
+                !editing && i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::Z),
             )
         });
-        let (space, back, fwd, next, prev, lyr, full, esc, vol_up, vol_down, mini, refresh, quit) = i;
+        let (space, back, fwd, next, prev, lyr, full, esc, vol_up, vol_down, mini, refresh, quit, undo) = i;
+        if undo && self.undo.is_some() {
+            self.actions.push(Action::Undo);
+        }
         if quit {
             self.quit(ctx);
         }

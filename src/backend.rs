@@ -1149,6 +1149,13 @@ impl Backend {
                     let mut tracks = ytm::radio(api, from, false, 50).await?;
                     // The radio starts with its seed, which is playing already.
                     tracks.retain(|t| t.id != *from);
+                    // Some places get an empty radio signed out; the account's own may not be.
+                    if tracks.is_empty() && me {
+                        log::info!("radio for {from}: none signed out; asking signed in");
+                        tracks = ytm::radio(api, from, true, 50).await?;
+                        tracks.retain(|t| t.id != *from);
+                    }
+                    log::info!("radio for {from}: {} songs", tracks.len());
                     Resp::Radio { seed, tracks }
                 }
                 Req::PlayCollection { target } => {

@@ -39,6 +39,7 @@ impl App {
             album: t.album.as_ref().map(|a| a.name.clone()),
             album_id: t.album.as_ref().and_then(|a| a.id.clone()),
             art: backend::art_url(t),
+            artist_pic: t.first_artist_id().and_then(|id| self.artist_pics.get(id).cloned().flatten()),
             start_ms,
             end_ms: (dur > 0).then_some(start_ms + dur),
             paused: !self.playing() || self.buffering,
@@ -49,6 +50,10 @@ impl App {
     /// Mirror playback into Discord. Cheap enough to run every frame: it only sends when
     /// the card would look different, as on a new song, play/pause, a seek or new settings.
     pub(super) fn sync_discord(&mut self, ctx: &egui::Context) {
+        if self.discord.is_none() {
+            return;
+        }
+        self.want_artist_pic();
         let Some(d) = &self.discord else { return };
         // A name is sent once it's typed, not a letter at a time: Discord limits how often
         // the card may change.
@@ -70,6 +75,21 @@ impl App {
         if !same {
             d.set(want.clone());
             self.discord_sent = want;
+        }
+    }
+
+    /// Look up the playing artist's picture once, when the card's badge shows it.
+    fn want_artist_pic(&mut self) {
+        let p = &self.discord_prefs;
+        if !p.badge || !p.art || p.hide_details {
+            return;
+        }
+        let Some(a) = self.playing_track().and_then(|t| t.artists.iter().find(|a| a.id.is_some())) else { return };
+        let id = a.id.clone().unwrap_or_default();
+        if !self.artist_pics.contains_key(&id) {
+            let name = a.name.clone();
+            self.artist_pics.insert(id.clone(), None);
+            self.backend.request(backend::Req::ArtistPicture { id, name });
         }
     }
 

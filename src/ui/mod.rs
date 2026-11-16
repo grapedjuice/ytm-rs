@@ -327,6 +327,9 @@ pub struct App {
     discord_sent: Option<crate::discord::Card>,
     /// How the card looks: Settings › Connections › Discord.
     discord_prefs: crate::discord::Prefs,
+    /// Artists' pictures for the card's badge, by artist id; `None` while asked or when
+    /// there's none.
+    artist_pics: HashMap<String, Option<crate::discord::ArtistPic>>,
     /// Local WebSocket for a Stream Deck plugin. Off until Connections enables it.
     remote: crate::remote::Remote,
     remote_enabled: bool,
@@ -753,6 +756,7 @@ impl App {
             discord_enabled,
             discord_sent: None,
             discord_prefs: get("discord").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
+            artist_pics: HashMap::new(),
             remote: crate::remote::Remote::new(),
             remote_enabled,
             lastfm_user: crate::lastfm::user(),

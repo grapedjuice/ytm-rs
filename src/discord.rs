@@ -20,8 +20,8 @@ const CLIENT_ID: &str = "1521756469433991299";
 /// That application's name, unless the listener gives another.
 pub const APP_NAME: &str = "Youtube Music";
 
-/// The small badge on the artwork: ytm-rs's icon, from its website.
-pub const BADGE: &str = "https://grapedjuice.github.io/ytm-rs/icon-192.png";
+/// ytm-rs's icon, from its website: the example song's artwork in Settings' preview.
+pub const ICON: &str = "https://grapedjuice.github.io/ytm-rs/icon-192.png";
 
 const RETRY: Duration = Duration::from_secs(15);
 
@@ -114,6 +114,8 @@ pub struct Prefs {
     /// Lines 1 and 2 open what they show.
     pub links: [bool; 2],
     pub art_link: bool,
+    /// The buttons below the card, which only others see.
+    pub show_buttons: bool,
     pub buttons: [Page; 2],
 }
 
@@ -130,6 +132,7 @@ impl Default for Prefs {
             progress: true,
             links: [true, false],
             art_link: false,
+            show_buttons: true,
             buttons: [Page::Song, Page::None],
         }
     }
@@ -145,6 +148,8 @@ pub struct Presence {
     pub album: Option<String>,
     pub album_id: Option<String>,
     pub art: Option<String>,
+    /// The artist's picture, for the badge on the artwork.
+    pub artist_pic: Option<ArtistPic>,
     /// Unix ms when the song (virtually) started, so Discord draws elapsed time.
     pub start_ms: i64,
     pub end_ms: Option<i64>,
@@ -177,6 +182,13 @@ impl Presence {
     }
 }
 
+/// An artist's name and picture.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArtistPic {
+    pub name: String,
+    pub url: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Line {
     pub text: String,
@@ -193,7 +205,8 @@ pub struct Card {
     pub lines: [Option<Line>; 3],
     pub art: Option<String>,
     pub art_url: Option<String>,
-    pub badge: bool,
+    /// The artist's picture in the artwork's corner.
+    pub badge: Option<ArtistPic>,
     /// Start and end, Unix ms.
     pub times: Option<(i64, Option<i64>)>,
     pub buttons: Vec<(&'static str, String)>,
@@ -220,7 +233,7 @@ impl Card {
         };
         let art_url = art.as_ref().filter(|_| prefs.art_link).and_then(|_| p.url(Page::Album).or_else(|| p.url(Page::Song)));
         let mut buttons: Vec<(&'static str, String)> = Vec::new();
-        for page in prefs.buttons {
+        for page in prefs.buttons.into_iter().filter(|_| prefs.show_buttons) {
             if let Some(url) = p.url(page).filter(|u| buttons.iter().all(|(_, b)| b != u)) {
                 buttons.push((page.button(), url));
             }
@@ -229,7 +242,7 @@ impl Card {
             name,
             status,
             lines,
-            badge: prefs.badge && art.is_some(),
+            badge: p.artist_pic.clone().filter(|b| prefs.badge && art.is_some() && b.url.len() <= 256),
             art,
             art_url,
             times: (prefs.progress && !p.paused).then_some((p.start_ms, p.end_ms)),
@@ -273,6 +286,20 @@ impl Card {
             Status::Line2 => line(1),
         }
         .unwrap_or(self.name())
+    }
+
+    /// What the member list shows beside its music note: the status line, then " - " and
+    /// the other of lines 1 and 2, as in "Believer - Imagine Dragons".
+    pub fn member_text(&self) -> String {
+        let other = match self.status {
+            Status::Name => None,
+            Status::Line1 => self.lines[1].as_ref(),
+            Status::Line2 => self.lines[0].as_ref(),
+        };
+        match other {
+            Some(l) => format!("{} - {}", self.status_text(), l.text),
+            None => self.status_text().to_owned(),
+        }
     }
 }
 
@@ -342,7 +369,7 @@ fn run(id: &str, rx: Receiver<Option<Card>>) {
                 if reply["evt"] == "ERROR" {
                     log::warn!("discord rejected activity: {}", reply["data"]);
                 } else {
-                    log::debug!("discord: activity set");
+                    log::debug!("discord: activity set: {}", reply["data"]);
                 }
                 dirty = false;
             }
@@ -388,8 +415,8 @@ fn activity(c: &Card) -> Activity<'_> {
         if let Some(u) = &c.art_url {
             assets = assets.large_url(u.as_str());
         }
-        if c.badge {
-            assets = assets.small_image(BADGE).small_text(field(c.name()));
+        if let Some(b) = &c.badge {
+            assets = assets.small_image(b.url.as_str()).small_text(field(&b.name));
         }
         a = a.assets(assets);
     }
@@ -425,6 +452,7 @@ mod tests {
             album: Some("Evolve".into()),
             album_id: None,
             art: Some("https://img/1".into()),
+            artist_pic: Some(ArtistPic { name: "Imagine Dragons".into(), url: "https://img/a".into() }),
             start_ms: 1000,
             end_ms: Some(200_000),
             paused: false,
@@ -444,6 +472,7 @@ mod tests {
         assert_eq!(c.times, Some((1000, Some(200_000))));
         assert_eq!(c.buttons, vec![("Listen on YouTube Music", SONG_URL.to_owned())]);
         assert_eq!(c.status_text(), "Believer");
+        assert_eq!(c.member_text(), "Believer - Imagine Dragons");
         assert_eq!(c.name(), APP_NAME);
     }
 
@@ -459,7 +488,33 @@ mod tests {
     fn line_three_and_badge_need_the_art() {
         let prefs = Prefs { art: false, badge: true, ..Prefs::default() };
         let c = Card::new(&song(), &prefs);
-        assert!(c.lines[2].is_none() && !c.badge && c.art.is_none());
+        assert!(c.lines[2].is_none() && c.badge.is_none() && c.art.is_none());
+    }
+
+    #[test]
+    fn badge_is_the_artists_picture() {
+        let prefs = Prefs { badge: true, ..Prefs::default() };
+        let c = Card::new(&song(), &prefs);
+        let a = serde_json::to_value(activity(&c)).unwrap();
+        assert_eq!(a["assets"]["small_image"], "https://img/a");
+        assert_eq!(a["assets"]["small_text"], "Imagine Dragons");
+        // No picture found: no badge, rather than an empty one.
+        let c = Card::new(&Presence { artist_pic: None, ..song() }, &prefs);
+        let a = serde_json::to_value(activity(&c)).unwrap();
+        assert!(a["assets"]["small_image"].is_null() && a["assets"]["large_image"] == "https://img/1");
+    }
+
+    #[test]
+    fn button_goes_out_within_discords_limits() {
+        let a = serde_json::to_value(activity(&Card::new(&song(), &Prefs::default()))).unwrap();
+        assert_eq!(a["buttons"], serde_json::json!([{ "label": "Listen on YouTube Music", "url": SONG_URL }]));
+        for page in Page::ALL {
+            assert!(page.button().chars().count() <= 32, "{page:?}");
+        }
+        // Switched off, none are sent: Discord turns down an empty list.
+        let c = Card::new(&song(), &Prefs { show_buttons: false, ..Prefs::default() });
+        assert!(c.buttons.is_empty());
+        assert!(serde_json::to_value(activity(&c)).unwrap()["buttons"].is_null());
     }
 
     #[test]

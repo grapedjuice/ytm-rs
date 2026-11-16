@@ -330,6 +330,9 @@ impl App {
                 }
             }
             Resp::CommentsPage { token, page } => super::comments::on_page(&token, page),
+            Resp::ArtistPicture { id, pic } => {
+                self.artist_pics.insert(id, pic);
+            }
             Resp::Segments { video_id, segments } => {
                 if self.playing_id() == Some(video_id.as_str()) {
                     log::info!("sponsorblock: {} segment(s) for {video_id}", segments.len());

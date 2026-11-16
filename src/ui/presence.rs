@@ -1,6 +1,6 @@
 //! Settings › Connections › Discord: what the Rich Presence card shows, and a preview of it.
 
-use egui::{Align2, Color32, Id, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
+use egui::{Align2, Color32, Id, Layout, Rect, RichText, Sense, Ui, UiBuilder, Vec2, pos2, vec2};
 
 use super::pages::{divider, dropdown_button, filtering, option_row, section_label, setting_row, setting_row_wide, settings_card, settings_section, toggle};
 use super::{App, widgets};
@@ -17,33 +17,50 @@ const CARD_W: f32 = 340.0;
 pub(super) fn settings(app: &mut App, ui: &mut Ui) {
     let mut prefs = app.discord_prefs.clone();
     let mut enabled = app.discord_enabled;
+    // Off, the rest folds away; a search shows its rows either way.
+    let shown = if filtering() { 1.0 } else { theme::anim_bool_soft(ui.ctx(), "discord-settings-shown", enabled, 0.3) };
     // Where `section_label` puts the heading, for Reset at its right end.
     let heading = Rect::from_min_size(ui.cursor().min + vec2(0.0, 30.0), vec2(ui.available_width(), 20.0));
     settings_section(ui, "Discord", None, None, |ui| {
         setting_row(ui, "Rich Presence", Some("Show the song you're playing on your Discord profile."), |ui| {
             toggle(ui, &mut enabled, "Rich Presence");
         });
-        ui.add_enabled_ui(enabled, |ui| {
+        reveal(ui, "discord-settings-top", shown, |ui| {
             divider(ui);
-            setting_row(ui, "Show when paused", Some("Keep the card up while the song is paused. Discord has no paused state, so the progress bar goes rather than keep running."), |ui| {
+            setting_row(ui, "Show when paused", Some("Keep the card up while the song is paused. Discord has no paused state, so the time goes rather than keep running."), |ui| {
                 toggle(ui, &mut prefs.when_paused, "Show when paused");
             });
             divider(ui);
-            setting_row(ui, "Hide details", Some("Say only that music is playing. No title, artist, album, artwork, progress bar or buttons leave your computer."), |ui| {
+            setting_row(ui, "Hide details", Some("Say only that music is playing. No title, artist, album, artwork, time or buttons leave your computer."), |ui| {
                 toggle(ui, &mut prefs.hide_details, "Hide details");
             });
         });
     });
-    if !filtering() && prefs != Prefs::default() && reset_link(ui, heading) {
-        prefs = Prefs::default();
+    if !filtering() && shown > 0.0 && prefs != Prefs::default() {
+        ui.scope(|ui| {
+            ui.multiply_opacity(shown);
+            if reset_link(ui, heading) {
+                prefs = Prefs::default();
+            }
+        });
     }
+    reveal(ui, "discord-settings-rest", shown, |ui| rest(app, ui, &mut prefs));
+    if enabled != app.discord_enabled {
+        app.set_discord_enabled(enabled);
+    }
+    // `sync_discord` sends what changed.
+    app.discord_prefs = prefs;
+}
+
+/// Everything under the Rich Presence switch's section, which shows only while it's on.
+fn rest(app: &App, ui: &mut Ui, prefs: &mut Prefs) {
     if !filtering() {
-        preview(app, ui, &prefs, enabled);
+        preview(app, ui, prefs);
     }
-    let on = enabled && !prefs.hide_details;
+    let on = !prefs.hide_details;
     settings_section(ui, "Discord status", None, None, |ui| {
         ui.add_enabled_ui(on, |ui| {
-            setting_row(ui, "Status text", Some("What Discord shows after \"Listening to\" beside your name in the member list. The profile card always shows the app's name."), |ui| {
+            setting_row(ui, "Status text", Some("Which line comes first under your name in the member list. The profile card always shows the app's name."), |ui| {
                 let lines = prefs.lines;
                 let label = |s: Status| match s {
                     Status::Name => "App name".to_owned(),
@@ -54,11 +71,9 @@ pub(super) fn settings(app: &mut App, ui: &mut Ui) {
             });
         });
         divider(ui);
-        ui.add_enabled_ui(enabled, |ui| {
-            let desc = format!("Replaces \"{}\" wherever the app's name shows. Leave it empty to keep that.", discord::APP_NAME);
-            setting_row(ui, "App name", Some(&desc), |ui| {
-                name_field(ui, &mut prefs.app_name);
-            });
+        let desc = format!("Replaces \"{}\" wherever the app's name shows. Leave it empty to keep that.", discord::APP_NAME);
+        setting_row(ui, "App name", Some(&desc), |ui| {
+            name_field(ui, &mut prefs.app_name);
         });
     });
     let note = "The link beside a line makes it clickable. It opens what it shows on YouTube Music: a line with the artist opens the artist.";
@@ -69,7 +84,7 @@ pub(super) fn settings(app: &mut App, ui: &mut Ui) {
                 link_toggle(ui, &mut prefs.links[0], "Line 1 is clickable", prefs.lines[0] != Show::Nothing);
             });
             divider(ui);
-            setting_row_wide(ui, "Line 2", Some("The smaller line below it."), LINKED_W, |ui| {
+            setting_row_wide(ui, "Line 2", Some("The line below it."), LINKED_W, |ui| {
                 dropdown(ui, "Line 2", &mut prefs.lines[1], &Show::ALL, |s| s.label().to_owned());
                 link_toggle(ui, &mut prefs.links[1], "Line 2 is clickable", prefs.lines[1] != Show::Nothing);
             });
@@ -80,8 +95,8 @@ pub(super) fn settings(app: &mut App, ui: &mut Ui) {
             });
             ui.add_enabled_ui(prefs.art, |ui| {
                 divider(ui);
-                setting_row(ui, "Provider badge", Some("Mark the artwork with a small ytm-rs icon, the way Spotify cards are."), |ui| {
-                    toggle(ui, &mut prefs.badge, "Provider badge");
+                setting_row(ui, "Artist picture", Some("Mark the artwork with a small picture of the artist, when YouTube Music has one. Hovered, it shows their name."), |ui| {
+                    toggle(ui, &mut prefs.badge, "Artist picture");
                 });
                 divider(ui);
                 setting_row(ui, "Line 3", Some("The last line. Discord also shows it when the artwork is hovered, so it needs the artwork."), |ui| {
@@ -89,28 +104,58 @@ pub(super) fn settings(app: &mut App, ui: &mut Ui) {
                 });
             });
             divider(ui);
-            setting_row(ui, "Progress bar", Some("Show elapsed and remaining time under the song."), |ui| {
-                toggle(ui, &mut prefs.progress, "Progress bar");
+            setting_row(ui, "Time", Some("Show how far into the song you are. Discord's full profile draws it as a progress bar."), |ui| {
+                toggle(ui, &mut prefs.progress, "Time");
             });
         });
     });
     let note = "Discord shows at most two, and never on your own profile: only others see them. A button for a page the song doesn't have is left out, and Listen together shows only while you're in a room.";
     settings_section(ui, "Discord buttons", None, Some(note), |ui| {
         ui.add_enabled_ui(on, |ui| {
-            setting_row(ui, "First button", None, |ui| {
-                dropdown(ui, "First button", &mut prefs.buttons[0], &Page::ALL, |p| p.label().to_owned());
+            setting_row(ui, "Buttons", Some("Put buttons under the card, such as one that opens the song on YouTube Music."), |ui| {
+                toggle(ui, &mut prefs.show_buttons, "Buttons");
             });
-            divider(ui);
-            setting_row(ui, "Second button", None, |ui| {
-                dropdown(ui, "Second button", &mut prefs.buttons[1], &Page::ALL, |p| p.label().to_owned());
+            ui.add_enabled_ui(prefs.show_buttons, |ui| {
+                divider(ui);
+                setting_row(ui, "First button", None, |ui| {
+                    dropdown(ui, "First button", &mut prefs.buttons[0], &Page::ALL, |p| p.label().to_owned());
+                });
+                divider(ui);
+                setting_row(ui, "Second button", None, |ui| {
+                    dropdown(ui, "Second button", &mut prefs.buttons[1], &Page::ALL, |p| p.label().to_owned());
+                });
             });
         });
     });
-    if enabled != app.discord_enabled {
-        app.set_discord_enabled(enabled);
+}
+
+/// `body`, faded and folded to `shown` of its height: 0 leaves it out, 1 draws it as is.
+/// Its full height is remembered from when it was last drawn.
+fn reveal(ui: &mut Ui, id: &str, shown: f32, body: impl FnOnce(&mut Ui)) {
+    let id = Id::unique(id);
+    if shown >= 1.0 {
+        let top = ui.cursor().top();
+        body(ui);
+        let h = ui.min_rect().bottom() - top;
+        ui.ctx().data_mut(|d| d.insert_temp(id, h));
+        return;
     }
-    // `sync_discord` sends what changed.
-    app.discord_prefs = prefs;
+    if shown <= 0.0 {
+        return;
+    }
+    let top = ui.cursor().min;
+    let w = ui.available_width();
+    let mut child = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_size(top, vec2(w, f32::INFINITY))).layout(Layout::top_down(egui::Align::Min)));
+    child.multiply_opacity(shown);
+    // Never drawn whole yet, it's measured as it's drawn.
+    let full = ui.ctx().data(|d| d.get_temp::<f32>(id));
+    if let Some(full) = full {
+        child.set_clip_rect(ui.clip_rect().intersect(Rect::from_min_size(top - vec2(8.0, 0.0), vec2(w + 16.0, full * shown))));
+    }
+    body(&mut child);
+    let full = full.unwrap_or_else(|| child.min_rect().bottom() - top.y);
+    ui.ctx().data_mut(|d| d.insert_temp(id, full));
+    ui.advance_cursor_after_rect(Rect::from_min_size(top, vec2(w, full * shown)));
 }
 
 fn dropdown<T: Copy + PartialEq>(ui: &mut Ui, name: &str, value: &mut T, all: &[T], label: impl Fn(T) -> String) {
@@ -186,7 +231,8 @@ fn example() -> Presence {
         artist_id: None,
         album: Some("Album".into()),
         album_id: None,
-        art: Some(discord::BADGE.into()),
+        art: Some(discord::ICON.into()),
+        artist_pic: None,
         start_ms: now - 79_000,
         end_ms: Some(now + 126_000),
         paused: false,
@@ -195,12 +241,13 @@ fn example() -> Presence {
 }
 
 /// The profile card and member list as Discord would show them, under the Discord section.
-fn preview(app: &App, ui: &mut Ui, prefs: &Prefs, enabled: bool) {
-    let (p, state) = shown(app, enabled);
+fn preview(app: &App, ui: &mut Ui, prefs: &Prefs) {
+    let (p, state) = shown(app);
     section_label(ui, "Preview", Some(state));
     // Paused, the card is drawn as it would be kept up.
     let card = Card::new(&p, prefs);
-    let notes = notes(&p, &card, prefs, enabled);
+    let notes = notes(&p, &card, prefs);
+    let name = app.account_name.as_deref().unwrap_or("You");
     settings_card(ui, |ui| {
         ui.add_space(16.0);
         let w = ui.available_width();
@@ -208,7 +255,7 @@ fn preview(app: &App, ui: &mut Ui, prefs: &Prefs, enabled: bool) {
         let card_w = if wide { CARD_W } else { w.min(380.0) };
         let side = |ui: &mut Ui| {
             caption(ui, "Member list");
-            member_row(ui, &card, app.account_avatar.as_deref(), ui.available_width().min(380.0));
+            member_row(ui, &card, name, app.account_avatar.as_deref(), ui.available_width().min(380.0));
             for n in &notes {
                 note(ui, n);
             }
@@ -249,10 +296,9 @@ fn reset_link(ui: &mut Ui, rect: Rect) -> bool {
 }
 
 /// The song the preview shows, and what it is.
-fn shown(app: &App, enabled: bool) -> (Presence, &'static str) {
+fn shown(app: &App) -> (Presence, &'static str) {
     let p = app.discord_presence();
     let state = match &p {
-        _ if !enabled => "Off",
         None => "Example",
         Some(p) if p.paused => "Paused",
         Some(_) => "Now playing",
@@ -261,11 +307,9 @@ fn shown(app: &App, enabled: bool) -> (Presence, &'static str) {
 }
 
 /// What the preview can't show by itself.
-fn notes(p: &Presence, card: &Card, prefs: &Prefs, enabled: bool) -> Vec<&'static str> {
+fn notes(p: &Presence, card: &Card, prefs: &Prefs) -> Vec<&'static str> {
     let mut notes = Vec::new();
-    if !enabled {
-        notes.push("Rich Presence is off, so none of this is on your profile.");
-    } else if p.paused && !prefs.when_paused {
+    if p.paused && !prefs.when_paused {
         notes.push("Paused, so this isn't on your profile right now. Turn on Show when paused to keep it up.");
     }
     if !card.buttons.is_empty() {
@@ -287,13 +331,16 @@ fn caption(ui: &mut Ui, text: &str) {
 const PAD: f32 = 12.0;
 const ART: f32 = 76.0;
 const LINE: f32 = 20.0;
-const BAR: f32 = 22.0;
+const TIME: f32 = 22.0;
 const BUTTON: f32 = 32.0;
 const GAP: f32 = 8.0;
 
+/// Discord's green: the online dot, and the music note before what's playing.
+const GREEN: Color32 = Color32::from_rgb(0x23, 0xa5, 0x5a);
+
 fn profile_card(ui: &mut Ui, c: &Card, width: f32) {
     let lines: Vec<_> = c.lines.iter().flatten().collect();
-    let text_h = lines.len() as f32 * LINE + if c.times.is_some() { BAR } else { 0.0 };
+    let text_h = lines.len() as f32 * LINE + if c.times.is_some() { TIME } else { 0.0 };
     let body_h = if c.art.is_some() { ART.max(text_h) } else { text_h };
     let buttons_h = c.buttons.len() as f32 * (BUTTON + GAP);
     let h = PAD + 18.0 + if body_h > 0.0 { 10.0 + body_h } else { 0.0 } + if buttons_h > 0.0 { 12.0 + buttons_h - GAP } else { 0.0 } + PAD;
@@ -301,32 +348,34 @@ fn profile_card(ui: &mut Ui, c: &Card, width: f32) {
     ui.painter().rect_filled(rect, 10.0, theme::glass(0.07));
     let inner_w = width - 2.0 * PAD;
     let mut y = rect.top() + PAD;
-    widgets::text_at(ui, pos2(rect.left() + PAD, y), &format!("Listening to {}", c.name()), theme::semibold(12.5), theme::text_dim(), inner_w);
+    widgets::text_at(ui, pos2(rect.left() + PAD, y), &format!("Listening to {}", c.name()), theme::semibold(12.5), theme::text_dim(), inner_w - 28.0);
+    // The card's ··· menu.
+    for i in 0..3 {
+        ui.painter().circle_filled(pos2(rect.right() - PAD - 2.0 - 6.0 * i as f32, y + 9.0), 1.6, theme::text_dim());
+    }
     y += 18.0 + 10.0;
     let mut x = rect.left() + PAD;
     if let Some(art) = &c.art {
         let r = Rect::from_min_size(pos2(x, y), Vec2::splat(ART));
         ui.painter().rect_filled(r, 8.0, theme::glass(0.08));
         widgets::paint_remote(ui, art, r, 8.0, full_uv(), Color32::WHITE);
-        if c.badge {
+        if let Some(pic) = &c.badge {
             let b = Rect::from_center_size(r.right_bottom() - vec2(3.0, 3.0), Vec2::splat(22.0));
             ui.painter().circle_filled(b.center(), 13.5, Color32::from_black_alpha(200));
-            widgets::paint_remote(ui, discord::BADGE, b, 11.0, full_uv(), Color32::WHITE);
+            ui.painter().circle_filled(b.center(), 11.0, theme::glass(0.12));
+            widgets::paint_remote(ui, &pic.url, b, 11.0, full_uv(), Color32::WHITE);
         }
         x += ART + 12.0;
     }
     let tw = rect.right() - PAD - x;
     let mut ty = y + ((body_h - text_h) / 2.0).max(0.0);
     for (i, l) in lines.iter().enumerate() {
-        let (font, color) = if i == 0 && c.lines[0].is_some() { (theme::semibold(15.0), theme::text()) } else { (theme::regular(13.5), theme::text_dim()) };
-        let r = widgets::text_at(ui, pos2(x, ty), &l.text, font, color, tw);
-        if l.url.is_some() {
-            ui.painter().hline(r.x_range(), r.bottom() + 0.5, egui::Stroke::new(1.0, theme::with_alpha(color, 0.6)));
-        }
+        let (font, color) = if i == 0 && c.lines[0].is_some() { (theme::bold(15.0), theme::text()) } else { (theme::regular(13.5), theme::text_dim()) };
+        widgets::text_at(ui, pos2(x, ty), &l.text, font, color, tw);
         ty += LINE;
     }
-    if let Some((start, end)) = c.times {
-        progress(ui, Rect::from_min_size(pos2(x, ty + 4.0), vec2(tw, BAR - 4.0)), start, end);
+    if let Some((start, _)) = c.times {
+        elapsed(ui, pos2(x, ty + TIME / 2.0), start);
     }
     y += body_h + 12.0;
     for (label, _) in &c.buttons {
@@ -337,29 +386,14 @@ fn profile_card(ui: &mut Ui, c: &Card, width: f32) {
     }
 }
 
-/// "1:19 ━━━━──── 3:25", or "1:19 elapsed" without an end.
-fn progress(ui: &Ui, rect: Rect, start: i64, end: Option<i64>) {
-    let secs = |ms: i64| (ms / 1000).max(0) as u32;
-    let elapsed = secs(now_ms() - start);
-    let font = theme::regular(12.0);
-    let p = ui.painter();
-    let Some(end) = end else {
-        p.text(rect.left_center(), Align2::LEFT_CENTER, format!("{} elapsed", super::fmt_time(elapsed)), font, theme::text_dim());
-        return;
-    };
-    let total = secs(end - start).max(1);
-    let elapsed = elapsed.min(total);
-    let left = p.text(rect.left_center(), Align2::LEFT_CENTER, super::fmt_time(elapsed), font.clone(), theme::text_dim());
-    let right = p.text(rect.right_center(), Align2::RIGHT_CENTER, super::fmt_time(total), font, theme::text_dim());
-    let track = Rect::from_min_max(pos2(left.right() + 8.0, rect.center().y - 2.0), pos2(right.left() - 8.0, rect.center().y + 2.0));
-    if track.width() > 0.0 {
-        p.rect_filled(track, 2.0, theme::glass(0.15));
-        let done = track.with_max_x(track.left() + track.width() * elapsed as f32 / total as f32);
-        p.rect_filled(done, 2.0, theme::text());
-    }
+/// "♫ 1:04": how long the song has been playing, left-centred on `at`.
+fn elapsed(ui: &Ui, at: egui::Pos2, start: i64) {
+    let secs = ((now_ms() - start) / 1000).max(0) as u32;
+    widgets::icon_at(ui, at + vec2(6.0, 0.0), icon::MUSIC, 13.0, GREEN);
+    ui.painter().text(at + vec2(17.0, 0.0), Align2::LEFT_CENTER, super::fmt_time(secs), theme::semibold(12.5), GREEN);
 }
 
-fn member_row(ui: &mut Ui, c: &Card, avatar: Option<&str>, width: f32) {
+fn member_row(ui: &mut Ui, c: &Card, name: &str, avatar: Option<&str>, width: f32) {
     let (rect, _) = ui.allocate_exact_size(vec2(width, 52.0), Sense::hover());
     ui.painter().rect_filled(rect, 8.0, theme::glass(0.07));
     let pic = Rect::from_center_size(pos2(rect.left() + 26.0, rect.center().y), Vec2::splat(34.0));
@@ -368,13 +402,16 @@ fn member_row(ui: &mut Ui, c: &Card, avatar: Option<&str>, width: f32) {
     if let Some(url) = avatar {
         widgets::paint_remote(ui, url, pic, 17.0, full_uv(), Color32::WHITE);
     }
+    // Online: a green dot in a ring cut out of the picture.
+    let dot = pic.right_bottom() - vec2(4.0, 4.0);
+    ui.painter().circle_filled(dot, 7.0, Color32::from_black_alpha(220));
+    ui.painter().circle_filled(dot, 4.5, GREEN);
     let x = pic.right() + 10.0;
     let w = rect.right() - 10.0 - x;
-    widgets::text_at(ui, pos2(x, rect.top() + 8.0), "You", theme::semibold(14.0), theme::text(), w);
-    let y = rect.top() + 34.0;
-    widgets::icon_at(ui, pos2(x + 6.0, y), icon::HEADPHONES, 12.0, theme::text_dim());
-    let status = format!("Listening to {}", c.status_text());
-    widgets::text_at(ui, pos2(x + 16.0, y - 8.0), &status, theme::regular(12.5), theme::text_dim(), w - 16.0);
+    widgets::text_at(ui, pos2(x, rect.top() + 8.0), name, theme::semibold(14.0), theme::text(), w);
+    let y = rect.top() + 36.0;
+    widgets::icon_at(ui, pos2(x + 6.0, y), icon::MUSIC, 12.0, GREEN);
+    widgets::text_at(ui, pos2(x + 17.0, y - 8.0), &c.member_text(), theme::regular(12.5), theme::text_dim(), w - 17.0);
 }
 
 fn full_uv() -> Rect {

@@ -325,7 +325,7 @@ pub struct App {
     discord_enabled: bool,
     /// Last state sent to Discord, to send only real changes.
     discord_sent: Option<crate::discord::Card>,
-    /// How the card looks: Settings › Discord.
+    /// How the card looks: Settings › Connections › Discord.
     discord_prefs: crate::discord::Prefs,
     /// Local WebSocket for a Stream Deck plugin. Off until Connections enables it.
     remote: crate::remote::Remote,

@@ -1,6 +1,6 @@
-//! Settings › Discord: what the Rich Presence card shows, and a preview of it.
+//! Settings › Connections › Discord: what the Rich Presence card shows, and a preview of it.
 
-use egui::{Align2, Color32, Id, Layout, Rect, RichText, Sense, Ui, UiBuilder, Vec2, pos2, vec2};
+use egui::{Align2, Color32, Id, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
 
 use super::pages::{divider, dropdown_button, filtering, option_row, section_label, setting_row, setting_row_wide, settings_card, settings_section, toggle};
 use super::{App, widgets};
@@ -11,12 +11,8 @@ use crate::theme::{self, icon};
 const CONTROL_W: f32 = 210.0;
 /// A dropdown with its link switch.
 const LINKED_W: f32 = CONTROL_W + 8.0 + 34.0;
-/// The profile card's width, inline and beside the settings.
+/// The profile card's width, with the member list beside it.
 const CARD_W: f32 = 340.0;
-/// Between the settings and the preview beside them.
-pub(super) const SIDE_GAP: f32 = 32.0;
-/// The settings column won't narrow past this to make room for the preview beside it.
-const MIN_COLUMN: f32 = 560.0;
 
 pub(super) fn settings(app: &mut App, ui: &mut Ui) {
     let mut prefs = app.discord_prefs.clone();
@@ -41,12 +37,11 @@ pub(super) fn settings(app: &mut App, ui: &mut Ui) {
     if !filtering() && prefs != Prefs::default() && reset_link(ui, heading) {
         prefs = Prefs::default();
     }
-    let beside = ui.ctx().data(|d| d.get_temp::<bool>(side_id())).unwrap_or(false);
-    if !filtering() && !beside {
+    if !filtering() {
         preview(app, ui, &prefs, enabled);
     }
     let on = enabled && !prefs.hide_details;
-    settings_section(ui, "Status", None, None, |ui| {
+    settings_section(ui, "Discord status", None, None, |ui| {
         ui.add_enabled_ui(on, |ui| {
             setting_row(ui, "Status text", Some("What Discord shows after \"Listening to\" beside your name in the member list. The profile card always shows the app's name."), |ui| {
                 let lines = prefs.lines;
@@ -67,7 +62,7 @@ pub(super) fn settings(app: &mut App, ui: &mut Ui) {
         });
     });
     let note = "The link beside a line makes it clickable. It opens what it shows on YouTube Music: a line with the artist opens the artist.";
-    settings_section(ui, "Card", None, Some(note), |ui| {
+    settings_section(ui, "Discord card", None, Some(note), |ui| {
         ui.add_enabled_ui(on, |ui| {
             setting_row_wide(ui, "Line 1", Some("The bold line, under the header."), LINKED_W, |ui| {
                 dropdown(ui, "Line 1", &mut prefs.lines[0], &Show::ALL, |s| s.label().to_owned());
@@ -100,7 +95,7 @@ pub(super) fn settings(app: &mut App, ui: &mut Ui) {
         });
     });
     let note = "Discord shows at most two, and never on your own profile: only others see them. A button for a page the song doesn't have is left out, and Listen together shows only while you're in a room.";
-    settings_section(ui, "Buttons", None, Some(note), |ui| {
+    settings_section(ui, "Discord buttons", None, Some(note), |ui| {
         ui.add_enabled_ui(on, |ui| {
             setting_row(ui, "First button", None, |ui| {
                 dropdown(ui, "First button", &mut prefs.buttons[0], &Page::ALL, |p| p.label().to_owned());
@@ -199,8 +194,7 @@ fn example() -> Presence {
     }
 }
 
-/// The profile card and member list as Discord would show them, in the settings when
-/// there's no room beside them (`side`).
+/// The profile card and member list as Discord would show them, under the Discord section.
 fn preview(app: &App, ui: &mut Ui, prefs: &Prefs, enabled: bool) {
     let (p, state) = shown(app, enabled);
     section_label(ui, "Preview", Some(state));
@@ -283,47 +277,6 @@ fn notes(p: &Presence, card: &Card, prefs: &Prefs, enabled: bool) -> Vec<&'stati
 fn note(ui: &mut Ui, text: &str) {
     ui.add_space(10.0);
     ui.label(RichText::new(text).font(theme::regular(12.5)).color(theme::text_dim()));
-}
-
-/// Whether the preview is beside the settings this frame, set before they're drawn.
-fn side_id() -> Id {
-    Id::unique("discord-side-preview")
-}
-
-pub(super) fn set_side(ctx: &egui::Context, on: bool) {
-    ctx.data_mut(|d| d.insert_temp(side_id(), on));
-}
-
-/// Where the preview goes beside the settings, given the room right of the categories;
-/// `None` when the window is too narrow for both. The settings column ends a gap before it.
-pub(super) fn side_rect(body: Rect, column: f32) -> Option<Rect> {
-    // Clear of the scroll bar, in the last 20 px.
-    let room = body.width() - 40.0 - SIDE_GAP;
-    let w = CARD_W.min(room - MIN_COLUMN);
-    (w >= 300.0).then(|| Rect::from_min_size(pos2(body.left() + (room - w).min(column) + SIDE_GAP, body.top()), vec2(w, body.height())))
-}
-
-/// The preview beside the settings: it stays put while they scroll, and scrolls by
-/// itself in a window too short for it.
-pub(super) fn side(app: &App, ui: &mut Ui, rect: Rect) {
-    let mut ui = ui.new_child(UiBuilder::new().max_rect(rect).layout(Layout::top_down(egui::Align::Min)));
-    let (p, state) = shown(app, app.discord_enabled);
-    let card = Card::new(&p, &app.discord_prefs);
-    egui::ScrollArea::vertical().id_salt("discord-side-preview").show(&mut ui, |ui| {
-        let w = ui.available_width();
-        section_label(ui, "Preview", Some(state));
-        ui.add_space(12.0);
-        profile_card(ui, &card, w);
-        ui.add_space(10.0);
-        member_row(ui, &card, app.account_avatar.as_deref(), w);
-        for n in notes(&p, &card, &app.discord_prefs, app.discord_enabled) {
-            note(ui, n);
-        }
-        ui.add_space(14.0);
-    });
-    if card.times.is_some() {
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
-    }
 }
 
 fn caption(ui: &mut Ui, text: &str) {

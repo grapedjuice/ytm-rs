@@ -162,8 +162,8 @@ Sign-ins are still kept by the system (Credential Manager, Keychain or your keyr
 | **Transfer from Spotify** | **Settings › General › Transfer from Spotify**, then sign in to Spotify to pick a playlist or Liked Songs, or paste a public playlist link without signing in. Matches ytm-rs isn't sure about come to you for review before it creates a private playlist. |
 | **Upload music** | **Library › Uploads › Upload music**, or drop MP3, M4A, FLAC, OGG or WMA files on the window. Title, artist, album and cover come from the file's tags. |
 | **Download songs** | Open a song's menu and click **Download**. Files go to `Music\ytm-rs`; change this in **Settings › General › Downloads**. |
-| **Scrobble to Last.fm** | **Settings › Account › Connections**, click **Connect** next to Last.fm, then allow ytm-rs in your browser. Songs scrobble after half their length or four minutes. |
-| **Send listens to ListenBrainz** | Copy your user token from [listenbrainz.org/settings](https://listenbrainz.org/settings/), then in **Settings › Account › Connections** paste it under ListenBrainz and click **Connect**. Songs count after half their length or four minutes. |
+| **Scrobble to Last.fm** | **Settings › Connections**, click **Connect** next to Last.fm, then allow ytm-rs in your browser. Songs scrobble after half their length or four minutes. |
+| **Send listens to ListenBrainz** | Copy your user token from [listenbrainz.org/settings](https://listenbrainz.org/settings/), then in **Settings › Connections** paste it under ListenBrainz and click **Connect**. Songs count after half their length or four minutes. |
 | **Change the theme** | **Settings › Appearance**, click a theme card. Mode switches between light and dark, and Accent colour sets the highlight colour. |
 | **Shape the sound** | **Settings › Playback** has the equalizer, crossfade and volume normalization. |
 | **Tune the lyrics** | **Settings › Lyrics** sets the source order, translation language and timing offsets. |

@@ -1,5 +1,5 @@
 //! Discord Rich Presence: "Listening to <song>" with cover art and a progress bar, laid
-//! out as the listener sets it in Settings › Discord.
+//! out as the listener sets it in Settings › Connections.
 //!
 //! A worker thread owns the IPC pipe so a missing or restarting Discord never blocks the
 //! UI. The UI sends the wanted state whenever it changes; the worker coalesces bursts
@@ -98,7 +98,7 @@ impl Page {
     }
 }
 
-/// How the card looks: Settings › Discord.
+/// How the card looks: Settings › Connections › Discord.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {

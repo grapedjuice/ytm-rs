@@ -1445,7 +1445,7 @@ pub(super) enum SettingsTab {
     Playback,
     Lyrics,
     Appearance,
-    Discord,
+    Connections,
     General,
     Shortcuts,
     About,
@@ -1453,14 +1453,14 @@ pub(super) enum SettingsTab {
 
 impl SettingsTab {
     /// Most used first, which is how they're listed.
-    const ALL: [Self; 8] = [Self::Account, Self::Playback, Self::Lyrics, Self::Appearance, Self::Discord, Self::General, Self::Shortcuts, Self::About];
+    const ALL: [Self; 8] = [Self::Account, Self::Playback, Self::Lyrics, Self::Appearance, Self::Connections, Self::General, Self::Shortcuts, Self::About];
 
     fn label(self) -> &'static str {
         match self {
             Self::Playback => "Playback",
             Self::Lyrics => "Lyrics",
             Self::Appearance => "Appearance",
-            Self::Discord => "Discord",
+            Self::Connections => "Connections",
             Self::Account => "Account",
             Self::General => "General",
             Self::Shortcuts => "Keyboard shortcuts",
@@ -1526,7 +1526,7 @@ pub(super) fn filter_show(ui: &mut Ui, text: &str) -> bool {
 const SETTINGS_SIDE_BY_SIDE: f32 = 680.0;
 const SETTINGS_RAIL: f32 = 200.0;
 const SETTINGS_GAP: f32 = 32.0;
-pub(super) const SETTINGS_COLUMN: f32 = 800.0;
+const SETTINGS_COLUMN: f32 = 800.0;
 const SETTINGS_SEARCH_H: f32 = 38.0;
 
 fn settings(app: &mut App, ui: &mut Ui) {
@@ -1565,13 +1565,9 @@ fn settings(app: &mut App, ui: &mut Ui) {
     if let Some(y) = super::dev_var("YTM_SCROLL").and_then(|v| v.parse::<f32>().ok()) {
         area = area.vertical_scroll_offset(y);
     }
-    // Discord's preview stays beside its settings when there's room.
-    let side = (side_by_side && !filtering() && app.settings_tab == SettingsTab::Discord).then(|| super::presence::side_rect(body, SETTINGS_COLUMN)).flatten();
-    let column_w = side.map_or(SETTINGS_COLUMN, |r| r.left() - super::presence::SIDE_GAP - body.left());
-    super::presence::set_side(ui.ctx(), side.is_some());
     let mut column = ui.new_child(egui::UiBuilder::new().max_rect(body).layout(top_down));
     area.show(&mut column, |ui| {
-        ui.set_max_width((ui.available_width() - 20.0).clamp(0.0, column_w));
+        ui.set_max_width((ui.available_width() - 20.0).clamp(0.0, SETTINGS_COLUMN));
         if filtering() {
             for tab in SettingsTab::ALL {
                 FILTER.with_borrow_mut(|f| f.tab = tab.label());
@@ -1586,9 +1582,6 @@ fn settings(app: &mut App, ui: &mut Ui) {
         }
         ui.add_space(40.0);
     });
-    if let Some(r) = side {
-        super::presence::side(app, ui, r);
-    }
     ui.advance_cursor_after_rect(full);
     FILTER.take();
 }
@@ -1608,10 +1601,10 @@ fn settings_tab(app: &mut App, ui: &mut Ui, tab: SettingsTab) {
             settings_mini(app, ui);
             settings_app_icon(app, ui);
         }
-        SettingsTab::Discord => super::presence::settings(app, ui),
-        SettingsTab::Account => {
-            settings_account(app, ui);
+        SettingsTab::Account => settings_account(app, ui),
+        SettingsTab::Connections => {
             settings_connections(app, ui);
+            super::presence::settings(app, ui);
         }
         SettingsTab::General => {
             settings_window(app, ui);
@@ -2457,15 +2450,10 @@ fn settings_app_icon(app: &mut App, ui: &mut Ui) {
     });
 }
 
-/// Settings › Connections.
+/// Settings › Connections, above Discord's sections (`presence::settings`).
 fn settings_connections(app: &mut App, ui: &mut Ui) {
-    let mut discord_enabled = app.discord_enabled;
     let mut remote_enabled = app.remote_enabled;
     settings_section(ui, "Connections", None, None, |ui| {
-        setting_row(ui, "Discord", Some("Show what you're playing on your Discord profile. Settings › Discord sets what the card shows."), |ui| {
-            toggle(ui, &mut discord_enabled, "Discord");
-        });
-        divider(ui);
         setting_row(ui, "Stream Deck", Some("Let a Stream Deck plugin on this computer control playback."), |ui| {
             toggle(ui, &mut remote_enabled, "Stream Deck");
         });
@@ -2525,9 +2513,6 @@ fn settings_connections(app: &mut App, ui: &mut Ui) {
             app.listenbrainz_sign_out();
         }
     });
-    if discord_enabled != app.discord_enabled {
-        app.set_discord_enabled(discord_enabled);
-    }
     app.remote_enabled = remote_enabled;
 }
 

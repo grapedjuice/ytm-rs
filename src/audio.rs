@@ -18,6 +18,7 @@ pub use crate::stream::TrackDecoder;
 
 pub mod eq;
 pub mod limiter;
+pub mod stereo;
 pub mod tempo;
 
 pub enum AudioCmd {
@@ -105,6 +106,8 @@ pub struct AudioStatus {
     silenced: AtomicU32,
     /// The equalizer's settings, applied to everything on its way to the device.
     eq: Arc<eq::EqParams>,
+    /// Crossfeed, mono and balance, after the equalizer.
+    stereo: Arc<stereo::StereoParams>,
     /// Playback speed, applied to each song as it plays.
     speed: Arc<tempo::Speed>,
 }
@@ -362,6 +365,11 @@ impl AudioHandle {
         self.status.eq.set(on, gains, no_clip);
     }
 
+    /// Takes effect at once, gliding there.
+    pub fn set_stereo(&self, s: stereo::Settings) {
+        self.status.stereo.set(s);
+    }
+
     /// Takes effect at once; the pitch goes with it.
     pub fn set_speed(&self, speed: f32) {
         self.status.speed.set(speed);
@@ -616,8 +624,10 @@ impl Output {
         let channels = rodio::Source::channels(&source).get();
         let rate = rodio::Source::sample_rate(&source).get();
         let eq = eq::Eq::new(status.eq.clone(), rate, channels);
+        // A mono device would keep only the left of what it's given: balanced right, nothing.
+        let stereo = (sink.config().channel_count().get() >= 2).then(|| stereo::Stereo::new(status.stereo.clone(), rate));
         let limiter = limiter::Limiter::new(status.limit.clone(), rate, channels);
-        sink.mixer().add(Bridge { inner: Some(source), slot: self.slot.clone(), channels, n: 0, eq, limiter });
+        sink.mixer().add(Bridge { inner: Some(source), slot: self.slot.clone(), frame: vec![0.0; channels.max(1) as usize], at: 0, eq, stereo, limiter });
         // The position counts samples handed to the device; it plays them a buffer later
         // (rodio asks for ~50 ms), plus the shared-mode device period (~10 ms) and the
         // limiter's lookahead.
@@ -694,13 +704,16 @@ pub fn output_devices() -> Vec<OutputDevice> {
 struct Bridge {
     inner: Option<MixerSource>,
     slot: Arc<std::sync::Mutex<Option<MixerSource>>>,
-    channels: u16,
-    /// Samples handed out, to give the mixer back on a frame boundary (else the next
-    /// device would get the channels swapped).
-    n: u64,
+    /// A frame is taken from the mixer whole, so crossfeed, mono and balance can mix its
+    /// sides, and the mixer's always given back on a frame boundary (else the next device
+    /// would get the channels swapped). `at` is the next sample of it to hand out.
+    frame: Vec<f32>,
+    at: usize,
     /// Here, after the mixer, so one equalizer covers both songs in a crossfade and a
     /// new song or a seek doesn't restart it.
     eq: eq::Eq,
+    /// None on a mono device.
+    stereo: Option<stereo::Stereo>,
     /// Last, after the volume, so it only acts on what would really clip.
     limiter: limiter::Limiter,
 }
@@ -708,10 +721,20 @@ struct Bridge {
 impl Iterator for Bridge {
     type Item = rodio::Sample;
     fn next(&mut self) -> Option<Self::Item> {
-        let channel = (self.n % self.channels.max(1) as u64) as usize;
-        self.n += 1;
-        let s = self.inner.as_mut().and_then(Iterator::next).unwrap_or(0.0);
-        Some(self.limiter.process(self.eq.process(s, channel), channel))
+        let channel = self.at;
+        self.at = (self.at + 1) % self.frame.len();
+        if channel == 0 {
+            for (c, s) in self.frame.iter_mut().enumerate() {
+                *s = self.eq.process(self.inner.as_mut().and_then(Iterator::next).unwrap_or(0.0), c);
+            }
+            if let Some(st) = &mut self.stereo {
+                st.process(&mut self.frame);
+                if st.boosts() {
+                    self.limiter.boost();
+                }
+            }
+        }
+        Some(self.limiter.process(self.frame[channel], channel))
     }
 }
 
@@ -720,7 +743,7 @@ impl rodio::Source for Bridge {
         None
     }
     fn channels(&self) -> rodio::ChannelCount {
-        self.inner.as_ref().map_or(std::num::NonZero::new(self.channels.max(1)).unwrap(), |s| s.channels())
+        self.inner.as_ref().map_or(std::num::NonZero::new(self.frame.len() as u16).unwrap(), |s| s.channels())
     }
     fn sample_rate(&self) -> rodio::SampleRate {
         self.inner.as_ref().map_or(std::num::NonZero::new(48_000).unwrap(), |s| s.sample_rate())
@@ -732,11 +755,7 @@ impl rodio::Source for Bridge {
 
 impl Drop for Bridge {
     fn drop(&mut self) {
-        if let Some(mut source) = self.inner.take() {
-            while !self.n.is_multiple_of(self.channels.max(1) as u64) {
-                source.next();
-                self.n += 1;
-            }
+        if let Some(source) = self.inner.take() {
             *self.slot.lock().unwrap() = Some(source);
         }
     }
@@ -1320,6 +1339,25 @@ mod tests {
         let mut source = source;
         let tail: Vec<f32> = source.by_ref().take(9_600).skip(4_800).collect();
         assert!(tail.iter().all(|s| *s == 0.0));
+    }
+
+    #[test]
+    fn neutral_stereo_leaves_the_chain_as_it_was() {
+        use std::num::NonZero;
+        let status = AudioStatus::default();
+        status.eq.set(true, &eq::PRESETS[1].1, true);
+        status.limit.store(true, Ordering::Relaxed);
+        let samples: Vec<f32> = (0..9_600).map(|k| (k as f32 * 0.03).sin() * if k % 2 == 0 { 1.2 } else { 0.4 }).collect();
+        let (mixer, source) = rodio::mixer::mixer(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap());
+        mixer.add(rodio::buffer::SamplesBuffer::new(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap(), samples.clone()));
+        let slot = Arc::new(std::sync::Mutex::new(None));
+        let (eq, stereo, limiter) = (eq::Eq::new(status.eq.clone(), 48_000, 2), Some(stereo::Stereo::new(status.stereo.clone(), 48_000)), limiter::Limiter::new(status.limit.clone(), 48_000, 2));
+        let bridge = Bridge { inner: Some(source), slot: slot.clone(), frame: vec![0.0; 2], at: 0, eq, stereo, limiter };
+        let (mut eq, mut limiter) = (eq::Eq::new(status.eq.clone(), 48_000, 2), limiter::Limiter::new(status.limit.clone(), 48_000, 2));
+        let want = samples.iter().enumerate().map(|(n, s)| limiter.process(eq.process(*s, n % 2), n % 2));
+        assert!(bridge.take(samples.len()).map(f32::to_bits).eq(want.map(f32::to_bits)));
+        // Given back once dropped.
+        assert!(slot.lock().unwrap().is_some());
     }
 
     #[test]

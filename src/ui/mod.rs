@@ -546,6 +546,8 @@ pub struct App {
     eq_on: bool,
     eq_gains: crate::audio::eq::Gains,
     eq_no_clip: bool,
+    /// Crossfeed, mono and balance.
+    stereo: crate::audio::stereo::Settings,
     /// Playback speed: whether it's on (saved, and it puts a button in the player bar),
     /// and the speed (not saved: 1× each launch).
     tempo_on: bool,
@@ -936,6 +938,11 @@ impl App {
             eq_on: get("eq").is_some_and(|v| v == "1"),
             eq_gains: get("eq_gains").and_then(|v| parse_gains(&v)).unwrap_or_default(),
             eq_no_clip: get("eq_no_clip").is_none_or(|v| v == "1"),
+            stereo: crate::audio::stereo::Settings {
+                crossfeed: get("crossfeed").map(|v| crate::audio::stereo::Crossfeed::from_key(&v)).unwrap_or_default(),
+                mono: get("mono").is_some_and(|v| v == "1"),
+                balance: get("balance").and_then(|v| v.parse::<i8>().ok()).unwrap_or(0).clamp(-100, 100),
+            },
             tempo_on: get("tempo").is_some_and(|v| v == "1"),
             speed: 1.0,
             segments: None,
@@ -1078,6 +1085,7 @@ impl App {
         app.audio.set_normalize(app.normalize);
         app.set_crossfade();
         app.set_eq();
+        app.audio.set_stereo(app.stereo);
         app
     }
 
@@ -1906,6 +1914,9 @@ impl eframe::App for App {
         storage.set_string("eq", b(self.eq_on));
         storage.set_string("eq_gains", self.eq_gains.map(|g| g.to_string()).join(","));
         storage.set_string("eq_no_clip", b(self.eq_no_clip));
+        storage.set_string("crossfeed", self.stereo.crossfeed.key().to_owned());
+        storage.set_string("mono", b(self.stereo.mono));
+        storage.set_string("balance", self.stereo.balance.to_string());
         storage.set_string("tempo", b(self.tempo_on));
         storage.set_string("show_roman", b(self.show_roman));
         storage.set_string("show_trans", b(self.show_trans));

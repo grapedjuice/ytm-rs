@@ -1366,6 +1366,7 @@ impl eframe::App for App {
         }
         jam::tick(self);
         jam::dev_script(self, ctx, now);
+        self.dev_skip(ctx, now);
         if self.page_changed < 0.0 {
             self.page_changed = now;
         }

@@ -7,6 +7,27 @@ use std::time::Duration;
 use super::App;
 
 impl App {
+    /// Dev hook: `YTM_SKIP=<secs>` skips to the next song once a song has played that
+    /// long, and logs how many it has skipped: memory over many song changes (#107).
+    pub(super) fn dev_skip(&mut self, ctx: &egui::Context, now: f64) {
+        use std::sync::Mutex;
+        let Some(every) = dev_var("YTM_SKIP").and_then(|v| v.parse::<f64>().ok()) else { return };
+        // When the current song started playing, and how many songs have been skipped.
+        static STATE: Mutex<(Option<f64>, usize)> = Mutex::new((None, 0));
+        ctx.request_repaint_after(Duration::from_millis(500));
+        let mut state = STATE.lock().unwrap();
+        if !self.playing() || self.buffering {
+            return;
+        }
+        let since = *state.0.get_or_insert(now);
+        if now - since >= every {
+            state.0 = None;
+            state.1 += 1;
+            log::info!("skip: {} songs", state.1);
+            self.next();
+        }
+    }
+
     /// Dev hook: `YTM_THEME_TOUR=<secs>` steps through every theme preset from
     /// `YTM_SCREENSHOT_AT`, saving `<YTM_SCREENSHOT stem>_<id>.png` for each, then exits.
     pub(super) fn theme_tour(&mut self, ctx: &egui::Context, now: f64) {
@@ -244,8 +265,9 @@ pub(super) fn dev_probe(ctx: &egui::Context) {
 }
 
 /// Dev hook: `YTM_MEM=<secs>` logs, that often, what the app's own caches hold: GPU
-/// textures (thumbnails and the rest), the font atlas, and the image loaders' bytes. The
-/// process's own figures come from outside (Task Manager, `Get-Process`).
+/// textures (thumbnails and the rest), the font atlas, the image loaders' bytes and, on
+/// Linux, the process's resident memory. Elsewhere those come from outside (Task
+/// Manager, `Get-Process`).
 pub(super) fn dev_memory(ctx: &egui::Context, now: f64) {
     use std::sync::Mutex;
     let Some(every) = dev_var("YTM_MEM").and_then(|v| v.parse::<f64>().ok()) else { return };
@@ -274,13 +296,27 @@ pub(super) fn dev_memory(ctx: &egui::Context, now: f64) {
     let images: usize = loaders.image.lock().iter().map(|l| l.byte_size()).sum();
     let tex_loaders: usize = loaders.texture.lock().iter().map(|l| l.byte_size()).sum();
     log::info!(
-        "mem: {count} textures {:.1} MB (loader {:.1}); font atlas {}x{}; bytes {:.1} MB, decoded {:.1} MB; {} audio buffers [{biggest}]",
+        "mem: {count} textures {:.1} MB (loader {:.1}); font atlas {}x{}; bytes {:.1} MB, decoded {:.1} MB; {} audio buffers{} [{biggest}]",
         mb(textures),
         mb(tex_loaders),
         atlas[0],
         atlas[1],
         mb(bytes),
         mb(images),
-        crate::stream::LIVE.load(std::sync::atomic::Ordering::Relaxed)
+        crate::stream::LIVE.load(std::sync::atomic::Ordering::Relaxed),
+        process_memory()
     );
+}
+
+/// The process's resident memory as Linux counts it (`; VmRSS … RssAnon … RssFile …`), so
+/// the `YTM_MEM` line alone shows whether it's growing; empty elsewhere.
+fn process_memory() -> String {
+    let status = if cfg!(target_os = "linux") { std::fs::read_to_string("/proc/self/status").unwrap_or_default() } else { String::new() };
+    let fields: Vec<String> = status
+        .lines()
+        .filter_map(|l| l.split_once(':'))
+        .filter(|(k, _)| matches!(*k, "VmRSS" | "RssAnon" | "RssFile"))
+        .map(|(k, v)| format!("{k} {}", v.trim()))
+        .collect();
+    if fields.is_empty() { String::new() } else { format!("; {}", fields.join(", ")) }
 }

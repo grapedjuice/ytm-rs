@@ -1581,11 +1581,10 @@ fn settings(app: &mut App, ui: &mut Ui) {
             settings_tab(app, ui, app.settings_tab);
         }
         ui.add_space(40.0);
-        // A section folding away (Discord's, switched off) leaves its room empty rather
-        // than pull the page down under the pointer: as much as keeps where it's scrolled
-        // to, which scrolling back up gives back. A search's results follow what's typed.
+        // A search's results follow what's typed.
         if !filtering() {
-            let room = viewport.bottom() - ui.min_rect().height();
+            let h = ui.min_rect().height();
+            let room = settle_room(ui.ctx(), viewport.bottom() - h, h);
             if room > 0.0 {
                 ui.add_space(room);
             }
@@ -1593,6 +1592,37 @@ fn settings(app: &mut App, ui: &mut Ui) {
     });
     ui.advance_cursor_after_rect(full);
     FILTER.take();
+}
+
+/// Empty room under the settings, `h` tall now, when a section folds away (Discord's,
+/// switched off) while scrolled down: while the page shrinks, all the room it takes to
+/// stay where it's scrolled to (`needed`), so the section folds up under the pointer
+/// rather than pull the page down; then less and less, so the page glides to its end.
+fn settle_room(ctx: &egui::Context, needed: f32, h: f32) -> f32 {
+    #[derive(Clone, Copy, Default)]
+    struct Settle {
+        h: f32,
+        room: f32,
+        since: f64,
+    }
+    const SECS: f64 = 0.3;
+    let id = egui::Id::unique("settings-settle");
+    let now = ctx.input(|i| i.time);
+    let mut s = ctx.data(|d| d.get_temp::<Settle>(id)).unwrap_or_default();
+    let needed = needed.max(0.0);
+    if h < s.h - 0.5 {
+        s.room = needed;
+        s.since = now;
+    }
+    s.h = h;
+    ctx.data_mut(|d| d.insert_temp(id, s));
+    let t = ((now - s.since) / SECS) as f32;
+    // Scrolling back up meanwhile gives it back sooner.
+    let room = (s.room * (1.0 - theme::ease_in_out(t.clamp(0.0, 1.0)))).min(needed);
+    if room > 0.0 {
+        ctx.request_repaint();
+    }
+    room
 }
 
 /// Picking a category ends a search: it's where you were looking to go.

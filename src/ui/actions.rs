@@ -33,12 +33,13 @@ impl App {
             }
             Action::Play(tracks, i) => {
                 self.queue_source = self.page_source();
-                // All of a playlist that's still coming in, in order or shuffled: the rest follows.
-                let fill = self.page_list().filter(|id| self.receiving(id)).and_then(|id| {
-                    let o = self.opened(id).filter(|o| o.c.tracks.len() == tracks.len())?;
-                    Some(QueueFill { id: id.to_owned(), load: o.load, shuffled: o.c.tracks.iter().zip(&tracks).any(|(a, b)| a.id != b.id), ran_out: false })
-                });
+                let fill = self.page_fill(&tracks);
                 self.play_list_filling(tracks, i, fill);
+            }
+            Action::Shuffle(tracks) => {
+                self.queue_source = self.page_source();
+                let fill = self.page_fill(&tracks);
+                self.play_shuffled(tracks, fill);
             }
             Action::TogglePlay => self.toggle(),
             Action::TransferPick(t) => transfer::use_pick(self, t),
@@ -336,6 +337,13 @@ impl App {
             Page::Artist(id) => Some(Target::Artist(id.clone())),
             _ => None,
         }
+    }
+
+    /// `tracks` are all of the playlist on screen that's still coming in: the rest follows.
+    fn page_fill(&self, tracks: &[Track]) -> Option<QueueFill> {
+        let id = self.page_list().filter(|id| self.receiving(id))?;
+        let o = self.opened(id).filter(|o| o.c.tracks.len() == tracks.len())?;
+        Some(QueueFill { id: id.to_owned(), load: o.load, ran_out: false })
     }
 
     pub(super) fn shortcuts(&mut self, ctx: &egui::Context) {

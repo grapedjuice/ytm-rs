@@ -184,7 +184,7 @@ fn entries(app: &App) -> Vec<Entry> {
         add(Group::Actions, act(Act::TogglePlay), if playing { "Pause" } else { "Play" }, "Space", if playing { icon::PAUSE } else { icon::PLAY });
         add(Group::Actions, act(Act::Next), "Next song", "Ctrl + →", icon::SKIP_FORWARD);
         add(Group::Actions, act(Act::Prev), "Previous song", "Ctrl + ←", icon::SKIP_BACK);
-        add(Group::Actions, act(Act::Shuffle), "Shuffle up next", "", icon::SHUFFLE);
+        add(Group::Actions, act(Act::Shuffle), if app.queue.shuffled() { "Shuffle off" } else { "Shuffle on" }, "", icon::SHUFFLE);
         add(Group::Actions, act(Act::Like), if app.heard_liked() { "Remove like" } else { "Like this song" }, "", icon::HEART);
         add(Group::Actions, act(Act::Lyrics), "Lyrics and now playing", "L", icon::MIC_VOCAL);
         let (label, glyph) = if app.fullscreen { ("Leave full screen", icon::SHRINK) } else { ("Full screen", icon::EXPAND) };
@@ -449,7 +449,7 @@ fn run_command(app: &mut App, ctx: &egui::Context, cmd: Command) {
             Act::TogglePlay => app.actions.push(Action::TogglePlay),
             Act::Next => app.next(),
             Act::Prev => app.prev(),
-            Act::Shuffle => app.shuffle_upcoming(),
+            Act::Shuffle => app.toggle_shuffle(),
             Act::Repeat => app.queue.repeat = app.queue.repeat.next(),
             Act::Like => app.actions.push(Action::LikeHeard(!app.heard_liked())),
             Act::Lyrics => app.toggle_lyrics(),

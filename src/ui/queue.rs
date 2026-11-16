@@ -1,5 +1,5 @@
-//! The play queue: its songs, the one playing, repeat, and the songs of a playlist
-//! still coming in. Only the state: the app starts the songs these pick, prefetches,
+//! The play queue: its songs, the one playing, repeat, shuffle, and the songs of a
+//! playlist still coming in. Only the state: the app starts the songs these pick, prefetches,
 //! and asks for radio.
 
 use crate::model::Track;
@@ -22,14 +22,13 @@ impl Repeat {
     }
 }
 
-/// A playlist's load whose next pages also go to the queue, and whether that queue
-/// is shuffled (they're then mixed into what's still to come). `ran_out`: playback
-/// reached the end of what had come, and carries on when more does (or the load ends).
+/// A playlist's load whose next pages also go to the queue (mixed into what's still to
+/// come while shuffle is on). `ran_out`: playback reached the end of what had come, and
+/// carries on when more does (or the load ends).
 #[derive(Clone)]
 pub struct QueueFill {
     pub id: String,
     pub load: u64,
-    pub shuffled: bool,
     pub ran_out: bool,
 }
 
@@ -49,6 +48,9 @@ pub struct Queue {
     /// The song playing (or paused, or loading).
     pub index: Option<usize>,
     pub repeat: Repeat,
+    /// Shuffle is on: the songs' ids in the order they had, to go back to when it's off.
+    /// A new queue starts with it off.
+    unshuffled: Option<Vec<String>>,
     /// The queue is a playlist played while its songs were still coming in: the rest
     /// join the queue as they arrive.
     pub fill: Option<QueueFill>,
@@ -63,6 +65,8 @@ pub struct Saved {
     elsewhere: std::collections::HashSet<String>,
     index: Option<usize>,
     fill: Option<QueueFill>,
+    /// Shuffle as it was: the order to go back to.
+    unshuffled: Option<Vec<String>>,
     /// What the change left: its songs and the one playing.
     left: (Vec<String>, Option<usize>),
     /// Pages of the playlist it was filling from that came in since (and whether more
@@ -77,7 +81,16 @@ const SAVED_AFTER: usize = 150;
 
 impl Queue {
     pub fn new(repeat: Repeat) -> Self {
-        Self { tracks: Vec::new(), elsewhere: Default::default(), index: None, repeat, fill: None, hide_explicit: false }
+        Self { tracks: Vec::new(), elsewhere: Default::default(), index: None, repeat, unshuffled: None, fill: None, hide_explicit: false }
+    }
+
+    pub fn shuffled(&self) -> bool {
+        self.unshuffled.is_some()
+    }
+
+    /// Shuffle off, leaving the songs as they are.
+    pub fn clear_shuffle(&mut self) {
+        self.unshuffled = None;
     }
 
     pub fn current(&self) -> Option<&Track> {
@@ -116,7 +129,19 @@ impl Queue {
         self.index = Some(start.min(tracks.len() - 1));
         self.tracks = tracks;
         self.elsewhere.clear();
+        self.unshuffled = None;
         true
+    }
+
+    /// Play `tracks` shuffled, with shuffle on (see `shuffle_to_play`): false as `replace`.
+    pub fn replace_shuffled(&mut self, mut tracks: Vec<Track>, fill: Option<QueueFill>) -> bool {
+        let order = tracks.iter().map(|t| t.id.clone()).collect();
+        super::shuffle_to_play(&mut tracks, self);
+        let played = self.replace(tracks, 0, fill);
+        if played {
+            self.unshuffled = Some(order);
+        }
+        played
     }
 
     /// Take up a queue from elsewhere (last session, another device), at `index`, which
@@ -126,6 +151,7 @@ impl Queue {
         self.elsewhere.clear();
         self.index = Some(index);
         self.fill = None;
+        self.unshuffled = None;
         self.drop_explicit();
     }
 
@@ -196,19 +222,60 @@ impl Queue {
         }
     }
 
-    /// Shuffle what's still to come (and what of a playlist is still coming in): false
-    /// when nothing is.
-    pub fn shuffle_upcoming(&mut self) -> bool {
-        let start = self.index.map_or(0, |i| i + 1);
-        if start >= self.tracks.len() {
-            return false;
+    /// Shuffle on: the song playing first, then all the others shuffled, those already
+    /// played too (and what of a playlist is still coming in, as it comes). Off: the songs
+    /// back in the order they had, going on from the song playing (see `unshuffle`).
+    pub fn toggle_shuffle(&mut self) {
+        if let Some(order) = self.unshuffled.take() {
+            return self.unshuffle(&order);
         }
-        let (done, rest) = self.tracks.split_at_mut(start);
+        // Nothing to shuffle: the next queue would turn it off anyway.
+        if self.tracks.is_empty() {
+            return;
+        }
+        self.unshuffled = Some(self.tracks.iter().map(|t| t.id.clone()).collect());
+        let cur = self.index.filter(|&i| i < self.tracks.len());
+        if let Some(c) = cur {
+            self.tracks[..=c].rotate_right(1);
+            self.index = Some(0);
+        }
+        let (done, rest) = self.tracks.split_at_mut(usize::from(cur.is_some()));
         super::shuffle(rest, done);
-        if let Some(fill) = &mut self.fill {
-            fill.shuffled = true;
+    }
+
+    /// Put the songs in `order` (ids, of the songs shuffle started with and those that came
+    /// in since), the song playing in its place there, so what comes after it plays next.
+    /// Songs that joined while shuffled (Play next, Add to queue, autoplay) stay beside it:
+    /// those that were to come right after it, those that played right before.
+    fn unshuffle(&mut self, order: &[String]) {
+        // Nothing playing: the songs in their order, any that joined last.
+        let cur = self.index.filter(|&i| i < self.tracks.len());
+        // Each song's place in `order`, a song in it twice taking its places in turn.
+        let mut places: std::collections::HashMap<&str, std::collections::VecDeque<usize>> = Default::default();
+        for (i, id) in order.iter().enumerate() {
+            places.entry(id).or_default().push_back(i);
         }
-        true
+        let place: Vec<Option<usize>> = self.tracks.iter().map(|t| places.get_mut(t.id.as_str()).and_then(|p| p.pop_front())).collect();
+        // Where the song playing goes: its place, or (one that joined) after the nearest
+        // song before it that has one.
+        let at = match cur {
+            None => (order.len(), 2),
+            Some(cur) => match place[cur] {
+                Some(p) => (p, 1),
+                None => place[..cur].iter().rev().flatten().next().map_or((0, 0), |&p| (p, 2)),
+            },
+        };
+        let key = |i: usize| match place[i] {
+            Some(p) => (p, 1),
+            None if at.1 != 1 => at,
+            None => (at.0, if Some(i) < cur { 0 } else { 2 }),
+        };
+        // Stable: songs with one key keep the order they had.
+        let mut new: Vec<usize> = (0..self.tracks.len()).collect();
+        new.sort_by_key(|&i| key(i));
+        self.index = cur.and_then(|cur| new.iter().position(|&i| i == cur));
+        let mut old: Vec<Track> = self.tracks.iter_mut().map(std::mem::take).collect();
+        self.tracks = new.into_iter().map(|i| std::mem::take(&mut old[i])).collect();
     }
 
     /// Play `t` after the current song: true when nothing was playing, so it starts now.
@@ -271,7 +338,7 @@ impl Queue {
             return None;
         }
         let waiting = self.fill.as_ref().is_some_and(|f| f.ran_out);
-        (self.tracks, self.elsewhere, self.index, self.fill) = (s.tracks, s.elsewhere, s.index, s.fill);
+        (self.tracks, self.elsewhere, self.index, self.fill, self.unshuffled) = (s.tracks, s.elsewhere, s.index, s.fill, s.unshuffled);
         for (tracks, more) in s.pages {
             let Some(f) = &self.fill else { break };
             let (id, load) = (f.id.clone(), f.load);
@@ -303,7 +370,7 @@ impl Queue {
     }
 
     fn save(&self) -> Saved {
-        Saved { tracks: self.tracks.clone(), elsewhere: self.elsewhere.clone(), index: self.index, fill: self.fill.clone(), left: Default::default(), pages: Vec::new() }
+        Saved { tracks: self.tracks.clone(), elsewhere: self.elsewhere.clone(), index: self.index, fill: self.fill.clone(), unshuffled: self.unshuffled.clone(), left: Default::default(), pages: Vec::new() }
     }
 
     fn left(&self, mut before: Saved) -> Saved {
@@ -345,7 +412,7 @@ impl Queue {
     /// page that does still says whether playback was waiting for it.
     pub fn fill_from(&mut self, id: &str, load: u64, tracks: Vec<Track>, more: bool, playing_it: bool) -> Option<Filled> {
         let fill = self.fill.as_mut().filter(|f| f.id == id && f.load == load)?;
-        let (shuffled, ran_out) = (fill.shuffled, std::mem::take(&mut fill.ran_out));
+        let ran_out = std::mem::take(&mut fill.ran_out);
         if !more {
             self.fill = None;
         }
@@ -354,8 +421,11 @@ impl Queue {
         }
         let was_at_end = self.at_end();
         let hide = self.hide_explicit;
+        if let Some(order) = &mut self.unshuffled {
+            order.extend(tracks.iter().map(|t| t.id.clone()));
+        }
         self.tracks.extend(tracks.into_iter().filter(|t| !(hide && t.explicit)));
-        if shuffled {
+        if self.unshuffled.is_some() {
             // Mixed into what's still to come, past the next song (it may be loading already).
             let from = self.index.map_or(0, |i| i + if was_at_end { 1 } else { 2 }).min(self.tracks.len());
             let (done, rest) = self.tracks.split_at_mut(from);
@@ -420,7 +490,7 @@ mod tests {
         assert!(!q.replace(vec![e("c")], 0, None));
         // Radio and a playlist's next pages leave them out too.
         q.add_radio("b", vec![e("r1"), track("r2")]);
-        q.fill = filling("PL1", 1, false);
+        q.fill = filling("PL1", 1);
         q.fill_from("PL1", 1, vec![e("p1"), track("p2")], false, true);
         assert_eq!(ids(&q), ["b", "r2", "p2"]);
         // Turned on with some queued: all go but the one playing.
@@ -457,8 +527,8 @@ mod tests {
         q.tracks.iter().map(|t| t.id.as_str()).collect()
     }
 
-    fn filling(id: &str, load: u64, shuffled: bool) -> Option<QueueFill> {
-        Some(QueueFill { id: id.into(), load, shuffled, ran_out: false })
+    fn filling(id: &str, load: u64) -> Option<QueueFill> {
+        Some(QueueFill { id: id.into(), load, ran_out: false })
     }
 
     #[test]
@@ -538,7 +608,7 @@ mod tests {
     #[test]
     fn playing_nothing_leaves_the_queue_as_it_was() {
         let mut q = Queue::new(Repeat::Off);
-        q.replace(vec![track("a")], 0, filling("PL1", 1, false));
+        q.replace(vec![track("a")], 0, filling("PL1", 1));
         assert!(!q.replace(vec![], 0, None));
         assert_eq!(ids(&q), ["a"]);
         assert_eq!(q.fill.as_ref().unwrap().id, "PL1");
@@ -587,14 +657,14 @@ mod tests {
     #[test]
     fn undoing_a_clear_brings_back_what_played_and_whats_to_come() {
         let mut q = queue(&["a", "b", "c", "d"], 1, Repeat::Off);
-        q.fill = filling("PL1", 7, true);
+        q.fill = filling("PL1", 7);
         let saved = q.clear().unwrap();
         assert_eq!((ids(&q), q.index, q.fill.is_none()), (vec!["b"], Some(0), true));
         assert!(q.clear().is_none(), "only the song playing is left");
         assert!(q.restore(saved, |_| true).is_some());
         assert_eq!((ids(&q), q.index), (vec!["a", "b", "c", "d"], Some(1)));
         let fill = q.fill.as_ref().unwrap();
-        assert_eq!((fill.id.as_str(), fill.load, fill.shuffled), ("PL1", 7, true));
+        assert_eq!((fill.id.as_str(), fill.load), ("PL1", 7));
         // With nothing playing, all of it goes.
         q.index = None;
         q.clear().unwrap();
@@ -606,7 +676,7 @@ mod tests {
     fn pages_that_come_in_while_an_undo_waits_join_the_queue_it_brings_back() {
         // Cleared: the page goes nowhere now, and joins the queue back from Undo.
         let mut q = queue(&["a", "b"], 0, Repeat::Off);
-        q.fill = filling("PL1", 7, false);
+        q.fill = filling("PL1", 7);
         let mut saved = q.clear().unwrap();
         assert!(q.fill_saved(Some(&mut saved), "PL2", 7, vec![track("x")], true, true).is_none());
         assert!(q.fill_saved(Some(&mut saved), "PL1", 7, vec![track("c")], true, true).is_none());
@@ -627,19 +697,37 @@ mod tests {
         // The song after it taken out, then playback reached the end and waits: Undo brings
         // that song back to go on to.
         let mut q = queue(&["a", "b", "c"], 1, Repeat::Off);
-        q.fill = filling("PL1", 7, false);
+        q.fill = filling("PL1", 7);
         let saved = q.remove(2).unwrap();
         assert!(!q.advance());
         assert_eq!(q.restore(saved, |_| true), Some(true));
         assert_eq!(ids(&q), ["a", "b", "c"]);
         // An earlier song taken out: still at the end, so it waits on for the next page.
         let mut q = queue(&["a", "b", "c"], 2, Repeat::Off);
-        q.fill = filling("PL1", 7, false);
+        q.fill = filling("PL1", 7);
         let saved = q.remove(0).unwrap();
         assert!(!q.advance());
         assert_eq!(q.restore(saved, |_| true), Some(false));
         let f = q.fill_from("PL1", 7, vec![track("d")], false, true).unwrap();
         assert!(f.ran_out);
+    }
+
+    #[test]
+    fn undoing_a_clear_brings_back_shuffle_as_it_was() {
+        let songs = numbered(20);
+        let refs: Vec<&str> = songs.iter().map(String::as_str).collect();
+        let mut q = queue(&refs, 0, Repeat::Off);
+        q.toggle_shuffle();
+        let shuffled = ids(&q).iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let saved = q.clear().unwrap();
+        // Off and on again with only the song playing left: the same songs, still undoable.
+        q.toggle_shuffle();
+        q.toggle_shuffle();
+        assert!(q.restore(saved, |_| true).is_some());
+        assert!(q.shuffled());
+        assert_eq!(ids(&q), shuffled);
+        q.toggle_shuffle();
+        assert_eq!(ids(&q), refs);
     }
 
     #[test]
@@ -668,7 +756,7 @@ mod tests {
     #[test]
     fn a_playlist_still_coming_in_fills_the_queue() {
         let mut q = Queue::new(Repeat::Off);
-        q.replace(vec![track("a"), track("b")], 0, filling("PL1", 3, false));
+        q.replace(vec![track("a"), track("b")], 0, filling("PL1", 3));
         // Another playlist's page, or another load's, doesn't join.
         assert!(q.fill_from("PL2", 3, vec![track("x")], true, true).is_none());
         assert!(q.fill_from("PL1", 2, vec![track("x")], true, true).is_none());
@@ -690,7 +778,7 @@ mod tests {
     #[test]
     fn waiting_for_a_playlist_comes_before_repeating_it() {
         let mut q = Queue::new(Repeat::All);
-        q.replace(vec![track("a"), track("b")], 1, filling("PL1", 1, false));
+        q.replace(vec![track("a"), track("b")], 1, filling("PL1", 1));
         // At the end of what came: it waits rather than starting over.
         assert!(!q.advance());
         assert_eq!(q.index, Some(1));
@@ -705,7 +793,7 @@ mod tests {
     #[test]
     fn filling_stops_when_something_else_plays() {
         let mut q = Queue::new(Repeat::Off);
-        q.replace(vec![track("a")], 0, filling("PL1", 1, false));
+        q.replace(vec![track("a")], 0, filling("PL1", 1));
         // The queue plays something else now: the page doesn't join, and the last one ends the fill.
         assert!(q.fill_from("PL1", 1, vec![track("b")], true, false).is_none());
         assert!(q.fill.is_some());
@@ -713,45 +801,110 @@ mod tests {
         assert!(q.fill.is_none());
         assert_eq!(ids(&q), ["a"]);
         // A song starting means it no longer waits.
-        q.replace(vec![track("a")], 0, filling("PL1", 2, false));
+        q.replace(vec![track("a")], 0, filling("PL1", 2));
         q.advance();
         q.started();
         assert!(!q.fill.as_ref().unwrap().ran_out);
     }
 
-    #[test]
-    fn shuffling_up_next_leaves_what_played() {
-        let songs: Vec<String> = (0..40).map(|i| i.to_string()).collect();
-        let refs: Vec<&str> = songs.iter().map(String::as_str).collect();
-        let mut q = queue(&refs, 5, Repeat::Off);
-        q.fill = filling("PL1", 1, false);
-        assert!(q.shuffle_upcoming());
-        assert!(q.fill.as_ref().unwrap().shuffled);
-        assert_eq!(ids(&q)[..6], refs[..6]);
-        let mut rest: Vec<&str> = ids(&q)[6..].to_vec();
-        // 34 songs coming back in their order by chance is too unlikely to happen.
-        assert_ne!(rest, refs[6..]);
-        rest.sort_by_key(|s| s.parse::<u32>().unwrap());
-        assert_eq!(rest, refs[6..]);
-        // At the last song there's nothing to shuffle.
-        let mut q = queue(&["a", "b"], 1, Repeat::Off);
-        assert!(!q.shuffle_upcoming());
+    fn numbered(n: usize) -> Vec<String> {
+        (0..n).map(|i| i.to_string()).collect()
     }
 
     #[test]
-    fn a_shuffled_playlists_next_pages_mix_in_after_the_next_song() {
-        let songs: Vec<String> = (0..40).map(|i| i.to_string()).collect();
+    fn shuffle_on_puts_the_song_playing_first_and_off_puts_the_order_back() {
+        let songs = numbered(40);
         let refs: Vec<&str> = songs.iter().map(String::as_str).collect();
+        let mut q = queue(&refs, 5, Repeat::Off);
+        q.toggle_shuffle();
+        assert!(q.shuffled());
+        // The song playing first, then all the others, those played too.
+        assert_eq!((ids(&q)[0], q.index), ("5", Some(0)));
+        let mut rest: Vec<&str> = ids(&q)[1..].to_vec();
+        let others: Vec<&str> = refs.iter().copied().filter(|&s| s != "5").collect();
+        // 39 songs coming back in their order by chance is too unlikely to happen.
+        assert_ne!(rest, others);
+        rest.sort_by_key(|s| s.parse::<u32>().unwrap());
+        assert_eq!(rest, others);
+        // A few shuffled songs later, off goes on from the song playing in its own place.
+        q.advance();
+        q.advance();
+        let playing = q.current().unwrap().id.clone();
+        q.toggle_shuffle();
+        assert!(!q.shuffled());
+        assert_eq!(ids(&q), refs);
+        assert_eq!(q.current().unwrap().id, playing);
+        // With nothing playing, all of it shuffles and comes back.
+        q.index = None;
+        q.toggle_shuffle();
+        assert_ne!(ids(&q), refs);
+        q.toggle_shuffle();
+        assert_eq!((ids(&q), q.index), (refs.clone(), None));
+        // An empty queue has nothing to shuffle.
+        let mut empty = Queue::new(Repeat::Off);
+        empty.toggle_shuffle();
+        assert!(!empty.shuffled());
+        // A new queue starts with it off.
+        q.toggle_shuffle();
+        q.replace(vec![track("a")], 0, None);
+        assert!(!q.shuffled());
+    }
+
+    #[test]
+    fn songs_added_while_shuffled_stay_beside_the_song_playing() {
+        let mut q = queue(&["a", "b", "c", "d", "e"], 0, Repeat::Off);
+        q.toggle_shuffle();
+        // "x" played between two of the shuffled songs, "y" is up next, "z" last.
+        let at = q.index.unwrap() + 1;
+        q.tracks.insert(at, track("x"));
+        q.advance();
+        q.advance();
+        q.play_next(track("y"));
+        q.enqueue(track("z"));
+        let playing = q.current().unwrap().id.clone();
+        q.toggle_shuffle();
+        let order = ids(&q);
+        let i = q.index.unwrap();
+        assert_eq!(order[i], playing);
+        assert_eq!(order[i - 1], "x");
+        assert_eq!(order[i + 1..i + 3], ["y", "z"]);
+        let theirs: Vec<&str> = order.iter().copied().filter(|s| !["x", "y", "z"].contains(s)).collect();
+        assert_eq!(theirs, ["a", "b", "c", "d", "e"]);
+        // A song that joined, playing: after the nearest one before it that didn't.
+        let mut q = queue(&["a", "b", "c"], 0, Repeat::Off);
+        q.toggle_shuffle();
+        let before = q.tracks[2].id.clone();
+        q.enqueue(track("z"));
+        q.index = Some(3);
+        q.toggle_shuffle();
+        let order = ids(&q);
+        let i = q.index.unwrap();
+        assert_eq!(order[i], "z");
+        assert_eq!(order[i - 1], before);
+    }
+
+    #[test]
+    fn a_shuffled_playlists_next_pages_mix_in_and_come_back_in_order() {
+        let songs = numbered(40);
+        let refs: Vec<&str> = songs.iter().map(String::as_str).collect();
+        let mut q = Queue::new(Repeat::Off);
+        assert!(q.replace_shuffled(refs[..10].iter().map(|s| track(s)).collect(), filling("PL1", 1)));
+        q.advance();
+        q.advance();
         // The song after the current one stays: it may be loading already.
-        let mut q = queue(&refs[..10], 2, Repeat::Off);
-        q.fill = filling("PL1", 1, true);
+        let first: Vec<String> = ids(&q)[..4].iter().map(|s| s.to_string()).collect();
         let more: Vec<Track> = (10..40).map(|i| track(&i.to_string())).collect();
         q.fill_from("PL1", 1, more, true, true).unwrap();
-        assert_eq!(ids(&q)[..4], refs[..4]);
-        let mut rest: Vec<&str> = ids(&q)[4..].to_vec();
-        assert_ne!(rest, refs[4..]);
-        rest.sort_by_key(|s| s.parse::<u32>().unwrap());
-        assert_eq!(rest, refs[4..]);
+        assert_eq!(ids(&q)[..4], first);
+        assert_ne!(ids(&q)[4..], refs[4..]);
+        let mut all = ids(&q);
+        all.sort_by_key(|s| s.parse::<u32>().unwrap());
+        assert_eq!(all, refs);
+        q.toggle_shuffle();
+        assert_eq!(ids(&q), refs);
+        // Pages after it's off join in order.
+        q.fill_from("PL1", 1, vec![track("40")], false, true).unwrap();
+        assert_eq!(ids(&q).last(), Some(&"40"));
     }
 
     #[test]

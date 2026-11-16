@@ -146,6 +146,21 @@ impl App {
         if hidden {
             self.toast(if played { "Skipped an explicit song" } else { "Nothing to play that isn't explicit" });
         }
+        self.start_queue(played);
+    }
+
+    /// Play `tracks` shuffled, with shuffle on; `fill` as for `play_list_filling`.
+    pub(super) fn play_shuffled(&mut self, tracks: Vec<Track>, fill: Option<QueueFill>) {
+        let hidden = self.hide_explicit && !tracks.is_empty() && tracks.iter().all(|t| t.explicit);
+        let played = self.queue.replace_shuffled(tracks, fill);
+        if hidden {
+            self.toast("Nothing to play that isn't explicit");
+        }
+        self.start_queue(played);
+    }
+
+    /// The queue was replaced (`played`): its song starts.
+    fn start_queue(&mut self, played: bool) {
         if !played {
             return;
         }
@@ -584,14 +599,19 @@ impl App {
         self.audio.send(if playing { AudioCmd::Pause } else { AudioCmd::Resume });
     }
 
-    pub(super) fn shuffle_upcoming(&mut self) {
+    /// The Shuffle button: on, or off putting the queue back in order (see `Queue::toggle_shuffle`).
+    pub(super) fn toggle_shuffle(&mut self) {
         if self.jam.guest() {
             return self.toast("Only the host can shuffle the jam");
         }
-        if self.queue.shuffle_upcoming() {
-            self.toast("Shuffled up next");
-            self.prefetch_next();
+        self.queue.toggle_shuffle();
+        // Waiting at the end for a playlist's next page, with songs after this one now.
+        if !self.queue.at_end() && self.queue.fill.as_mut().is_some_and(|f| std::mem::take(&mut f.ran_out)) {
+            return self.next();
         }
+        // Off can leave the song playing last, so autoplay's songs are wanted now.
+        self.top_up();
+        self.prefetch_next();
     }
 }
 

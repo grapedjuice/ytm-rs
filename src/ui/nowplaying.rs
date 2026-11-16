@@ -798,8 +798,8 @@ fn cover_player(app: &mut App, ui: &mut Ui, track: &crate::model::Track, art: Re
     }
 
     let at = |k: f32| pos2(c.x + gap * k, row_y);
-    if cover_glyph(ui, at(-2.0), icon::SHUFFLE, 20.0 * s, "shuffle", "Shuffle up next", true).clicked() {
-        app.shuffle_upcoming();
+    if cover_glyph(ui, at(-2.0), icon::SHUFFLE, 20.0 * s, "shuffle", "Shuffle", app.queue.shuffled()).clicked() {
+        app.toggle_shuffle();
     }
     if cover_glyph(ui, at(-1.0), icon::SKIP_BACK, 26.0 * s, "prev", "Previous", true).clicked() {
         app.prev();

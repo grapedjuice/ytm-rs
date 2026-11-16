@@ -185,6 +185,8 @@ pub enum Action {
     /// The songs a list was narrowed to: they stay the whole queue, however much more of
     /// the list comes in.
     PlayFound(Vec<Track>, usize),
+    /// A page's Shuffle button: its songs shuffled, with shuffle on.
+    Shuffle(Vec<Track>),
     PlayCollection(Target, bool),
     /// Click on a card: songs start a radio, everything else opens its page.
     Open(Target),

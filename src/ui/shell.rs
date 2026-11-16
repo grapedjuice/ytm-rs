@@ -1487,8 +1487,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         resp.clicked()
     };
     let (outer, inner) = if tight { (108.0, 56.0) } else { (124.0, 64.0) };
-    if ctl(ui, -outer, icon::SHUFFLE, "Shuffle up next", false, 18.0) {
-        app.shuffle_upcoming();
+    if ctl(ui, -outer, icon::SHUFFLE, "Shuffle", app.queue.shuffled(), 18.0) {
+        app.toggle_shuffle();
     }
     if ctl(ui, -inner, icon::SKIP_BACK, "Previous", false, 22.0) {
         app.prev();

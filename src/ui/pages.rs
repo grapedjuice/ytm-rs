@@ -967,9 +967,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                     let target = if is_album { Target::Album(id.to_owned()) } else { Target::Playlist(id.to_owned()) };
                     play_pill(ui, acts, &target, tracks, find, page);
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() && !tracks.is_empty() {
-                        let mut t = tracks.clone();
-                        super::shuffle_to_play(&mut t, &app.queue);
-                        acts.push(Action::Play(t, 0));
+                        acts.push(Action::Shuffle(tracks.clone()));
                     }
                     if let Some(first) = tracks.first()
                         && pill(ui, "Radio", Some(icon::RADIO), false).clicked() {
@@ -1153,9 +1151,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         ui.spacing_mut().item_spacing.x = 10.0;
         play_pill(ui, acts, &Target::Artist(id.to_owned()), top, &app.find, &app.page);
         if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() && !top.is_empty() {
-            let mut t = top.clone();
-            super::shuffle_to_play(&mut t, &app.queue);
-            acts.push(Action::Play(t, 0));
+            acts.push(Action::Shuffle(top.clone()));
         }
         if let Some(first) = top.first()
             && pill(ui, "Radio", Some(icon::RADIO), false).clicked() {
@@ -1296,9 +1292,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                     app.pick_uploads(ui.ctx());
                 }
                 if app.uploads.as_ref().is_some_and(|u| !u.is_empty()) && pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() {
-                    let mut t = app.uploads.clone().unwrap_or_default();
-                    super::shuffle_to_play(&mut t, &app.queue);
-                    app.actions.push(Action::Play(t, 0));
+                    app.actions.push(Action::Shuffle(app.uploads.clone().unwrap_or_default()));
                 }
                 if let Some(up) = &app.uploads {
                     find_box_right(ui, &mut app.find, &mut app.selection, &app.page, up);
@@ -1326,9 +1320,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                         app.actions.push(play_all(&app.find, &app.page, songs));
                     }
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() {
-                        let mut t = songs.clone();
-                        super::shuffle_to_play(&mut t, &app.queue);
-                        app.actions.push(Action::Play(t, 0));
+                        app.actions.push(Action::Shuffle(songs.clone()));
                     }
                 }
                 if pill(ui, "Open folder", Some(icon::FOLDER_OPEN), false).clicked() {
@@ -1388,9 +1380,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                         app.actions.push(play_all(&app.find, &app.page, liked));
                     }
                     if pill(ui, "Shuffle", Some(icon::SHUFFLE), false).clicked() {
-                        let mut t = liked.clone();
-                        super::shuffle_to_play(&mut t, &app.queue);
-                        app.actions.push(Action::Play(t, 0));
+                        app.actions.push(Action::Shuffle(liked.clone()));
                     }
                     select_pill(ui, &mut app.selection, &app.page);
                     find_box_right(ui, &mut app.find, &mut app.selection, &app.page, liked);

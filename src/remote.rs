@@ -43,6 +43,7 @@ pub struct Snapshot {
     pub playing: bool,
     pub liked: bool,
     pub repeat: RepeatMode,
+    pub shuffle: bool,
     /// 0.0–1.0.
     pub volume: f32,
     pub position: u64,
@@ -59,6 +60,7 @@ impl Default for Snapshot {
             playing: false,
             liked: false,
             repeat: RepeatMode::Off,
+            shuffle: false,
             volume: 1.0,
             position: 0,
             duration: 0,
@@ -76,6 +78,7 @@ pub enum Cmd {
     SetVolume(f32),
     /// `None` toggles the heart of what's playing.
     Like(Option<bool>),
+    /// Toggles shuffle.
     Shuffle,
     /// `None` cycles off, then all, then one.
     Repeat(Option<RepeatMode>),
@@ -404,6 +407,7 @@ mod tests {
         assert_eq!(v["title"], "Song");
         assert_eq!(v["playing"], true);
         assert_eq!(v["repeat"], "off");
+        assert_eq!(v["shuffle"], false);
         assert!(v["album"].is_null());
     }
 

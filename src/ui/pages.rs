@@ -1566,7 +1566,7 @@ fn settings(app: &mut App, ui: &mut Ui) {
         area = area.vertical_scroll_offset(y);
     }
     let mut column = ui.new_child(egui::UiBuilder::new().max_rect(body).layout(top_down));
-    area.show(&mut column, |ui| {
+    area.show_viewport(&mut column, |ui, viewport| {
         ui.set_max_width((ui.available_width() - 20.0).clamp(0.0, SETTINGS_COLUMN));
         if filtering() {
             for tab in SettingsTab::ALL {
@@ -1581,6 +1581,15 @@ fn settings(app: &mut App, ui: &mut Ui) {
             settings_tab(app, ui, app.settings_tab);
         }
         ui.add_space(40.0);
+        // A section folding away (Discord's, switched off) leaves its room empty rather
+        // than pull the page down under the pointer: as much as keeps where it's scrolled
+        // to, which scrolling back up gives back. A search's results follow what's typed.
+        if !filtering() {
+            let room = viewport.bottom() - ui.min_rect().height();
+            if room > 0.0 {
+                ui.add_space(room);
+            }
+        }
     });
     ui.advance_cursor_after_rect(full);
     FILTER.take();

@@ -1586,14 +1586,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     if right_btn(ui, icon::PICTURE_IN_PICTURE, "Mini player (Ctrl+M)", false) {
         app.actions.push(Action::Mini(true));
     }
-    // In now playing the queue is its Up next panel; elsewhere, the side panel.
-    let queue_open = if app.np_open { app.np_tab == NpTab::UpNext } else { app.queue_open };
-    if right_btn(ui, icon::LIST_MUSIC, "Queue", queue_open) {
-        if app.np_open {
-            app.np_tab = if queue_open { NpTab::Art } else { NpTab::UpNext };
-        } else {
-            app.queue_open = !app.queue_open;
-        }
+    if right_btn(ui, icon::LIST_MUSIC, "Queue", app.queue_shown()) {
+        app.toggle_queue();
     }
     // Not lit for a song without lyrics: now playing shows its artwork instead.
     let lyrics_on = app.np_open && app.np_tab == NpTab::Lyrics && !app.no_lyrics();

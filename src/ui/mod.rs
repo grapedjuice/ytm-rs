@@ -22,6 +22,7 @@ mod notes;
 mod nowplaying;
 mod pace;
 mod pages;
+mod palette;
 mod playback;
 mod queue;
 mod responses;
@@ -571,6 +572,7 @@ pub struct App {
     /// Settings: the category on show, and what its search box is looking for.
     settings_tab: pages::SettingsTab,
     settings_query: String,
+    palette: palette::Palette,
     fullscreen: bool,
     /// Full screen is the video alone, its controls showing while the pointer moves.
     video_full: bool,
@@ -938,6 +940,7 @@ impl App {
             row_drag: None,
             settings_tab: Default::default(),
             settings_query: String::new(),
+            palette: Default::default(),
             // Dev hook: the full screen layout, leaving the window where it is.
             fullscreen: dev_var("YTM_FAKE_FULLSCREEN").is_some(),
             video_full: false,
@@ -1706,6 +1709,7 @@ impl eframe::App for App {
         }
         theme::set_mode(&ctx, bar_light);
         self.draw_dialog(&ctx);
+        palette::show(self, &ctx);
         hotkeys::capture_dialog(self, &ctx);
         notes::card(self, &ctx);
         notes::dialog(self, &ctx);

@@ -1590,8 +1590,6 @@ pub(super) struct CoverClip {
     frame: Option<(egui::TextureHandle, f64)>,
     /// Another size the cover has kept since (s), to play at once it has settled.
     resized: Option<(u32, f64)>,
-    /// When the colours last followed its frame (s).
-    coloured_at: f64,
 }
 
 impl CoverClip {
@@ -1609,7 +1607,7 @@ fn cover_clip(app: &mut App, ctx: &egui::Context, track: &crate::model::Track, p
         return None;
     }
     if app.cover_clip.as_ref().is_none_or(|c| c.id != track.id) {
-        app.cover_clip = Some(CoverClip { id: track.id.clone(), px: px.max(1), url: None, player: None, frame: None, resized: None, coloured_at: 0.0 });
+        app.cover_clip = Some(CoverClip { id: track.id.clone(), px: px.max(1), url: None, player: None, frame: None, resized: None });
         app.backend.request(crate::backend::Req::Canvas(track.clone()));
     }
     let playing = app.playing();
@@ -1635,19 +1633,19 @@ fn cover_clip(app: &mut App, ctx: &egui::Context, track: &crate::model::Track, p
         c.resized = None;
     }
     let player = c.player.as_mut().filter(|p| !p.failed())?;
-    // The clip is what's on screen, and a song's single and album covers can differ: the
-    // colours follow the frame showing, a few times a second, as a music video's
-    // background does. The first crossfades from the still cover's.
-    let mut recolour = None;
+    // The clip is what's on screen, and a song's single and album covers can differ: its
+    // first frame sets the colours (kept for the song), crossfading from the still cover's.
+    // They stay put while it plays: each theme decides whether its background moves.
+    let mut recolour = false;
     if let Some(f) = player.take_due(now, playing) {
-        let first = c.frame.is_none();
-        if (first || now - c.coloured_at > 0.25)
-            && let Some(mut art) = crate::art::from_cover_frame(&f.image)
-        {
-            crate::art::soften(&mut art, crate::preset::active().background.blur_passes.saturating_sub(6));
-            app.clip_art = Some((c.id.clone(), art));
-            c.coloured_at = now;
-            recolour = Some(first);
+        if c.frame.is_none() {
+            if app.clip_art.as_ref().is_none_or(|(id, _)| *id != c.id)
+                && let Some(mut art) = crate::art::from_cover_frame(&f.image)
+            {
+                crate::art::soften(&mut art, crate::preset::active().background.blur_passes.saturating_sub(6));
+                app.clip_art = Some((c.id.clone(), art));
+            }
+            recolour = app.clip_art.as_ref().is_some_and(|(id, _)| *id == c.id);
         }
         match &mut c.frame {
             Some((tex, _)) => tex.set(f.image, egui::TextureOptions::LINEAR),
@@ -1663,10 +1661,8 @@ fn cover_clip(app: &mut App, ctx: &egui::Context, track: &crate::model::Track, p
         super::pace::repaint_after(ctx, std::time::Duration::from_millis(16));
     }
     let out = c.frame.as_ref().map(|(tex, _)| (tex.clone(), shown));
-    match recolour {
-        Some(true) => app.show_cover_colours(now),
-        Some(false) => app.follow_clip(),
-        None => {}
+    if recolour {
+        app.show_cover_colours(now);
     }
     out
 }

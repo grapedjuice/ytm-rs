@@ -173,8 +173,8 @@ async fn main() -> R {
     }.await);
 
     let state = json!({
-        "t": "state", "queue": [{ "videoId": "aaa" }, { "videoId": "bbb" }], "index": 0,
-        "by": { "aaa": "Alice" }, "vid": "aaa", "pos": 1000, "playing": true
+        "t": "state", "queue": [{ "id": "aaaaaaaaaaa" }, { "id": "bbbbbbbbbbb" }], "index": 0,
+        "by": { "aaaaaaaaaaa": "Alice" }, "vid": "aaaaaaaaaaa", "pos": 1000, "playing": true
     });
     step!("host sends state alone", send(&mut a, state.clone()).await);
 
@@ -186,7 +186,7 @@ async fn main() -> R {
         check(w["members"].as_array().map(Vec::len) == Some(2), "2 members")?;
         check(w["members"][1]["name"] == "Guest", "empty name -> Guest")?;
         check(w["state"]["queue"] == state["queue"] && w["state"]["ts"].is_number(), &format!("state: {}", w["state"]))?;
-        check(w["tick"]["vid"] == "aaa" && w["tick"]["pos"] == 1000 && w["tick"]["ts"].is_number(), &format!("tick: {}", w["tick"]))?;
+        check(w["tick"]["vid"] == "aaaaaaaaaaa" && w["tick"]["pos"] == 1000 && w["tick"]["ts"].is_number(), &format!("tick: {}", w["tick"]))?;
         let m = expect(&mut a, "members").await?;
         check(m["members"].as_array().map(Vec::len) == Some(2), "host told about join")?;
         Ok::<_, Box<dyn std::error::Error>>(w["you"].clone())
@@ -195,23 +195,23 @@ async fn main() -> R {
     step!("state broadcast to others with ts", async {
         let mut s2 = state.clone();
         s2["index"] = json!(1);
-        s2["vid"] = json!("bbb");
+        s2["vid"] = json!("bbbbbbbbbbb");
         send(&mut a, s2).await?;
         let s = expect(&mut b, "state").await?;
-        check(s["index"] == 1 && s["vid"] == "bbb" && s["ts"].is_number(), &s.to_string())?;
+        check(s["index"] == 1 && s["vid"] == "bbbbbbbbbbb" && s["ts"].is_number(), &s.to_string())?;
         expect_none(&mut a, "state").await
     }.await);
 
     let mut c = step!("third member joins", connect(&code, false, "Carol").await);
     step!("late joiner sees latest state", async {
         let w = expect(&mut c, "welcome").await?;
-        check(w["state"]["index"] == 1 && w["tick"]["vid"] == "bbb", &w.to_string())?;
+        check(w["state"]["index"] == 1 && w["tick"]["vid"] == "bbbbbbbbbbb", &w.to_string())?;
         expect(&mut a, "members").await?;
         expect(&mut b, "members").await.map(|_| ())
     }.await);
 
     step!("tick relayed with ts", async {
-        send(&mut a, json!({ "t": "tick", "vid": "bbb", "pos": 4200, "playing": false })).await?;
+        send(&mut a, json!({ "t": "tick", "vid": "bbbbbbbbbbb", "pos": 4200, "playing": false })).await?;
         for ws in [&mut b, &mut c] {
             let t = expect(ws, "tick").await?;
             check(t["pos"] == 4200 && t["playing"] == false && t["ts"].is_number(), &t.to_string())?;
@@ -226,9 +226,29 @@ async fn main() -> R {
     }.await);
 
     step!("req add forwarded to host", async {
-        send(&mut b, json!({ "t": "req", "cmd": { "k": "add", "track": { "videoId": "ccc" } } })).await?;
+        send(&mut b, json!({ "t": "req", "cmd": { "k": "add", "track": { "id": "ccccccccccc" } } })).await?;
         let r = expect(&mut a, "req").await?;
-        check(r["from"] == b_id && r["name"] == "Guest" && r["cmd"]["track"]["videoId"] == "ccc", &r.to_string())
+        check(r["from"] == b_id && r["name"] == "Guest" && r["cmd"]["track"]["id"] == "ccccccccccc", &r.to_string())
+    }.await);
+
+    step!("songs that aren't YouTube videos -> bad, not passed on", async {
+        let mut bad = state.clone();
+        bad["queue"] = json!([{ "id": "../../../x" }]);
+        send(&mut a, bad).await?;
+        expect_error(&mut a, "bad").await?;
+        send(&mut a, json!({ "t": "tick", "vid": r"C:\Windows\x", "pos": 0, "playing": true })).await?;
+        expect_error(&mut a, "bad").await?;
+        send(&mut b, json!({ "t": "req", "cmd": { "k": "add", "track": { "id": r"\\host\share\x" } } })).await?;
+        expect_error(&mut b, "bad").await?;
+        expect_none(&mut b, "state").await?;
+        expect_none(&mut a, "req").await
+    }.await);
+
+    step!("pictures from elsewhere are taken out, the song stays", async {
+        let thumbs = json!([{ "url": "https://evil.example/a.jpg" }, { "url": r"file://\\host\share\a.jpg" }, { "url": "https://i.ytimg.com/vi/x/a.jpg" }]);
+        send(&mut b, json!({ "t": "req", "cmd": { "k": "add", "track": { "id": "eeeeeeeeeee", "thumbs": thumbs } } })).await?;
+        let r = expect(&mut a, "req").await?;
+        check(r["cmd"]["track"]["thumbs"] == json!([{ "url": "https://i.ytimg.com/vi/x/a.jpg" }]), &r.to_string())
     }.await);
 
     step!("gated req denied while control off", async {
@@ -254,7 +274,7 @@ async fn main() -> R {
             let m = expect(ws, "control").await?;
             check(m["on"] == true && m["queue"] == false, &m.to_string())?;
         }
-        send(&mut b, json!({ "t": "req", "cmd": { "k": "add", "track": { "videoId": "ddd" } } })).await?;
+        send(&mut b, json!({ "t": "req", "cmd": { "k": "add", "track": { "id": "ddddddddddd" } } })).await?;
         expect_error(&mut b, "denied").await?;
         expect_none(&mut a, "req").await?;
         send(&mut b, json!({ "t": "req", "cmd": { "k": "skip" } })).await?;

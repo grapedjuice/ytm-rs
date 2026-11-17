@@ -4,7 +4,7 @@
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
   "build": {
-    "command": "cargo install -q worker-build && worker-build --release"
+    "command": "cargo install -q worker-build --version ~0.8 --locked && worker-build --release"
   },
   "durable_objects": {
     "bindings": [

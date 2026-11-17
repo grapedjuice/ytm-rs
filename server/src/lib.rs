@@ -196,7 +196,7 @@ impl DurableObject for Room {
         match t.as_str() {
             "ping" => send(&ws, &json!({ "t": "pong", "c": m.get("c"), "s": now as u64 })),
             "state" => {
-                if !valid_state(&m) {
+                if !valid_state(&mut m) {
                     return error(&ws, "bad", "malformed state");
                 }
                 m.insert("ts".into(), (now as u64).into());
@@ -240,8 +240,8 @@ impl DurableObject for Room {
                 self.report("end", 0).await;
             }
             "req" => {
-                let cmd = m.remove("cmd").unwrap_or(Value::Null);
-                let Some(kind) = valid_cmd(&cmd) else {
+                let mut cmd = m.remove("cmd").unwrap_or(Value::Null);
+                let Some(kind) = valid_cmd(&mut cmd) else {
                     return error(&ws, "bad", "malformed req");
                 };
                 let gated = matches!(kind, "toggle" | "skip" | "prev" | "seek" | "jump");
@@ -416,29 +416,57 @@ fn is_num(v: Option<&Value>) -> bool {
 }
 
 fn valid_tick(m: &Map<String, Value>) -> bool {
-    m.get("vid").is_some_and(Value::is_string)
+    m.get("vid").and_then(Value::as_str).is_some_and(|v| v.is_empty() || is_video_id(v))
         && is_num(m.get("pos"))
         && m.get("playing").is_some_and(Value::is_boolean)
 }
 
-fn valid_state(m: &Map<String, Value>) -> bool {
+/// Every song in the queue is checked (see `clean_track`).
+fn valid_state(m: &mut Map<String, Value>) -> bool {
     valid_tick(m)
-        && m.get("queue").and_then(Value::as_array).is_some_and(|q| q.iter().all(Value::is_object))
+        && m.get_mut("queue").and_then(Value::as_array_mut).is_some_and(|q| q.iter_mut().all(clean_track))
         && is_num(m.get("index"))
         && m.get("by").is_some_and(Value::is_object)
 }
 
 /// Returns the command kind if the command is well formed.
-fn valid_cmd(cmd: &Value) -> Option<&str> {
-    let kind = cmd.get("k")?.as_str()?;
-    let ok = match kind {
-        "add" | "next" => cmd.get("track").is_some_and(Value::is_object),
+fn valid_cmd(cmd: &mut Value) -> Option<&str> {
+    let ok = match cmd.get("k")?.as_str()? {
+        "add" | "next" => cmd.get_mut("track").is_some_and(clean_track),
         "seek" => is_num(cmd.get("pos")),
         "jump" => is_num(cmd.get("index")),
         "toggle" | "skip" | "prev" => true,
         _ => false,
     };
-    ok.then_some(kind)
+    if ok { cmd.get("k")?.as_str() } else { None }
+}
+
+/// A song as members may pass it on: its ID (and the one it stands for, if any) a YouTube
+/// video ID, since clients put it in file names. Pictures from anywhere but YouTube's own
+/// image hosts over https are taken out, as clients fetch them.
+fn clean_track(t: &mut Value) -> bool {
+    let Some(t) = t.as_object_mut() else { return false };
+    let id_ok = |v: &Value| v.as_str().is_some_and(is_video_id);
+    if !t.get("id").is_some_and(id_ok) || t.get("stands_for").is_some_and(|v| !v.is_null() && !id_ok(v)) {
+        return false;
+    }
+    if let Some(Value::Array(thumbs)) = t.get_mut("thumbs") {
+        thumbs.retain(|th| th.get("url").and_then(Value::as_str).is_some_and(youtube_image));
+    }
+    true
+}
+
+/// 11 letters, digits, `-` or `_`.
+fn is_video_id(id: &str) -> bool {
+    id.len() == 11 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// An https link to one of the hosts YouTube's pictures come from.
+fn youtube_image(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else { return false };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let ours = |domain: &str| host == domain || host.strip_suffix(domain).is_some_and(|sub| sub.ends_with('.'));
+    host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-') && (ours("ytimg.com") || ours("googleusercontent.com") || ours("ggpht.com"))
 }
 
 fn stats_stub(env: &Env) -> Result<Stub> {

@@ -173,8 +173,9 @@ fn entries(app: &App) -> Vec<Entry> {
     for (name, tab) in SECTIONS {
         add(Group::Settings, Command::Setting(tab, name), name, if name == tab.label() { "" } else { tab.label() }, icon::SETTINGS);
     }
-    let lists: Vec<_> =
-        app.library.as_ref().map(|l| &l.playlists).or(app.sidebar_cache.as_ref()).into_iter().flatten().filter(|c| !matches!(c.target, Target::Song(_))).collect();
+    let cards = app.library.as_ref().map(|l| l.playlists.as_slice()).or(app.sidebar_cache.as_deref()).unwrap_or_default();
+    // Pinned first, as in the sidebar.
+    let lists: Vec<_> = super::collections::pinned_first(&app.pinned, cards, 0..cards.len()).into_iter().map(|i| &cards[i]).filter(|c| !matches!(c.target, Target::Song(_))).collect();
     for c in &lists {
         add(Group::Playlists, Command::Open(c.target.clone()), &c.title, "", icon::LIST_MUSIC);
     }

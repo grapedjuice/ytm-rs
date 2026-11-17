@@ -218,6 +218,8 @@ pub enum Action {
     LikeMany(Vec<Track>, bool),
     Dislike(Track),
     Share(Target),
+    /// Keep a playlist at the top of the sidebar and Library › Playlists (true), or not.
+    Pin(String, bool),
     AddToPlaylist(Vec<Track>),
     /// Rows (indices into the open playlist) to take out of it.
     RemoveFromPlaylist(Vec<usize>),
@@ -462,6 +464,8 @@ pub struct App {
     switching_to: Option<String>,
     /// Last launch's playlists, shown in the sidebar until the library arrives.
     sidebar_cache: Option<Vec<Card>>,
+    /// Playlists kept at the top of the sidebar and Library › Playlists, last pinned first.
+    pinned: Vec<String>,
 
     // playback
     queue: Queue,
@@ -848,6 +852,7 @@ impl App {
             channels_asked: None,
             switching_to: None,
             sidebar_cache: None,
+            pinned: get("pinned_playlists").and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
             queue: Queue::new(match get("repeat").as_deref() {
                 Some("all") => Repeat::All,
                 Some("one") => Repeat::One,
@@ -1931,6 +1936,7 @@ impl eframe::App for App {
         storage.set_string("hide_search_videos", b(self.hide_search_videos));
         storage.set_string("hide_explicit", b(self.hide_explicit));
         storage.set_string("list_sorts", serde_json::to_string(&self.find.sorts).unwrap_or_default());
+        storage.set_string("pinned_playlists", serde_json::to_string(&self.pinned).unwrap_or_default());
         storage.set_string("podcasts", b(self.show_podcasts));
         storage.set_string("comments", b(self.show_comments));
         storage.set_string("restricted_mode", b(self.restricted_mode));

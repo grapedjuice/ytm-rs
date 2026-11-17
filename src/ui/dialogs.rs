@@ -68,12 +68,13 @@ impl App {
                         pages::divider(ui);
                         ui.add_space(6.0);
                         let cards = self.library.as_ref().map(|l| l.playlists.clone()).unwrap_or_default();
+                        let order = super::collections::pinned_first(&self.pinned, &cards, 0..cards.len());
                         egui::ScrollArea::vertical().max_height(340.0).auto_shrink([false, true]).show(ui, |ui| {
-                            for card in cards {
-                                if let Target::Playlist(id) = card.target {
+                            for card in order.into_iter().map(|i| &cards[i]) {
+                                if let Target::Playlist(id) = &card.target {
                                     if !id.starts_with("PL") { continue; }
                                     if dialog_row(ui, Some(&card.thumbs), None, &card.title) {
-                                        self.add_to_playlist(id, tracks);
+                                        self.add_to_playlist(id.clone(), tracks);
                                         done = true;
                                     }
                                 }

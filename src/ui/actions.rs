@@ -221,6 +221,12 @@ impl App {
                 self.share_pending = Some(share_url(&target));
                 self.toast("Link copied");
             }
+            Action::Pin(id, on) => {
+                self.pinned.retain(|p| *p != id);
+                if on {
+                    self.pinned.insert(0, id);
+                }
+            }
             Action::Download(track) => {
                 self.toast(format!("Downloading \u{201c}{}\u{201d}", track.title));
                 // The song version playing for a music video: that video plays the file too.

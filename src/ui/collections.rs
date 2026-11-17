@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 
 use crate::backend::{Collection, Req};
-use crate::model::{ShelfKind, Target, Track};
+use crate::model::{Card, ShelfKind, Target, Track};
 
 use super::lists::{Arrival, Done, LIKED_MUSIC, Opened, Start};
 use super::pages::thousands;
@@ -280,6 +280,19 @@ fn with_count(subtitle: &str, n: u64) -> Option<String> {
     Some(parts.join(" • "))
 }
 
+/// The playlist cards `order`ed (indices into `cards`), the `pinned` ones first in the
+/// order they're pinned in.
+pub(super) fn pinned_first(pinned: &[String], cards: &[Card], order: impl IntoIterator<Item = usize>) -> Vec<usize> {
+    let rank = |i: usize| match &cards[i].target {
+        Target::Playlist(id) => pinned.iter().position(|p| p == id),
+        _ => None,
+    };
+    let mut order: Vec<usize> = order.into_iter().collect();
+    // Stable: the rest keep their order.
+    order.sort_by_key(|&i| rank(i).unwrap_or(usize::MAX));
+    order
+}
+
 /// "1,234 tracks" -> (1234, "track").
 fn count_of(part: &str) -> Option<(u64, &str)> {
     let (n, noun) = part.split_once(' ')?;
@@ -290,7 +303,19 @@ fn count_of(part: &str) -> Option<(u64, &str)> {
 
 #[cfg(test)]
 mod tests {
-    use super::with_count;
+    use super::{pinned_first, with_count};
+    use crate::model::{Card, Target};
+
+    #[test]
+    fn pinned_playlists_come_first() {
+        let card = |id: &str| Card { title: String::new(), subtitle: String::new(), thumbs: Vec::new(), target: Target::Playlist(id.into()), round: false, links: Vec::new() };
+        let cards = [card("a"), card("b"), card("c"), card("d")];
+        let pinned = ["d".to_owned(), "b".to_owned(), "gone".to_owned()];
+        assert_eq!(pinned_first(&pinned, &cards, 0..4), [3, 1, 0, 2]);
+        // Sorted some other way, the rest keep that order.
+        assert_eq!(pinned_first(&pinned, &cards, [2, 1, 0, 3]), [3, 1, 2, 0]);
+        assert_eq!(pinned_first(&[], &cards, 0..4), [0, 1, 2, 3]);
+    }
 
     #[test]
     fn a_card_counts_what_its_playlist_has() {

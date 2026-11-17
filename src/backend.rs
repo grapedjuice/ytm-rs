@@ -117,6 +117,8 @@ pub enum Req {
     /// Move an entry to just before another, or to the end.
     MoveInPlaylist { playlist_id: String, move_id: u64, set_id: String, before: Option<String> },
     DeletePlaylist(String),
+    /// An uploaded song (`Track::upload`), and its title for the error.
+    DeleteUpload { entity: String, title: String },
     /// A playlist's collaboration settings and invite link.
     Collaboration(String),
     SetCollaboration { info: ytm::Collaboration, change: ytm::CollabChange },
@@ -169,6 +171,7 @@ impl Req {
             Req::RemoveFromPlaylist { .. } => "Remove from playlist",
             Req::MoveInPlaylist { .. } => "Move in playlist",
             Req::DeletePlaylist(_) => "Delete playlist",
+            Req::DeleteUpload { .. } => "Delete upload",
             Req::Collaboration(_) => "Loading collaboration",
             Req::SetCollaboration { .. } => "Collaboration",
             Req::SaveCollection { .. } => "Save to library",
@@ -363,6 +366,8 @@ pub enum Resp {
     Library(Library),
     History(Vec<Track>),
     Uploads(Vec<Track>),
+    /// An upload was deleted: the uploads as they are now.
+    UploadDeleted(Vec<Track>),
     Account { name: Option<String>, photo: Option<String> },
     Channels(Channels),
     /// A `Req::SwitchChannel` is done (requests go as `epoch` now), or `error` says why it isn't.
@@ -1325,6 +1330,13 @@ impl Backend {
                     Err(e) => {
                         log::warn!("deleting playlist {id}: {e:#}");
                         Resp::DeleteFailed { error: format!("Couldn't delete the playlist: {e}") }
+                    }
+                },
+                Req::DeleteUpload { entity, title } => match ytm::delete_upload(api, &entity).await {
+                    Ok(()) => Resp::UploadDeleted(ytm::uploads(api).await?),
+                    Err(e) => {
+                        log::warn!("deleting upload {entity}: {e:#}");
+                        Resp::DeleteFailed { error: format!("Couldn't delete \u{201c}{title}\u{201d}: {e}") }
                     }
                 },
                 Req::Collaboration(id) => Resp::Collaboration(ytm::collaboration(api, &id).await?),

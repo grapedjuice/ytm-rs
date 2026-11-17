@@ -291,6 +291,10 @@ impl App {
                 self.history = Some(h);
                 self.loading = false;
             }
+            Resp::UploadDeleted(t) => {
+                self.uploads = Some(t);
+                self.toast("Deleted from your uploads");
+            }
             Resp::Uploads(t) => {
                 self.uploads = Some(t);
                 if self.page == Page::Library(LibTab::Uploads) {

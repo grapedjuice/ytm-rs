@@ -241,6 +241,8 @@ pub enum Action {
     /// The open playlist's collaboration settings.
     Collaborate,
     DeletePlaylist,
+    /// Delete an uploaded song from the account, after asking.
+    DeleteUpload(Track),
     SaveCollection(String, bool),
     /// Subscribe to the open artist (true), or unsubscribe.
     Subscribe(bool),
@@ -259,6 +261,8 @@ enum Dialog {
     NewPlaylist { title: String, tracks: Vec<Track> },
     EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
     ConfirmDelete { id: String, title: String },
+    /// Deleting an uploaded song (`Track::upload`), asked about first.
+    ConfirmDeleteUpload { entity: String, title: String },
     /// Clearing the cache (Settings › Storage), asked about first.
     ConfirmClearCache,
     /// A large download (`count` songs to go) asked about before it starts.

@@ -1042,6 +1042,12 @@ pub fn song_actions(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, 
         && menu_action(ui, Some(icon::USER), "Go to artist") {
             acts.push(Action::Open(Target::Artist(id.to_owned())));
         }
+    if crate::ytm::upload_entity(&t.id).is_some() {
+        menu_divider(ui);
+        if menu_action(ui, Some(icon::TRASH_2), "Delete upload") {
+            acts.push(Action::DeleteUpload(t.clone()));
+        }
+    }
 }
 
 /// Soft drop shadow under a rounded rect (e.g. artwork).

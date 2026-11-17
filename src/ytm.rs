@@ -1374,7 +1374,7 @@ fn upload_rows(shelf: &Value) -> Vec<Track> {
 /// An uploaded song's row. Some may name the song only in their menu (Play next, Add to
 /// queue), which is where ytmusicapi reads it from.
 fn upload_row(r: &Value) -> Option<Track> {
-    list_item(r).or_else(|| {
+    let t = list_item(r).or_else(|| {
         let id = arr(&r["menu"]["menuRenderer"]["items"]).iter().find_map(|i| {
             let queued = &i["menuServiceItemRenderer"]["serviceEndpoint"]["queueAddEndpoint"]["queueTarget"]["videoId"];
             queued.as_str().or_else(|| i["menuNavigationItemRenderer"]["navigationEndpoint"]["watchEndpoint"]["videoId"].as_str())
@@ -1382,7 +1382,25 @@ fn upload_row(r: &Value) -> Option<Track> {
         let mut r = r.clone();
         r["playlistItemData"] = json!({ "videoId": id });
         list_item(&r)
-    })
+    })?;
+    // The menu's Delete asks first, then deletes it by this.
+    let entity = arr(&r["menu"]["menuRenderer"]["items"]).iter().find_map(|i| {
+        let confirm = &i["menuNavigationItemRenderer"]["navigationEndpoint"]["confirmDialogEndpoint"]["content"]["confirmDialogRenderer"];
+        confirm["confirmButton"]["buttonRenderer"]["command"]["musicDeletePrivatelyOwnedEntityCommand"]["entityId"].as_str()
+    });
+    if let Some(e) = entity {
+        UPLOAD_ENTITIES.lock().unwrap().insert(t.id.clone(), e.to_owned());
+    }
+    Some(t)
+}
+
+/// What deletes each uploaded song from the account (video ID → its entity), as the
+/// uploads last listed them.
+static UPLOAD_ENTITIES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, String>>> = std::sync::LazyLock::new(Default::default);
+
+/// What deletes `video_id` from the account's uploads, if it's one of them.
+pub fn upload_entity(video_id: &str) -> Option<String> {
+    UPLOAD_ENTITIES.lock().unwrap().get(video_id).cloned()
 }
 
 fn is_year(s: &str) -> bool {
@@ -1626,6 +1644,12 @@ fn move_action(set_id: &str, before: Option<&str>) -> Value {
         action["movedSetVideoIdSuccessor"] = next.into();
     }
     action
+}
+
+/// Delete an uploaded song from the account (`Track::upload`).
+pub async fn delete_upload(api: &Api, entity: &str) -> anyhow::Result<()> {
+    write(api, "music/delete_privately_owned_entity", json!({"entityId": entity})).await?;
+    Ok(())
 }
 
 pub async fn delete_playlist(api: &Api, id: &str) -> anyhow::Result<()> {
@@ -2421,6 +2445,24 @@ mod tests {
         // Those pages open in the app; Library › Uploads' own tabs aren't one of them.
         assert!(uploaded(ARTIST) && uploaded(ALBUM));
         assert!(!uploaded("FEmusic_library_privately_owned_tracks") && !uploaded("MPREb_54uxDZG0XOp"));
+    }
+
+    #[test]
+    fn an_uploaded_song_knows_what_deletes_it() {
+        // Its menu's Delete, as the uploads page has it (checked against a live answer).
+        let mut row: Value = serde_json::from_str(UPLOAD_ROW).unwrap();
+        row["musicResponsiveListItemRenderer"]["menu"] = json!({"menuRenderer": {"items": [
+            {"menuNavigationItemRenderer": {"text": {"runs": [{"text": "Go to artist"}]}}},
+            {"menuNavigationItemRenderer": {"icon": {"iconType": "DELETE"}, "navigationEndpoint": {"confirmDialogEndpoint": {"content": {"confirmDialogRenderer": {
+                "confirmButton": {"buttonRenderer": {"command": {"musicDeletePrivatelyOwnedEntityCommand": {"entityId": "t_po_CL-T5LKR7Zrq4QEQ2fetwwY"}}}}
+            }}}}}},
+        ]}});
+        row["musicResponsiveListItemRenderer"]["flexColumns"][0]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"][0]["navigationEndpoint"]["watchEndpoint"]["videoId"] = json!("delete_test");
+        let t = upload_row(&row["musicResponsiveListItemRenderer"]).unwrap();
+        assert_eq!(t.id, "delete_test");
+        assert_eq!(upload_entity("delete_test").as_deref(), Some("t_po_CL-T5LKR7Zrq4QEQ2fetwwY"));
+        // Without one, nothing to delete it by.
+        assert_eq!(upload_entity("not_uploaded"), None);
     }
 
     // An uploaded album's page as ytmusicapi reads one (not checked against a live answer):

@@ -38,6 +38,19 @@ impl App {
             }
             return;
         }
+        if let Some(Dialog::ConfirmDeleteUpload { entity, title }) = &self.dialog {
+            let (entity, title) = (entity.clone(), title.clone());
+            let body = format!("\u{201c}{title}\u{201d} will be deleted from your uploads on YouTube Music. This can't be undone.");
+            match confirm(ctx, "Delete upload?", &body, "Delete", "Delete upload") {
+                Some(true) => {
+                    self.dialog = None;
+                    self.backend.request(Req::DeleteUpload { entity, title });
+                }
+                Some(false) => self.dialog = None,
+                None => {}
+            }
+            return;
+        }
         let Some(mut dialog) = self.dialog.take() else { return };
         let accent = self.accent_color();
         let mut done = false;
@@ -46,6 +59,7 @@ impl App {
             Dialog::NewPlaylist { .. } => "New playlist",
             Dialog::EditPlaylist { .. } => "Edit playlist",
             Dialog::ConfirmDelete { .. } => "Delete playlist",
+            Dialog::ConfirmDeleteUpload { .. } => "Delete upload",
             Dialog::ConfirmClearCache => "Clear cache",
             Dialog::ConfirmDownload { .. } => "Download",
             Dialog::Collaborate { .. } => "Collaborate",
@@ -123,7 +137,7 @@ impl App {
                         done = ok || cancel;
                     }
                     Dialog::Collaborate { info, busy, confirm_off, .. } => done = self.collaborate_dialog(ui, info, busy, confirm_off, accent),
-                    Dialog::ConfirmDelete { .. } | Dialog::ConfirmClearCache => unreachable!("drawn by confirm"),
+                    Dialog::ConfirmDelete { .. } | Dialog::ConfirmDeleteUpload { .. } | Dialog::ConfirmClearCache => unreachable!("drawn by confirm"),
                 }
             });
         });

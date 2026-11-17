@@ -319,6 +319,11 @@ impl App {
                     self.dialog = Some(Dialog::Collaborate { id, info: None, busy: true, confirm_off: false });
                 }
             }
+            Action::DeleteUpload(t) => {
+                if let Some(entity) = crate::ytm::upload_entity(&t.id) {
+                    self.dialog = Some(Dialog::ConfirmDeleteUpload { entity, title: t.title });
+                }
+            }
             Action::DeletePlaylist => {
                 if let Some(c) = self.current_collection().filter(|c| !c.is_album) {
                     self.dialog = Some(Dialog::ConfirmDelete { id: c.id.clone(), title: c.title.clone() });

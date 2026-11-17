@@ -1850,15 +1850,17 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
     area.show(ui, |ui| {
         let accent = app.accent_color();
         let (queue, liked, acts, has_current, by, drag) = (&app.queue.tracks, &app.liked, &mut app.actions, app.queue.index.is_some(), &app.jam.by, &mut app.row_drag);
-        // Songs to come can be dragged into another order; in a jam, by the host.
+        // Songs can be dragged into another order, those played too, as in YouTube Music's
+        // queue, and songs dragged in from other lists land where they're let go; in a jam,
+        // by the host.
         let (list, movable) = (egui::Id::unique(("queue", salt)), !app.jam.guest());
         let gap = if has_current { q.current_gap } else { 0.0 };
-        // Only the songs below the current one can be dragged to; they're `gap` lower.
-        let top = ui.cursor().top() + gap;
+        // The songs below the current one are `gap` lower.
+        let top = ui.cursor().top();
         widgets::visible_rows_gap(ui, queue.len(), start, gap, |ui, i| {
             let t = &queue[i];
             let current = i == start && has_current;
-            if movable && (i > start || !has_current) {
+            if movable && !current {
                 row_drag::grip(ui, drag, list, i, t);
             }
             let queue_remove = (!current && drag.is_none()).then_some(i);
@@ -1868,9 +1870,12 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
                 acts.push(if current { Action::TogglePlay } else { Action::QueueJump(i) });
             }
         });
-        let lowest = if has_current { start + 1 } else { start };
-        if let Some(d) = row_drag::feedback(ui, drag, list, row_drag::Rows { top, first: 0, lowest, end: queue.len(), accent }) {
+        let rows = row_drag::Rows { top, first: 0, lowest: 0, end: queue.len(), accent, spaced: (gap > 0.0).then_some((start, gap)) };
+        if let Some(d) = row_drag::feedback(ui, drag, list, rows) {
             acts.push(Action::QueueMove { from: d.from, gap: d.gap, id: d.id });
+        }
+        if movable && let Some((gap, track)) = row_drag::receive(ui, drag, list, rows) {
+            acts.push(Action::QueueInsert { gap, track });
         }
     });
     ui.data_mut(|d| d.insert_temp(egui::Id::unique("in-queue"), false));

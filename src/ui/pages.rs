@@ -276,7 +276,7 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
     });
     if !movable {
         row_drag::carry(ui, drag, drag_list);
-    } else if let Some(d) = row_drag::feedback(ui, drag, drag_list, row_drag::Rows { top, first: 0, lowest: 0, end: n, accent: rows.accent }) {
+    } else if let Some(d) = row_drag::feedback(ui, drag, drag_list, row_drag::Rows { top, first: 0, lowest: 0, end: n, accent: rows.accent, spaced: None }) {
         // Past the last row on show is the end of the whole list.
         let whole = |r: usize| shown.as_ref().map_or(r, |s| s.get(r).copied().unwrap_or(tracks.len()));
         acts.push(Action::PlaylistMove { from: whole(d.from), gap: whole(d.gap), id: d.id });

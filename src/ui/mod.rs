@@ -205,6 +205,9 @@ pub enum Action {
     /// A song to come dragged to the gap between songs (see `Queue::move_track`), if the
     /// song `id` is still at `from`.
     QueueMove { from: usize, gap: usize, id: String },
+    /// A song dragged in from another list, let go at the gap between songs `gap` (see
+    /// `Queue::insert_at`).
+    QueueInsert { gap: usize, track: Track },
     Seek(f32),
     /// Moving video or the picture, for music videos.
     ToggleVideo,

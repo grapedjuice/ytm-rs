@@ -65,7 +65,7 @@ impl App {
             Action::Open(Target::Album(id)) => self.go(Page::Album(id)),
             Action::Open(Target::Playlist(id)) => self.go(Page::Playlist(id)),
             Action::Open(Target::Artist(id)) => self.go(Page::Artist(id)),
-            Action::PlayNext(t) | Action::Enqueue(t) if self.explicit_hidden(&t) => {}
+            Action::PlayNext(t) | Action::Enqueue(t) | Action::QueueInsert { track: t, .. } if self.explicit_hidden(&t) => {}
             Action::PlayNext(t) => {
                 let start = self.queue.play_next(t);
                 self.toast("Playing next");
@@ -105,6 +105,11 @@ impl App {
                 }
             }
             Action::Undo => self.undo(),
+            Action::QueueInsert { gap, track } => {
+                self.queue.insert_at(gap, track);
+                self.toast("Added to queue");
+                self.prefetch_next();
+            }
             Action::QueueMove { from, gap, id } => {
                 if self.queue.tracks.get(from).is_some_and(|t| t.id == id) && self.queue.move_track(from, gap) {
                     self.prefetch_next();

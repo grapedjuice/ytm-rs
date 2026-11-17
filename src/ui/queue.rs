@@ -383,16 +383,36 @@ impl Queue {
     }
 
     /// Move song `from` to the gap `gap` between songs (0 is above the first), both counted
-    /// before the move. Only what's still to come moves: false when either is the song
-    /// playing or earlier, or it wouldn't change anything.
+    /// before the move, as YouTube Music's own queue does: a song already played can come
+    /// back after the one playing, and one to come can go before it. The song playing goes
+    /// on playing wherever it ends up. False when it wouldn't change anything.
     pub fn move_track(&mut self, from: usize, gap: usize) -> bool {
-        let first = self.index.map_or(0, |i| i + 1);
-        if from < first || gap < first || from >= self.tracks.len() || gap > self.tracks.len() || gap == from || gap == from + 1 {
+        if from >= self.tracks.len() || gap > self.tracks.len() || gap == from || gap == from + 1 {
             return false;
         }
         let t = self.tracks.remove(from);
-        self.tracks.insert(if gap > from { gap - 1 } else { gap }, t);
+        let to = if gap > from { gap - 1 } else { gap };
+        self.tracks.insert(to, t);
+        self.index = self.index.map(|i| match i {
+            _ if i == from => to,
+            _ if from < i && to >= i => i - 1,
+            _ if from > i && to <= i => i + 1,
+            _ => i,
+        });
         true
+    }
+
+    /// Put `t`, dragged in from another list, at the gap `gap` between songs (0 is above the
+    /// first). The song playing goes on playing.
+    pub fn insert_at(&mut self, gap: usize, t: Track) {
+        let gap = gap.min(self.tracks.len());
+        self.note_added(&t.id);
+        self.tracks.insert(gap, t);
+        if let Some(i) = &mut self.index
+            && gap <= *i
+        {
+            *i += 1;
+        }
     }
 
     /// Radio songs for `seed` join the end, without the seed or songs already queued.
@@ -547,20 +567,47 @@ mod tests {
     }
 
     #[test]
-    fn the_song_playing_and_earlier_ones_stay_put() {
-        let mut q = queue(&["a", "b", "c", "d"], 1, Repeat::Off);
-        let before = ids(&q).join("");
-        // The song playing, one before it, and gaps at or above it.
-        assert!(!q.move_track(1, 3));
-        assert!(!q.move_track(0, 3));
-        assert!(!q.move_track(3, 1));
-        assert!(!q.move_track(3, 0));
+    fn songs_played_and_to_come_move_round_the_song_playing() {
+        // A song already played comes back right after the one playing.
+        let mut q = queue(&["a", "b", "c", "d"], 2, Repeat::Off);
+        assert!(q.move_track(0, 3));
+        assert_eq!(ids(&q), ["b", "c", "a", "d"]);
+        assert_eq!(q.current().unwrap().id, "c");
+        // One to come goes before it, among those played.
+        assert!(q.move_track(3, 0));
+        assert_eq!(ids(&q), ["d", "b", "c", "a"]);
+        assert_eq!(q.current().unwrap().id, "c");
+        // The song playing itself, down and back up: it goes on playing.
+        assert!(q.move_track(2, 4));
+        assert_eq!(ids(&q), ["d", "b", "a", "c"]);
+        assert_eq!(q.current().unwrap().id, "c");
+        assert!(q.move_track(3, 0));
+        assert_eq!(ids(&q), ["c", "d", "b", "a"]);
+        assert_eq!(q.index, Some(0));
         // Where it already is, and out of range.
+        let before = ids(&q).join("");
         assert!(!q.move_track(2, 2));
         assert!(!q.move_track(2, 3));
         assert!(!q.move_track(4, 2));
         assert!(!q.move_track(2, 5));
         assert_eq!(ids(&q).join(""), before);
+    }
+
+    #[test]
+    fn a_song_dragged_in_goes_where_it_was_let_go() {
+        let mut q = queue(&["a", "b", "c"], 1, Repeat::Off);
+        // Above the song playing, which goes on playing.
+        q.insert_at(0, track("x"));
+        assert_eq!(ids(&q), ["x", "a", "b", "c"]);
+        assert_eq!(q.current().unwrap().id, "b");
+        // Right after it: it plays next.
+        q.insert_at(3, track("y"));
+        assert_eq!(ids(&q), ["x", "a", "b", "y", "c"]);
+        assert_eq!(q.upcoming().unwrap().id, "y");
+        // Past the end goes at the end.
+        q.insert_at(99, track("z"));
+        assert_eq!(ids(&q).last(), Some(&"z"));
+        assert_eq!(q.current().unwrap().id, "b");
     }
 
     #[test]

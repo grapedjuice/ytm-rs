@@ -37,12 +37,35 @@ pub struct Dropped {
 /// Where a list's rows are. Rows are counted the list's own way, and only part of the
 /// list may be on show: `first` is the row at `top`, and rows can land from the gap
 /// `lowest` down to the gap `end`.
+#[derive(Clone, Copy)]
 pub struct Rows {
     pub top: f32,
     pub first: usize,
     pub lowest: usize,
     pub end: usize,
     pub accent: egui::Color32,
+    /// Rows past row `.0` sit `.1` lower (the queue's space under the song playing).
+    pub spaced: Option<(usize, f32)>,
+}
+
+impl Rows {
+    /// The gap between rows nearest to `y`.
+    fn gap_at(&self, y: f32, h: f32) -> usize {
+        let y = match self.spaced {
+            Some((after, px)) => {
+                let edge = self.top + (after + 1).saturating_sub(self.first) as f32 * h;
+                if y > edge + px { y - px } else { y.min(edge) }
+            }
+            None => y,
+        };
+        self.first + gap_at(y, self.top, h, self.lowest.saturating_sub(self.first), self.end.saturating_sub(self.first))
+    }
+
+    /// Where the line for gap `g` goes.
+    fn gap_y(&self, g: usize, h: f32, spacing: f32) -> f32 {
+        let extra = self.spaced.filter(|&(after, _)| g > after).map_or(0.0, |(_, px)| px);
+        self.top + (g - self.first) as f32 * h + extra - spacing / 2.0
+    }
 }
 
 /// Lets row `i` of `list` be picked up. Call just before building the row: its buttons
@@ -69,27 +92,20 @@ pub fn grip(ui: &mut Ui, drag: &mut Option<RowDrag>, list: Id, i: usize, t: &Tra
 /// Call after the rows, inside their scroll area: shows where the drag in `list` would
 /// land, scrolls near the edges, and ends it when let go.
 pub fn feedback(ui: &mut Ui, drag: &mut Option<RowDrag>, list: Id, rows: Rows) -> Option<Dropped> {
-    let Rows { top, first, lowest, end, accent } = rows;
     let (from, id) = keep(ui, drag, list)?;
     let (pos, down, dt) = ui.input(|i| (i.pointer.latest_pos(), i.pointer.primary_down(), i.stable_dt));
     let clip = ui.clip_rect();
     let h = row_height(ui);
     let width = ui.max_rect().x_range();
     let over = pos.filter(|p| p.x >= width.min - SIDE_MARGIN && p.x <= width.max + SIDE_MARGIN);
-    let gap = over.map(|p| first + gap_at(p.y, top, h, lowest.saturating_sub(first), end.saturating_sub(first)));
+    let gap = over.map(|p| rows.gap_at(p.y, h));
     let moves = gap.filter(|&g| g != from && g != from + 1);
     if !down {
         *drag = None;
         return moves.map(|gap| Dropped { from, gap, id });
     }
     if let Some(g) = moves {
-        let y = top + (g - first) as f32 * h - ui.spacing().item_spacing.y / 2.0;
-        if clip.y_range().contains(y) {
-            // Over the song following the pointer, which is often right there.
-            let line = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Debug, Id::unique("row-drag-line")));
-            line.hline(width, y, egui::Stroke::new(2.0, accent));
-            line.circle_filled(pos2(width.min + 3.0, y), 4.0, accent);
-        }
+        line(ui, rows.gap_y(g, h, ui.spacing().item_spacing.y), width, rows.accent);
     }
     if let Some(p) = over {
         let speed = edge_speed(p.y, clip.top(), clip.bottom());
@@ -99,6 +115,40 @@ pub fn feedback(ui: &mut Ui, drag: &mut Option<RowDrag>, list: Id, rows: Rows) -
     }
     follow(ui, drag, pos, width.span());
     None
+}
+
+/// Call after `feedback`, for a list that also takes songs dragged out of other lists (the
+/// queue, from an album or search results): shows where the song held over it would go,
+/// and gives the song and the gap it goes to once let go there. Call it before building the
+/// list the drag came from, which would otherwise end the drag first.
+pub fn receive(ui: &Ui, drag: &mut Option<RowDrag>, list: Id, rows: Rows) -> Option<(usize, Track)> {
+    if !live(ui, drag) || drag.as_ref().is_some_and(|d| d.list == list) {
+        return None;
+    }
+    let (pos, down, dt) = ui.input(|i| (i.pointer.latest_pos(), i.pointer.primary_down(), i.stable_dt));
+    let clip = ui.clip_rect();
+    let p = pos.filter(|p| clip.contains(*p))?;
+    let h = row_height(ui);
+    let gap = rows.gap_at(p.y, h);
+    if !down {
+        return drag.take().map(|d| (gap, d.track));
+    }
+    line(ui, rows.gap_y(gap, h, ui.spacing().item_spacing.y), ui.max_rect().x_range(), rows.accent);
+    let speed = edge_speed(p.y, clip.top(), clip.bottom());
+    if speed != 0.0 {
+        ui.scroll_with_delta(Vec2::new(0.0, speed * dt));
+    }
+    None
+}
+
+/// The line where a dropped song would go, if it's in sight.
+fn line(ui: &Ui, y: f32, width: egui::Rangef, accent: egui::Color32) {
+    if ui.clip_rect().y_range().contains(y) {
+        // Over the song following the pointer, which is often right there.
+        let line = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Debug, Id::unique("row-drag-line")));
+        line.hline(width, y, egui::Stroke::new(2.0, accent));
+        line.circle_filled(pos2(width.min + 3.0, y), 4.0, accent);
+    }
 }
 
 /// Call after the rows of a list whose order can't change (an album, search results):
@@ -210,7 +260,7 @@ fn edge_speed(y: f32, top: f32, bottom: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{SCROLL_EDGE, SCROLL_SPEED, edge_speed, gap_at};
-    use super::{Dropped, Over, RowDrag, Rows, carry, feedback, grip, target};
+    use super::{Dropped, Over, RowDrag, Rows, carry, feedback, grip, receive, target};
     use crate::model::Track;
     use crate::ui::widgets::{RowOpts, row_height, track_row, visible_rows};
     use egui::{Event, Modifiers, PointerButton, Pos2, Rect, RawInput, pos2, vec2};
@@ -243,13 +293,17 @@ mod tests {
         target: Option<Rect>,
         held: bool,
         landed: Vec<String>,
+        /// A list that takes songs dragged in (the queue), built before this one as the
+        /// queue is, with 5 rows of its own; and what landed in it, at which gap.
+        inbox: Option<Rect>,
+        received: Vec<(usize, String)>,
     }
 
     impl List {
         fn new(n: usize) -> Self {
             let ctx = egui::Context::default();
             crate::theme::install_fonts(&ctx, "", &[]);
-            let mut list = Self { ctx, songs: (0..n).map(song).collect(), drag: None, lowest: 0, shown: true, time: 0.0, at: Pos2::ZERO, top: 0.0, row: 0.0, offset: 0.0, clicked: vec![], dropped: vec![], reorder: true, target: None, held: false, landed: vec![] };
+            let mut list = Self { ctx, songs: (0..n).map(song).collect(), drag: None, lowest: 0, shown: true, time: 0.0, at: Pos2::ZERO, top: 0.0, row: 0.0, offset: 0.0, clicked: vec![], dropped: vec![], reorder: true, target: None, held: false, landed: vec![], inbox: None, received: vec![] };
             list.frame(vec![]);
             list.frame(vec![]);
             list
@@ -262,6 +316,16 @@ mod tests {
             let id = egui::Id::unique("test-list");
             let mut output = ctx.run_ui(raw, |ui| {
                 self.held = false;
+                if let Some(rect) = self.inbox {
+                    let rows = Rows { top: rect.top(), first: 0, lowest: 0, end: 5, accent: egui::Color32::RED, spaced: None };
+                    let (drag, received) = (&mut self.drag, &mut self.received);
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                        ui.set_clip_rect(rect);
+                        if let Some((g, t)) = receive(ui, drag, egui::Id::unique("test-inbox"), rows) {
+                            received.push((g, t.id));
+                        }
+                    });
+                }
                 if let Some(rect) = self.target {
                     match target(ui, &mut self.drag, rect) {
                         Some(Over::Held) => self.held = true,
@@ -289,7 +353,7 @@ mod tests {
                         carry(ui, drag, id);
                         return None;
                     }
-                    let rows = Rows { top, first: 0, lowest: self.lowest, end: songs.len(), accent: egui::Color32::RED };
+                    let rows = Rows { top, first: 0, lowest: self.lowest, end: songs.len(), accent: egui::Color32::RED, spaced: None };
                     feedback(ui, drag, id, rows)
                 });
                 self.offset = area.state.clamped_offset().y;
@@ -563,6 +627,48 @@ mod tests {
         l.frame(vec![]);
         assert!(l.dropped.is_empty() && l.landed.is_empty() && l.clicked.is_empty());
         assert!(l.drag.is_none());
+    }
+
+    #[test]
+    fn a_song_dragged_into_another_list_lands_at_the_gap_it_was_let_go() {
+        let mut l = List::new(40);
+        l.reorder = false;
+        l.inbox = Some(Rect::from_min_max(pos2(600.0, 0.0), pos2(WIDTH, HEIGHT)));
+        l.pick_up(2, 300.0);
+        l.glide_to(l.on_row(6, 300.0));
+        // Just below the line between the inbox's rows 2 and 3.
+        l.glide_to(pos2(700.0, 3.0 * l.row + 5.0));
+        l.button(false);
+        l.frame(vec![]);
+        assert_eq!(l.received, [(3, "song2".to_owned())]);
+        assert!(l.dropped.is_empty() && l.landed.is_empty());
+        assert!(l.drag.is_none());
+    }
+
+    #[test]
+    fn a_list_doesnt_take_in_its_own_songs() {
+        let mut l = List::new(40);
+        l.inbox = Some(Rect::from_min_max(pos2(600.0, 0.0), pos2(WIDTH, HEIGHT)));
+        l.pick_up(1, 300.0);
+        l.glide_to(l.on_row(5, 300.0));
+        l.button(false);
+        l.frame(vec![]);
+        assert!(l.received.is_empty());
+    }
+
+    #[test]
+    fn rows_below_the_space_count_from_past_it() {
+        let rows = Rows { top: 100.0, first: 0, lowest: 0, end: 10, accent: egui::Color32::RED, spaced: Some((2, 30.0)) };
+        // Above the space, as without it.
+        assert_eq!(rows.gap_at(100.0 + 1.6 * 50.0, 50.0), 2);
+        // In the space: the gap under row 2.
+        assert_eq!(rows.gap_at(100.0 + 3.0 * 50.0 + 15.0, 50.0), 3);
+        // Below it, rows sit 30 lower.
+        assert_eq!(rows.gap_at(100.0 + 4.4 * 50.0 + 30.0, 50.0), 4);
+        assert_eq!(rows.gap_at(100.0 + 4.6 * 50.0 + 30.0, 50.0), 5);
+        // The line for a gap under the space is drawn past it.
+        assert_eq!(rows.gap_y(2, 50.0, 0.0), 200.0);
+        assert_eq!(rows.gap_y(4, 50.0, 0.0), 330.0);
     }
 
     #[test]

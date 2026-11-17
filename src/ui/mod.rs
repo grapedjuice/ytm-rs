@@ -26,6 +26,7 @@ mod pages;
 mod palette;
 mod playback;
 mod queue;
+mod ratings;
 mod responses;
 mod row_drag;
 mod shell;
@@ -216,10 +217,12 @@ pub enum Action {
     SongVideo(bool),
     Like(Track, bool),
     /// The heart of what's playing, in the player bar, the mini player and Now playing's menu.
-    LikeHeard(bool),
+    LikeHeard { like: bool, video_id: String, generation: u64 },
     /// Like (or unlike) a selection of songs.
     LikeMany(Vec<Track>, bool),
     Dislike(Track),
+    RemoveLike(Track),
+    RemoveDislike(String),
     Share(Target),
     /// Keep a playlist at the top of the sidebar and Library › Playlists (true), or not.
     Pin(String, bool),
@@ -254,6 +257,13 @@ pub enum Action {
     TogglePlay,
     /// A song chosen on the search page as the Spotify transfer's match.
     TransferPick(Track),
+}
+
+enum Unlike {
+    Track(Track),
+    Versions(Track, Track),
+    Selection(Vec<Track>),
+    Rating(Track),
 }
 
 enum Dialog {
@@ -457,8 +467,8 @@ pub struct App {
     /// Files chosen in the upload dialog, handed over from its thread.
     picked_uploads: Arc<std::sync::Mutex<Option<Vec<std::path::PathBuf>>>>,
     liked: HashSet<String>,
-    /// Songs whose unlike is queued and hasn't gone through yet.
-    unliking: HashMap<String, Track>,
+    ratings: ratings::Ratings,
+    rating_settings: ratings::Settings,
     selection: Selection,
     find: find::ListFind,
     account_name: Option<String>,
@@ -646,6 +656,7 @@ pub struct App {
     jam: jam::Session,
     signing_in: Arc<AtomicBool>,
     toast: Option<(String, f64)>,
+    toast_after_unlike: Option<String>,
     /// What the toast up now can undo.
     undo: Option<undo::Undo>,
 
@@ -854,7 +865,8 @@ impl App {
             all_downloaded: HashMap::new(),
             picked_uploads: Default::default(),
             liked: HashSet::new(),
-            unliking: HashMap::new(),
+            ratings: Default::default(),
+            rating_settings: ratings::Settings::load(get),
             selection: Selection::default(),
             find: Default::default(),
             account_name: None,
@@ -1018,6 +1030,7 @@ impl App {
             xfer: Default::default(),
             jam: Default::default(),
             toast: None,
+            toast_after_unlike: None,
             undo: None,
             actions: Vec::new(),
             dialog: None,
@@ -1386,8 +1399,14 @@ impl App {
     }
 
     fn toast(&mut self, msg: impl Into<String>) {
+        let msg = msg.into();
+        if !self.pending_unlikes().is_empty() {
+            self.toast_after_unlike = Some(msg);
+            return;
+        }
         self.settle();
-        self.toast = Some((msg.into(), -1.0));
+        self.toast_after_unlike = None;
+        self.toast = Some((msg, -1.0));
     }
 
     /// How long the toast stays before it fades: long enough to reach its Undo, if it has one.
@@ -1424,6 +1443,11 @@ impl eframe::App for App {
         pace::frame(ctx);
         self.lyric_view.release_hidden(ctx.cumulative_pass_nr());
         let now = ctx.input(|i| i.time);
+        let focused = ctx.input(|i| i.focused);
+        let refocused = focused && !std::mem::replace(&mut self.was_focused, focused);
+        if refocused {
+            self.ratings.refresh();
+        }
         self.sync_look();
         self.pump(ctx, now);
         // A sorted playlist that loads again in a while, for its new order.
@@ -1536,7 +1560,7 @@ impl eframe::App for App {
         self.sync_discord(ctx);
         self.sync_song_notification(ctx);
         self.sync_scrobbles();
-        self.sync_server_queue(ctx, now);
+        self.sync_server_queue(refocused, now);
         self.tick_updates(ctx, now);
         let np = widgets::NowPlaying {
             song: self.current_id().map(str::to_owned),
@@ -1546,15 +1570,23 @@ impl eframe::App for App {
         };
         ctx.data_mut(|d| d.insert_temp(widgets::NowPlaying::id(), np));
         let hold = f64::from(self.toast_hold()) + 0.4;
+        let toast_hovered = !self.window_hidden && shell::toast_hovered(ctx);
         if let Some((_, t)) = &mut self.toast {
             if *t < 0.0 {
                 *t = now;
+            } else if toast_hovered && now - *t > 0.25 {
+                // The toast stays available while its Undo is under the pointer.
+                *t = now - 0.25;
             } else if now - *t > hold {
                 self.toast = None;
             }
         }
         if self.toast.is_none() {
             self.settle();
+            if let Some(msg) = self.toast_after_unlike.take() {
+                self.toast = Some((msg, now));
+                ctx.request_repaint();
+            }
         } else if self.undo.is_some() {
             // Its time runs out even with the window hidden, when nothing else draws.
             ctx.request_repaint_after(Duration::from_secs(1));
@@ -1585,8 +1617,10 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.shortcuts(&ctx);
+        self.rating_settings.share_unlike_settings(&ctx, self.backend.api().epoch());
         crate::shader::set_glass_on(self.glass_on);
         let now = ctx.input(|i| i.time);
+        self.sync_ratings(&ctx, now);
         let screen = ctx.content_rect();
 
         self.sync_look();
@@ -1952,6 +1986,7 @@ impl eframe::App for App {
         storage.set_string("animated_covers", b(self.animated_covers));
         storage.set_string("hide_search_videos", b(self.hide_search_videos));
         storage.set_string("hide_explicit", b(self.hide_explicit));
+        self.rating_settings.save(storage);
         storage.set_string("list_sorts", serde_json::to_string(&self.find.sorts).unwrap_or_default());
         storage.set_string("pinned_playlists", serde_json::to_string(&self.pinned).unwrap_or_default());
         storage.set_string("podcasts", b(self.show_podcasts));

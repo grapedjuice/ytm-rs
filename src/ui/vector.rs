@@ -294,6 +294,32 @@ fn rasterize(icon: &crate::preset::VectorIcon, px: usize) -> ColorImage {
 /// Draws the theme's own icon by this name, if it has one.
 pub fn paint(ui: &Ui, name: &str, center: Pos2, size: f32, color: Color32) -> bool {
     let Some(icon) = crate::preset::active().app.icons.get(name) else { return false };
+    paint_icon(ui, name, icon, center, size, color);
+    true
+}
+
+pub fn dislike(ui: &Ui, center: Pos2, size: f32, filled: bool, color: Color32) {
+    use std::sync::OnceLock;
+
+    static OUTLINE: OnceLock<crate::preset::VectorIcon> = OnceLock::new();
+    static FILLED: OnceLock<crate::preset::VectorIcon> = OnceLock::new();
+    // The two YouTube Music SVGs have different padding in their 24 px viewBox.
+    // Size and centre the visible shape to match the heart alongside it.
+    let (cache, name, svg, left, bottom) = if filled {
+        (&FILLED, "thumbs-down-fill", include_str!("../../assets/icon/thumbs-down-fill.svg"), 3.0, 21.85)
+    } else {
+        (&OUTLINE, "thumbs-down", include_str!("../../assets/icon/thumbs-down.svg"), 2.25, 22.9)
+    };
+    let width = 22.0 - left;
+    let icon = cache.get_or_init(|| {
+        let d = svg.split_once("<path d=\"").and_then(|(_, value)| value.split_once('"')).expect("bundled dislike icon").0;
+        let origin = [(left + 22.0) / 2.0 - 12.0, (2.0 + bottom) / 2.0 - 12.0];
+        crate::preset::VectorIcon { view: [24.0, 24.0], origin, d: d.to_owned(), flip: false, stroke: 0.0 }
+    });
+    paint_icon(ui, name, icon, center, size * 24.0 / width, color);
+}
+
+fn paint_icon(ui: &Ui, name: &str, icon: &crate::preset::VectorIcon, center: Pos2, size: f32, color: Color32) {
     let ppp = ui.ctx().pixels_per_point();
     // Sizes in steps of two pixels, so a growing icon doesn't make a texture every frame.
     let px = (((size * ppp) as usize + 1) & !1).clamp(8, 256);
@@ -306,7 +332,6 @@ pub fn paint(ui: &Ui, name: &str, center: Pos2, size: f32, color: Color32) -> bo
     let rect = Rect::from_center_size(center, vec2(size, size));
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
     ui.painter().image(tex.id(), rect, uv, color);
-    true
 }
 
 /// The name a theme gives the icon drawn for this glyph.

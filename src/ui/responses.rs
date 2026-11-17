@@ -138,7 +138,14 @@ impl App {
             Cmd::VolumeUp => self.nudge_volume(true),
             Cmd::VolumeDown => self.nudge_volume(false),
             Cmd::SetVolume(v) => self.audio.set_volume(v.clamp(0.0, 1.0)),
-            Cmd::Like(v) => self.apply(Action::LikeHeard(v.unwrap_or(!self.heard_liked()))),
+            Cmd::Like(v) => {
+                let like = v.unwrap_or(!self.heard_liked());
+                if !like && self.rating_settings.confirm_unlike {
+                    self.toast("Hold the heart to remove like");
+                } else if let Some(action) = self.heard_like_action(like) {
+                    self.apply(action);
+                }
+            }
             Cmd::Shuffle => self.toggle_shuffle(),
             Cmd::Repeat(mode) => {
                 self.queue.repeat = match mode {
@@ -392,12 +399,59 @@ impl App {
                 }
             }
             Resp::Liked { video_id, like, other } => {
-                self.lists.edits.confirm_likes(std::slice::from_ref(&video_id), &[]);
-                if like {
-                    self.liked.insert(video_id);
+                self.ratings.invalidate(&video_id);
+                if !self.unliking_soon(&video_id) {
+                    self.lists.edits.confirm_likes(std::slice::from_ref(&video_id), &[]);
+                    if like {
+                        self.liked.insert(video_id);
+                    }
                 }
                 self.other_half_unliked(other);
             }
+            Resp::Disliked { video_id, skip_generation, ok } => {
+                let id = std::slice::from_ref(&video_id);
+                if ok {
+                    self.ratings.confirm(&video_id, crate::ytm::SongRating::Dislike);
+                    self.lists.edits.confirm_likes(id, &[]);
+                    if self.rating_settings.dislike_notices {
+                        self.toast("Disliked song");
+                    }
+                    let rated = Some(video_id.as_str());
+                    if self.rating_settings.skip_disliked
+                        && skip_generation == Some(self.generation)
+                        && (self.current_id() == rated || self.playing_id() == rated)
+                    {
+                        self.skip_disliked();
+                    }
+                } else {
+                    self.lists.edits.confirm_likes(&[], id);
+                    self.request_liked(true);
+                    self.toast("Couldn't dislike song");
+                }
+            }
+            Resp::RatingRemoved { video_id, was_disliked, ok } => {
+                if ok {
+                    self.ratings.confirm(&video_id, crate::ytm::SongRating::Indifferent);
+                    if was_disliked {
+                        if self.rating_settings.dislike_notices {
+                            self.toast("Dislike removed");
+                        }
+                    } else {
+                        self.liked.remove(&video_id);
+                        self.lists.edits.forget_like_edit(&video_id);
+                        // YouTube Music may list a video like under its matched audio track.
+                        self.request_liked(true);
+                    }
+                } else {
+                    if !was_disliked {
+                        self.ratings.invalidate(&video_id);
+                        self.lists.edits.confirm_likes(&[], std::slice::from_ref(&video_id));
+                        self.request_liked(true);
+                    }
+                    self.toast(if was_disliked { "Couldn't remove dislike" } else { "Couldn't remove like" });
+                }
+            }
+            Resp::SongRating { video_id, round, rating } => self.ratings.finish(video_id, round, rating, now),
             Resp::QuickPicksMore { seed, tracks } => {
                 if let Some(h) = &mut self.home {
                     h.picks_loading = false;
@@ -412,19 +466,21 @@ impl App {
                 }
             }
             Resp::LikeProgress { taken, done, total, like } => {
-                if !like {
-                    let tracks: Vec<Track> = taken.iter().filter_map(|id| self.unliking.remove(id)).collect();
-                    self.set_liked(&tracks, false);
+                for id in &taken {
+                    self.ratings.invalidate(id);
                 }
                 if done == 0 {
                     // A Spotify transfer is adding to Liked Music (maybe paused): this waits for it.
                     self.toast("Waiting for the transfer to finish adding to Liked Music…");
-                } else if total > 1 && done < total {
+                } else if total > 1 && done < total && (like || self.rating_settings.unlike_notices) {
                     let note = if self.backend.api().limited() { " (YouTube Music is limiting requests; waiting)" } else { "" };
                     self.toast(format!("{} {done} of {total} songs…{note}", if like { "Liking" } else { "Removing likes:" }));
                 }
             }
             Resp::LikedMany { video_ids, failed, like, others } => {
+                for id in &video_ids {
+                    self.ratings.invalidate(id);
+                }
                 self.on_liked_many(video_ids, failed, like);
                 self.other_half_unliked(others);
             }
@@ -587,6 +643,7 @@ impl App {
     /// Songs whose likes went along with their other versions': not liked here either.
     fn other_half_unliked(&mut self, ids: impl IntoIterator<Item = String>) {
         for id in ids {
+            self.ratings.invalidate(&id);
             self.liked.remove(&id);
             let listed = self.opened(super::LIKED_MUSIC).and_then(|o| o.c.tracks.iter().find(|t| t.id == id).cloned());
             if let Some(t) = listed {
@@ -658,19 +715,17 @@ impl App {
     /// Liking or unliking many songs at once has finished: `failed` are the ones YouTube
     /// Music refused.
     fn on_liked_many(&mut self, video_ids: Vec<String>, failed: Vec<String>, like: bool) {
-        // Any left (a retry took them) leave the list now.
-        if !like {
-            let rest: Vec<Track> = video_ids.iter().filter_map(|id| self.unliking.remove(id)).collect();
-            self.set_liked(&rest, false);
-            for id in &failed {
-                self.unliking.remove(id);
-            }
+        for id in &failed {
+            self.ratings.invalidate(id);
         }
         log::debug!("like={like} answered: {} taken, {} refused {:?}", video_ids.len(), failed.len(), failed.iter().take(5).collect::<Vec<_>>());
         self.lists.edits.confirm_likes(&video_ids, &failed);
         // The refused ones come back as they were with a reload.
         if !failed.is_empty() {
             self.request_liked(true);
+        }
+        if !like && (!self.rating_settings.unlike_notices || video_ids.len() <= 1) && failed.is_empty() {
+            return;
         }
         let count = video_ids.len();
         let mut msg = format!("{} {count} {}", if like { "Liked" } else { "Removed like from" }, if count == 1 { "song" } else { "songs" });
@@ -752,6 +807,8 @@ impl App {
     fn on_logged_in(&mut self, v: bool, now: f64) {
         // An Undo made meanwhile was the last account's: it isn't sent as this one.
         self.undo = None;
+        self.toast_after_unlike = None;
+        self.ratings.reset();
         self.logged_in = v;
         self.channels = None;
         self.channels_asked = None;
@@ -777,7 +834,6 @@ impl App {
         self.lists.clear();
         self.lists.edits = Default::default();
         self.liked.clear();
-        self.unliking.clear();
         self.queue.fill = None;
         self.play_pending = None;
         if self.page_list().is_some() || matches!(self.page, Page::Artist(_)) {

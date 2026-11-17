@@ -1990,10 +1990,10 @@ fn options_menu(app: &mut App, ui: &mut Ui, track: &crate::model::Track, lyrics:
         let liked = app.heard_liked();
         let asked = app.actions.len();
         widgets::song_actions(ui, track, liked, None, &mut app.actions);
-        for a in &mut app.actions[asked..] {
-            if let Action::Like(_, like) = a {
-                *a = Action::LikeHeard(*like);
-            }
+        if let Some(index) = app.actions[asked..].iter().position(|action| matches!(action, Action::Like(..)))
+            && let Some(rating) = app.heard_like_action(!liked)
+        {
+            app.actions[asked + index] = rating;
         }
     });
 }

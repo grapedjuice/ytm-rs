@@ -193,12 +193,10 @@ impl App {
     /// Ask for the queue YouTube Music keeps across devices when the app starts and
     /// whenever its window comes back into focus with nothing playing, so a song
     /// started on the phone is here to carry on with.
-    pub(super) fn sync_server_queue(&mut self, ctx: &egui::Context, now: f64) {
+    pub(super) fn sync_server_queue(&mut self, refocused: bool, now: f64) {
         if self.playing() {
             self.listened_at = unix_now();
         }
-        let focused = ctx.input(|i| i.focused);
-        let refocused = focused && !std::mem::replace(&mut self.was_focused, focused);
         let idle = !self.playing() && !self.buffering && !self.jam.active() && self.smoke.is_none();
         let due = self.queue_checked.is_none_or(|t| refocused && now - t > 60.0);
         if self.logged_in && idle && due && std::env::var_os("YTM_SMOKE").is_none() {
@@ -561,6 +559,30 @@ impl App {
         self.handoff = ending || self.crossfade_skips;
         self.play_current();
         self.handoff = ending;
+    }
+
+    pub(super) fn skip_disliked(&mut self) {
+        if self.jam.guest() {
+            return;
+        }
+        let generation = self.generation;
+        // With just this track in the queue, Repeat all would play it again.
+        if self.queue.repeat != Repeat::All || self.queue.tracks.len() > 1 || self.queue.fill.is_some() {
+            self.next();
+        }
+        if self.generation == generation {
+            // Nothing to advance to yet. Cancel a buffered play too, and carry on
+            // if more of the playlist or an autoplay queue arrives.
+            self.generation += 1;
+            self.audio.status.wanted_gen.store(self.generation, Ordering::Relaxed);
+            self.audio.send(AudioCmd::Stop);
+            self.buffering = false;
+            self.seek_drag = None;
+            self.resume_at = Some(Duration::ZERO);
+            self.resume_counts = true;
+            self.ended = true;
+            self.top_up();
+        }
     }
 
     pub(super) fn prev(&mut self) {

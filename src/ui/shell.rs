@@ -1117,9 +1117,6 @@ fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32,
     });
 }
 
-/// After the song's title: room for the heart and the song menu button.
-const SONG_TAIL: f32 = 80.0;
-
 pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let full = ui.max_rect();
     // A click on the bar's empty space opens Now playing, or closes it, as on the website.
@@ -1318,25 +1315,29 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     // Where the song starts: at the left, or just right of the left-hand transport, the
     // middle of what's left then being about the bar's.
     let art_side = chrome.thumb_px.unwrap_or(full.height() - 26.0).clamp(28.0, 64.0);
-    // How wide the longer of the title and byline really is, heart excluded.
+    let show_dislike = app.rating_settings.player_button;
+    let song_tail = if show_dislike { 116.0 } else { 80.0 };
+    // How wide the longer of the title and byline really is, buttons excluded.
     let song_text = track.as_ref().map_or(0.0, |t| {
         let width = |s: String, font: egui::FontId| ui.painter().layout_no_wrap(s, font, Color32::PLACEHOLDER).size().x;
         width(t.title.clone(), theme::weighted(chrome.bar_title_weight, chrome.bar_title_px)).max(width(t.artist_line(), theme::regular(chrome.bar_byline_px)))
     });
     let art_x = if song_middle {
         // The song centred in the bar, never under the transport to its left.
-        let block = art_side + 14.0 + song_text.min((row.width() * 0.3 - 110.0).max(80.0)) + SONG_TAIL;
-        (row.center().x - block / 2.0 + art_side / 2.0).max(row.left() + 300.0)
+        let block = art_side + 14.0 + song_text.min((row.width() * 0.3 - 110.0).max(80.0)) + song_tail;
+        let min = if show_dislike { 290.0 } else { 300.0 };
+        (row.center().x - block / 2.0 + art_side / 2.0).max(row.left() + min)
     } else {
         row.left() + 30.0
     };
     // A record peeking out of the thumbnail takes room before the title.
     let song_x = art_x + art_side / 2.0 + 14.0 + chrome.disc_secs.map_or(0.0, |_| art_side * 0.46);
-    let title_w = |room: f32| (row.width() * 0.3 - 110.0).max(80.0).min(room).max(40.0);
-    // With the song in the middle, what's left is from where its title, heart and menu button (SONG_TAIL) end.
+    let title_w = |room: f32| (row.width() * 0.3 - 110.0).max(80.0).min(room).max(10.0);
     // The speed button, when shown, takes 44 px.
     let speed_w = if app.tempo_on { 44.0 } else { 0.0 };
-    let song_end = song_x + if track.is_some() { song_text.min(title_w(row.right() - 244.0 - speed_w - song_x)) + SONG_TAIL } else { 0.0 };
+    // Leave room for the right-hand controls even when volume has folded into its icon.
+    let middle_room = row.right() - 200.0 - speed_w - song_tail - song_x;
+    let song_end = song_x + if track.is_some() { song_text.min(title_w(middle_room)) + song_tail } else { 0.0 };
     // Room between the repeat button's edge (plus a gap) and the speed/lyrics/queue/expand/
     // mini player buttons. The volume with its slider takes 140 px plus the time; the icon alone, 36.
     let free = |half: f32| row.right() - 160.0 - speed_w - if song_middle { song_end } else { row.center().x + half + 12.0 };
@@ -1350,16 +1351,16 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     if let Some(t) = &track {
         let art = Rect::from_center_size(pos2(art_x, cy), Vec2::splat(art_side));
         let thumb_r = chrome.thumb_radius.unwrap_or(theme::thumb_radius() + 1.0);
-        // Under the song, sized once the title and heart have been placed.
+        // Under the song, sized once the title and its buttons have been placed.
         let block_slot = chrome.track_block.map(|_| ui.painter().add(egui::Shape::Noop));
         let x = song_x;
-        // Title, artists and the heart and menu button (SONG_TAIL) end before the shuffle button.
-        let room = if song_middle { row.right() - 244.0 - speed_w - x } else { row.center().x - half - 18.0 - 14.0 - SONG_TAIL - x };
+        // With the song on the left, its buttons end before the shuffle button.
+        let room = if song_middle { middle_room } else { row.center().x - half - 18.0 - 14.0 - song_tail - x };
         let w = title_w(room);
         // Right click on the song has everything about it, like on any song's row. Registered
         // first, so the art, title and artist links above it keep their clicks; they get the
         // same menu below.
-        let song_area = Rect::from_min_max(art.left_top(), pos2(x + w + SONG_TAIL, art.bottom()));
+        let song_area = Rect::from_min_max(art.left_top(), pos2(x + w + song_tail, art.bottom()));
         let song_menu = ui.interact(song_area, ui.scope_id().with("song-menu"), Sense::click());
         // Between the art, the title and the artists, a click is on the bar's empty space.
         if song_menu.clicked() {
@@ -1480,31 +1481,41 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let text_end = tr.right().max(ax).min(x + w);
         let lpos = pos2(text_end + 24.0, cy);
         let lr = Rect::from_center_size(lpos, Vec2::splat(36.0));
-        // The song's menu, right of the heart, as on the website.
-        let kr = Rect::from_center_size(pos2(lpos.x + 34.0, cy), Vec2::splat(30.0));
+        let dpos = lpos + vec2(36.0, 0.0);
+        let dr = Rect::from_center_size(dpos, Vec2::splat(34.0));
+        let menu_x = if show_dislike { dpos.x } else { lpos.x };
+        let kr = Rect::from_center_size(pos2(menu_x + 34.0, cy), Vec2::splat(30.0));
         if let (Some(slot), Some([a, r])) = (block_slot, chrome.track_block) {
             let block = Rect::from_min_max(art.min - Vec2::splat(4.0), pos2(kr.right() + 4.0, art.bottom() + 4.0));
             ui.painter().set(slot, egui::epaint::RectShape::filled(block, r, theme::glass(a)));
         }
         for r in &menu_on {
-            widgets::context_popup(r).show(|ui| widgets::song_menu(ui, t, liked, None, &mut app.actions));
+            widgets::context_popup(r).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| widgets::song_menu(ui, t, liked, None, &mut app.actions));
         }
-        let lresp = ui.interact(lr, ui.scope_id().with("like"), Sense::click());
-        let lresp = named(lresp, if liked { "Remove like" } else { "Like" }).on_hover_text(if liked { "Remove like" } else { "Like" }).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let lresp = ui.interact(lr, ui.scope_id().with(("like", &t.id, app.generation)), Sense::click());
+        let lresp = named(lresp, if liked { "Remove like" } else { "Like" }).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let gesture = super::ratings::like_gesture(ui, &lresp, (), liked, None);
         let lh = theme::anim_bool(ui.ctx(), lresp.id.with("h"), lresp.hovered(), 0.15);
         let pop = theme::anim_bool(ui.ctx(), ("liked", &t.id), liked, 0.3);
         ui.painter().circle_filled(lpos, 18.0, theme::glass(0.1 * lh));
-        let size = 19.0 * (1.0 + (chrome.like_hover_scale - 1.0) * lh) * (1.0 + 0.25 * (pop * std::f32::consts::PI).sin());
+        let rating_size = 19.0;
+        let size = rating_size * (1.0 + (chrome.like_hover_scale - 1.0) * lh) * (1.0 + 0.25 * (pop * std::f32::consts::PI).sin());
         // Hidden at rest in some themes, there as soon as the pointer's on the song, and a liked song always shows it.
         let show_like = !chrome.like_on_hover || liked || on_song || lresp.has_focus();
         let like_a = theme::anim_bool(ui.ctx(), lresp.id.with("show"), show_like, 0.15);
         let idle = theme::lerp_color(theme::text_dim(), theme::text(), lh);
         let outline = theme::with_alpha(theme::lerp_color(idle, theme::RED, pop), like_a);
         if like_a > 0.0 {
-            widgets::heart(ui, lpos, size, pop, outline, theme::with_alpha(theme::RED, like_a));
+            super::ratings::unlike_heart(ui, lpos, size, pop, outline, theme::with_alpha(theme::RED, like_a), gesture.progress);
         }
-        if lresp.clicked() {
-            app.actions.push(Action::LikeHeard(!liked));
+        if gesture.hint {
+            super::ratings::unlike_hint(ui, &lresp);
+        }
+        if gesture.activate && let Some(action) = app.heard_like_action(!liked) {
+            app.actions.push(action);
+        }
+        if show_dislike {
+            super::ratings::player_button(app, ui, dr, t, rating_size, show_like);
         }
         // Hidden at rest with the heart in the same themes; kept while its menu is open.
         let kid = ui.scope_id().with("song-more");
@@ -1512,7 +1523,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         if !chrome.like_on_hover || on_song || ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false)) {
             let more = widgets::more_button(ui, kr, kid, "Song options");
             // Up from the bar: below it is the window's edge.
-            widgets::menu_popup(&more).align(egui::RectAlign::TOP_START).show(|ui| widgets::song_menu(ui, t, liked, None, &mut app.actions));
+            widgets::menu_popup(&more).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).align(egui::RectAlign::TOP_START).show(|ui| widgets::song_menu(ui, t, liked, None, &mut app.actions));
             let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&more));
             ui.data_mut(|d| d.insert_temp(open_id, open));
         }
@@ -1883,24 +1894,23 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
 
 // ------------------------------------------------------------------ toast
 
+pub(super) fn toast_hovered(ctx: &egui::Context) -> bool {
+    let layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("toast"));
+    ctx.pointer_hover_pos().is_some_and(|pointer| ctx.memory(|m| {
+        m.areas().is_visible(&layer) && m.area_rect(layer.id).is_some_and(|r| r.contains(pointer))
+    }))
+}
+
 pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
     let Some((msg, shown)) = &app.toast else { return };
     if *shown < 0.0 {
         return;
     }
     let (msg, shown) = (msg.clone(), *shown);
-    let mut age = (now - shown) as f32;
+    let age = (now - shown) as f32;
     let tl = app.look().app.toast_look.clone();
     let hold = app.toast_hold();
     let undo = app.undo.is_some();
-    // Pointed at, it stays (and comes back if it was fading), to be read or undone.
-    let over = ctx.pointer_hover_pos().zip(ctx.memory(|m| m.area_rect(egui::Id::unique("toast")))).is_some_and(|(p, r)| r.contains(p));
-    if over && age > 0.25 {
-        age = 0.25;
-        if let Some((_, s)) = &mut app.toast {
-            *s = now - 0.25;
-        }
-    }
     let t = theme::ease_out(age / 0.25) * (1.0 - ((age - hold) / 0.4).clamp(0.0, 1.0));
     let screen = ctx.content_rect();
     let mut clicked = false;
@@ -1955,9 +1965,5 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
         ctx.request_repaint_after(std::time::Duration::from_secs_f32(hold - age));
     } else if age < hold + 0.4 {
         ctx.request_repaint();
-    } else {
-        // Faded out: gone, whatever else would have kept it.
-        app.toast = None;
-        app.settle();
     }
 }

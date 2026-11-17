@@ -434,6 +434,7 @@ fn selection_bar(app: &mut App, ctx: &egui::Context, page: &Page, area: Rect) {
     };
     let all = !picked.is_empty() && picked.len() == n;
     let all_liked = !picked.is_empty() && picked.iter().all(|t| app.liked.contains(&t.id));
+    let unlike_target = all_liked.then(|| egui::Id::unique((page, picked.iter().map(|track| (&track.id, &track.stands_for)).collect::<Vec<_>>())));
     // Labelled buttons when there's room, icons with tooltips when the window is narrow.
     let wide = area.width() > 820.0;
     let button = |ui: &mut Ui, label: &str, glyph: char, primary: bool| {
@@ -466,7 +467,11 @@ fn selection_bar(app: &mut App, ctx: &egui::Context, page: &Page, area: Rect) {
                             if own && button(ui, "Remove from playlist", icon::LIST_MINUS, false).clicked() {
                                 acts.push(Action::RemoveFromPlaylist(app.selection.rows.iter().copied().collect()));
                             }
-                            if button(ui, if all_liked { "Remove like" } else { "Like" }, icon::HEART, false).clicked() {
+                            let rate = match unlike_target {
+                                Some(target) => widgets::unlike_pill(ui, "Remove like", wide, target),
+                                None => button(ui, "Like", icon::HEART, false).clicked(),
+                            };
+                            if rate {
                                 acts.push(Action::LikeMany(picked.clone(), !all_liked));
                             }
                             if button(ui, "Add to queue", icon::LIST_MUSIC, false).clicked() {
@@ -1872,6 +1877,35 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
                     app.restricted_mode = on;
                     app.set_hide_explicit();
                 }
+            });
+        });
+    });
+    settings_section(ui, "Song ratings", None, None, |ui| {
+        let ratings = &mut app.rating_settings;
+        for (i, (title, description, value)) in [
+            ("Dislike button in the player", "Show the thumbs-down button beside the heart.", &mut ratings.player_button),
+            ("Rating icons in song lists", "Show ratings beside the duration. Hover over an unrated song to reveal its Like button.", &mut ratings.list_icons),
+            ("Dim disliked songs", "Show disliked songs in muted colors in song lists.", &mut ratings.dim_disliked),
+            ("Dislike skips to the next track", "Advance after YouTube Music confirms the dislike. Guests in Listen together follow the host’s playback.", &mut ratings.skip_disliked),
+            ("Dislike notifications", "Show a message when a dislike is saved or removed.", &mut ratings.dislike_notices),
+            ("Like removal notifications", "Show an Undo button before sending the removal to YouTube Music.", &mut ratings.unlike_notices),
+            ("Safe liked songs", "Hold the like button to remove a like.", &mut ratings.confirm_unlike),
+        ].into_iter().enumerate() {
+            if i != 0 {
+                divider(ui);
+            }
+            setting_row(ui, title, Some(description), |ui| {
+                toggle(ui, value, title);
+            });
+        }
+        divider(ui);
+        setting_row(ui, "Hold to remove like", None, |ui| {
+            ui.add_enabled_ui(ratings.confirm_unlike, |ui| {
+                use super::ratings::{DEFAULT_UNLIKE_MS, MAX_UNLIKE_MS, MIN_UNLIKE_MS};
+                let font = egui::TextStyle::Body.resolve(ui.style());
+                let width = ui.painter().layout_no_wrap("8888 ms".to_owned(), font, theme::text()).size().x;
+                ui.add_sized(vec2(width, 26.0), egui::Label::new(format!("{:.0} ms", ratings.unlike_hold_ms)).halign(egui::Align::RIGHT));
+                slider_track(ui, &mut ratings.unlike_hold_ms, (MIN_UNLIKE_MS, MAX_UNLIKE_MS, 50.0), Some(DEFAULT_UNLIKE_MS), 112.0, "Hold to remove like");
             });
         });
     });

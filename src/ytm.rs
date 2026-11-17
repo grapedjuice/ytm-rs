@@ -1478,6 +1478,59 @@ fn parse_upload_artist(v: &Value, id: &str) -> Option<(ArtistPage, Option<String
 
 // -------------------------------------------------------------------------- edits
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SongRating {
+    Like,
+    Dislike,
+    Indifferent,
+}
+
+impl SongRating {
+    fn from_status(status: &Value) -> Option<Self> {
+        match status.as_str()? {
+            "DISLIKE" => Some(Self::Dislike),
+            "LIKE" => Some(Self::Like),
+            "INDIFFERENT" => Some(Self::Indifferent),
+            _ => None,
+        }
+    }
+}
+
+/// The signed-in account's current rating of the requested upload, if supplied.
+pub async fn song_rating(api: &Api, video_id: &str) -> anyhow::Result<Option<SongRating>> {
+    let body = json!({"videoId": video_id, "isAudioOnly": true});
+    let v = api.call_signed_in("next", body).await?;
+    Ok(parse_song_rating(&v, video_id))
+}
+
+fn parse_song_rating(v: &Value, video_id: &str) -> Option<SongRating> {
+    let overlay = &v["playerOverlays"]["playerOverlayRenderer"];
+    // The segmented player buttons use the current upload's rating entity.
+    if v["currentVideoEndpoint"]["watchEndpoint"]["videoId"].as_str() == Some(video_id)
+        && let Some(rating) = arr(&overlay["videoActionBar"]["videoActionBarViewModel"]["buttons"]).iter().find_map(|button| {
+            let button = button.get("buttonViewModel").unwrap_or(button);
+            let like = &button["segmentedLikeDislikeButtonViewModel"]["likeButtonViewModel"];
+            let like = like.get("likeButtonViewModel").unwrap_or(like);
+            let entity = &like["likeStatusEntity"];
+            let updated = like["likeStatusEntityKey"].as_str().or_else(|| entity["key"].as_str()).and_then(|key| {
+                arr(&v["frameworkUpdates"]["entityBatchUpdate"]["mutations"]).iter().rev().find_map(|mutation| {
+                    let rating = &mutation["payload"]["likeStatusEntity"];
+                    (rating["key"].as_str() == Some(key)).then(|| SongRating::from_status(&rating["likeStatus"])).flatten()
+                })
+            });
+            updated.or_else(|| SongRating::from_status(&entity["likeStatus"]))
+        })
+    {
+        return Some(rating);
+    }
+
+    // Older player overlays carry the target and rating directly.
+    arr(&overlay["actions"]).iter().find_map(|a| {
+        let button = &a["likeButtonRenderer"];
+        (button["target"]["videoId"].as_str() == Some(video_id)).then(|| SongRating::from_status(&button["likeStatus"])).flatten()
+    })
+}
+
 /// Like or un-like a song for the signed-in account.
 pub async fn set_like(api: &Api, video_id: &str, like: bool) -> anyhow::Result<()> {
     let endpoint = if like { "like/like" } else { "like/removelike" };
@@ -2177,6 +2230,47 @@ fn upload_page(run: &Value) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn song_rating_comes_from_the_requested_player_button() {
+        let mut response = json!({
+            "playerOverlays": {"playerOverlayRenderer": {"actions": [
+                {"likeButtonRenderer": {"target": {"videoId": "another"}, "likeStatus": "DISLIKE"}},
+                {"likeButtonRenderer": {"target": {"videoId": "song"}, "likeStatus": "INDIFFERENT"}}
+            ]}},
+            "contents": {"likeEndpoint": {"target": {"videoId": "song"}, "status": "DISLIKE"}}
+        });
+        assert_eq!(parse_song_rating(&response, "song"), Some(SongRating::Indifferent));
+        assert_eq!(parse_song_rating(&response, "another"), Some(SongRating::Dislike));
+        assert_eq!(parse_song_rating(&response, "missing"), None);
+        let status = &mut response["playerOverlays"]["playerOverlayRenderer"]["actions"][1]["likeButtonRenderer"]["likeStatus"];
+        *status = json!("LIKE");
+        assert_eq!(parse_song_rating(&response, "song"), Some(SongRating::Like));
+    }
+
+    #[test]
+    fn song_rating_reads_the_signed_in_players_entity() {
+        let mut response = json!({
+            "currentVideoEndpoint": {"watchEndpoint": {"videoId": "song"}},
+            "playerOverlays": {"playerOverlayRenderer": {"videoActionBar": {"videoActionBarViewModel": {"buttons": [
+                {"buttonViewModel": {"segmentedLikeDislikeButtonViewModel": {
+                    "likeButtonViewModel": {"likeButtonViewModel": {
+                        "likeStatusEntityKey": "song-rating",
+                        "likeStatusEntity": {"key": "song-rating", "likeStatus": "DISLIKE"}
+                    }}
+                }}}
+            ]}}}},
+            "frameworkUpdates": {"entityBatchUpdate": {"mutations": [
+                {"payload": {"likeStatusEntity": {"key": "another-rating", "likeStatus": "LIKE"}}}
+            ]}}
+        });
+        assert_eq!(parse_song_rating(&response, "song"), Some(SongRating::Dislike));
+        assert_eq!(parse_song_rating(&response, "another"), None);
+        response["frameworkUpdates"]["entityBatchUpdate"]["mutations"].as_array_mut().unwrap().push(
+            json!({"payload": {"likeStatusEntity": {"key": "song-rating", "likeStatus": "INDIFFERENT"}}}),
+        );
+        assert_eq!(parse_song_rating(&response, "song"), Some(SongRating::Indifferent));
+    }
 
     #[test]
     fn play_report_asks_with_the_signature_timestamp() {

@@ -128,6 +128,11 @@ fn main() -> eframe::Result {
         // Windows, and Linux where the desktop draws none: the app draws its own title
         // bar (see `ui::titlebar`).
         .with_decorations(!ui::custom_titlebar())
+        // macOS: its frame, without its title strip; the traffic lights go on the app's
+        // top row (see `ui::titlebar`).
+        .with_fullsize_content_view(ui::titlebar_inset())
+        .with_titlebar_shown(!ui::titlebar_inset())
+        .with_title_shown(!ui::titlebar_inset())
         .with_icon(appicon::get(appicon::load(&data_dir())).icon_data().expect("bundled icons are valid PNGs"));
     if background {
         viewport = viewport.with_position([-4000.0, 0.0]).with_inner_size([1920.0, 1057.0]).with_active(false).with_taskbar(false);
@@ -242,6 +247,12 @@ fn main() -> eframe::Result {
                 backdrop::prepare(h);
                 // eframe sets only the small icon; the taskbar button wants the big one.
                 appicon::set_window_icon(appicon::get(appicon::load(backend.data_dir())));
+            }
+            #[cfg(target_os = "macos")]
+            if let Ok(h) = raw_window_handle::HasWindowHandle::window_handle(cc)
+                && let raw_window_handle::RawWindowHandle::AppKit(h) = h.as_raw()
+            {
+                ui::set_titlebar_view(h.ns_view.as_ptr());
             }
             let media = media::Media::new(hwnd(cc), media_tx, wake);
 

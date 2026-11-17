@@ -31,7 +31,9 @@ mod row_drag;
 mod shell;
 mod shuffle;
 mod titlebar;
-pub use titlebar::{custom as custom_titlebar, init as init_titlebar, set_hwnd as set_titlebar_hwnd};
+pub use titlebar::{custom as custom_titlebar, init as init_titlebar, inset as titlebar_inset, set_hwnd as set_titlebar_hwnd};
+#[cfg(target_os = "macos")]
+pub use titlebar::set_view as set_titlebar_view;
 mod transfer;
 mod undo;
 mod vector;
@@ -1620,6 +1622,8 @@ impl eframe::App for App {
         // bar, so the pages and the full-screen background under it aren't drawn.
         let covered = !self.fullscreen && np >= 1.0;
         titlebar::set_fullscreen(&ctx, self.fullscreen);
+        // Mid-switch to or from the mini player, the frame stays as it is.
+        titlebar::sync(&ctx, (layout != mini::Layout::Blank).then_some(layout == mini::Layout::Full));
         dev::dev_memory(&ctx, now);
         dev::dev_probe(&ctx);
         if layout == mini::Layout::Mini && mini::video_active() {
@@ -1719,7 +1723,9 @@ impl eframe::App for App {
             // Clear over the top of a page, filling in as it scrolls.
             let side_alpha = if app_style.nav_item.scroll_fill { side_alpha * (self.page_scrolled / 40.0).clamp(0.0, 1.0) } else { side_alpha };
             // The logo's row is 32 points tall.
-            let side_margin = egui::Margin { left: 14, right: 14, top: titlebar::top_margin(16, 32.0), bottom: 16 };
+            // On macOS it starts below the traffic lights, which have the top row to themselves.
+            let below = titlebar::below_lights(&ctx) as i8;
+            let side_margin = egui::Margin { left: 14, right: 14, top: titlebar::top_margin(16, 32.0) + below, bottom: 16 };
             let border = egui::Stroke::new(if app_style.sidebar_border > 0.0 { 1.0 } else { 0.0 }, theme::glass(app_style.sidebar_border));
             let side_frame = match app_style.sidebar {
                 SidebarStyle::Glass => egui::Frame::new().fill(theme::panel(side_alpha)).inner_margin(side_margin),
@@ -1729,7 +1735,7 @@ impl eframe::App for App {
                     .fill(theme::panel(side_alpha.max(0.3)))
                     .stroke(egui::Stroke::new(1.0, theme::glass_panel(0.08)))
                     .corner_radius(egui::CornerRadius::same(theme::panel_radius().max(12)))
-                    .outer_margin(egui::Margin { left: 10, right: 4, top: 10, bottom: 10 })
+                    .outer_margin(egui::Margin { left: 10, right: 4, top: 10 + below, bottom: 10 })
                     .inner_margin(egui::Margin::symmetric(12, 14)),
             };
             egui::Panel::left("nav").resizable(false)

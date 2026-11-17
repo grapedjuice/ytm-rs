@@ -683,6 +683,11 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
     }
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
+        // Clear of macOS's traffic lights, should the row start under them.
+        let gap = super::titlebar::left_gap(ui.ctx(), ui.max_rect(), 0.0);
+        if gap > 0.0 {
+            ui.add_space(gap);
+        }
         // A narrow row needs the logo's room for the search box and the account button.
         if tb.logo_in_bar && !tb.logo_text.is_empty() && ui.available_width() >= 620.0 {
             ui.add_space(6.0);

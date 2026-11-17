@@ -286,6 +286,11 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         song_video_switch(app, ui, header);
     }
     let mut hui = ui.new_child(egui::UiBuilder::new().max_rect(header).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    // macOS: past the traffic lights, which stay over now playing.
+    let gap = super::titlebar::left_gap(hui.ctx(), hui.max_rect(), 0.0);
+    if gap > 0.0 {
+        hui.add_space(gap);
+    }
     if icon_button(&mut hui, icon::CHEVRON_DOWN, 22.0, "Close now playing", false).clicked() {
         app.np_open = false;
         if app.fullscreen {

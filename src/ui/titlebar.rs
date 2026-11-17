@@ -3,7 +3,10 @@
 //! resize it by. On Windows always (winit keeps the window styles snapping needs, so
 //! dragging to a screen edge and Win+arrows still work). On Linux where the desktop
 //! draws no frame for a Wayland window (GNOME), or when Settings › Window asks for it.
-//! On macOS the system's frame stays.
+//!
+//! On macOS the system's frame stays (its corners, shadow, resizing and full screen),
+//! but not its title strip: the app runs up to the window's top, and the system's window
+//! buttons (the traffic lights) sit at the left of the app's own top row, on its line.
 
 use egui::{Color32, CursorIcon, Id, Pos2, Rect, ResizeDirection, Sense, Stroke, Ui, ViewportCommand, pos2, vec2};
 
@@ -82,6 +85,24 @@ pub fn init(data_dir: &std::path::Path) {
     let _ = CUSTOM.set(decide(data_dir));
 }
 
+/// Where the traffic lights' left edge goes, and the room they take at the window's
+/// top left (the lights, and as much again after them as before).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const LIGHTS_X: f32 = 20.0;
+const LIGHTS_W: f32 = 84.0;
+
+/// macOS: the system's window buttons over the app's top row, the system's title strip
+/// gone. `YTM_NATIVE_TITLEBAR` keeps the strip.
+pub fn inset() -> bool {
+    cfg!(target_os = "macos") && std::env::var_os("YTM_NATIVE_TITLEBAR").is_none()
+}
+
+/// Whether the window's top is the app's 56-point row, the window buttons on its line:
+/// the app's own title bar, or macOS's buttons over the app.
+pub fn own_row() -> bool {
+    custom() || inset()
+}
+
 fn decide(data_dir: &std::path::Path) -> bool {
     if std::env::var_os("YTM_NATIVE_TITLEBAR").is_some() {
         return false;
@@ -104,9 +125,9 @@ pub fn set_fullscreen(ctx: &egui::Context, on: bool) {
     ctx.data_mut(|d| d.insert_temp(Id::unique("titlebar-fullscreen"), on));
 }
 
-/// Drawn now: not in full screen.
+/// The app's top row is the title bar now: not in full screen.
 fn shown(ctx: &egui::Context) -> bool {
-    custom() && !ctx.data(|d| d.get_temp::<bool>(Id::unique("titlebar-fullscreen")).unwrap_or(false)) && !ctx.input(|i| i.viewport().fullscreen.unwrap_or(false))
+    own_row() && !ctx.data(|d| d.get_temp::<bool>(Id::unique("titlebar-fullscreen")).unwrap_or(false)) && !ctx.input(|i| i.viewport().fullscreen.unwrap_or(false))
 }
 
 fn maximized(ctx: &egui::Context) -> bool {
@@ -115,7 +136,7 @@ fn maximized(ctx: &egui::Context) -> bool {
 
 /// The window buttons' corner, which what's drawn at the top right stays clear of.
 pub fn buttons_rect(ctx: &egui::Context) -> Option<Rect> {
-    shown(ctx).then(|| {
+    (custom() && shown(ctx)).then(|| {
         let screen = ctx.content_rect();
         Rect::from_min_size(pos2(screen.right() - 3.0 * BUTTON_W, screen.top()), vec2(3.0 * BUTTON_W, HEIGHT))
     })
@@ -124,7 +145,7 @@ pub fn buttons_rect(ctx: &egui::Context) -> Option<Rect> {
 /// The top margin above a row `row` tall at the top of the window: `normal`, or with the
 /// app's title bar what centres it on the window buttons' line.
 pub fn top_margin(normal: i8, row: f32) -> i8 {
-    if custom() { ((HEIGHT - row) / 2.0).round() as i8 } else { normal }
+    if own_row() { ((HEIGHT - row) / 2.0).round() as i8 } else { normal }
 }
 
 /// How much of `row` (a strip along the top) the window buttons cover from its right.
@@ -137,6 +158,52 @@ fn overlap(ctx: &egui::Context, row: Rect) -> f32 {
 pub fn right_gap(ctx: &egui::Context, row: Rect, normal: f32) -> f32 {
     let o = overlap(ctx, row);
     if o > 0.0 { o + 10.0 } else { normal }
+}
+
+/// macOS: the traffic lights' corner, at the window's top left, which what's drawn
+/// there stays clear of. None in full screen, which has none.
+pub fn lights_rect(ctx: &egui::Context) -> Option<Rect> {
+    (inset() && shown(ctx)).then(|| Rect::from_min_size(ctx.content_rect().min, vec2(LIGHTS_W, HEIGHT)))
+}
+
+/// The space to leave at the left of a row along the top: `normal`, or past the traffic
+/// lights when they're over its start.
+pub fn left_gap(ctx: &egui::Context, row: Rect, normal: f32) -> f32 {
+    match lights_rect(ctx) {
+        Some(l) if row.left() < l.right() && row.top() < l.bottom() => (l.right() - row.left()).max(normal),
+        _ => normal,
+    }
+}
+
+/// How far down the sidebar's content starts so the traffic lights have the top row to
+/// themselves: they and the sidebar's menu button and logo don't fit side by side.
+pub fn below_lights(ctx: &egui::Context) -> f32 {
+    if lights_rect(ctx).is_some() { HEIGHT } else { 0.0 }
+}
+
+/// Once a frame, before drawing: macOS keeps the traffic lights on the app's top row.
+/// `full`: the full window is up (the mini player keeps the system's title strip),
+/// None while switching between them.
+///
+/// macOS puts them back where its own title strip would have them when it lays the
+/// window out again (resized, full screen left, the frame back after the mini player),
+/// and that can come after the frame drawn for the change. So for a moment after one,
+/// it's looked at again a few times a second, until they stay put.
+pub fn sync(ctx: &egui::Context, full: Option<bool>) {
+    #[cfg(target_os = "macos")]
+    if inset() {
+        let id = Id::unique("titlebar-sync");
+        let (now, state) = ctx.input(|i| (i.time, (i.viewport().inner_rect.map(|r| r.size()), i.viewport().fullscreen, i.focused)));
+        let (last, until) = ctx.data(|d| d.get_temp::<((Option<egui::Vec2>, Option<bool>, bool), f64)>(id)).map_or((None, 0.0), |(l, u)| (Some(l), u));
+        let until = if last != Some(state) { now + 1.0 } else { until };
+        let moved = full.is_some_and(|full| mac::sync(full, f64::from(HEIGHT) / 2.0, f64::from(LIGHTS_X)));
+        let until = if moved { until.max(now + 0.5) } else { until };
+        ctx.data_mut(|d| d.insert_temp(id, (state, until)));
+        if now < until {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+    }
+    let _ = (ctx, full);
 }
 
 /// Move the window by `rect` where nothing else on it takes the pointer; double-click
@@ -153,6 +220,13 @@ pub fn drag_area(ui: &Ui, rect: Rect, id: &str) {
     }
     if drag_strip(ui, rect, id).double_clicked() {
         let max = maximized(ui.ctx());
+        // macOS: what System Settings › Desktop & Dock says a double-click on a title bar does.
+        #[cfg(target_os = "macos")]
+        match mac::double_click() {
+            mac::DoubleClick::Minimize => return ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true)),
+            mac::DoubleClick::Nothing => return,
+            mac::DoubleClick::Zoom => {}
+        }
         ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(!max));
     }
 }
@@ -274,7 +348,8 @@ pub fn resize_sides(ctx: &egui::Context) {
 }
 
 fn edges(ctx: &egui::Context, sides_only: bool) {
-    if !shown(ctx) || maximized(ctx) {
+    // macOS resizes its own frame.
+    if !custom() || !shown(ctx) || maximized(ctx) {
         return;
     }
     let s = ctx.content_rect();
@@ -345,6 +420,122 @@ fn drop_caption(gl_vendor: Option<&str>, forced: Option<&str>) -> bool {
         Some("1") => true,
         Some("0") => false,
         _ => gl_vendor.is_some_and(|v| v.to_ascii_lowercase().contains("intel")),
+    }
+}
+
+/// macOS: the main window's view, from `main`.
+#[cfg(target_os = "macos")]
+pub fn set_view(ns_view: *mut std::ffi::c_void) {
+    mac::init(ns_view);
+}
+
+#[cfg(target_os = "macos")]
+mod mac {
+    use std::sync::atomic::{AtomicPtr, Ordering};
+
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSView, NSWindow, NSWindowButton, NSWindowStyleMask, NSWindowTitleVisibility};
+    use objc2_foundation::{NSPoint, NSString, NSUserDefaults};
+
+    static VIEW: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
+
+    pub fn init(ns_view: *mut std::ffi::c_void) {
+        VIEW.store(ns_view, Ordering::Relaxed);
+    }
+
+    /// Put the traffic lights' left edge at `left` and their middle `center_y` down from
+    /// the window's top; or, not `full` (the mini player), give the window its title strip
+    /// back. Whether anything had to change.
+    pub fn sync(full: bool, center_y: f64, left: f64) -> bool {
+        let ptr = VIEW.load(Ordering::Relaxed);
+        if ptr.is_null() || MainThreadMarker::new().is_none() {
+            return false;
+        }
+        // SAFETY: winit's view of the main window, alive as long as the app's loop that
+        // calls this, and used on the main thread.
+        let view = unsafe { &*(ptr as *const NSView) };
+        let Some(window) = view.window() else { return false };
+        let mask = window.styleMask();
+        // Borderless is the mini player; full screen has macOS's own top, sliding down.
+        if !mask.contains(NSWindowStyleMask::Titled) || mask.contains(NSWindowStyleMask::FullScreen) {
+            return false;
+        }
+        if !full {
+            if !mask.contains(NSWindowStyleMask::FullSizeContentView) {
+                return false;
+            }
+            // macOS lays the strip out afresh, the buttons back in their usual place.
+            set_mask(&window, mask & !NSWindowStyleMask::FullSizeContentView);
+            window.setTitlebarAppearsTransparent(false);
+            window.setTitleVisibility(NSWindowTitleVisibility::Visible);
+            return true;
+        }
+        if !mask.contains(NSWindowStyleMask::FullSizeContentView) {
+            // Back from the mini player; or winit set the mask afresh, without this, when
+            // the frame came back after the pill.
+            set_mask(&window, mask | NSWindowStyleMask::FullSizeContentView);
+        }
+        if !window.titlebarAppearsTransparent() {
+            window.setTitlebarAppearsTransparent(true);
+            window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
+        }
+        let Some(close) = window.standardWindowButton(NSWindowButton::CloseButton) else { return false };
+        // The buttons' bar and what holds it, moved as one: the buttons' highlight while
+        // the pointer is over them moves with them. Moving the buttons inside it left
+        // that where it was (winit#4466).
+        // SAFETY: AppKit's own views, kept alive by the window for as long as this runs.
+        let Some(holder) = (unsafe { close.superview() }).and_then(|bar| unsafe { bar.superview() }) else { return false };
+        let Some(frame_view) = (unsafe { holder.superview() }) else { return false };
+        // In the window's own coordinates: from its bottom left, up.
+        let at = close.convertRect_toView(close.bounds(), None);
+        let height = window.frame().size.height;
+        let dx = left - at.origin.x;
+        let down = center_y - (height - (at.origin.y + at.size.height / 2.0));
+        if dx.abs() < 0.5 && down.abs() < 0.5 {
+            return false;
+        }
+        let o = holder.frame().origin;
+        let dy = if frame_view.isFlipped() { down } else { -down };
+        holder.setFrameOrigin(NSPoint::new(o.x + dx, o.y + dy));
+        true
+    }
+
+    /// Change the window's style, the app's area kept the size it was: the strip coming
+    /// or going would otherwise take its height from it, or add it, with the window's
+    /// outside the same (the mini player sized to fit its strip would lose a row). The
+    /// top edge stays put.
+    fn set_mask(window: &NSWindow, mask: NSWindowStyleMask) {
+        let content = || window.contentView().map(|v| v.frame().size.height);
+        let before = content();
+        window.setStyleMask(mask);
+        if let (Some(before), Some(after)) = (before, content()) {
+            let lost = before - after;
+            if lost.abs() > 0.5 {
+                let mut f = window.frame();
+                f.origin.y -= lost;
+                f.size.height += lost;
+                window.setFrame_display(f, true);
+            }
+        }
+    }
+
+    pub enum DoubleClick {
+        Zoom,
+        Minimize,
+        Nothing,
+    }
+
+    /// What System Settings › Desktop & Dock › "Double-click a window's title bar to" says.
+    pub fn double_click() -> DoubleClick {
+        let defaults = NSUserDefaults::standardUserDefaults();
+        match defaults.stringForKey(&NSString::from_str("AppleActionOnDoubleClick")).map(|s| s.to_string()).as_deref() {
+            Some("Minimize") => DoubleClick::Minimize,
+            Some("None") => DoubleClick::Nothing,
+            Some(_) => DoubleClick::Zoom,
+            // Older systems: a switch for minimizing, zooming otherwise.
+            None if defaults.boolForKey(&NSString::from_str("AppleMiniaturizeOnDoubleClick")) => DoubleClick::Minimize,
+            None => DoubleClick::Zoom,
+        }
     }
 }
 

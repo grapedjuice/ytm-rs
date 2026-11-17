@@ -547,6 +547,8 @@ pub struct App {
     reactive_bg: bool,
     /// Bright album art is darkened behind now playing and the pages, for the text over it.
     dim_bright: bool,
+    /// The progress line's knob shown all the time, not only on hover.
+    seek_knob_always: bool,
     /// Skip the parts of music videos SponsorBlock marks as not music.
     sponsorblock: bool,
     /// Crossfade between songs, and over how many seconds.
@@ -591,6 +593,8 @@ pub struct App {
     np_open: bool,
     np_tab: NpTab,
     queue_open: bool,
+    /// Where the queue floats over the page in a narrow window, as last drawn.
+    queue_float: Option<egui::Rect>,
     /// A song row being dragged.
     row_drag: Option<row_drag::RowDrag>,
     /// Settings: the category on show, and what its search box is looking for.
@@ -945,6 +949,7 @@ impl App {
             glass_on: get("glass_on").is_none_or(|v| v == "1"),
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
             dim_bright: get("dim_bright").is_none_or(|v| v == "1"),
+            seek_knob_always: get("seek_knob_always").is_some_and(|v| v == "1"),
             sponsorblock: get("sponsorblock").is_some_and(|v| v == "1"),
             crossfade: get("crossfade").is_some_and(|v| v == "1"),
             handoff: false,
@@ -974,6 +979,7 @@ impl App {
             np_open: false,
             np_tab: if get("np_art").is_some_and(|v| v == "1") { NpTab::Art } else { NpTab::Lyrics },
             queue_open: false,
+            queue_float: None,
             row_drag: None,
             settings_tab: Default::default(),
             settings_query: String::new(),
@@ -1704,6 +1710,7 @@ impl eframe::App for App {
                 });
             theme::set_mode(&ctx, pages);
         }
+        self.queue_float = None;
         if !self.fullscreen && !covered {
             use crate::preset::SidebarStyle;
             let side_alpha = app_style.sidebar_alpha.clamp(0.0, 1.0);
@@ -1744,6 +1751,7 @@ impl eframe::App for App {
             if q > 0.01 && screen.width() < 1000.0 {
                 // No room to give it without crushing the page: it floats over that instead.
                 let r = egui::Rect::from_min_size(egui::pos2(screen.right() - 340.0 * q, screen.top()), egui::vec2(340.0, screen.height() - self.bar_height()));
+                self.queue_float = Some(r);
                 egui::Area::new(egui::Id::unique("queue-float")).order(egui::Order::Middle).fixed_pos(r.min).show(&ctx, |ui| {
                     ui.allocate_rect(r, egui::Sense::click_and_drag());
                     ui.painter().rect_filled(r, 0.0, theme::panel(0.94));
@@ -1987,6 +1995,7 @@ impl eframe::App for App {
         storage.set_string("glass_on", b(self.glass_on));
         storage.set_string("reactive_bg", b(self.reactive_bg));
         storage.set_string("dim_bright", b(self.dim_bright));
+        storage.set_string("seek_knob_always", b(self.seek_knob_always));
         storage.set_string("sponsorblock", b(self.sponsorblock));
         storage.set_string("crossfade", b(self.crossfade));
         storage.set_string("crossfade_secs", self.crossfade_secs.to_string());

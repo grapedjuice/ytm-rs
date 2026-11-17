@@ -1200,7 +1200,21 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let resp = ui.interact(bar_hit, ui.scope_id().with("progress"), Sense::click_and_drag());
     let resp = if total > 0.0 { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
     resp.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
-    let h = theme::anim_bool(ui.ctx(), "progress-h", resp.hovered() || resp.dragged(), 0.15);
+    // A knob shown all the time sticks out of the bar, past the clip that cuts the line's
+    // target: it gets a target of its own, above now playing and under menus. Not where the
+    // narrow window's queue floats over it.
+    let knob_at = pos2(track_rect.left() + track_rect.width() * if total > 0.0 { pos / total } else { 0.0 }, edge_y + progress_px / 2.0);
+    let knob_rect = Rect::from_center_size(knob_at, chrome.progress_thumb_pill.map_or(Vec2::splat(2.0 * chrome.progress_thumb_px), |[w, h]| vec2(w, h)));
+    let always = progress_thumb && app.seek_knob_always && total > 0.0 && !app.queue_float.is_some_and(|q| q.intersects(knob_rect));
+    let knob_resp = always.then(|| {
+        let knob = egui::Area::new(ui.scope_id().with("seek-knob-hit")).order(egui::Order::Middle).fixed_pos(knob_rect.min).show(ui.ctx(), |ui| ui.allocate_rect(knob_rect, Sense::click_and_drag()));
+        ui.ctx().move_to_top(knob.response.layer_id);
+        knob.inner.on_hover_cursor(egui::CursorIcon::PointingHand)
+    });
+    // The two targets on two layers, as one.
+    let any = |f: fn(&egui::Response) -> bool| f(&resp) || knob_resp.as_ref().is_some_and(f);
+    let at = |f: fn(&egui::Response) -> Option<egui::Pos2>| f(&resp).or_else(|| knob_resp.as_ref().and_then(f));
+    let h = theme::anim_bool(ui.ctx(), "progress-h", any(egui::Response::hovered) || any(egui::Response::dragged), 0.15);
     let thick = progress_px + if progress_thumb { 2.0 * h } else { 0.0 };
     // Along the bottom edge it thickens upward, staying inside the bar.
     let line_y = if at_bottom { edge_y - (thick - progress_px) } else { edge_y };
@@ -1224,27 +1238,44 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     } else {
         ui.painter().rect_filled(filled, progress_r, progress_color);
     }
-    if h > 0.0 && total > 0.0 {
-        // The knob and the time tip stick out above the bar, over now playing (a higher
-        // layer than the bar), so they go on a layer above both and outside the bar's clip.
-        let over = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, ui.scope_id().with("seek-over")));
+    if (h > 0.0 || always) && total > 0.0 {
         if progress_thumb {
+            // It sticks out above the bar, over now playing (a higher layer than the bar), so
+            // it goes on a layer above both and outside the bar's clip, still under menus.
+            let over = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, ui.scope_id().with("seek-knob")));
+            let k = if always { 1.0 } else { h };
             let knob = pos2(filled.right(), line.center().y);
-            let knob_c = if chrome.progress_thumb_color.is_empty() { progress_color } else { crate::preset::paint(&chrome.progress_thumb_color, app.accent_color()) };
+            // A knob colour of the theme's own is for a dark bar: on a light one the knob is
+            // white with a hairline round it, as Windows' light sliders.
+            let edge = (theme::light() && crate::preset::hex(&chrome.progress_thumb_color).is_some()).then(|| egui::Stroke::new(1.0, theme::shade(0.15)));
+            let knob_c = match edge {
+                Some(_) => Color32::WHITE,
+                None if chrome.progress_thumb_color.is_empty() => progress_color,
+                None => crate::preset::paint(&chrome.progress_thumb_color, app.accent_color()),
+            };
             match chrome.progress_thumb_pill {
                 Some([kw, kh]) => {
-                    over.rect_filled(Rect::from_center_size(knob, vec2(kw, kh) * h), kw.min(kh) / 2.0, knob_c);
+                    let r = Rect::from_center_size(knob, vec2(kw, kh) * k);
+                    over.rect_filled(r, kw.min(kh) / 2.0, knob_c);
+                    if let Some(s) = edge {
+                        over.rect_stroke(r, kw.min(kh) / 2.0, s, egui::StrokeKind::Outside);
+                    }
                 }
                 None => {
-                    over.circle_filled(knob, chrome.progress_thumb_px * h, knob_c);
+                    over.circle_filled(knob, chrome.progress_thumb_px * k, knob_c);
+                    if let Some(s) = edge {
+                        over.circle_stroke(knob, chrome.progress_thumb_px * k + 0.5, s);
+                    }
                 }
             }
             if chrome.progress_thumb_dot {
                 let dot_c = if chrome.progress_thumb_dot_color.is_empty() { theme::on_text() } else { crate::preset::paint(&chrome.progress_thumb_dot_color, app.accent_color()) };
-                over.circle_filled(knob, chrome.progress_thumb_px * chrome.progress_thumb_dot_frac * h, dot_c);
+                over.circle_filled(knob, chrome.progress_thumb_px * chrome.progress_thumb_dot_frac * k, dot_c);
             }
         }
-        if let Some(p) = resp.hover_pos() {
+        if let Some(p) = at(egui::Response::hover_pos) {
+            // The time tip goes over everything, now playing included.
+            let over = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, ui.scope_id().with("seek-over")));
             let t = ((p.x - line.left()) / line.width()).clamp(0.0, 1.0) * total;
             let tip = pos2(p.x, line.top() - 16.0);
             let tip_text = crate::preset::hex(&chrome.tip_text).unwrap_or(Color32::WHITE);
@@ -1255,13 +1286,13 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         }
     }
     if total > 0.0
-        && let Some(p) = resp.interact_pointer_pos()
+        && let Some(p) = at(egui::Response::interact_pointer_pos)
     {
         let t = ((p.x - line.left()) / line.width()).clamp(0.0, 1.0) * total;
-        if resp.dragged() {
+        if any(egui::Response::dragged) {
             app.seek_drag = Some(t);
         }
-        if resp.drag_stopped() || resp.clicked() {
+        if any(egui::Response::drag_stopped) || any(egui::Response::clicked) {
             app.seek_drag = None;
             app.actions.push(Action::Seek(t));
         }

@@ -2208,6 +2208,10 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         setting_row(ui, "Accent-coloured controls", Some("The play button and volume slider in the accent colour, like the progress line."), |ui| {
             toggle(ui, &mut app.accent_controls, "Accent-coloured controls");
         });
+        divider(ui);
+        setting_row(ui, "Always show the seek knob", Some("The knob on the progress line stays up, not only when you point at it, in themes that have one."), |ui| {
+            toggle(ui, &mut app.seek_knob_always, "Always show the seek knob");
+        });
         if crate::backdrop::supported() {
             divider(ui);
             settings_backdrop(app, ui);

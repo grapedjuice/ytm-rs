@@ -543,12 +543,14 @@ mod mac {
 mod frame {
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
     use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
-    use windows::Win32::Graphics::Gdi::{BLACK_BRUSH, ClientToScreen, FillRect, GetMonitorInfoW, GetStockObject, GetWindowDC, HBRUSH, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect, ReleaseDC};
+    use windows::Win32::Graphics::Gdi::{
+        BLACK_BRUSH, ClientToScreen, FillRect, GetMonitorInfoW, GetStockObject, GetWindowDC, HBRUSH, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect, MonitorFromWindow, ReleaseDC,
+    };
     use windows::Win32::UI::Controls::MARGINS;
     use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
     use windows::Win32::UI::WindowsAndMessaging::{
-        GWL_STYLE, GetClientRect, GetWindowLongW, GetWindowRect, IsZoomed, NCCALCSIZE_PARAMS, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-        SetWindowLongW, SetWindowPos, WM_NCCALCSIZE, WM_NCPAINT, WM_STYLECHANGING, WS_CAPTION,
+        GWL_STYLE, GetClientRect, GetWindowLongW, GetWindowRect, IsZoomed, MINMAXINFO, NCCALCSIZE_PARAMS, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+        SetWindowLongW, SetWindowPos, WM_GETMINMAXINFO, WM_NCACTIVATE, WM_NCCALCSIZE, WM_NCPAINT, WM_STYLECHANGING, WS_CAPTION,
     };
 
     /// See `super::drop_caption`.
@@ -609,6 +611,21 @@ mod frame {
             if msg == WM_STYLECHANGING && wparam.0 as i32 == GWL_STYLE.0 && NO_CAPTION.load(std::sync::atomic::Ordering::Relaxed) {
                 (*(lparam.0 as *mut STYLESTRUCT)).styleNew &= !WS_CAPTION.0;
             }
+            // Without the caption style, as GLFW's frameless windows (#196): maximized to
+            // the work area, and no old-style title bar drawn on activation or a new title.
+            if NO_CAPTION.load(std::sync::atomic::Ordering::Relaxed) {
+                if msg == WM_GETMINMAXINFO {
+                    let result = DefSubclassProc(hwnd, msg, wparam, lparam);
+                    to_work_area(hwnd, &mut *(lparam.0 as *mut MINMAXINFO));
+                    return result;
+                }
+                if msg == WM_NCACTIVATE || msg == WM_NCPAINT {
+                    if msg == WM_NCPAINT {
+                        clear_edge(hwnd);
+                    }
+                    return LRESULT(1);
+                }
+            }
             if msg != WM_NCCALCSIZE || wparam.0 == 0 {
                 let result = DefSubclassProc(hwnd, msg, wparam, lparam);
                 if msg == WM_NCPAINT {
@@ -641,6 +658,21 @@ mod frame {
             }
             result
         }
+    }
+
+    /// Without the caption style Windows maximizes a window over its whole monitor, the
+    /// taskbar included, as it does a full-screen game's. winit still keeps the app's area
+    /// to the work area, so the strip past it went unseen but took the taskbar's clicks
+    /// (#196). Maximized, it fills the work area instead, as GLFW's frameless windows do.
+    fn to_work_area(hwnd: HWND, mm: &mut MINMAXINFO) {
+        let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+        // SAFETY: the app's own window; `info` is ours and sized.
+        if !unsafe { GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut info) }.as_bool() {
+            return;
+        }
+        let (m, w) = (info.rcMonitor, info.rcWork);
+        mm.ptMaxPosition = POINT { x: w.left - m.left, y: w.top - m.top };
+        mm.ptMaxSize = POINT { x: w.right - w.left, y: w.bottom - w.top };
     }
 
     /// Whether `r` covers all of the monitor it's on: the one it's going to, while the

@@ -74,7 +74,6 @@ pub fn pages_bg_moves(look: &crate::preset::Preset) -> bool {
     matches!(page_mode(look), BgMode::Kawarp | BgMode::CoverFullbleed) && b.speed > 0.0 && b.intensity > 0.0
 }
 
-/// `only`: paint just this part (the rest is covered by now playing).
 /// Moves the animated background's clock on by a frame. Now playing's backdrop runs on
 /// it too, also where the pages' background isn't drawn (full screen).
 pub fn background_clock(app: &mut App, now: f64) {
@@ -104,7 +103,7 @@ pub fn bar_fill(look: &crate::preset::Preset, alpha: f32) -> Color32 {
     }
 }
 
-pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64, only: Option<Rect>) {
+pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64) {
     use crate::preset::BgMode;
     background_clock(app, now);
     let look = app.look();
@@ -116,10 +115,7 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64, only: Opti
     // Darker still where bright art would show through too bright for white text (the
     // shade drawn over it below takes about a third off).
     let dim = if light || !app.dim_bright { dim } else { dim * crate::art::readable_dim(app.art_brightness * dim * (1.0 - 0.335)) };
-    let painter = match only {
-        Some(r) => ui.painter().with_clip_rect(r),
-        None => ui.painter().clone(),
-    };
+    let painter = ui.painter().clone();
     // Windows' material shows through instead of the theme's colour, lightly tinted.
     if crate::backdrop::shows() {
         painter.rect_filled(screen, 0.0, if light { Color32::from_white_alpha(40) } else { Color32::from_black_alpha(40) });
@@ -998,13 +994,18 @@ fn suggestion_text(ui: &Ui, pos: Pos2, text: &str, typed: &str, width: f32) {
 
 // ------------------------------------------------------------------ player bar
 
+/// Where the floating bar is in its panel, `slot`: narrower than it in some themes.
+pub fn floating_rect(look: &crate::preset::Preset, slot: Rect) -> Rect {
+    match look.chrome.bar_max_px {
+        Some(w) if slot.width() > w => Rect::from_center_size(slot.center(), vec2(w, slot.height())),
+        _ => slot,
+    }
+}
+
 /// The floating bar, over the page. `slot`: its panel.
 pub fn floating_bar(app: &mut App, ui: &mut Ui, slot: Rect, now: f64) {
     let look = app.look();
-    let r = match look.chrome.bar_max_px {
-        Some(w) if slot.width() > w => Rect::from_center_size(slot.center(), vec2(w, slot.height())),
-        _ => slot,
-    };
+    let r = floating_rect(look, slot);
     let radius = look.chrome.bar_radius.min(r.height() / 2.0);
     // Takes the pointer from the page under it, also between the buttons.
     ui.interact(r, ui.scope_id().with("bar-back"), Sense::click());

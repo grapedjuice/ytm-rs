@@ -17,8 +17,13 @@ pub(super) struct Glow {
     tex: egui::TextureHandle,
 }
 
+/// Now playing's layer. The player bar keeps its own layer just above it while it's up.
+pub fn layer() -> egui::LayerId {
+    egui::LayerId::new(egui::Order::Middle, egui::Id::unique("now-playing"))
+}
+
 pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
-    // A spring's overshoot isn't for this: past its place it would leave a gap over the bar.
+    // A spring's overshoot isn't for this: past its place it would leave a gap at the bottom.
     let t = theme::anim_bool_timed(ctx, "np-open", app.np_open && app.current().is_some(), app.look().app.np_open_secs).min(1.0);
     if t <= 0.001 {
         // Closed: nothing to decode for. It picks up from the music's place when opened.
@@ -31,28 +36,30 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
         return;
     }
     let screen = ctx.content_rect();
-    let full = if app.fullscreen { screen } else { Rect::from_min_max(screen.min, pos2(screen.right(), screen.bottom() - app.bar_height())) };
-    let rect = full.translate(vec2(0.0, full.height() * (1.0 - t)));
+    // One sheet the size of the window, coming up from its bottom edge. The player bar
+    // stays over it (on its own layer, above this one), so it slides up behind the bar,
+    // and around a floating bar it shows the whole way.
+    let sheet = screen.translate(vec2(0.0, screen.height() * (1.0 - t)));
+    // Its content, where it sits once the sheet is up: above the bar, moving with the sheet.
+    let content_h = if app.fullscreen { screen.height() } else { screen.height() - app.bar_height() };
+    let rect = Rect::from_min_size(sheet.min, vec2(sheet.width(), content_h));
     let look = app.look();
     let video_only = app.fullscreen && app.video_full;
     let video_only = video_only.then(|| app.shown_video().cloned()).flatten();
-    egui::Area::new(egui::Id::unique("now-playing"))
-        .order(egui::Order::Middle)
-        .fixed_pos(rect.min)
-        // Sliding in or out it runs over the player bar: until it's in place, the pointer
-        // stays with what's under it, so a click on the bar doesn't flash the hand of
-        // whatever slides past.
+    egui::Area::new(layer().id)
+        .order(layer().order)
+        .fixed_pos(sheet.min)
+        // While it's moving, the pointer stays with what's under it, so a click doesn't
+        // flash the hand of whatever slides past.
         .interactable(t >= 1.0)
         .show(ctx, |ui| {
-            // It comes up from behind the player bar, which stays over it: what of it is
-            // still below the bar's top isn't drawn.
-            let shown = rect.intersect(full);
+            let shown = sheet.intersect(screen);
             ui.set_clip_rect(shown.intersect(ui.clip_rect()));
             // A soft shadow over the page it's covering, so its top edge isn't a hard cut.
             // Once it's all the way up that's above the window.
             if !app.fullscreen && t < 1.0 {
-                let band = Rect::from_min_max(pos2(rect.left(), rect.top() - 28.0), pos2(rect.right(), rect.top()));
-                super::shell::vgradient(&ui.ctx().layer_painter(ui.layer_id()).with_clip_rect(full), band, Color32::TRANSPARENT, theme::shade(0.3));
+                let band = Rect::from_min_max(pos2(sheet.left(), sheet.top() - 28.0), pos2(sheet.right(), sheet.top()));
+                super::shell::vgradient(&ui.ctx().layer_painter(ui.layer_id()).with_clip_rect(screen), band, Color32::TRANSPARENT, theme::shade(0.3));
             }
             // Swallow input so the page underneath doesn't react.
             ui.allocate_rect(shown, Sense::click_and_drag());
@@ -76,18 +83,15 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
                     ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
             }
-            // Laid out as if it ran under the player bar, which shows the rest of it.
-            let under_bar = Rect::from_min_max(rect.min, rect.max + vec2(0.0, screen.bottom() - full.bottom()));
-            backdrop(app, ui, under_bar, shown, now, true);
+            backdrop(app, ui, sheet, shown, now);
             let [pad_x, pad_y] = look.now_playing.fullscreen_padding.filter(|_| app.fullscreen).unwrap_or([32.0, 20.0]);
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(pad_x, pad_y))));
             body(app, &mut child, now);
         });
 }
 
-/// Now playing's background laid out over `rect`, drawn only inside `clip`. `step_glow`:
-/// this is the frame's main drawing, which moves the video's glow along.
-pub(super) fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, step_glow: bool) {
+/// Now playing's background laid out over `rect`, drawn only inside `clip`.
+fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64) {
     use crate::preset::BgMode;
     let look = app.look();
     let b = &look.background;
@@ -186,7 +190,7 @@ pub(super) fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: 
         super::shell::overlay_light(&painter, rect, o, app.accent_color());
     }
     if app.ambient_light && app.shown_video().is_some() {
-        paint_glow(app, ui, rect, clip, step_glow);
+        paint_glow(app, ui, rect, clip);
     }
 }
 
@@ -1542,20 +1546,18 @@ fn video_line_pill(app: &App, ui: &Ui, picture: Rect) {
 }
 
 /// The video's colours, eased toward the latest frame's, across all of Now playing.
-fn paint_glow(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, step: bool) {
+fn paint_glow(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect) {
     let dim_bright = app.dim_bright;
     let Some(Glow { current, target, tex }) = &mut app.glow else { return };
-    if step {
-        let k = (ui.input(|i| i.stable_dt) * 2.5).clamp(0.0, 1.0);
-        for (c, t) in current.iter_mut().zip(target.iter()) {
-            for i in 0..3 {
-                c[i] += (t[i] - c[i]) * k;
-            }
+    let k = (ui.input(|i| i.stable_dt) * 2.5).clamp(0.0, 1.0);
+    for (c, t) in current.iter_mut().zip(target.iter()) {
+        for i in 0..3 {
+            c[i] += (t[i] - c[i]) * k;
         }
-        let [w, h] = crate::video::GLOW_SIZE;
-        let pixels = current.iter().map(|c| Color32::from_rgb(c[0] as u8, c[1] as u8, c[2] as u8)).collect();
-        tex.set(egui::ColorImage { size: [w, h], source_size: vec2(w as f32, h as f32), pixels }, egui::TextureOptions::LINEAR);
     }
+    let [w, h] = crate::video::GLOW_SIZE;
+    let pixels = current.iter().map(|c| Color32::from_rgb(c[0] as u8, c[1] as u8, c[2] as u8)).collect();
+    tex.set(egui::ColorImage { size: [w, h], source_size: vec2(w as f32, h as f32), pixels }, egui::TextureOptions::LINEAR);
     // Bigger than the view, so its coarse edges stay out of sight.
     let full = rect.expand2(rect.size() * 0.08);
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));

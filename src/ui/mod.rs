@@ -1619,7 +1619,6 @@ impl eframe::App for App {
         // Once now playing has slid all the way up it hides everything but the player
         // bar, so the pages and the full-screen background under it aren't drawn.
         let covered = !self.fullscreen && np >= 1.0;
-        let bar_strip = egui::Rect::from_min_max(egui::pos2(screen.left(), screen.bottom() - self.bar_height()), screen.max);
         titlebar::set_fullscreen(&ctx, self.fullscreen);
         dev::dev_memory(&ctx, now);
         dev::dev_probe(&ctx);
@@ -1638,7 +1637,7 @@ impl eframe::App for App {
             return;
         }
         if layout != mini::Layout::Full {
-            shell::background(self, ui, screen, now, None);
+            shell::background(self, ui, screen, now);
             if layout == mini::Layout::Mini {
                 mini::strip(self, ui, now);
                 titlebar::resize_sides(&ctx);
@@ -1649,26 +1648,26 @@ impl eframe::App for App {
             dev_screenshot(&ctx, now);
             return;
         }
-        // Full-screen now playing paints over all of it.
-        if self.fullscreen && np >= 1.0 {
+        // Now playing all the way up paints over all of it, under the player bar too.
+        if np >= 1.0 {
             // Not drawn, but now playing's own backdrop runs on the same clock.
             shell::background_clock(self, now);
         } else {
-            shell::background(self, ui, screen, now, covered.then_some(bar_strip));
-        }
-        if !self.fullscreen && (np >= 0.5 || (!light && np > 0.001)) {
-            // What shows around and through the player bar carries on from now playing above it,
-            // from the moment the bar turns dark: a light bar keeps the page under it. On dark
-            // pages that's from the start, as it comes up from behind the bar.
-            let pages = theme::set_mode(&ctx, false);
-            nowplaying::backdrop(self, ui, screen, bar_strip, now, false);
-            theme::set_mode(&ctx, pages);
+            shell::background(self, ui, screen, now);
         }
         if !self.fullscreen && !covered {
             // The top of the window, down to the search box's row: what's on it comes after.
             titlebar::drag_area(ui, egui::Rect::from_min_size(screen.min, egui::vec2(screen.width(), titlebar::HEIGHT)), "main");
         }
         let mut floating_slot = None;
+        // While now playing is up or on its way, it's one sheet over the whole window, the
+        // part under the player bar included. The bar then goes on a layer of its own, kept
+        // just above it, so the sheet slides up behind the bar instead of over it.
+        let over_np = (!self.fullscreen && np > 0.001).then(|| {
+            let bar = egui::LayerId::new(egui::Order::Middle, egui::Id::unique("player-bar"));
+            ctx.set_sublayer(nowplaying::layer(), bar);
+            bar
+        });
         if !self.fullscreen {
             let pages = theme::set_mode(&ctx, bar_light);
             let floating = look.chrome.player_bar == crate::preset::PlayerBar::Floating;
@@ -1689,7 +1688,8 @@ impl eframe::App for App {
             };
             egui::Panel::bottom("player").resizable(false)
                 .exact_size(self.bar_height())
-                .frame(frame)
+                // Over now playing its fill goes on the bar's own layer, with the rest of it.
+                .frame(if over_np.is_some() && !floating { egui::Frame::new() } else { frame })
                 .show_separator_line(false)
                 .show(ui, |ui| {
                     if bar_light != light {
@@ -1700,7 +1700,16 @@ impl eframe::App for App {
                         floating_slot = Some(ui.max_rect());
                         return;
                     }
-                    shell::player_bar(self, ui, now)
+                    match over_np {
+                        Some(layer) => {
+                            let r = ui.max_rect();
+                            let mut bar = ui.new_child(egui::UiBuilder::new().layer_id(layer).max_rect(r));
+                            bar.painter().add(frame.paint(r));
+                            bar_layer_state(&ctx, layer, r);
+                            shell::player_bar(self, &mut bar, now)
+                        }
+                        None => shell::player_bar(self, ui, now),
+                    }
                 });
             theme::set_mode(&ctx, pages);
         }
@@ -1783,10 +1792,7 @@ impl eframe::App for App {
                     let page_rect = egui::Rect::from_min_max(egui::pos2(panel.left(), top), egui::pos2(panel.right(), bottom));
                     self.page_insets = [if under_top { panel.top() + row_h - screen.top() } else { 0.0 }, if under_bar { self.bar_height() } else { 0.0 }];
                     let mut page_ui = ui.new_child(egui::UiBuilder::new().scope_id(page_id).max_rect(page_rect));
-                    // Now playing comes up from behind the bar: the page stops above it meanwhile,
-                    // or it would show around the floating bar over what's coming up.
-                    let moving = np > 0.001 && (np >= 0.5 || !light);
-                    page_ui.set_clip_rect(if moving { page_rect.intersect(egui::Rect::everything_above(bar_strip.top())) } else { page_rect });
+                    page_ui.set_clip_rect(page_rect);
                     pages::page(self, &mut page_ui, now);
                     if under_top {
                         // Dragging the window still works over what's scrolled up there.
@@ -1798,7 +1804,12 @@ impl eframe::App for App {
                 });
         }
         if let Some(r) = floating_slot {
-            let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(r));
+            let mut builder = egui::UiBuilder::new().max_rect(r);
+            if let Some(layer) = over_np {
+                builder = builder.layer_id(layer);
+                bar_layer_state(&ctx, layer, shell::floating_rect(self.look(), r));
+            }
+            let mut bar = ui.new_child(builder);
             bar.set_clip_rect(screen);
             let pages = theme::set_mode(&ctx, bar_light);
             if bar_light != light {
@@ -2266,4 +2277,10 @@ mod start_page_tests {
         assert_eq!(start_page(&lib(LibTab::Podcasts), true, false), Page::Home);
         assert_eq!(start_page(&lib(LibTab::Podcasts), true, true), lib(LibTab::Podcasts));
     }
+}
+
+/// The player bar's own layer, over now playing, takes the pointer over `rect` from the
+/// sheet under it. A layer that isn't an `Area` needs telling where it is, every frame.
+fn bar_layer_state(ctx: &egui::Context, layer: egui::LayerId, rect: egui::Rect) {
+    ctx.memory_mut(|m| m.areas_mut().set_state(layer, egui::AreaState { pivot_pos: Some(rect.min), size: Some(rect.size()), interactable: true, ..Default::default() }));
 }

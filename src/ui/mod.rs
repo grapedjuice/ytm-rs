@@ -1431,6 +1431,8 @@ impl eframe::App for App {
         // System media controls and taskbar buttons follow the player however it changed.
         let playing = self.playing() || self.buffering;
         if let Some(m) = &mut self.media {
+            // Play and pause from the OS skip the frame while they'd do what `toggle` does.
+            m.set_direct(self.queue.index.is_some() && self.resume_at.is_none() && !self.jam.guest());
             // Not for a song shown without loading, while the last one may still be stopping.
             if self.resume_at.is_none() {
                 m.sync_length(self.audio.status.stream_duration(self.generation));

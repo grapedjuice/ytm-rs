@@ -5,6 +5,7 @@
 mod thumbbar;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::Sender;
@@ -33,8 +34,49 @@ const MPRIS: bool = cfg!(all(unix, not(any(target_os = "macos", target_os = "ios
 /// a query with the position last sent, so there it's sent again as the song goes.
 const MOVES_ON: bool = !MPRIS;
 
+/// Play and pause from the OS's media controls go straight to the player, the way psst,
+/// spotify-player and festival handle souvlaki's events, rather than waiting for a frame
+/// of the window: one that's covered or in the tray can be held back for up to a second
+/// (Xwayland under GNOME, #144). Only while the plain player is what they'd reach anyway.
+#[derive(Clone)]
+pub struct Direct {
+    audio: crate::audio::AudioHandle,
+    open: Arc<AtomicBool>,
+}
+
+impl Direct {
+    pub fn new(audio: crate::audio::AudioHandle) -> Self {
+        Self { audio, open: Arc::new(AtomicBool::new(false)) }
+    }
+
+    /// Whether play and pause are only the player's now: something is queued and loaded,
+    /// and this isn't a guest's end of a jam (whose host plays). Kept up by the UI.
+    pub fn set_open(&self, open: bool) {
+        self.open.store(open, Ordering::Relaxed);
+    }
+
+    /// Handles `ev` if it's play or pause and those are the player's: whether it did.
+    fn handle(&self, ev: &MediaControlEvent) -> bool {
+        use crate::audio::AudioCmd;
+        if !self.open.load(Ordering::Relaxed) {
+            return false;
+        }
+        let cmd = match ev {
+            MediaControlEvent::Pause | MediaControlEvent::Stop => AudioCmd::Pause,
+            MediaControlEvent::Play => AudioCmd::Resume,
+            MediaControlEvent::Toggle if self.audio.status.playing.load(Ordering::Relaxed) => AudioCmd::Pause,
+            MediaControlEvent::Toggle => AudioCmd::Resume,
+            _ => return false,
+        };
+        log::debug!("media controls: {ev:?} straight to the player");
+        self.audio.send(cmd);
+        true
+    }
+}
+
 pub struct Media {
     controls: MediaControls,
+    direct: Direct,
     /// What was last sent, so the per-frame sync only reports changes.
     sent: Option<Sent>,
     /// New metadata went out, which the position has to follow.
@@ -55,6 +97,7 @@ impl Media {
     pub fn new(
         hwnd: Option<*mut std::ffi::c_void>,
         tx: Sender<MediaControlEvent>,
+        direct: Direct,
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Option<Self> {
         let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(wake);
@@ -62,10 +105,13 @@ impl Media {
         let mut controls = MediaControls::new(config)
             .map_err(|e| log::warn!("media controls unavailable: {e:?}"))
             .ok()?;
-        let (smtc_tx, smtc_wake) = (tx.clone(), wake.clone());
+        let (smtc_tx, smtc_wake, smtc_direct) = (tx.clone(), wake.clone(), direct.clone());
         controls
             .attach(move |ev| {
-                let _ = smtc_tx.send(ev);
+                // Either way the window catches up, to show the new state.
+                if !smtc_direct.handle(&ev) {
+                    let _ = smtc_tx.send(ev);
+                }
                 smtc_wake();
             })
             .map_err(|e| log::warn!("media controls attach failed: {e:?}"))
@@ -76,6 +122,7 @@ impl Media {
         let _ = (tx, wake);
         Some(Self {
             controls,
+            direct,
             sent: None,
             resend: false,
             playing: None,
@@ -85,6 +132,11 @@ impl Media {
             #[cfg(windows)]
             thumbbar,
         })
+    }
+
+    /// See `Direct::set_open`.
+    pub fn set_direct(&self, open: bool) {
+        self.direct.set_open(open);
     }
 
     pub fn set_track(&mut self, title: &str, artist: &str, album: Option<&str>, cover: Option<&str>, secs: Option<u32>) {

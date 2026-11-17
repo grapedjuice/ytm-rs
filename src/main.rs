@@ -254,7 +254,7 @@ fn main() -> eframe::Result {
             {
                 ui::set_titlebar_view(h.ns_view.as_ptr());
             }
-            let media = media::Media::new(hwnd(cc), media_tx, wake);
+            let media = media::Media::new(hwnd(cc), media_tx, media::Direct::new(audio.clone()), wake);
 
             if let Some(rs) = &cc.wgpu_render_state {
                 let info = rs.adapter.get_info();

@@ -217,6 +217,17 @@ fn main() -> eframe::Result {
             egui_extras::install_image_loaders(&ctx);
             ctx.add_bytes_loader(Arc::new(images::HttpImages::new(backend.clone())));
 
+            // Which GL driver this is, for reports of drawing problems (Windows on ARM runs
+            // GL through Mesa's D3D12 layer), and for the title bar's driver workaround.
+            let gl_vendor = cc.gl.as_ref().map(|gl| {
+                use eframe::glow::HasContext;
+                // SAFETY: plain string queries on the current context.
+                let (vendor, renderer, version) =
+                    unsafe { (gl.get_parameter_string(eframe::glow::VENDOR), gl.get_parameter_string(eframe::glow::RENDERER), gl.get_parameter_string(eframe::glow::VERSION)) };
+                log::info!("gl: {renderer} ({version}, {vendor})");
+                vendor
+            });
+
             let (media_tx, media_rx) = unbounded();
             if let Some(h) = hwnd(cc) {
                 appicon::set_hwnd(h);
@@ -226,7 +237,7 @@ fn main() -> eframe::Result {
                 if let Some(window) = cc.winit_window().map(Arc::downgrade) {
                     fullscreen::set_drag(move || window.upgrade().is_some_and(|w| w.has_focus() && w.drag_window().is_ok()));
                 }
-                ui::set_titlebar_hwnd(h);
+                ui::set_titlebar_hwnd(h, gl_vendor.as_deref());
                 ui::set_mini_hwnd(h);
                 backdrop::prepare(h);
                 // eframe sets only the small icon; the taskbar button wants the big one.
@@ -234,14 +245,6 @@ fn main() -> eframe::Result {
             }
             let media = media::Media::new(hwnd(cc), media_tx, wake);
 
-            // Which GL driver this is, for reports of drawing problems (Windows on ARM runs
-            // GL through Mesa's D3D12 layer).
-            if let Some(gl) = &cc.gl {
-                use eframe::glow::HasContext;
-                // SAFETY: plain string queries on the current context.
-                let (renderer, version) = unsafe { (gl.get_parameter_string(eframe::glow::RENDERER), gl.get_parameter_string(eframe::glow::VERSION)) };
-                log::info!("gl: {renderer} ({version})");
-            }
             if let Some(rs) = &cc.wgpu_render_state {
                 let info = rs.adapter.get_info();
                 log::info!("wgpu: {} ({:?}, driver {} {})", info.name, info.backend, info.driver, info.driver_info);

@@ -25,13 +25,22 @@ fn key(name: &str, data_dir: &Path) -> String {
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 mod store {
-    /// Credential Manager's limit on one secret.
+    /// Credential Manager's limit on one secret. Secrets written in parts are read back
+    /// by this size everywhere, so those saved in parts by earlier versions still load.
     const CHUNK: usize = 2560;
+    /// How much of a secret one entry holds when written. The Keychain and the Secret
+    /// Service have no such limit, and on macOS every entry asks for access on its own
+    /// (after each update, since the app is signed ad hoc), so there the whole secret
+    /// goes in one entry: one prompt instead of one per part.
+    #[cfg(windows)]
+    const WRITE_CHUNK: usize = CHUNK;
+    #[cfg(not(windows))]
+    const WRITE_CHUNK: usize = usize::MAX;
     /// One store operation at a time: writes and deletes from several threads at once
     /// can be lost (stale parts were left behind in testing).
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    #[cfg(all(test, windows))]
+    #[cfg(test)]
     pub fn tests_entry(key: &str, part: usize) -> keyring::Entry {
         entry(key, part).unwrap()
     }
@@ -63,9 +72,12 @@ mod store {
 
     pub fn set(key: &str, secret: &[u8]) -> anyhow::Result<()> {
         let _one = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        // A secret of an exact multiple of CHUNK ends with an empty part, so reading knows where it stops.
-        let mut parts: Vec<&[u8]> = secret.chunks(CHUNK).collect();
-        if secret.len().is_multiple_of(CHUNK) {
+        // A secret of an exact multiple of CHUNK ends with an empty part, so reading knows
+        // where it stops. Written whole (WRITE_CHUNK), one of exactly CHUNK bytes makes the
+        // reader look for a second part, which isn't there: `delete_from` below removes
+        // any an earlier version left.
+        let mut parts: Vec<&[u8]> = secret.chunks(WRITE_CHUNK).collect();
+        if (WRITE_CHUNK == CHUNK && secret.len().is_multiple_of(CHUNK)) || secret.is_empty() {
             parts.push(&[]);
         }
         for (i, part) in parts.iter().enumerate() {
@@ -265,5 +277,27 @@ mod unix_tests {
         super::delete("test", &dir);
         assert!(super::get("test", &dir).is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A secret an earlier version saved in parts still loads, and the next save puts it
+    /// in one entry and removes the old parts.
+    #[test]
+    fn parts_from_earlier_versions() {
+        let key = &format!("ytm-rs vault parts test {}", std::process::id());
+        let old: Vec<u8> = (0..2660).map(|i| (i % 251) as u8).collect();
+        let (first, second) = old.split_at(2560);
+        let part = |i| super::store::tests_entry(key, i);
+        if part(0).set_secret(first).is_err() {
+            eprintln!("no credential store here, skipped");
+            return;
+        }
+        part(1).set_secret(second).unwrap();
+        assert_eq!(super::store::get(key).unwrap().unwrap(), old);
+        let new = vec![7u8; 3000];
+        super::store::set(key, &new).unwrap();
+        assert_eq!(super::store::get(key).unwrap().unwrap(), new);
+        assert!(matches!(part(1).get_secret(), Err(keyring::Error::NoEntry)), "old second part left");
+        super::store::delete(key).unwrap();
+        assert!(super::store::get(key).unwrap().is_none());
     }
 }

@@ -288,6 +288,9 @@ fn nav_bg(ui: &Ui, look: NavLook, rect: Rect, h: f32, s: f32) -> Color32 {
     }
 }
 
+/// A pinned playlist's pin leans over, like one stuck in a board.
+const PIN_TILT: f32 = 45.0;
+
 /// Sidebar width expanded and collapsed to an icon rail (points).
 pub const SIDEBAR_W: f32 = 236.0;
 
@@ -507,7 +510,8 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             // playlists (the ones "Add to playlist" offers) and Liked Music.
             row_drag::scroll_targets(ui, &app.row_drag);
             let mut dropped = None;
-            for c in playlists {
+            for i in super::collections::pinned_first(&app.pinned, playlists, 0..playlists.len()) {
+                let c = &playlists[i];
                 let title_row = item.title_rows.filter(|_| t < 0.5);
                 let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), title_row.unwrap_or(48.0)), Sense::click());
                 if !ui.is_rect_visible(rect) {
@@ -524,13 +528,19 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 }
                 let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
                 let selected = matches!(&c.target, Target::Playlist(id) if app.page == Page::Playlist(id.clone()));
+                let pinned = matches!(&c.target, Target::Playlist(id) if app.pinned.contains(id));
                 ui.painter().rect_filled(rect, 8.0, theme::glass(0.05 * h + if selected { 0.08 } else { 0.0 }));
                 if matches!(over, Some(row_drag::Over::Held)) {
                     ui.painter().rect_filled(rect, 8.0, theme::with_alpha(accent, 0.18));
                     ui.painter().rect_stroke(rect, 8.0, egui::Stroke::new(1.5, accent), egui::StrokeKind::Inside);
                 }
+                // Right-click: the menu a playlist's card has.
+                resp.context_menu(|ui| widgets::card_menu_contents(ui, c, false, Some(pinned), &mut app.actions));
                 if title_row.is_some() {
-                    text_at(ui, pos2(rect.left() + 12.0, rect.center().y - 8.0), &c.title, theme::regular(13.0), theme::with_alpha(theme::text(), a), full_w - 24.0);
+                    text_at(ui, pos2(rect.left() + 12.0, rect.center().y - 8.0), &c.title, theme::regular(13.0), theme::with_alpha(theme::text(), a), full_w - if pinned { 44.0 } else { 24.0 });
+                    if pinned && a > 0.0 {
+                        widgets::icon_turned(ui, pos2(rect.left() + full_w - 22.0, rect.center().y), icon::PIN, 11.0, theme::with_alpha(theme::text_dim(), a), PIN_TILT);
+                    }
                     if resp.clicked() {
                         app.actions.push(Action::Open(c.target.clone()));
                     }
@@ -543,6 +553,12 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 if let Target::Album(id) | Target::Playlist(id) = &c.target {
                     widgets::download_veil(ui, img, theme::thumb_radius(), id);
                 }
+                // Pinned: a badge on the cover's corner, on the rail too.
+                if pinned {
+                    let at = img.right_bottom() - vec2(1.0, 1.0);
+                    ui.painter().circle_filled(at, 8.0, theme::shade(0.8));
+                    widgets::icon_turned(ui, at, icon::PIN, 10.0, Color32::WHITE, PIN_TILT);
+                }
                 if a > 0.0 {
                     let w = full_w - 58.0;
                     text_at(ui, pos2(img.right() + 10.0, rect.top() + 7.0), &c.title, theme::semibold(13.5), theme::with_alpha(theme::text(), a), w);
@@ -551,8 +567,6 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 if resp.clicked() {
                     app.actions.push(Action::Open(c.target.clone()));
                 }
-                // Right-click: the menu a playlist's card has.
-                resp.context_menu(|ui| widgets::card_menu_contents(ui, c, false, &mut app.actions));
             }
             match dropped {
                 Some((id, t)) if id == "LM" => {

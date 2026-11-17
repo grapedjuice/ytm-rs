@@ -182,7 +182,7 @@ fn card_row(ui: &mut Ui, id: &str, title: &str, cards: &[Card], acts: &mut Vec<A
     h_scroll(ui, id, nudge, cards.len(), CARD, 18.0, |ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
         for c in cards {
-            card(ui, c, CARD, false, acts);
+            card(ui, c, CARD, false, None, acts);
         }
     });
 }
@@ -563,7 +563,7 @@ fn cards_shelf(ui: &mut Ui, liked: &HashSet<String>, acts: &mut Vec<Action>, id:
         ui.spacing_mut().item_spacing.x = 18.0;
         for c in cards {
             let is_liked = matches!(&c.target, Target::Song(t) if liked.contains(&t.id));
-            card(ui, c, CARD, is_liked, acts);
+            card(ui, c, CARD, is_liked, None, acts);
         }
     });
 }
@@ -1265,11 +1265,13 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
         }
         return;
     }
-    let grid = |ui: &mut Ui, cards: &[Card], order: &[usize], acts: &mut Vec<Action>| {
+    // `pinned`: on Library › Playlists, where playlists are pinned.
+    let grid = |ui: &mut Ui, cards: &[Card], order: &[usize], pinned: Option<&[String]>, acts: &mut Vec<Action>| {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(20.0, 22.0);
             for &i in order {
-                card(ui, &cards[i], CARD, false, acts);
+                let pin = pinned.map(|p| matches!(&cards[i].target, Target::Playlist(id) if p.contains(id)));
+                card(ui, &cards[i], CARD, false, pin, acts);
             }
         });
     };
@@ -1415,7 +1417,9 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 }
             });
             ui.add_space(14.0);
-            grid(ui, cards, &app.find.cards(page, cards), &mut app.actions);
+            let pinned = (tab == LibTab::Playlists).then_some(app.pinned.as_slice());
+            let order = super::collections::pinned_first(pinned.unwrap_or_default(), cards, app.find.cards(page, cards));
+            grid(ui, cards, &order, pinned, &mut app.actions);
         }
     }
 }

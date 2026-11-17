@@ -54,6 +54,17 @@ impl App {
                 }
             }
             Action::Open(Target::Song(t)) | Action::Radio(t) if self.explicit_hidden(&t) => {}
+            // Radio from the song playing: it goes on playing, and the radio replaces what
+            // was to come, as YouTube Music's Start radio does.
+            Action::Radio(t) if self.current_id() == Some(t.id.as_str()) || self.playing_id() == Some(t.id.as_str()) => {
+                let Some(cur) = self.queue.current().cloned() else { return };
+                self.queue.replace(vec![cur.clone()], 0, None);
+                self.queue_source = None;
+                if !self.radio_pending {
+                    self.radio_pending = true;
+                    self.backend.request(Req::Radio { song_of: self.song_of(&cur), seed: cur.id });
+                }
+            }
             Action::Open(Target::Song(t)) | Action::Radio(t) => {
                 self.queue_source = None;
                 self.play_list(vec![t.clone()], 0);

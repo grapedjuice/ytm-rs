@@ -611,8 +611,9 @@ fn art_side(cs: &crate::preset::CoverStyle, col: Rect, fullscreen: bool, window_
     let fs = cs.fullscreen.filter(|_| fullscreen).unwrap_or_default();
     let width_frac = fs.width_frac;
     let side = match fs.size_vh.or(cs.size_vh) {
-        // As much of the window's height as the theme asks: it may run past the column.
-        Some(vh) => (col.height() + 76.0) * vh,
+        // As much of the window's height as the theme asks: it may run past the column's
+        // top and bottom, but not its sides, or a tall window puts it under the lyrics.
+        Some(vh) => ((col.height() + 76.0) * vh).min(col.width()),
         None => (col.width() * 0.82 * cs.size.clamp(0.5, 1.35)).min(col.height() - 110.0).max(160.0),
     };
     let side = match width_frac {

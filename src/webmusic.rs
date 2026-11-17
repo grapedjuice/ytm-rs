@@ -20,18 +20,6 @@ use crate::jsc::Solver;
 pub const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 const VERSION: &str = "1.20260707.12.00";
 
-/// `resp` if it succeeded; otherwise its status with the start of what the server said,
-/// which says why (a bare status doesn't).
-async fn checked(resp: reqwest::Response) -> anyhow::Result<reqwest::Response> {
-    let status = resp.status();
-    if status.is_success() {
-        return Ok(resp);
-    }
-    let body = resp.text().await.unwrap_or_default();
-    let said: String = body.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(300).collect();
-    anyhow::bail!("HTTP {status}{}", if said.is_empty() { String::new() } else { format!(": {said}") })
-}
-
 /// The signed-in Google session: the youtube.com cookies the sign-in window captured,
 /// plus which signed-in account and channel they are for.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -290,50 +278,38 @@ impl Session {
         let p = path.to_owned();
         let bytes = tokio::task::spawn_blocking(move || std::fs::read(p)).await??;
         anyhow::ensure!(bytes.len() <= 300 * 1024 * 1024, "{name} is larger than 300 MB");
-        // The headers ytmusicapi's `upload_song` and Metrolist's `uploadSong` send, on both
-        // requests: the web client's, the visitor ID, and the upload protocol and length.
         let req = |url: &str| -> anyhow::Result<reqwest::RequestBuilder> {
-            let mut req = http
+            let req = http
                 .post(url)
                 .header("User-Agent", UA)
                 .header("Origin", ORIGIN)
                 .header("X-Origin", ORIGIN)
-                .header("Referer", "https://music.youtube.com/")
-                .header("X-YouTube-Client-Name", "67")
-                .header("X-YouTube-Client-Version", VERSION)
-                .header("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
-                .header("X-Goog-Upload-Protocol", "resumable")
-                .header("X-Goog-Upload-Header-Content-Length", bytes.len().to_string());
-            if let Some(v) = &self.visitor_data {
-                req = req.header("X-Goog-Visitor-Id", v);
-            }
+                .header("Content-Type", "application/x-www-form-urlencoded;charset=utf-8");
             self.sign(req, ORIGIN)
         };
-        let start = checked(
-            req(&format!("https://upload.youtube.com/upload/usermusic/http?authuser={}", self.session_index))?
-                .header("X-Goog-Upload-Command", "start")
-                .body(format!("filename={name}"))
-                .timeout(std::time::Duration::from_secs(20))
-                .send()
-                .await?,
-        )
-        .await?;
+        let start = req(&format!("https://upload.youtube.com/upload/usermusic/http?authuser={}", self.session_index))?
+            .header("X-Goog-Upload-Command", "start")
+            .header("X-Goog-Upload-Header-Content-Length", bytes.len().to_string())
+            .header("X-Goog-Upload-Protocol", "resumable")
+            .body(format!("filename={name}"))
+            .timeout(std::time::Duration::from_secs(20))
+            .send()
+            .await?
+            .error_for_status()?;
         let url = start
             .headers()
             .get("X-Goog-Upload-URL")
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| anyhow::anyhow!("YouTube Music didn't accept the upload"))?
             .to_owned();
-        checked(
-            req(&url)?
-                .header("X-Goog-Upload-Command", "upload, finalize")
-                .header("X-Goog-Upload-Offset", "0")
-                .body(bytes)
-                .timeout(std::time::Duration::from_secs(600))
-                .send()
-                .await?,
-        )
-        .await?;
+        req(&url)?
+            .header("X-Goog-Upload-Command", "upload, finalize")
+            .header("X-Goog-Upload-Offset", "0")
+            .body(bytes)
+            .timeout(std::time::Duration::from_secs(600))
+            .send()
+            .await?
+            .error_for_status()?;
         Ok(())
     }
 

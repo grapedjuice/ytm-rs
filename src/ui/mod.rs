@@ -1069,9 +1069,9 @@ impl App {
             Ok(p) if p.starts_with("search:") => app.go(Page::Search(p[7..].to_owned())),
             _ => {}
         }
-        // YTM_UPLOAD=<file> uploads that file as if it had been picked.
-        if let Some(f) = std::env::var_os("YTM_UPLOAD") {
-            *app.picked_uploads.lock().unwrap() = Some(vec![f.into()]);
+        // YTM_UPLOAD=<file>[|<file>…] uploads those files as if they had been picked together.
+        if let Some(f) = std::env::var("YTM_UPLOAD").ok().filter(|f| !f.is_empty()) {
+            *app.picked_uploads.lock().unwrap() = Some(f.split('|').map(Into::into).collect());
         }
         // Dev hook: YTM_PROXY_INPUT=<address> opens Settings › Network on Custom with it typed in.
         if let Some(v) = dev_var("YTM_PROXY_INPUT") {

@@ -201,10 +201,19 @@ pub fn dev_script(app: &mut App, ctx: &egui::Context, now: f64) {
     }
 }
 
-/// A link (or a code from another launch) asked to join a room.
+/// A link (or a code from another launch) asked to join a room: its code is filled in on
+/// the page, and joining waits for Join, so a web page can't put anyone in a room.
 pub fn open_link(app: &mut App, code: String) {
     app.go(Page::Jam);
-    join(app, &code);
+    let normalized = crate::jam::normalize_code(&code);
+    if normalized.is_some() && app.jam.conn.as_ref().map(|c| Some(&c.code)) == Some(normalized.as_ref()) {
+        return;
+    }
+    app.jam.code_input = normalized.unwrap_or(code);
+    app.jam.error = None;
+    if app.jam.conn.is_some() {
+        app.toast("Leave this jam to join the one in the link");
+    }
 }
 
 /// Every frame: handle what arrived, then (host) send changes or (guest) catch up.

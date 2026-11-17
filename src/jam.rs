@@ -231,6 +231,60 @@ enum In {
     Ended,
 }
 
+impl In {
+    /// The message with every song in it checked (see `peer_track`): `None` when one
+    /// fails, since a queue missing a song would no longer match its index.
+    fn checked(self) -> Option<Self> {
+        Some(match self {
+            In::Welcome { you, host, control, queue, members, state, tick, now } => {
+                let state = match state {
+                    Some(s) => Some(Stamped { v: s.v.checked()?, ts: s.ts }),
+                    None => None,
+                };
+                In::Welcome { you, host, control, queue, members, state, tick, now }
+            }
+            In::State(s) => In::State(Stamped { v: s.v.checked()?, ts: s.ts }),
+            In::Req { from, name, cmd: Cmd::Add { track } } => In::Req { from, name, cmd: Cmd::Add { track: peer_track(track)? } },
+            In::Req { from, name, cmd: Cmd::Next { track } } => In::Req { from, name, cmd: Cmd::Next { track: peer_track(track)? } },
+            m => m,
+        })
+    }
+}
+
+impl RoomState {
+    fn checked(mut self) -> Option<Self> {
+        if !self.vid.is_empty() && !is_video_id(&self.vid) {
+            return None;
+        }
+        self.queue = self.queue.into_iter().map(peer_track).collect::<Option<_>>()?;
+        Some(self)
+    }
+}
+
+/// A song from another member of the room, who could send anything: only a YouTube
+/// video ID, which ends up in file names, and only pictures from YouTube's own image
+/// hosts over https, which are fetched and handed to the system's media controls.
+fn peer_track(mut t: Track) -> Option<Track> {
+    if !is_video_id(&t.id) || t.stands_for.as_deref().is_some_and(|v| !is_video_id(v)) {
+        return None;
+    }
+    t.thumbs.retain(|th| youtube_image(&th.url));
+    Some(t)
+}
+
+/// 11 letters, digits, `-` or `_`.
+pub fn is_video_id(id: &str) -> bool {
+    id.len() == 11 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// An https link to one of the hosts YouTube's pictures come from.
+fn youtube_image(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else { return false };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let ours = |domain: &str| host == domain || host.strip_suffix(domain).is_some_and(|sub| sub.ends_with('.'));
+    host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-') && (ours("ytimg.com") || ours("googleusercontent.com") || ours("ggpht.com"))
+}
+
 #[derive(Deserialize)]
 struct Stamped<T> {
     #[serde(flatten)]
@@ -385,6 +439,11 @@ impl Conn {
                         log::warn!("jam: unreadable message {text}");
                         continue;
                     };
+                    // What other members sent is checked before anything uses it.
+                    let Some(m) = m.checked() else {
+                        log::warn!("jam: dropped a message with a song that isn't a YouTube video");
+                        continue;
+                    };
                     match m {
                         In::Welcome { you, host, control, queue, members, state, tick, now } => {
                             // A first guess until the pings answer.
@@ -464,6 +523,40 @@ mod tests {
         assert_eq!(normalize_code(" abc-234 ").as_deref(), Some("ABC234"));
         assert_eq!(normalize_code("ABC23O"), None);
         assert_eq!(normalize_code("ABC2345"), None);
+    }
+
+    #[test]
+    fn songs_from_the_room_are_checked() {
+        let song = |id: &str, thumb: &str| Track { id: id.into(), thumbs: vec![crate::model::Thumb { url: thumb.into(), width: 60, height: 60 }], ..Default::default() };
+        let ok = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg";
+        assert!(peer_track(song("dQw4w9WgXcQ", ok)).is_some_and(|t| t.thumbs.len() == 1));
+        // An ID that would be a path, or anything that isn't a video ID.
+        for id in ["../../../../x", r"C:\Windows\x", r"\\host\share\x", "/tmp/ytmrs-poc", "dQw4w9WgXcQ/", "short", ""] {
+            assert!(peer_track(song(id, ok)).is_none(), "{id}");
+        }
+        // Pictures from anywhere else are dropped; the song stays.
+        for url in [
+            r"file://\\host\share\a.jpg",
+            "http://i.ytimg.com/vi/x/a.jpg",
+            "https://evil.example/a.jpg",
+            "https://ytimg.com.evil.example/a.jpg",
+            "https://evilytimg.com/a.jpg",
+            "https://user@i.ytimg.com/a.jpg",
+            "https://i.ytimg.com:8080/a.jpg",
+            "https://127.0.0.1/a.jpg",
+        ] {
+            assert!(peer_track(song("dQw4w9WgXcQ", url)).is_some_and(|t| t.thumbs.is_empty()), "{url}");
+        }
+        assert!(youtube_image("https://lh3.googleusercontent.com/abc=w120"));
+        assert!(youtube_image("https://yt3.ggpht.com/abc"));
+        // One bad song drops the whole state, whose index counts its queue.
+        let state = |q: Vec<Track>| RoomState { queue: q, vid: "dQw4w9WgXcQ".into(), ..Default::default() };
+        assert!(state(vec![song("dQw4w9WgXcQ", ok)]).checked().is_some());
+        assert!(state(vec![song("dQw4w9WgXcQ", ok), song("../x", ok)]).checked().is_none());
+        assert!(RoomState { vid: "../x".into(), ..Default::default() }.checked().is_none());
+        let req = |track| In::Req { from: "a".into(), name: "Sam".into(), cmd: Cmd::Add { track } };
+        assert!(req(song("../../x", ok)).checked().is_none());
+        assert!(req(song("dQw4w9WgXcQ", ok)).checked().is_some());
     }
 
     #[test]

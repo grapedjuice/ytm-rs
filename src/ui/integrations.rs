@@ -148,7 +148,7 @@ impl App {
                     // A new name per song: Windows keeps showing an older picture by its path.
                     let _ = std::fs::remove_dir_all(&dir);
                     std::fs::create_dir_all(&dir)?;
-                    let path = dir.join(format!("{id}.jpg"));
+                    let path = dir.join(format!("{}.jpg", file_safe(&id)));
                     std::fs::write(&path, &bytes)?;
                     anyhow::Ok(path)
                 }
@@ -518,7 +518,7 @@ impl App {
                 // A new name per song, so Windows doesn't show a cached older cover.
                 let _ = std::fs::remove_dir_all(&dir);
                 std::fs::create_dir_all(&dir)?;
-                let path = dir.join(format!("{video_id}.jpg"));
+                let path = dir.join(format!("{}.jpg", file_safe(&video_id)));
                 std::fs::write(&path, &bytes)?;
                 anyhow::Ok(path)
             }
@@ -562,6 +562,12 @@ fn back_from_tray(focused: bool, left_focus: &mut bool) -> bool {
         return false;
     }
     std::mem::take(left_focus)
+}
+
+/// A song's ID as a file name: only letters, digits, `-` and `_`, so one that isn't a
+/// YouTube ID can't point outside the folder.
+fn file_safe(id: &str) -> String {
+    id.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')).collect()
 }
 
 #[cfg(test)]

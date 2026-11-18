@@ -7538,6 +7538,7 @@ dependencies = [
  "tray-icon",
  "unicode-bidi",
  "unicode-normalization",
+ "unicode-segmentation",
  "url",
  "wgpu",
  "windows 0.62.2",

@@ -135,7 +135,7 @@ impl Icon {
     }
 
     fn set_now(&self, now: &Now) {
-        self.song.set_text(now.song.as_deref().unwrap_or("Nothing playing"));
+        self.song.set_text(now.song.as_deref().map_or_else(|| "Nothing playing".to_owned(), menu_song));
         self.play.set_text(if now.playing { "Pause" } else { "Play" });
         // Nothing to play, skip or go back to.
         for item in [&self.play, &self.next, &self.prev] {
@@ -148,21 +148,35 @@ impl Icon {
 /// "YT Music", with the song under it. Windows cuts a tooltip off at 127 characters
 /// (UTF-16 ones), so a long one ends in "…" there instead.
 fn tooltip(song: Option<&str>) -> String {
-    const MAX: usize = 127;
     let Some(song) = song else { return "YT Music".to_owned() };
-    let tip = format!("YT Music\n{song}");
-    if tip.encode_utf16().count() <= MAX {
-        return tip;
+    cut(&format!("YT Music\n{song}"), 127, |g| g.encode_utf16().count())
+}
+
+/// The song line at the top of the menu. The menu is as wide as its widest item, so a
+/// long title would stretch it across the screen; past 60 letters it ends in "…".
+fn menu_song(song: &str) -> String {
+    cut(song, 60, |_| 1)
+}
+
+/// `s`, or as much of it as fits in `max` with a "…" after, where `len` measures each
+/// letter. It's cut between letters as a reader sees them (an accent or an emoji made
+/// of several characters stays whole).
+fn cut(s: &str, max: usize, len: impl Fn(&str) -> usize) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
+    if s.graphemes(true).map(&len).sum::<usize>() <= max {
+        return s.to_owned();
     }
     let mut out = String::new();
-    let mut len = 1; // the "…"
-    for c in tip.chars() {
-        len += c.len_utf16();
-        if len > MAX {
+    let mut used = len("…");
+    for g in s.graphemes(true) {
+        used += len(g);
+        if used > max {
             break;
         }
-        out.push(c);
+        out.push_str(g);
     }
+    // No space before the "…".
+    out.truncate(out.trim_end().len());
     out.push('…');
     out
 }
@@ -349,6 +363,21 @@ mod tests {
         let emoji = tooltip(Some(&"😀".repeat(100)));
         assert_eq!(emoji, format!("YT Music\n{}…", "😀".repeat(58)));
         assert!(emoji.encode_utf16().count() <= 127);
+    }
+
+    #[test]
+    fn menu_song_stays_narrow() {
+        assert_eq!(menu_song("Song — Artist"), "Song — Artist");
+        let fits = "a".repeat(60);
+        assert_eq!(menu_song(&fits), fits);
+        assert_eq!(menu_song(&"a".repeat(200)), format!("{}…", "a".repeat(59)));
+        // An emoji made of several characters, and a letter with its accent apart, stay whole.
+        let family = "👨‍👩‍👧";
+        assert_eq!(menu_song(&family.repeat(100)), format!("{}…", family.repeat(59)));
+        let e = "e\u{301}";
+        assert_eq!(menu_song(&e.repeat(100)), format!("{}…", e.repeat(59)));
+        // No space left hanging before the "…".
+        assert_eq!(menu_song(&format!("{} b{}", "a".repeat(58), "c".repeat(50))), format!("{}…", "a".repeat(58)));
     }
 
     /// `gtk_thread::APPINDICATOR` is libappindicator-sys 0.9.0's list of names: another

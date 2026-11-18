@@ -68,8 +68,9 @@ impl ElementaryStreamConsumer<AudioContext> for AudioConsumer {
 }
 
 pub(crate) fn unpack_audio(segment: &[u8]) -> anyhow::Result<Bytes> {
-    anyhow::ensure!(!segment.is_empty() && segment.len().is_multiple_of(Packet::SIZE)
-        && segment.chunks_exact(Packet::SIZE).all(|pkt| pkt[0] == 0x47), "invalid MPEG-TS segment");
+    let (packets, remainder) = segment.as_chunks::<{ Packet::SIZE }>();
+    anyhow::ensure!(!packets.is_empty() && remainder.is_empty()
+        && packets.iter().all(|packet| packet[0] == 0x47), "invalid MPEG-TS segment");
     let mut ctx = AudioContext::default();
     Demultiplex::new(&mut ctx).push(&mut ctx, segment);
     anyhow::ensure!(!ctx.damaged, "damaged MPEG-TS audio track");

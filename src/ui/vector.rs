@@ -294,6 +294,31 @@ fn rasterize(icon: &crate::preset::VectorIcon, px: usize) -> ColorImage {
 /// Draws the theme's own icon by this name, if it has one.
 pub fn paint(ui: &Ui, name: &str, center: Pos2, size: f32, color: Color32) -> bool {
     let Some(icon) = crate::preset::active().app.icons.get(name) else { return false };
+    paint_icon(ui, name, icon, center, size, color);
+    true
+}
+
+/// Lucide's thumbs-down (ISC, the licence of the icon font the app ships, whose glyph the
+/// song menu shows): the line across its cuff, and the hand.
+const DISLIKE_CUFF: &str = "M17 14V2";
+const DISLIKE_HAND: &str = "M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z";
+
+/// The thumbs-down, `filled` once the song is disliked, as the heart fills once it's liked.
+pub fn dislike(ui: &Ui, center: Pos2, size: f32, filled: bool, color: Color32) {
+    use std::sync::OnceLock;
+
+    static OUTLINE: OnceLock<crate::preset::VectorIcon> = OnceLock::new();
+    static FILL: OnceLock<crate::preset::VectorIcon> = OnceLock::new();
+    let icon = |d: String, stroke| crate::preset::VectorIcon { view: [24.0, 24.0], origin: [0.0, 0.0], d, flip: false, stroke };
+    if filled {
+        let fill = FILL.get_or_init(|| icon(DISLIKE_HAND.to_owned(), 0.0));
+        paint_icon(ui, "thumbs-down-fill", fill, center, size, color);
+    }
+    let outline = OUTLINE.get_or_init(|| icon(format!("{DISLIKE_CUFF}{DISLIKE_HAND}"), 2.0));
+    paint_icon(ui, "thumbs-down", outline, center, size, color);
+}
+
+fn paint_icon(ui: &Ui, name: &str, icon: &crate::preset::VectorIcon, center: Pos2, size: f32, color: Color32) {
     let ppp = ui.ctx().pixels_per_point();
     // Sizes in steps of two pixels, so a growing icon doesn't make a texture every frame.
     let px = (((size * ppp) as usize + 1) & !1).clamp(8, 256);
@@ -306,7 +331,6 @@ pub fn paint(ui: &Ui, name: &str, center: Pos2, size: f32, color: Color32) -> bo
     let rect = Rect::from_center_size(center, vec2(size, size));
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
     ui.painter().image(tex.id(), rect, uv, color);
-    true
 }
 
 /// The name a theme gives the icon drawn for this glyph.
@@ -338,6 +362,19 @@ mod tests {
         assert_eq!(polys.len(), 2);
         assert_eq!(polys[0], vec![[1.0, -1.5], [0.5, 2.0]]);
         assert_eq!(polys[0].len(), 2);
+    }
+
+    #[test]
+    fn the_thumbs_down_fills_its_box_like_the_heart_beside_it() {
+        let points: Vec<[f32; 2]> = flatten(DISLIKE_HAND).into_iter().flatten().collect();
+        let (min_x, max_x) = points.iter().fold((f32::MAX, f32::MIN), |(a, b), p| (a.min(p[0]), b.max(p[0])));
+        let (min_y, max_y) = points.iter().fold((f32::MAX, f32::MIN), |(a, b), p| (a.min(p[1]), b.max(p[1])));
+        // Lucide's 24-unit box with its 2-unit margin, the shape centred in it.
+        assert!((2.0..2.5).contains(&min_x) && (21.9..22.1).contains(&max_x), "x {min_x}..{max_x}");
+        assert!((1.9..2.1).contains(&min_y) && (21.9..22.1).contains(&max_y), "y {min_y}..{max_y}");
+        let cover: f32 = rasterize(&crate::preset::VectorIcon { view: [24.0, 24.0], origin: [0.0, 0.0], d: DISLIKE_HAND.into(), flip: false, stroke: 0.0 }, 24).pixels.iter().map(|p| f32::from(p.a()) / 255.0).sum();
+        // A hand, not a sliver or the whole box.
+        assert!((150.0..300.0).contains(&cover), "covers {cover} of 576 px");
     }
 
     #[test]

@@ -12,9 +12,8 @@ use super::{App, LibTab, Page, queue};
 
 pub enum Undo {
     Queue(queue::Saved),
-    /// Likes taken away: the songs liked before, what to put back in Liked Music, and the
-    /// request that takes them away there.
-    Unlike { liked: Vec<String>, was: Unliked, send: Req },
+    /// The exact uploads being unrated, their prior liked state and rows, and the request.
+    Unlike { targets: Vec<String>, liked: Vec<String>, was: Unliked, send: Box<Req> },
     /// Rows taken out of a playlist.
     Removal { id: String, rows: Vec<Taken> },
     /// A playlist deleted, and its card with its place in the library.
@@ -26,7 +25,7 @@ impl Undo {
     fn into_req(self) -> Option<Req> {
         match self {
             Undo::Queue(_) => None,
-            Undo::Unlike { send, .. } => Some(send),
+            Undo::Unlike { send, .. } => Some(*send),
             Undo::Removal { id, rows } => Some(Req::RemoveFromPlaylist { items: items(&rows), playlist_id: id }),
             Undo::Delete { id, .. } => Some(Req::DeletePlaylist(id)),
         }
@@ -40,14 +39,24 @@ fn items(rows: &[Taken]) -> Vec<(String, String)> {
 
 impl App {
     pub(super) fn toast_undo(&mut self, msg: impl Into<String>, undo: Undo) {
-        self.toast(msg);
+        self.toast = None;
+        self.settle();
+        self.toast = Some((msg.into(), -1.0));
         self.undo = Some(undo);
+    }
+
+    fn take_undo_request(&mut self) -> Option<Req> {
+        let undo = self.undo.take()?;
+        if let Undo::Unlike { targets, .. } = &undo {
+            self.confirm_unliked(targets);
+        }
+        undo.into_req()
     }
 
     /// The toast's Undo is gone (or about to be): what it could take back stands, and
     /// YouTube Music is told.
     pub(super) fn settle(&mut self) {
-        let Some(req) = self.undo.take().and_then(Undo::into_req) else { return };
+        let Some(req) = self.take_undo_request() else { return };
         // Hidden through loads until YouTube Music lists them gone: it's only told now.
         if let Req::RemoveFromPlaylist { playlist_id, items } = &req {
             self.lists.edits.remove(playlist_id, items);
@@ -58,7 +67,10 @@ impl App {
     /// The same, waited for: the app closing, or signing out or switching channel,
     /// can't leave it to go after.
     pub(super) fn settle_now(&mut self) {
-        if let Some(req) = self.undo.take().and_then(Undo::into_req) {
+        if self.undo.is_some() {
+            self.toast = None;
+        }
+        if let Some(req) = self.take_undo_request() {
             self.backend.request_now(req);
         }
     }
@@ -66,33 +78,64 @@ impl App {
     /// Likes of `tracks` taken away here at once, and from YouTube Music (by `send`) once
     /// the Undo is gone.
     pub(super) fn unlike_soon(&mut self, tracks: Vec<Track>, send: Req) {
+        let mut targets: Vec<_> = tracks.iter().map(|t| t.id.clone()).collect();
+        if let Req::LikeMany { stand_ins, .. } = &send {
+            targets.extend(stand_ins.values().cloned());
+        }
+        if targets.iter().all(|id| self.unliking_soon(id)) {
+            return;
+        }
+        self.rating(|id| targets.iter().any(|target| target == id));
+        if !self.rating_settings.unlike_notices || self.mini.busy() {
+            self.set_liked(&tracks, false);
+            self.confirm_unliked(&targets);
+            self.backend.request(send);
+            return;
+        }
         let liked = tracks.iter().filter(|t| self.liked.contains(&t.id)).map(|t| t.id.clone()).collect();
         let was = self.lists.unliking(&tracks);
         self.set_liked(&tracks, false);
-        self.toast_undo("Removed from liked songs", Undo::Unlike { liked, was, send });
-    }
-
-    /// The like of `id` waits for its Undo to be taken away.
-    pub(super) fn unliking_soon(&self, id: &str) -> bool {
-        matches!(&self.undo, Some(Undo::Unlike { liked, .. }) if liked.iter().any(|l| l == id))
-    }
-
-    /// Songs about to be liked or disliked anew: an unlike waiting for its Undo doesn't go
-    /// for them (sent after, it would take that away), just, by itself, for the other of
-    /// a song and video together. An unlike of others goes now, ahead of this.
-    pub(super) fn rating(&mut self, rated: impl Fn(&str) -> bool) {
-        let rest = match &self.undo {
-            Some(Undo::Unlike { send: Req::Like { video_id, .. }, .. }) if rated(video_id) => None,
-            Some(Undo::Unlike { send: Req::UnlikeBoth { song, video }, .. }) if rated(song) || rated(video) => {
-                Some(if rated(song) { video } else { song }.clone()).filter(|other| !rated(other))
-            }
-            Some(Undo::Unlike { .. }) => return self.settle(),
-            _ => return,
+        let msg = match send {
+            Req::LikeMany { .. } => format!("Removed {} likes", tracks.len()),
+            _ => "Removed from liked songs".to_owned(),
         };
-        self.undo = None;
-        if let Some(id) = rest {
-            self.backend.request(Req::Unlike(id));
+        self.toast_undo(msg, Undo::Unlike { targets, liked, was, send: Box::new(send) });
+    }
+
+    fn confirm_unliked(&mut self, targets: &[String]) {
+        for id in targets {
+            self.ratings.confirm(id, crate::ytm::SongRating::Indifferent);
         }
+    }
+
+    pub(super) fn pending_unlikes(&self) -> &[String] {
+        match &self.undo {
+            Some(Undo::Unlike { targets, .. }) => targets,
+            _ => &[],
+        }
+    }
+
+    /// Clicking the same heart again before its removal was sent cancels the undoable edit.
+    pub(super) fn unliking_soon(&self, id: &str) -> bool {
+        self.pending_unlikes().iter().any(|target| target == id)
+    }
+
+    /// Songs about to be rated anew while an unlike waits for its Undo. That unlike doesn't
+    /// go for them (sent after, it would take the new rating away), but it still goes, now,
+    /// for the rest of what it was taking away: those stay unliked.
+    pub(super) fn rating(&mut self, rated: impl Fn(&str) -> bool) {
+        if !self.pending_unlikes().iter().any(|id| rated(id)) {
+            return;
+        }
+        let Some(Undo::Unlike { targets, .. }) = self.undo.take() else { return };
+        // Its toast's Undo has nothing left to take back.
+        self.toast = None;
+        let rest: Vec<String> = targets.into_iter().filter(|id| !rated(id)).collect();
+        if rest.is_empty() {
+            return;
+        }
+        self.confirm_unliked(&rest);
+        self.backend.request(Req::LikeMany { video_ids: rest, like: false, stand_ins: Default::default() });
     }
 
     /// Gone from here at once, and from YouTube Music once the Undo is: it can't bring

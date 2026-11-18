@@ -487,8 +487,12 @@ impl RecentEdits {
             }
         }
         for id in refused {
-            self.likes.remove(id);
+            self.forget_like_edit(id);
         }
+    }
+
+    pub fn forget_like_edit(&mut self, id: &str) {
+        self.likes.remove(id);
     }
 
     /// `(videoId, setVideoId)` entries taken out of a playlist. A song added here lately

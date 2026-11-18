@@ -52,6 +52,7 @@ pub enum Req {
     SwitchChannel { page_id: Option<String>, epoch: u64 },
     /// The queue another device left off with (YouTube Music's own cross-device queue).
     ServerQueue,
+    SongRating { video_id: String, round: u64 },
     /// Upload audio files to the account's library.
     Upload(Vec<PathBuf>),
     /// Save a song's audio to the downloads folder. `for_video`: the music video it's the
@@ -103,10 +104,10 @@ pub enum Req {
     /// Take away the likes of a music video and the song version standing in for it.
     UnlikeBoth { song: String, video: String },
     /// Take away just this like, not the other half's.
-    Unlike(String),
     /// Several likes (or unlikes) one after another, for a selection.
     LikeMany { video_ids: Vec<String>, like: bool, stand_ins: std::collections::HashMap<String, String> },
-    Dislike(String),
+    Dislike { video_id: String, skip_generation: Option<u64> },
+    RemoveRating { video_id: String, was_disliked: bool },
     CreatePlaylist { title: String, video_ids: Vec<String> },
     EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
     /// Save one of your playlist's sort orders to it ([`PlaylistSort::actions`]).
@@ -148,6 +149,7 @@ impl Req {
             Req::Channels => "Channels",
             Req::SwitchChannel { .. } => "Switching channel",
             Req::ServerQueue => "Queue from other devices",
+            Req::SongRating { .. } => "Song rating",
             Req::Upload(_) => "Upload",
             Req::Download { .. } | Req::DownloadMany { .. } => "Download",
             Req::Lyrics(_) => "Lyrics",
@@ -162,8 +164,9 @@ impl Req {
             Req::Prefetch { .. } => "Prefetch",
             Req::VideoStream { .. } | Req::MusicVideo(_) => "Video",
             Req::Canvas(_) => "Animated cover",
-            Req::Like { .. } | Req::LikeMany { .. } | Req::UnlikeBoth { .. } | Req::Unlike(_) => "Like",
-            Req::Dislike(_) => "Dislike",
+            Req::Like { .. } | Req::LikeMany { .. } | Req::UnlikeBoth { .. } => "Like",
+            Req::Dislike { .. } => "Dislike",
+            Req::RemoveRating { .. } => "Remove rating",
             Req::CreatePlaylist { .. } => "Create playlist",
             Req::EditPlaylist { .. } => "Edit playlist",
             Req::SortPlaylist { .. } => "Sort playlist",
@@ -183,7 +186,7 @@ impl Req {
 
     /// Background requests fail quietly (logged, no toast).
     fn quiet(&self) -> bool {
-        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::Art { .. } | Req::Prefetch { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::ArtistPicture { .. } | Req::MusicVideo(_) | Req::LyricsExtras { .. } | Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. })
+        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::SongRating { .. } | Req::Art { .. } | Req::Prefetch { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::ArtistPicture { .. } | Req::MusicVideo(_) | Req::LyricsExtras { .. } | Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. })
     }
 }
 
@@ -398,6 +401,9 @@ pub enum Resp {
     PlayQueue { target: Target, title: String, tracks: Vec<Track> },
     /// `other`: its other version, whose like went with this one.
     Liked { video_id: String, like: bool, other: Option<String> },
+    Disliked { video_id: String, skip_generation: Option<u64>, ok: bool },
+    RatingRemoved { video_id: String, was_disliked: bool, ok: bool },
+    SongRating { video_id: String, round: u64, rating: Option<ytm::SongRating> },
     /// A run of likes or unlikes: `taken` just went through, `done` of `total` tried.
     LikeProgress { taken: Vec<String>, done: usize, total: usize, like: bool },
     /// The songs YouTube Music took, and the ones it refused.
@@ -444,6 +450,9 @@ impl Resp {
                 | Resp::Channels(_)
                 | Resp::ServerQueue(_)
                 | Resp::Liked { .. }
+                | Resp::Disliked { .. }
+                | Resp::RatingRemoved { .. }
+                | Resp::SongRating { .. }
                 | Resp::LikeProgress { .. }
                 | Resp::LikedMany { .. }
                 | Resp::AddedToPlaylist { .. }
@@ -1115,6 +1124,17 @@ impl Backend {
                     Some(q) => Resp::ServerQueue(q),
                     None => return Ok(None),
                 },
+                Req::SongRating { video_id, round } => {
+                    let rating = match tokio::time::timeout(std::time::Duration::from_secs(10), ytm::song_rating(api, &video_id)).await {
+                        Ok(Ok(rating)) => rating,
+                        Ok(Err(e)) => {
+                            log::debug!("song rating of {video_id}: {e:#}");
+                            None
+                        }
+                        Err(_) => None,
+                    };
+                    Resp::SongRating { video_id, round, rating }
+                }
                 Req::Upload(files) => self.upload(&files).await?,
                 Req::Lyrics(track) => {
                     let video_id = track.id.clone();
@@ -1264,22 +1284,20 @@ impl Backend {
                         Resp::LikedMany { video_ids, failed, like: false, others: Vec::new() }
                     }
                 }
-                Req::Unlike(video_id) => match ytm::set_like(api, &video_id, false).await {
-                    Ok(_) => Resp::Liked { video_id, like: false, other: None },
-                    Err(e) => {
-                        log::warn!("unliking {video_id}: {e:#}");
-                        Resp::LikedMany { video_ids: Vec::new(), failed: vec![video_id], like: false, others: Vec::new() }
-                    }
-                },
                 Req::LikeMany { video_ids, like, stand_ins } => self.like_many(video_ids, like, stand_ins).await?,
-                Req::Dislike(video_id) => {
-                    match ytm::dislike(api, &video_id).await {
-                        Ok(_) => Resp::Liked { video_id, like: false, other: None },
-                        Err(e) => {
-                            log::warn!("disliking {video_id}: {e:#}");
-                            Resp::LikedMany { video_ids: Vec::new(), failed: vec![video_id], like: false, others: Vec::new() }
-                        }
+                Req::Dislike { video_id, skip_generation } => {
+                    let result = ytm::dislike(api, &video_id).await;
+                    if let Err(e) = &result {
+                        log::warn!("disliking {video_id}: {e:#}");
                     }
+                    Resp::Disliked { video_id, skip_generation, ok: result.is_ok() }
+                }
+                Req::RemoveRating { video_id, was_disliked } => {
+                    let result = ytm::set_like(api, &video_id, false).await;
+                    if let Err(e) = &result {
+                        log::warn!("removing rating of {video_id}: {e:#}");
+                    }
+                    Resp::RatingRemoved { video_id, was_disliked, ok: result.is_ok() }
                 }
                 Req::CreatePlaylist { title, video_ids } => {
                     let id = match video_ids.as_slice() {

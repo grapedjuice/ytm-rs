@@ -6,6 +6,7 @@ use egui::{Align2, Color32, CornerRadius, Pos2, Rect, Response, Sense, Ui, Vec2,
 use super::Action;
 use crate::model::{Card, Link, Target, Thumb, Track, pick_thumb, sized};
 use crate::theme::{self, icon};
+use crate::ytm::SongRating;
 
 pub fn named(resp: Response, name: &str) -> Response {
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name));
@@ -422,11 +423,21 @@ pub fn contrast(bg: Color32) -> Color32 {
 
 /// Rounded pill button. `primary` = white with dark text (YouTube Music's Play button).
 pub fn pill(ui: &mut Ui, label: &str, glyph: Option<char>, primary: bool) -> Response {
+    pill_button(ui, label, glyph, primary, true, None).0
+}
+
+pub(super) fn unlike_pill(ui: &mut Ui, label: &str, wide: bool, target: egui::Id) -> bool {
+    pill_button(ui, label, Some(icon::HEART), false, wide, Some(target)).1
+}
+
+fn pill_button(ui: &mut Ui, label: &str, glyph: Option<char>, primary: bool, labelled: bool, unlike: Option<egui::Id>) -> (Response, bool) {
     // Laid out once; the colour is given when it's painted.
     let text = ui.painter().layout_no_wrap(label.to_owned(), theme::semibold(14.0), Color32::PLACEHOLDER);
     let icon_w = if glyph.is_some() { 24.0 } else { 0.0 };
-    let (rect, resp) = ui.allocate_exact_size(vec2(text.size().x + icon_w + 36.0, 38.0), Sense::click());
+    let width = if labelled { text.size().x + icon_w + 36.0 } else { 38.0 };
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 38.0), Sense::click());
     let resp = named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let gesture = unlike.map(|target| super::ratings::like_gesture(ui, &resp, target, true, None));
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
     let c = &crate::preset::active().app.controls;
     let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
@@ -451,12 +462,22 @@ pub fn pill(ui: &mut Ui, label: &str, glyph: Option<char>, primary: bool) -> Res
     }
     focus_ring(ui, &resp, r, 19.0);
     let mut x = r.left() + 18.0;
-    if let Some(g) = glyph {
+    if let Some(gesture) = &gesture {
+        let center = if labelled { pos2(x + 8.0, r.center().y) } else { r.center() };
+        super::ratings::unlike_heart(ui, center, 17.0, 1.0, fg, fg, gesture.progress);
+        if gesture.hint {
+            super::ratings::unlike_hint(ui, &resp);
+        }
+        x += icon_w;
+    } else if let Some(g) = glyph {
         icon_at(ui, pos2(x + 8.0, r.center().y), g, 17.0, fg);
         x += icon_w;
     }
-    ui.painter().galley(pos2(x, r.center().y - text.size().y / 2.0), text, fg);
-    resp
+    if labelled {
+        ui.painter().galley(pos2(x, r.center().y - text.size().y / 2.0), text, fg);
+    }
+    let activated = gesture.map_or_else(|| resp.clicked(), |gesture| gesture.activate);
+    (resp, activated)
 }
 
 /// A round button the height of a [`pill`], for a menu of what doesn't need a button of its own.
@@ -760,10 +781,21 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, pin: Option<bool>, a
     // On the subtitle line, whose width leaves room for it, so a two-line title never sits under it.
     let more_rect = Rect::from_center_size(pos2(rect.right() - 16.0, sub_y + 8.0), Vec2::splat(30.0));
     let more = more_button(ui, more_rect, resp.id.with("more"), "Options");
-    menu_popup(&more).show(|ui| card_menu_contents(ui, c, liked, pin, acts));
+    let behavior = if matches!(c.target, Target::Song(_)) { egui::PopupCloseBehavior::CloseOnClickOutside } else { egui::PopupCloseBehavior::CloseOnClick };
+    menu_popup(&more).close_behavior(behavior).show(|ui| card_menu_contents(ui, c, liked, pin, acts));
     // Right-click anywhere on the card opens the same menu, even on the play button,
     // a linked name or ⋮, which take the click themselves.
-    resp.container_context_menu(|ui| card_menu_contents(ui, c, liked, pin, acts));
+    egui::Popup::menu(&resp)
+        .open_memory(if resp.container_secondary_clicked() {
+            Some(egui::SetOpenCommand::Bool(true))
+        } else if resp.container_clicked() {
+            Some(egui::SetOpenCommand::Bool(false))
+        } else {
+            None
+        })
+        .at_pointer_fixed()
+        .close_behavior(behavior)
+        .show(|ui| card_menu_contents(ui, c, liked, pin, acts));
 
     if play_hit {
         match &c.target {
@@ -942,17 +974,17 @@ pub fn menu_divider(ui: &mut Ui) {
 }
 
 pub fn menu_action(ui: &mut Ui, glyph: Option<char>, label: &str) -> bool {
-    menu_row(ui, glyph, label, true)
+    menu_row(ui, glyph, label, true, None)
 }
 
 /// A menu row for one of several choices (a Sort menu's orders), ticked when it's the one
 /// on. Looks like [`menu_action`]'s rows, the tick where their icons go.
 pub fn menu_choice(ui: &mut Ui, label: &str, on: bool) -> bool {
-    menu_row(ui, on.then_some(icon::CHECK), label, false)
+    menu_row(ui, on.then_some(icon::CHECK), label, false, None)
 }
 
 /// A menu row; without a glyph, an arrow in its place when `arrow`, else nothing.
-fn menu_row(ui: &mut Ui, glyph: Option<char>, label: &str, arrow: bool) -> bool {
+fn menu_row(ui: &mut Ui, glyph: Option<char>, label: &str, arrow: bool, unlike: Option<&Track>) -> bool {
     let m = crate::preset::active().app.menu_look;
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), m.row_px.max(26.0)), Sense::click());
     let response = named(response, label).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -973,14 +1005,21 @@ fn menu_row(ui: &mut Ui, glyph: Option<char>, label: &str, arrow: bool) -> bool 
     };
     let slide = slide + if m.row_slide > 0.0 { m.row_slide * theme::anim_bool(ui.ctx(), response.id.with("slide"), response.hovered(), 0.12) } else { 0.0 };
     let (icon_x, text_x) = if m.icon_right { (rect.right() - 19.0 + slide, rect.left() + 12.0 + slide) } else { (rect.left() + 19.0 + slide, rect.left() + 40.0 + slide) };
-    if let Some(glyph) = glyph {
+    let gesture = unlike.map(|track| super::ratings::like_gesture(ui, &response, super::ratings::rating_id(track), true, None));
+    if let Some(gesture) = &gesture {
+        super::ratings::unlike_heart(ui, pos2(icon_x, rect.center().y), 16.0, 1.0, color, color, gesture.progress);
+        if gesture.hint {
+            super::ratings::unlike_hint(ui, &response);
+        }
+    } else if let Some(glyph) = glyph {
         icon_at(ui, pos2(icon_x, rect.center().y), glyph, 16.0, color);
     } else if arrow {
         ui.painter().text(pos2(icon_x, rect.center().y), Align2::CENTER_CENTER, "↗", theme::semibold(17.0), color);
     }
     ui.painter().text(pos2(text_x, rect.center().y), Align2::LEFT_CENTER, label, theme::regular(14.0), if response.hovered() { lit } else { theme::text() });
-    if response.clicked() { ui.close(); }
-    response.clicked()
+    let activate = gesture.map_or_else(|| response.clicked(), |gesture| gesture.activate);
+    if activate { ui.close(); }
+    activate
 }
 
 /// `remove`: the song's row in the open playlist, when it's yours and the song can come out.
@@ -991,7 +1030,7 @@ pub fn song_menu(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, act
 
 /// The song menu's items, for menus that add their own (now playing's options).
 pub fn song_actions(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, acts: &mut Vec<Action>) {
-    if menu_action(ui, Some(icon::HEART), if liked { "Remove like" } else { "Like song" }) {
+    if menu_row(ui, Some(icon::HEART), if liked { "Remove like" } else { "Like song" }, true, liked.then_some(t)) {
         acts.push(Action::Like(t.clone(), !liked));
     }
     if menu_action(ui, Some(icon::THUMBS_DOWN), "Dislike song") {
@@ -1259,12 +1298,18 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     if !ui.is_rect_visible(rect) {
         return base;
     }
+    // While dragging, only the drop place should show.
+    let hovered = base.contains_pointer() && ui.ctx().dragged_id().is_none();
+    let like_on_hover = !o.pick && o.selected.is_none();
+    let (rating, show_rating, dimmed) = super::ratings::row(ui, t, o.liked, hovered && like_on_hover);
+    let rating = rating.filter(|r| show_rating && (*r != SongRating::Indifferent || like_on_hover));
+    let opacity = if dimmed { 0.58 } else { 1.0 };
+    let dur_w = 52.0;
+    let rating_w = if show_rating { 28.0 } else { 0.0 };
     // Picking: the cover (left 54 px) plays, the rest of the row picks.
     let hit_left = if o.pick && o.number.is_none() { rect.left() + 54.0 } else { rect.left() };
     let hit_rect = Rect::from_min_max(pos2(hit_left, rect.top()), pos2(rect.right() - 42.0, rect.bottom()));
     let resp = named(ui.interact(hit_rect, base.id.with("play"), Sense::click()), &song_name(&t.title, t.explicit)).on_hover_cursor(egui::CursorIcon::PointingHand);
-    // Not while something's being dragged over it: only the drop place should show.
-    let hovered = base.contains_pointer() && ui.ctx().dragged_id().is_none();
     let h = theme::anim_bool(ui.ctx(), base.id.with("h"), hovered, 0.15);
     // Grows or shrinks on the row's own place, the list around it staying put.
     let press = if resp.is_pointer_button_down_on() { crate::preset::active().app.controls.press_rows } else { 1.0 };
@@ -1305,17 +1350,20 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     if let Some(n) = o.number {
         let slot = Rect::from_center_size(pos2(x + 12.0, cy), vec2(24.0, 24.0));
         if o.current {
-            equalizer(ui, slot.shrink(4.0), o.time, o.playing, o.accent);
+            equalizer(ui, slot.shrink(4.0), o.time, o.playing, theme::with_alpha(o.accent, opacity));
         } else if h > 0.5 {
             play_triangle(ui, slot.center(), 6.0, theme::text());
         } else {
-            ui.painter().text(slot.center(), Align2::CENTER_CENTER, n.to_string(), theme::regular(14.0), theme::text_dim());
+            ui.painter().text(slot.center(), Align2::CENTER_CENTER, n.to_string(), theme::regular(14.0), theme::with_alpha(theme::text_dim(), opacity));
         }
         x += 36.0;
     } else {
         let img = Rect::from_min_size(pos2(x, cy - rl.thumb_px / 2.0), Vec2::splat(rl.thumb_px));
         let tr = rl.thumb_radius.unwrap_or_else(theme::thumb_radius);
         paint_cover(ui, img, &t.thumbs, tr, 1.0 + rl.image_zoom * h);
+        if dimmed {
+            ui.painter().rect_filled(img, tr, theme::panel(1.0 - opacity));
+        }
         if o.pick {
             let play = named(ui.interact(img, base.id.with("cover"), Sense::click()), "Play").on_hover_text("Play").on_hover_cursor(egui::CursorIcon::PointingHand);
             if play.clicked() {
@@ -1332,9 +1380,9 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         x += rl.thumb_px + 14.0;
     }
     let right = rect.right() - 41.0 - rl.pad;
-    let dur_w = 52.0;
-    let dim = theme::with_alpha(theme::text_dim(), rl.byline_alpha);
-    let avail = right - dur_w - x;
+    let dim = theme::with_alpha(theme::text_dim(), rl.byline_alpha * opacity);
+    let text_right = right - dur_w - rating_w;
+    let avail = text_right - x;
     let wide = avail > 520.0;
     // Album rows (numbered) are just song name and plays; other rows are
     // title + artists, then album, then plays when there's room.
@@ -1346,7 +1394,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         _ => (avail, None, None),
     };
     let plays = t.plays.map(|n| format!("{} plays", crate::backend::compact(n)));
-    let title_col = if o.current { o.accent } else { theme::text() };
+    let title_col = if dimmed { theme::with_alpha(theme::text_dim(), opacity) } else if o.current { o.accent } else { theme::text() };
     let sub = match (album_row, &plays, plays_x) {
         (true, Some(p), None) => Some(p.clone()),
         (true, _, _) => None,
@@ -1367,20 +1415,58 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         ui.painter().text(pos2(px, cy), Align2::LEFT_CENTER, p, theme::regular(13.5), dim);
     }
     if let (Some(ax), Some(album)) = (album_x, &t.album) {
-        let w = plays_x.unwrap_or(right - dur_w) - ax - 10.0;
-        let g = galley(ui, &album.name, theme::regular(13.5), theme::text_dim(), w);
+        let w = plays_x.unwrap_or(text_right) - ax - 10.0;
+        let album_color = theme::with_alpha(theme::text_dim(), opacity);
+        let g = galley(ui, &album.name, theme::regular(13.5), album_color, w);
         let ar = Rect::from_min_size(pos2(ax, cy - 9.0), g.size());
-        ui.painter().galley(ar.min, g, theme::text_dim());
+        ui.painter().galley(ar.min, g, album_color);
         // Album name opens the album, like the artist names.
         if let Some(id) = &album.id {
             let r = named(ui.interact(ar, resp.id.with("album"), Sense::click()), &album.name);
             let r = r.on_hover_cursor(egui::CursorIcon::PointingHand);
             if r.hovered() {
-                ui.painter().hline(ar.x_range(), ar.bottom() - 1.0, egui::Stroke::new(1.0, theme::text_dim()));
+                ui.painter().hline(ar.x_range(), ar.bottom() - 1.0, egui::Stroke::new(1.0, album_color));
             }
             if r.clicked() {
                 acts.push(Action::Open(Target::Album(id.clone())));
             }
+        }
+    }
+    if let Some(rating) = rating {
+        let label = match rating {
+            SongRating::Like => "Remove like",
+            SongRating::Dislike => "Remove dislike",
+            SongRating::Indifferent => "Like song",
+        };
+        let slot = Rect::from_center_size(pos2(text_right + rating_w / 2.0, cy), Vec2::splat(26.0));
+        let button = named(ui.interact(slot, base.id.with(("rating", label)), Sense::click()), label)
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        let gesture = super::ratings::like_gesture(ui, &button, super::ratings::rating_id(t), rating == SongRating::Like, None);
+        let highlighted = button.hovered() || button.has_focus();
+        if rating != SongRating::Indifferent || hovered || button.has_focus() {
+            if highlighted && theme::light() {
+                ui.painter().circle_filled(slot.center(), 11.0, theme::shade(0.68));
+            }
+            let ink = if highlighted { Color32::WHITE } else { dim };
+            if rating == SongRating::Dislike {
+                super::vector::dislike(ui, slot.center(), 14.0, true, ink);
+            } else {
+                let fill = if rating == SongRating::Like { 1.0 } else { 0.0 };
+                super::ratings::unlike_heart(ui, slot.center(), 14.0, fill, ink, ink, gesture.progress);
+            }
+            focus_ring(ui, &button, slot, 13.0);
+        }
+        if gesture.hint {
+            super::ratings::unlike_hint(ui, &button);
+        } else if rating != SongRating::Like {
+            button.clone().on_hover_text(label);
+        }
+        if gesture.activate {
+            acts.push(match rating {
+                SongRating::Like => Action::RemoveLike(super::ratings::rated_track(t)),
+                SongRating::Dislike => Action::RemoveDislike(super::ratings::rating_id(t).to_owned()),
+                SongRating::Indifferent => Action::Like(super::ratings::rated_track(t), true),
+            });
         }
     }
     // Not `hovered`: the queue's drag grip counts as dragged from the press, which would hide
@@ -1409,14 +1495,14 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     let open_id = more_id.with("open");
     if !rl.hover_menu || hovered || ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false)) {
         let more = more_button(ui, more_rect, more_id, "Song options");
-        menu_popup(&more).show(|ui| song_menu(ui, t, o.liked, o.remove, acts));
+        menu_popup(&more).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| song_menu(ui, t, o.liked, o.remove, acts));
         if rl.hover_menu {
             let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&more));
             ui.data_mut(|d| d.insert_temp(open_id, open));
         }
     }
     // Right-click anywhere on the row opens the same menu.
-    context_popup(&resp).show(|ui| song_menu(ui, t, o.liked, o.remove, acts));
+    context_popup(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| song_menu(ui, t, o.liked, o.remove, acts));
     resp
 }
 

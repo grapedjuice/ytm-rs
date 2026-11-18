@@ -55,10 +55,10 @@ impl App {
             }
             Action::Open(Target::Song(t)) | Action::Radio(t) if self.explicit_hidden(&t) => {}
             // Radio from the song playing: it goes on playing, and the radio replaces what
-            // was to come, as YouTube Music's Start radio does.
-            Action::Radio(t) if self.current_id() == Some(t.id.as_str()) || self.playing_id() == Some(t.id.as_str()) => {
-                let Some(cur) = self.queue.current().cloned() else { return };
-                self.queue.replace(vec![cur.clone()], 0, None);
+            // was to come, as YouTube Music's Start radio does. Clicking its card (which
+            // starts a song's radio) does the same rather than starting it over.
+            Action::Open(Target::Song(t)) | Action::Radio(t) if self.current_id() == Some(t.id.as_str()) || self.playing_id() == Some(t.id.as_str()) => {
+                let Some(cur) = self.queue.keep_current() else { return };
                 self.queue_source = None;
                 if !self.radio_pending {
                     self.radio_pending = true;

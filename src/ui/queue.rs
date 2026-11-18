@@ -133,6 +133,18 @@ impl Queue {
         true
     }
 
+    /// Only the song playing is left, for a radio from it to follow, without it starting
+    /// over. Unlike `replace` it stays when it's an explicit one left to finish.
+    pub fn keep_current(&mut self) -> Option<Track> {
+        let cur = self.current()?.clone();
+        self.tracks = vec![cur.clone()];
+        self.index = Some(0);
+        self.elsewhere.clear();
+        self.unshuffled = None;
+        self.fill = None;
+        Some(cur)
+    }
+
     /// Play `tracks` shuffled, with shuffle on (see `shuffle_to_play`): false as `replace`.
     pub fn replace_shuffled(&mut self, mut tracks: Vec<Track>, fill: Option<QueueFill>) -> bool {
         let order = tracks.iter().map(|t| t.id.clone()).collect();
@@ -798,6 +810,28 @@ mod tests {
         assert!(q.add_radio("seed", vec![track("seed"), track("a"), track("b"), track("c")]));
         assert_eq!(ids(&q), ["seed", "a", "b", "c"]);
         assert!(!q.add_radio("seed", vec![track("d")]));
+    }
+
+    #[test]
+    fn radio_from_the_song_playing_keeps_it() {
+        let mut q = queue(&["a", "b", "c"], 1, Repeat::Off);
+        q.fill = filling("PL1", 1);
+        q.unshuffled = Some(vec!["c".into(), "b".into(), "a".into()]);
+        assert_eq!(q.keep_current().unwrap().id, "b");
+        assert_eq!((ids(&q), q.index), (vec!["b"], Some(0)));
+        assert!(q.fill.is_none() && !q.shuffled());
+        // Its radio follows it, and a later one adds only what's new.
+        assert!(q.add_radio("b", vec![track("b"), track("x"), track("y")]));
+        assert_eq!(ids(&q), ["b", "x", "y"]);
+        assert_eq!(q.current().unwrap().id, "b");
+
+        // An explicit song left to finish once those were hidden stays too.
+        let mut q = queue(&["a", "e"], 1, Repeat::Off);
+        q.tracks[1].explicit = true;
+        q.hide_explicit = true;
+        assert_eq!(q.keep_current().unwrap().id, "e");
+        assert_eq!(ids(&q), ["e"]);
+        assert!(Queue::new(Repeat::Off).keep_current().is_none());
     }
 
     #[test]

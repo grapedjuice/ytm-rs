@@ -1167,13 +1167,20 @@ impl Backend {
                     // song itself. The lookup is shared with its play's (one per video).
                     let song = self.song_version(&seed, song_of.as_ref(), PREFETCH_SONG_WAIT).await;
                     let from = song.as_ref().map_or(&seed, |s| &s.id);
-                    let mut tracks = ytm::radio(api, from, false, 50).await?;
+                    // Signed in, the account's own radio, as music.youtube.com plays it: it
+                    // follows what the account listens to, so it isn't the same list each time.
+                    let mut tracks = if me {
+                        ytm::radio(api, from, true, 50).await.unwrap_or_else(|e| {
+                            log::info!("radio for {from}: signed in failed ({e:#}); asking signed out");
+                            Vec::new()
+                        })
+                    } else {
+                        Vec::new()
+                    };
                     // The radio starts with its seed, which is playing already.
                     tracks.retain(|t| t.id != *from);
-                    // Some places get an empty radio signed out; the account's own may not be.
-                    if tracks.is_empty() && me {
-                        log::info!("radio for {from}: none signed out; asking signed in");
-                        tracks = ytm::radio(api, from, true, 50).await?;
+                    if tracks.is_empty() {
+                        tracks = ytm::radio(api, from, false, 50).await?;
                         tracks.retain(|t| t.id != *from);
                     }
                     log::info!("radio for {from}: {} songs", tracks.len());

@@ -1040,6 +1040,11 @@ impl NowPlayingStyle {
     pub fn shows_title(&self, fullscreen: bool) -> bool {
         self.fullscreen_show_title.filter(|_| fullscreen).unwrap_or(self.show_title)
     }
+
+    /// The song's card in the corner, in place of the title under the cover.
+    pub fn shows_info_card(&self, fullscreen: bool) -> bool {
+        self.info_card && (fullscreen || !self.info_card_fullscreen_only)
+    }
 }
 
 #[derive(Clone, Copy, Deserialize)]

@@ -104,6 +104,8 @@ pub struct AudioStatus {
     /// silence, whatever its fade had got to (a pause cut short by a stalled download, or
     /// by headphones unplugged).
     silenced: AtomicU32,
+    /// Pausing and playing again are instant, with no fade (Settings › Sound).
+    instant_pause: AtomicBool,
     /// The equalizer's settings, applied to everything on its way to the device.
     eq: Arc<eq::EqParams>,
     /// Crossfeed, mono and balance, after the equalizer.
@@ -271,7 +273,13 @@ impl<S: rodio::Source> Iterator for Meter<S> {
         }
         let target = if self.status.hushed.load(Ordering::Relaxed) { 0.0 } else { 1.0 };
         if self.pause != target {
-            self.pause = if target > self.pause { (self.pause + self.pause_step).min(1.0) } else { (self.pause - self.pause_step).max(0.0) };
+            self.pause = if self.status.instant_pause.load(Ordering::Relaxed) {
+                target
+            } else if target > self.pause {
+                (self.pause + self.pause_step).min(1.0)
+            } else {
+                (self.pause - self.pause_step).max(0.0)
+            };
             // Not a song fading out: the playing one is what a new decoder follows.
             if self.seen_out == 0 {
                 self.status.faded.store((1.0 - self.pause).to_bits(), Ordering::Relaxed);
@@ -352,6 +360,11 @@ impl AudioHandle {
 
     pub fn set_crossfade(&self, secs: u32) {
         self.status.crossfade_ms.store(secs * 1000, Ordering::Relaxed);
+    }
+
+    /// Whether pausing fades out and playing again fades back in; off, both are instant.
+    pub fn set_pause_fade(&self, on: bool) {
+        self.status.instant_pause.store(!on, Ordering::Relaxed);
     }
 
     pub fn set_volume(&self, v: f32) {
@@ -927,8 +940,14 @@ fn run(
                 log::debug!("audio: pause at {:?}", song_pos(&song_ms));
                 // Fade out first; the players pause once it's done (below). Another pause
                 // meanwhile (the media controls' and the window's) doesn't put that off.
+                // With the fade off, they pause at once.
                 status.hushed.store(true, Ordering::Relaxed);
-                if !player.is_paused() && pause_at.is_none() {
+                if status.instant_pause.load(Ordering::Relaxed) {
+                    pause_at = None;
+                    status.silence();
+                    player.pause();
+                    fading.iter().for_each(|f| f.player.pause());
+                } else if !player.is_paused() && pause_at.is_none() {
                     pause_at = Some(Instant::now() + PAUSE_AFTER);
                 }
                 status.playing.store(false, Ordering::Relaxed);
@@ -942,7 +961,7 @@ fn run(
                     if output.sink.is_none() || output.default_changed() {
                         output.open(tx.clone(), &status);
                     }
-                    // Fades back in from where the pause got to.
+                    // Fades back in from where the pause got to (at once with the fade off).
                     status.hushed.store(false, Ordering::Relaxed);
                     pause_at = None;
                     player.play();
@@ -1277,6 +1296,25 @@ mod tests {
         assert_eq!(cut.next(), Some(1.0));
         status.silence();
         assert!(cut.next().unwrap() < 0.01);
+    }
+
+    #[test]
+    fn with_the_fade_off_pausing_and_playing_again_are_instant() {
+        use std::num::NonZero;
+        let ones = || rodio::buffer::SamplesBuffer::new(NonZero::new(1).unwrap(), NonZero::new(1000).unwrap(), vec![1.0; 1000]);
+        let status = Arc::new(AudioStatus::default());
+        status.instant_pause.store(true, Ordering::Relaxed);
+        let mut m = Meter::new(ones(), status.clone(), 0, Arc::new(AtomicU32::new(0)));
+        assert_eq!(m.next(), Some(1.0));
+        // Paused outright, as the audio thread does with the fade off.
+        status.hushed.store(true, Ordering::Relaxed);
+        status.silence();
+        assert_eq!(m.next(), Some(0.0));
+        // A seek's decoder put in meanwhile starts at full once played again, as does this one.
+        let mut seeked = Meter::new(ones(), status.clone(), 0, Arc::new(AtomicU32::new(0)));
+        status.hushed.store(false, Ordering::Relaxed);
+        assert_eq!(m.next(), Some(1.0));
+        assert_eq!(seeked.next(), Some(1.0));
     }
 
     #[test]

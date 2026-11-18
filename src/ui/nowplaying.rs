@@ -181,11 +181,12 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
             // Made even while it's hidden, so the buttons after it keep their ids (and focus).
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area));
             child.set_clip_rect(area.intersect(clip));
+            // Kept up while hidden too, so it doesn't replay an old song's crossfade when it's back.
+            let fading = b.fullbleed_fade.then(|| fullbleed_fade(&child, &track.id, &track.thumbs, now, b.crossfade_delay as f64, b.crossfade_secs as f64)).flatten();
             if shows > 0.001 {
                 let tint = Color32::from_gray((fullbleed_level * readable * 255.0) as u8).gamma_multiply(shows);
                 // Over the theme's own background it fades away to show that; alone, into its flat colour.
                 let mask = (side_by_side && b.mode != BgMode::CoverFullbleed).then_some(b.fade);
-                let fading = b.fullbleed_fade.then(|| fullbleed_fade(&child, &track.id, &track.thumbs, now, b.crossfade_delay as f64, b.crossfade_secs as f64)).flatten();
                 match fading {
                     Some((old, k)) => {
                         paint_fullbleed(&child, area, &old, tint, mask);
@@ -311,7 +312,8 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     if look.now_playing.show_video_switch && !app.jam.active() && (track.has_video() || (!songs_only && (app.playing_as().is_some() || app.song_video().is_some()))) {
         song_video_switch(app, ui, header);
     }
-    let mut hui = ui.new_child(egui::UiBuilder::new().max_rect(header).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    // Its own id: the covers and cards drawn before it come and go, which would shift its buttons' ids (and lose focus).
+    let mut hui = ui.new_child(egui::UiBuilder::new().scope_id(egui::Id::unique("np-header")).max_rect(header).layout(egui::Layout::left_to_right(egui::Align::Center)));
     // macOS: past the traffic lights, which stay over now playing.
     let gap = super::titlebar::left_gap(hui.ctx(), hui.max_rect(), 0.0);
     if gap > 0.0 {
@@ -705,7 +707,6 @@ fn corner_block(app: &mut App, ui: &mut Ui, r: Rect, track: &crate::model::Track
     widgets::linked_text(ui, pos2(x, r.bottom() - np.artist_px - 8.0), &line, &track.artists, theme::regular(np.artist_px), theme::text_dim(), w, &mut app.actions);
 }
 
-/// The corner card with the song, over a cover that fills the view.
 /// The most room the theme's card takes in `content`: its text-only card is no wider or taller.
 fn info_card_room(np: &crate::preset::NowPlayingStyle, content: Rect) -> Rect {
     let size = vec2((content.width() * 0.34).clamp(220.0, 420.0), 76.0);
@@ -713,6 +714,7 @@ fn info_card_room(np: &crate::preset::NowPlayingStyle, content: Rect) -> Rect {
     if np.info_card_top { Rect::from_min_size(content.min + vec2(m, m), size) } else { Rect::from_min_size(pos2(content.left() + m, content.bottom() - size.y - m), size) }
 }
 
+/// The corner card with the song, over a cover that fills the view.
 fn info_card(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::Track) {
     let np = &app.look().now_playing;
     let r = info_card_room(np, content);

@@ -453,7 +453,7 @@ impl App {
             Resp::QuickPicksMore { seed, tracks } => {
                 if let Some(h) = &mut self.home {
                     h.picks_loading = false;
-                    if let Some(shelf) = h.shelves.iter_mut().find(|s| s.title == "Quick picks")
+                    if let Some(shelf) = crate::model::quick_picks(&h.shelves).map(|i| &mut h.shelves[i])
                         && let ShelfKind::Songs { tracks: picks, .. } = &mut shelf.kind
                         && picks.iter().any(|t| t.id == seed)
                     {
@@ -633,7 +633,7 @@ impl App {
         }
         // Kept for the next launch, unless a mood filters it.
         if let Some(h) = self.home.as_ref().filter(|h| !self.home_mood && !h.shelves.is_empty() && !h.chips.iter().any(|c| c.selected)) {
-            let cache = super::HomeCache { logged_in: self.logged_in, chips: h.chips.clone(), shelves: h.shelves.clone() };
+            let cache = super::HomeCache { logged_in: self.logged_in, hl: self.locale.hl.to_owned(), chips: h.chips.clone(), shelves: h.shelves.clone() };
             super::HomeCache::store(self.backend.data_dir(), Some(cache));
         }
     }

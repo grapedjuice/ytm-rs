@@ -105,6 +105,10 @@ impl Api {
         *self.locale.write().unwrap() = locale;
     }
 
+    pub fn locale(&self) -> Locale {
+        *self.locale.read().unwrap()
+    }
+
     pub fn account(&self) -> Option<Arc<Session>> {
         self.account.read().unwrap().clone()
     }
@@ -320,6 +324,12 @@ impl Api {
         }
     }
 
+    /// Like `call`, anonymously and in English whatever Settings › Song info says.
+    pub async fn call_in_english(&self, endpoint: &str, mut body: Value) -> anyhow::Result<Value> {
+        body["context"] = json!({ "client": { "hl": crate::locale::ENGLISH.hl, "gl": crate::locale::ENGLISH.gl } });
+        self.call(endpoint, body, false).await
+    }
+
     /// Like `call`, but a signed-in account is required.
     pub async fn call_signed_in(&self, endpoint: &str, body: Value) -> anyhow::Result<Value> {
         let account = self.account().ok_or_else(|| anyhow::anyhow!("sign in first"))?;
@@ -410,7 +420,10 @@ impl Api {
         }
         anyhow::ensure!(!self.unavailable.load(Relaxed), Unavailable);
         let mut payload = body.clone();
-        let locale = *self.locale.read().unwrap();
+        // Settings › Song info, unless the request names its own (`call_in_english`).
+        let shared = self.locale();
+        let named = |key: &str| body["context"]["client"][key].as_str().map(str::to_owned);
+        let (hl, gl) = (named("hl").unwrap_or_else(|| shared.hl.to_owned()), named("gl").unwrap_or_else(|| shared.gl.to_owned()));
         payload["context"] = json!({
             "client": {
                 "clientName": "WEB_REMIX",
@@ -418,8 +431,8 @@ impl Api {
                 "platform": "DESKTOP",
                 "originalUrl": ORIGIN,
                 "visitorData": web.visitor_data,
-                "hl": locale.hl,
-                "gl": locale.gl,
+                "hl": hl,
+                "gl": gl,
                 "timeZone": self.tz.0,
                 "utcOffsetMinutes": self.tz.1,
             },

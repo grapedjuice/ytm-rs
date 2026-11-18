@@ -488,6 +488,9 @@ impl App {
     pub(super) fn set_locale(&mut self) {
         self.backend.set_locale(self.locale);
         self.search = None;
+        self.scoped.clear();
+        self.mood = None;
+        self.lists.outdate();
         self.home_mood = false;
         self.backend.request(Req::Home(None));
         if self.logged_in {

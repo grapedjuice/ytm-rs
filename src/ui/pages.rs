@@ -528,6 +528,7 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
         ui.label(RichText::new("Nothing here yet").color(theme::text_dim()));
     }
     let mut more_picks = None;
+    let picks = crate::model::quick_picks(&h.shelves);
     for (i, s) in h.shelves.iter().enumerate() {
         let id = format!("home-{i}-{}", s.title);
         match &s.kind {
@@ -541,7 +542,7 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
             }
             ShelfKind::Songs { tracks, rows: n } => {
                 let reached_end = song_grid(ui, &rows, &app.liked, &mut app.actions, &id, &s.title, s.strapline.as_deref(), tracks, *n);
-                if s.title == "Quick picks" && reached_end && !h.picks_loading && !h.picks_expanded {
+                if picks == Some(i) && reached_end && !h.picks_loading && !h.picks_expanded {
                     more_picks = tracks.last().map(|t| t.id.clone());
                 }
             }

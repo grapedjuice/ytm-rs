@@ -365,6 +365,8 @@ impl AudioHandle {
     /// Whether pausing fades out and playing again fades back in; off, both are instant.
     pub fn set_pause_fade(&self, on: bool) {
         self.status.instant_pause.store(!on, Ordering::Relaxed);
+        // Wakes the audio thread: a pause fading out now pauses at once.
+        self.send(AudioCmd::Volume(self.volume()));
     }
 
     pub fn set_volume(&self, v: f32) {
@@ -1131,8 +1133,8 @@ fn run(
             output.lost.store(true, Ordering::Relaxed);
             let _ = tx.send(AudioCmd::DeviceLost);
         }
-        // A pause has faded out.
-        if pause_at.is_some_and(|at| at <= Instant::now()) {
+        // A pause has faded out, or the fade was turned off on the way.
+        if pause_at.is_some_and(|at| at <= Instant::now() || status.instant_pause.load(Ordering::Relaxed)) {
             pause_at = None;
             status.silence();
             player.pause();

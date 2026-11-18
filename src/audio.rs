@@ -495,9 +495,9 @@ impl Normalize {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Off => "Off",
-            Self::Normal => "Normal",
-            Self::Quiet => "Quiet",
+            Self::Off => crate::tr!("ui-off"),
+            Self::Normal => crate::tr!("ui-normal"),
+            Self::Quiet => crate::tr!("ui-quiet"),
         }
     }
 

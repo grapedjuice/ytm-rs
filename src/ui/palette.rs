@@ -69,11 +69,11 @@ enum Group {
 impl Group {
     fn label(self) -> &'static str {
         match self {
-            Self::Pages => "Pages",
-            Self::Settings => "Settings",
-            Self::Playlists => "Playlists",
-            Self::Actions => "Actions",
-            Self::Search => "Search",
+            Self::Pages => crate::tr!("palette-pages"),
+            Self::Settings => crate::tr!("settings-title"),
+            Self::Playlists => crate::tr!("nav-playlists"),
+            Self::Actions => crate::tr!("palette-actions"),
+            Self::Search => crate::tr!("settings-search"),
         }
     }
 }
@@ -112,9 +112,9 @@ fn sections() -> [(&'static str, SettingsTab); 22] {
         (tr!("settings-window"), General),
         (tr!("settings-downloads"), General),
         (tr!("settings-network"), General),
-        ("Import", General),
+        (crate::tr!("transfer-import"), General),
         (tr!("settings-keyboard-shortcuts"), Shortcuts),
-        ("System-wide shortcuts", Shortcuts),
+        (crate::tr!("extra-system-shortcuts"), Shortcuts),
         (tr!("settings-updates"), About),
         (tr!("settings-about"), About),
     ]
@@ -155,7 +155,7 @@ pub(super) fn shortcut(app: &mut App, ctx: &egui::Context) {
 fn entries(app: &App) -> Vec<Entry> {
     let mut out = Vec::new();
     let mut add = |group, cmd, label: &str, detail, glyph| out.push(Entry { cmd, group, label: label.to_owned(), detail, glyph, cover: Vec::new() });
-    for (_, label, page) in START_PAGES {
+    for (_, page) in START_PAGES {
         // Not the account's Library signed out, nor Podcasts hidden.
         if start_page(&page, app.logged_in, app.show_podcasts) == page {
             let glyph = match page {
@@ -164,15 +164,16 @@ fn entries(app: &App) -> Vec<Entry> {
                 Page::Library(LibTab::Downloads) => icon::DOWNLOAD,
                 _ => icon::LIBRARY,
             };
-            add(Group::Pages, Command::Go(page), label, "", glyph);
+            let label = super::start_page_label(&page);
+            add(Group::Pages, Command::Go(page), &label, "", glyph);
         }
     }
-    add(Group::Pages, Command::Go(Page::Jam), "Listen together", "", icon::USERS);
-    add(Group::Pages, Command::Go(Page::Transfer), "Transfer from Spotify", "", icon::UPLOAD);
-    add(Group::Pages, Command::Go(Page::Settings), "Settings", "", icon::SETTINGS);
+    add(Group::Pages, Command::Go(Page::Jam), crate::tr!("nav-listen-together"), "", icon::USERS);
+    add(Group::Pages, Command::Go(Page::Transfer), crate::tr!("transfer-title"), "", icon::UPLOAD);
+    add(Group::Pages, Command::Go(Page::Settings), crate::tr!("settings-title"), "", icon::SETTINGS);
     let song = app.current().is_some();
     if song {
-        add(Group::Pages, Command::NowPlaying, "Now playing", "", icon::MUSIC);
+        add(Group::Pages, Command::NowPlaying, crate::tr!("ui-now-playing"), "", icon::MUSIC);
     }
     for (name, tab) in sections() {
         add(Group::Settings, Command::Setting(tab, name), name, if name == tab.label() { "" } else { tab.label() }, icon::SETTINGS);
@@ -186,32 +187,32 @@ fn entries(app: &App) -> Vec<Entry> {
     let act = |a| Command::Act(a);
     if song {
         let playing = app.playing();
-        add(Group::Actions, act(Act::TogglePlay), if playing { "Pause" } else { "Play" }, "Space", if playing { icon::PAUSE } else { icon::PLAY });
-        add(Group::Actions, act(Act::Next), "Next song", "Ctrl + →", icon::SKIP_FORWARD);
-        add(Group::Actions, act(Act::Prev), "Previous song", "Ctrl + ←", icon::SKIP_BACK);
-        add(Group::Actions, act(Act::Shuffle), if app.queue.shuffled() { "Shuffle off" } else { "Shuffle on" }, "", icon::SHUFFLE);
-        add(Group::Actions, act(Act::Like), if app.heard_liked() { "Remove like" } else { "Like this song" }, "", icon::HEART);
-        add(Group::Actions, act(Act::Lyrics), "Lyrics and now playing", "L", icon::MIC_VOCAL);
-        let (label, glyph) = if app.fullscreen { ("Leave full screen", icon::SHRINK) } else { ("Full screen", icon::EXPAND) };
+        add(Group::Actions, act(Act::TogglePlay), if playing { crate::tr!("ui-pause") } else { crate::tr!("ui-play") }, crate::tr!("settings-space"), if playing { icon::PAUSE } else { icon::PLAY });
+        add(Group::Actions, act(Act::Next), crate::tr!("player-next-song"), "Ctrl + →", icon::SKIP_FORWARD);
+        add(Group::Actions, act(Act::Prev), crate::tr!("player-previous-song"), "Ctrl + ←", icon::SKIP_BACK);
+        add(Group::Actions, act(Act::Shuffle), if app.queue.shuffled() { crate::tr!("player-shuffle-off") } else { crate::tr!("player-shuffle-on") }, "", icon::SHUFFLE);
+        add(Group::Actions, act(Act::Like), if app.heard_liked() { crate::tr!("ui-unlike") } else { crate::tr!("ui-like-song") }, "", icon::HEART);
+        add(Group::Actions, act(Act::Lyrics), crate::tr!("settings-lyrics-and-now-playing"), "L", icon::MIC_VOCAL);
+        let (label, glyph) = if app.fullscreen { (crate::tr!("player-exit-full-screen"), icon::SHRINK) } else { (crate::tr!("player-full-screen"), icon::EXPAND) };
         add(Group::Actions, act(Act::FullScreen), label, "F", glyph);
     }
     // What it turns repeat to.
     let (label, glyph) = match app.queue.repeat.next() {
-        Repeat::Off => ("Repeat off", icon::REPEAT),
-        Repeat::All => ("Repeat all", icon::REPEAT),
-        Repeat::One => ("Repeat this song", icon::REPEAT_1),
+        Repeat::Off => (crate::tr!("player-repeat-off"), icon::REPEAT),
+        Repeat::All => (crate::tr!("player-repeat-all"), icon::REPEAT),
+        Repeat::One => (crate::tr!("player-repeat-one"), icon::REPEAT_1),
     };
     add(Group::Actions, act(Act::Repeat), label, "", glyph);
-    add(Group::Actions, act(Act::Queue), if app.queue_shown() { "Hide queue" } else { "Show queue" }, "", icon::LIST_MUSIC);
-    add(Group::Actions, act(Act::Mini), "Mini player", "Ctrl + M", icon::PICTURE_IN_PICTURE);
+    add(Group::Actions, act(Act::Queue), if app.queue_shown() { crate::tr!("player-hide-queue") } else { crate::tr!("player-show-queue") }, "", icon::LIST_MUSIC);
+    add(Group::Actions, act(Act::Mini), crate::tr!("settings-mini-player"), "Ctrl + M", icon::PICTURE_IN_PICTURE);
     let jam = match (app.jam.active(), app.jam.is_host()) {
-        (false, _) => "Start a jam",
-        (true, true) => "End the jam",
-        (true, false) => "Leave the jam",
+        (false, _) => crate::tr!("jam-start"),
+        (true, true) => crate::tr!("jam-end"),
+        (true, false) => crate::tr!("jam-leave"),
     };
     add(Group::Actions, act(Act::Jam), jam, "", icon::USERS);
     if app.logged_in {
-        add(Group::Actions, act(Act::NewPlaylist), "New playlist", "", icon::LIST_PLUS);
+        add(Group::Actions, act(Act::NewPlaylist), crate::tr!("ui-new-playlist"), "", icon::LIST_PLUS);
     }
     // The playlists' covers, as in the sidebar.
     for (e, c) in out.iter_mut().filter(|e| e.group == Group::Playlists).zip(lists) {
@@ -278,7 +279,7 @@ fn results(entries: Vec<Entry>, query: &str, recent: &[Command]) -> Vec<Entry> {
     let mut list = rank(entries, query, recent);
     let query = query.trim();
     if !query.is_empty() {
-        let label = format!("Search for \u{201c}{query}\u{201d}");
+        let label = tr!("palette-search-for", query = query);
         list.push(Entry { cmd: Command::Search(query.to_owned()), group: Group::Search, label, detail: "", glyph: icon::SEARCH, cover: Vec::new() });
     }
     list
@@ -305,7 +306,7 @@ pub(super) fn show(app: &mut App, ctx: &egui::Context) {
         let edit = ui.put(
             inner,
             egui::TextEdit::singleline(&mut p.query)
-                .hint_text(RichText::new("Search pages, settings, playlists and actions").color(theme::text_faint()))
+                .hint_text(RichText::new(crate::tr!("palette-search")).color(theme::text_faint()))
                 .font(theme::regular(16.0))
                 .frame(egui::Frame::NONE)
                 .align(Align2::LEFT_CENTER)
@@ -380,7 +381,7 @@ pub(super) fn show(app: &mut App, ctx: &egui::Context) {
     // Screen readers hear the row picked with the arrows, while the text box keeps the focus.
     let (edit, chosen, run) = modal.inner;
     ctx.accesskit_node_builder(edit, |node| {
-        node.set_label("Command palette");
+        node.set_label(crate::tr!("palette-title"));
         if let Some(row) = chosen {
             node.set_active_descendant(row.accesskit_id());
         }
@@ -509,7 +510,9 @@ mod tests {
     #[test]
     fn sections_are_in_settings() {
         // A renamed section would else turn into a plain search for its old name.
-        let code = [include_str!("pages.rs"), include_str!("hotkeys.rs"), include_str!("transfer.rs")].concat();
+        let code = [include_str!("pages.rs"), include_str!("hotkeys.rs"), include_str!("transfer.rs")]
+            .concat()
+            .replace("crate::", "");
         // A section's title, written out or by its message's id.
         let titled = |name: &str| {
             code.contains(&format!("(ui, \"{name}\""))

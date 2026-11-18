@@ -98,6 +98,26 @@ pub enum LibTab {
     Downloads,
 }
 
+impl LibTab {
+    pub(super) const ALL: [Self; 8] = [
+        Self::Playlists, Self::Songs, Self::Albums, Self::Artists,
+        Self::Podcasts, Self::History, Self::Uploads, Self::Downloads,
+    ];
+
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::Playlists => crate::tr!("nav-playlists"),
+            Self::Songs => crate::tr!("nav-liked-songs"),
+            Self::Albums => crate::tr!("nav-albums"),
+            Self::Artists => crate::tr!("nav-artists"),
+            Self::Podcasts => crate::tr!("nav-podcasts"),
+            Self::History => crate::tr!("nav-history"),
+            Self::Uploads => crate::tr!("nav-uploads"),
+            Self::Downloads => crate::tr!("settings-downloads"),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum NpTab {
     Lyrics,
@@ -111,18 +131,26 @@ pub use mini::{init_pill, set_hwnd as set_mini_hwnd};
 
 /// Settings › General › Window › Open on: the pages the app can start on, as saved and
 /// as listed.
-pub(super) const START_PAGES: [(&str, &str, Page); 10] = [
-    ("home", "Home", Page::Home),
-    ("explore", "Explore", Page::Explore),
-    ("library", "Library › Playlists", Page::Library(LibTab::Playlists)),
-    ("liked", "Library › Liked songs", Page::Library(LibTab::Songs)),
-    ("albums", "Library › Albums", Page::Library(LibTab::Albums)),
-    ("artists", "Library › Artists", Page::Library(LibTab::Artists)),
-    ("podcasts", "Library › Podcasts", Page::Library(LibTab::Podcasts)),
-    ("history", "Library › History", Page::Library(LibTab::History)),
-    ("uploads", "Library › Uploads", Page::Library(LibTab::Uploads)),
-    ("downloads", "Library › Downloads", Page::Library(LibTab::Downloads)),
+pub(super) const START_PAGES: [(&str, Page); 10] = [
+    ("home", Page::Home),
+    ("explore", Page::Explore),
+    ("library", Page::Library(LibTab::Playlists)),
+    ("liked", Page::Library(LibTab::Songs)),
+    ("albums", Page::Library(LibTab::Albums)),
+    ("artists", Page::Library(LibTab::Artists)),
+    ("podcasts", Page::Library(LibTab::Podcasts)),
+    ("history", Page::Library(LibTab::History)),
+    ("uploads", Page::Library(LibTab::Uploads)),
+    ("downloads", Page::Library(LibTab::Downloads)),
 ];
+
+fn start_page_label(page: &Page) -> String {
+    match page {
+        Page::Explore => crate::tr!("nav-explore").to_owned(),
+        Page::Library(tab) => crate::tr!("nav-library-section", tab = tab.label()),
+        _ => crate::tr!("settings-home").to_owned(),
+    }
+}
 
 /// The page picked to open on, from the saved `start_page` key (Home for anything unknown).
 fn start_choice(saved: &str) -> Page {
@@ -174,10 +202,10 @@ impl AccentSource {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Theme => "Theme",
-            Self::System => "System",
-            Self::File => "From file",
-            Self::Custom(_) => "Custom",
+            Self::Theme => crate::tr!("ui-theme"),
+            Self::System => crate::tr!("ui-system"),
+            Self::File => crate::tr!("ui-from-file"),
+            Self::Custom(_) => crate::tr!("settings-custom"),
         }
     }
 }
@@ -758,11 +786,9 @@ impl App {
         media: Option<Media>,
         bg: Option<Background>,
         storage: Option<&dyn eframe::Storage>,
+        language: Option<String>,
     ) -> Self {
         let get = |k: &str| storage.and_then(|s| s.get_string(k));
-        let language = get("language").filter(|l| !l.is_empty());
-        // Before anything is drawn: the language is this run's.
-        crate::i18n::init(language.as_deref());
         // Dev hook: YTM_FONT=<font name> tries a font without saving it.
         theme::set_font_choice(&dev_var("YTM_FONT").map(str::to_owned).or_else(|| get("font")).unwrap_or_default());
         let discord_enabled = get("discord_enabled").is_none_or(|v| v == "1");
@@ -2324,7 +2350,7 @@ mod start_page_tests {
 
     #[test]
     fn opens_on_the_picked_page_or_home_when_it_cant_show() {
-        for (key, _, page) in START_PAGES {
+        for (key, page) in START_PAGES {
             assert_eq!(start_choice(key), page, "{key}");
         }
         assert_eq!(start_choice(""), Page::Home);

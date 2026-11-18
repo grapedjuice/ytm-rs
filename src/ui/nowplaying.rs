@@ -291,7 +291,7 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     if gap > 0.0 {
         hui.add_space(gap);
     }
-    if icon_button(&mut hui, icon::CHEVRON_DOWN, 22.0, "Close now playing", false).clicked() {
+    if icon_button(&mut hui, icon::CHEVRON_DOWN, 22.0, crate::tr!("ui-close-now-playing"), false).clicked() {
         app.np_open = false;
         if app.fullscreen {
             app.set_fullscreen(ui.ctx(), false);
@@ -327,7 +327,7 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         eui.set_clip_rect(slot.intersect(ui.clip_rect()));
         eui.multiply_opacity(t);
         let ui = &mut eui;
-        let (g, name) = if app.fullscreen { (icon::SHRINK, "Exit full screen") } else { (icon::EXPAND, "Full screen") };
+        let (g, name) = if app.fullscreen { (icon::SHRINK, crate::tr!("player-exit-full-screen")) } else { (icon::EXPAND, crate::tr!("player-full-screen")) };
         let fs_btn = icon_button(ui, g, 18.0, name, false);
         if fs_btn.clicked() {
             let fs = !app.fullscreen;
@@ -342,11 +342,11 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
         if !app.show_comments && app.np_tab == NpTab::Comments {
             app.np_tab = NpTab::Art;
         }
-        let com = app.show_comments.then(|| widgets::default_chip(ui, "Comments", app.np_tab == NpTab::Comments));
+        let com = app.show_comments.then(|| widgets::default_chip(ui, crate::tr!("player-comments"), app.np_tab == NpTab::Comments));
         if com.as_ref().is_some_and(|c| c.clicked()) {
             app.np_tab = if app.np_tab == NpTab::Comments { NpTab::Art } else { NpTab::Comments };
         }
-        let up = widgets::default_chip(ui, "Up next", app.np_tab == NpTab::UpNext);
+        let up = widgets::default_chip(ui, crate::tr!("ui-up-next"), app.np_tab == NpTab::UpNext);
         if up.clicked() {
             app.np_tab = if app.np_tab == NpTab::UpNext { NpTab::Art } else { NpTab::UpNext };
         }
@@ -357,7 +357,7 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
                 ui.disable();
                 ui.multiply_opacity(0.45);
             }
-            widgets::default_chip(ui, "Lyrics", app.np_tab == NpTab::Lyrics && !no_lyrics).on_disabled_hover_text(if video_mode { "Lyrics are timed to the song: switch to Song" } else { "No lyrics for this song" })
+            widgets::default_chip(ui, crate::tr!("settings-lyrics"), app.np_tab == NpTab::Lyrics && !no_lyrics).on_disabled_hover_text(if video_mode { crate::tr!("player-video-lyrics") } else { crate::tr!("player-no-lyrics") })
         });
         if lyr.inner.clicked() {
             app.np_tab = if app.np_tab == NpTab::Lyrics { NpTab::Art } else { NpTab::Lyrics };
@@ -584,7 +584,7 @@ fn fullscreen_progress(app: &mut App, ui: &mut Ui, screen: Rect, px: f32) {
     let pos = status.position_smooth().as_secs_f32().min(total.max(0.0));
     let r = Rect::from_min_max(pos2(screen.left(), screen.bottom() - px), screen.max);
     let resp = ui.interact(r, ui.scope_id().with("full-seek"), Sense::click());
-    let resp = named(resp, "Seek").on_hover_cursor(egui::CursorIcon::PointingHand);
+    let resp = named(resp, crate::tr!("ui-seek")).on_hover_cursor(egui::CursorIcon::PointingHand);
     let bar_r = app.look().now_playing.fullscreen_progress_radius;
     ui.painter().rect_filled(r, bar_r, theme::with_alpha(Color32::WHITE, 0.12));
     if total > 0.0 {
@@ -639,7 +639,7 @@ fn corner_block(app: &mut App, ui: &mut Ui, r: Rect, track: &crate::model::Track
         widgets::soft_shadow(ui, art, radius.min(255.0), look.cover.shadow_blur, look.cover.shadow.min(1.0));
     }
     widgets::paint_cover_px(ui, art, &track.thumbs, radius, 1.0, (side * ui.ctx().pixels_per_point()) as u32);
-    let cover = named(ui.interact(art, ui.scope_id().with(("corner-cover", &track.id)), Sense::click()), if app.playing() { "Pause" } else { "Play" }).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let cover = named(ui.interact(art, ui.scope_id().with(("corner-cover", &track.id)), Sense::click()), if app.playing() { crate::tr!("ui-pause") } else { crate::tr!("ui-play") }).on_hover_cursor(egui::CursorIcon::PointingHand);
     if cover.clicked() {
         app.actions.push(Action::TogglePlay);
     }
@@ -809,19 +809,19 @@ fn cover_player(app: &mut App, ui: &mut Ui, track: &crate::model::Track, art: Re
     }
 
     let at = |k: f32| pos2(c.x + gap * k, row_y);
-    if cover_glyph(ui, at(-2.0), icon::SHUFFLE, 20.0 * s, "shuffle", "Shuffle", app.queue.shuffled()).clicked() {
+    if cover_glyph(ui, at(-2.0), icon::SHUFFLE, 20.0 * s, "shuffle", crate::tr!("ui-shuffle"), app.queue.shuffled()).clicked() {
         app.toggle_shuffle();
     }
-    if cover_glyph(ui, at(-1.0), icon::SKIP_BACK, 26.0 * s, "prev", "Previous", true).clicked() {
+    if cover_glyph(ui, at(-1.0), icon::SKIP_BACK, 26.0 * s, "prev", crate::tr!("ui-previous"), true).clicked() {
         app.prev();
     }
-    if cover_glyph(ui, at(0.0), if playing { icon::PAUSE } else { icon::PLAY }, 36.0 * s, "play", if playing { "Pause" } else { "Play" }, true).clicked() {
+    if cover_glyph(ui, at(0.0), if playing { icon::PAUSE } else { icon::PLAY }, 36.0 * s, "play", if playing { crate::tr!("ui-pause") } else { crate::tr!("ui-play") }, true).clicked() {
         app.actions.push(Action::TogglePlay);
     }
-    if cover_glyph(ui, at(1.0), icon::SKIP_FORWARD, 26.0 * s, "next", "Next", true).clicked() {
+    if cover_glyph(ui, at(1.0), icon::SKIP_FORWARD, 26.0 * s, "next", crate::tr!("ui-next"), true).clicked() {
         app.next();
     }
-    if cover_glyph(ui, at(2.0), rep_glyph, 20.0 * s, "repeat", "Repeat", rep_on).clicked() {
+    if cover_glyph(ui, at(2.0), rep_glyph, 20.0 * s, "repeat", crate::tr!("ui-repeat"), rep_on).clicked() {
         app.queue.repeat = app.queue.repeat.next();
     }
     if rep_on {
@@ -832,7 +832,7 @@ fn cover_player(app: &mut App, ui: &mut Ui, track: &crate::model::Track, art: Re
     // put, filled from the bottom.
     let vol = app.audio.volume();
     let vresp = ui.interact(bar, vol_id, Sense::click_and_drag()).on_hover_cursor(egui::CursorIcon::PointingHand);
-    vresp.widget_info(|| egui::WidgetInfo::slider(true, vol as f64, "Volume"));
+    vresp.widget_info(|| egui::WidgetInfo::slider(true, vol as f64, crate::tr!("ui-volume")));
     let lit = theme::anim_bool(&ctx, vol_id.with("h"), vresp.hovered() || vresp.dragged(), 0.15);
     let w = (6.0 + 5.0 * lit) * s;
     let outer = vol_x + 3.0 * s;
@@ -852,7 +852,7 @@ fn cover_player(app: &mut App, ui: &mut Ui, track: &crate::model::Track, art: Re
         app.audio.set_volume(((track_r.bottom() - p.y) / track_r.height()).clamp(0.0, 1.0));
     }
     let vglyph = if vol == 0.0 { icon::VOLUME_X } else if vol < 0.5 { icon::VOLUME_1 } else { icon::VOLUME_2 };
-    let mute = cover_glyph(ui, mute_at, vglyph, 17.0 * s, "mute", if vol > 0.0 { "Mute" } else { "Unmute" }, true);
+    let mute = cover_glyph(ui, mute_at, vglyph, 17.0 * s, "mute", if vol > 0.0 { crate::tr!("ui-mute") } else { crate::tr!("ui-unmute") }, true);
     if mute.clicked() {
         super::mini::toggle_mute(app, ui);
     }
@@ -1007,7 +1007,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     // Below the header, whose buttons a tall cover would otherwise sit on top of; a disc only
     // answers on the disc, not in the corners of its square.
     let hit = art.with_min_y(art.top().max(col.top()));
-    let cover = named(ui.interact(hit, ui.scope_id().with(("cover-playback", &track.id)), Sense::click()), if app.playing() { "Pause" } else { "Play" });
+    let cover = named(ui.interact(hit, ui.scope_id().with(("cover-playback", &track.id)), Sense::click()), if app.playing() { crate::tr!("ui-pause") } else { crate::tr!("ui-play") });
     let on_art = !round || ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| p.distance(art.center()) <= art.width() / 2.0);
     let cover = if on_art { cover.on_hover_cursor(egui::CursorIcon::PointingHand) } else { cover };
     // Full screen has no player bar: the cover is the player there, its own buttons and dimming.
@@ -1044,7 +1044,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         ui.painter().text(cap.left_center() + vec2(14.0, 0.0), egui::Align2::LEFT_CENTER, super::fmt_time(pos as u32), font.clone(), Color32::WHITE);
         ui.painter().text(cap.right_center() - vec2(14.0, 0.0), egui::Align2::RIGHT_CENTER, super::fmt_time(total as u32), font, Color32::WHITE);
         let line = Rect::from_center_size(cap.center(), vec2((cap.width() - 110.0).max(40.0), 4.0));
-        let seek = named(ui.interact(line.expand2(vec2(0.0, 10.0)), ui.scope_id().with("cover-seek"), Sense::click()), "Seek").on_hover_cursor(egui::CursorIcon::PointingHand);
+        let seek = named(ui.interact(line.expand2(vec2(0.0, 10.0)), ui.scope_id().with("cover-seek"), Sense::click()), crate::tr!("ui-seek")).on_hover_cursor(egui::CursorIcon::PointingHand);
         ui.painter().rect_filled(line, 2.0, theme::with_alpha(Color32::WHITE, 0.25));
         if total > 0.0 {
             ui.painter().rect_filled(Rect::from_min_size(line.min, vec2(line.width() * pos / total, 4.0)), 2.0, Color32::WHITE);
@@ -1059,7 +1059,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     if !player && (np.cover_controls || fs_buttons.is_some()) && near_cover {
         let [btn_px, btn_a, btn_grow] = fs_buttons.unwrap_or(np.cover_buttons);
         let btn_px = btn_px.max(36.0);
-        for (dx, glyph, name, next) in [(-74.0, icon::SKIP_BACK, "Previous", false), (74.0, icon::SKIP_FORWARD, "Next", true)] {
+        for (dx, glyph, name, next) in [(-74.0, icon::SKIP_BACK, crate::tr!("ui-previous"), false), (74.0, icon::SKIP_FORWARD, crate::tr!("ui-next"), true)] {
             let r = Rect::from_center_size(art.center() + vec2(dx, 0.0), Vec2::splat(btn_px));
             let resp = named(ui.interact(r, ui.scope_id().with(("cover-ctl", name)), Sense::click()), name).on_hover_text(name).on_hover_cursor(egui::CursorIcon::PointingHand);
             ui.painter().circle_filled(r.center(), btn_px / 2.0 * if resp.hovered() { btn_grow } else { 1.0 }, theme::shade(if resp.hovered() { (btn_a + 0.22).min(1.0) } else { btn_a }));
@@ -1141,7 +1141,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         if a > 0.0 {
             let c = theme::with_alpha(theme::text_dim(), a * 0.8);
             let y = title_y + title_px * 1.4 + artist_px * 1.6;
-            let message = if np.no_lyrics_text.is_empty() { "No lyrics for this song" } else { &np.no_lyrics_text };
+            let message = if np.no_lyrics_text.is_empty() { crate::tr!("player-no-lyrics") } else { &np.no_lyrics_text };
             let y = if nl.icon {
                 widgets::icon_at(ui, pos2(art.center().x, y + nl.rem * 14.0), icon::MUSIC, nl.rem * 24.0, c);
                 y + nl.rem * 28.0
@@ -1203,9 +1203,9 @@ fn song_video_switch(app: &mut App, ui: &mut Ui, header: Rect) {
             widgets::focus_ring(ui, &resp, r, look.radius.unwrap_or(17.0));
             resp.clicked()
         };
-        (word(ui, "Song", -36.0, !picked), word(ui, "Video", 34.0, picked))
+        (word(ui, crate::tr!("ui-song"), -36.0, !picked), word(ui, crate::tr!("ui-video"), 34.0, picked))
     } else {
-        (widgets::chip(&mut row, "Song", !picked).clicked(), widgets::chip(&mut row, "Video", picked).clicked())
+        (widgets::chip(&mut row, crate::tr!("ui-song"), !picked).clicked(), widgets::chip(&mut row, crate::tr!("ui-video"), picked).clicked())
     };
     if (song && picked) || (video && !picked) {
         let on_song = app.current().is_some_and(|t| !t.has_video());
@@ -1241,7 +1241,7 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
         }
         None => video_placeholder(ui, picture, track, radius.nw as f32),
     }
-    let cover = named(ui.interact(picture, ui.scope_id().with(("video-playback", &track.id)), Sense::click()), if app.playing() { "Pause" } else { "Play" }).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let cover = named(ui.interact(picture, ui.scope_id().with(("video-playback", &track.id)), Sense::click()), if app.playing() { crate::tr!("ui-pause") } else { crate::tr!("ui-play") }).on_hover_cursor(egui::CursorIcon::PointingHand);
     let hover = theme::anim_bool(ui.ctx(), ("video-playback-hover", &track.id), cover.hovered(), 0.16);
     if hover > 0.0 {
         ui.painter().circle_filled(picture.center(), 38.0, theme::shade(0.58 * hover));
@@ -1259,11 +1259,11 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
     if ui.rect_contains_pointer(picture) || hover > 0.0 {
         let over = if ui.rect_contains_pointer(picture) { 1.0 } else { hover };
         let pip = pos2(picture.right() - 30.0, picture.top() + 30.0);
-        if corner_button(ui, pip, icon::PICTURE_IN_PICTURE, "Picture in picture (Ctrl+M)", over).clicked() {
+        if corner_button(ui, pip, icon::PICTURE_IN_PICTURE, &crate::tr!("player-with-shortcut", action = crate::tr!("player-pip"), key = "Ctrl+M"), over).clicked() {
             app.actions.push(Action::Mini(true));
         }
         let full = pos2(picture.right() - 30.0, picture.bottom() - 30.0);
-        if corner_button(ui, full, icon::EXPAND, "Full screen (F)", over).clicked() {
+        if corner_button(ui, full, icon::EXPAND, &crate::tr!("player-with-shortcut", action = crate::tr!("player-full-screen"), key = "F"), over).clicked() {
             app.set_video_fullscreen(ui.ctx(), true);
         }
     }
@@ -1330,7 +1330,7 @@ fn seek_line(app: &mut App, ui: &mut Ui, hit: Rect, id: egui::Id, (pos, total): 
     let line_y = hit.center().y;
     let seek = ui.interact(hit, id, Sense::click_and_drag());
     let seek = if total > 0.0 { seek.on_hover_cursor(egui::CursorIcon::PointingHand) } else { seek };
-    seek.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
+    seek.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, crate::tr!("ui-seek")));
     let lit = theme::anim_bool(ui.ctx(), id.with("h"), seek.hovered() || seek.dragged(), 0.15);
     let thick = 3.0 + 2.0 * lit;
     let track_r = Rect::from_center_size(pos2(hit.center().x, line_y), vec2(hit.width(), thick));
@@ -1387,7 +1387,7 @@ fn video_fullscreen(app: &mut App, ui: &mut Ui, rect: Rect, track: &crate::model
         }
         None => video_placeholder(ui, picture, track, 0.0),
     }
-    let stage = named(ui.interact(rect, ui.scope_id().with("video-full-stage"), Sense::click()), if app.playing() { "Pause" } else { "Play" });
+    let stage = named(ui.interact(rect, ui.scope_id().with("video-full-stage"), Sense::click()), if app.playing() { crate::tr!("ui-pause") } else { crate::tr!("ui-play") });
     if stage.double_clicked() {
         // The first of the two clicks paused it, or played it: back as it was.
         app.actions.push(Action::TogglePlay);
@@ -1443,19 +1443,19 @@ fn video_fullscreen(app: &mut App, ui: &mut Ui, rect: Rect, track: &crate::model
     let row = Rect::from_min_max(pos2(rect.left() + 12.0, line_y + 10.0), pos2(rect.right() - 12.0, rect.bottom() - 6.0));
     let mut left = ui.new_child(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::left_to_right(egui::Align::Center)));
     left.spacing_mut().item_spacing.x = 2.0;
-    if icon_button(&mut left, icon::SKIP_BACK, 20.0, "Previous", false).clicked() {
+    if icon_button(&mut left, icon::SKIP_BACK, 20.0, crate::tr!("ui-previous"), false).clicked() {
         app.prev();
     }
     let playing = app.playing() || app.buffering;
-    if icon_button(&mut left, if playing { icon::PAUSE } else { icon::PLAY }, 24.0, if playing { "Pause" } else { "Play" }, false).clicked() {
+    if icon_button(&mut left, if playing { icon::PAUSE } else { icon::PLAY }, 24.0, if playing { crate::tr!("ui-pause") } else { crate::tr!("ui-play") }, false).clicked() {
         app.actions.push(Action::TogglePlay);
     }
-    if icon_button(&mut left, icon::SKIP_FORWARD, 20.0, "Next", false).clicked() {
+    if icon_button(&mut left, icon::SKIP_FORWARD, 20.0, crate::tr!("ui-next"), false).clicked() {
         app.next();
     }
     let vol = app.audio.volume();
     let vglyph = if vol == 0.0 { icon::VOLUME_X } else if vol < 0.5 { icon::VOLUME_1 } else { icon::VOLUME_2 };
-    if icon_button(&mut left, vglyph, 19.0, if vol > 0.0 { "Mute" } else { "Unmute" }, false).clicked() {
+    if icon_button(&mut left, vglyph, 19.0, if vol > 0.0 { crate::tr!("ui-mute") } else { crate::tr!("ui-unmute") }, false).clicked() {
         super::mini::toggle_mute(app, &left);
     }
     let (slider, _) = left.allocate_exact_size(vec2(90.0, 20.0), Sense::hover());
@@ -1467,14 +1467,15 @@ fn video_fullscreen(app: &mut App, ui: &mut Ui, rect: Rect, track: &crate::model
     }
     let mut right = ui.new_child(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::right_to_left(egui::Align::Center)));
     right.spacing_mut().item_spacing.x = 2.0;
-    if icon_button(&mut right, icon::SHRINK, 20.0, "Exit full screen (Esc)", false).clicked() {
+    if icon_button(&mut right, icon::SHRINK, 20.0, &crate::tr!("player-with-shortcut", action = crate::tr!("player-exit-full-screen"), key = crate::tr!("settings-esc")), false).clicked() {
         app.set_fullscreen(&ctx, false);
     }
-    if icon_button(&mut right, icon::PICTURE_IN_PICTURE, 19.0, "Picture in picture (Ctrl+M)", false).clicked() {
+    if icon_button(&mut right, icon::PICTURE_IN_PICTURE, 19.0, &crate::tr!("player-with-shortcut", action = crate::tr!("player-pip"), key = "Ctrl+M"), false).clicked() {
         app.actions.push(Action::Mini(true));
     }
-    let fill_tip = if app.video_fill { "Fit to screen (Z)" } else { "Fill the screen (Z)" };
-    if icon_button(&mut right, icon::MAXIMIZE_2, 18.0, fill_tip, app.video_fill).clicked() {
+    let fill_action = if app.video_fill { crate::tr!("player-fit-video") } else { crate::tr!("player-fill-video") };
+    let fill_tip = crate::tr!("player-with-shortcut", action = fill_action, key = "Z");
+    if icon_button(&mut right, icon::MAXIMIZE_2, 18.0, &fill_tip, app.video_fill).clicked() {
         set_video_fill(app, !app.video_fill);
     }
     right.add_space(6.0);
@@ -1495,7 +1496,7 @@ fn quality_button(app: &mut App, ui: &mut Ui, playing_at: Option<u32>) {
     let label = format!("{}p", playing_at.unwrap_or(app.video_quality));
     let g = widgets::galley(ui, &label, theme::semibold(13.0), Color32::WHITE, 80.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(g.size().x + 44.0, 32.0), Sense::click());
-    let resp = named(resp, "Video quality").on_hover_text("Video quality").on_hover_cursor(egui::CursorIcon::PointingHand);
+    let resp = named(resp, crate::tr!("settings-video-quality")).on_hover_text(crate::tr!("settings-video-quality")).on_hover_cursor(egui::CursorIcon::PointingHand);
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered() || open, 0.12);
     ui.painter().rect_filled(rect, 16.0, theme::glass(0.10 + 0.08 * h));
@@ -1510,7 +1511,7 @@ fn quality_button(app: &mut App, ui: &mut Ui, playing_at: Option<u32>) {
 
 /// The video qualities to pick from, in a menu. Settings › Music videos has the same.
 fn quality_rows(app: &mut App, ui: &mut Ui) {
-    menu_caption(ui, "VIDEO QUALITY");
+    menu_caption(ui, crate::tr!("settings-video-quality"));
     for q in super::VIDEO_QUALITIES {
         if super::pages::option_row(ui, &format!("{q}p"), q == app.video_quality).clicked() {
             set_video_quality(app, q);
@@ -1757,7 +1758,7 @@ fn lyrics_panel(app: &mut App, ui: &mut Ui, rect: Rect, now: f64, centered: bool
         ui.add_space(rect.height() * 0.35);
         ui.vertical_centered(|ui| {
             widgets::loader(ui);
-            ui.label(egui::RichText::new("Loading lyrics…").color(theme::text_dim()));
+            ui.label(egui::RichText::new(crate::tr!("player-loading-lyrics")).color(theme::text_dim()));
         });
         return;
     };
@@ -1772,7 +1773,7 @@ fn lyrics_panel(app: &mut App, ui: &mut Ui, rect: Rect, now: f64, centered: bool
     } else {
         ui.add_space(rect.height() * 0.4);
         ui.vertical_centered(|ui| {
-            ui.label(egui::RichText::new("No lyrics found for this song").font(theme::semibold(20.0)).color(theme::text_dim()));
+            ui.label(egui::RichText::new(crate::tr!("player-no-lyrics")).font(theme::semibold(20.0)).color(theme::text_dim()));
         });
     }
     app.lyrics = Some((id, set));
@@ -1877,7 +1878,7 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
     let shown = theme::anim_bool(ui.ctx(), "lyr-resume", out.user_scrolling, 0.2);
     if shown > 0.0 {
         let font = theme::lyric_font(&style.font, crate::preset::Weight::Semibold, style.resume_text_px.unwrap_or(17.5));
-        let g = widgets::galley(ui, "Resume Autoscroll", font, Color32::WHITE, rect.width() - 40.0);
+        let g = widgets::galley(ui, crate::tr!("player-resume-autoscroll"), font, Color32::WHITE, rect.width() - 40.0);
         let size = g.size() + vec2(20.0, 10.0) + Vec2::splat(2.0);
         let em = 17.5;
         let y = rect.top() + 8.0 + egui::lerp(-3.0 * em..=0.5 * em, theme::ease_out(shown));
@@ -1890,7 +1891,7 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
             None => Rect::from_min_size(pos2(rect.center().x - size.x / 2.0, y), size).translate(Vec2::from(style.resume_offset)),
         };
         let resp = ui.interact(r, ui.scope_id().with("lyr-resume-btn"), if out.user_scrolling { Sense::click() } else { Sense::hover() });
-        let resp = named(resp, "Resume Autoscroll").on_hover_cursor(egui::CursorIcon::PointingHand);
+        let resp = named(resp, crate::tr!("player-resume-autoscroll")).on_hover_cursor(egui::CursorIcon::PointingHand);
         let hover = theme::anim_bool(ui.ctx(), "lyr-resume-h", resp.hovered() && out.user_scrolling, 0.25);
         let p = ui.painter().with_clip_rect(rect.expand2(vec2(0.0, 4.0)));
         if let Some([sy, blur, a]) = style.resume_shadow {
@@ -1923,7 +1924,7 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
 fn plain_lyrics(app: &mut App, ui: &mut Ui, rect: Rect, lyrics: &Lyrics) {
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
     egui::ScrollArea::vertical().id_salt("plain-lyrics").auto_shrink(false).show(&mut child, |ui| {
-        ui.label(egui::RichText::new("These lyrics aren't synced").font(theme::regular(13.0)).color(theme::text_faint()));
+        ui.label(egui::RichText::new(crate::tr!("player-lyrics-unsynced")).font(theme::regular(13.0)).color(theme::text_faint()));
         ui.add_space(14.0);
         let style = &app.look().lyrics;
         let size = style.plain_size().min(rect.width() / 14.0).max(18.0);
@@ -1958,10 +1959,10 @@ fn sync_color(k: SyncKind) -> Color32 {
 
 fn sync_label(k: SyncKind) -> &'static str {
     match k {
-        SyncKind::Syllable => "Syllable synced",
-        SyncKind::Word => "Word synced",
-        SyncKind::Line => "Line synced",
-        SyncKind::Unsynced => "Not synced",
+        SyncKind::Syllable => crate::tr!("player-sync-syllable"),
+        SyncKind::Word => crate::tr!("player-sync-word"),
+        SyncKind::Line => crate::tr!("player-sync-line"),
+        SyncKind::Unsynced => crate::tr!("player-sync-none"),
     }
 }
 
@@ -1970,7 +1971,7 @@ fn sync_label(k: SyncKind) -> &'static str {
 /// song's timing offset above them, so the header stays clean until you want them.
 fn options_menu(app: &mut App, ui: &mut Ui, track: &crate::model::Track, lyrics: bool) {
     let (rect, resp) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::click());
-    let resp = named(resp, "Options").on_hover_cursor(egui::CursorIcon::PointingHand);
+    let resp = named(resp, crate::tr!("ui-options")).on_hover_cursor(egui::CursorIcon::PointingHand);
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered() || open, 0.12);
     ui.painter().circle_filled(rect.center(), 17.0, theme::glass(0.09 + 0.07 * h));
@@ -2005,30 +2006,31 @@ fn lyric_options(app: &mut App, ui: &mut Ui) {
     let Some(shown) = app.lyric_prefs.choose(&id, set) else { return };
     let n = available.len();
     let mut pick = None;
-    menu_caption(ui, if n > 1 { "LYRICS SOURCE" } else { "LYRICS SOURCE · ONLY ONE FOUND" });
+    menu_caption(ui, if n > 1 { crate::tr!("player-lyrics-source") } else { crate::tr!("player-only-lyrics-source") });
     for p in &available {
         if source_row(ui, p.name(), p.sync(), *p == shown) {
             pick = Some(*p);
         }
     }
     menu_divider(ui);
-    let tip = format!("Translation · {}", lang_name(&app.lyric_prefs.target));
+    let name = crate::i18n::lyrics_name(&app.lyric_prefs.target);
+    let tip = crate::tr!("player-translation-language", language = name.as_ref());
     switch_row(ui, &tip, &mut app.show_trans);
-    switch_row(ui, "Romanization", &mut app.show_roman);
+    switch_row(ui, crate::tr!("settings-romanization"), &mut app.show_roman);
     // This song's timing for the shown source: ‹ +0.0s ›
     let off = app.lyric_prefs.song_offset(&id, shown);
     let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
-    ui.painter().text(pos2(row.left() + 12.0, row.center().y), egui::Align2::LEFT_CENTER, "Timing", theme::regular(14.0), theme::text());
+    ui.painter().text(pos2(row.left() + 12.0, row.center().y), egui::Align2::LEFT_CENTER, crate::tr!("player-timing"), theme::regular(14.0), theme::text());
     let mut sub = ui.new_child(egui::UiBuilder::new().max_rect(row.shrink2(vec2(8.0, 0.0))).layout(egui::Layout::right_to_left(egui::Align::Center)));
     sub.spacing_mut().item_spacing.x = 2.0;
-    if mini_icon(&mut sub, icon::CHEVRON_RIGHT, "Lyrics later (+0.1 s)", true).clicked() {
+    if mini_icon(&mut sub, icon::CHEVRON_RIGHT, crate::tr!("player-lyrics-later"), true).clicked() {
         app.lyric_prefs.set_song_offset(&id, shown, off + 0.1);
     }
     let label = format!("{off:+.1}s").replace("+0.0", "0.0");
-    if mini_text(&mut sub, &label, false, "This song's lyrics timing. Double-click to reset.").double_clicked() {
+    if mini_text(&mut sub, &label, false, crate::tr!("player-timing-reset")).double_clicked() {
         app.lyric_prefs.set_song_offset(&id, shown, 0.0);
     }
-    if mini_icon(&mut sub, icon::CHEVRON_LEFT, "Lyrics earlier (−0.1 s)", true).clicked() {
+    if mini_icon(&mut sub, icon::CHEVRON_LEFT, crate::tr!("player-lyrics-earlier"), true).clicked() {
         app.lyric_prefs.set_song_offset(&id, shown, off - 0.1);
     }
     if let Some(p) = pick.filter(|p| *p != shown) {
@@ -2040,13 +2042,13 @@ fn lyric_options(app: &mut App, ui: &mut Ui) {
 
 fn menu_caption(ui: &mut Ui, text: &str) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
-    ui.painter().text(pos2(r.left() + 12.0, r.center().y + 2.0), egui::Align2::LEFT_CENTER, text, theme::semibold(11.0), theme::text_faint());
+    ui.painter().text(pos2(r.left() + 12.0, r.center().y + 2.0), egui::Align2::LEFT_CENTER, text.to_uppercase(), theme::semibold(11.0), theme::text_faint());
 }
 
 /// A lyrics source: its sync type's dot, name and sync type, with a check on the one shown.
 fn source_row(ui: &mut Ui, name: &str, sync: SyncKind, current: bool) -> bool {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
-    let resp = named(resp, &format!("Lyrics source {name}")).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let resp = named(resp, &crate::tr!("player-lyrics-source-name", name = name)).on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.12);
     if h > 0.0 || current {
         ui.painter().rect_filled(rect, theme::menu_item_radius(), theme::glass(0.05 * current as u8 as f32 + 0.08 * h));
@@ -2110,8 +2112,4 @@ fn mini_text(ui: &mut Ui, text: &str, on: bool, tip: &str) -> egui::Response {
     let color = if on { gold } else { theme::with_alpha(Color32::WHITE, 0.6 + 0.35 * h) };
     ui.painter().galley_with_override_text_color(rect.center() - g.size() / 2.0, g, color);
     resp
-}
-
-fn lang_name(code: &str) -> &str {
-    super::lyric_prefs::LANGUAGES.iter().find(|(c, _)| *c == code).map_or(code, |(_, n)| n)
 }

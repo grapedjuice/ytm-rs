@@ -175,7 +175,7 @@ fn hline(ui: &mut Ui) {
 }
 
 pub fn github_link(ui: &mut Ui) {
-    ui.hyperlink_to(egui::RichText::new("Full release notes on GitHub").font(theme::regular(13.0)).color(if theme::light() { Color32::from_rgb(0, 102, 204) } else { Color32::from_rgb(62, 166, 255) }), crate::update::RELEASES);
+    ui.hyperlink_to(egui::RichText::new(crate::tr!("window-release-notes-github")).font(theme::regular(13.0)).color(if theme::light() { Color32::from_rgb(0, 102, 204) } else { Color32::from_rgb(62, 166, 255) }), crate::update::RELEASES);
 }
 
 /// What the notes dialog shows: a downloaded update (with Restart), or a version's notes.
@@ -204,20 +204,20 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 widgets::icon_at(ui, ui.cursor().min + vec2(8.0, 8.0), icon::SPARKLES, 15.0, accent);
                 ui.add_space(22.0);
-                let label = if deb_url.is_some() { "UPDATE AVAILABLE" } else if d.ready { "UPDATE READY" } else { "WHAT'S NEW" };
+                let label = if deb_url.is_some() { crate::tr!("window-update-available") } else if d.ready { crate::tr!("window-update-ready") } else { crate::tr!("settings-whats-new") };
                 let mut j = LayoutJob::default();
-                j.append(label, 0.0, TextFormat { font_id: theme::semibold(12.0), color: theme::text_dim(), extra_letter_spacing: 1.0, ..Default::default() });
+                j.append(&label.to_uppercase(), 0.0, TextFormat { font_id: theme::semibold(12.0), color: theme::text_dim(), extra_letter_spacing: 1.0, ..Default::default() });
                 ui.label(j);
             });
             ui.add_space(8.0);
             ui.label(egui::RichText::new(format!("ytm-rs {}", d.version)).font(theme::bold(26.0)).color(theme::text()));
             ui.add_space(6.0);
             let sub = if deb_url.is_some() {
-                format!("You're on {}. {}", crate::update::current_version(), crate::update::package_step())
+                crate::tr!("window-notes-status", version = crate::update::current_version(), step = crate::update::package_step())
             } else if d.ready {
-                format!("You're on {}. It's downloaded and installs when you close the app.", crate::update::current_version())
+                crate::tr!("window-installed-when-closed", version = d.version.as_str())
             } else {
-                "The version you're running.".to_owned()
+                crate::tr!("window-current-version").to_owned()
             };
             ui.label(egui::RichText::new(sub).font(theme::regular(13.5)).color(theme::text_dim()));
         });
@@ -231,7 +231,7 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
                         ui.horizontal(|ui| {
                             widgets::loader(ui);
                             ui.add_space(8.0);
-                            ui.label(egui::RichText::new("Loading release notes…").color(theme::text_dim()));
+                            ui.label(egui::RichText::new(crate::tr!("window-loading-notes")).color(theme::text_dim()));
                         });
                     }
                 }
@@ -244,16 +244,16 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 if let Some(url) = &deb_url {
-                    if widgets::pill(ui, "Download", None, true).clicked() {
+                    if widgets::pill(ui, crate::tr!("settings-download"), None, true).clicked() {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                         close = true;
                     }
-                    close |= widgets::pill(ui, "Later", None, false).clicked();
+                    close |= widgets::pill(ui, crate::tr!("window-later"), None, false).clicked();
                 } else if d.ready {
-                    restart = widgets::pill(ui, "Restart to update", None, true).clicked();
-                    close = widgets::pill(ui, "Later", None, false).clicked();
+                    restart = widgets::pill(ui, crate::tr!("settings-restart-to-update"), None, true).clicked();
+                    close = widgets::pill(ui, crate::tr!("window-later"), None, false).clicked();
                 } else {
-                    close = widgets::pill(ui, "Close", None, true).clicked();
+                    close = widgets::pill(ui, crate::tr!("ui-close"), None, true).clicked();
                 }
             });
         });
@@ -295,12 +295,12 @@ pub fn card(app: &mut App, ctx: &egui::Context) {
                 ui.horizontal_top(|ui| {
                     ui.vertical(|ui| {
                         ui.add_space(4.0);
-                        ui.label(egui::RichText::new(format!("Updated to {version}")).font(theme::semibold(15.0)).color(theme::text()));
+                        ui.label(egui::RichText::new(crate::tr!("window-updated", version = version.as_str())).font(theme::semibold(15.0)).color(theme::text()));
                         ui.add_space(3.0);
-                        ui.label(egui::RichText::new("Here's what changed.").font(theme::regular(13.0)).color(theme::text_dim()));
+                        ui.label(egui::RichText::new(crate::tr!("window-what-changed")).font(theme::regular(13.0)).color(theme::text_dim()));
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                        dismiss = widgets::icon_button(ui, icon::X, 16.0, "Dismiss", false).clicked();
+                        dismiss = widgets::icon_button(ui, icon::X, 16.0, crate::tr!("window-dismiss"), false).clicked();
                     });
                 });
                 ui.add_space(10.0);
@@ -324,8 +324,8 @@ pub fn card(app: &mut App, ctx: &egui::Context) {
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    all = widgets::pill(ui, "See all notes", None, true).clicked();
-                    dismiss |= widgets::pill(ui, "Got it", None, false).clicked();
+                    all = widgets::pill(ui, crate::tr!("window-all-notes"), None, true).clicked();
+                    dismiss |= widgets::pill(ui, crate::tr!("window-got-it"), None, false).clicked();
                 });
             });
         });

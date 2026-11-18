@@ -24,30 +24,6 @@ pub struct Prefs {
 /// The range and step of the lyrics text size setting.
 pub const TEXT_SCALE: (f32, f32, f32) = (0.6, 1.8, 0.1);
 
-/// Languages offered for translation.
-pub const LANGUAGES: &[(&str, &str)] = &[
-    ("en", "English"),
-    ("es", "Spanish"),
-    ("pt", "Portuguese"),
-    ("fr", "French"),
-    ("de", "German"),
-    ("it", "Italian"),
-    ("nl", "Dutch"),
-    ("ru", "Russian"),
-    ("uk", "Ukrainian"),
-    ("pl", "Polish"),
-    ("tr", "Turkish"),
-    ("ar", "Arabic"),
-    ("hi", "Hindi"),
-    ("id", "Indonesian"),
-    ("vi", "Vietnamese"),
-    ("th", "Thai"),
-    ("ja", "Japanese"),
-    ("ko", "Korean"),
-    ("zh-CN", "Chinese (Simplified)"),
-    ("zh-TW", "Chinese (Traditional)"),
-];
-
 impl Prefs {
     pub fn load(get: &dyn Fn(&str) -> Option<String>) -> Self {
         // Stored like the extension's `preferredProviderList`: keys in order, "d_" = off;

@@ -84,7 +84,7 @@ fn set(app: &mut App, cmd: Cmd, combo: String) {
     app.hotkeys.bindings.set(cmd, combo);
     if let Err(e) = app.hotkeys.bindings.save(app.backend.data_dir()) {
         log::warn!("could not save the shortcuts: {e}");
-        app.toast("Couldn't save that shortcut");
+        app.toast(crate::tr!("extra-shortcut-failed"));
     }
     app.hotkeys.capture = None;
     register(app);
@@ -113,7 +113,7 @@ pub(super) fn capture_dialog(app: &mut App, ctx: &egui::Context) {
             if down {
                 capture.error = None;
             } else if capture.error.is_none() {
-                capture.error = Some("No key came through. Another app may be using that shortcut, so try a different one.".to_owned());
+                capture.error = Some(crate::tr!("extra-shortcut-missing").to_owned());
             }
         }
     }
@@ -127,9 +127,9 @@ pub(super) fn capture_dialog(app: &mut App, ctx: &egui::Context) {
         let mods = mods_of(modifiers);
         let hotkey = HotKey::new(Some(mods), code);
         let error = if !safe_to_grab(mods) {
-            Some(format!("Hold {} as well, so typing isn't taken from other apps.", if cfg!(target_os = "macos") { "Cmd, Ctrl or Option" } else { "Ctrl or Alt" }))
+            Some(crate::tr!("extra-shortcut-hold", keys = if cfg!(target_os = "macos") { "Cmd / Ctrl / Option" } else { "Ctrl / Alt" }))
         } else {
-            app.hotkeys.bindings.used_by(hotkey, cmd).map(|other| format!("That's already {}.", other.label().to_lowercase()))
+            app.hotkeys.bindings.used_by(hotkey, cmd).map(|other| crate::tr!("extra-shortcut-occupied", command = other.label()))
         };
         if let Some(capture) = &mut app.hotkeys.capture
             && error.is_some()
@@ -147,17 +147,17 @@ pub(super) fn capture_dialog(app: &mut App, ctx: &egui::Context) {
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             ui.label(egui::RichText::new(cmd.label()).font(theme::bold(22.0)).color(theme::text()));
             ui.add_space(6.0);
-            ui.label(egui::RichText::new("Press the new shortcut.").font(theme::regular(13.0)).color(theme::text_dim()));
+            ui.label(egui::RichText::new(crate::tr!("extra-shortcut-press")).font(theme::regular(13.0)).color(theme::text_dim()));
             ui.add_space(16.0);
             let held = held_names(held);
-            let text = if held.is_empty() { "Waiting for a key".to_owned() } else { format!("{held} + …") };
+            let text = if held.is_empty() { crate::tr!("extra-shortcut-wait").to_owned() } else { format!("{held} + …") };
             ui.label(egui::RichText::new(text).font(theme::semibold(17.0)).color(theme::text()));
             if let Some(error) = error {
                 ui.add_space(10.0);
                 ui.label(egui::RichText::new(error).font(theme::regular(12.5)).color(theme::RED));
             }
             ui.add_space(20.0);
-            cancelled = widgets::pill(ui, "Cancel", None, false).clicked();
+            cancelled = widgets::pill(ui, crate::tr!("ui-cancel"), None, false).clicked();
         });
     });
     if cancelled {
@@ -167,14 +167,14 @@ pub(super) fn capture_dialog(app: &mut App, ctx: &egui::Context) {
 
 /// The section above the in-window shortcuts.
 pub(super) fn settings_section(app: &mut App, ui: &mut Ui) {
-    pages::settings_section(ui, "System-wide shortcuts", None, Some("These work while another app is in front, or the window is minimized or in the tray."), |ui| {
+    pages::settings_section(ui, crate::tr!("extra-system-shortcuts"), None, Some(crate::tr!("extra-system-shortcuts-desc")), |ui| {
         if app.hotkeys.wayland || app.hotkeys.active.is_none() {
             let why = if app.hotkeys.wayland {
-                "Wayland doesn't let apps watch for keys in the background. Add shortcuts in your desktop's settings instead: ytm-rs answers its media keys."
+                crate::tr!("extra-shortcuts-wayland")
             } else {
-                "The system wouldn't let ytm-rs set up shortcuts."
+                crate::tr!("extra-shortcuts-blocked")
             };
-            pages::setting_row(ui, "Not available here", Some(why), |_| {});
+            pages::setting_row(ui, crate::tr!("extra-unavailable-here"), Some(why), |_| {});
             return;
         }
         let mut change = None;
@@ -197,21 +197,21 @@ pub(super) fn settings_section(app: &mut App, ui: &mut Ui) {
             ui.painter().text(pos2(rect.left(), label_y), Align2::LEFT_CENTER, cmd.label(), theme::regular(14.0), theme::text());
             let mut detail_x = rect.left();
             if refused {
-                let text = ui.painter().text(pos2(detail_x, mid + 10.0), Align2::LEFT_CENTER, "Another app may be using this", theme::regular(12.5), theme::RED);
+                let text = ui.painter().text(pos2(detail_x, mid + 10.0), Align2::LEFT_CENTER, crate::tr!("extra-shortcut-app-conflict"), theme::regular(12.5), theme::RED);
                 detail_x = text.right() + 10.0;
             }
             if customized {
-                let size = ui.painter().layout_no_wrap("Reset".to_owned(), theme::regular(12.5), theme::text_dim()).size();
+                let size = ui.painter().layout_no_wrap(crate::tr!("extra-reset").to_owned(), theme::regular(12.5), theme::text_dim()).size();
                 let area = Align2::LEFT_CENTER.anchor_size(pos2(detail_x, mid + 10.0), size);
                 let link = ui.interact(area.expand(3.0), ui.scope_id().with(("hotkey-reset", i)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
                 let color = if link.hovered() { theme::text() } else { theme::text_dim() };
-                ui.painter().text(area.left_center(), Align2::LEFT_CENTER, "Reset", theme::regular(12.5), color);
+                ui.painter().text(area.left_center(), Align2::LEFT_CENTER, crate::tr!("extra-reset"), theme::regular(12.5), color);
                 if link.clicked() {
                     reset = Some(cmd);
                 }
             }
             let mut controls = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::right_to_left(egui::Align::Center)));
-            if widgets::pill(&mut controls, "Change", None, false).clicked() {
+            if widgets::pill(&mut controls, crate::tr!("settings-change"), None, false).clicked() {
                 change = Some(cmd);
             }
             let mut x = controls.cursor().right() - 14.0;

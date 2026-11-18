@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = Meer reacties tonen
+comment-more-replies = Meer antwoorden tonen
+comment-sort-failed = Sorteren van reacties is mislukt.
+comment-like-failed = Deze reactie liken is mislukt.
+comment-post-failed = Plaatsen van je reactie is mislukt. Je concept staat nog in het veld.
+comment-reply-failed = Plaatsen van je antwoord is mislukt. Je concept staat nog in het veld.
+comment-posted = Reactie geplaatst.
+comment-reply-posted = Antwoord geplaatst.
+comment-loading = Reacties laden…
+comment-loading-replies = Antwoorden laden…
+comment-disabled = Reacties zijn uitgeschakeld voor dit nummer.
+comment-load-failed = Reacties konden niet worden geladen.
+comment-retry = Laden mislukt. Opnieuw proberen
+comment-posting = Reactie plaatsen…
+comment-posting-reply = Antwoord plaatsen…
+comment-replies-unavailable = YouTube staat geen antwoorden op deze reactie toe.
+comment-unavailable = YouTube staat hier geen reacties toe.
+comment-sign-in-like = Log in om reacties te liken.
+comment-like-unavailable = YouTube staat liken van deze reactie niet toe.
+comment-newest = Nieuwste
+comment-top = Beste
+comment-empty = Nog geen reacties.
+comment-sign-in = Log in om te reageren
+comment-new = Voeg een reactie toe…
+comment-compose-disabled = Hier kun je niet reageren
+comment-reply = Antwoorden
+comment-hide-replies = Antwoorden verbergen
+comment-reply-count = Antwoorden ({ $count })
+comment-new-reply = Voeg een antwoord toe…
+comment-sign-in-reply = Log in om te antwoorden
+comment-post = Plaatsen

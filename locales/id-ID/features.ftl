@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = Tampilkan lebih banyak komentar
+comment-more-replies = Tampilkan balasan lainnya
+comment-sort-failed = Tidak dapat mengurutkan komentar.
+comment-like-failed = Tidak dapat menyukai komentar itu.
+comment-post-failed = Tidak dapat mengirimkan komentar Anda. Draf Anda masih ada di lapangan.
+comment-reply-failed = Tidak dapat mengirimkan balasan Anda. Draf Anda masih ada di lapangan.
+comment-posted = Komentar diposting.
+comment-reply-posted = Balasan diposting.
+comment-loading = Memuat komentar…
+comment-loading-replies = Memuat balasan…
+comment-disabled = Komentar dimatikan untuk lagu ini.
+comment-load-failed = Tidak dapat memuat komentar.
+comment-retry = Tidak dapat memuat ini. Coba lagi
+comment-posting = Memposting komentar Anda…
+comment-posting-reply = Memposting balasan Anda…
+comment-replies-unavailable = YouTube tidak mengizinkan balasan terhadap komentar ini.
+comment-unavailable = YouTube tidak mengizinkan komentar di sini.
+comment-sign-in-like = Masuk untuk menyukai komentar.
+comment-like-unavailable = YouTube tidak mengizinkan menyukai komentar ini.
+comment-newest = Terbaru
+comment-top = Teratas
+comment-empty = Belum ada komentar.
+comment-sign-in = Masuk untuk berkomentar
+comment-new = Tambahkan komentar…
+comment-compose-disabled = Komentar tidak tersedia di sini
+comment-reply = Balasan
+comment-hide-replies = Sembunyikan balasan
+comment-reply-count = Balasan ({ $count })
+comment-new-reply = Tambahkan balasan…
+comment-sign-in-reply = Masuk untuk membalas
+comment-post = Pos

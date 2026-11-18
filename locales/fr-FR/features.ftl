@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = Afficher plus de commentaires
+comment-more-replies = Afficher plus de réponses
+comment-sort-failed = Impossible de trier les commentaires.
+comment-like-failed = Impossible d’aimer ce commentaire.
+comment-post-failed = Impossible de publier le commentaire. Le brouillon est toujours dans le champ.
+comment-reply-failed = Impossible de publier la réponse. Le brouillon est toujours dans le champ.
+comment-posted = Commentaire publié.
+comment-reply-posted = Réponse publiée.
+comment-loading = Chargement des commentaires…
+comment-loading-replies = Chargement des réponses…
+comment-disabled = Les commentaires sont désactivés pour ce titre.
+comment-load-failed = Impossible de charger les commentaires.
+comment-retry = Chargement impossible. Réessayer
+comment-posting = Envoi du commentaire…
+comment-posting-reply = Envoi de la réponse…
+comment-replies-unavailable = YouTube n’autorise pas les réponses à ce commentaire.
+comment-unavailable = YouTube n’autorise pas les commentaires ici.
+comment-sign-in-like = Connectez-vous pour aimer les commentaires.
+comment-like-unavailable = YouTube ne permet pas d’aimer ce commentaire.
+comment-newest = Récents
+comment-top = Populaires
+comment-empty = Aucun commentaire pour l’instant.
+comment-sign-in = Connectez-vous pour commenter
+comment-new = Ajouter un commentaire…
+comment-compose-disabled = Impossible de commenter ici
+comment-reply = Répondre
+comment-hide-replies = Masquer les réponses
+comment-reply-count = Réponses ({ $count })
+comment-new-reply = Ajouter une réponse…
+comment-sign-in-reply = Connectez-vous pour répondre
+comment-post = Publier

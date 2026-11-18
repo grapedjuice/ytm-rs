@@ -131,12 +131,12 @@ impl Tray {
 
 impl Icon {
     fn set_shown(&self, shown: bool) {
-        self.toggle.set_text(if shown { "Hide YT Music" } else { "Show YT Music" });
+        self.toggle.set_text(if shown { crate::tr!("window-tray-hide") } else { crate::tr!("window-tray-show") });
     }
 
     fn set_now(&self, now: &Now) {
-        self.song.set_text(now.song.as_deref().map_or_else(|| "Nothing playing".to_owned(), menu_song));
-        self.play.set_text(if now.playing { "Pause" } else { "Play" });
+        self.song.set_text(now.song.as_deref().map_or_else(|| crate::tr!("player-nothing-playing").to_owned(), menu_song));
+        self.play.set_text(if now.playing { crate::tr!("ui-pause") } else { crate::tr!("ui-play") });
         // Nothing to play, skip or go back to.
         for item in [&self.play, &self.next, &self.prev] {
             item.set_enabled(now.song.is_some());
@@ -189,11 +189,11 @@ impl Drop for Tray {
 }
 
 fn build(png: image::RgbaImage) -> anyhow::Result<Icon> {
-    let song = MenuItem::with_id("song", "Nothing playing", false, None);
-    let play = MenuItem::with_id("play", "Play", false, None);
-    let next = MenuItem::with_id("next", "Next", false, None);
-    let prev = MenuItem::with_id("prev", "Previous", false, None);
-    let toggle = MenuItem::with_id("toggle", "Show YT Music", true, None);
+    let song = MenuItem::with_id("song", crate::tr!("player-nothing-playing"), false, None);
+    let play = MenuItem::with_id("play", crate::tr!("ui-play"), false, None);
+    let next = MenuItem::with_id("next", crate::tr!("ui-next"), false, None);
+    let prev = MenuItem::with_id("prev", crate::tr!("ui-previous"), false, None);
+    let toggle = MenuItem::with_id("toggle", crate::tr!("window-tray-show"), true, None);
     let menu = Menu::with_items(&[
         &song,
         &play,
@@ -201,7 +201,7 @@ fn build(png: image::RgbaImage) -> anyhow::Result<Icon> {
         &prev,
         &PredefinedMenuItem::separator(),
         &toggle,
-        &MenuItem::with_id("quit", "Quit", true, None),
+        &MenuItem::with_id("quit", crate::tr!("window-quit"), true, None),
     ])?;
     let (w, h) = png.dimensions();
     let icon = TrayIconBuilder::new()

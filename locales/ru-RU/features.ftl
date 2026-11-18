@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = Показать ещё комментарии
+comment-more-replies = Показать ещё ответы
+comment-sort-failed = Не удалось отсортировать комментарии.
+comment-like-failed = Не удалось поставить лайк комментарию.
+comment-post-failed = Не удалось отправить комментарий. Черновик остался в поле ввода.
+comment-reply-failed = Не удалось отправить ответ. Черновик остался в поле ввода.
+comment-posted = Комментарий отправлен.
+comment-reply-posted = Ответ отправлен.
+comment-loading = Загрузка комментариев…
+comment-loading-replies = Загрузка ответов…
+comment-disabled = Комментарии для этого трека отключены.
+comment-load-failed = Не удалось загрузить комментарии.
+comment-retry = Не удалось загрузить. Повторить
+comment-posting = Отправка комментария…
+comment-posting-reply = Отправка ответа…
+comment-replies-unavailable = YouTube не позволяет отвечать на этот комментарий.
+comment-unavailable = YouTube не разрешает здесь комментировать.
+comment-sign-in-like = Войдите, чтобы ставить лайки комментариям.
+comment-like-unavailable = YouTube не позволяет поставить лайк этому комментарию.
+comment-newest = Сначала новые
+comment-top = Популярные
+comment-empty = Комментариев пока нет.
+comment-sign-in = Войдите, чтобы комментировать
+comment-new = Добавить комментарий…
+comment-compose-disabled = Здесь нельзя комментировать
+comment-reply = Ответить
+comment-hide-replies = Скрыть ответы
+comment-reply-count = Ответы ({ $count })
+comment-new-reply = Добавить ответ…
+comment-sign-in-reply = Войдите, чтобы ответить
+comment-post = Отправить

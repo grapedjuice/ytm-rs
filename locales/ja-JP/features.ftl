@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = コメントをもっと表示
+comment-more-replies = 返信をもっと表示
+comment-sort-failed = コメントを並べ替えられませんでした。
+comment-like-failed = コメントに高評価を付けられませんでした。
+comment-post-failed = コメントを投稿できませんでした。下書きは入力欄に残っています。
+comment-reply-failed = 返信を投稿できませんでした。下書きは入力欄に残っています。
+comment-posted = コメントを投稿しました。
+comment-reply-posted = 返信を投稿しました。
+comment-loading = コメントを読み込み中…
+comment-loading-replies = 返信を読み込み中…
+comment-disabled = この曲のコメントはオフになっています。
+comment-load-failed = コメントを読み込めませんでした。
+comment-retry = 読み込めませんでした。再試行
+comment-posting = コメントを投稿中…
+comment-posting-reply = 返信を投稿中…
+comment-replies-unavailable = YouTube ではこのコメントに返信できません。
+comment-unavailable = ここでは YouTube のコメントを投稿できません。
+comment-sign-in-like = コメントに高評価を付けるにはログインしてください。
+comment-like-unavailable = YouTube ではこのコメントに高評価を付けられません。
+comment-newest = 新着順
+comment-top = 人気順
+comment-empty = まだコメントがありません。
+comment-sign-in = コメントするにはログイン
+comment-new = コメントを追加…
+comment-compose-disabled = ここではコメントできません
+comment-reply = 返信
+comment-hide-replies = 返信を非表示
+comment-reply-count = 返信（{ $count } 件）
+comment-new-reply = 返信を追加…
+comment-sign-in-reply = 返信するにはログイン
+comment-post = 投稿

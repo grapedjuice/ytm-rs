@@ -132,55 +132,55 @@ pub enum Req {
 impl Req {
     fn name(&self) -> &'static str {
         match self {
-            Req::Home(_) | Req::HomeMore(_) => "Loading home",
-            Req::MoreQuickPicks(_) => "Loading more picks",
-            Req::Explore(_) => "Loading explore",
-            Req::Mood(_) => "Loading the category",
-            Req::Search(_) | Req::SearchIn { .. } => "Search",
-            Req::Suggest { .. } => "Suggest",
-            Req::ForgetSearch(_) => "Removing the search",
-            Req::Album { .. } => "Loading album",
-            Req::Artist(_) => "Loading artist",
-            Req::Playlist { .. } => "Loading playlist",
-            Req::Library => "Loading library",
-            Req::History => "Loading history",
-            Req::Uploads => "Loading uploads",
-            Req::Account => "Account",
-            Req::Channels => "Channels",
-            Req::SwitchChannel { .. } => "Switching channel",
-            Req::ServerQueue => "Queue from other devices",
-            Req::SongRating { .. } => "Song rating",
-            Req::Upload(_) => "Upload",
-            Req::Download { .. } | Req::DownloadMany { .. } => "Download",
-            Req::Lyrics(_) => "Lyrics",
+            Req::Home(_) | Req::HomeMore(_) => crate::tr!("settings-home"),
+            Req::MoreQuickPicks(_) => crate::tr!("nav-quick-picks"),
+            Req::Explore(_) => crate::tr!("nav-explore"),
+            Req::Mood(_) => crate::tr!("nav-mood-genres"),
+            Req::Search(_) | Req::SearchIn { .. } => crate::tr!("settings-search"),
+            Req::Suggest { .. } => crate::tr!("settings-search"),
+            Req::ForgetSearch(_) => crate::tr!("nav-remove-recent-search"),
+            Req::Album { .. } => crate::tr!("ui-album"),
+            Req::Artist(_) => crate::tr!("ui-artist"),
+            Req::Playlist { .. } => crate::tr!("transfer-playlist"),
+            Req::Library => crate::tr!("nav-library"),
+            Req::History => crate::tr!("nav-history"),
+            Req::Uploads => crate::tr!("nav-uploads"),
+            Req::Account => crate::tr!("settings-account"),
+            Req::Channels => crate::tr!("settings-channel"),
+            Req::SwitchChannel { .. } => crate::tr!("backend-channel-switch"),
+            Req::ServerQueue => crate::tr!("ui-queue"),
+            Req::SongRating { .. } => crate::tr!("backend-rating"),
+            Req::Upload(_) => crate::tr!("nav-upload-music"),
+            Req::Download { .. } | Req::DownloadMany { .. } => crate::tr!("settings-download"),
+            Req::Lyrics(_) => crate::tr!("settings-lyrics"),
             Req::Segments { .. } => "SponsorBlock",
-            Req::ArtistPicture { .. } => "Artist picture",
-            Req::LyricsExtras { .. } => "Translation",
-            Req::Art { .. } => "Art",
-            Req::Radio { .. } => "Loading radio",
-            Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. } => "Comments",
-            Req::PlayCollection { .. } => "Playback",
-            Req::Play { .. } => "Playback",
-            Req::Prefetch { .. } => "Prefetch",
-            Req::VideoStream { .. } | Req::MusicVideo(_) => "Video",
-            Req::Canvas(_) => "Animated cover",
-            Req::Like { .. } | Req::LikeMany { .. } | Req::UnlikeBoth { .. } => "Like",
-            Req::Dislike { .. } => "Dislike",
-            Req::RemoveRating { .. } => "Remove rating",
-            Req::CreatePlaylist { .. } => "Create playlist",
-            Req::EditPlaylist { .. } => "Edit playlist",
-            Req::SortPlaylist { .. } => "Sort playlist",
-            Req::AddToPlaylist { .. } => "Add to playlist",
-            Req::RemoveFromPlaylist { .. } => "Remove from playlist",
-            Req::MoveInPlaylist { .. } => "Move in playlist",
-            Req::DeletePlaylist(_) => "Delete playlist",
-            Req::DeleteUpload { .. } => "Delete upload",
-            Req::Collaboration(_) => "Loading collaboration",
-            Req::SetCollaboration { .. } => "Collaboration",
-            Req::SaveCollection { .. } => "Save to library",
-            Req::Subscribe { .. } => "Subscribe",
-            Req::SetCookie(_) => "Sign in",
-            Req::Logout => "Sign out",
+            Req::ArtistPicture { .. } => crate::tr!("discord-artist-photo"),
+            Req::LyricsExtras { .. } => crate::tr!("settings-translation"),
+            Req::Art { .. } => crate::tr!("discord-album-art"),
+            Req::Radio { .. } => crate::tr!("ui-radio"),
+            Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. } => crate::tr!("player-comments"),
+            Req::PlayCollection { .. } => crate::tr!("settings-playback"),
+            Req::Play { .. } => crate::tr!("settings-playback"),
+            Req::Prefetch { .. } => crate::tr!("settings-playback"),
+            Req::VideoStream { .. } | Req::MusicVideo(_) => crate::tr!("ui-video"),
+            Req::Canvas(_) => crate::tr!("settings-animated-covers"),
+            Req::Like { .. } | Req::LikeMany { .. } | Req::UnlikeBoth { .. } => crate::tr!("ui-like"),
+            Req::Dislike { .. } => crate::tr!("ui-dislike-song"),
+            Req::RemoveRating { .. } => crate::tr!("backend-rating"),
+            Req::CreatePlaylist { .. } => crate::tr!("transfer-create-playlist"),
+            Req::EditPlaylist { .. } => crate::tr!("dialog-edit-playlist"),
+            Req::SortPlaylist { .. } => crate::tr!("ui-sort"),
+            Req::AddToPlaylist { .. } => crate::tr!("ui-add-playlist"),
+            Req::RemoveFromPlaylist { .. } => crate::tr!("ui-remove-playlist"),
+            Req::MoveInPlaylist { .. } => crate::tr!("backend-move-playlist"),
+            Req::DeletePlaylist(_) => crate::tr!("dialog-delete-playlist"),
+            Req::DeleteUpload { .. } => crate::tr!("dialog-delete-upload"),
+            Req::Collaboration(_) => crate::tr!("ui-collaborate"),
+            Req::SetCollaboration { .. } => crate::tr!("ui-collaborate"),
+            Req::SaveCollection { .. } => crate::tr!("ui-save-library"),
+            Req::Subscribe { .. } => crate::tr!("ui-subscribe"),
+            Req::SetCookie(_) => crate::tr!("nav-sign-in"),
+            Req::Logout => crate::tr!("settings-sign-out"),
         }
     }
 
@@ -256,17 +256,20 @@ impl Collection {
         ytm::list_id(&self.id) != self.id
     }
 
-    /// "songs", or what this lists instead.
-    pub fn things(&self) -> &'static str {
-        if self.is_show() { "episodes" } else { "songs" }
+    /// The number of tracks or episodes in this collection.
+    pub fn item_count(&self, count: u64) -> String {
+        if self.is_show() {
+            crate::tr!("status-episodes", count = count)
+        } else {
+            crate::tr!("status-songs", count = count)
+        }
     }
 
     /// The subtitle, with the song count for a playlist.
     pub fn byline(&self) -> String {
-        let things = self.things();
         match self.count {
-            Some(n) if self.subtitle.is_empty() => format!("{n} {things}"),
-            Some(n) => format!("{} • {n} {things}", self.subtitle),
+            Some(n) if self.subtitle.is_empty() => self.item_count(n),
+            Some(n) => format!("{} • {}", self.subtitle, self.item_count(n)),
             None => self.subtitle.clone(),
         }
     }
@@ -347,6 +350,18 @@ pub struct Channels {
     pub epoch: u64,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PlaylistChange {
+    Added,
+    Updated,
+    Sorted,
+    SortFailed,
+    Removed,
+    Deleted,
+    SavedToLibrary,
+    RemovedFromLibrary,
+}
+
 pub enum Resp {
     Home(ytm::HomePage),
     HomeMore(ytm::HomePage),
@@ -411,7 +426,7 @@ pub enum Resp {
     /// A subscribe or unsubscribe went through (`ok`), or didn't.
     Subscribed { channel_id: String, on: bool, ok: bool },
     PlaylistCreated { id: String, songs: usize },
-    PlaylistChanged { id: String, message: &'static str },
+    PlaylistChanged { id: String, change: PlaylistChange },
     /// Songs weren't taken out of this playlist, though they've left it here already.
     RemoveFailed { id: String, error: String },
     /// A playlist wasn't deleted, though it's left the library here already.
@@ -957,7 +972,7 @@ impl Backend {
         log::warn!("signed-in session no longer valid");
         self.forget_session().await;
         let _ = self.tx.send(Resp::LoggedIn(false));
-        let _ = self.tx.send(Resp::Error("Your YouTube sign-in expired. Sign in again to get your library back".into()));
+        let _ = self.tx.send(Resp::Error(crate::tr!("backend-session-expired").to_owned()));
         self.wake();
     }
 
@@ -1033,7 +1048,7 @@ impl Backend {
                     match (play_gen, subscribe) {
                         (Some(generation), _) => Some(Resp::PlayError { generation, msg: "YouTube didn't respond properly".into() }),
                         (_, Some((channel_id, on))) => Some(Resp::Subscribed { channel_id, on, ok: false }),
-                        _ => (!quiet).then(|| Resp::Error(format!("{what} failed: YouTube didn't respond properly"))),
+                        _ => (!quiet).then(|| Resp::Error(crate::tr!("backend-error", operation = what, error = crate::tr!("backend-unexpected-reply")))),
                     }
                 }
                 Err(_) => None,
@@ -1309,14 +1324,14 @@ impl Backend {
                 }
                 Req::EditPlaylist { id, title, description, privacy } => {
                     ytm::edit_playlist(api, &id, &title, &description, privacy.as_deref()).await?;
-                    Resp::PlaylistChanged { id, message: "Playlist updated" }
+                    Resp::PlaylistChanged { id, change: PlaylistChange::Updated }
                 }
                 // A failure is answered too, so the Sort button comes back.
                 Req::SortPlaylist { id, actions } => match ytm::sort_playlist(api, &id, actions).await {
-                    Ok(()) => Resp::PlaylistChanged { id, message: "Playlist sorted" },
+                    Ok(()) => Resp::PlaylistChanged { id, change: PlaylistChange::Sorted },
                     Err(e) => {
                         log::warn!("sort playlist failed: {e:#}");
-                        Resp::PlaylistChanged { id, message: "Couldn't sort the playlist" }
+                        Resp::PlaylistChanged { id, change: PlaylistChange::SortFailed }
                     }
                 },
                 Req::AddToPlaylist { playlist_id, video_ids } => {
@@ -1329,7 +1344,7 @@ impl Backend {
                 }
                 Req::RemoveFromPlaylist { playlist_id, items } => {
                     match ytm::remove_videos(api, &playlist_id, &items).await {
-                        Ok(_) => Resp::PlaylistChanged { id: playlist_id, message: "Removed from playlist" },
+                        Ok(_) => Resp::PlaylistChanged { id: playlist_id, change: PlaylistChange::Removed },
                         Err(e) => {
                             log::warn!("removing from playlist {playlist_id}: {e:#}");
                             Resp::RemoveFailed { id: playlist_id, error: format!("Couldn't remove from the playlist: {e}") }
@@ -1351,7 +1366,7 @@ impl Backend {
                     Resp::PlaylistMoved { id: playlist_id, move_id, ok: result.is_ok() }
                 }
                 Req::DeletePlaylist(id) => match ytm::delete_playlist(api, &id).await {
-                    Ok(_) => Resp::PlaylistChanged { id, message: "Playlist deleted" },
+                    Ok(_) => Resp::PlaylistChanged { id, change: PlaylistChange::Deleted },
                     Err(e) => {
                         log::warn!("deleting playlist {id}: {e:#}");
                         Resp::DeleteFailed { error: format!("Couldn't delete the playlist: {e}") }
@@ -1371,7 +1386,7 @@ impl Backend {
                 }
                 Req::SaveCollection { id, save } => {
                     ytm::save_collection(api, &id, save).await?;
-                    Resp::PlaylistChanged { id, message: if save { "Saved to library" } else { "Removed from library" } }
+                    Resp::PlaylistChanged { id, change: if save { PlaylistChange::SavedToLibrary } else { PlaylistChange::RemovedFromLibrary } }
                 }
                 Req::Subscribe { channel_id, on } => {
                     let result = ytm::set_subscribed(api, &channel_id, on).await;
@@ -1396,7 +1411,7 @@ impl Backend {
         .await;
         res.unwrap_or_else(|e| {
             log::warn!("{what} failed: {e:#}");
-            (!quiet).then(|| Resp::Error(format!("{what} failed: {e}")))
+            (!quiet).then(|| Resp::Error(crate::tr!("backend-error", operation = what, error = e.to_string())))
         })
     }
 
@@ -2082,7 +2097,7 @@ impl Backend {
         };
         // An empty playlist (from its card, which can't tell): nothing to run.
         if tracks.is_empty() {
-            let _ = self.tx.send(Resp::Error(format!("\u{201c}{title}\u{201d} has no songs to download")));
+            let _ = self.tx.send(Resp::Error(crate::tr!("backend-empty-download", title = title.as_str())));
             return Ok(None);
         }
         let key = match &target {

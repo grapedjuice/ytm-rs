@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = 显示更多评论
+comment-more-replies = 显示更多回复
+comment-sort-failed = 无法对评论进行排序。
+comment-like-failed = 无法喜欢该评论。
+comment-post-failed = 无法发表您的评论。您的草稿仍在现场。
+comment-reply-failed = 无法发表您的回复。您的草稿仍在现场。
+comment-posted = 发表评论。
+comment-reply-posted = 回复已发布。
+comment-loading = 正在加载评论...
+comment-loading-replies = 正在加载回复...
+comment-disabled = 这首歌的评论已关闭。
+comment-load-failed = 无法加载评论。
+comment-retry = 无法加载这些。再试一次
+comment-posting = 发表您的评论...
+comment-posting-reply = 发布您的回复...
+comment-replies-unavailable = YouTube 不允许回复此评论。
+comment-unavailable = YouTube 不允许在此发表评论。
+comment-sign-in-like = 登录以喜欢评论。
+comment-like-unavailable = YouTube 不允许点赞此评论。
+comment-newest = 最新
+comment-top = 顶部
+comment-empty = 还没有评论。
+comment-sign-in = 登录后发表评论
+comment-new = 添加评论...
+comment-compose-disabled = 此处无法发表评论
+comment-reply = 回复
+comment-hide-replies = 隐藏回复
+comment-reply-count = 回复({ $count })
+comment-new-reply = 添加回复...
+comment-sign-in-reply = 登录后回复
+comment-post = 帖子

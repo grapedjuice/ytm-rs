@@ -88,6 +88,10 @@ fn main() -> eframe::Result {
     if let (Some(flag), Some(dir)) = (args.next(), args.next()) {
         // The parent hands its proxy setting down through the environment.
         proxy::init(std::path::Path::new(""));
+        if flag == login::FLAG || flag == login::SPOTIFY_FLAG || flag == turnstile::FLAG {
+            let language = args.next().and_then(|arg| arg.into_string().ok());
+            i18n::init(language.as_deref());
+        }
         if flag == login::FLAG {
             login::child_main(login::Site::Google, dir.into());
             return Ok(());
@@ -173,6 +177,10 @@ fn main() -> eframe::Result {
         "ytm-rs",
         options,
         Box::new(|cc| {
+            let language = cc.storage.and_then(|storage| storage.get_string("language")).filter(|l| !l.is_empty());
+            // Set the locale before any background work can format its first message.
+            i18n::init(language.as_deref());
+
             let ctx = cc.egui_ctx.clone();
             theme::install_style(&ctx);
             theme::install_fonts(&ctx, "inter", &[]);
@@ -282,6 +290,7 @@ fn main() -> eframe::Result {
                 media,
                 bg,
                 cc.storage,
+                language,
             )))
         }),
     );

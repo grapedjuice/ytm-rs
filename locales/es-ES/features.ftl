@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = Mostrar más comentarios
+comment-more-replies = Mostrar más respuestas
+comment-sort-failed = No se pudieron ordenar los comentarios.
+comment-like-failed = No se pudo dar «Me gusta» al comentario.
+comment-post-failed = No se pudo publicar el comentario. El borrador sigue en el campo.
+comment-reply-failed = No se pudo publicar la respuesta. El borrador sigue en el campo.
+comment-posted = Comentario publicado.
+comment-reply-posted = Respuesta publicada.
+comment-loading = Cargando comentarios…
+comment-loading-replies = Cargando respuestas…
+comment-disabled = Los comentarios están desactivados para esta canción.
+comment-load-failed = No se pudieron cargar los comentarios.
+comment-retry = No se pudieron cargar. Reintentar
+comment-posting = Publicando comentario…
+comment-posting-reply = Publicando respuesta…
+comment-replies-unavailable = YouTube no permite responder a este comentario.
+comment-unavailable = YouTube no permite comentarios aquí.
+comment-sign-in-like = Inicia sesión para dar «Me gusta» a los comentarios.
+comment-like-unavailable = YouTube no permite dar «Me gusta» a este comentario.
+comment-newest = Más recientes
+comment-top = Destacados
+comment-empty = Todavía no hay comentarios.
+comment-sign-in = Inicia sesión para comentar
+comment-new = Añade un comentario…
+comment-compose-disabled = Aquí no se puede comentar
+comment-reply = Responder
+comment-hide-replies = Ocultar respuestas
+comment-reply-count = Respuestas ({ $count })
+comment-new-reply = Añade una respuesta…
+comment-sign-in-reply = Inicia sesión para responder
+comment-post = Publicar

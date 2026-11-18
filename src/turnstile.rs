@@ -59,6 +59,7 @@ pub fn obtain(profile_dir: PathBuf) -> anyhow::Result<String> {
     let out = cmd
         .arg(FLAG)
         .arg(&profile_dir)
+        .arg(crate::i18n::current())
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .output()?;
@@ -90,7 +91,7 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
         event_loop.set_activation_policy(ActivationPolicy::Accessory);
     }
     let window = WindowBuilder::new()
-        .with_title("Verifying lyrics access")
+        .with_title(crate::tr!("login-lyrics"))
         .with_inner_size(tao::dpi::LogicalSize::new(360.0, 120.0))
         .with_visible(false)
         .build(&event_loop)?;

@@ -27,9 +27,39 @@ fluent_templates::static_loader! {
     };
 }
 
-/// The languages Settings offers: a language is added once it's mostly translated (what
-/// it hasn't got yet shows in English).
-pub const LANGUAGES: &[&str] = &["en-US"];
+pub struct Language {
+    pub locale: &'static str,
+    pub lyrics: &'static str,
+}
+
+const fn language(locale: &'static str, lyrics: &'static str) -> Language {
+    Language { locale, lyrics }
+}
+
+/// Both settings pickers use this order. Lyrics keep the codes expected by the
+/// translation providers and stored in existing preferences.
+pub const LANGUAGES: &[Language] = &[
+    language("en-US", "en"),
+    language("es-ES", "es"),
+    language("de-DE", "de"),
+    language("ja-JP", "ja"),
+    language("fr-FR", "fr"),
+    language("pt-BR", "pt"),
+    language("ru-RU", "ru"),
+    language("it-IT", "it"),
+    language("nl-NL", "nl"),
+    language("pl-PL", "pl"),
+    language("uk-UA", "uk"),
+    language("tr-TR", "tr"),
+    language("ar", "ar"),
+    language("hi-IN", "hi"),
+    language("id-ID", "id"),
+    language("vi-VN", "vi"),
+    language("th-TH", "th"),
+    language("ko-KR", "ko"),
+    language("zh-CN", "zh-CN"),
+    language("zh-TW", "zh-TW"),
+];
 
 /// Dev hook: YTM_PSEUDO_LOCALE=1 shows every message accented, bracketed and a good deal
 /// longer, the way a translation can be. Text still plain is text not yet translatable;
@@ -72,7 +102,8 @@ pub fn current() -> String {
 /// Of [`LANGUAGES`]: `picked`, else the first of the system's languages offered (its
 /// region's own if there is one, else the same language's), else English.
 fn choose(picked: Option<&str>, system: &[String]) -> &'static str {
-    let offered = |tag: &str| LANGUAGES.iter().copied().find(|l| l.eq_ignore_ascii_case(tag));
+    let locales = || LANGUAGES.iter().map(|lang| lang.locale);
+    let offered = |tag: &str| locales().find(|l| l.eq_ignore_ascii_case(tag));
     if let Some(l) = picked.and_then(offered) {
         return l;
     }
@@ -80,7 +111,20 @@ fn choose(picked: Option<&str>, system: &[String]) -> &'static str {
     for want in system {
         // Some systems say pt_BR, or add an encoding (en_US.UTF-8).
         let want = want.split('.').next().unwrap_or_default().replace('_', "-");
-        if let Some(l) = offered(&want).or_else(|| LANGUAGES.iter().copied().find(|l| base(l) == base(&want))) {
+        if let Some(l) = offered(&want) {
+            return l;
+        }
+        let primary = base(&want);
+        if primary == "zh" {
+            // A script subtag takes priority. Without one, Hong Kong and Macau use
+            // the same Traditional Chinese catalog as Taiwan.
+            let second = want.split('-').nth(1).unwrap_or_default().to_ascii_lowercase();
+            return match second.as_str() {
+                "hant" | "tw" | "hk" | "mo" => "zh-TW",
+                _ => "zh-CN",
+            };
+        }
+        if let Some(l) = locales().find(|l| base(l) == primary) {
             return l;
         }
     }
@@ -91,6 +135,12 @@ fn choose(picked: Option<&str>, system: &[String]) -> &'static str {
 pub fn name(lang: &str) -> String {
     let id: LanguageIdentifier = lang.parse().unwrap_or_else(|_| english());
     LOCALES.lookup(&id, "language-name")
+}
+
+/// The same name in the lyrics picker and the player's translation tooltip.
+pub fn lyrics_name(code: &str) -> Cow<'_, str> {
+    LANGUAGES.iter().find(|lang| lang.lyrics == code)
+        .map_or(Cow::Borrowed(code), |lang| Cow::Owned(name(lang.locale)))
 }
 
 /// The message `id`. Each is looked up once a run and kept, so it's cheap every frame.
@@ -218,10 +268,30 @@ mod tests {
     }
 
     #[test]
-    fn every_language_offered_has_its_files_and_its_name() {
-        for lang in LANGUAGES {
-            assert!(!defined_ids(lang).is_empty(), "{lang} has no files");
-            assert_ne!(name(lang), "", "{lang} has no language-name");
+    fn offered_languages_have_unique_codes_and_names() {
+        use std::collections::HashSet;
+
+        let english = defined_ids("en-US").into_iter().collect::<HashSet<_>>();
+        let mut locales = HashSet::new();
+        let mut lyrics = HashSet::new();
+        let mut names = HashSet::new();
+        for language in LANGUAGES {
+            let lang = language.locale;
+            assert!(locales.insert(lang), "duplicate locale {lang}");
+            assert!(lyrics.insert(language.lyrics), "duplicate lyrics code {}", language.lyrics);
+            let ids = defined_ids(lang);
+            let distinct = ids.iter().cloned().collect::<HashSet<_>>();
+            assert_eq!(ids.len(), distinct.len(), "{lang} has duplicate messages");
+            let extra: Vec<_> = distinct.difference(&english).collect();
+            // A contributor can land a partial catalog. Missing messages fall back to English.
+            assert!(extra.is_empty(), "{lang}: unknown messages {extra:?}");
+            let locale = lang.parse().unwrap();
+            let label = LOCALES.lookup_single_language::<&str>(&locale, "language-name", None)
+                .unwrap_or_else(|e| panic!("{lang}/language-name: {e}"));
+            assert!(!label.is_empty(), "{lang} has an empty picker label");
+            assert_eq!(lyrics_name(language.lyrics), label);
+            assert!(names.insert(label), "{lang} has a duplicate picker label");
+            assert_eq!(choose(Some(lang), &[]), lang);
         }
     }
 
@@ -229,15 +299,33 @@ mod tests {
     fn the_language_is_the_picked_one_else_the_systems_else_english() {
         let sys = |s: &[&str]| s.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
         assert_eq!(choose(Some("en-US"), &sys(&["fr-FR"])), "en-US");
-        // Not offered (yet): the system's, then English.
-        assert_eq!(choose(Some("xx-XX"), &sys(&["en_GB.UTF-8"])), "en-US");
-        assert_eq!(choose(None, &sys(&["fr-FR"])), "en-US");
+        assert_eq!(choose(Some("uk-UA"), &sys(&["pl-PL"])), "uk-UA");
+        assert_eq!(choose(Some("xx-XX"), &sys(&["fr_CA.UTF-8"])), "fr-FR");
+        assert_eq!(choose(None, &sys(&["sv-SE", "nl-BE", "en-US"])), "nl-NL");
+        assert_eq!(choose(None, &sys(&["pt-PT"])), "pt-BR");
+        assert_eq!(choose(None, &sys(&["sv-SE"])), "en-US");
+        assert_eq!(choose(None, &sys(&["id"])), "id-ID");
+        assert_eq!(choose(None, &sys(&["ar-EG"])), "ar");
+        assert_eq!(choose(None, &sys(&["zh-Hant-HK"])), "zh-TW");
+        assert_eq!(choose(None, &sys(&["zh_HK.UTF-8"])), "zh-TW");
+        assert_eq!(choose(None, &sys(&["zh-Hans-SG"])), "zh-CN");
+        assert_eq!(choose(Some("zh-CN"), &sys(&["zh-TW"])), "zh-CN");
     }
 
     #[test]
     fn variables_and_plurals_fill_in() {
         assert_eq!(format("likes-removed", &[("count", arg(1))]), "Removed 1 like");
         assert_eq!(format("likes-removed", &[("count", arg(3))]), "Removed 3 likes");
+
+        let polish = fluent_templates::langid!("pl-PL");
+        for (count, expected) in [
+            (1, "Cofnięto 1 polubienie"),
+            (2, "Cofnięto 2 polubienia"),
+            (5, "Cofnięto 5 polubień"),
+        ] {
+            let args = HashMap::from([(Cow::Borrowed("count"), arg(count))]);
+            assert_eq!(LOCALES.lookup_with_args(&polish, "likes-removed", &args), expected);
+        }
     }
 
     #[test]

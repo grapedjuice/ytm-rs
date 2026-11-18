@@ -432,7 +432,7 @@ pub(super) fn unlike_pill(ui: &mut Ui, label: &str, wide: bool, target: egui::Id
 
 fn pill_button(ui: &mut Ui, label: &str, glyph: Option<char>, primary: bool, labelled: bool, unlike: Option<egui::Id>) -> (Response, bool) {
     // Laid out once; the colour is given when it's painted.
-    let text = ui.painter().layout_no_wrap(label.to_owned(), theme::semibold(14.0), Color32::PLACEHOLDER);
+    let text = galley(ui, label, theme::semibold(14.0), Color32::PLACEHOLDER, f32::INFINITY);
     let icon_w = if glyph.is_some() { 24.0 } else { 0.0 };
     let width = if labelled { text.size().x + icon_w + 36.0 } else { 38.0 };
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 38.0), Sense::click());
@@ -752,7 +752,8 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, pin: Option<bool>, a
         let prect = Rect::from_center_size(center, Vec2::splat(cl.play_px.max(32.0)));
         let p = ui.interact(prect, resp.id.with("play"), Sense::click());
         let playing = active == Some(true);
-        let p = named(p, &format!("{} {}", if playing { "Pause" } else { "Play" }, c.title)).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let label = if playing { crate::tr!("player-pause-item", title = c.title.as_str()) } else { crate::tr!("player-play-item", title = c.title.as_str()) };
+        let p = named(p, &label).on_hover_cursor(egui::CursorIcon::PointingHand);
         let ph = theme::anim_bool(ui.ctx(), p.id.with("h"), p.hovered(), 0.12);
         let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
         let rest_a = egui::lerp(cl.play_alpha..=cl.play_hover_alpha.unwrap_or(cl.play_alpha), ph) * h;
@@ -780,7 +781,7 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, pin: Option<bool>, a
     linked_text(ui, pos2(rect.left(), sub_y), &c.subtitle, &c.links, theme::regular(13.0), theme::with_alpha(theme::text_dim(), cl.subtitle_alpha), width - 36.0, acts);
     // On the subtitle line, whose width leaves room for it, so a two-line title never sits under it.
     let more_rect = Rect::from_center_size(pos2(rect.right() - 16.0, sub_y + 8.0), Vec2::splat(30.0));
-    let more = more_button(ui, more_rect, resp.id.with("more"), "Options");
+    let more = more_button(ui, more_rect, resp.id.with("more"), crate::tr!("ui-options"));
     let behavior = if matches!(c.target, Target::Song(_)) { egui::PopupCloseBehavior::CloseOnClickOutside } else { egui::PopupCloseBehavior::CloseOnClick };
     menu_popup(&more).close_behavior(behavior).show(|ui| card_menu_contents(ui, c, liked, pin, acts));
     // Right-click anywhere on the card opens the same menu, even on the play button,
@@ -847,26 +848,26 @@ pub fn card_menu_contents(ui: &mut Ui, c: &Card, liked: bool, pin: Option<bool>,
         Target::Song(t) => song_menu(ui, t, liked, None, acts),
         t => {
             menu_body(ui, crate::preset::active().app.menu_look.min_px);
-            if menu_action(ui, Some(icon::PLAY), "Play") {
+            if menu_action(ui, Some(icon::PLAY), crate::tr!("ui-play")) {
                 acts.push(Action::PlayCollection(t.clone(), false));
             }
-            if menu_action(ui, Some(icon::SHUFFLE), "Shuffle play") {
+            if menu_action(ui, Some(icon::SHUFFLE), crate::tr!("ui-shuffle-play")) {
                 acts.push(Action::PlayCollection(t.clone(), true));
             }
-            if menu_action(ui, None, "Open") {
+            if menu_action(ui, None, crate::tr!("settings-open")) {
                 acts.push(Action::Open(t.clone()));
             }
-            if matches!(t, Target::Album(_) | Target::Playlist(_)) && menu_action(ui, Some(icon::DOWNLOAD), "Download") {
+            if matches!(t, Target::Album(_) | Target::Playlist(_)) && menu_action(ui, Some(icon::DOWNLOAD), crate::tr!("settings-download")) {
                 acts.push(Action::DownloadMany(Some(t.clone()), c.title.clone(), None));
             }
             if let (Some(pinned), Target::Playlist(id)) = (pin, t)
-                && menu_action(ui, Some(if pinned { icon::PIN_OFF } else { icon::PIN }), if pinned { "Unpin playlist" } else { "Pin playlist" })
+                && menu_action(ui, Some(if pinned { icon::PIN_OFF } else { icon::PIN }), if pinned { crate::tr!("widget-unpin-playlist") } else { crate::tr!("widget-pin-playlist") })
             {
                 acts.push(Action::Pin(id.clone(), !pinned));
             }
             if super::actions::shareable(t) {
                 menu_divider(ui);
-                if menu_action(ui, None, "Copy link") {
+                if menu_action(ui, None, crate::tr!("ui-copy-link")) {
                     acts.push(Action::Share(t.clone()));
                 }
             }
@@ -1032,60 +1033,60 @@ pub fn song_menu(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, act
 
 /// The song menu's items, for menus that add their own (now playing's options).
 pub fn song_actions(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, acts: &mut Vec<Action>) {
-    if menu_row(ui, Some(icon::HEART), if liked { "Remove like" } else { "Like song" }, true, liked.then_some(t)) {
+    if menu_row(ui, Some(icon::HEART), if liked { crate::tr!("ui-unlike") } else { crate::tr!("ui-like-song") }, true, liked.then_some(t)) {
         acts.push(Action::Like(t.clone(), !liked));
     }
-    if menu_action(ui, Some(icon::THUMBS_DOWN), "Dislike song") {
+    if menu_action(ui, Some(icon::THUMBS_DOWN), crate::tr!("ui-dislike-song")) {
         acts.push(Action::Dislike(t.clone()));
     }
-    if menu_action(ui, Some(icon::LIST_PLUS), "Add to playlist") {
+    if menu_action(ui, Some(icon::LIST_PLUS), crate::tr!("ui-add-playlist")) {
         acts.push(Action::AddToPlaylist(vec![t.clone()]));
     }
     if let Some(i) = remove
-        && menu_action(ui, Some(icon::LIST_MINUS), "Remove from playlist")
+        && menu_action(ui, Some(icon::LIST_MINUS), crate::tr!("ui-remove-playlist"))
     {
         acts.push(Action::RemoveFromPlaylist(vec![i]));
     }
-    if menu_action(ui, None, "Copy link") {
+    if menu_action(ui, None, crate::tr!("ui-copy-link")) {
         acts.push(Action::Share(Target::Song(t.clone())));
     }
     match crate::downloads::path(&t.id) {
         Some(path) => {
-            if menu_action(ui, Some(icon::FOLDER_OPEN), "Show in folder") {
+            if menu_action(ui, Some(icon::FOLDER_OPEN), crate::tr!("widget-show-in-folder")) {
                 crate::downloads::show_file(&path);
             }
         }
         None => {
-            if menu_action(ui, Some(icon::DOWNLOAD), "Download") {
+            if menu_action(ui, Some(icon::DOWNLOAD), crate::tr!("settings-download")) {
                 acts.push(Action::Download(t.clone()));
             }
         }
     }
     menu_divider(ui);
-    if menu_action(ui, Some(icon::SKIP_FORWARD), "Play next") {
+    if menu_action(ui, Some(icon::SKIP_FORWARD), crate::tr!("player-play-next")) {
         acts.push(Action::PlayNext(t.clone()));
     }
-    if menu_action(ui, Some(icon::LIST_MUSIC), "Add to queue") {
+    if menu_action(ui, Some(icon::LIST_MUSIC), crate::tr!("ui-add-queue")) {
         acts.push(Action::Enqueue(t.clone()));
     }
-    if menu_action(ui, Some(icon::RADIO), "Start radio") {
+    if menu_action(ui, Some(icon::RADIO), crate::tr!("player-start-radio")) {
         acts.push(Action::Radio(t.clone()));
     }
     if t.album.as_ref().and_then(|a| a.id.as_ref()).is_some() || t.first_artist_id().is_some() {
         menu_divider(ui);
     }
     if let Some(id) = t.album.as_ref().and_then(|a| a.id.clone())
-        && menu_action(ui, Some(icon::DISC_3), "Go to album")
+        && menu_action(ui, Some(icon::DISC_3), crate::tr!("player-go-to-album"))
     {
         acts.push(Action::Open(Target::Album(id)));
     }
     if let Some(id) = t.first_artist_id()
-        && menu_action(ui, Some(icon::USER), "Go to artist") {
+        && menu_action(ui, Some(icon::USER), crate::tr!("player-go-to-artist")) {
             acts.push(Action::Open(Target::Artist(id.to_owned())));
         }
     if crate::ytm::upload_entity(&t.id).is_some() {
         menu_divider(ui);
-        if menu_action(ui, Some(icon::TRASH_2), "Delete upload") {
+        if menu_action(ui, Some(icon::TRASH_2), crate::tr!("dialog-delete-upload")) {
             acts.push(Action::DeleteUpload(t.clone()));
         }
     }
@@ -1367,7 +1368,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
             ui.painter().rect_filled(img, tr, theme::panel(1.0 - opacity));
         }
         if o.pick {
-            let play = named(ui.interact(img, base.id.with("cover"), Sense::click()), "Play").on_hover_text("Play").on_hover_cursor(egui::CursorIcon::PointingHand);
+            let play = named(ui.interact(img, base.id.with("cover"), Sense::click()), crate::tr!("ui-play")).on_hover_text(crate::tr!("ui-play")).on_hover_cursor(egui::CursorIcon::PointingHand);
             if play.clicked() {
                 acts.push(Action::Play(vec![t.clone()], 0));
             }
@@ -1404,8 +1405,8 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         (false, _, _) => Some(t.artist_line()),
     };
     let sub = match (sub, &o.added_by) {
-        (Some(s), Some(by)) if !s.is_empty() => Some(format!("{s} \u{2022} Added by {by}")),
-        (_, Some(by)) => Some(format!("Added by {by}")),
+        (Some(s), Some(by)) if !s.is_empty() => Some(format!("{s} • {}", crate::tr!("player-added-by", name = by))),
+        (_, Some(by)) => Some(crate::tr!("player-added-by", name = by)),
         (sub, _) => sub,
     };
     let title_y = if sub.is_some() { cy - 18.0 } else { cy - 9.0 };
@@ -1436,9 +1437,9 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     }
     if let Some(rating) = rating {
         let label = match rating {
-            SongRating::Like => "Remove like",
-            SongRating::Dislike => "Remove dislike",
-            SongRating::Indifferent => "Like song",
+            SongRating::Like => crate::tr!("ui-unlike"),
+            SongRating::Dislike => crate::tr!("ui-remove-dislike"),
+            SongRating::Indifferent => crate::tr!("ui-like-song"),
         };
         let slot = Rect::from_center_size(pos2(text_right + rating_w / 2.0, cy), Vec2::splat(26.0));
         let button = named(ui.interact(slot, base.id.with(("rating", label)), Sense::click()), label)
@@ -1476,7 +1477,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     match o.queue_remove.filter(|_| base.contains_pointer()) {
         Some(i) => {
             let x = Rect::from_center_size(pos2(right - 14.0, cy), Vec2::splat(28.0));
-            let xr = named(ui.interact(x, base.id.with("rm"), Sense::click()), "Remove from queue").on_hover_cursor(egui::CursorIcon::PointingHand);
+            let xr = named(ui.interact(x, base.id.with("rm"), Sense::click()), crate::tr!("ui-remove-queue")).on_hover_cursor(egui::CursorIcon::PointingHand);
             if xr.hovered() {
                 ui.painter().circle_filled(x.center(), 14.0, theme::glass(0.16));
             }
@@ -1496,7 +1497,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     let more_id = base.id.with("more");
     let open_id = more_id.with("open");
     if !rl.hover_menu || hovered || ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false)) {
-        let more = more_button(ui, more_rect, more_id, "Song options");
+        let more = more_button(ui, more_rect, more_id, crate::tr!("ui-song-options"));
         menu_popup(&more).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| song_menu(ui, t, o.liked, o.remove, acts));
         if rl.hover_menu {
             let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&more));
@@ -1558,8 +1559,8 @@ pub fn shelf_header(ui: &mut Ui, title: &str, strap: Option<&str>, strap_thumb: 
         if arrows {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let turn = crate::preset::active().app.controls.arrow_hover;
-                res.1 = icon_button_turning(ui, icon::CHEVRON_RIGHT, 18.0, &format!("Scroll {title} right"), false, turn).clicked();
-                res.0 = icon_button_turning(ui, icon::CHEVRON_LEFT, 18.0, &format!("Scroll {title} left"), false, turn).clicked();
+                res.1 = icon_button_turning(ui, icon::CHEVRON_RIGHT, 18.0, &crate::tr!("ui-scroll-right", title = title), false, turn).clicked();
+                res.0 = icon_button_turning(ui, icon::CHEVRON_LEFT, 18.0, &crate::tr!("ui-scroll-left", title = title), false, turn).clicked();
             });
         }
     });

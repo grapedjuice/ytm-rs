@@ -37,9 +37,9 @@ impl Choice {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Auto => "Automatic",
-            Self::Own => "ytm-rs's",
-            Self::System => "System's",
+            Self::Auto => crate::tr!("ui-automatic"),
+            Self::Own => crate::tr!("window-app-titlebar"),
+            Self::System => crate::tr!("window-system-titlebar"),
         }
     }
 
@@ -264,7 +264,7 @@ pub fn window_buttons(ctx: &egui::Context) {
     let Some(rect) = buttons_rect(ctx) else { return };
     let max = maximized(ctx);
     egui::Area::new(Id::unique("window-buttons")).order(egui::Order::Foreground).fixed_pos(rect.min).show(ctx, |ui| {
-        let kinds = [(Kind::Minimize, "Minimize"), (if max { Kind::Restore } else { Kind::Maximize }, if max { "Restore" } else { "Maximize" }), (Kind::Close, "Close")];
+        let kinds = [(Kind::Minimize, crate::tr!("window-minimize")), (if max { Kind::Restore } else { Kind::Maximize }, if max { crate::tr!("window-restore") } else { crate::tr!("window-maximize") }), (Kind::Close, crate::tr!("ui-close"))];
         for (i, (kind, name)) in kinds.into_iter().enumerate() {
             let r = Rect::from_min_size(rect.min + vec2(i as f32 * BUTTON_W, 0.0), vec2(BUTTON_W, HEIGHT));
             let resp = ui.interact(r, Id::unique(("window-button", i)), Sense::click());

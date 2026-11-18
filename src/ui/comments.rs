@@ -180,7 +180,7 @@ fn nodes(items: &[Value], muts: &[Value], depth: u8, out: &mut Vec<Node>) {
             }
         } else if let Some(token) = token_of(more) {
             let label = more["button"]["buttonRenderer"]["text"]["runs"][0]["text"].as_str().map(str::to_owned);
-            let label = label.unwrap_or_else(|| if depth == 0 { "Show more comments" } else { "Show more replies" }.to_owned());
+            let label = label.unwrap_or_else(|| if depth == 0 { crate::tr!("comment-more") } else { crate::tr!("comment-more-replies") }.to_owned());
             out.push(Node::More { token, label, depth });
         }
     }
@@ -258,7 +258,7 @@ pub fn on_page(tag: &str, page: Option<Value>) {
         st.sorting = None;
         match page {
             Some(v) => fill(st, &v),
-            None => st.note = Some("Couldn't sort the comments.".into()),
+            None => st.note = Some(crate::tr!("comment-sort-failed").into()),
         }
         return;
     }
@@ -266,7 +266,7 @@ pub fn on_page(tag: &str, page: Option<Value>) {
         let (id, _) = rest.rsplit_once(':').unwrap_or((rest, ""));
         if page.is_none() {
             st.liked.remove(id);
-            st.note = Some("Couldn't like that comment.".into());
+            st.note = Some(crate::tr!("comment-like-failed").into());
         }
         return;
     }
@@ -274,7 +274,7 @@ pub fn on_page(tag: &str, page: Option<Value>) {
         st.sending = false;
         let thread = tag.strip_prefix("replied:");
         let Some(v) = page else {
-            st.note = Some(if thread.is_some() { "Couldn't post your reply; it's still in the field." } else { "Couldn't post your comment; it's still in the box." }.into());
+            st.note = Some(if thread.is_some() { crate::tr!("comment-reply-failed") } else { crate::tr!("comment-post-failed") }.into());
             return;
         };
         // The new comment comes back under actions[].create…Action.contents.
@@ -296,11 +296,11 @@ pub fn on_page(tag: &str, page: Option<Value>) {
                 list.splice(0..0, fresh);
                 st.open.insert(thread.to_owned());
             }
-            st.note = Some("Reply posted.".into());
+            st.note = Some(crate::tr!("comment-reply-posted").into());
         } else {
             st.draft.clear();
             st.root.splice(0..0, fresh);
-            st.note = Some("Comment posted.".into());
+            st.note = Some(crate::tr!("comment-posted").into());
         }
         return;
     }
@@ -356,16 +356,16 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
     let mut acts = Vec::new();
     match st.load {
         Load::Loading => {
-            ui.label(RichText::new("Loading comments…").color(theme::text_dim()));
+            ui.label(RichText::new(crate::tr!("comment-loading")).color(theme::text_dim()));
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
         }
         Load::Off => {
-            ui.label(RichText::new("Comments are turned off for this song.").color(theme::text_dim()));
+            ui.label(RichText::new(crate::tr!("comment-disabled")).color(theme::text_dim()));
         }
         Load::Failed => {
-            ui.label(RichText::new("Couldn't load the comments.").color(theme::text_dim()));
+            ui.label(RichText::new(crate::tr!("comment-load-failed")).color(theme::text_dim()));
             ui.add_space(4.0);
-            if link(ui, ui.cursor().min + vec2(6.0, 4.0), "Try again", None, "comments-retry") {
+            if link(ui, ui.cursor().min + vec2(6.0, 4.0), crate::tr!("ui-try-again"), None, "comments-retry") {
                 acts.push(Act::Retry);
             }
         }
@@ -411,9 +411,9 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
                     st.sending = true;
                     let body = json!({ "createReplyParams": p, "commentText": st.reply_draft.trim() });
                     app.backend.request(Req::CommentAction { endpoint: "comment/create_comment_reply".into(), body, tag: format!("replied:{thread}") });
-                    st.note = Some("Posting your reply…".into());
+                    st.note = Some(crate::tr!("comment-posting-reply").into());
                 }
-                _ => st.note = Some("YouTube doesn't allow replies to this comment.".into()),
+                _ => st.note = Some(crate::tr!("comment-replies-unavailable").into()),
             },
             Act::SendComment => match st.create_params.clone() {
                 _ if st.sending => {}
@@ -421,19 +421,19 @@ pub fn panel(app: &mut App, ui: &mut Ui) {
                     st.sending = true;
                     let body = json!({ "createCommentParams": p, "commentText": st.draft.trim() });
                     app.backend.request(Req::CommentAction { endpoint: "comment/create_comment".into(), body, tag: "posted".into() });
-                    st.note = Some("Posting your comment…".into());
+                    st.note = Some(crate::tr!("comment-posting").into());
                 }
-                _ => st.note = Some("YouTube doesn't allow comments here.".into()),
+                _ => st.note = Some(crate::tr!("comment-unavailable").into()),
             },
             Act::CancelComment => st.draft.clear(),
             Act::Like(id, action, on) => match action {
-                _ if !app.logged_in => st.note = Some("Sign in to like comments.".into()),
+                _ if !app.logged_in => st.note = Some(crate::tr!("comment-sign-in-like").into()),
                 Some(a) => {
                     st.liked.insert(id.clone(), on);
                     let body = json!({ "actions": [a] });
                     app.backend.request(Req::CommentAction { endpoint: "comment/perform_comment_action".into(), body, tag: format!("like:{id}:{}", u8::from(on)) });
                 }
-                None => st.note = Some("YouTube doesn't allow liking this comment.".into()),
+                None => st.note = Some(crate::tr!("comment-like-unavailable").into()),
             },
             Act::SignIn => app.start_sign_in(ui.ctx()),
         }
@@ -450,10 +450,10 @@ fn list(app: &App, ui: &mut Ui, st: &mut State, acts: &mut Vec<Act>) {
         ui.label(RichText::new(&st.count).font(theme::semibold(15.0)).color(theme::text()));
         if st.sort.iter().all(Option::is_some) {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if widgets::default_chip(ui, "Newest", st.newest).clicked() {
+                if widgets::default_chip(ui, crate::tr!("comment-newest"), st.newest).clicked() {
                     acts.push(Act::Sort(true));
                 }
-                if widgets::default_chip(ui, "Top", !st.newest).clicked() {
+                if widgets::default_chip(ui, crate::tr!("comment-top"), !st.newest).clicked() {
                     acts.push(Act::Sort(false));
                 }
             });
@@ -463,12 +463,12 @@ fn list(app: &App, ui: &mut Ui, st: &mut State, acts: &mut Vec<Act>) {
     egui::ScrollArea::vertical().id_salt(("np-comments", st.video.clone(), st.newest)).auto_shrink(false).show(ui, |ui| {
         composer(ui, st, signed_in, app.account_avatar.as_deref(), &row, acts);
         if st.sorting.is_some() {
-            text_at(ui, ui.cursor().min + vec2(row.pad.max(8.0), 4.0), "Loading comments…", theme::regular(13.0), theme::text_dim(), 240.0);
+            text_at(ui, ui.cursor().min + vec2(row.pad.max(8.0), 4.0), crate::tr!("comment-loading"), theme::regular(13.0), theme::text_dim(), 240.0);
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
             return;
         }
         if st.root.is_empty() {
-            text_at(ui, ui.cursor().min + vec2(row.pad.max(8.0), 4.0), "No comments yet.", theme::regular(13.0), theme::text_dim(), 240.0);
+            text_at(ui, ui.cursor().min + vec2(row.pad.max(8.0), 4.0), crate::tr!("comment-empty"), theme::regular(13.0), theme::text_dim(), 240.0);
         }
         let root = st.root.clone();
         for (i, n) in root.iter().enumerate() {
@@ -537,17 +537,17 @@ fn composer(ui: &mut Ui, st: &mut State, signed_in: bool, photo: Option<&str>, r
     let x = avatar.right() + 12.0;
     let mut h = 40.0;
     if !signed_in {
-        text_at(ui, pos2(x, top + 11.0), "Sign in to comment", theme::regular(14.0), theme::text(), right - x - 120.0);
+        text_at(ui, pos2(x, top + 11.0), crate::tr!("comment-sign-in"), theme::regular(14.0), theme::text(), right - x - 120.0);
         let r = Rect::from_min_max(pos2(x, top + 1.0), pos2(right, top + 39.0));
-        if pills(ui, r, &[("Sign in", true, true)])[0] {
+        if pills(ui, r, &[(crate::tr!("nav-sign-in"), true, true)])[0] {
             acts.push(Act::SignIn);
         }
     } else if st.create_params.is_some() {
         let f = Rect::from_min_max(pos2(x, top), pos2(right, top + 40.0));
-        let edit = field(ui, f, &mut st.draft, "Add a comment…", "comment-box");
+        let edit = field(ui, f, &mut st.draft, crate::tr!("comment-new"), "comment-box");
         if edit.has_focus() || !st.draft.trim().is_empty() {
             let r = Rect::from_min_max(pos2(x, f.bottom() + 8.0), pos2(right, f.bottom() + 46.0));
-            let c = pills(ui, r, &[("Cancel", false, true), ("Comment", true, !st.draft.trim().is_empty() && !st.sending)]);
+            let c = pills(ui, r, &[(crate::tr!("ui-cancel"), false, true), (crate::tr!("comment-post"), true, !st.draft.trim().is_empty() && !st.sending)]);
             if c[0] {
                 acts.push(Act::CancelComment);
             }
@@ -557,7 +557,7 @@ fn composer(ui: &mut Ui, st: &mut State, signed_in: bool, photo: Option<&str>, r
             h += 46.0;
         }
     } else {
-        text_at(ui, pos2(x, top + 11.0), "Commenting isn't available here", theme::regular(14.0), theme::text_dim(), right - x);
+        text_at(ui, pos2(x, top + 11.0), crate::tr!("comment-compose-disabled"), theme::regular(14.0), theme::text_dim(), right - x);
     }
     if let Some(note) = &st.note {
         text_at(ui, pos2(x, top + h + 8.0), note, theme::regular(12.5), theme::text_dim(), right - x);
@@ -620,7 +620,7 @@ fn comment_row(ui: &mut Ui, st: &mut State, c: &Comment, thread: &str, depth: u8
     let count = if liked && !c.likes_liked.is_empty() { &c.likes_liked } else { &c.likes };
     let cw = widgets::galley(ui, count, theme::regular(12.5), Color32::PLACEHOLDER, 80.0).size().x;
     let hit = Rect::from_min_max(pos2(x - 4.0, ty - 4.0), pos2(x + 22.0 + cw + 8.0, ty + 22.0));
-    let like = widgets::named(ui.interact(hit, ui.scope_id().with(("like", &c.id)), Sense::click()), if liked { "Unlike" } else { "Like" }).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let like = widgets::named(ui.interact(hit, ui.scope_id().with(("like", &c.id)), Sense::click()), if liked { crate::tr!("ui-unlike") } else { crate::tr!("ui-like") }).on_hover_cursor(egui::CursorIcon::PointingHand);
     let lk = theme::anim_bool(ui.ctx(), like.id.with("h"), like.hovered(), 0.15);
     let col = if liked { theme::text() } else { theme::lerp_color(theme::text_dim(), theme::text(), lk) };
     if like.clicked() {
@@ -636,7 +636,7 @@ fn comment_row(ui: &mut Ui, st: &mut State, c: &Comment, thread: &str, depth: u8
         icon_at(ui, pos2(rx + 7.0, ty + 9.0), theme::icon::HEART, 14.0, accent);
         rx += 26.0;
     }
-    if link(ui, pos2(rx, ty + 1.0), "Reply", None, &format!("reply-{}", c.id)) {
+    if link(ui, pos2(rx, ty + 1.0), crate::tr!("comment-reply"), None, &format!("reply-{}", c.id)) {
         let prefill = if depth > 0 { format!("{} ", c.author) } else { String::new() };
         acts.push(Act::Reply(c.id.clone(), prefill));
     }
@@ -644,9 +644,9 @@ fn comment_row(ui: &mut Ui, st: &mut State, c: &Comment, thread: &str, depth: u8
     if toggle {
         let open = st.open.contains(&c.id);
         let label = if open {
-            "Hide replies".to_owned()
+            crate::tr!("comment-hide-replies").to_owned()
         } else {
-            format!("{} {}", c.replies, if c.replies == "1" { "reply" } else { "replies" })
+            crate::tr!("comment-reply-count", count = c.replies.as_str())
         };
         let glyph = if open { theme::icon::CHEVRON_UP } else { theme::icon::CHEVRON_DOWN };
         if link(ui, pos2(x, ty + 30.0), &label, Some(glyph), &format!("replies-{}", c.id)) {
@@ -703,9 +703,9 @@ fn reply_box(ui: &mut Ui, st: &mut State, c: &Comment, thread: &str, x: f32, sig
     let top = ui.cursor().top();
     let h = if signed_in {
         let f = Rect::from_min_max(pos2(x, top), pos2(right, top + 38.0));
-        field(ui, f, &mut st.reply_draft, "Add a reply…", &format!("reply-box-{}", c.id));
+        field(ui, f, &mut st.reply_draft, crate::tr!("comment-new-reply"), &format!("reply-box-{}", c.id));
         let r = Rect::from_min_max(pos2(x, f.bottom() + 8.0), pos2(right, f.bottom() + 46.0));
-        let b = pills(ui, r, &[("Cancel", false, true), ("Reply", true, !st.reply_draft.trim().is_empty() && !st.sending)]);
+        let b = pills(ui, r, &[(crate::tr!("ui-cancel"), false, true), (crate::tr!("comment-reply"), true, !st.reply_draft.trim().is_empty() && !st.sending)]);
         if b[0] {
             acts.push(Act::CancelReply);
         }
@@ -714,9 +714,9 @@ fn reply_box(ui: &mut Ui, st: &mut State, c: &Comment, thread: &str, x: f32, sig
         }
         38.0 + 46.0
     } else {
-        text_at(ui, pos2(x, top + 11.0), "Sign in to reply", theme::regular(14.0), theme::text(), right - x - 200.0);
+        text_at(ui, pos2(x, top + 11.0), crate::tr!("comment-sign-in-reply"), theme::regular(14.0), theme::text(), right - x - 200.0);
         let r = Rect::from_min_max(pos2(x, top + 1.0), pos2(right, top + 39.0));
-        let b = pills(ui, r, &[("Cancel", false, true), ("Sign in", true, true)]);
+        let b = pills(ui, r, &[(crate::tr!("ui-cancel"), false, true), (crate::tr!("nav-sign-in"), true, true)]);
         if b[0] {
             acts.push(Act::CancelReply);
         }
@@ -734,14 +734,14 @@ fn more_row(ui: &mut Ui, st: &State, token: &str, label: &str, depth: u8, row: &
     let x = ui.max_rect().left() + INDENT * f32::from(depth.min(2)) + pad;
     let top = ui.cursor().top();
     if st.pending.contains(token) {
-        let what = if depth == 0 { "Loading comments…" } else { "Loading replies…" };
+        let what = if depth == 0 { crate::tr!("comment-loading") } else { crate::tr!("comment-loading-replies") };
         text_at(ui, pos2(x, top + 8.0), what, theme::regular(12.5), theme::text_dim(), 240.0);
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
     } else if st.failed.contains(token) {
-        if link(ui, pos2(x, top + 8.0), "Couldn't load these. Try again", None, &format!("retry-{token}")) {
+        if link(ui, pos2(x, top + 8.0), crate::tr!("comment-retry"), None, &format!("retry-{token}")) {
             acts.push(Act::Fetch(token.to_owned()));
         }
-    } else if link(ui, pos2(x, top + 8.0), if label.is_empty() { "Show more replies" } else { label }, Some(theme::icon::CHEVRON_DOWN), &format!("more-{token}")) {
+    } else if link(ui, pos2(x, top + 8.0), if label.is_empty() { crate::tr!("comment-more-replies") } else { label }, Some(theme::icon::CHEVRON_DOWN), &format!("more-{token}")) {
         acts.push(Act::Fetch(token.to_owned()));
     }
     ui.allocate_rect(Rect::from_min_size(pos2(x, top), vec2(200.0, 34.0)), Sense::hover());

@@ -193,7 +193,8 @@ pub fn show_file(path: &Path) {
     // without one, just open the folder.
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        let uri = url::Url::from_file_path(path).map(|u| u.to_string()).unwrap_or_default();
+        // dbus-send splits an array at commas: one in the name is escaped.
+        let uri = url::Url::from_file_path(path).map(|u| u.to_string().replace(',', "%2C")).unwrap_or_default();
         let shown = std::process::Command::new("dbus-send")
             .args(["--session", "--print-reply", "--dest=org.freedesktop.FileManager1", "/org/freedesktop/FileManager1", "org.freedesktop.FileManager1.ShowItems"])
             .arg(format!("array:string:{uri}"))
@@ -222,7 +223,8 @@ pub fn show_list(id: &str, tracks: &[Track]) {
         match to_show(here(own), here(files), &folder()) {
             Some(Shown::Folder(dir)) => open_dir(&dir),
             Some(Shown::File(file)) => show_file(&file),
-            None => {}
+            // Its files went since the last look: the downloads folder.
+            None => open_dir(&folder()),
         }
     });
 }
@@ -235,21 +237,22 @@ enum Shown {
 
 /// What Show in folder shows of a list: the folder its songs were saved in (`own`), one
 /// right under the downloads folder `root` before one elsewhere; else the first of its
-/// songs' files (`files`) in the folder that has most of them.
+/// songs' files (`files`, in its order) in the folder that has most of them.
 fn to_show(own: Vec<PathBuf>, files: Vec<PathBuf>, root: &Path) -> Option<Shown> {
     let dirs = || own.iter().filter_map(|p| p.parent());
     if let Some(dir) = dirs().filter(|d| d.parent() == Some(root)).min().or_else(|| dirs().min()) {
         return Some(Shown::Folder(dir.to_path_buf()));
     }
-    let mut by_dir: HashMap<&Path, Vec<&PathBuf>> = HashMap::new();
-    for f in &files {
-        if let Some(dir) = f.parent() {
-            by_dir.entry(dir).or_default().push(f);
-        }
+    // Each file once (two rows can be one song), in the list's order.
+    let mut seen = HashSet::new();
+    let files: Vec<&PathBuf> = files.iter().filter(|f| seen.insert(*f)).collect();
+    let mut count: HashMap<&Path, usize> = HashMap::new();
+    for dir in files.iter().filter_map(|f| f.parent()) {
+        *count.entry(dir).or_default() += 1;
     }
     // Most files, then the first folder by name: the same one every time.
-    let (_, files) = by_dir.into_iter().max_by(|(a, x), (b, y)| x.len().cmp(&y.len()).then(b.cmp(a)))?;
-    files.into_iter().min().map(|f| Shown::File(f.clone()))
+    let (dir, _) = count.into_iter().max_by(|(a, x), (b, y)| x.cmp(y).then(b.cmp(a)))?;
+    files.into_iter().find(|f| f.parent() == Some(dir)).map(|f| Shown::File(f.clone()))
 }
 
 /// The song's file, if it's downloaded and still there.
@@ -508,17 +511,22 @@ pub fn save(t: &Track, audio: &[u8], duration_ms: u64, loudness_db: Option<f32>,
     // and two lists of the same name the same folder.
     static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
-    let folder = {
+    // A copy: the disk work below doesn't hold up the rest of the app.
+    let (index, root) = {
         let st = STATE.read().unwrap();
-        match list {
-            Some(l) => list_dir(&st.index, &st.folder, l),
-            None => st.folder.clone(),
-        }
+        (st.index.clone(), st.folder.clone())
+    };
+    // Saved again, a song of a list's folder goes back in it (it stays that list's).
+    let kept = index.get(&t.id).and_then(|e| Some((e.path.parent()?, e.list.as_ref()?))).filter(|(d, _)| d.parent().is_some_and(|r| same_dir(r, &root)));
+    let (folder, list) = match (kept, list) {
+        (Some((dir, id)), _) => (dir.to_path_buf(), Some(id.clone())),
+        (None, Some(l)) => (list_dir(&index, &root, l), Some(l.id.clone())),
+        (None, None) => (root, None),
     };
     std::fs::create_dir_all(&folder)?;
     let ext = if audio.get(4..8) == Some(b"ftyp") { "m4a" } else { "webm" };
     // A file already there for this song is replaced; another song's isn't.
-    let mine = STATE.read().unwrap().index.get(&t.id).map(|e| e.path.clone());
+    let mine = index.get(&t.id).map(|e| e.path.clone());
     let stem = file_stem(t);
     let mut path = folder.join(format!("{stem}.{ext}"));
     let mut n = 2;
@@ -551,7 +559,6 @@ pub fn save(t: &Track, audio: &[u8], duration_ms: u64, loudness_db: Option<f32>,
         let song = first.is_some().then(|| t.clone());
         let track = Some(t.clone());
         st.gone.remove(&t.id);
-        let list = list.map(|l| l.id.clone());
         st.index.insert(t.id.clone(), Entry { path: path.clone(), duration_ms, loudness_db, stands_for: first, videos, song, track, list });
         st.saved.push(t.id.clone());
     }
@@ -584,12 +591,12 @@ pub fn list_name(title: &str, album: bool, tracks: &[Track]) -> String {
 /// before (renamed since, it keeps it), else one by its name that's free, "Name (2)" and
 /// on when it's taken (on disk, or by another list's songs).
 fn list_dir(index: &HashMap<String, Entry>, root: &Path, list: &ListFolder) -> PathBuf {
-    let before = index.values().filter(|e| e.list.as_deref() == Some(list.id.as_str())).filter_map(|e| e.path.parent()).filter(|d| d.parent() == Some(root)).min();
+    let before = index.values().filter(|e| e.list.as_deref() == Some(list.id.as_str())).filter_map(|e| e.path.parent()).filter(|d| d.parent().is_some_and(|r| same_dir(r, root))).min();
     if let Some(dir) = before {
         return dir.to_path_buf();
     }
     let name = Some(safe_name(&list.name, 100)).filter(|n| !n.is_empty()).unwrap_or_else(|| safe_name(&list.id, 100));
-    let taken = |dir: &Path| dir.exists() || index.values().any(|e| e.path.parent() == Some(dir));
+    let taken = |dir: &Path| dir.exists() || index.values().any(|e| e.path.parent().is_some_and(|d| same_dir(d, dir)));
     let mut dir = root.join(&name);
     let mut n = 2;
     while taken(&dir) {
@@ -599,17 +606,31 @@ fn list_dir(index: &HashMap<String, Entry>, root: &Path, list: &ListFolder) -> P
     dir
 }
 
-/// `name` safe as a Windows file or folder name, of at most `max` characters: none that
-/// Windows refuses, no dot or space at the end, and not a name it keeps for devices
+/// The same folder: on Windows, whatever the case of its letters.
+fn same_dir(a: &Path, b: &Path) -> bool {
+    if cfg!(windows) { a.as_os_str().eq_ignore_ascii_case(b.as_os_str()) } else { a == b }
+}
+
+/// `name` safe as a Windows file or folder name, of at most `max` characters (and 200
+/// bytes, for Linux's 255 with room for " (2).webm.part"): none that Windows refuses, no dot or space at the end, and not a name it keeps for devices
 /// (`CON`, `NUL`, `COM1`, …). Empty when nothing's left.
 fn safe_name(name: &str, max: usize) -> String {
     let clean: String = name.chars().map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c }).collect();
-    let clean: String = clean.trim().chars().take(max).collect();
+    let mut bytes = 0;
+    let clean: String = clean.trim().chars().take(max).take_while(|c| {
+        bytes += c.len_utf8();
+        bytes <= 200
+    }).collect();
     let clean = clean.trim_end_matches(['.', ' ']);
     // Windows goes by the part before the first dot ("nul.m4a" is NUL too).
     let base = clean.split('.').next().unwrap_or_default();
     let device = base.trim_end().to_ascii_uppercase();
-    let numbered = |p: &str| device.strip_prefix(p).is_some_and(|n| matches!(n.as_bytes(), [b'1'..=b'9']));
+    let numbered = |p: &str| {
+        device.strip_prefix(p).is_some_and(|n| {
+            let mut c = n.chars();
+            matches!((c.next(), c.next()), (Some('1'..='9' | '¹' | '²' | '³'), None))
+        })
+    };
     match matches!(device.as_str(), "CON" | "PRN" | "AUX" | "NUL") || numbered("COM") || numbered("LPT") {
         true => format!("{base}_{}", &clean[base.len()..]),
         false => clean.to_owned(),
@@ -678,6 +699,9 @@ mod tests {
         assert_eq!(safe_name("con. air", 100), "con_. air");
         assert_eq!(safe_name("COM3", 100), "COM3_");
         assert_eq!(safe_name("COM0", 100), "COM0");
+        assert_eq!(safe_name("com¹", 100), "com¹_");
+        // Long names in a script of wide letters stay within 200 bytes.
+        assert_eq!(safe_name(&"漢".repeat(90), 100).len(), 198);
         assert_eq!(safe_name("Console", 100), "Console");
         // Cut short, it doesn't end in a space or a dot either.
         assert_eq!(safe_name("ab. cd", 4), "ab");
@@ -722,6 +746,12 @@ mod tests {
         // A list's folder under a downloads folder that's no longer the one: a new one here.
         index.insert("s2".into(), entry(root.join("old").join("Jazz").join("s2.m4a"), Some("PL4")));
         assert_eq!(list_dir(&index, &root, &list("PL4", "Jazz")), root.join("Jazz"));
+        // A folder by the same name but for case is the same one on Windows.
+        #[cfg(windows)]
+        {
+            index.insert("s3".into(), entry(root.join("Rock").join("s3.m4a"), Some("PL6")));
+            assert_eq!(list_dir(&index, &root, &list("PL7", "rock")), root.join("rock (2)"));
+        }
         // No name left: its id.
         assert_eq!(list_dir(&index, &root, &list("PL5", "...")), root.join("PL5"));
 
@@ -736,9 +766,9 @@ mod tests {
         let own = vec![root.join("old").join("Mix").join("a.m4a"), mix.join("b.m4a")];
         assert_eq!(to_show(own, vec![loose("c.m4a")], &root), Some(Shown::Folder(mix.clone())));
         assert_eq!(to_show(vec![PathBuf::from("elsewhere/Mix/a.m4a")], Vec::new(), &root), Some(Shown::Folder(PathBuf::from("elsewhere/Mix"))));
-        // Loose songs: the first of them in the folder with most of them.
-        let files = vec![loose("b.m4a"), mix.join("x.m4a"), loose("a.m4a")];
-        assert_eq!(to_show(Vec::new(), files, &root), Some(Shown::File(loose("a.m4a"))));
+        // Loose songs: the list's first in the folder with most of them, each file once.
+        let files = vec![mix.join("x.m4a"), mix.join("x.m4a"), mix.join("x.m4a"), loose("b.m4a"), loose("a.m4a")];
+        assert_eq!(to_show(Vec::new(), files, &root), Some(Shown::File(loose("b.m4a"))));
         assert_eq!(to_show(Vec::new(), Vec::new(), &root), None);
     }
 

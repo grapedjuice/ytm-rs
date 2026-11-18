@@ -161,14 +161,25 @@ impl Filter {
 }
 
 async fn search_as(api: &Api, query: &str, filter: Filter, auth: bool) -> anyhow::Result<Vec<Value>> {
-    let v = api.call("search", json!({ "query": query, "params": filter.params() }), auth).await?;
+    Ok(search_rows(&api.call("search", json!({ "query": query, "params": filter.params() }), auth).await?))
+}
+
+fn search_rows(v: &Value) -> Vec<Value> {
     let sections = &v["contents"]["tabbedSearchResultsRenderer"]["tabs"][0]["tabRenderer"]["content"]["sectionListRenderer"]["contents"];
-    Ok(arr(sections).iter().flat_map(|s| arr(&s["musicShelfRenderer"]["contents"]).iter().cloned()).collect())
+    arr(sections).iter().flat_map(|s| arr(&s["musicShelfRenderer"]["contents"]).iter().cloned()).collect()
 }
 
 /// `auth`: as the signed-in account, which adds the query to its search history.
 pub async fn search_songs(api: &Api, query: &str, auth: bool) -> anyhow::Result<Vec<Track>> {
     Ok(search_as(api, query, Filter::Songs, auth).await?.iter().filter_map(|i| list_item(&i["musicResponsiveListItemRenderer"])).collect())
+}
+
+/// Like [`search_songs`], in English whatever Settings › Song info says: for matching
+/// against titles and names that aren't translated (a video's, Spotify's), which "スターボーイ"
+/// by "ザ・ウィークエンド" wouldn't.
+pub async fn search_songs_in_english(api: &Api, query: &str, auth: bool) -> anyhow::Result<Vec<Track>> {
+    let v = api.call_in_english("search", json!({ "query": query, "params": Filter::Songs.params() }), auth).await?;
+    Ok(search_rows(&v).iter().filter_map(|i| list_item(&i["musicResponsiveListItemRenderer"])).collect())
 }
 
 /// Videos for a search: music videos and plain uploads, which song results leave out.
@@ -300,7 +311,7 @@ pub async fn album(api: &Api, id: &str) -> anyhow::Result<Collection> {
         let english = if api.locale().hl == crate::locale::ENGLISH.hl {
             None
         } else {
-            let v = api.call_in_english("browse", json!({ "browseId": id })).await;
+            let v = api.call_in_english("browse", json!({ "browseId": id }), false).await;
             v.ok().and_then(|v| parse_album(&v, id)).map(|(e, _)| e.tracks.into_iter().map(|t| t.title).collect::<Vec<_>>()).filter(|t| t.len() == a.tracks.len())
         };
         songs_for_videos(&mut a, &videos, english.as_deref()).await;
@@ -382,7 +393,7 @@ pub async fn searched_song(api: &Api, video: &Track, clean: bool) -> anyhow::Res
         Some(a) => format!("{title} {}", a.name),
         None => return Ok(None),
     };
-    let hits = search_songs(api, &query, false).await?;
+    let hits = search_songs_in_english(api, &query, false).await?;
     Ok(hits.into_iter().take(5).find(|h| same_song(video, h) && !(clean && h.explicit)))
 }
 
@@ -430,7 +441,7 @@ fn qualifiers_agree(a: &str, b: &str) -> bool {
     let harmless = |q: &String| {
         let w: Vec<&str> = q.split(' ').collect();
         // A guest as other languages credit one too ("avec Justice", "con Bad Bunny").
-        matches!(w.first(), Some(&("feat" | "ft" | "featuring" | "with" | "from" | "avec" | "con" | "mit" | "com" | "part")))
+        matches!(w.first(), Some(&("feat" | "ft" | "featuring" | "with" | "from" | "avec" | "con" | "mit" | "com")))
             || w.iter().any(|w| w.starts_with("remaster"))
             || w.iter().all(|w| w.bytes().all(|c| c.is_ascii_digit()))
     };
@@ -1090,7 +1101,8 @@ pub struct Charts {
     pub artists: Vec<String>,
 }
 
-/// Charts for the country in Settings › Song info (every one listed there has them).
+/// Charts for the country in Settings › Song info, or the global ones where YouTube Music
+/// has none for it.
 pub async fn charts(api: &Api) -> anyhow::Result<Charts> {
     let body = json!({ "browseId": "FEmusic_charts", "params": "sgYPRkVtdXNpY19leHBsb3Jl", "formData": { "selectedValues": [api.locale().gl] } });
     Ok(parse_charts(&api.call("browse", body, false).await?))
@@ -2930,6 +2942,7 @@ mod tests {
         assert!(qualifiers_agree("Wake Me Up (avec Justice)", "Wake Me Up"));
         assert!(qualifiers_agree("Tití Me Preguntó (con Bad Bunny)", "Tití Me Preguntó"));
         assert!(!qualifiers_agree("Wake Me Up (Remix)", "Wake Me Up"));
+        assert!(!qualifiers_agree("Song (Part 2)", "Song") && !qualifiers_agree("Song (Part 1)", "Song (Part 2)"));
     }
 
     /// Looks up the plays of a real song an album page lists without them. Run alone:

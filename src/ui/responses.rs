@@ -453,7 +453,7 @@ impl App {
             Resp::QuickPicksMore { seed, tracks } => {
                 if let Some(h) = &mut self.home {
                     h.picks_loading = false;
-                    if let Some(shelf) = crate::model::quick_picks(&h.shelves).map(|i| &mut h.shelves[i])
+                    if let Some(shelf) = crate::model::quick_picks(&h.shelves, self.locale.hl).map(|i| &mut h.shelves[i])
                         && let ShelfKind::Songs { tracks: picks, .. } = &mut shelf.kind
                         && picks.iter().any(|t| t.id == seed)
                     {

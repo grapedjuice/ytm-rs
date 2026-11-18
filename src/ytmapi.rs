@@ -324,10 +324,10 @@ impl Api {
         }
     }
 
-    /// Like `call`, anonymously and in English whatever Settings › Song info says.
-    pub async fn call_in_english(&self, endpoint: &str, mut body: Value) -> anyhow::Result<Value> {
-        body["context"] = json!({ "client": { "hl": crate::locale::ENGLISH.hl, "gl": crate::locale::ENGLISH.gl } });
-        self.call(endpoint, body, false).await
+    /// Like `call`, in English whatever Settings › Song info says (its country stays).
+    pub async fn call_in_english(&self, endpoint: &str, mut body: Value, auth: bool) -> anyhow::Result<Value> {
+        body["context"] = json!({ "client": { "hl": crate::locale::ENGLISH.hl } });
+        self.call(endpoint, body, auth).await
     }
 
     /// Like `call`, but a signed-in account is required.

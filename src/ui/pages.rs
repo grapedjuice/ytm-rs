@@ -528,7 +528,7 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
         ui.label(RichText::new("Nothing here yet").color(theme::text_dim()));
     }
     let mut more_picks = None;
-    let picks = crate::model::quick_picks(&h.shelves);
+    let picks = crate::model::quick_picks(&h.shelves, app.locale.hl);
     for (i, s) in h.shelves.iter().enumerate() {
         let id = format!("home-{i}-{}", s.title);
         match &s.kind {

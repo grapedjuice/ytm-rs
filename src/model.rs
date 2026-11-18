@@ -183,11 +183,14 @@ pub struct Shelf {
     pub kind: ShelfKind,
 }
 
-/// Which of Home's shelves is Quick picks: by its title in English, and in another
-/// language ("Schnellauswahl", "曲のミックス") as the first shelf of song rows.
-pub fn quick_picks(shelves: &[Shelf]) -> Option<usize> {
+/// Which of Home's shelves is Quick picks: by its title in English (`hl`, Settings › Song
+/// info), and in another language ("Schnellauswahl", "曲のミックス") as the first shelf of song rows.
+pub fn quick_picks(shelves: &[Shelf], hl: &str) -> Option<usize> {
     let rows = |s: &Shelf| matches!(s.kind, ShelfKind::Songs { .. });
-    shelves.iter().position(|s| s.title == "Quick picks").or_else(|| shelves.iter().position(rows))
+    if hl == crate::locale::ENGLISH.hl {
+        return shelves.iter().position(|s| s.title == "Quick picks");
+    }
+    shelves.iter().position(rows)
 }
 
 #[cfg(test)]
@@ -201,9 +204,11 @@ mod quick_picks_tests {
 
     #[test]
     fn quick_picks_by_title_or_else_the_first_song_rows() {
-        assert_eq!(quick_picks(&[shelf("Listen again", false), shelf("Covers", true), shelf("Quick picks", true)]), Some(2));
-        assert_eq!(quick_picks(&[shelf("もう一度聴く", false), shelf("曲のミックス", true), shelf("カバー", true)]), Some(1));
-        assert_eq!(quick_picks(&[shelf("Mixed for you", false)]), None);
+        assert_eq!(quick_picks(&[shelf("Listen again", false), shelf("Covers", true), shelf("Quick picks", true)], "en"), Some(2));
+        // In English, song rows by another name aren't it.
+        assert_eq!(quick_picks(&[shelf("Listen again", false), shelf("Covers", true)], "en"), None);
+        assert_eq!(quick_picks(&[shelf("もう一度聴く", false), shelf("曲のミックス", true), shelf("カバー", true)], "ja"), Some(1));
+        assert_eq!(quick_picks(&[shelf("Mixed for you", false)], "ja"), None);
     }
 }
 

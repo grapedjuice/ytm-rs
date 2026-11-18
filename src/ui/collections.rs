@@ -243,7 +243,7 @@ impl App {
     pub(super) fn preferred_artist_ids(&self) -> Vec<String> {
         let mut ids = HashSet::new();
         if let Some(home) = &self.home {
-            let picks = crate::model::quick_picks(&home.shelves);
+            let picks = crate::model::quick_picks(&home.shelves, self.locale.hl);
             for (i, shelf) in home.shelves.iter().enumerate() {
                 if !shelf.own && picks != Some(i) { continue; }
                 match &shelf.kind {

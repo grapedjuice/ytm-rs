@@ -2550,7 +2550,8 @@ fn popular_new_albums(albums: &[Card], ranked_artists: &[String], preferred_arti
 
 /// "Episodes for later" is listed even when empty; hide it then.
 fn saved_playlist_visible(card: &Card) -> bool {
-    card.target != Target::Playlist("SE".into()) || card.subtitle.split_whitespace().any(|w| w.parse::<u64>().is_ok_and(|n| n > 0))
+    // Digits however they're written around ("12 episodes", "12集").
+    card.target != Target::Playlist("SE".into()) || card.subtitle.split(|c: char| !c.is_ascii_digit()).any(|w| w.parse::<u64>().is_ok_and(|n| n > 0))
 }
 
 pub fn compact(n: u64) -> String {

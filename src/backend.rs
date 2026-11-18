@@ -649,6 +649,8 @@ pub struct DownloadRun {
     /// Their ids, in the same order: queued again, the run tries them again.
     pub failed_ids: Vec<String>,
     pub cancelled: bool,
+    /// The album's or playlist's own folder its songs go in (the setting's on).
+    pub folder: Option<crate::downloads::ListFolder>,
 }
 
 impl DownloadRun {
@@ -688,7 +690,7 @@ impl DownloadQueue {
     /// twice. Queued again, a run takes on just the songs it didn't have, and tries again
     /// the ones that failed (they're its songs already: not counted twice). Returns the
     /// run's key and how many songs were queued for it.
-    fn add(&mut self, key: Option<String>, title: String, listed: usize, todo: Vec<Track>) -> (String, usize) {
+    fn add(&mut self, key: Option<String>, title: String, listed: usize, todo: Vec<Track>, folder: Option<crate::downloads::ListFolder>) -> (String, usize) {
         let skipped = listed.saturating_sub(todo.len());
         let key = key.unwrap_or_else(|| {
             self.selections += 1;
@@ -722,10 +724,18 @@ impl DownloadQueue {
             Some(run) => {
                 run.total += added;
                 run.cancelled = false;
+                run.folder = folder;
             }
-            None => self.runs.push(DownloadRun { key: key.clone(), title, total: added + skipped, done: skipped, skipped, ..Default::default() }),
+            None => self.runs.push(DownloadRun { key: key.clone(), title, total: added + skipped, done: skipped, skipped, folder, ..Default::default() }),
         }
         (key, queued)
+    }
+
+    /// The folder a song waiting or downloading goes in: that of the first run that
+    /// wants it (none: the downloads folder itself).
+    fn folder_for(&self, id: &str) -> Option<crate::downloads::ListFolder> {
+        let key = self.wanted.get(id)?.first()?;
+        self.runs.iter().find(|r| &r.key == key)?.folder.clone()
     }
 
     /// The next song to download, or none: then the worker asking stops.
@@ -1216,7 +1226,7 @@ impl Backend {
                     Resp::PlayQueue { target, title, tracks }
                 }
                 Req::Download { track: t, for_video } => {
-                    let (path, _) = self.download(&t, for_video, false).await?;
+                    let (path, _) = self.download(&t, for_video, false, None).await?;
                     // Its lyrics too, for offline; the download is done without waiting for them.
                     let (this, song) = (self.clone(), t.clone());
                     tokio::spawn(async move {
@@ -2028,7 +2038,8 @@ impl Backend {
     /// Download a song into the downloads folder, at the best quality the account gets.
     /// `behind_player`: each part waits while the playing song still needs some of its own.
     /// Returns the file, and whether this saved it (false: it was there already).
-    async fn download(&self, t: &Track, for_video: Option<String>, behind_player: bool) -> anyhow::Result<(PathBuf, bool)> {
+    /// `folder`: the album's or playlist's own it goes in.
+    async fn download(&self, t: &Track, for_video: Option<String>, behind_player: bool, folder: Option<crate::downloads::ListFolder>) -> anyhow::Result<(PathBuf, bool)> {
         // One save of a song at a time: one on its way already, this waits and takes its file.
         let _saving = loop {
             if self.batch.lock().unwrap().saving.insert(t.id.clone()) {
@@ -2066,7 +2077,7 @@ impl Backend {
                 Err(e) => log::debug!("download {}: no play count: {e:#}", t.id),
             }
         }
-        let path = tokio::task::spawn_blocking(move || crate::downloads::save(&t, &audio, duration_ms, loudness, cover, for_video)).await??;
+        let path = tokio::task::spawn_blocking(move || crate::downloads::save(&t, &audio, duration_ms, loudness, cover, for_video, folder.as_ref())).await??;
         Ok((path, true))
     }
 
@@ -2108,8 +2119,13 @@ impl Backend {
             }
         }
         let skipped = listed.len() - todo.len();
+        // An album or playlist of its own, not a selection, with the setting on.
+        let folder = key.as_ref().filter(|_| crate::downloads::per_list()).map(|id| crate::downloads::ListFolder {
+            id: id.clone(),
+            name: crate::downloads::list_name(&title, matches!(target, Some(Target::Album(_))), &listed),
+        });
         let mut q = self.batch.lock().unwrap();
-        let (key, queued) = q.add(key, title, listed.len(), todo);
+        let (key, queued) = q.add(key, title, listed.len(), todo, folder);
         log::info!("download {key}: {queued} songs queued, {skipped} downloaded already");
         for _ in 0..q.more_workers() {
             let this = self.clone();
@@ -2124,11 +2140,17 @@ impl Backend {
     /// Download queued songs, one after another, until none are left.
     async fn download_worker(&self) {
         loop {
-            let next = self.batch.lock().unwrap().next();
-            let Some(t) = next else { return };
+            let next = {
+                let mut q = self.batch.lock().unwrap();
+                q.next().map(|t| {
+                    let folder = q.folder_for(&t.id);
+                    (t, folder)
+                })
+            };
+            let Some((t, folder)) = next else { return };
             // On a task of its own, so a panic in it fails this song, not the whole queue.
             let (this, song) = (self.clone(), t.clone());
-            let result = tokio::spawn(async move { this.download_listed(&song).await }).await.unwrap_or_else(|e| Err(anyhow::anyhow!("{e}")));
+            let result = tokio::spawn(async move { this.download_listed(&song, folder).await }).await.unwrap_or_else(|e| Err(anyhow::anyhow!("{e}")));
             if let Err(e) = &result {
                 log::warn!("download {}: {e:#}", t.id);
             }
@@ -2143,7 +2165,8 @@ impl Backend {
 
     /// One song of a run, behind the playing song, unless it's downloaded by now. A music
     /// video saves its song version (with none found it isn't downloaded). True once saved.
-    async fn download_listed(&self, t: &Track) -> anyhow::Result<bool> {
+    /// `folder`: its album's or playlist's own, to save it in.
+    async fn download_listed(&self, t: &Track, folder: Option<crate::downloads::ListFolder>) -> anyhow::Result<bool> {
         let (song, for_video) = match t.music_video {
             true => (self.song_version(&t.id, Some(t), PREFETCH_SONG_WAIT).await.ok_or_else(|| anyhow::anyhow!("no song version of this music video"))?, Some(t.id.clone())),
             false => (t.clone(), None),
@@ -2152,7 +2175,7 @@ impl Backend {
         if reuse_download(&song.id, for_video.clone()).await.is_some() {
             return Ok(false);
         }
-        if !self.download(&song, for_video, true).await?.1 {
+        if !self.download(&song, for_video, true, folder).await?.1 {
             // Saved meanwhile by another download, lyrics and all.
             return Ok(false);
         }
@@ -2615,8 +2638,8 @@ mod download_queue_tests {
     #[test]
     fn a_song_two_runs_want_downloads_once_for_both() {
         let mut q = DownloadQueue::default();
-        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2"])), ("A".to_owned(), 2));
-        assert_eq!(q.add(Some("B".into()), "B".into(), 2, songs(&["2", "3"])), ("B".to_owned(), 2));
+        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2"]), None), ("A".to_owned(), 2));
+        assert_eq!(q.add(Some("B".into()), "B".into(), 2, songs(&["2", "3"]), None), ("B".to_owned(), 2));
         assert_eq!(waiting(&q), ["1", "2", "3"]);
         let (a, b) = (run(&q, "A"), run(&q, "B"));
         assert_eq!((a.total, a.done, a.skipped), (3, 1, 1));
@@ -2631,8 +2654,8 @@ mod download_queue_tests {
     #[test]
     fn queued_again_a_run_takes_on_only_what_it_lacks() {
         let mut q = DownloadQueue::default();
-        q.add(Some("A".into()), "A".into(), 2, songs(&["1", "2"]));
-        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"])).1, 1);
+        q.add(Some("A".into()), "A".into(), 2, songs(&["1", "2"]), None);
+        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"]), None).1, 1);
         assert_eq!(waiting(&q), ["1", "2", "3"]);
         assert_eq!(run(&q, "A").total, 3);
     }
@@ -2640,14 +2663,14 @@ mod download_queue_tests {
     #[test]
     fn queued_again_a_failed_song_is_retried_not_counted_twice() {
         let mut q = DownloadQueue::default();
-        q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"]));
+        q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"]), None);
         let one = q.next().unwrap();
         q.finish(&one, &Err::<bool, _>(()));
         assert_eq!((run(&q, "A").done, run(&q, "A").failed.clone()), (1, vec!["1".to_owned()]));
 
         // Queued again from the card's menu while 2 and 3 are still to go: 1 failed, so
         // it isn't downloaded and comes back; 2 and 3 are on their way already.
-        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"])).1, 1);
+        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"]), None).1, 1);
         let a = run(&q, "A");
         assert_eq!((a.total, a.done), (3, 0));
         assert!(a.failed.is_empty() && a.failed_ids.is_empty());
@@ -2668,8 +2691,8 @@ mod download_queue_tests {
     #[test]
     fn cancelling_drops_only_the_songs_no_other_run_wants() {
         let mut q = DownloadQueue::default();
-        q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"]));
-        q.add(Some("B".into()), "B".into(), 1, songs(&["3"]));
+        q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"]), None);
+        q.add(Some("B".into()), "B".into(), 1, songs(&["3"]), None);
         // 1 is on its way: it finishes.
         let one = q.next().unwrap();
         assert!(q.cancel("A"));
@@ -2690,12 +2713,27 @@ mod download_queue_tests {
     #[test]
     fn selections_get_keys_of_their_own_and_workers_are_capped() {
         let mut q = DownloadQueue::default();
-        assert_eq!(q.add(None, String::new(), 1, songs(&["1"])).0, "selection-1");
-        assert_eq!(q.add(None, String::new(), 2, songs(&["2", "3"])).0, "selection-2");
+        assert_eq!(q.add(None, String::new(), 1, songs(&["1"]), None).0, "selection-1");
+        assert_eq!(q.add(None, String::new(), 2, songs(&["2", "3"]), None).0, "selection-2");
         assert_eq!(q.more_workers(), DOWNLOADS_AT_ONCE.min(3));
         assert_eq!(q.more_workers(), 0);
         while q.next().is_some() {}
         assert_eq!(q.workers, DOWNLOADS_AT_ONCE.min(3) - 1);
+    }
+
+    #[test]
+    fn a_song_goes_in_the_folder_of_the_first_run_that_wants_it() {
+        let mut q = DownloadQueue::default();
+        let folder = |id: &str| Some(crate::downloads::ListFolder { id: id.into(), name: id.into() });
+        q.add(Some("A".into()), "A".into(), 2, songs(&["1", "2"]), folder("A"));
+        q.add(Some("B".into()), "B".into(), 2, songs(&["2", "3"]), folder("B"));
+        q.add(None, String::new(), 1, songs(&["4"]), None);
+        assert_eq!(q.folder_for("2"), folder("A"));
+        assert_eq!(q.folder_for("3"), folder("B"));
+        assert_eq!(q.folder_for("4"), None);
+        // A's waiting songs dropped: B's is the folder now.
+        q.cancel("A");
+        assert_eq!(q.folder_for("2"), folder("B"));
     }
 }
 

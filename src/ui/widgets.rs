@@ -859,6 +859,13 @@ pub fn card_menu_contents(ui: &mut Ui, c: &Card, liked: bool, pin: Option<bool>,
             if matches!(t, Target::Album(_) | Target::Playlist(_)) && menu_action(ui, Some(icon::DOWNLOAD), "Download") {
                 acts.push(Action::DownloadMany(Some(t.clone()), c.title.clone(), None));
             }
+            // Its songs aren't known here: shown when they went in its own folder.
+            if let Target::Album(id) | Target::Playlist(id) = t
+                && crate::downloads::has_list_folder(id)
+                && menu_action(ui, Some(icon::FOLDER_OPEN), "Show in folder")
+            {
+                crate::downloads::show_list(id, &[]);
+            }
             if let (Some(pinned), Target::Playlist(id)) = (pin, t)
                 && menu_action(ui, Some(if pinned { icon::PIN_OFF } else { icon::PIN }), if pinned { "Unpin playlist" } else { "Pin playlist" })
             {

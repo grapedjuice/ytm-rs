@@ -5,6 +5,10 @@
 //! `downloads.json` in the data dir maps video ids to their files; a file that was
 //! moved or deleted just stops counting as downloaded. A downloaded song's lyrics are
 //! kept in the data dir's `lyrics` folder, so they show offline too.
+//!
+//! With `per_list` on, an album's or playlist's own download puts its songs in a folder
+//! of their own under the downloads folder. A song is saved once: one downloaded already
+//! (loose, or in another list's folder) stays where it is.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -34,6 +38,17 @@ struct Entry {
     /// before it was kept are read from their tags instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     track: Option<Track>,
+    /// The album or playlist whose folder it was saved in (`ListFolder::id`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    list: Option<String>,
+}
+
+/// An album or playlist whose songs go in a folder of their own: its id, and the name
+/// its folder takes (`list_name`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListFolder {
+    pub id: String,
+    pub name: String,
 }
 
 struct State {
@@ -41,6 +56,8 @@ struct State {
     /// Where the index is saved (the data dir's downloads.json).
     file: PathBuf,
     folder: PathBuf,
+    /// Albums and playlists get a folder each (the setting).
+    per_list: bool,
     /// Songs whose file wasn't there when last looked for. They stay in the index: a
     /// folder on a drive that's away has them back when it's back.
     gone: HashSet<String>,
@@ -50,7 +67,7 @@ struct State {
 }
 
 static STATE: LazyLock<RwLock<State>> =
-    LazyLock::new(|| RwLock::new(State { index: HashMap::new(), file: PathBuf::new(), folder: default_folder(), gone: HashSet::new(), saved: Vec::new() }));
+    LazyLock::new(|| RwLock::new(State { index: HashMap::new(), file: PathBuf::new(), folder: default_folder(), per_list: false, gone: HashSet::new(), saved: Vec::new() }));
 
 /// Music\ytm-rs.
 pub fn default_folder() -> PathBuf {
@@ -60,8 +77,9 @@ pub fn default_folder() -> PathBuf {
     base.join("ytm-rs")
 }
 
-/// Load the index; `folder` is the saved setting (empty for the default).
-pub fn init(data_dir: &Path, folder: &str) {
+/// Load the index; `folder` is the saved setting (empty for the default), `per_list` the
+/// folder-per-list one.
+pub fn init(data_dir: &Path, folder: &str, per_list: bool) {
     let file = data_dir.join("downloads.json");
     let index = match std::fs::read(&file) {
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
@@ -76,6 +94,7 @@ pub fn init(data_dir: &Path, folder: &str) {
     st.index = index;
     st.file = file;
     st.folder = if folder.is_empty() { default_folder() } else { PathBuf::from(folder) };
+    st.per_list = per_list;
     drop(st);
     // Which files are gone: disk work, off the UI thread.
     std::thread::spawn(|| {
@@ -125,6 +144,15 @@ pub fn set_folder(folder: PathBuf) {
     STATE.write().unwrap().folder = folder;
 }
 
+/// Whether an album's or playlist's own download puts it in a folder of its own.
+pub fn per_list() -> bool {
+    STATE.read().unwrap().per_list
+}
+
+pub fn set_per_list(on: bool) {
+    STATE.write().unwrap().per_list = on;
+}
+
 /// Ask for a new folder (the system picker, on its own thread).
 pub fn pick_folder(ctx: &egui::Context) {
     let ctx = ctx.clone();
@@ -139,6 +167,10 @@ pub fn pick_folder(ctx: &egui::Context) {
 pub fn open_folder() {
     let dir = folder();
     let _ = std::fs::create_dir_all(&dir);
+    open_dir(&dir);
+}
+
+fn open_dir(dir: &Path) {
     #[cfg(windows)]
     let _ = std::process::Command::new("explorer").arg(dir).spawn();
     #[cfg(target_os = "macos")]
@@ -174,6 +206,52 @@ pub fn show_file(path: &Path) {
     }
 }
 
+/// Show an album's or playlist's downloads (`tracks`: its songs, when known): its own
+/// folder when it has one, else the first of its songs, selected, in the folder that has
+/// most of them. Disk work, on its own thread.
+pub fn show_list(id: &str, tracks: &[Track]) {
+    let (id, tracks) = (id.to_owned(), tracks.to_vec());
+    std::thread::spawn(move || {
+        let (own, files) = {
+            let st = STATE.read().unwrap();
+            let own: Vec<PathBuf> = st.index.values().filter(|e| e.list.as_deref() == Some(id.as_str())).map(|e| e.path.clone()).collect();
+            let files: Vec<PathBuf> = tracks.iter().filter_map(|t| entry_for(&st, t)).map(|e| e.path.clone()).collect();
+            (own, files)
+        };
+        let here = |v: Vec<PathBuf>| v.into_iter().filter(|p| p.is_file()).collect();
+        match to_show(here(own), here(files), &folder()) {
+            Some(Shown::Folder(dir)) => open_dir(&dir),
+            Some(Shown::File(file)) => show_file(&file),
+            None => {}
+        }
+    });
+}
+
+#[derive(Debug, PartialEq)]
+enum Shown {
+    Folder(PathBuf),
+    File(PathBuf),
+}
+
+/// What Show in folder shows of a list: the folder its songs were saved in (`own`), one
+/// right under the downloads folder `root` before one elsewhere; else the first of its
+/// songs' files (`files`) in the folder that has most of them.
+fn to_show(own: Vec<PathBuf>, files: Vec<PathBuf>, root: &Path) -> Option<Shown> {
+    let dirs = || own.iter().filter_map(|p| p.parent());
+    if let Some(dir) = dirs().filter(|d| d.parent() == Some(root)).min().or_else(|| dirs().min()) {
+        return Some(Shown::Folder(dir.to_path_buf()));
+    }
+    let mut by_dir: HashMap<&Path, Vec<&PathBuf>> = HashMap::new();
+    for f in &files {
+        if let Some(dir) = f.parent() {
+            by_dir.entry(dir).or_default().push(f);
+        }
+    }
+    // Most files, then the first folder by name: the same one every time.
+    let (_, files) = by_dir.into_iter().max_by(|(a, x), (b, y)| x.len().cmp(&y.len()).then(b.cmp(a)))?;
+    files.into_iter().min().map(|f| Shown::File(f.clone()))
+}
+
 /// The song's file, if it's downloaded and still there.
 pub fn path(video_id: &str) -> Option<PathBuf> {
     STATE.read().unwrap().index.get(video_id).map(|e| e.path.clone()).filter(|p| p.is_file())
@@ -184,11 +262,44 @@ pub fn path(video_id: &str) -> Option<PathBuf> {
 /// A music video counts when its song version is.
 pub fn all_listed(tracks: &[Track]) -> bool {
     let st = STATE.read().unwrap();
-    let videos: std::collections::HashSet<&str> = match tracks.iter().any(|t| t.music_video) {
+    let videos = song_versions(&st, tracks);
+    tracks.iter().all(|t| listed_now(&st, &videos, t))
+}
+
+/// Whether any of these songs are downloaded, as last looked (see `all_listed`).
+pub fn any_listed(tracks: &[Track]) -> bool {
+    let st = STATE.read().unwrap();
+    let videos = song_versions(&st, tracks);
+    tracks.iter().any(|t| listed_now(&st, &videos, t))
+}
+
+/// Whether songs were saved in the album or playlist `id`'s own folder, as last looked.
+pub fn has_list_folder(id: &str) -> bool {
+    let st = STATE.read().unwrap();
+    st.index.iter().any(|(song, e)| e.list.as_deref() == Some(id) && !st.gone.contains(song))
+}
+
+/// The music videos whose song versions are downloaded, when there are any among `tracks`.
+fn song_versions<'a>(st: &'a State, tracks: &[Track]) -> HashSet<&'a str> {
+    match tracks.iter().any(|t| t.music_video) {
         true => st.index.iter().filter(|(id, _)| !st.gone.contains(*id)).flat_map(|(_, e)| e.stands_for.iter().chain(&e.videos)).map(String::as_str).collect(),
-        false => Default::default(),
-    };
-    tracks.iter().all(|t| (st.index.contains_key(&t.id) && !st.gone.contains(&t.id)) || (t.music_video && videos.contains(t.id.as_str())))
+        false => HashSet::new(),
+    }
+}
+
+fn listed_now(st: &State, videos: &HashSet<&str>, t: &Track) -> bool {
+    (st.index.contains_key(&t.id) && !st.gone.contains(&t.id)) || (t.music_video && videos.contains(t.id.as_str()))
+}
+
+/// The entry of a song's file, or of a music video's song version, unless it was gone
+/// when last looked.
+fn entry_for<'a>(st: &'a State, t: &Track) -> Option<&'a Entry> {
+    let here = |(id, e): (&String, &'a Entry)| (!st.gone.contains(id)).then_some(e);
+    let stands_for = |e: &Entry| e.stands_for.as_deref() == Some(t.id.as_str()) || e.videos.contains(&t.id);
+    st.index.get_key_value(&t.id).and_then(here).or_else(|| match t.music_video {
+        true => st.index.iter().filter(|(_, e)| stands_for(e)).find_map(here),
+        false => None,
+    })
 }
 
 /// The downloaded song version of the music video `video_id`, if its file is still there.
@@ -390,13 +501,20 @@ pub fn open(video_id: &str) -> Option<Arc<Shared>> {
     Some(Shared::from_bytes(data, entry.duration_ms, entry.loudness_db))
 }
 
-/// Write a downloaded song into the folder and remember it. Returns the file.
-/// `stands_for`: the music video `t` is the song version of.
-pub fn save(t: &Track, audio: &[u8], duration_ms: u64, loudness_db: Option<f32>, cover: Option<Vec<u8>>, stands_for: Option<String>) -> anyhow::Result<PathBuf> {
-    // One save at a time: two songs of the same name would otherwise both find it free.
+/// Write a downloaded song into the folder (`list`'s own, given one) and remember it.
+/// Returns the file. `stands_for`: the music video `t` is the song version of.
+pub fn save(t: &Track, audio: &[u8], duration_ms: u64, loudness_db: Option<f32>, cover: Option<Vec<u8>>, stands_for: Option<String>, list: Option<&ListFolder>) -> anyhow::Result<PathBuf> {
+    // One save at a time: two songs of the same name would otherwise both find it free,
+    // and two lists of the same name the same folder.
     static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
-    let folder = folder();
+    let folder = {
+        let st = STATE.read().unwrap();
+        match list {
+            Some(l) => list_dir(&st.index, &st.folder, l),
+            None => st.folder.clone(),
+        }
+    };
     std::fs::create_dir_all(&folder)?;
     let ext = if audio.get(4..8) == Some(b"ftyp") { "m4a" } else { "webm" };
     // A file already there for this song is replaced; another song's isn't.
@@ -433,7 +551,8 @@ pub fn save(t: &Track, audio: &[u8], duration_ms: u64, loudness_db: Option<f32>,
         let song = first.is_some().then(|| t.clone());
         let track = Some(t.clone());
         st.gone.remove(&t.id);
-        st.index.insert(t.id.clone(), Entry { path: path.clone(), duration_ms, loudness_db, stands_for: first, videos, song, track });
+        let list = list.map(|l| l.id.clone());
+        st.index.insert(t.id.clone(), Entry { path: path.clone(), duration_ms, loudness_db, stands_for: first, videos, song, track, list });
         st.saved.push(t.id.clone());
     }
     write_index();
@@ -444,10 +563,57 @@ pub fn save(t: &Track, audio: &[u8], duration_ms: u64, loudness_db: Option<f32>,
 fn file_stem(t: &Track) -> String {
     let artists = t.artist_line();
     let name = if artists.is_empty() { t.title.clone() } else { format!("{artists} - {}", t.title) };
-    let clean: String = name.chars().map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c }).collect();
-    let clean = clean.trim().trim_end_matches('.').trim();
-    let clean: String = clean.chars().take(150).collect();
+    let clean = safe_name(&name, 150);
     if clean.is_empty() { t.id.clone() } else { clean }
+}
+
+/// The name an album's or playlist's folder takes: "Artist - Album" for an album whose
+/// songs all have the same first artist, else its title.
+pub fn list_name(title: &str, album: bool, tracks: &[Track]) -> String {
+    fn first(t: &Track) -> Option<&str> {
+        t.artists.first().map(|a| a.name.trim()).filter(|a| !a.is_empty())
+    }
+    let artist = tracks.first().and_then(first).filter(|a| tracks.iter().all(|t| first(t) == Some(a)));
+    match artist {
+        Some(a) if album => format!("{a} - {title}"),
+        _ => title.to_owned(),
+    }
+}
+
+/// The folder for `list`'s songs, right under `root`: the one its songs were saved in
+/// before (renamed since, it keeps it), else one by its name that's free, "Name (2)" and
+/// on when it's taken (on disk, or by another list's songs).
+fn list_dir(index: &HashMap<String, Entry>, root: &Path, list: &ListFolder) -> PathBuf {
+    let before = index.values().filter(|e| e.list.as_deref() == Some(list.id.as_str())).filter_map(|e| e.path.parent()).filter(|d| d.parent() == Some(root)).min();
+    if let Some(dir) = before {
+        return dir.to_path_buf();
+    }
+    let name = Some(safe_name(&list.name, 100)).filter(|n| !n.is_empty()).unwrap_or_else(|| safe_name(&list.id, 100));
+    let taken = |dir: &Path| dir.exists() || index.values().any(|e| e.path.parent() == Some(dir));
+    let mut dir = root.join(&name);
+    let mut n = 2;
+    while taken(&dir) {
+        dir = root.join(format!("{name} ({n})"));
+        n += 1;
+    }
+    dir
+}
+
+/// `name` safe as a Windows file or folder name, of at most `max` characters: none that
+/// Windows refuses, no dot or space at the end, and not a name it keeps for devices
+/// (`CON`, `NUL`, `COM1`, …). Empty when nothing's left.
+fn safe_name(name: &str, max: usize) -> String {
+    let clean: String = name.chars().map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c }).collect();
+    let clean: String = clean.trim().chars().take(max).collect();
+    let clean = clean.trim_end_matches(['.', ' ']);
+    // Windows goes by the part before the first dot ("nul.m4a" is NUL too).
+    let base = clean.split('.').next().unwrap_or_default();
+    let device = base.trim_end().to_ascii_uppercase();
+    let numbered = |p: &str| device.strip_prefix(p).is_some_and(|n| matches!(n.as_bytes(), [b'1'..=b'9']));
+    match matches!(device.as_str(), "CON" | "PRN" | "AUX" | "NUL") || numbered("COM") || numbered("LPT") {
+        true => format!("{base}_{}", &clean[base.len()..]),
+        false => clean.to_owned(),
+    }
 }
 
 fn tag(path: &Path, t: &Track, cover: Option<Vec<u8>>) -> anyhow::Result<()> {
@@ -501,6 +667,79 @@ mod tests {
         let t = track("What? / Why: \"Now\"...", vec![Link { name: "AC/DC".into(), id: None }]);
         assert_eq!(file_stem(&t), "AC_DC - What_ _ Why_ _Now_");
         assert_eq!(file_stem(&track("...", Vec::new())), "abc");
+        assert_eq!(file_stem(&track("Con", Vec::new())), "Con_");
+    }
+
+    #[test]
+    fn folder_names_are_safe_on_windows() {
+        assert_eq!(safe_name("Drama: Act I?", 100), "Drama_ Act I_");
+        assert_eq!(safe_name("  Mix.  ", 100), "Mix");
+        assert_eq!(safe_name("nul", 100), "nul_");
+        assert_eq!(safe_name("con. air", 100), "con_. air");
+        assert_eq!(safe_name("COM3", 100), "COM3_");
+        assert_eq!(safe_name("COM0", 100), "COM0");
+        assert_eq!(safe_name("Console", 100), "Console");
+        // Cut short, it doesn't end in a space or a dot either.
+        assert_eq!(safe_name("ab. cd", 4), "ab");
+        assert_eq!(safe_name("???", 100), "___");
+        assert_eq!(safe_name(" . ", 100), "");
+    }
+
+    #[test]
+    fn albums_are_named_with_their_artist() {
+        let by = |artist: &str| Track { artists: vec![Link { name: artist.into(), id: None }], ..Default::default() };
+        assert_eq!(list_name("Greatest Hits", true, &[by("Queen"), by("Queen")]), "Queen - Greatest Hits");
+        assert_eq!(list_name("Now 100", true, &[by("A"), by("B")]), "Now 100");
+        assert_eq!(list_name("Mix", false, &[by("Queen")]), "Mix");
+        assert_eq!(list_name("Empty", true, &[]), "Empty");
+    }
+
+    fn entry(path: PathBuf, list: Option<&str>) -> Entry {
+        Entry { path, duration_ms: 0, loudness_db: None, stands_for: None, videos: Vec::new(), song: None, track: None, list: list.map(str::to_owned) }
+    }
+
+    #[test]
+    fn each_list_gets_a_folder_of_its_own() {
+        let root = std::env::temp_dir().join(format!("ytm-rs-list-dir-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let list = |id: &str, name: &str| ListFolder { id: id.into(), name: name.into() };
+        let mut index = HashMap::new();
+
+        // A new list: its name.
+        assert_eq!(list_dir(&index, &root, &list("PL1", "Mix: 1")), root.join("Mix_ 1"));
+        // A loose song is no list's folder.
+        index.insert("loose".into(), entry(root.join("a.m4a"), None));
+        assert_eq!(list_dir(&index, &root, &list("PL1", "Mix")), root.join("Mix"));
+        // Its songs went there: so do the next, renamed since or not.
+        index.insert("s1".into(), entry(root.join("Mix").join("s1.m4a"), Some("PL1")));
+        assert_eq!(list_dir(&index, &root, &list("PL1", "Renamed")), root.join("Mix"));
+        // Another list of the same name.
+        assert_eq!(list_dir(&index, &root, &list("PL2", "Mix")), root.join("Mix (2)"));
+        // A folder that's there already and isn't a list's.
+        std::fs::create_dir_all(root.join("Mine")).unwrap();
+        assert_eq!(list_dir(&index, &root, &list("PL3", "Mine")), root.join("Mine (2)"));
+        // A list's folder under a downloads folder that's no longer the one: a new one here.
+        index.insert("s2".into(), entry(root.join("old").join("Jazz").join("s2.m4a"), Some("PL4")));
+        assert_eq!(list_dir(&index, &root, &list("PL4", "Jazz")), root.join("Jazz"));
+        // No name left: its id.
+        assert_eq!(list_dir(&index, &root, &list("PL5", "...")), root.join("PL5"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn show_in_folder_opens_a_lists_folder_else_selects_its_songs() {
+        let root = PathBuf::from("music");
+        let (mix, loose) = (root.join("Mix"), |n: &str| root.join(n));
+        // Its own folder, one under the downloads folder first.
+        let own = vec![root.join("old").join("Mix").join("a.m4a"), mix.join("b.m4a")];
+        assert_eq!(to_show(own, vec![loose("c.m4a")], &root), Some(Shown::Folder(mix.clone())));
+        assert_eq!(to_show(vec![PathBuf::from("elsewhere/Mix/a.m4a")], Vec::new(), &root), Some(Shown::Folder(PathBuf::from("elsewhere/Mix"))));
+        // Loose songs: the first of them in the folder with most of them.
+        let files = vec![loose("b.m4a"), mix.join("x.m4a"), loose("a.m4a")];
+        assert_eq!(to_show(Vec::new(), files, &root), Some(Shown::File(loose("a.m4a"))));
+        assert_eq!(to_show(Vec::new(), Vec::new(), &root), None);
     }
 
     #[test]
@@ -520,17 +759,17 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ytm-rs-downloads-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        init(&dir, &dir.join("music").display().to_string());
+        init(&dir, &dir.join("music").display().to_string(), false);
         let song = |id: &str, title: &str| Track { id: id.into(), title: title.into(), ..Default::default() };
         let from = saves();
 
-        let a = save(&song("a", "Same"), b"not mp4", 61_000, None, None, Some("va".into())).unwrap();
-        let b = save(&song("b", "Same"), b"not mp4", 0, None, None, None).unwrap();
+        let a = save(&song("a", "Same"), b"not mp4", 61_000, None, None, Some("va".into()), None).unwrap();
+        let b = save(&song("b", "Same"), b"not mp4", 0, None, None, None, None).unwrap();
         assert_ne!(a, b, "two songs of one name get a file each");
         assert!(a.is_file() && b.is_file());
 
         // Saved again, a song keeps its file and the videos it stood for.
-        assert_eq!(save(&song("a", "Same"), b"not mp4", 61_000, None, None, Some("vb".into())).unwrap(), a);
+        assert_eq!(save(&song("a", "Same"), b"not mp4", 61_000, None, None, Some("vb".into()), None).unwrap(), a);
         link_video("a", "vc");
         link_video("a", "va");
         assert_eq!(reuse("a", Some("vd")), Some(a.clone()));
@@ -554,6 +793,20 @@ mod tests {
         assert_eq!(new.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["a", "b"]);
         assert_eq!(new[0].duration, Some(61));
         assert_eq!(saved_since(seen), (seen, Vec::new()));
+
+        // Lists' songs go in their own folders, two lists of one name in one each; the
+        // loose songs stay where they are.
+        let music = dir.join("music");
+        let mix = |id: &str| ListFolder { id: id.into(), name: "Mix".into() };
+        let c = save(&song("c", "C"), b"not mp4", 0, None, None, None, Some(&mix("PL1"))).unwrap();
+        let d = save(&song("d", "D"), b"not mp4", 0, None, None, None, Some(&mix("PL2"))).unwrap();
+        let e = save(&song("e", "E"), b"not mp4", 0, None, None, None, Some(&mix("PL1"))).unwrap();
+        assert_eq!((c.parent(), d.parent(), e.parent()), (Some(&*music.join("Mix")), Some(&*music.join("Mix (2)")), Some(&*music.join("Mix"))));
+        assert!(has_list_folder("PL1") && has_list_folder("PL2") && !has_list_folder("PL3"));
+        assert_eq!((path("a"), path("c")), (Some(a.clone()), Some(c.clone())));
+        let written: HashMap<String, Entry> = serde_json::from_slice(&std::fs::read(dir.join("downloads.json")).unwrap()).unwrap();
+        assert_eq!((written["c"].list.as_deref(), written["a"].list.as_deref()), (Some("PL1"), None));
+        assert!(any_listed(&[song("x", "X"), song("c", "C")]) && !all_listed(&[song("x", "X"), song("c", "C")]));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -96,7 +96,7 @@ fn sections() -> [(&'static str, SettingsTab); 22] {
     use SettingsTab::*;
     [
         (tr!("settings-account"), Account),
-        (tr!("settings-connections"), Account),
+        (tr!("settings-connections"), Connections),
         (tr!("settings-playback"), Playback),
         (tr!("settings-sound"), Playback),
         (tr!("settings-music-videos"), Playback),
@@ -519,6 +519,10 @@ mod tests {
                     crate::i18n::text(Box::leak(id.to_owned().into_boxed_str())) == name
                 })
         };
+        // Every tab is listed as itself, so running it opens the tab.
+        for tab in SettingsTab::ALL {
+            assert!(sections().iter().any(|&(name, t)| t == tab && name == tab.label()), "{:?} isn't listed as its own tab", tab.label());
+        }
         for (name, tab) in sections().into_iter().filter(|(name, tab)| *name != tab.label()) {
             assert!(titled(name), "no section titled {name:?} in {:?}", tab.label());
         }

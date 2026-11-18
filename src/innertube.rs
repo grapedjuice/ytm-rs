@@ -10,6 +10,8 @@
 
 use serde_json::{Value, json};
 
+use crate::locale::ENGLISH;
+
 pub const UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
 
 pub struct Stream {
@@ -47,9 +49,10 @@ pub async fn album_queue(http: &reqwest::Client, playlist_id: &str) -> anyhow::R
             "osName": "Android",
             "osVersion": "10",
             "androidSdkVersion": 29,
-            // English, so the playlist's title says "Album - …".
-            "hl": "en",
-            "gl": "US",
+            // English whatever Settings › Song info says, so the playlist's title says
+            // "Album - …" (`album_songs` reads it).
+            "hl": ENGLISH.hl,
+            "gl": ENGLISH.gl,
         }},
         "playlistId": playlist_id,
         "contentCheckOk": true,
@@ -188,8 +191,9 @@ async fn player(http: &reqwest::Client, video_id: &str, visitor_data: &str) -> a
             "userAgent": UA,
             "osName": "visionOS",
             "osVersion": "26.5.23O471",
-            "hl": "en",
-            "gl": "US",
+            // English: why a song can't play is matched as English text (`ui::responses`).
+            "hl": ENGLISH.hl,
+            "gl": ENGLISH.gl,
             "visitorData": visitor_data,
         }},
         "videoId": video_id,

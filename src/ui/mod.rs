@@ -532,6 +532,8 @@ pub struct App {
     show_comments: bool,
     /// With them, ask YouTube for its Restricted Mode too.
     restricted_mode: bool,
+    /// Settings › Song info: the language and country titles and names come in.
+    locale: crate::locale::Locale,
     /// The song version playing in place of the current music video, or the music video
     /// playing in place of the current song.
     playing_as: Option<PlayingAs>,
@@ -782,6 +784,8 @@ impl App {
         crate::listenbrainz::init(backend.data_dir());
         let restricted_mode = get("restricted_mode").is_some_and(|v| v == "1");
         backend.set_hide_explicit(hide_explicit, restricted_mode);
+        let locale = crate::locale::Locale::from_codes(get("content_language").as_deref(), get("content_country").as_deref());
+        backend.set_locale(locale);
         let show_podcasts = get("podcasts").is_some_and(|v| v == "1");
         let show_comments = get("comments").is_some_and(|v| v == "1");
         crate::ytm::set_podcasts(show_podcasts);
@@ -913,6 +917,7 @@ impl App {
             show_podcasts,
             show_comments,
             restricted_mode,
+            locale,
             playing_as: None,
             music_videos: Default::default(),
             output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
@@ -1999,6 +2004,8 @@ impl eframe::App for App {
         storage.set_string("podcasts", b(self.show_podcasts));
         storage.set_string("comments", b(self.show_comments));
         storage.set_string("restricted_mode", b(self.restricted_mode));
+        storage.set_string("content_language", self.locale.hl.to_owned());
+        storage.set_string("content_country", self.locale.gl.to_owned());
         let folder = crate::downloads::folder();
         storage.set_string("download_dir", if folder == crate::downloads::default_folder() { String::new() } else { folder.display().to_string() });
         let (device, device_name) = self.output_device.clone().unzip();

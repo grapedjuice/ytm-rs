@@ -612,7 +612,7 @@ impl App {
     fn on_home(&mut self, page: HomePage) {
         // Until the account menu answers (Req::Account).
         if self.account_avatar.is_none() {
-            self.account_avatar = page.shelves.iter().find(|s| s.title == "Listen again").and_then(|s| s.strap_thumb.clone());
+            self.account_avatar = page.shelves.iter().find(|s| s.own).and_then(|s| s.strap_thumb.clone());
         }
         let mut chips = page.chips;
         // The feed marks the active mood itself; keep the bar when it doesn't send chips.

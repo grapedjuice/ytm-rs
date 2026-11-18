@@ -2419,6 +2419,11 @@ impl Backend {
         self.api.set_restricted(on && restricted);
     }
 
+    /// Settings › Song info: the language and country titles and names come in.
+    pub fn set_locale(&self, locale: crate::locale::Locale) {
+        self.api.set_locale(locale);
+    }
+
     /// Like or unlike a selection, one at a time, then check Liked Music and try again
     /// what didn't take. Unlikes still listed after that count as refused; likes aren't
     /// counted so (songs that can't be played are liked but not listed).

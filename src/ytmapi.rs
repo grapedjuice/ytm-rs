@@ -9,6 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+use crate::locale::Locale;
 use crate::webmusic::{self, Session};
 
 const ORIGIN: &str = "https://music.youtube.com";
@@ -56,6 +57,8 @@ pub struct Api {
     rotated_at: std::sync::atomic::AtomicU64,
     /// YouTube's Restricted Mode, asked for in every request.
     restricted: std::sync::atomic::AtomicBool,
+    /// The language and country titles and names come in (Settings › Song info).
+    locale: RwLock<Locale>,
 }
 
 /// music.youtube.com's "not available in your area" page, served to addresses in a
@@ -89,12 +92,17 @@ impl Api {
             refusals: Default::default(),
             rotated_at: Default::default(),
             restricted: Default::default(),
+            locale: Default::default(),
         }
     }
 
     /// Restricted Mode: YouTube leaves out explicit songs and what else it finds mature.
     pub fn set_restricted(&self, on: bool) {
         self.restricted.store(on, Relaxed);
+    }
+
+    pub fn set_locale(&self, locale: Locale) {
+        *self.locale.write().unwrap() = locale;
     }
 
     pub fn account(&self) -> Option<Arc<Session>> {
@@ -402,6 +410,7 @@ impl Api {
         }
         anyhow::ensure!(!self.unavailable.load(Relaxed), Unavailable);
         let mut payload = body.clone();
+        let locale = *self.locale.read().unwrap();
         payload["context"] = json!({
             "client": {
                 "clientName": "WEB_REMIX",
@@ -409,8 +418,8 @@ impl Api {
                 "platform": "DESKTOP",
                 "originalUrl": ORIGIN,
                 "visitorData": web.visitor_data,
-                "hl": "en",
-                "gl": "US",
+                "hl": locale.hl,
+                "gl": locale.gl,
                 "timeZone": self.tz.0,
                 "utcOffsetMinutes": self.tz.1,
             },

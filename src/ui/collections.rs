@@ -244,7 +244,7 @@ impl App {
         let mut ids = HashSet::new();
         if let Some(home) = &self.home {
             for shelf in &home.shelves {
-                if shelf.title != "Listen again" && shelf.title != "Quick picks" { continue; }
+                if !shelf.own && shelf.title != "Quick picks" { continue; }
                 match &shelf.kind {
                     ShelfKind::Cards(cards) => {
                         for card in cards {

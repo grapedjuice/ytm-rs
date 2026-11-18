@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
 
 use crate::innertube::Stream;
+use crate::locale::ENGLISH;
 use crate::jsc::Solver;
 
 pub const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
@@ -341,7 +342,8 @@ impl Session {
     /// the way yt-dlp does.
     pub async fn is_premium(&self, http: &reqwest::Client) -> anyhow::Result<bool> {
         const WEB: &str = "2.20260708.00.00";
-        let body = json!({"context": {"client": {"clientName": "WEB", "clientVersion": WEB, "hl": "en", "gl": "US"}}, "browseId": "FEwhat_to_watch"});
+        // English: the logo's tooltip is matched as English text below.
+        let body = json!({"context": {"client": {"clientName": "WEB", "clientVersion": WEB, "hl": ENGLISH.hl, "gl": ENGLISH.gl}}, "browseId": "FEwhat_to_watch"});
         let resp = self.post(http, "https://www.youtube.com", "browse", ("1", WEB, UA), body).await?;
         let logo = &resp["topbar"]["desktopTopbarRenderer"]["logo"]["topbarLogoRenderer"];
         Ok(logo["iconImage"]["iconType"] == "YOUTUBE_PREMIUM_LOGO"
@@ -429,7 +431,8 @@ pub struct Feed {
 /// episode of a podcast added by RSS too.
 fn player_body(video_id: &str, sts: u32) -> Value {
     json!({
-        "context": {"client": {"clientName": "WEB_REMIX", "clientVersion": VERSION, "hl": "en", "gl": "US"}},
+        // English: why it can't play is matched as English text (`ui::responses`).
+        "context": {"client": {"clientName": "WEB_REMIX", "clientVersion": VERSION, "hl": ENGLISH.hl, "gl": ENGLISH.gl}},
         "videoId": video_id,
         "playbackContext": {"contentPlaybackContext": {"html5Preference": "HTML5_PREF_WANTS", "signatureTimestamp": sts}},
         "contentCheckOk": true,

@@ -176,6 +176,10 @@ pub struct Shelf {
     /// Small line above the title ("GRAPE JUICE" on Listen again).
     pub strapline: Option<String>,
     pub strap_thumb: Option<String>,
+    /// Listen again: its thumbnail is the account's own channel. Told by that, not the
+    /// title, which comes in the language asked for.
+    #[serde(default)]
+    pub own: bool,
     pub kind: ShelfKind,
 }
 

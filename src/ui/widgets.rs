@@ -864,9 +864,11 @@ pub fn card_menu_contents(ui: &mut Ui, c: &Card, liked: bool, pin: Option<bool>,
             {
                 acts.push(Action::Pin(id.clone(), !pinned));
             }
-            menu_divider(ui);
-            if menu_action(ui, None, "Copy link") {
-                acts.push(Action::Share(t.clone()));
+            if super::actions::shareable(t) {
+                menu_divider(ui);
+                if menu_action(ui, None, "Copy link") {
+                    acts.push(Action::Share(t.clone()));
+                }
             }
         }
     }

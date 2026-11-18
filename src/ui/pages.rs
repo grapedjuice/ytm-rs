@@ -1014,7 +1014,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                     let more = widgets::more_pill(ui, "More options");
                     widgets::menu_popup(&more).show(|ui| {
                         widgets::menu_body(ui, 190.0);
-                        if widgets::menu_action(ui, Some(icon::LINK), "Share") {
+                        if super::actions::shareable(&target) && widgets::menu_action(ui, Some(icon::LINK), "Share") {
                             acts.push(Action::Share(target.clone()));
                         }
                         if own {
@@ -1447,7 +1447,7 @@ pub(super) enum SettingsTab {
 
 impl SettingsTab {
     /// Most used first, which is how they're listed.
-    const ALL: [Self; 8] = [Self::Account, Self::Playback, Self::Lyrics, Self::Appearance, Self::Connections, Self::General, Self::Shortcuts, Self::About];
+    pub(super) const ALL: [Self; 8] = [Self::Account, Self::Playback, Self::Lyrics, Self::Appearance, Self::Connections, Self::General, Self::Shortcuts, Self::About];
 
     pub(super) fn label(self) -> &'static str {
         match self {

@@ -578,6 +578,12 @@ impl App {
     }
 }
 
+/// Whether a link to it opens for others: an uploaded album's or artist's page opens
+/// only for the account that uploaded it.
+pub(super) fn shareable(target: &Target) -> bool {
+    !matches!(target, Target::Album(id) | Target::Artist(id) if crate::ytm::uploaded(id))
+}
+
 fn share_url(target: &Target) -> String {
     match target {
         Target::Song(t) => format!("https://music.youtube.com/watch?v={}", t.id),
@@ -683,5 +689,13 @@ mod share_tests {
         assert_eq!(share_url(&Target::Playlist("MPSPPL123".into())), "https://music.youtube.com/playlist?list=PL123");
         assert_eq!(share_url(&Target::Album("MPRE123".into())), "https://music.youtube.com/browse/MPRE123");
         assert_eq!(share_url(&Target::Artist("UC123".into())), "https://music.youtube.com/channel/UC123");
+    }
+
+    #[test]
+    fn uploaded_albums_and_artists_have_no_link_to_share() {
+        assert!(!shareable(&Target::Artist("FEmusic_library_privately_owned_artist_detaila_po_CICr2crg7OWpchIIY29sZHBsYXk".into())));
+        assert!(!shareable(&Target::Album("FEmusic_library_privately_owned_release_detailb_po_CICr2crg7OWpchIOZ2hvc3Qgc3Rvcmllcw".into())));
+        assert!(shareable(&Target::Artist("UC123".into())));
+        assert!(shareable(&Target::Album("MPRE123".into())));
     }
 }

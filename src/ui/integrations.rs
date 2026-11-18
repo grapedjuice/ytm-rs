@@ -35,9 +35,10 @@ impl App {
             video_id: t.id.clone(),
             title: t.title.clone(),
             artist: t.artist_line(),
-            artist_id: t.first_artist_id().map(str::to_owned),
+            // Not an uploaded song's artist or album: only its uploader can open those.
+            artist_id: t.first_artist_id().filter(|id| !crate::ytm::uploaded(id)).map(str::to_owned),
             album: t.album.as_ref().map(|a| a.name.clone()),
-            album_id: t.album.as_ref().and_then(|a| a.id.clone()),
+            album_id: t.album.as_ref().and_then(|a| a.id.clone()).filter(|id| !crate::ytm::uploaded(id)),
             art: backend::art_url(t),
             artist_pic: t.first_artist_id().and_then(|id| self.artist_pics.get(id).cloned().flatten()),
             app_icon: self.app_icon,

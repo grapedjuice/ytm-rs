@@ -120,11 +120,22 @@ impl App {
         self.pending_unlikes().iter().any(|target| target == id)
     }
 
-    /// A newer rating for a pending song supersedes its undoable edit.
+    /// Songs about to be rated anew while an unlike waits for its Undo. That unlike doesn't
+    /// go for them (sent after, it would take the new rating away), but it still goes, now,
+    /// for the rest of what it was taking away: those stay unliked.
     pub(super) fn rating(&mut self, rated: impl Fn(&str) -> bool) {
-        if self.pending_unlikes().iter().any(|id| rated(id)) {
-            self.undo();
+        if !self.pending_unlikes().iter().any(|id| rated(id)) {
+            return;
         }
+        let Some(Undo::Unlike { targets, .. }) = self.undo.take() else { return };
+        // Its toast's Undo has nothing left to take back.
+        self.toast = None;
+        let rest: Vec<String> = targets.into_iter().filter(|id| !rated(id)).collect();
+        if rest.is_empty() {
+            return;
+        }
+        self.confirm_unliked(&rest);
+        self.backend.request(Req::LikeMany { video_ids: rest, like: false, stand_ins: Default::default() });
     }
 
     /// Gone from here at once, and from YouTube Music once the Undo is: it can't bring

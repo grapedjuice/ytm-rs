@@ -139,10 +139,8 @@ impl App {
             Cmd::VolumeDown => self.nudge_volume(false),
             Cmd::SetVolume(v) => self.audio.set_volume(v.clamp(0.0, 1.0)),
             Cmd::Like(v) => {
-                let like = v.unwrap_or(!self.heard_liked());
-                if !like && self.rating_settings.confirm_unlike {
-                    self.toast("Hold the heart to remove like");
-                } else if let Some(action) = self.heard_like_action(like) {
+                // Asked for outright: holding the heart is for clicks that might slip.
+                if let Some(action) = self.heard_like_action(v.unwrap_or(!self.heard_liked())) {
                     self.apply(action);
                 }
             }

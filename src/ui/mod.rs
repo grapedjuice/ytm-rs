@@ -1446,7 +1446,7 @@ impl eframe::App for App {
         let focused = ctx.input(|i| i.focused);
         let refocused = focused && !std::mem::replace(&mut self.was_focused, focused);
         if refocused {
-            self.ratings.refresh();
+            self.ratings.refresh_if_stale(now);
         }
         self.sync_look();
         self.pump(ctx, now);

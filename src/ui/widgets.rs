@@ -246,10 +246,6 @@ pub fn linked_text(
 }
 
 pub fn icon_at(ui: &Ui, center: Pos2, glyph: char, size: f32, color: Color32) {
-    if glyph == icon::THUMBS_DOWN {
-        super::vector::dislike(ui, center, size, false, color);
-        return;
-    }
     // A theme's own icon for it. Most have none.
     if !crate::preset::active().app.icons.is_empty() && super::vector::name_of(glyph).is_some_and(|name| super::vector::paint(ui, name, center, size * 1.1, color)) {
         return;

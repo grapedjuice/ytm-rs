@@ -15,6 +15,10 @@ use super::{Action, App, widgets};
 const MAX_READS: usize = 3;
 const READ_GAP: f64 = 0.2;
 const RETRY_DELAY: f64 = 2.0;
+/// Ratings kept for rows that have scrolled away.
+const KEEP: usize = 2000;
+/// Seconds before coming back to the window asks for the ratings on show again.
+const REFRESH_AFTER: f64 = 600.0;
 pub(super) const MIN_UNLIKE_MS: f32 = 200.0;
 pub(super) const MAX_UNLIKE_MS: f32 = 3000.0;
 pub(super) const DEFAULT_UNLIKE_MS: f32 = 600.0;
@@ -264,8 +268,9 @@ enum Entry {
     Confirmed(SongRating),
 }
 
-/// Only keeps answers for the tracks shown on screen. Requests for scrolled-away
-/// tracks still count toward the limit until they finish.
+/// Answers are kept after their rows scroll away, so scrolling back doesn't ask again,
+/// up to [`KEEP`] of them. Requests for scrolled-away tracks still count toward the limit
+/// until they finish.
 #[derive(Default)]
 pub(super) struct Ratings {
     entries: HashMap<String, Entry>,
@@ -273,6 +278,7 @@ pub(super) struct Ratings {
     round: u64,
     next_read: f64,
     playing: Option<(String, u64)>,
+    refreshed_at: f64,
 }
 
 impl Ratings {
@@ -281,6 +287,15 @@ impl Ratings {
         self.in_flight.clear();
         self.next_read = 0.0;
         self.playing = None;
+    }
+
+    /// Back in the window: ratings changed on another device show, but asked for again
+    /// at most every [`REFRESH_AFTER`], not on every switch back.
+    pub fn refresh_if_stale(&mut self, now: f64) {
+        if now - self.refreshed_at >= REFRESH_AFTER {
+            self.refresh();
+            self.refreshed_at = now;
+        }
     }
 
     pub fn invalidate(&mut self, id: &str) {
@@ -327,7 +342,9 @@ impl Ratings {
     }
 
     fn sync(&mut self, backend: &Backend, ctx: &Context, now: f64, wanted: &[String]) {
-        self.entries.retain(|id, _| wanted.contains(id));
+        if self.entries.len() > KEEP {
+            self.entries.retain(|id, entry| matches!(entry, Entry::Reading { .. }) || wanted.contains(id));
+        }
         if self.in_flight.len() >= MAX_READS {
             return;
         }
@@ -453,8 +470,16 @@ impl App {
         if enabled {
             wanted.extend(visible);
         }
-        self.ratings.sync(&self.backend, ctx, now, &wanted);
-        let mut ratings: HashMap<_, _> = self.ratings.entries.keys().filter_map(|id| Some((id.clone(), self.ratings.get(id)?))).collect();
+        // A liked song can't also be disliked: its rating is known without asking, which
+        // spares a request for every row of Liked Music. What's playing is always asked.
+        let fetch: Vec<String> = wanted
+            .iter()
+            .enumerate()
+            .filter(|(i, id)| (*i == 0 && self.ratings.playing.is_some()) || !self.liked.contains(*id))
+            .map(|(_, id)| id.clone())
+            .collect();
+        self.ratings.sync(&self.backend, ctx, now, &fetch);
+        let mut ratings: HashMap<_, _> = wanted.iter().filter_map(|id| Some((id.clone(), self.ratings.get(id)?))).collect();
         ratings.extend(self.pending_unlikes().iter().map(|id| (id.clone(), SongRating::Indifferent)));
         ctx.data_mut(|d| d.insert_temp(rows_id(), Rows {
             enabled,
@@ -516,10 +541,12 @@ mod tests {
         let frame = |time, target: &str, liked, events| {
             let input = RawInput { time: Some(time), events, ..Default::default() };
             let mut result = None;
-            let _ = ctx.run_ui(input, |ui| {
+            ctx.run_ui(input, |ui| {
                 let response = ui.interact(rect, Id::unique("rating-button"), Sense::click());
                 result = Some(like_gesture(ui, &response, target, liked, None));
-            });
+            })
+            .textures_delta
+            .clear();
             result.unwrap()
         };
         let press = |pressed| Event::PointerButton { pos: center, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
@@ -597,6 +624,17 @@ mod tests {
     }
 
     #[test]
+    fn coming_back_to_the_window_asks_again_only_after_a_while() {
+        let mut ratings = Ratings::default();
+        ratings.refresh_if_stale(REFRESH_AFTER);
+        ratings.confirm("song", SongRating::Dislike);
+        ratings.refresh_if_stale(REFRESH_AFTER + 5.0);
+        assert_eq!(ratings.get("song"), Some(SongRating::Dislike));
+        ratings.refresh_if_stale(2.0 * REFRESH_AFTER);
+        assert_eq!(ratings.get("song"), None);
+    }
+
+    #[test]
     fn a_missing_rating_is_retried_once() {
         let mut ratings = Ratings::default();
         ratings.entries.insert("song".into(), Entry::Reading { round: 1, retry_on_failure: true });
@@ -630,11 +668,12 @@ mod tests {
                 let mut played = false;
                 let mut acts = Vec::new();
                 let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 400.0))), time: Some(time), events, ..Default::default() };
-                let output = ctx.run_ui(input, |ui| {
+                let mut output = ctx.run_ui(input, |ui| {
                     row_middle = ui.cursor().min + vec2(100.0, look.height / 2.0);
                     slot = ui.cursor().min + vec2(ui.available_width() - 41.0 - look.pad - 52.0 - 14.0, look.height / 2.0);
                     played = widgets::track_row(ui, &track, &opts, &mut acts).clicked();
                 });
+                output.textures_delta.clear();
                 let heart = output.shapes.iter().any(|s| {
                     matches!(&s.shape, Shape::LineSegment { points, .. } if points.iter().all(|p| p.distance(slot) < 10.0))
                 });

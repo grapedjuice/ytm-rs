@@ -171,31 +171,34 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
         painter.rect_filled(rect, 0.0, theme::lerp_color(theme::bg(), app.accent_color(), 0.25));
     }
     let shows = behind.map_or(1.0, |p| p.vis);
-    if b.fullbleed(app.fullscreen) && shows > 0.001 {
+    if b.fullbleed(app.fullscreen) {
         // The cover itself fills the screen behind a scrim. With the lyrics-only
         // layout on a wide window it fills the height on the left instead and
         // fades out toward the lyrics (reCover).
         if let Some(track) = app.current() {
             let side_by_side = behind.is_some_and(|p| p.beside);
             let area = if side_by_side { Rect::from_min_size(rect.min, Vec2::splat(rect.height())) } else { rect };
+            // Made even while it's hidden, so the buttons after it keep their ids (and focus).
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area));
             child.set_clip_rect(area.intersect(clip));
-            let tint = Color32::from_gray((fullbleed_level * readable * 255.0) as u8).gamma_multiply(shows);
-            // Over the theme's own background it fades away to show that; alone, into its flat colour.
-            let mask = (side_by_side && b.mode != BgMode::CoverFullbleed).then_some(b.fade);
-            let fading = b.fullbleed_fade.then(|| fullbleed_fade(&child, &track.id, &track.thumbs, now, b.crossfade_delay as f64, b.crossfade_secs as f64)).flatten();
-            match fading {
-                Some((old, k)) => {
-                    paint_fullbleed(&child, area, &old, tint, mask);
-                    paint_fullbleed(&child, area, &track.thumbs, tint.gamma_multiply(k), mask);
+            if shows > 0.001 {
+                let tint = Color32::from_gray((fullbleed_level * readable * 255.0) as u8).gamma_multiply(shows);
+                // Over the theme's own background it fades away to show that; alone, into its flat colour.
+                let mask = (side_by_side && b.mode != BgMode::CoverFullbleed).then_some(b.fade);
+                let fading = b.fullbleed_fade.then(|| fullbleed_fade(&child, &track.id, &track.thumbs, now, b.crossfade_delay as f64, b.crossfade_secs as f64)).flatten();
+                match fading {
+                    Some((old, k)) => {
+                        paint_fullbleed(&child, area, &old, tint, mask);
+                        paint_fullbleed(&child, area, &track.thumbs, tint.gamma_multiply(k), mask);
+                    }
+                    None => paint_fullbleed(&child, area, &track.thumbs, tint, mask),
                 }
-                None => paint_fullbleed(&child, area, &track.thumbs, tint, mask),
-            }
-            if side_by_side && mask.is_none() {
-                let solid = look.solid();
-                let fade = Rect::from_min_max(pos2(area.left() + area.width() * b.fade[0], area.top()), pos2(area.left() + area.width() * b.fade[1], area.bottom()));
-                super::shell::hgradient(&painter, fade, Color32::TRANSPARENT, solid);
-                painter.rect_filled(Rect::from_min_max(pos2(fade.right(), area.top()), area.max), 0.0, solid);
+                if side_by_side && mask.is_none() {
+                    let solid = look.solid();
+                    let fade = Rect::from_min_max(pos2(area.left() + area.width() * b.fade[0], area.top()), pos2(area.left() + area.width() * b.fade[1], area.bottom()));
+                    super::shell::hgradient(&painter, fade, Color32::TRANSPARENT, solid);
+                    painter.rect_filled(Rect::from_min_max(pos2(fade.right(), area.top()), area.max), 0.0, solid);
+                }
             }
         }
     }
@@ -486,18 +489,27 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
     let centered = lyrics_only && !beside_cover;
     // Artwork alone: centered.
     let col_art = Rect::from_center_size(content.center(), vec2(content.width().min(content.height() * 0.9), content.height()));
+    let np = &look.now_playing;
+    // On its own with the theme's corner card, it keeps below (or above) the card.
+    let col_alone = match np.shows_info_card(app.fullscreen).then(|| info_card_room(np, content)).filter(|c| c.right() > col_art.left()) {
+        Some(c) if np.info_card_top => Rect::from_min_max(pos2(col_art.left(), c.bottom() + 16.0), col_art.max),
+        Some(c) => Rect::from_min_max(col_art.min, pos2(col_art.right(), c.top() - 16.0)),
+        None => col_art,
+    };
     let slide = 72.0;
     let corner_h = (content.height() * 0.24).clamp(96.0, 190.0);
+    // Where the card goes: the cover's column when there is one, else the corner of everything.
+    let mut card_at = content;
     let right = if fs_corner {
         // A small cover at the bottom left with the title beside it, the lyrics on the right.
         let share = look.now_playing.fullscreen_panel_frac.unwrap_or(0.5);
         let split = content.right() - content.width() * share;
         // Nothing to go beside (the Art tab, no lyrics): the cover on its own, in the middle.
         if art_vis > 0.001 {
-            let px = (art_side(cs, col_art, app.fullscreen, window_w) * ppp) as u32;
+            let px = (art_side(cs, col_alone, app.fullscreen, window_w) * ppp) as u32;
             let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(content));
             cui.multiply_opacity(art_vis);
-            cover_column(app, &mut cui, col_art.translate(vec2(-slide * (1.0 - art_vis), 0.0)), track, no_lyrics, now, px);
+            cover_column(app, &mut cui, col_alone.translate(vec2(-slide * (1.0 - art_vis), 0.0)), track, no_lyrics, now, px);
         }
         if art_vis < 0.999 {
             let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(content));
@@ -511,11 +523,11 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
         Rect::from_min_max(content.min, pos2(content.right(), content.bottom() - corner_h - 12.0))
     } else if lyrics_only {
         // No cover column next to the panel: the artwork fades in from the left as the panel leaves.
-        let px = (art_side(cs, col_art, app.fullscreen, window_w) * ppp) as u32;
+        let px = (art_side(cs, col_alone, app.fullscreen, window_w) * ppp) as u32;
         if art_vis > 0.001 {
             let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(content));
             cui.multiply_opacity(art_vis);
-            cover_column(app, &mut cui, col_art.translate(vec2(-slide * (1.0 - art_vis), 0.0)), track, no_lyrics, now, px);
+            cover_column(app, &mut cui, col_alone.translate(vec2(-slide * (1.0 - art_vis), 0.0)), track, no_lyrics, now, px);
         } else {
             // Hidden behind the lyrics: have it loaded for when they're turned off.
             widgets::preload_cover(ui.ctx(), &track.thumbs, px);
@@ -543,6 +555,7 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
         // One image size for the whole glide, the bigger of its two ends.
         let px = (art_side(cs, col_art, app.fullscreen, window_w).max(art_side(cs, col_panel, app.fullscreen, window_w)) * ppp) as u32;
         cover_column(app, ui, col, track, no_lyrics, now, px);
+        card_at = col;
         if cover_side == Side::Right {
             Rect::from_min_max(content.min, pos2(col_panel.left() - 28.0, content.bottom()))
         } else {
@@ -551,12 +564,11 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
     };
     // The theme's card for the song, in the corner (the cover then has no title under it).
     // It stays with the backdrop's cover too, so it's the one card through the transition.
-    let np = &look.now_playing;
     let card_vis = if fs_corner { art_vis } else if corner { 0.0 } else if beside_cover || !lyrics_only { 1.0 } else { art_vis };
     if np.shows_info_card(app.fullscreen) && card_vis > 0.001 {
-        let mut card = ui.new_child(egui::UiBuilder::new().max_rect(content));
+        let mut card = ui.new_child(egui::UiBuilder::new().max_rect(card_at));
         card.multiply_opacity(card_vis);
-        info_card(app, &mut card, content, track);
+        info_card(app, &mut card, card_at, track);
     }
     if panel_vis <= 0.001 {
         return;
@@ -694,11 +706,16 @@ fn corner_block(app: &mut App, ui: &mut Ui, r: Rect, track: &crate::model::Track
 }
 
 /// The corner card with the song, over a cover that fills the view.
-fn info_card(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::Track) {
-    let np = &app.look().now_playing;
+/// The most room the theme's card takes in `content`: its text-only card is no wider or taller.
+fn info_card_room(np: &crate::preset::NowPlayingStyle, content: Rect) -> Rect {
     let size = vec2((content.width() * 0.34).clamp(220.0, 420.0), 76.0);
     let m = np.info_card_margin;
-    let r = if np.info_card_top { Rect::from_min_size(content.min + vec2(m, m), size) } else { Rect::from_min_size(pos2(content.left() + m, content.bottom() - size.y - m), size) };
+    if np.info_card_top { Rect::from_min_size(content.min + vec2(m, m), size) } else { Rect::from_min_size(pos2(content.left() + m, content.bottom() - size.y - m), size) }
+}
+
+fn info_card(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::Track) {
+    let np = &app.look().now_playing;
+    let r = info_card_room(np, content);
     let [card_title, card_artist] = np.info_card_weights.unwrap_or([crate::preset::Weight::Semibold, crate::preset::Weight::Regular]);
     if np.info_card_text_only {
         let line = track.artist_line();

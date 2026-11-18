@@ -289,13 +289,15 @@ impl Ratings {
         self.playing = None;
     }
 
-    /// Back in the window: ratings changed on another device show, but asked for again
-    /// at most every [`REFRESH_AFTER`], not on every switch back.
-    pub fn refresh_if_stale(&mut self, now: f64) {
+    /// When the window regains focus, refresh both rating sources at most every
+    /// [`REFRESH_AFTER`]. The caller reloads Liked Music when this returns true.
+    pub fn refresh_if_stale(&mut self, now: f64) -> bool {
         if now - self.refreshed_at >= REFRESH_AFTER {
             self.refresh();
             self.refreshed_at = now;
+            return true;
         }
+        false
     }
 
     pub fn invalidate(&mut self, id: &str) {
@@ -626,11 +628,20 @@ mod tests {
     #[test]
     fn coming_back_to_the_window_asks_again_only_after_a_while() {
         let mut ratings = Ratings::default();
-        ratings.refresh_if_stale(REFRESH_AFTER);
+        let mut focused = false;
+        let mut refresh = |ratings: &mut Ratings, now, is_focused| {
+            super::super::window_refocused(&mut focused, is_focused) && ratings.refresh_if_stale(now)
+        };
+        assert!(!refresh(&mut ratings, 0.0, true));
+        assert!(!refresh(&mut ratings, REFRESH_AFTER - 1.0, false));
+        assert!(refresh(&mut ratings, REFRESH_AFTER, true));
         ratings.confirm("song", SongRating::Dislike);
-        ratings.refresh_if_stale(REFRESH_AFTER + 5.0);
+        assert!(!refresh(&mut ratings, REFRESH_AFTER + 4.0, false));
+        assert!(!refresh(&mut ratings, REFRESH_AFTER + 5.0, true));
         assert_eq!(ratings.get("song"), Some(SongRating::Dislike));
-        ratings.refresh_if_stale(2.0 * REFRESH_AFTER);
+        assert!(!refresh(&mut ratings, 2.0 * REFRESH_AFTER, true));
+        assert!(!refresh(&mut ratings, 2.0 * REFRESH_AFTER, false));
+        assert!(refresh(&mut ratings, 2.0 * REFRESH_AFTER, true));
         assert_eq!(ratings.get("song"), None);
     }
 

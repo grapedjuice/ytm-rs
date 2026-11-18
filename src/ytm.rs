@@ -2,6 +2,8 @@
 //! itself gets (see `ytmapi.rs` for the transport): home feed, search, albums,
 //! playlists, artists, radio, charts, the library, and edits to it.
 
+use std::collections::HashSet;
+
 use serde_json::{Value, json};
 
 use crate::backend::{ArtistPage, Collection};
@@ -334,9 +336,12 @@ fn parse_paired_video(v: &Value, song_id: &str) -> Option<MusicVideo> {
     Some(MusicVideo { video, offset_ms })
 }
 
-/// The song of a music video, or the music video of a song.
-fn parse_other_half(v: &Value, video_id: &str) -> Option<String> {
-    counterparts(v, video_id).find_map(|c| half(c)["videoId"].as_str()).map(str::to_owned)
+/// The paired upload's ID if the pending unlike may touch it.
+fn parse_other_half(v: &Value, video_id: &str, keep: &HashSet<String>) -> Option<String> {
+    counterparts(v, video_id)
+        .find_map(|c| half(c)["videoId"].as_str())
+        .filter(|id| !keep.contains(*id))
+        .map(str::to_owned)
 }
 
 /// The other version itself, in a pair from [`counterparts`].
@@ -1543,13 +1548,13 @@ pub async fn set_like(api: &Api, video_id: &str, like: bool) -> anyhow::Result<(
 /// so the song shown may not be the one holding the like. `epoch`: the account and channel
 /// when the like was taken away; after a change the other half isn't theirs to touch.
 /// Returns the other half when its like was taken away too.
-pub async fn remove_other_half_like(api: &Api, video_id: &str, epoch: u64) -> anyhow::Result<Option<String>> {
+pub async fn remove_other_half_like(api: &Api, video_id: &str, epoch: u64, keep: &HashSet<String>) -> anyhow::Result<Option<String>> {
     if api.epoch() != epoch {
         return Ok(None);
     }
     let body = json!({"videoId": video_id, "isAudioOnly": true, "enablePersistentPlaylistPanel": true});
     let v = api.call_signed_in("next", body).await?;
-    let Some(other) = parse_other_half(&v, video_id) else { return Ok(None) };
+    let Some(other) = parse_other_half(&v, video_id, keep) else { return Ok(None) };
     tokio::time::sleep(crate::backend::LIKE_GAP).await;
     if api.epoch() != epoch {
         return Ok(None);
@@ -3110,10 +3115,17 @@ mod tests {
             wrap(item("dQw4w9WgXcQ", "Never Gonna Give You Up", "MUSIC_VIDEO_TYPE_OMV"), item("lYBUbBu4W08", "Never Gonna Give You Up", "MUSIC_VIDEO_TYPE_ATV")),
         ]}}}}}}]}}}}});
         // Both ways round, for taking a like away.
-        assert_eq!(parse_other_half(&v, "dQw4w9WgXcQ").as_deref(), Some("lYBUbBu4W08"));
-        assert_eq!(parse_other_half(&v, "raBobo3GZYA").as_deref(), Some("BeyEGebJ1l4"));
-        assert_eq!(parse_other_half(&v, "not-in-the-queue"), None);
-        assert_eq!(parse_other_half(&json!({}), "dQw4w9WgXcQ"), None);
+        let keep = HashSet::new();
+        assert_eq!(parse_other_half(&v, "dQw4w9WgXcQ", &keep).as_deref(), Some("lYBUbBu4W08"));
+        assert_eq!(parse_other_half(&v, "raBobo3GZYA", &keep).as_deref(), Some("BeyEGebJ1l4"));
+        assert_eq!(parse_other_half(&v, "not-in-the-queue", &keep), None);
+        assert_eq!(parse_other_half(&json!({}), "dQw4w9WgXcQ", &keep), None);
+        // Unliking the remaining uploads must preserve a new rating on either version.
+        let keep = HashSet::from(["lYBUbBu4W08".to_owned()]);
+        assert_eq!(parse_other_half(&v, "dQw4w9WgXcQ", &keep), None);
+        assert_eq!(parse_other_half(&v, "raBobo3GZYA", &keep).as_deref(), Some("BeyEGebJ1l4"));
+        let keep = HashSet::from(["BeyEGebJ1l4".to_owned()]);
+        assert_eq!(parse_other_half(&v, "raBobo3GZYA", &keep), None);
         let found = parse_paired_song(&v, "dQw4w9WgXcQ").unwrap();
         assert_eq!((found.id.as_str(), found.duration, found.music_video), ("lYBUbBu4W08", Some(214), false));
         // A song's counterpart is its video: no song version of a song.

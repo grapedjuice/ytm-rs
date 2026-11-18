@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::backend::Req;
+use crate::backend::{Req, UnlikeVersions};
 use crate::model::{Target, Track};
 
 use super::lists::{self, LIKED_MUSIC};
@@ -57,7 +57,8 @@ impl App {
         let tracks: Vec<Track> = tracks.into_iter().filter(|t| self.liked.contains(&t.id) != like).collect();
         if tracks.is_empty() { return; }
         let stand_ins = tracks.iter().filter(|_| !like).filter_map(|t| Some((t.id.clone(), t.stands_for.clone()?))).collect();
-        let send = Req::LikeMany { video_ids: tracks.iter().map(|t| t.id.clone()).collect(), like, stand_ins };
+        let versions = UnlikeVersions { stand_ins, ..Default::default() };
+        let send = Req::LikeMany { video_ids: tracks.iter().map(|t| t.id.clone()).collect(), like, versions };
         if !like {
             return self.unlike_soon(tracks, send);
         }

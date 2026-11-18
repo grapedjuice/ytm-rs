@@ -732,10 +732,9 @@ impl DownloadQueue {
     }
 
     /// The folder a song waiting or downloading goes in: that of the first run that
-    /// wants it (none: the downloads folder itself).
+    /// wants it and has one (none: the downloads folder itself).
     fn folder_for(&self, id: &str) -> Option<crate::downloads::ListFolder> {
-        let key = self.wanted.get(id)?.first()?;
-        self.runs.iter().find(|r| &r.key == key)?.folder.clone()
+        self.wanted.get(id)?.iter().find_map(|k| self.runs.iter().find(|r| &r.key == k)?.folder.clone())
     }
 
     /// The next song to download, or none: then the worker asking stops.

@@ -171,8 +171,13 @@ pub fn open_folder() {
 }
 
 fn open_dir(dir: &Path) {
+    // Quoted: unquoted, explorer reads a comma in it as the end of the folder.
     #[cfg(windows)]
-    let _ = std::process::Command::new("explorer").arg(dir).spawn();
+    {
+        use std::os::windows::process::CommandExt;
+        let dir: PathBuf = dir.components().collect();
+        let _ = std::process::Command::new("explorer").raw_arg(format!("\"{}\"", dir.display())).spawn();
+    }
     #[cfg(target_os = "macos")]
     let _ = std::process::Command::new("open").arg(dir).spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -240,7 +245,7 @@ enum Shown {
 /// songs' files (`files`, in its order) in the folder that has most of them.
 fn to_show(own: Vec<PathBuf>, files: Vec<PathBuf>, root: &Path) -> Option<Shown> {
     let dirs = || own.iter().filter_map(|p| p.parent());
-    if let Some(dir) = dirs().filter(|d| d.parent() == Some(root)).min().or_else(|| dirs().min()) {
+    if let Some(dir) = dirs().filter(|d| d.parent().is_some_and(|r| same_dir(r, root))).min().or_else(|| dirs().min()) {
         return Some(Shown::Folder(dir.to_path_buf()));
     }
     // Each file once (two rows can be one song), in the list's order.
@@ -512,21 +517,21 @@ pub fn save(t: &Track, audio: &[u8], duration_ms: u64, loudness_db: Option<f32>,
     static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
     // A copy: the disk work below doesn't hold up the rest of the app.
-    let (index, root) = {
+    let (mine, dirs, root) = {
         let st = STATE.read().unwrap();
-        (st.index.clone(), st.folder.clone())
+        (st.index.get(&t.id).map(|e| (e.path.clone(), e.list.clone())), folders(&st.index), st.folder.clone())
     };
     // Saved again, a song of a list's folder goes back in it (it stays that list's).
-    let kept = index.get(&t.id).and_then(|e| Some((e.path.parent()?, e.list.as_ref()?))).filter(|(d, _)| d.parent().is_some_and(|r| same_dir(r, &root)));
+    let kept = mine.as_ref().and_then(|(p, list)| Some((p.parent()?, list.as_ref()?))).filter(|(d, _)| d.parent().is_some_and(|r| same_dir(r, &root)));
     let (folder, list) = match (kept, list) {
         (Some((dir, id)), _) => (dir.to_path_buf(), Some(id.clone())),
-        (None, Some(l)) => (list_dir(&index, &root, l), Some(l.id.clone())),
+        (None, Some(l)) => (list_dir(&dirs, &root, l), Some(l.id.clone())),
         (None, None) => (root, None),
     };
     std::fs::create_dir_all(&folder)?;
     let ext = if audio.get(4..8) == Some(b"ftyp") { "m4a" } else { "webm" };
     // A file already there for this song is replaced; another song's isn't.
-    let mine = index.get(&t.id).map(|e| e.path.clone());
+    let mine = mine.map(|(p, _)| p);
     let stem = file_stem(t);
     let mut path = folder.join(format!("{stem}.{ext}"));
     let mut n = 2;
@@ -574,13 +579,11 @@ fn file_stem(t: &Track) -> String {
     if clean.is_empty() { t.id.clone() } else { clean }
 }
 
-/// The name an album's or playlist's folder takes: "Artist - Album" for an album whose
-/// songs all have the same first artist, else its title.
+/// The name an album's or playlist's folder takes: "Artist - Album" for an album with an
+/// artist on all its songs (the first song's first such), else its title.
 pub fn list_name(title: &str, album: bool, tracks: &[Track]) -> String {
-    fn first(t: &Track) -> Option<&str> {
-        t.artists.first().map(|a| a.name.trim()).filter(|a| !a.is_empty())
-    }
-    let artist = tracks.first().and_then(first).filter(|a| tracks.iter().all(|t| first(t) == Some(a)));
+    let on_all = |a: &str| tracks.iter().all(|t| t.artists.iter().any(|b| b.name.trim() == a));
+    let artist = tracks.first().and_then(|t| t.artists.iter().map(|a| a.name.trim()).find(|a| !a.is_empty() && on_all(a)));
     match artist {
         Some(a) if album => format!("{a} - {title}"),
         _ => title.to_owned(),
@@ -590,13 +593,16 @@ pub fn list_name(title: &str, album: bool, tracks: &[Track]) -> String {
 /// The folder for `list`'s songs, right under `root`: the one its songs were saved in
 /// before (renamed since, it keeps it), else one by its name that's free, "Name (2)" and
 /// on when it's taken (on disk, or by another list's songs).
-fn list_dir(index: &HashMap<String, Entry>, root: &Path, list: &ListFolder) -> PathBuf {
-    let before = index.values().filter(|e| e.list.as_deref() == Some(list.id.as_str())).filter_map(|e| e.path.parent()).filter(|d| d.parent().is_some_and(|r| same_dir(r, root))).min();
+fn list_dir(dirs: &HashSet<(PathBuf, Option<String>)>, root: &Path, list: &ListFolder) -> PathBuf {
+    let before = dirs.iter().filter(|(d, l)| l.as_deref() == Some(list.id.as_str()) && d.parent().is_some_and(|r| same_dir(r, root))).map(|(d, _)| d).min();
     if let Some(dir) = before {
         return dir.to_path_buf();
     }
-    let name = Some(safe_name(&list.name, 100)).filter(|n| !n.is_empty()).unwrap_or_else(|| safe_name(&list.id, 100));
-    let taken = |dir: &Path| dir.exists() || index.values().any(|e| e.path.parent().is_some_and(|d| same_dir(d, dir)));
+    // Short, so its songs' paths stay within Windows' 260 characters most programs need.
+    let name = Some(safe_name(&list.name, 60)).filter(|n| !n.is_empty()).unwrap_or_else(|| safe_name(&list.id, 60));
+    // An empty folder isn't (one left by a save that failed).
+    let used = |dir: &Path| dir.exists() && !dir.read_dir().is_ok_and(|mut d| d.next().is_none());
+    let taken = |dir: &Path| used(dir) || dirs.iter().any(|(d, _)| same_dir(d, dir));
     let mut dir = root.join(&name);
     let mut n = 2;
     while taken(&dir) {
@@ -606,9 +612,21 @@ fn list_dir(index: &HashMap<String, Entry>, root: &Path, list: &ListFolder) -> P
     dir
 }
 
+/// The folders songs are in, each with the list it's for (none: not a list's).
+fn folders(index: &HashMap<String, Entry>) -> HashSet<(PathBuf, Option<String>)> {
+    index.values().filter_map(|e| Some((e.path.parent()?.to_path_buf(), e.list.clone()))).collect()
+}
+
 /// The same folder: on Windows, whatever the case of its letters.
+/// Part by part, so "D:/Music/" is "D:\Music" too.
 fn same_dir(a: &Path, b: &Path) -> bool {
-    if cfg!(windows) { a.as_os_str().eq_ignore_ascii_case(b.as_os_str()) } else { a == b }
+    match cfg!(windows) {
+        true => {
+            let parts = |p: &Path| p.components().map(|c| c.as_os_str().to_string_lossy().to_lowercase()).collect::<Vec<_>>();
+            parts(a) == parts(b)
+        }
+        false => a.components().eq(b.components()),
+    }
 }
 
 /// `name` safe as a Windows file or folder name, of at most `max` characters (and 200
@@ -714,6 +732,9 @@ mod tests {
         let by = |artist: &str| Track { artists: vec![Link { name: artist.into(), id: None }], ..Default::default() };
         assert_eq!(list_name("Greatest Hits", true, &[by("Queen"), by("Queen")]), "Queen - Greatest Hits");
         assert_eq!(list_name("Now 100", true, &[by("A"), by("B")]), "Now 100");
+        // A guest first on one song: the album's artist all the same.
+        let guest = Track { artists: vec![Link { name: "Guest".into(), id: None }, Link { name: "Queen".into(), id: None }], ..Default::default() };
+        assert_eq!(list_name("Hits", true, &[by("Queen"), guest]), "Queen - Hits");
         assert_eq!(list_name("Mix", false, &[by("Queen")]), "Mix");
         assert_eq!(list_name("Empty", true, &[]), "Empty");
     }
@@ -731,29 +752,33 @@ mod tests {
         let mut index = HashMap::new();
 
         // A new list: its name.
-        assert_eq!(list_dir(&index, &root, &list("PL1", "Mix: 1")), root.join("Mix_ 1"));
+        assert_eq!(list_dir(&folders(&index), &root, &list("PL1", "Mix: 1")), root.join("Mix_ 1"));
         // A loose song is no list's folder.
         index.insert("loose".into(), entry(root.join("a.m4a"), None));
-        assert_eq!(list_dir(&index, &root, &list("PL1", "Mix")), root.join("Mix"));
+        assert_eq!(list_dir(&folders(&index), &root, &list("PL1", "Mix")), root.join("Mix"));
         // Its songs went there: so do the next, renamed since or not.
         index.insert("s1".into(), entry(root.join("Mix").join("s1.m4a"), Some("PL1")));
-        assert_eq!(list_dir(&index, &root, &list("PL1", "Renamed")), root.join("Mix"));
+        assert_eq!(list_dir(&folders(&index), &root, &list("PL1", "Renamed")), root.join("Mix"));
         // Another list of the same name.
-        assert_eq!(list_dir(&index, &root, &list("PL2", "Mix")), root.join("Mix (2)"));
+        assert_eq!(list_dir(&folders(&index), &root, &list("PL2", "Mix")), root.join("Mix (2)"));
         // A folder that's there already and isn't a list's.
         std::fs::create_dir_all(root.join("Mine")).unwrap();
-        assert_eq!(list_dir(&index, &root, &list("PL3", "Mine")), root.join("Mine (2)"));
+        std::fs::write(root.join("Mine").join("x.txt"), "").unwrap();
+        assert_eq!(list_dir(&folders(&index), &root, &list("PL3", "Mine")), root.join("Mine (2)"));
+        // An empty one is free to take.
+        std::fs::create_dir_all(root.join("Left")).unwrap();
+        assert_eq!(list_dir(&folders(&index), &root, &list("PL5", "Left")), root.join("Left"));
         // A list's folder under a downloads folder that's no longer the one: a new one here.
         index.insert("s2".into(), entry(root.join("old").join("Jazz").join("s2.m4a"), Some("PL4")));
-        assert_eq!(list_dir(&index, &root, &list("PL4", "Jazz")), root.join("Jazz"));
+        assert_eq!(list_dir(&folders(&index), &root, &list("PL4", "Jazz")), root.join("Jazz"));
         // A folder by the same name but for case is the same one on Windows.
         #[cfg(windows)]
         {
             index.insert("s3".into(), entry(root.join("Rock").join("s3.m4a"), Some("PL6")));
-            assert_eq!(list_dir(&index, &root, &list("PL7", "rock")), root.join("rock (2)"));
+            assert_eq!(list_dir(&folders(&index), &root, &list("PL7", "rock")), root.join("rock (2)"));
         }
         // No name left: its id.
-        assert_eq!(list_dir(&index, &root, &list("PL5", "...")), root.join("PL5"));
+        assert_eq!(list_dir(&folders(&index), &root, &list("PL5", "...")), root.join("PL5"));
 
         let _ = std::fs::remove_dir_all(&root);
     }

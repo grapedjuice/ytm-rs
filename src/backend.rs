@@ -421,7 +421,7 @@ pub enum Resp {
     PlaylistMoved { id: String, move_id: u64, ok: bool },
     Collaboration(ytm::Collaboration),
     /// Playback for `generation` failed before reaching the audio engine.
-    PlayError { generation: u64, msg: String },
+    PlayError { generation: u64, msg: String, suggest_spoof_at: Option<std::time::Duration> },
     /// Play `generation` is the song version of the music video that was asked for
     /// (`None`: that song wouldn't start, and the music video plays after all).
     PlayingAs { generation: u64, listed: String, song: Option<Track> },
@@ -856,6 +856,7 @@ pub struct Backend {
     /// High quality: with Premium, every song goes through the signed-in web player
     /// for its 256 kbps stream instead of the anonymous 128 kbps one.
     hq: Arc<std::sync::atomic::AtomicBool>,
+    spoof_video_streams: Arc<std::sync::atomic::AtomicBool>,
     /// Explicit songs are hidden: a music video's song version has to be clean.
     clean: Arc<std::sync::atomic::AtomicBool>,
     /// The visionOS player's file URLs were refused past 1 MiB this session (YouTube
@@ -894,7 +895,7 @@ impl Backend {
         {
             log::warn!("proxy relay: {e:#}");
         }
-        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), clean: Default::default(), visionos_hls: Default::default(), songs: Default::default(), batch: Default::default() };
+        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), spoof_video_streams: Default::default(), clean: Default::default(), visionos_hls: Default::default(), songs: Default::default(), batch: Default::default() };
         backend.keep_signed_in();
         Ok(backend)
     }
@@ -1031,7 +1032,7 @@ impl Backend {
                 Err(e) if e.is_panic() => {
                     log::error!("{what}: request panicked");
                     match (play_gen, subscribe) {
-                        (Some(generation), _) => Some(Resp::PlayError { generation, msg: "YouTube didn't respond properly".into() }),
+                        (Some(generation), _) => Some(Resp::PlayError { generation, msg: "YouTube didn't respond properly".into(), suggest_spoof_at: None }),
                         (_, Some((channel_id, on))) => Some(Resp::Subscribed { channel_id, on, ok: false }),
                         _ => (!quiet).then(|| Resp::Error(format!("{what} failed: YouTube didn't respond properly"))),
                     }
@@ -1233,7 +1234,7 @@ impl Backend {
                     Ok(()) => return Ok(None),
                     Err(e) => {
                         log::warn!("play {video_id}: {e:#}");
-                        Resp::PlayError { generation, msg: format!("{e:#}") }
+                        Resp::PlayError { generation, msg: format!("{e:#}"), suggest_spoof_at: None }
                     }
                 },
                 Req::VideoStream { video_id, max_height } => {
@@ -1539,6 +1540,7 @@ impl Backend {
         }
         // The URL is looked up meanwhile, but the playing song finishes downloading
         // first: it gets the whole bandwidth.
+        let spoof_video_streams = self.spoof_video_streams.load(Ordering::Relaxed);
         let playing = self.current.lock().unwrap().as_ref().map(|(_, s)| s.clone());
         let (found, ()) = tokio::join!(self.find_stream(&video_id), async {
             if let Some(s) = playing {
@@ -1548,9 +1550,13 @@ impl Backend {
         if moot() {
             return Ok(());
         }
+        let mut prefetched = self.prefetched.lock().unwrap();
+        if self.spoof_video_streams.load(Ordering::Relaxed) != spoof_video_streams {
+            return Ok(());
+        }
         log::debug!("prefetch {video_id}");
         let shared = self.start_stream(&video_id, found?, true);
-        if let Some((_, old)) = self.prefetched.lock().unwrap().replace((video_id, shared)) {
+        if let Some((_, old)) = prefetched.replace((video_id, shared)) {
             old.cancel();
         }
         Ok(())
@@ -1801,7 +1807,11 @@ impl Backend {
                     wake();
                 }
                 None => {
-                    let _ = tx.send(Resp::PlayError { generation, msg: format!("decode: {e}") });
+                    let (msg, suggest_spoof_at) = match shared2.failure() {
+                        Some(failure) => (failure.reason, failure.suggest_spoof.then_some(at)),
+                        None => (format!("decode: {e}"), None),
+                    };
+                    let _ = tx.send(Resp::PlayError { generation, msg, suggest_spoof_at });
                     wake();
                 }
             },
@@ -1995,7 +2005,10 @@ impl Backend {
             None => log::info!("stream {video_id}: {} bytes {} from {source:?}", s.size, s.kind()),
         }
         let shared = s.buffer(prefetch);
-        let refresh = Some(self.refresher(source, video_id, s.opus, s.size));
+        if source == Source::YtDlpAfterBotCheck {
+            shared.mark_after_bot_check();
+        }
+        let refresh = Some(self.refresher(source, video_id, &s));
         let (this, buffer) = (self.clone(), shared.clone());
         self.rt.spawn(async move {
             stream::download(this.http(), s.media, s.user_agent, buffer.clone(), refresh).await;
@@ -2010,16 +2023,19 @@ impl Backend {
     }
 
     /// Resolves a fresh URL from the same source and format, for a download that got a 403.
-    fn refresher(&self, source: Source, video_id: &str, opus: bool, size: u64) -> stream::Refresh {
+    fn refresher(&self, source: Source, video_id: &str, stream: &ResolvedStream) -> stream::Refresh {
         let (this, id) = (self.clone(), video_id.to_owned());
+        let (opus, size) = (stream.opus, stream.size);
+        let starts = stream.starts.as_deref().map(Arc::<[f64]>::from);
         Arc::new(move || {
-            let (this, id) = (this.clone(), id.clone());
+            let (this, id, starts) = (this.clone(), id.clone(), starts.clone());
             Box::pin(async move {
                 let s = this.resolve_from(source, &id, opus).await?;
                 // The buffer is laid out for the format it started with.
                 anyhow::ensure!(s.opus == opus, "the stream changed format");
                 // A podcast host may put other ads in, which makes another file.
                 anyhow::ensure!(s.size == size, "the stream changed size");
+                anyhow::ensure!(s.starts.as_deref() == starts.as_deref(), "the stream changed segment boundaries");
                 Ok(s.media)
             })
         })
@@ -2049,7 +2065,8 @@ impl Backend {
             let current = self.current.clone();
             Arc::new(move || current.lock().unwrap().as_ref().map(|(_, s)| s.clone())) as stream::Ahead
         });
-        stream::download_behind(self.http(), s.media, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus, s.size)), ahead).await;
+        let refresh = Some(self.refresher(source, &t.id, &s));
+        stream::download_behind(self.http(), s.media, s.user_agent, shared.clone(), refresh, ahead).await;
         if let Some(e) = shared.error() {
             anyhow::bail!("{e}");
         }
@@ -2235,7 +2252,15 @@ impl Backend {
                 if let Some(s) = self.rss_episode(&session, video_id).await? {
                     return Ok((Source::Feed, s));
                 }
-                Ok((Source::YtDlp, self.resolve_from(Source::YtDlp, video_id, false).await?))
+                let blocked = bot_check(&e);
+                if !best && self.spoof_video_streams.load(Ordering::Relaxed) && blocked {
+                    match self.resolve_from(Source::SafariHls, video_id, false).await {
+                        Ok(s) => return Ok((Source::SafariHls, s)),
+                        Err(e) => log::warn!("Safari HLS failed for {video_id} ({e:#}); trying the file stream"),
+                    }
+                }
+                let source = if blocked { Source::YtDlpAfterBotCheck } else { Source::YtDlp };
+                Ok((source, self.resolve_from(source, video_id, false).await?))
             }
             // An episode of a podcast added by RSS: YouTube doesn't have its audio, and
             // visionOS answers as for a video that's gone. Only the signed-in web player
@@ -2296,13 +2321,20 @@ impl Backend {
                 let feed = session.feed(&self.http(), &self.jsc, video_id).await?.ok_or_else(|| anyhow::anyhow!("not an RSS podcast episode"))?;
                 self.feed_stream(feed).await?
             }
-            Source::YtDlp => {
+            Source::YtDlp | Source::YtDlpAfterBotCheck | Source::SafariHls => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("sign in to play this song"))?;
-                let s = ytdlp::resolve(&self.http(), &self.data_dir, &session.cookie, video_id).await?;
+                let format = if source == Source::SafariHls { ytdlp::Format::SafariHls } else { ytdlp::Format::File };
+                let s = ytdlp::resolve(&self.http(), &self.data_dir, &session.cookie, video_id, format).await?;
                 // Cookies Google replaced while yt-dlp used the session.
                 self.api.keep(&session, s.replaced.iter().map(String::as_str));
-                // yt-dlp's JSON doesn't carry YouTube's loudness figure.
-                ResolvedStream { media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
+                if format == ytdlp::Format::SafariHls {
+                    let (segments, duration_ms) = crate::hls::safari_playlist(&self.http(), &s.url, &s.user_agent).await?;
+                    let (starts, urls) = segments.into_iter().unzip();
+                    ResolvedStream { media: stream::Media::TransportStream(urls), starts: Some(starts), size: 0, duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
+                } else {
+                    // yt-dlp's JSON doesn't carry YouTube's loudness figure.
+                    ResolvedStream { media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
+                }
             }
         })
     }
@@ -2413,6 +2445,15 @@ impl Backend {
         self.hq.store(on, Ordering::Relaxed);
     }
 
+    pub fn set_spoof_video_streams(&self, on: bool) {
+        let mut prefetched = self.prefetched.lock().unwrap();
+        if self.spoof_video_streams.swap(on, Ordering::Relaxed) != on
+            && let Some((_, stream)) = prefetched.take()
+        {
+            stream.cancel();
+        }
+    }
+
     /// Explicit songs hidden, and whether YouTube's Restricted Mode is asked for as well.
     pub fn set_hide_explicit(&self, on: bool, restricted: bool) {
         self.clean.store(on, Ordering::Relaxed);
@@ -2473,6 +2514,8 @@ enum Source {
     /// An RSS podcast episode's file, which the web player finds without Premium.
     Feed,
     YtDlp,
+    YtDlpAfterBotCheck,
+    SafariHls,
 }
 
 enum Found {
@@ -2518,6 +2561,12 @@ impl ResolvedStream {
 fn needs_account(e: &anyhow::Error) -> bool {
     let msg = e.to_string();
     msg.contains("LOGIN_REQUIRED") || msg.contains("Premium")
+}
+
+fn bot_check(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<innertube::Refused>().is_some_and(|r| {
+        r.status == "LOGIN_REQUIRED" && r.reason.to_ascii_lowercase().contains("not a bot")
+    })
 }
 
 /// The anonymous visionOS player says the video isn't there ("ERROR: This video is not
@@ -2749,6 +2798,8 @@ mod resolve_tests {
         // Those that need an account keep their own route.
         assert!(!not_available(&refused("LOGIN_REQUIRED", "Sign in to confirm your age")));
         assert!(needs_account(&refused("LOGIN_REQUIRED", "Sign in to confirm your age")));
+        assert!(!bot_check(&refused("LOGIN_REQUIRED", "Sign in to confirm your age")));
+        assert!(bot_check(&refused("LOGIN_REQUIRED", "Sign in to confirm you’re not a bot")));
         assert!(!needs_account(&refused("ERROR", "This video is not available")));
         // Only the player's own answer, not an error that reads like one.
         assert!(!not_available(&anyhow::anyhow!("ERROR: This video is not available")));

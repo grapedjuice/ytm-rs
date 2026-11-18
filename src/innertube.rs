@@ -111,11 +111,12 @@ pub async fn hls_audio(http: &reqwest::Client, video_id: &str, visitor_data: &st
     };
     let master = get(master_url.to_owned()).await?;
     let media_url = hls_audio_playlist(&master, "234").ok_or_else(|| anyhow::anyhow!("no AAC audio (234) in the HLS manifest"))?;
-    let (segments, listed) = hls_segments(&get(media_url).await?);
-    anyhow::ensure!(!segments.is_empty(), "empty HLS audio playlist");
+    let base = reqwest::Url::parse(master_url)?.join(&media_url)?;
+    let playlist = crate::hls::media_playlist(&base, &get(base.to_string()).await?)?;
+    let segments = playlist.segments;
     let formats = resp["streamingData"]["adaptiveFormats"].as_array().map(Vec::as_slice).unwrap_or_default();
     let aac = formats.iter().find(|f| f["itag"] == 140);
-    let duration_ms = aac.and_then(|f| f["approxDurationMs"].as_str()?.parse().ok()).unwrap_or((listed * 1000.0) as u64);
+    let duration_ms = aac.and_then(|f| f["approxDurationMs"].as_str()?.parse().ok()).unwrap_or((playlist.duration * 1000.0) as u64);
     log::info!("visionOS: {video_id} HLS itag 234 ({} segments)", segments.len());
     Ok(HlsStream { segments, duration_ms, loudness_db: loudness(&resp, aac.unwrap_or(&Value::Null)) })
 }
@@ -127,22 +128,6 @@ fn hls_audio_playlist(master: &str, group: &str) -> Option<String> {
         let uri = &l[l.find("URI=\"")? + 5..];
         Some(uri[..uri.find('"')?].to_owned())
     })
-}
-
-/// A media playlist's segments, each one's start (s, the `#EXTINF` durations before it)
-/// and URL, and their length in all.
-fn hls_segments(media: &str) -> (Vec<(f64, String)>, f64) {
-    let (mut out, mut at, mut dur) = (Vec::new(), 0.0, 0.0);
-    for line in media.lines().map(str::trim) {
-        if let Some(d) = line.strip_prefix("#EXTINF:") {
-            dur = d.split(',').next().and_then(|d| d.trim().parse().ok()).unwrap_or(0.0);
-        } else if !line.is_empty() && !line.starts_with('#') {
-            out.push((at, line.to_owned()));
-            at += dur;
-            dur = 0.0;
-        }
-    }
-    (out, at)
 }
 
 /// A video's H.264 in fragmented MP4, the only video this app decodes.
@@ -251,8 +236,11 @@ mod tests {
             https://m/video.m3u8\n";
         assert_eq!(hls_audio_playlist(master, "234").as_deref(), Some("https://m/itag/234/index.m3u8"));
         assert_eq!(hls_audio_playlist(master, "140"), None);
-        let media = "#EXTM3U\n#EXT-X-TARGETDURATION:7\n#EXTINF:7.0,\nhttps://s/0\n#EXTINF:7.0,\nhttps://s/1\n#EXTINF:5.04,\nhttps://s/2\n#EXT-X-ENDLIST\n";
-        assert_eq!(hls_segments(media), (vec![(0.0, "https://s/0".to_owned()), (7.0, "https://s/1".to_owned()), (14.0, "https://s/2".to_owned())], 19.04));
+        let media = "#EXTM3U\n#EXT-X-TARGETDURATION:7\n#EXTINF:7.0,\nhttps://s/0\n#EXTINF:7.0,\n1\n#EXTINF:5.04,\n/2\n#EXT-X-ENDLIST\n";
+        let base = reqwest::Url::parse("https://s/index.m3u8").unwrap();
+        let playlist = crate::hls::media_playlist(&base, media).unwrap();
+        assert_eq!(playlist.segments, vec![(0.0, "https://s/0".to_owned()), (7.0, "https://s/1".to_owned()), (14.0, "https://s/2".to_owned())]);
+        assert_eq!(playlist.duration, 19.04);
     }
 
     #[test]

@@ -2046,6 +2046,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "four-cc"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "431a4c31778fde52b4400de34975f219eeca55cc829a9de157cd743a5b230ecb"
+
+[[package]]
 name = "futures-channel"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3448,6 +3454,18 @@ name = "mp4ameta"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "453e991b2efe96c288cbc2d03a19e353504294559ecb6c03067fff5bd824616d"
+
+[[package]]
+name = "mpeg2ts-reader"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60d554f8b96211e27ca4cafe6d07dcdf88fc7ff2a23c11e3b075567732cfd6a7"
+dependencies = [
+ "encoding_rs",
+ "fixedbitset",
+ "log",
+ "smptera-format-identifiers-rust",
+]
 
 [[package]]
 name = "muda"
@@ -5521,6 +5539,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd538fb6910ac1099850255cf94a94df6551fbdd602454387d0adb2d1ca6dead"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "smptera-format-identifiers-rust"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b79962555faf3a7892357f69d0306269cb1b265007957252c843953804884750"
+dependencies = [
+ "four-cc",
 ]
 
 [[package]]
@@ -7727,6 +7754,7 @@ dependencies = [
  "md-5",
  "memmap2",
  "mp4ameta",
+ "mpeg2ts-reader",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",

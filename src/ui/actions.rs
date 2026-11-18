@@ -414,6 +414,7 @@ impl App {
         // In a text box, Ctrl+arrows move the cursor by words (and lines) instead; on a
         // focused button or slider they still skip and change the volume.
         let editing = ctx.text_edit_focused();
+        let spoof_prompt_open = self.spoof_prompt == super::SpoofPrompt::Open && self.dialog.is_none();
         let i = ctx.input(|i| {
             // Once per press, and not with Ctrl+F and the like, which mean something else.
             let k = |key: egui::Key| {
@@ -423,9 +424,9 @@ impl App {
             let ctrl = |key| !editing && i.modifiers.ctrl && i.key_pressed(key);
             (
                 k(egui::Key::Space),
-                i.pointer.button_pressed(egui::PointerButton::Extra1)
+                (!spoof_prompt_open && i.pointer.button_pressed(egui::PointerButton::Extra1))
                     || (i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft)),
-                i.pointer.button_pressed(egui::PointerButton::Extra2)
+                (!spoof_prompt_open && i.pointer.button_pressed(egui::PointerButton::Extra2))
                     || (i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight)),
                 ctrl(egui::Key::ArrowRight),
                 ctrl(egui::Key::ArrowLeft),

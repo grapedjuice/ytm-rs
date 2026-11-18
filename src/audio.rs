@@ -54,7 +54,7 @@ pub enum AudioEvent {
     Ending { generation: u64 },
     /// The song's download failed, so playback stopped at `at` (or a seek to `at`
     /// couldn't be served). Reopening the song there resolves a fresh stream.
-    Interrupted { generation: u64, at: Duration, reason: String },
+    Interrupted { generation: u64, at: Duration, failure: stream::DownloadFailure },
     Error(String),
 }
 
@@ -421,9 +421,9 @@ fn build_seek(mut j: SeekJob, pending: &std::sync::Mutex<Option<SeekJob>>, tx: &
         Ok((decoder, pos)) => {
             let _ = tx.send(AudioCmd::Replace { generation, seek, decoder, at: pos, seekable });
         }
-        Err(e) => match shared.error() {
-            Some(reason) => {
-                let _ = events.send(AudioEvent::Interrupted { generation, at: pos, reason });
+        Err(e) => match shared.failure() {
+            Some(failure) => {
+                let _ = events.send(AudioEvent::Interrupted { generation, at: pos, failure });
             }
             None => {
                 let _ = events.send(AudioEvent::Error(format!("Seek failed: {e}")));
@@ -1172,8 +1172,8 @@ fn run(
             // the next one mustn't start playing.
             if player.empty() && !status.hushed.load(Ordering::Relaxed) {
                 // A failed download ends the decoder early: that's not the song ending.
-                let event = match shared.as_ref().and_then(|s| s.error()) {
-                    Some(reason) => AudioEvent::Interrupted { generation: current, at: song_pos(&song_ms), reason },
+                let event = match shared.as_ref().and_then(|s| s.failure()) {
+                    Some(failure) => AudioEvent::Interrupted { generation: current, at: song_pos(&song_ms), failure },
                     None => AudioEvent::Finished { generation: current },
                 };
                 let _ = events.send(event);

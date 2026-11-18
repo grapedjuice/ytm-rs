@@ -249,8 +249,13 @@ impl App {
     /// The song's download failed partway: pick it up where it stopped from a fresh
     /// stream, rather than letting it end early and skip to the next one. If that keeps
     /// failing, stay on the song, ready to resume from there.
-    pub(super) fn recover(&mut self, at: Duration, reason: &str) {
+    pub(super) fn recover(&mut self, at: Duration, failure: crate::stream::DownloadFailure) {
         const MAX_RECOVERIES: u32 = 3;
+        let reason = failure.reason;
+        if failure.suggest_spoof && self.offer_spoof_streams(at) {
+            log::warn!("playback interrupted at {at:?} ({reason}); offering Spoof video streams");
+            return;
+        }
         if self.recoveries < MAX_RECOVERIES {
             self.recoveries += 1;
             log::warn!("playback interrupted at {at:?} ({reason}); reopening (try {})", self.recoveries);
@@ -258,12 +263,29 @@ impl App {
             return;
         }
         log::warn!("playback interrupted at {at:?} ({reason}); giving up");
-        // The player has already run dry; Stop would also reset the position to 0:00.
+        self.hold_interrupted_track(at);
+        let title = self.current().map(|t| t.title.clone()).unwrap_or_default();
+        self.toast(format!("Lost the connection while playing \"{title}\". Press play to pick up where it stopped."));
+    }
+
+    pub(super) fn offer_spoof_streams(&mut self, at: Duration) -> bool {
+        use super::SpoofPrompt;
+        if self.spoof_video_streams || self.spoof_prompt == SpoofPrompt::Dismissed || self.jam.guest() || self.current().is_none() {
+            return false;
+        }
+        self.spoof_prompt = SpoofPrompt::Open;
+        self.skip_streak = 0;
+        self.recoveries = 0;
+        self.audio.send(AudioCmd::Pause);
+        self.hold_interrupted_track(at);
+        true
+    }
+
+    fn hold_interrupted_track(&mut self, at: Duration) {
+        // Stop would also reset the position to 0:00.
         self.audio.status.position_ms.store(at.as_millis() as u64, Ordering::Relaxed);
         self.resume_at = Some(at);
         self.buffering = false;
-        let title = self.current().map(|t| t.title.clone()).unwrap_or_default();
-        self.toast(format!("Lost the connection while playing \"{title}\". Press play to pick up where it stopped."));
     }
 
     pub(super) fn play_current(&mut self) {

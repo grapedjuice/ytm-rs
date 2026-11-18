@@ -50,7 +50,7 @@ impl App {
                     self.handoff = false;
                 }
                 AudioEvent::Ending { .. } => {}
-                AudioEvent::Interrupted { generation, at, reason } if generation == self.generation => self.recover(at, &reason),
+                AudioEvent::Interrupted { generation, at, failure } if generation == self.generation => self.recover(at, failure),
                 AudioEvent::Interrupted { .. } => {}
                 AudioEvent::Error(e) => self.toast(e),
             }
@@ -581,7 +581,7 @@ impl App {
             Resp::MusicVideo { song, video } => {
                 self.music_videos.insert(song, video);
             }
-            Resp::PlayError { generation, msg } => self.on_play_error(generation, msg),
+            Resp::PlayError { generation, msg, suggest_spoof_at } => self.on_play_error(generation, msg, suggest_spoof_at),
             Resp::ServerQueue(q) => self.adopt_server_queue(q),
             Resp::Account { name, photo } => {
                 self.account_name = name.or(self.account_name.take());
@@ -771,8 +771,11 @@ impl App {
     }
 
     /// A song couldn't play: skip it, or stop when skipping can't help.
-    fn on_play_error(&mut self, generation: u64, msg: String) {
+    fn on_play_error(&mut self, generation: u64, msg: String, suggest_spoof_at: Option<Duration>) {
         if generation == self.generation {
+            if suggest_spoof_at.is_some_and(|at| self.offer_spoof_streams(at)) {
+                return;
+            }
             self.buffering = false;
             let title = self.current().map(|t| t.title.clone()).unwrap_or_default();
             let reason = if msg.contains("age-restricted") || msg.contains("confirm your age") {

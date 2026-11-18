@@ -281,6 +281,12 @@ settings-open = Open
 ## Network
 
 settings-network = Network
+settings-spoof-video-streams = Spoof video streams
+settings-spoof-video-streams-desc = With a signed-in account, try a different stream when YouTube blocks playback with a bot check. Uses more data.
+settings-spoof-prompt-title = Playback stopped
+settings-spoof-prompt-body = YouTube refused the audio stream after a bot check. This can happen on a VPN. Try Spoof video streams in Settings.
+settings-spoof-prompt-enable = Enable Spoof video streams
+settings-spoof-prompt-dismiss = Dismiss
 settings-proxy = Proxy
 settings-proxy-desc = Send everything ytm-rs fetches through a proxy: songs, lyrics, sign-in and Listen together.
 settings-proxy-windows-uses = Windows is set to use { $proxy }.

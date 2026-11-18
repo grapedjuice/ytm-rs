@@ -257,3 +257,11 @@ ytm-rs is licensed under [GPL-3.0](LICENSE).
    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=grapedjuice/ytm-rs&type=date&legend=bottom-right" />
  </picture>
 </a>
+
+## Contributors
+
+Thanks to everyone who has sent code, features and fixes to ytm-rs.
+
+<a href="https://github.com/grapedjuice/ytm-rs/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=grapedjuice/ytm-rs" alt="Contributors" />
+</a>

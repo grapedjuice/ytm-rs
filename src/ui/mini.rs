@@ -86,8 +86,18 @@ static MOVING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::ne
 #[cfg(windows)]
 static SHAPE: std::sync::Mutex<Option<(f32, Vec2, Vec2)>> = std::sync::Mutex::new(None);
 
+/// The mini player is up and kept on top. Windows' Show desktop minimizes even windows
+/// kept on top, so the window takes itself back then; only the user's own minimize counts.
+static ON_TOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Keep the window above others or not, and say so to the window's own handling.
+fn set_level(ctx: &egui::Context, on_top: bool) {
+    ON_TOP.store(on_top, std::sync::atomic::Ordering::Relaxed);
+    ctx.send_viewport_cmd(ViewportCommand::WindowLevel(if on_top { WindowLevel::AlwaysOnTop } else { WindowLevel::Normal }));
+}
+
 /// Keeps picture in picture in the video's shape while it's resized (Windows; elsewhere it
-/// takes the shape once the resize is over).
+/// takes the shape once the resize is over), and a kept-on-top mini player on top.
 #[cfg_attr(not(windows), allow(unused_variables))]
 pub fn set_hwnd(hwnd: *mut std::ffi::c_void) {
     #[cfg(windows)]
@@ -96,13 +106,32 @@ pub fn set_hwnd(hwnd: *mut std::ffi::c_void) {
 
 #[cfg(windows)]
 mod shape {
-    use std::sync::atomic::Ordering;
+    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
     use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
-    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, GetWindowRect, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_SIZING, WMSZ_BOTTOMLEFT, WMSZ_BOTTOM, WMSZ_LEFT, WMSZ_TOP, WMSZ_TOPLEFT, WMSZ_TOPRIGHT};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GWL_EXSTYLE, GetClientRect, GetWindowLongW, GetWindowRect, HWND_TOPMOST, IsIconic, PostMessageW, RegisterWindowMessageW, SC_MINIMIZE, SIZE_MINIMIZED, SW_SHOWNOACTIVATE,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos, ShowWindow, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_SIZE, WM_SIZING, WM_SYSCOMMAND, WM_WINDOWPOSCHANGED, WMSZ_BOTTOMLEFT,
+        WMSZ_BOTTOM, WMSZ_LEFT, WMSZ_TOP, WMSZ_TOPLEFT, WMSZ_TOPRIGHT, WS_EX_TOPMOST,
+    };
+    use windows::core::w;
+
+    /// The user minimized the window (its taskbar button, Win+Down, the window menu), which
+    /// Windows asks for first. Show desktop doesn't.
+    static ASKED: AtomicBool = AtomicBool::new(false);
+
+    /// Posted to bring the window back (after Show desktop, or onto the top again) once
+    /// Windows is done with what it's doing to it.
+    fn restore_msg() -> u32 {
+        static MSG: OnceLock<u32> = OnceLock::new();
+        // SAFETY: a constant, NUL-terminated name.
+        *MSG.get_or_init(|| unsafe { RegisterWindowMessageW(w!("ytm-rs mini player restore")) })
+    }
 
     pub fn init(hwnd: *mut std::ffi::c_void) {
+        restore_msg();
         // SAFETY: the app's own window, on the thread that made it; the subclass lives as
         // long as the window.
         if !unsafe { SetWindowSubclass(HWND(hwnd), Some(proc), 3, 0) }.as_bool() {
@@ -111,9 +140,42 @@ mod shape {
     }
 
     unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM, _: usize, _: usize) -> LRESULT {
+        let on_top = super::ON_TOP.load(Ordering::Relaxed);
         match msg {
             WM_ENTERSIZEMOVE => super::MOVING.store(true, Ordering::Relaxed),
             WM_EXITSIZEMOVE => super::MOVING.store(false, Ordering::Relaxed),
+            WM_SYSCOMMAND if wparam.0 as u32 & 0xFFF0 == SC_MINIMIZE => ASKED.store(true, Ordering::Relaxed),
+            // Minimized without being asked: Show desktop (or minimize all). Back, without
+            // taking the keyboard from what the user went to.
+            WM_SIZE if wparam.0 as u32 == SIZE_MINIMIZED => {
+                if !ASKED.swap(false, Ordering::Relaxed) && on_top {
+                    log::info!("mini player: minimized by the system while kept on top, showing it again");
+                    // SAFETY: the app's own window.
+                    let _ = unsafe { PostMessageW(Some(hwnd), restore_msg(), WPARAM(0), LPARAM(0)) };
+                }
+            }
+            WM_SIZE => ASKED.store(false, Ordering::Relaxed),
+            // Taken off the top by something else (the app's own unpin clears `ON_TOP` first):
+            // back on top once Windows is done with this change.
+            WM_WINDOWPOSCHANGED if on_top && !topmost(hwnd) => {
+                log::info!("mini player: taken off the top while kept there, putting it back");
+                // SAFETY: the app's own window.
+                let _ = unsafe { PostMessageW(Some(hwnd), restore_msg(), WPARAM(0), LPARAM(0)) };
+            }
+            _ if msg == restore_msg() => {
+                if on_top {
+                    // SAFETY: the app's own window, on its thread.
+                    unsafe {
+                        if IsIconic(hwnd).as_bool() {
+                            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                        }
+                        if !topmost(hwnd) {
+                            let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                        }
+                    }
+                }
+                return LRESULT(0);
+            }
             _ => {}
         }
         // SAFETY: the window's own message, passed on as it came.
@@ -147,6 +209,12 @@ mod shape {
             r.bottom = r.top + h;
         }
         LRESULT(1)
+    }
+
+    fn topmost(hwnd: HWND) -> bool {
+        // SAFETY: a plain query on the app's own window.
+        let ex = unsafe { GetWindowLongW(hwnd, GWL_EXSTYLE) };
+        ex as u32 & WS_EX_TOPMOST.0 != 0
     }
 }
 
@@ -702,7 +770,7 @@ impl Mini {
     pub fn set_pinned(&mut self, ctx: &egui::Context, on: bool) {
         self.pinned = on;
         if self.active() {
-            ctx.send_viewport_cmd(ViewportCommand::WindowLevel(if on { WindowLevel::AlwaysOnTop } else { WindowLevel::Normal }));
+            set_level(ctx, on);
         }
     }
 
@@ -815,7 +883,7 @@ impl Mini {
                     corner_place(area, frame, scale, ctx.zoom_factor())
                 }
             };
-            ctx.send_viewport_cmd(ViewportCommand::WindowLevel(if self.pinned { WindowLevel::AlwaysOnTop } else { WindowLevel::Normal }));
+            set_level(ctx, self.pinned);
             self.go(ctx, target, false, true)
         } else {
             if let Some(p) = now_place {
@@ -823,7 +891,7 @@ impl Mini {
                 self.set_place(p);
             }
             (self.tall, self.lifted, self.grown) = (false, false, false);
-            ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::Normal));
+            set_level(ctx, false);
             // Kept until the window has settled: a save meanwhile still writes it.
             match self.full {
                 Some((p, max)) if self.visible(p, frame) => self.go(ctx, p, max, false),
@@ -1263,8 +1331,8 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
         widgets::icon_button(&mut child, glyph, size, name, active).clicked()
     };
 
-    // Where it's playing from (its name opens it in the full window); the full window and
-    // back to the pill beside it.
+    // Where it's playing from (its name opens it in the full window); keep on top, the full
+    // window and back to the pill beside it.
     let head = top + 30.0;
     if button(ui, pos2(rt - 8.0, head), if app.mini.up { icon::CHEVRON_DOWN } else { icon::CHEVRON_UP }, 16.0, "Less", false) {
         app.mini.set_card(&ctx, false);
@@ -1272,7 +1340,11 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
     if button(ui, pos2(rt - 42.0, head), icon::MAXIMIZE_2, 14.0, "Full window (Ctrl+M)", false) {
         app.actions.push(Action::Mini(false));
     }
-    let head_w = rt - 66.0 - l;
+    let pinned = app.mini.pinned;
+    if button(ui, pos2(rt - 76.0, head), if pinned { icon::PIN } else { icon::PIN_OFF }, 14.0, if pinned { "Stop keeping on top" } else { "Keep on top" }, pinned) {
+        app.mini.set_pinned(&ctx, !pinned);
+    }
+    let head_w = rt - 100.0 - l;
     // A toast ("Only the host can shuffle the jam", "Sign in to like songs") takes the header's place while
     // it lasts, kept through its fade-out.
     let toast_id = egui::Id::unique("card-toast");

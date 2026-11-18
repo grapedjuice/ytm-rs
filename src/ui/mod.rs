@@ -1435,6 +1435,11 @@ impl App {
 
 
 
+fn window_refocused(was_focused: &mut bool, focused: bool) -> bool {
+    let previous = std::mem::replace(was_focused, focused);
+    focused && !previous
+}
+
 impl eframe::App for App {
     /// With a window material, nothing under the pages but what they paint.
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
@@ -1451,9 +1456,10 @@ impl eframe::App for App {
         self.lyric_view.release_hidden(ctx.cumulative_pass_nr());
         let now = ctx.input(|i| i.time);
         let focused = ctx.input(|i| i.focused);
-        let refocused = focused && !std::mem::replace(&mut self.was_focused, focused);
-        if refocused {
-            self.ratings.refresh_if_stale(now);
+        let refocused = window_refocused(&mut self.was_focused, focused);
+        if refocused && self.ratings.refresh_if_stale(now) {
+            // Refresh Liked Music too. Its entries stand in for individual rating reads.
+            self.request_liked(false);
         }
         self.sync_look();
         self.pump(ctx, now);

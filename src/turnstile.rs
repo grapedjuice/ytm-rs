@@ -15,24 +15,38 @@ use tao::event::{Event, StartCause, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tao::platform::run_return::EventLoopExtRunReturn;
 use tao::window::WindowBuilder;
-use wry::{WebContext, WebViewBuilder};
+use wry::{PageLoadEvent, WebContext, WebViewBuilder};
 
 use crate::login::BuildIn;
 
 pub const FLAG: &str = "--turnstile";
 const CHALLENGE: &str = "https://lyrics.api.dacubeking.com/challenge";
-/// How long to wait for an invisible pass before showing the window.
-const SHOW_AFTER: Duration = Duration::from_secs(5);
+/// The widget says when it needs an interaction; this is only a fallback in case that
+/// never arrives. Counted from the page having loaded, since a cold WebView2 start can
+/// take longer than an invisible pass does.
+const SHOW_AFTER: Duration = Duration::from_secs(15);
 /// Give up if nothing happens (e.g. the user ignores a shown challenge).
 const GIVE_UP_AFTER: Duration = Duration::from_secs(120);
 
 /// The challenge page posts to `window.parent`; at top level that is the page itself,
-/// so forward those messages to the native side.
+/// so forward those messages to the native side. The page doesn't say when the widget
+/// wants an interaction, so give the widget a before-interactive callback too; it reads
+/// it when it renders on DOMContentLoaded, and this listener runs first.
 const BRIDGE: &str = r#"
 window.addEventListener('message', function (e) {
   if (e.data && typeof e.data.type === 'string' && e.data.type.indexOf('turnstile-') === 0) {
     window.ipc.postMessage(JSON.stringify(e.data));
   }
+});
+window.ytmTurnstileInteractive = function () {
+  window.ipc.postMessage(JSON.stringify({ type: 'turnstile-interactive' }));
+};
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.cf-turnstile').forEach(function (el) {
+    if (!el.getAttribute('data-before-interactive-callback')) {
+      el.setAttribute('data-before-interactive-callback', 'ytmTurnstileInteractive');
+    }
+  });
 });
 "#;
 
@@ -82,16 +96,23 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
         .build(&event_loop)?;
 
     let proxy = event_loop.create_proxy();
+    let loaded_proxy = proxy.clone();
     let mut context = WebContext::new(Some(profile_dir));
     let webview = crate::proxy::webview(WebViewBuilder::new_with_web_context(&mut context), false)
         .with_initialization_script(BRIDGE)
         .with_ipc_handler(move |req| {
             let _ = proxy.send_event(req.body().clone());
         })
+        .with_on_page_load_handler(move |ev, _| {
+            if matches!(ev, PageLoadEvent::Finished) {
+                let _ = loaded_proxy.send_event(r#"{"type":"loaded"}"#.to_owned());
+            }
+        })
         .with_url(CHALLENGE)
         .build_in(&window)?;
 
     let started = Instant::now();
+    let mut loaded: Option<Instant> = None;
     let mut result: anyhow::Result<String> = Err(anyhow::anyhow!("closed before verification finished"));
     event_loop.run_return(|event, _, flow| {
         *flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(500));
@@ -114,6 +135,10 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
                         result = Err(anyhow::anyhow!("challenge timed out"));
                         *flow = ControlFlow::Exit;
                     }
+                    Some("turnstile-interactive") => show(&window),
+                    Some("loaded") => {
+                        loaded.get_or_insert_with(Instant::now);
+                    }
                     // Expired before use: ask the widget for a fresh one.
                     Some("turnstile-expired") => {
                         let _ = webview.evaluate_script("turnstile.reset()");
@@ -126,11 +151,8 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
                 if waited > GIVE_UP_AFTER {
                     result = Err(anyhow::anyhow!("timed out waiting for verification"));
                     *flow = ControlFlow::Exit;
-                } else if waited > SHOW_AFTER && !window.is_visible() {
-                    // Cloudflare wants an interaction; let the user see the widget.
-                    window.set_inner_size(tao::dpi::LogicalSize::new(360.0, 160.0));
-                    window.set_visible(true);
-                    window.set_focus();
+                } else if loaded.is_some_and(|t| t.elapsed() > SHOW_AFTER) {
+                    show(&window);
                 }
             }
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => *flow = ControlFlow::Exit,
@@ -139,4 +161,13 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
     });
     drop(webview);
     result
+}
+
+/// Cloudflare wants an interaction; let the user see the widget.
+fn show(window: &tao::window::Window) {
+    if !window.is_visible() {
+        window.set_inner_size(tao::dpi::LogicalSize::new(360.0, 160.0));
+        window.set_visible(true);
+        window.set_focus();
+    }
 }

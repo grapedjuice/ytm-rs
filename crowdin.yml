@@ -1,0 +1,9 @@
+# Translations on Crowdin, kept in step with locales/ by its GitHub sync.
+# The project id and a token come from the environment (or the GitHub sync's settings).
+project_id_env: CROWDIN_PROJECT_ID
+api_token_env: CROWDIN_PERSONAL_TOKEN
+preserve_hierarchy: true
+
+files:
+  - source: /locales/en-US/*.ftl
+    translation: /locales/%locale%/%original_file_name%

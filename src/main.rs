@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// First: its tr! is used everywhere after.
+#[macro_use]
+mod i18n;
 mod appicon;
 mod fullscreen;
 mod hls;

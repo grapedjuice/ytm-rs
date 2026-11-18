@@ -96,7 +96,7 @@ impl App {
         let was = self.lists.unliking(&tracks);
         self.set_liked(&tracks, false);
         let msg = match send {
-            Req::LikeMany { .. } => format!("Removed {} likes", tracks.len()),
+            Req::LikeMany { .. } => tr!("likes-removed", count = tracks.len()),
             _ => "Removed from liked songs".to_owned(),
         };
         self.toast_undo(msg, Undo::Unlike { targets, liked, was, send: Box::new(send) });

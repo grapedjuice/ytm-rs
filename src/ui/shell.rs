@@ -1083,7 +1083,7 @@ fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32,
         if jam {
             ui.horizontal(|ui| {
                 ui.add_space(pad);
-                ui.add(egui::Label::new(egui::RichText::new(p::TEMPO_IN_JAM).font(theme::regular(12.5)).color(theme::text_dim())).wrap());
+                ui.add(egui::Label::new(egui::RichText::new(p::tempo_in_jam()).font(theme::regular(12.5)).color(theme::text_dim())).wrap());
             });
             ui.add_space(6.0);
         }

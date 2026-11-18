@@ -91,33 +91,34 @@ struct Entry {
 
 /// Settings' categories and sections, by their titles. One named as its category opens
 /// that; any other is looked for with Settings' own search.
-const SECTIONS: [(&str, SettingsTab); 22] = {
+/// As Settings titles them, in this run's language: a search for one finds it there.
+fn sections() -> [(&'static str, SettingsTab); 22] {
     use SettingsTab::*;
     [
-        ("Account", Account),
-        ("Connections", Account),
-        ("Playback", Playback),
-        ("Sound", Playback),
-        ("Music videos", Playback),
-        ("Equalizer", Playback),
-        ("Playback speed", Playback),
-        ("Lyrics", Lyrics),
-        ("Lyrics timing", Lyrics),
-        ("Lyrics sources", Lyrics),
-        ("Appearance", Appearance),
-        ("Mini player", Appearance),
-        ("App icon", Appearance),
-        ("General", General),
-        ("Window", General),
-        ("Downloads", General),
-        ("Network", General),
+        (tr!("settings-account"), Account),
+        (tr!("settings-connections"), Account),
+        (tr!("settings-playback"), Playback),
+        (tr!("settings-sound"), Playback),
+        (tr!("settings-music-videos"), Playback),
+        (tr!("settings-equalizer"), Playback),
+        (tr!("settings-playback-speed"), Playback),
+        (tr!("settings-lyrics"), Lyrics),
+        (tr!("settings-lyrics-timing"), Lyrics),
+        (tr!("settings-lyrics-sources"), Lyrics),
+        (tr!("settings-appearance"), Appearance),
+        (tr!("settings-mini-player"), Appearance),
+        (tr!("settings-app-icon"), Appearance),
+        (tr!("settings-general"), General),
+        (tr!("settings-window"), General),
+        (tr!("settings-downloads"), General),
+        (tr!("settings-network"), General),
         ("Import", General),
-        ("Keyboard shortcuts", Shortcuts),
+        (tr!("settings-keyboard-shortcuts"), Shortcuts),
         ("System-wide shortcuts", Shortcuts),
-        ("Updates", About),
-        ("About", About),
+        (tr!("settings-updates"), About),
+        (tr!("settings-about"), About),
     ]
-};
+}
 
 /// Ctrl+K opens and closes it. Taken before any text box sees it: there, it would delete
 /// to the end of the line (Cmd+K on macOS leaves Ctrl+K to do that). Its own keys are
@@ -173,7 +174,7 @@ fn entries(app: &App) -> Vec<Entry> {
     if song {
         add(Group::Pages, Command::NowPlaying, "Now playing", "", icon::MUSIC);
     }
-    for (name, tab) in SECTIONS {
+    for (name, tab) in sections() {
         add(Group::Settings, Command::Setting(tab, name), name, if name == tab.label() { "" } else { tab.label() }, icon::SETTINGS);
     }
     let cards = app.library.as_ref().map(|l| l.playlists.as_slice()).or(app.sidebar_cache.as_deref()).unwrap_or_default();
@@ -509,8 +510,17 @@ mod tests {
     fn sections_are_in_settings() {
         // A renamed section would else turn into a plain search for its old name.
         let code = [include_str!("pages.rs"), include_str!("hotkeys.rs"), include_str!("transfer.rs")].concat();
-        for (name, tab) in SECTIONS.into_iter().filter(|(name, tab)| *name != tab.label()) {
-            assert!(code.contains(&format!("(ui, \"{name}\"")), "no section titled {name:?} in {:?}", tab.label());
+        // A section's title, written out or by its message's id.
+        let titled = |name: &str| {
+            code.contains(&format!("(ui, \"{name}\""))
+                || code.match_indices("(ui, tr!(\"").any(|(i, _)| {
+                    let rest = &code[i + 10..];
+                    let id = &rest[..rest.find('"').unwrap_or(0)];
+                    crate::i18n::text(Box::leak(id.to_owned().into_boxed_str())) == name
+                })
+        };
+        for (name, tab) in sections().into_iter().filter(|(name, tab)| *name != tab.label()) {
+            assert!(titled(name), "no section titled {name:?} in {:?}", tab.label());
         }
     }
 

@@ -233,7 +233,7 @@ The relay in `server/` is a separate Cloudflare Worker, also in Rust ([workers-r
 
 ## Contributing
 
-Found a bug or have an idea? [Open an issue](https://github.com/grapedjuice/ytm-rs/issues). Questions, or a setup to show off? Head to [Discussions](https://github.com/grapedjuice/ytm-rs/discussions). Pull requests are welcome.
+Found a bug or have an idea? [Open an issue](https://github.com/grapedjuice/ytm-rs/issues). Questions, or a setup to show off? Head to [Discussions](https://github.com/grapedjuice/ytm-rs/discussions). Pull requests are welcome, and so are translations: see [Translating ytm-rs](TRANSLATING.md).
 
 ## License
 

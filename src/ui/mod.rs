@@ -542,6 +542,9 @@ pub struct App {
     /// connected), and the devices last listed there.
     output_device: Option<(String, String)>,
     output_devices: Vec<crate::audio::OutputDevice>,
+    /// The language picked in Settings (`None`: the system's), saved; this run shows
+    /// [`crate::i18n::current`] until the next start.
+    language: Option<String>,
     radio_pending: bool,
     /// The last song ended with nothing after it: radio carries on from there.
     ended: bool,
@@ -757,6 +760,9 @@ impl App {
         storage: Option<&dyn eframe::Storage>,
     ) -> Self {
         let get = |k: &str| storage.and_then(|s| s.get_string(k));
+        let language = get("language").filter(|l| !l.is_empty());
+        // Before anything is drawn: the language is this run's.
+        crate::i18n::init(language.as_deref());
         // Dev hook: YTM_FONT=<font name> tries a font without saving it.
         theme::set_font_choice(&dev_var("YTM_FONT").map(str::to_owned).or_else(|| get("font")).unwrap_or_default());
         let discord_enabled = get("discord_enabled").is_none_or(|v| v == "1");
@@ -911,6 +917,7 @@ impl App {
             music_videos: Default::default(),
             output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
             output_devices: Vec::new(),
+            language,
             updater: None,
             storage: Default::default(),
             auto_update: get("auto_update").is_none_or(|v| v == "1"),
@@ -1997,6 +2004,7 @@ impl eframe::App for App {
         let (device, device_name) = self.output_device.clone().unzip();
         storage.set_string("output_device", device.unwrap_or_default());
         storage.set_string("output_device_name", device_name.unwrap_or_default());
+        storage.set_string("language", self.language.clone().unwrap_or_default());
         storage.set_string("auto_update", b(self.auto_update));
         storage.set_string("update_channel", if self.update_nightly { "nightly" } else { "stable" }.to_owned());
         // eframe has just saved the window's geometry. Minimized or in the tray that's

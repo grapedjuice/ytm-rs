@@ -1451,14 +1451,14 @@ impl SettingsTab {
 
     pub(super) fn label(self) -> &'static str {
         match self {
-            Self::Playback => "Playback",
-            Self::Lyrics => "Lyrics",
-            Self::Appearance => "Appearance",
-            Self::Connections => "Connections",
-            Self::Account => "Account",
-            Self::General => "General",
-            Self::Shortcuts => "Keyboard shortcuts",
-            Self::About => "About",
+            Self::Playback => tr!("settings-playback"),
+            Self::Lyrics => tr!("settings-lyrics"),
+            Self::Appearance => tr!("settings-appearance"),
+            Self::Connections => tr!("settings-connections"),
+            Self::Account => tr!("settings-account"),
+            Self::General => tr!("settings-general"),
+            Self::Shortcuts => tr!("settings-keyboard-shortcuts"),
+            Self::About => tr!("settings-about"),
         }
     }
 }
@@ -1569,7 +1569,7 @@ fn settings(app: &mut App, ui: &mut Ui) {
             }
             if FILTER.with_borrow(|f| f.total == 0) {
                 ui.add_space(40.0);
-                ui.label(RichText::new(format!("No settings match \"{}\"", app.settings_query.trim())).font(theme::regular(14.0)).color(theme::text_dim()));
+                ui.label(RichText::new(tr!("settings-no-match", query = app.settings_query.trim())).font(theme::regular(14.0)).color(theme::text_dim()));
             }
         } else {
             settings_tab(app, ui, app.settings_tab);
@@ -1643,10 +1643,11 @@ fn settings_tab(app: &mut App, ui: &mut Ui, tab: SettingsTab) {
             super::presence::settings(app, ui);
         }
         SettingsTab::General => {
+            settings_language(app, ui);
             settings_window(app, ui);
             settings_downloads(ui);
             super::transfer::settings_section(app, ui);
-            settings_section(ui, "Network", None, None, |ui| network(app, ui));
+            settings_section(ui, tr!("settings-network"), None, None, |ui| network(app, ui));
             // Last, as most apps keep it.
             settings_storage(app, ui);
         }
@@ -1666,7 +1667,7 @@ fn settings_tab(app: &mut App, ui: &mut Ui, tab: SettingsTab) {
 
 /// The page's title and its search box.
 fn settings_head(app: &mut App, ui: &mut Ui) {
-    page_title(ui, "Settings");
+    page_title(ui, tr!("settings-title"));
     ui.add_space(12.0);
     settings_search(app, ui);
     ui.add_space(14.0);
@@ -1710,7 +1711,7 @@ fn settings_search(app: &mut App, ui: &mut Ui) {
     let edit = ui.put(
         inner,
         egui::TextEdit::singleline(&mut app.settings_query)
-            .hint_text(RichText::new("Search settings").color(theme::text_faint()))
+            .hint_text(RichText::new(tr!("settings-search-box")).color(theme::text_faint()))
             .font(theme::regular(14.0))
             .frame(egui::Frame::NONE)
             .align(Align2::LEFT_CENTER)
@@ -1718,7 +1719,7 @@ fn settings_search(app: &mut App, ui: &mut Ui) {
     );
     if clearable {
         let x = Rect::from_center_size(pos2(rect.right() - 19.0, rect.center().y), Vec2::splat(26.0));
-        let resp = named(ui.interact(x, ui.scope_id().with("settings-clear"), Sense::click()), "Clear").on_hover_cursor(egui::CursorIcon::PointingHand);
+        let resp = named(ui.interact(x, ui.scope_id().with("settings-clear"), Sense::click()), tr!("settings-clear")).on_hover_cursor(egui::CursorIcon::PointingHand);
         let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
         if h > 0.0 {
             ui.painter().circle_filled(x.center(), 13.0, theme::glass(0.10 * h));
@@ -1749,32 +1750,32 @@ fn settings_account(app: &mut App, ui: &mut Ui) {
         app.channels_asked = Some(now);
         app.backend.request(crate::backend::Req::Channels);
     }
-    settings_section(ui, "Account", None, None, |ui| {
+    settings_section(ui, tr!("settings-account"), None, None, |ui| {
         if app.logged_in {
             let name = app.account_name.clone().unwrap_or_else(|| "YouTube Music".to_owned());
-            setting_row(ui, &name, Some("Signed in with Google. Your home feed, library and likes come from this account. Saved encrypted in Windows Credential Manager."), |ui| {
-                sign_out = pill(ui, "Sign out", Some(icon::LOG_OUT), false).clicked();
+            setting_row(ui, &name, Some(tr!("settings-signed-in-desc")), |ui| {
+                sign_out = pill(ui, tr!("settings-sign-out"), Some(icon::LOG_OUT), false).clicked();
             });
             // Also with one, when the one in use isn't it (a brand channel since deleted).
             if app.channels.as_ref().is_some_and(|c| c.list.len() > 1 || !c.list.iter().any(|l| l.page_id == c.current)) {
                 divider(ui);
-                setting_row(ui, "Channel", Some("Your Google account and each YouTube channel it manages have their own library, likes, history and recommendations."), |ui| {
+                setting_row(ui, tr!("settings-channel"), Some(tr!("settings-channel-desc")), |ui| {
                     channel_picker(app, ui);
                 });
             }
         } else {
-            setting_row(ui, "Not signed in", Some("Sign in to get your home feed, library and likes."), |ui| {
+            setting_row(ui, tr!("settings-not-signed-in"), Some(tr!("settings-not-signed-in-desc")), |ui| {
                 if busy {
                     widgets::loader(ui);
                 } else {
-                    sign_in = pill(ui, "Sign in with Google", Some(icon::CIRCLE_USER), true).clicked();
+                    sign_in = pill(ui, tr!("settings-sign-in-with-google"), Some(icon::CIRCLE_USER), true).clicked();
                 }
             });
         }
     });
     if busy && !filtering() {
         ui.add_space(6.0);
-        ui.label(RichText::new("Finish signing in in the window that opened.").font(theme::regular(12.5)).color(theme::text_dim()));
+        ui.label(RichText::new(tr!("settings-sign-in-finish")).font(theme::regular(12.5)).color(theme::text_dim()));
     }
     if sign_in {
         app.start_sign_in(ui.ctx());
@@ -1791,21 +1792,21 @@ fn channel_picker(app: &mut App, ui: &mut Ui) {
     // YouTube's switcher says), tells them apart.
     let label = |c: &crate::ytm::Channel| match (&c.handle, c.has_channel) {
         (Some(h), _) => format!("{} ({h})", c.name),
-        (None, false) => format!("{} (No channel)", c.name),
+        (None, false) => tr!("settings-no-channel", name = c.name.as_str()),
         (None, true) => c.name.clone(),
     };
     // The button is narrower: a handle alone is enough there.
     let shown = match list.iter().find(|c| c.page_id == *current) {
         Some(c) => c.handle.clone().unwrap_or_else(|| label(c)),
-        None => "Another channel".to_owned(),
+        None => tr!("settings-another-channel").to_owned(),
     };
     // A transfer would go on as the new channel.
     if app.transfer.running() {
-        ui.label(RichText::new("Not while a transfer runs").font(theme::regular(13.0)).color(theme::text_dim()));
+        ui.label(RichText::new(tr!("settings-channel-not-during-transfer")).font(theme::regular(13.0)).color(theme::text_dim()));
         return;
     }
     let switching = app.switching_to.is_some();
-    let btn = dropdown_button(ui, if switching { "Switching…" } else { &shown }, 220.0, "Channel");
+    let btn = dropdown_button(ui, if switching { tr!("settings-switching") } else { &shown }, 220.0, tr!("settings-channel"));
     let mut pick = None;
     widgets::menu_popup(&btn).show(|ui| {
         widgets::menu_body(ui, 300.0);
@@ -1828,68 +1829,68 @@ fn channel_picker(app: &mut App, ui: &mut Ui) {
 
 /// Settings › Playback.
 fn settings_playback(app: &mut App, ui: &mut Ui) {
-    settings_section(ui, "Playback", None, None, |ui| {
-        setting_row(ui, "Autoplay", Some("Keep playing similar songs when the queue ends."), |ui| {
-            toggle(ui, &mut app.autoplay, "Autoplay");
+    settings_section(ui, tr!("settings-playback"), None, None, |ui| {
+        setting_row(ui, tr!("settings-autoplay"), Some(tr!("settings-autoplay-desc")), |ui| {
+            toggle(ui, &mut app.autoplay, tr!("settings-autoplay"));
         });
         divider(ui);
-        setting_row(ui, "Crossfade songs", Some("Blend the end of each song into the start of the next."), |ui| {
-            if toggle(ui, &mut app.crossfade, "Crossfade songs").changed() {
+        setting_row(ui, tr!("settings-crossfade-songs"), Some(tr!("settings-crossfade-songs-desc")), |ui| {
+            if toggle(ui, &mut app.crossfade, tr!("settings-crossfade-songs")).changed() {
                 app.set_crossfade();
             }
         });
         if app.crossfade {
             divider(ui);
-            setting_row_wide(ui, "Crossfade length", None, SLIDER_W, |ui| {
-                if seconds_slider(ui, &mut app.crossfade_secs, 1..=super::CROSSFADE_MAX, "Crossfade length").changed() {
+            setting_row_wide(ui, tr!("settings-crossfade-length"), None, SLIDER_W, |ui| {
+                if seconds_slider(ui, &mut app.crossfade_secs, 1..=super::CROSSFADE_MAX, tr!("settings-crossfade-length")).changed() {
                     app.set_crossfade();
                 }
             });
             divider(ui);
-            setting_row(ui, "Crossfade when skipping", Some("Also fade into the next song when you skip ahead. Going back or picking a song still switches right away."), |ui| {
-                toggle(ui, &mut app.crossfade_skips, "Crossfade when skipping");
+            setting_row(ui, tr!("settings-crossfade-when-skipping"), Some(tr!("settings-crossfade-when-skipping-desc")), |ui| {
+                toggle(ui, &mut app.crossfade_skips, tr!("settings-crossfade-when-skipping"));
             });
         }
         divider(ui);
-        setting_row(ui, "Hide explicit songs", Some("Leave songs marked E out of lists, search, the queue and autoplay. Ones already playing finish."), |ui| {
-            if toggle(ui, &mut app.hide_explicit, "Hide explicit songs").changed() {
+        setting_row(ui, tr!("settings-hide-explicit-songs"), Some(tr!("settings-hide-explicit-songs-desc")), |ui| {
+            if toggle(ui, &mut app.hide_explicit, tr!("settings-hide-explicit-songs")).changed() {
                 app.set_hide_explicit();
             }
         });
         divider(ui);
-        setting_row(ui, "Show podcasts", Some("Podcast shows and episodes: a Podcasts filter on Home, in search results, and the ones you've saved in your library."), |ui| {
-            if toggle(ui, &mut app.show_podcasts, "Show podcasts").changed() {
+        setting_row(ui, tr!("settings-show-podcasts"), Some(tr!("settings-show-podcasts-desc")), |ui| {
+            if toggle(ui, &mut app.show_podcasts, tr!("settings-show-podcasts")).changed() {
                 app.set_show_podcasts();
             }
         });
         divider(ui);
-        setting_row(ui, "Show comments", Some("A Comments tab in now playing, beside Up next and Lyrics: what people say about the song, Top or Newest, with replies. Signed in, you can comment, reply and like too."), |ui| {
-            if toggle(ui, &mut app.show_comments, "Show comments").changed() && !app.show_comments && app.np_tab == super::NpTab::Comments {
+        setting_row(ui, tr!("settings-show-comments"), Some(tr!("settings-show-comments-desc")), |ui| {
+            if toggle(ui, &mut app.show_comments, tr!("settings-show-comments")).changed() && !app.show_comments && app.np_tab == super::NpTab::Comments {
                 app.np_tab = super::NpTab::Art;
             }
         });
         divider(ui);
         // Only with hiding on: it's off (and shown off) until then.
         ui.add_enabled_ui(app.hide_explicit, |ui| {
-            setting_row(ui, "Use YouTube's Restricted Mode", Some("Stricter: YouTube also leaves out whatever else it finds mature, not just explicit songs. Applies to pages loaded from now on."), |ui| {
+            setting_row(ui, tr!("settings-use-youtubes-restricted-mode"), Some(tr!("settings-use-youtubes-restricted-mode-desc")), |ui| {
                 let mut on = app.hide_explicit && app.restricted_mode;
-                if toggle(ui, &mut on, "Use YouTube's Restricted Mode").changed() {
+                if toggle(ui, &mut on, tr!("settings-use-youtubes-restricted-mode")).changed() {
                     app.restricted_mode = on;
                     app.set_hide_explicit();
                 }
             });
         });
     });
-    settings_section(ui, "Song ratings", None, None, |ui| {
+    settings_section(ui, tr!("settings-song-ratings"), None, None, |ui| {
         let ratings = &mut app.rating_settings;
         for (i, (title, description, value)) in [
-            ("Dislike button in the player", "Show the thumbs-down button beside the heart.", &mut ratings.player_button),
-            ("Rating icons in song lists", "Show ratings beside the duration. Hover over an unrated song to reveal its Like button.", &mut ratings.list_icons),
-            ("Dim disliked songs", "Show disliked songs in muted colors in song lists.", &mut ratings.dim_disliked),
-            ("Dislike skips to the next track", "Advance after YouTube Music confirms the dislike. Guests in Listen together follow the host’s playback.", &mut ratings.skip_disliked),
-            ("Dislike notifications", "Show a message when a dislike is saved or removed.", &mut ratings.dislike_notices),
-            ("Like removal notifications", "Show an Undo button before sending the removal to YouTube Music.", &mut ratings.unlike_notices),
-            ("Safe liked songs", "Hold the like button to remove a like.", &mut ratings.confirm_unlike),
+            (tr!("settings-ratings-player-button"), tr!("settings-ratings-player-button-desc"), &mut ratings.player_button),
+            (tr!("settings-ratings-list-icons"), tr!("settings-ratings-list-icons-desc"), &mut ratings.list_icons),
+            (tr!("settings-ratings-dim-disliked"), tr!("settings-ratings-dim-disliked-desc"), &mut ratings.dim_disliked),
+            (tr!("settings-ratings-skip-disliked"), tr!("settings-ratings-skip-disliked-desc"), &mut ratings.skip_disliked),
+            (tr!("settings-ratings-dislike-notices"), tr!("settings-ratings-dislike-notices-desc"), &mut ratings.dislike_notices),
+            (tr!("settings-ratings-unlike-notices"), tr!("settings-ratings-unlike-notices-desc"), &mut ratings.unlike_notices),
+            (tr!("settings-ratings-safe-likes"), tr!("settings-ratings-safe-likes-desc"), &mut ratings.confirm_unlike),
         ].into_iter().enumerate() {
             if i != 0 {
                 divider(ui);
@@ -1899,21 +1900,21 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             });
         }
         divider(ui);
-        setting_row(ui, "Hold to remove like", None, |ui| {
+        setting_row(ui, tr!("settings-ratings-hold-to-remove"), None, |ui| {
             ui.add_enabled_ui(ratings.confirm_unlike, |ui| {
                 use super::ratings::{DEFAULT_UNLIKE_MS, MAX_UNLIKE_MS, MIN_UNLIKE_MS};
                 let font = egui::TextStyle::Body.resolve(ui.style());
                 let width = ui.painter().layout_no_wrap("8888 ms".to_owned(), font, theme::text()).size().x;
                 ui.add_sized(vec2(width, 26.0), egui::Label::new(format!("{:.0} ms", ratings.unlike_hold_ms)).halign(egui::Align::RIGHT));
-                slider_track(ui, &mut ratings.unlike_hold_ms, (MIN_UNLIKE_MS, MAX_UNLIKE_MS, 50.0), Some(DEFAULT_UNLIKE_MS), 112.0, "Hold to remove like");
+                slider_track(ui, &mut ratings.unlike_hold_ms, (MIN_UNLIKE_MS, MAX_UNLIKE_MS, 50.0), Some(DEFAULT_UNLIKE_MS), 112.0, tr!("settings-ratings-hold-to-remove"));
             });
         });
     });
-    settings_section(ui, "Sound", None, None, |ui| {
+    settings_section(ui, tr!("settings-sound"), None, None, |ui| {
         let desc = normalization_desc(app);
-        setting_row(ui, "Volume normalization", Some(&desc), |ui| {
+        setting_row(ui, tr!("settings-volume-normalization"), Some(&desc), |ui| {
             use crate::audio::Normalize;
-            let btn = dropdown_button(ui, app.normalize.label(), 120.0, "Volume normalization");
+            let btn = dropdown_button(ui, app.normalize.label(), 120.0, tr!("settings-volume-normalization"));
             widgets::menu_popup(&btn).show(|ui| {
                 widgets::menu_body(ui, 120.0);
                 for level in Normalize::ALL {
@@ -1926,41 +1927,41 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             });
         });
         divider(ui);
-        setting_row(ui, "Logarithmic volume", Some("Space the volume slider out the way ears hear loudness, so quiet levels aren't squeezed into its first few pixels."), |ui| {
-            if toggle(ui, &mut app.log_volume, "Logarithmic volume").changed() {
+        setting_row(ui, tr!("settings-logarithmic-volume"), Some(tr!("settings-logarithmic-volume-desc")), |ui| {
+            if toggle(ui, &mut app.log_volume, tr!("settings-logarithmic-volume")).changed() {
                 app.audio.set_log_volume(app.log_volume);
             }
         });
         divider(ui);
-        setting_row(ui, "High quality audio", Some("256 kbps instead of 128 kbps, for accounts with YouTube Premium. Applies from the next song."), |ui| {
-            if toggle(ui, &mut app.high_quality, "High quality audio").changed() {
+        setting_row(ui, tr!("settings-high-quality-audio"), Some(tr!("settings-high-quality-audio-desc")), |ui| {
+            if toggle(ui, &mut app.high_quality, tr!("settings-high-quality-audio")).changed() {
                 app.backend.set_high_quality(app.high_quality);
             }
         });
         divider(ui);
         stereo_settings(app, ui);
         divider(ui);
-        setting_row(ui, "Output device", Some("Where the music plays. A picked device that isn't connected leaves it to Windows' default until it's back."), |ui| {
+        setting_row(ui, tr!("settings-output-device"), Some(tr!("settings-output-device-desc")), |ui| {
             output_device_picker(app, ui);
         });
     });
     settings_equalizer(app, ui);
     settings_tempo(app, ui);
-    settings_section(ui, "Music videos", None, None, |ui| {
-        setting_row(ui, "Play songs, not music videos", Some("An official music video plays as its song, the album recording, when YouTube Music has one: no intros, skits or video-only edits. Lists still show what they hold."), |ui| {
-            toggle(ui, &mut app.play_songs, "Play songs, not music videos");
+    settings_section(ui, tr!("settings-music-videos"), None, None, |ui| {
+        setting_row(ui, tr!("settings-songs-not-videos"), Some(tr!("settings-songs-not-videos-desc")), |ui| {
+            toggle(ui, &mut app.play_songs, tr!("settings-songs-not-videos"));
         });
         divider(ui);
-        setting_row(ui, "Show music videos", Some("Music videos play as moving video, with their own sound and no lyrics. Turned off while songs play in their place, songs have no Song and Video switch in Now playing; music videos keep theirs."), |ui| {
+        setting_row(ui, tr!("settings-show-music-videos"), Some(tr!("settings-show-music-videos-desc")), |ui| {
             let mut on = app.show_video;
-            if toggle(ui, &mut on, "Show music videos").changed() {
+            if toggle(ui, &mut on, tr!("settings-show-music-videos")).changed() {
                 app.actions.push(Action::ToggleVideo);
             }
         });
         divider(ui);
-        setting_row(ui, "Video quality", Some("Music videos play this sharp, or as close below it as the video comes. 1080p takes about three times the work of 720p, which a slower computer may not keep up with."), |ui| {
+        setting_row(ui, tr!("settings-video-quality"), Some(tr!("settings-video-quality-desc")), |ui| {
             let label = |h: u32| format!("{h}p");
-            let btn = dropdown_button(ui, &label(app.video_quality), 120.0, "Video quality");
+            let btn = dropdown_button(ui, &label(app.video_quality), 120.0, tr!("settings-video-quality"));
             widgets::menu_popup(&btn).show(|ui| {
                 widgets::menu_body(ui, 120.0);
                 for h in super::VIDEO_QUALITIES {
@@ -1972,20 +1973,20 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             });
         });
         divider(ui);
-        setting_row(ui, "Ambient light", Some("Now playing glows with the video's colours around it."), |ui| {
-            toggle(ui, &mut app.ambient_light, "Ambient light");
+        setting_row(ui, tr!("settings-ambient-light"), Some(tr!("settings-ambient-light-desc")), |ui| {
+            toggle(ui, &mut app.ambient_light, tr!("settings-ambient-light"));
         });
         divider(ui);
-        setting_row(ui, "Animated covers", Some("Some albums' covers move in Now playing, where Apple Music has a clip for them. Finding them sends each song's title and artist to Apple Music."), |ui| {
-            toggle(ui, &mut app.animated_covers, "Animated covers");
+        setting_row(ui, tr!("settings-animated-covers"), Some(tr!("settings-animated-covers-desc")), |ui| {
+            toggle(ui, &mut app.animated_covers, tr!("settings-animated-covers"));
         });
         divider(ui);
-        setting_row(ui, "Hide videos in search", Some("Only songs, albums, artists and playlists in search results."), |ui| {
-            toggle(ui, &mut app.hide_search_videos, "Hide videos in search");
+        setting_row(ui, tr!("settings-hide-videos-in-search"), Some(tr!("settings-hide-videos-in-search-desc")), |ui| {
+            toggle(ui, &mut app.hide_search_videos, tr!("settings-hide-videos-in-search"));
         });
         divider(ui);
-        setting_row(ui, "Skip non-music parts", Some("Jump over talking, skits and sponsor breaks in music videos, as marked by the SponsorBlock community. Album songs don't have any."), |ui| {
-            if toggle(ui, &mut app.sponsorblock, "Skip non-music parts").changed() {
+        setting_row(ui, tr!("settings-skip-non-music-parts"), Some(tr!("settings-skip-non-music-parts-desc")), |ui| {
+            if toggle(ui, &mut app.sponsorblock, tr!("settings-skip-non-music-parts")).changed() {
                 app.request_segments();
             }
         });
@@ -1994,14 +1995,14 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
 
 /// Settings › Downloads.
 fn settings_downloads(ui: &mut Ui) {
-    settings_section(ui, "Downloads", None, Some("Download songs from their menu, or whole albums and playlists from their page. They're saved at the best quality your account gets, tagged with their cover art, and play from the file, even offline."), |ui| {
+    settings_section(ui, tr!("settings-downloads"), None, Some(tr!("settings-downloads-note")), |ui| {
         let folder = crate::downloads::folder().display().to_string();
-        setting_row(ui, "Download folder", Some(&folder), |ui| {
-            if pill(ui, "Change", None, false).clicked() {
+        setting_row(ui, tr!("settings-download-folder"), Some(&folder), |ui| {
+            if pill(ui, tr!("settings-change"), None, false).clicked() {
                 crate::downloads::pick_folder(ui.ctx());
             }
             ui.add_space(6.0);
-            if pill(ui, "Open", Some(icon::FOLDER_OPEN), false).clicked() {
+            if pill(ui, tr!("settings-open"), Some(icon::FOLDER_OPEN), false).clicked() {
                 crate::downloads::open_folder();
             }
         });
@@ -2011,19 +2012,19 @@ fn settings_downloads(ui: &mut Ui) {
 /// Settings › Storage: how much room the cache takes, and clearing it.
 fn settings_storage(app: &mut App, ui: &mut Ui) {
     if let Some(freed) = app.storage.take_freed() {
-        app.toast(format!("Cache cleared: {} freed", crate::cache::size_text(freed)));
+        app.toast(tr!("settings-cache-cleared", size = crate::cache::size_text(freed)));
     }
     let now = ui.input(|i| i.time);
     let size = app.storage.size(ui.ctx(), app.backend.data_dir(), now);
     let clearing = app.storage.clearing();
-    settings_section(ui, "Storage", None, None, |ui| {
+    settings_section(ui, tr!("settings-storage"), None, None, |ui| {
         let desc = match size {
-            _ if clearing => "Clearing…".to_owned(),
+            _ if clearing => tr!("settings-clearing").to_owned(),
             Some(n) => crate::cache::size_text(n),
-            None => "Measuring…".to_owned(),
+            None => tr!("settings-measuring").to_owned(),
         };
-        setting_row(ui, "Cache", Some(&desc), |ui| {
-            if pill(ui, "Clear cache", None, false).clicked() && !clearing {
+        setting_row(ui, tr!("settings-cache"), Some(&desc), |ui| {
+            if pill(ui, tr!("settings-clear-cache"), None, false).clicked() && !clearing {
                 app.dialog = Some(super::Dialog::ConfirmClearCache);
             }
         });
@@ -2032,18 +2033,18 @@ fn settings_storage(app: &mut App, ui: &mut Ui) {
 
 /// Settings › Lyrics: the better-lyrics extension's options.
 fn settings_lyrics(app: &mut App, ui: &mut Ui) {
-    settings_section(ui, "Lyrics", None, None, |ui| {
-        setting_row(ui, "Romanization", Some("Japanese, Korean, Chinese, Cyrillic and other scripts in Latin letters. Timed with the lyrics when the source has it."), |ui| {
-            toggle(ui, &mut app.show_roman, "Romanization");
+    settings_section(ui, tr!("settings-lyrics"), None, None, |ui| {
+        setting_row(ui, tr!("settings-romanization"), Some(tr!("settings-romanization-desc")), |ui| {
+            toggle(ui, &mut app.show_roman, tr!("settings-romanization"));
         });
         divider(ui);
-        setting_row(ui, "Translation", Some("Translated by Unison, or Google when it can't. Lyrics that ship their own translation use it."), |ui| {
-            toggle(ui, &mut app.show_trans, "Translation");
+        setting_row(ui, tr!("settings-translation"), Some(tr!("settings-translation-desc")), |ui| {
+            toggle(ui, &mut app.show_trans, tr!("settings-translation"));
         });
         divider(ui);
-        setting_row(ui, "Translate into", None, |ui| {
+        setting_row(ui, tr!("settings-translate-into"), None, |ui| {
             let current = super::lyric_prefs::LANGUAGES.iter().find(|(c, _)| *c == app.lyric_prefs.target).map_or(app.lyric_prefs.target.as_str(), |(_, n)| n);
-            let btn = dropdown_button(ui, current, 200.0, "Translate into");
+            let btn = dropdown_button(ui, current, 200.0, tr!("settings-translate-into"));
             let just_opened = btn.clicked();
             widgets::menu_popup(&btn).show(|ui| {
                 widgets::menu_body(ui, 200.0);
@@ -2063,32 +2064,32 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
             });
         });
         divider(ui);
-        setting_row(ui, "Text size", Some("Make the lyrics larger or smaller. Works on top of the theme's own size."), |ui| {
+        setting_row(ui, tr!("settings-text-size"), Some(tr!("settings-text-size-desc")), |ui| {
             let (min, max, step) = super::lyric_prefs::TEXT_SCALE;
             let v = &mut app.lyric_prefs.text_scale;
-            if ui.add_enabled(*v < max - 0.01, egui::Button::new("+").min_size(vec2(28.0, 26.0))).on_hover_text("Larger").clicked() {
+            if ui.add_enabled(*v < max - 0.01, egui::Button::new("+").min_size(vec2(28.0, 26.0))).on_hover_text(tr!("settings-larger")).clicked() {
                 *v = ((*v + step) * 10.0).round() / 10.0;
             }
             ui.label(egui::RichText::new(format!("{:.0}%", *v * 100.0)).font(theme::semibold(13.0)));
-            if ui.add_enabled(*v > min + 0.01, egui::Button::new("−").min_size(vec2(28.0, 26.0))).on_hover_text("Smaller").clicked() {
+            if ui.add_enabled(*v > min + 0.01, egui::Button::new("−").min_size(vec2(28.0, 26.0))).on_hover_text(tr!("settings-smaller")).clicked() {
                 *v = ((*v - step) * 10.0).round() / 10.0;
             }
         });
         divider(ui);
-        setting_row(ui, "Quick line changes", Some("The next line snaps into place quickly, the Better Lyrics way. Off, each theme moves its lines at its own pace."), |ui| {
-            toggle(ui, &mut app.quick_lyric_scroll, "Quick line changes");
+        setting_row(ui, tr!("settings-quick-line-changes"), Some(tr!("settings-quick-line-changes-desc")), |ui| {
+            toggle(ui, &mut app.quick_lyric_scroll, tr!("settings-quick-line-changes"));
         });
         divider(ui);
-        setting_row(ui, "Lyrics at the screen's refresh rate", Some("Synced lyrics animate as fast as your screen refreshes, such as 144 fps on a 144 Hz monitor, instead of 60. Smoother on fast screens, for more CPU and graphics work."), |ui| {
-            toggle(ui, &mut app.lyrics_full_rate, "Lyrics at the screen's refresh rate");
+        setting_row(ui, tr!("settings-lyrics-full-frame-rate"), Some(tr!("settings-lyrics-full-frame-rate-desc")), |ui| {
+            toggle(ui, &mut app.lyrics_full_rate, tr!("settings-lyrics-full-frame-rate"));
         });
     });
-    settings_section(ui, "Lyrics timing", None, None, |ui| {
+    settings_section(ui, tr!("settings-lyrics-timing"), None, None, |ui| {
         // Offsets: seconds taken off the lyrics clock, as the extension's dock sets them.
         for (i, (title, desc, which)) in [
-            ("Timing offset", "Shift all lyrics later (+) or earlier (−).", 0),
-            ("Word-synced trim", "Extra shift for syllable and word-synced lyrics.", 1),
-            ("Line-synced trim", "Extra shift for line-synced lyrics.", 2),
+            (tr!("settings-timing-offset"), tr!("settings-timing-offset-desc"), 0),
+            (tr!("settings-word-synced-trim"), tr!("settings-word-synced-trim-desc"), 1),
+            (tr!("settings-line-synced-trim"), tr!("settings-line-synced-trim-desc"), 2),
         ]
         .into_iter()
         .enumerate()
@@ -2102,17 +2103,17 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
                     1 => &mut app.lyric_prefs.word_trim,
                     _ => &mut app.lyric_prefs.line_trim,
                 };
-                if ui.add(egui::Button::new("+").min_size(vec2(28.0, 26.0))).on_hover_text("Later").clicked() {
+                if ui.add(egui::Button::new("+").min_size(vec2(28.0, 26.0))).on_hover_text(tr!("settings-later")).clicked() {
                     *v = ((*v + 0.1) * 10.0).round() / 10.0;
                 }
                 ui.label(egui::RichText::new(format!("{:+.1} s", *v).replace("+0.0", "0.0")).font(theme::semibold(13.0)));
-                if ui.add(egui::Button::new("−").min_size(vec2(28.0, 26.0))).on_hover_text("Earlier").clicked() {
+                if ui.add(egui::Button::new("−").min_size(vec2(28.0, 26.0))).on_hover_text(tr!("settings-earlier")).clicked() {
                     *v = ((*v - 0.1) * 10.0).round() / 10.0;
                 }
             });
         }
     });
-    settings_section(ui, "Lyrics sources", None, None, |ui| {
+    settings_section(ui, tr!("settings-lyrics-sources"), None, None, |ui| {
         // Source order: the first enabled source with lyrics for a song is shown; the
         // lyrics toolbar can pick another for that song.
         let names = app.lyric_prefs.order.iter().map(|(p, _)| p.name()).collect::<Vec<_>>().join(" ");
@@ -2120,7 +2121,7 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
             return;
         }
         ui.add_space(12.0);
-        ui.label(RichText::new("Tried in this order. Switch one off to skip it; the toolbar under the lyrics picks a different one for a single song.").font(theme::regular(12.5)).color(theme::text_dim()));
+        ui.label(RichText::new(tr!("settings-lyrics-sources-note")).font(theme::regular(12.5)).color(theme::text_dim()));
         ui.add_space(8.0);
         let n = app.lyric_prefs.order.len();
         let mut swap: Option<(usize, usize)> = None;
@@ -2142,10 +2143,10 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
             row.label(egui::RichText::new(p.name()).font(theme::semibold(13.5)).color(if on { theme::text() } else { theme::text_dim() }));
             row.label(egui::RichText::new(kind).font(theme::regular(12.0)).color(theme::text_dim()));
             row.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.add_enabled(i + 1 < n, egui::Button::new("↓").min_size(vec2(28.0, 24.0))).on_hover_text("Lower").clicked() {
+                if ui.add_enabled(i + 1 < n, egui::Button::new("↓").min_size(vec2(28.0, 24.0))).on_hover_text(tr!("settings-lower")).clicked() {
                     swap = Some((i, i + 1));
                 }
-                if ui.add_enabled(i > 0, egui::Button::new("↑").min_size(vec2(28.0, 24.0))).on_hover_text("Higher").clicked() {
+                if ui.add_enabled(i > 0, egui::Button::new("↑").min_size(vec2(28.0, 24.0))).on_hover_text(tr!("settings-higher")).clicked() {
                     swap = Some((i, i - 1));
                 }
             });
@@ -2160,15 +2161,15 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
 /// Settings › Appearance and Theme.
 fn settings_appearance(app: &mut App, ui: &mut Ui) {
     let was_theme = app.theme_id.clone();
-    settings_section(ui, "Appearance", None, None, |ui| {
+    settings_section(ui, tr!("settings-appearance"), None, None, |ui| {
         let desc = if cfg!(windows) {
-            "Light or dark pages, in any theme. System follows Windows' app mode. Now playing stays dark, over the album art."
+            tr!("settings-mode-desc-windows")
         } else {
-            "Light or dark pages, in any theme. System follows your system's setting. Now playing stays dark, over the album art."
+            tr!("settings-mode-desc")
         };
         let mut pick = None;
-        setting_row(ui, "Mode", Some(desc), |ui| {
-            let btn = dropdown_button(ui, app.appearance.label(), 160.0, "Mode");
+        setting_row(ui, tr!("settings-mode"), Some(desc), |ui| {
+            let btn = dropdown_button(ui, app.appearance.label(), 160.0, tr!("settings-mode"));
             widgets::menu_popup(&btn).show(|ui| {
                 widgets::menu_body(ui, 160.0);
                 for a in theme::Appearance::ALL {
@@ -2188,14 +2189,14 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
             // System is offered where there's a system accent to follow (Windows).
             let has_system = theme::system_accent().is_some();
             let desc = if app.accent_source == AccentSource::File {
-                "Follows the colours in theme.conf: the accent, the text and, if you like, the background. Save the file and the app follows in a couple of seconds. wallust or pywal can write it too.".to_owned()
+                tr!("settings-accent-desc-file").to_owned()
             } else if has_system {
-                "The theme's colour, your Windows accent colour, a colour file, or one you pick.".to_owned()
+                tr!("settings-accent-desc-windows").to_owned()
             } else {
-                "The theme's colour, a colour file, or one you pick.".to_owned()
+                tr!("settings-accent-desc").to_owned()
             };
-            setting_row(ui, "Accent colour", Some(&desc), |ui| {
-                let btn = dropdown_button(ui, app.accent_source.label(), 120.0, "Accent colour");
+            setting_row(ui, tr!("settings-accent-colour"), Some(&desc), |ui| {
+                let btn = dropdown_button(ui, app.accent_source.label(), 120.0, tr!("settings-accent-colour"));
                 let mut pick = None;
                 widgets::menu_popup(&btn).show(|ui| {
                     widgets::menu_body(ui, 120.0);
@@ -2223,7 +2224,7 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
                 }
                 if app.accent_source == AccentSource::File {
                     ui.add_space(8.0);
-                    edit |= pill(ui, "Edit file", None, false).clicked();
+                    edit |= pill(ui, tr!("settings-edit-file"), None, false).clicked();
                 }
                 if edit {
                     let file = app.theme_file();
@@ -2234,40 +2235,40 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
                 }
                 if let AccentSource::Custom(c) = &mut app.accent_source {
                     ui.add_space(8.0);
-                    super::colorpick::button(ui, c, "Custom accent colour");
+                    super::colorpick::button(ui, c, tr!("settings-custom-accent-colour"));
                 }
             });
         }
         divider(ui);
-        setting_row(ui, "Accent-coloured controls", Some("The play button and volume slider in the accent colour, like the progress line."), |ui| {
-            toggle(ui, &mut app.accent_controls, "Accent-coloured controls");
+        setting_row(ui, tr!("settings-accent-coloured-controls"), Some(tr!("settings-accent-coloured-controls-desc")), |ui| {
+            toggle(ui, &mut app.accent_controls, tr!("settings-accent-coloured-controls"));
         });
         divider(ui);
-        setting_row(ui, "Always show the seek knob", Some("The knob on the progress line stays up, not only when you point at it, in themes that have one."), |ui| {
-            toggle(ui, &mut app.seek_knob_always, "Always show the seek knob");
+        setting_row(ui, tr!("settings-always-show-seek-knob"), Some(tr!("settings-always-show-seek-knob-desc")), |ui| {
+            toggle(ui, &mut app.seek_knob_always, tr!("settings-always-show-seek-knob"));
         });
         if crate::backdrop::supported() {
             divider(ui);
             settings_backdrop(app, ui);
         }
         divider(ui);
-        setting_row(ui, "Animated background", Some("The album art slowly drifts behind everything, in themes whose background moves."), |ui| {
-            toggle(ui, &mut app.anim_bg, "Animated background");
+        setting_row(ui, tr!("settings-animated-background"), Some(tr!("settings-animated-background-desc")), |ui| {
+            toggle(ui, &mut app.anim_bg, tr!("settings-animated-background"));
         });
         divider(ui);
-        setting_row(ui, "Frosted glass", Some("Menus and floating bars blur what's behind them, in themes that use it. Off, they're a little more solid."), |ui| {
-            toggle(ui, &mut app.glass_on, "Frosted glass");
+        setting_row(ui, tr!("settings-frosted-glass"), Some(tr!("settings-frosted-glass-desc")), |ui| {
+            toggle(ui, &mut app.glass_on, tr!("settings-frosted-glass"));
         });
         divider(ui);
-        setting_row(ui, "Pulse with the music", Some("The background swells with the beat, in themes whose background moves."), |ui| {
-            toggle(ui, &mut app.reactive_bg, "Pulse with the music");
+        setting_row(ui, tr!("settings-pulse-with-the-music"), Some(tr!("settings-pulse-with-the-music-desc")), |ui| {
+            toggle(ui, &mut app.reactive_bg, tr!("settings-pulse-with-the-music"));
         });
         divider(ui);
-        setting_row(ui, "Dim bright covers", Some("Darkens the background when the album art is bright, so the lyrics and titles over it stay easy to read. Dark covers are left as they are."), |ui| {
-            toggle(ui, &mut app.dim_bright, "Dim bright covers");
+        setting_row(ui, tr!("settings-dim-bright-covers"), Some(tr!("settings-dim-bright-covers-desc")), |ui| {
+            toggle(ui, &mut app.dim_bright, tr!("settings-dim-bright-covers"));
         });
         divider(ui);
-        setting_row(ui, "Font", Some("For the whole app and the lyrics. Any font installed on this PC works, e.g. one made for your language."), |ui| {
+        setting_row(ui, tr!("settings-font"), Some(tr!("settings-font-desc")), |ui| {
             if let Some(name) = font_picker(ui) {
                 theme::set_font_choice(&name);
                 // Applied again next frame. Not None: that's the first frame, which adds a texture loader.
@@ -2281,14 +2282,14 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
     let current = crate::preset::get(&app.theme_id).name.clone();
     // Not a card of rows, so it's narrowed here: to the themes that match.
     let shown: Vec<&crate::preset::Preset> = FILTER.with_borrow_mut(|f| {
-        f.section = "Themes".to_owned();
+        f.section = tr!("settings-themes").to_owned();
         crate::preset::all().iter().filter(|p| f.words.is_empty() || words_match(&f.words, &f.section, &format!("{} {} {}", p.name, p.creators.join(" "), p.blurb))).collect()
     });
     if !shown.is_empty() {
         FILTER.with_borrow_mut(|f| f.total += shown.len());
-        section_label(ui, "Themes", settings_value(Some(&current)).as_deref());
+        section_label(ui, tr!("settings-themes"), settings_value(Some(&current)).as_deref());
         if !filtering() {
-            ui.label(RichText::new("Ported from the Better Lyrics community themes. Each one restyles the background, lyrics, cover, player bar and the rest of the app, and every setting above works in all of them.").font(theme::regular(13.0)).color(theme::text_dim()));
+            ui.label(RichText::new(tr!("settings-themes-note")).font(theme::regular(13.0)).color(theme::text_dim()));
             ui.add_space(12.0);
         }
         themes(app, ui, &shown);
@@ -2306,8 +2307,8 @@ fn settings_zoom(ui: &mut Ui) {
     let pct = |z: f32| format!("{}%", (z * 100.0).round() as i32);
     let zoom = ui.ctx().zoom_factor();
     let mut pick = None;
-    setting_row(ui, "Zoom", Some("Makes everything bigger or smaller. Ctrl + plus and Ctrl + minus do the same, and Ctrl + 0 goes back to 100%."), |ui| {
-        let btn = dropdown_button(ui, &pct(zoom), 120.0, "Zoom");
+    setting_row(ui, tr!("settings-zoom"), Some(tr!("settings-zoom-desc")), |ui| {
+        let btn = dropdown_button(ui, &pct(zoom), 120.0, tr!("settings-zoom"));
         widgets::menu_popup(&btn).show(|ui| {
             widgets::menu_body(ui, 120.0);
             for z in STEPS {
@@ -2324,11 +2325,52 @@ fn settings_zoom(ui: &mut Ui) {
 }
 
 /// Settings › Window.
+/// Settings › General › Language: the app's own text. It changes from the next start.
+fn settings_language(app: &mut App, ui: &mut Ui) {
+    use crate::i18n;
+    let system = tr!("settings-language-system", language = i18n::name(i18n::resolve(None)));
+    settings_section(ui, tr!("settings-language"), None, None, |ui| {
+        setting_row(ui, tr!("settings-language"), Some(tr!("settings-language-desc")), |ui| {
+            let current = app.language.as_deref().map_or_else(|| system.clone(), i18n::name);
+            let btn = dropdown_button(ui, &current, 210.0, tr!("settings-language"));
+            let mut pick: Option<Option<String>> = None;
+            widgets::menu_popup(&btn).show(|ui| {
+                widgets::menu_body(ui, 260.0);
+                dropdown_list(ui, 320.0, |ui| {
+                    if option_row(ui, &system, app.language.is_none()).clicked() {
+                        pick = Some(None);
+                        ui.close();
+                    }
+                    for lang in i18n::LANGUAGES {
+                        if option_row(ui, &i18n::name(lang), app.language.as_deref() == Some(*lang)).clicked() {
+                            pick = Some(Some((*lang).to_owned()));
+                            ui.close();
+                        }
+                    }
+                });
+            });
+            if let Some(pick) = pick {
+                app.language = pick;
+            }
+        });
+        if i18n::resolve(app.language.as_deref()) != i18n::current() {
+            divider(ui);
+            let mut restart = false;
+            setting_row(ui, tr!("settings-restart-to-apply"), Some(tr!("settings-language-restart-desc")), |ui| {
+                restart = pill(ui, tr!("settings-restart-now"), None, true).clicked();
+            });
+            if restart {
+                app.restart(ui.ctx());
+            }
+        }
+    });
+}
+
 fn settings_window(app: &mut App, ui: &mut Ui) {
-    settings_section(ui, "Window", None, None, |ui| {
-        setting_row(ui, "Open on", Some("The page the app starts on. The Library's own tabs need you signed in, except Downloads; signed out, the app opens on Home."), |ui| {
-            let current = super::START_PAGES.iter().find(|(.., p)| *p == app.start_page).map_or("Home", |(_, l, _)| l);
-            let btn = dropdown_button(ui, current, 200.0, "Open on");
+    settings_section(ui, tr!("settings-window"), None, None, |ui| {
+        setting_row(ui, tr!("settings-open-on"), Some(tr!("settings-open-on-desc")), |ui| {
+            let current = super::START_PAGES.iter().find(|(.., p)| *p == app.start_page).map_or(tr!("settings-home"), |(_, l, _)| l);
+            let btn = dropdown_button(ui, current, 200.0, tr!("settings-open-on"));
             widgets::menu_popup(&btn).show(|ui| {
                 widgets::menu_body(ui, 200.0);
                 for (_, label, page) in super::START_PAGES {
@@ -2346,12 +2388,12 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
         divider(ui);
         // Linux tray icons only open their menu on click.
         let how = if cfg!(target_os = "linux") {
-            "Keeps an icon in the tray. Clicking × hides the window there and keeps the music playing. The icon's menu brings it back, hides it or quits. Clicking the song in the system's media controls brings it back too, and Ctrl+Q quits."
+            tr!("settings-close-to-tray-desc-linux")
         } else {
-            "Keeps an icon in the tray. Clicking × hides the window there and keeps the music playing. Click the icon to bring it back, or right-click it to hide, show or quit."
+            tr!("settings-close-to-tray-desc")
         };
-        setting_row(ui, "Close to tray", Some(how), |ui| {
-            toggle(ui, &mut app.close_to_tray, "Close to tray");
+        setting_row(ui, tr!("settings-close-to-tray"), Some(how), |ui| {
+            toggle(ui, &mut app.close_to_tray, tr!("settings-close-to-tray"));
         });
         if let Some(e) = &app.tray_error {
             ui.label(RichText::new(e).font(theme::regular(12.5)).color(theme::RED));
@@ -2361,13 +2403,13 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
             divider(ui);
             let ok = crate::notify::available();
             let desc = if ok {
-                "When a new song starts while the window is minimized, in the tray or behind other windows, show its title, artist and cover in a notification."
+                tr!("settings-song-notifications-desc")
             } else {
-                "Needs the installed app: Windows only shows notifications from apps in the Start menu."
+                tr!("settings-song-notifications-unavailable")
             };
             ui.add_enabled_ui(ok, |ui| {
-                setting_row(ui, "Song notifications", Some(desc), |ui| {
-                    toggle(ui, &mut app.song_notifications, "Song notifications");
+                setting_row(ui, tr!("settings-song-notifications"), Some(desc), |ui| {
+                    toggle(ui, &mut app.song_notifications, tr!("settings-song-notifications"));
                 });
             });
         }
@@ -2376,8 +2418,8 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
         if app.close_to_tray && crate::wayland_window() {
             divider(ui);
             let mut restart = false;
-            setting_row(ui, "Restart to apply", Some("On Wayland the window can only hide in the tray and come back after a restart. Until then × minimizes it."), |ui| {
-                restart = pill(ui, "Restart now", None, true).clicked();
+            setting_row(ui, tr!("settings-restart-to-apply"), Some(tr!("settings-close-to-tray-restart-desc")), |ui| {
+                restart = pill(ui, tr!("settings-restart-now"), None, true).clicked();
             });
             if restart {
                 app.restart(ui.ctx());
@@ -2388,8 +2430,8 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
             use super::titlebar::Choice;
             let dir = app.backend.data_dir().to_owned();
             let saved = Choice::load(&dir);
-            setting_row(ui, "Title bar", Some("Who draws the window's title bar and buttons. Automatic uses ytm-rs's where the desktop draws none (GNOME on Wayland)."), |ui| {
-                let btn = dropdown_button(ui, saved.label(), 120.0, "Title bar");
+            setting_row(ui, tr!("settings-title-bar"), Some(tr!("settings-title-bar-desc")), |ui| {
+                let btn = dropdown_button(ui, saved.label(), 120.0, tr!("settings-title-bar"));
                 widgets::menu_popup(&btn).show(|ui| {
                     widgets::menu_body(ui, 120.0);
                     for c in Choice::ALL {
@@ -2405,8 +2447,8 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
             divider(ui);
             if saved.own_here() != super::titlebar::custom() && std::env::var_os("YTM_NATIVE_TITLEBAR").is_none() {
                 let mut restart = false;
-                setting_row(ui, "Restart to apply", Some("The title bar changes from the next start."), |ui| {
-                    restart = pill(ui, "Restart now", None, true).clicked();
+                setting_row(ui, tr!("settings-restart-to-apply"), Some(tr!("settings-title-bar-restart-desc")), |ui| {
+                    restart = pill(ui, tr!("settings-restart-now"), None, true).clicked();
                 });
                 if restart {
                     app.restart(ui.ctx());
@@ -2414,16 +2456,16 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
                 divider(ui);
             }
         }
-        setting_row(ui, "Collapse sidebar", Some("Show only icons in the sidebar, for narrow windows. The menu button at its top does the same."), |ui| {
+        setting_row(ui, tr!("settings-collapse-sidebar"), Some(tr!("settings-collapse-sidebar-desc")), |ui| {
             // What shows: a theme that starts as a rail turns the setting around.
             let mut collapsed = super::shell::is_rail(app);
-            if toggle(ui, &mut collapsed, "Collapse sidebar").changed() {
+            if toggle(ui, &mut collapsed, tr!("settings-collapse-sidebar")).changed() {
                 app.sidebar_collapsed = !app.sidebar_collapsed;
             }
         });
         divider(ui);
         let api = crate::renderer::api_name();
-        let title = format!("Draw with {api}");
+        let title = tr!("settings-draw-with", api = api);
         let desc = format!(
             "Use {api} (wgpu) instead of OpenGL. It isn't faster for this app and takes about three times the memory; try it if OpenGL draws wrong on this PC. If {api} won't start, the app goes back to OpenGL."
         );
@@ -2439,8 +2481,8 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
         if app.wgpu_renderer != (crate::renderer::active() == crate::renderer::Renderer::Wgpu) {
             divider(ui);
             let mut restart = false;
-            setting_row(ui, "Restart to apply", Some("The app draws with the new renderer from the next start."), |ui| {
-                restart = pill(ui, "Restart now", None, true).clicked();
+            setting_row(ui, tr!("settings-restart-to-apply"), Some(tr!("settings-renderer-restart-desc")), |ui| {
+                restart = pill(ui, tr!("settings-restart-now"), None, true).clicked();
             });
             if restart {
                 app.restart(ui.ctx());
@@ -2455,15 +2497,15 @@ fn settings_mini(app: &mut App, ui: &mut Ui) {
     let dir = app.backend.data_dir().to_owned();
     let opengl = crate::renderer::active() == crate::renderer::Renderer::OpenGl;
     let desc = if opengl {
-        "Experimental. A small pill that shows its controls when you point at it. Double-click it for the full window."
+        tr!("settings-pill-mini-player-desc")
     } else {
-        "Experimental. A small pill that shows its controls when you point at it. Needs OpenGL, not Vulkan."
+        tr!("settings-pill-mini-player-desc-needs-opengl")
     };
-    settings_section(ui, "Mini player", None, None, |ui| {
+    settings_section(ui, tr!("settings-mini-player"), None, None, |ui| {
         ui.add_enabled_ui(opengl, |ui| {
-            setting_row(ui, "Pill mini player", Some(desc), |ui| {
+            setting_row(ui, tr!("settings-pill-mini-player"), Some(desc), |ui| {
                 let mut on = opengl && mini::pill_saved(&dir);
-                if toggle(ui, &mut on, "Pill mini player").changed()
+                if toggle(ui, &mut on, tr!("settings-pill-mini-player")).changed()
                     && let Err(e) = mini::save_pill(&dir, on)
                 {
                     log::warn!("mini player: couldn't save the style: {e}");
@@ -2471,17 +2513,17 @@ fn settings_mini(app: &mut App, ui: &mut Ui) {
             });
         });
         divider(ui);
-        setting_row(ui, "Keep on top", Some("The mini player stays above other windows."), |ui| {
+        setting_row(ui, tr!("settings-keep-on-top"), Some(tr!("settings-keep-on-top-desc")), |ui| {
             let mut on = app.mini.pinned;
-            if toggle(ui, &mut on, "Keep on top").changed() {
+            if toggle(ui, &mut on, tr!("settings-keep-on-top")).changed() {
                 app.mini.set_pinned(ui.ctx(), on);
             }
         });
         if opengl && mini::pill_saved(&dir) != mini::pill_active() {
             divider(ui);
             let mut restart = false;
-            setting_row(ui, "Restart to apply", Some("The mini player changes style from the next start."), |ui| {
-                restart = pill(ui, "Restart now", None, true).clicked();
+            setting_row(ui, tr!("settings-restart-to-apply"), Some(tr!("settings-pill-mini-player-restart-desc")), |ui| {
+                restart = pill(ui, tr!("settings-restart-now"), None, true).clicked();
             });
             if restart {
                 app.restart(ui.ctx());
@@ -2494,11 +2536,11 @@ fn settings_backdrop(app: &mut App, ui: &mut Ui) {
     use crate::backdrop::{self, Backdrop};
     let saved = backdrop::load(app.backend.data_dir());
     let opengl = crate::renderer::active() == crate::renderer::Renderer::OpenGl;
-    let desc = if opengl { "Windows 11's material behind the pages, in place of the theme's background." } else { "Windows 11's material behind the pages. Needs OpenGL, not Vulkan." };
+    let desc = if opengl { tr!("settings-window-material-desc") } else { tr!("settings-window-material-desc-needs-opengl") };
     let mut pick = None;
     ui.add_enabled_ui(opengl, |ui| {
-        setting_row(ui, "Window material", Some(desc), |ui| {
-            let btn = dropdown_button(ui, saved.label(), 160.0, "Window material");
+        setting_row(ui, tr!("settings-window-material"), Some(desc), |ui| {
+            let btn = dropdown_button(ui, saved.label(), 160.0, tr!("settings-window-material"));
             widgets::menu_popup(&btn).show(|ui| {
                 widgets::menu_body(ui, 160.0);
                 for b in Backdrop::ALL {
@@ -2518,8 +2560,8 @@ fn settings_backdrop(app: &mut App, ui: &mut Ui) {
     if opengl && backdrop::load(app.backend.data_dir()) != backdrop::active() {
         divider(ui);
         let mut restart = false;
-        setting_row(ui, "Restart to apply", Some("The window gets its new material from the next start."), |ui| {
-            restart = pill(ui, "Restart now", None, true).clicked();
+        setting_row(ui, tr!("settings-restart-to-apply"), Some(tr!("settings-window-material-restart-desc")), |ui| {
+            restart = pill(ui, tr!("settings-restart-now"), None, true).clicked();
         });
         if restart {
             app.restart(ui.ctx());
@@ -2531,18 +2573,18 @@ fn settings_backdrop(app: &mut App, ui: &mut Ui) {
 fn settings_app_icon(app: &mut App, ui: &mut Ui) {
     // Linux desktops take the icon from the app's menu entry.
     let (what, more) = if cfg!(target_os = "linux") {
-        ("Changes the icon in the app menu, on the window and in the tray", "")
+        (tr!("settings-app-icon-note-linux"), "")
     } else {
-        ("Changes the icon on the window, taskbar, tray and Start menu", " A pinned taskbar icon can take a moment to catch up.")
+        (tr!("settings-app-icon-note"), " A pinned taskbar icon can take a moment to catch up.")
     };
-    settings_section(ui, "App icon", Some(crate::appicon::get(app.app_icon).name), Some(&format!("{what}.{more}")), |ui| {
+    settings_section(ui, tr!("settings-app-icon"), Some(crate::appicon::get(app.app_icon).name), Some(&format!("{what}.{more}")), |ui| {
         if filter_show(ui, what) {
             ui.add_space(14.0);
             app_icons(app, ui);
             ui.add_space(14.0);
         }
         divider(ui);
-        setting_row(ui, "Preview", Some("How it looks on the taskbar and in the tray."), |ui| {
+        setting_row(ui, tr!("settings-preview"), Some(tr!("settings-preview-desc")), |ui| {
             icon_preview(ui, crate::appicon::get(app.app_icon));
         });
     });
@@ -2551,25 +2593,25 @@ fn settings_app_icon(app: &mut App, ui: &mut Ui) {
 /// Settings › Connections, above Discord's sections (`presence::settings`).
 fn settings_connections(app: &mut App, ui: &mut Ui) {
     let mut remote_enabled = app.remote_enabled;
-    settings_section(ui, "Connections", None, None, |ui| {
-        setting_row(ui, "Stream Deck", Some("Let a Stream Deck plugin on this computer control playback."), |ui| {
-            toggle(ui, &mut remote_enabled, "Stream Deck");
+    settings_section(ui, tr!("settings-connections"), None, None, |ui| {
+        setting_row(ui, tr!("settings-stream-deck"), Some(tr!("settings-stream-deck-desc")), |ui| {
+            toggle(ui, &mut remote_enabled, tr!("settings-stream-deck"));
         });
         divider(ui);
         let busy = app.lastfm_busy.load(Ordering::Relaxed);
         let desc = match &app.lastfm_user {
-            Some(name) => format!("Scrobbling what you play to {name}'s profile."),
-            None if busy => "Allow ytm-rs on the Last.fm page that opened in your browser.".to_owned(),
-            None => "Scrobble what you play to your Last.fm profile.".to_owned(),
+            Some(name) => tr!("settings-lastfm-connected", name = name.as_str()),
+            None if busy => tr!("settings-lastfm-allow").to_owned(),
+            None => tr!("settings-lastfm-desc").to_owned(),
         };
         let (mut connect, mut disconnect) = (false, false);
         setting_row(ui, "Last.fm", Some(&desc), |ui| {
             if app.lastfm_user.is_some() {
-                disconnect = pill(ui, "Disconnect", None, false).clicked();
+                disconnect = pill(ui, tr!("settings-disconnect"), None, false).clicked();
             } else if busy {
                 widgets::loader(ui);
             } else {
-                connect = pill(ui, "Connect", None, false).clicked();
+                connect = pill(ui, tr!("settings-connect"), None, false).clicked();
             }
         });
         if connect {
@@ -2581,26 +2623,26 @@ fn settings_connections(app: &mut App, ui: &mut Ui) {
         divider(ui);
         let busy = app.listenbrainz_busy.load(Ordering::Relaxed);
         let desc = match &app.listenbrainz_user {
-            Some(name) => format!("Sending what you play to {name}'s profile."),
-            None => "Send what you play to your ListenBrainz profile.".to_owned(),
+            Some(name) => tr!("settings-listenbrainz-connected", name = name.as_str()),
+            None => tr!("settings-listenbrainz-desc").to_owned(),
         };
         let (mut connect, mut disconnect) = (false, false);
         let typed = !app.listenbrainz_token.trim().is_empty();
         setting_row(ui, "ListenBrainz", Some(&desc), |ui| {
             if app.listenbrainz_user.is_some() {
-                disconnect = pill(ui, "Disconnect", None, false).clicked();
+                disconnect = pill(ui, tr!("settings-disconnect"), None, false).clicked();
             } else if busy {
                 widgets::loader(ui);
             } else {
-                connect = pill(ui, "Connect", None, typed).clicked() && typed;
+                connect = pill(ui, tr!("settings-connect"), None, typed).clicked() && typed;
             }
         });
         // Shown with its row in a search.
         if app.listenbrainz_user.is_none() && filter_hit(&format!("ListenBrainz {desc}")) {
-            let resp = super::text_field(ui, "User token", &mut app.listenbrainz_token, false, "Paste your ListenBrainz user token");
+            let resp = super::text_field(ui, tr!("settings-user-token"), &mut app.listenbrainz_token, false, tr!("settings-listenbrainz-token-hint"));
             connect |= typed && !busy && resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             ui.horizontal(|ui| {
-                ui.hyperlink_to(RichText::new("Get your token on listenbrainz.org").font(theme::regular(12.5)).color(if theme::light() { Color32::from_rgb(0, 102, 204) } else { Color32::from_rgb(62, 166, 255) }), "https://listenbrainz.org/settings/");
+                ui.hyperlink_to(RichText::new(tr!("settings-listenbrainz-token-link")).font(theme::regular(12.5)).color(if theme::light() { Color32::from_rgb(0, 102, 204) } else { Color32::from_rgb(62, 166, 255) }), "https://listenbrainz.org/settings/");
             });
             ui.add_space(12.0);
         }
@@ -2619,37 +2661,37 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
     let state = app.updater.as_ref().map(|u| u.state());
     let installed = super::updatable();
     let (mut check, mut restart, mut channel) = (false, false, None);
-    settings_section(ui, "Updates", None, None, |ui| {
+    settings_section(ui, tr!("settings-updates"), None, None, |ui| {
         use crate::update::State;
         let status = if !installed {
-            "Updates only work in the installed or portable app (this is a development build).".to_owned()
+            tr!("settings-updates-dev-build").to_owned()
         } else {
             match &state {
-                Some(State::Checking) => "Checking for updates…".to_owned(),
-                Some(State::UpToDate) => format!("You're on the latest version ({}).", crate::update::current_version()),
-                Some(State::Downloading { version, percent }) => format!("Downloading {version}… {percent}%"),
-                Some(State::Ready { version, .. }) => format!("Version {version} is ready. It installs when you close ytm-rs."),
-                Some(State::Available { version, .. }) => format!("Version {version} is out. {}", crate::update::package_step()),
-                Some(State::Failed(e)) => format!("Couldn't check for updates: {e}"),
-                _ => format!("Version {}.", crate::update::current_version()),
+                Some(State::Checking) => tr!("settings-checking-for-updates").to_owned(),
+                Some(State::UpToDate) => tr!("settings-up-to-date", version = crate::update::current_version()),
+                Some(State::Downloading { version, percent }) => tr!("settings-update-downloading", version = version.as_str(), percent = *percent),
+                Some(State::Ready { version, .. }) => tr!("settings-update-ready", version = version.as_str()),
+                Some(State::Available { version, .. }) => tr!("settings-update-available", version = version.as_str(), step = crate::update::package_step()),
+                Some(State::Failed(e)) => tr!("settings-update-failed", error = e.to_string()),
+                _ => tr!("settings-version", version = crate::update::current_version()),
             }
         };
         let auto_desc = if crate::update::packaged() {
-            "Check for new versions and tell you when one is out."
+            tr!("settings-automatic-updates-desc-packaged")
         } else {
-            "Download new versions in the background and install them when you close the app."
+            tr!("settings-automatic-updates-desc")
         };
-        setting_row(ui, "Automatic updates", Some(auto_desc), |ui| {
-            ui.add_enabled_ui(installed, |ui| toggle(ui, &mut app.auto_update, "Automatic updates"));
+        setting_row(ui, tr!("settings-automatic-updates"), Some(auto_desc), |ui| {
+            ui.add_enabled_ui(installed, |ui| toggle(ui, &mut app.auto_update, tr!("settings-automatic-updates")));
         });
         divider(ui);
         let desc = "Stable: finished releases, ready for everyday listening.\nNightly: experimental. It can break at any time.";
-        setting_row(ui, "Update channel", Some(desc), |ui| {
+        setting_row(ui, tr!("settings-update-channel"), Some(desc), |ui| {
             ui.add_enabled_ui(installed, |ui| {
-                let btn = dropdown_button(ui, if app.update_nightly { "Nightly" } else { "Stable" }, 140.0, "Update channel");
+                let btn = dropdown_button(ui, if app.update_nightly { tr!("settings-nightly") } else { tr!("settings-stable") }, 140.0, tr!("settings-update-channel"));
                 widgets::menu_popup(&btn).show(|ui| {
                     widgets::menu_body(ui, 140.0);
-                    for (label, nightly) in [("Stable", false), ("Nightly", true)] {
+                    for (label, nightly) in [(tr!("settings-stable"), false), (tr!("settings-nightly"), true)] {
                         if option_row(ui, label, nightly == app.update_nightly).clicked() {
                             channel = Some(nightly);
                             ui.close();
@@ -2659,27 +2701,27 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
             });
         });
         divider(ui);
-        setting_row(ui, "Status", Some(&status), |ui| {
+        setting_row(ui, tr!("settings-status"), Some(&status), |ui| {
             if !installed {
                 return;
             }
             match &state {
-                Some(State::Ready { .. }) => restart = pill(ui, "Restart to update", Some(icon::SPARKLES), true).clicked(),
+                Some(State::Ready { .. }) => restart = pill(ui, tr!("settings-restart-to-update"), Some(icon::SPARKLES), true).clicked(),
                 Some(State::Available { url, .. }) => {
-                    if pill(ui, "Download", Some(icon::SPARKLES), true).clicked() {
+                    if pill(ui, tr!("settings-download"), Some(icon::SPARKLES), true).clicked() {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                     }
                 }
                 Some(State::Checking | State::Downloading { .. }) => {
                     widgets::loader(ui);
                 }
-                _ => check = pill(ui, "Check now", None, false).clicked(),
+                _ => check = pill(ui, tr!("settings-check-now"), None, false).clicked(),
             }
         });
         // The other kind of Linux install, still there beside this one.
         if let Some((kind, cmd)) = crate::update::other_copy() {
             divider(ui);
-            setting_row(ui, "Another copy", Some(&format!("ytm-rs is also installed from {kind}. To remove that copy, run {cmd}")), |_| {});
+            setting_row(ui, tr!("settings-another-copy"), Some(&tr!("settings-another-copy-desc", kind = kind.to_string(), cmd = cmd.to_string())), |_| {});
         }
         // Release notes for the version that's ready, else the one running.
         let (notes_v, ready) = match &state {
@@ -2692,9 +2734,9 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
             let mut open = ui.data(|d| d.get_temp(id)).unwrap_or(ready);
             ui.add_space(12.0);
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
-            let resp = widgets::named(resp, "What's new").on_hover_cursor(egui::CursorIcon::PointingHand);
+            let resp = widgets::named(resp, tr!("settings-whats-new")).on_hover_cursor(egui::CursorIcon::PointingHand);
             widgets::icon_at(ui, pos2(rect.left() + 8.0, rect.center().y), if open { icon::CHEVRON_DOWN } else { icon::CHEVRON_RIGHT }, 16.0, theme::text());
-            ui.painter().text(pos2(rect.left() + 24.0, rect.center().y), Align2::LEFT_CENTER, format!("What's new in {notes_v}"), theme::semibold(14.0), theme::text());
+            ui.painter().text(pos2(rect.left() + 24.0, rect.center().y), Align2::LEFT_CENTER, tr!("settings-whats-new-in", version = notes_v.to_string()), theme::semibold(14.0), theme::text());
             if resp.clicked() {
                 open = !open;
                 ui.data_mut(|d| d.insert_temp(id, open));
@@ -2726,24 +2768,24 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
 
 /// Settings › Keyboard shortcuts.
 fn settings_shortcuts(ui: &mut Ui) {
-    settings_section(ui, "Keyboard shortcuts", None, None, |ui| {
+    settings_section(ui, tr!("settings-keyboard-shortcuts"), None, None, |ui| {
         let keys: &[(&str, &[&str])] = &[
-            ("Play / pause", &["Space"]),
-            ("Next / previous song", &["Ctrl", "→ / ←"]),
-            ("Volume up / down", &["Ctrl", "↑ / ↓"]),
-            ("Command palette: pages, settings, playlists and actions", &["Ctrl", "K"]),
-            ("Search", &["Ctrl", "F"]),
-            ("Find in a song list", &["Ctrl", "Shift", "F"]),
-            ("Lyrics and now playing", &["L"]),
-            ("Full screen in now playing: the lyrics, or a video", &["F / F11"]),
-            ("A full screen video: fill the screen, or fit it", &["Z"]),
-            ("Mini player on / off", &["Ctrl", "M"]),
-            ("Back / forward", &["Alt", "← / →"]),
-            ("Back / forward with the mouse", &["Side buttons"]),
-            ("Refresh the page", &["F5 / Ctrl + R"]),
-            ("Zoom in / out", &["Ctrl", "+ / −"]),
-            ("Zoom back to 100%", &["Ctrl", "0"]),
-            ("Leave full screen, now playing or selecting", &["Esc"]),
+            (tr!("settings-play-pause"), &[tr!("settings-space")]),
+            (tr!("settings-next-previous-song"), &[tr!("settings-ctrl"), "→ / ←"]),
+            (tr!("settings-volume-up-down"), &[tr!("settings-ctrl"), "↑ / ↓"]),
+            (tr!("settings-shortcut-command-palette"), &[tr!("settings-ctrl"), "K"]),
+            (tr!("settings-search"), &[tr!("settings-ctrl"), "F"]),
+            (tr!("settings-shortcut-find-in-list"), &[tr!("settings-ctrl"), tr!("settings-shift"), "F"]),
+            (tr!("settings-lyrics-and-now-playing"), &["L"]),
+            (tr!("settings-shortcut-full-screen"), &["F / F11"]),
+            (tr!("settings-shortcut-video-fill"), &["Z"]),
+            (tr!("settings-mini-player-on-off"), &[tr!("settings-ctrl"), "M"]),
+            (tr!("settings-back-forward"), &[tr!("settings-alt"), "← / →"]),
+            (tr!("settings-shortcut-back-forward-mouse"), &[tr!("settings-side-buttons")]),
+            (tr!("settings-refresh-the-page"), &[tr!("settings-f5-ctrl-r")]),
+            (tr!("settings-zoom-in-out"), &[tr!("settings-ctrl"), "+ / −"]),
+            (tr!("settings-shortcut-zoom-reset"), &[tr!("settings-ctrl"), "0"]),
+            (tr!("settings-shortcut-leave"), &[tr!("settings-esc")]),
         ];
         for (i, (what, combo)) in keys.iter().enumerate() {
             if !filter_show(ui, &format!("{what} {}", combo.join(" "))) {
@@ -2768,13 +2810,13 @@ fn settings_shortcuts(ui: &mut Ui) {
 
 /// Settings › About.
 fn settings_about(ui: &mut Ui) {
-    settings_section(ui, "About", None, None, |ui| {
-        setting_row(ui, &format!("ytm-rs {}", crate::update::build_version()), Some("A fast, native YouTube Music client."), |_| {});
+    settings_section(ui, tr!("settings-about"), None, None, |ui| {
+        setting_row(ui, &format!("ytm-rs {}", crate::update::build_version()), Some(tr!("settings-about-tagline")), |_| {});
         for (title, desc) in [
-            ("Lyrics", "Better Lyrics API: Musixmatch, LRCLIB, QQ, KuGou and Better Lyrics TTML"),
-            ("Themes", "Adapted from the Better Lyrics theme store; each card credits its creators"),
-            ("Background", "A port of Kawarp, MIT © Better Lyrics"),
-            ("Fonts and icons", "Inter, DM Sans, Google Sans Flex, Figtree, Instrument Sans (SIL OFL 1.1) • Lucide (ISC)"),
+            (tr!("settings-lyrics"), tr!("settings-about-lyrics-sources")),
+            (tr!("settings-themes"), tr!("settings-about-themes-credit")),
+            (tr!("settings-background"), tr!("settings-about-background-credit")),
+            (tr!("settings-fonts-and-icons"), tr!("settings-about-fonts-credit")),
         ] {
             divider(ui);
             setting_row(ui, title, Some(desc), |_| {});
@@ -2786,9 +2828,9 @@ fn settings_about(ui: &mut Ui) {
 fn settings_sign_off(app: &mut App, ui: &mut Ui) {
     let downloads = app.updater.as_ref().and_then(|u| u.downloads());
     let text = match downloads {
-        Some(1) => "1 download and counting".to_owned(),
-        Some(n) => format!("{} downloads and counting", thousands(n)),
-        None => "Counting downloads…".to_owned(),
+        // The number for the language to pick its plural by; shown with its separators.
+        Some(n) => tr!("settings-downloads-and-counting", count = n, shown = thousands(n)),
+        None => tr!("settings-counting-downloads").to_owned(),
     };
     ui.add_space(40.0);
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 96.0), Sense::hover());
@@ -2803,8 +2845,8 @@ fn network(app: &mut App, ui: &mut Ui) {
     use crate::proxy::{self, Setting};
     let same = |a: &Setting, b: &Setting| std::mem::discriminant(a) == std::mem::discriminant(b);
     let mut pick = None;
-    setting_row(ui, "Proxy", Some("Send everything ytm-rs fetches through a proxy: songs, lyrics, sign-in and Listen together."), |ui| {
-        let btn = dropdown_button(ui, app.proxy_mode.label(), 220.0, "Proxy");
+    setting_row(ui, tr!("settings-proxy"), Some(tr!("settings-proxy-desc")), |ui| {
+        let btn = dropdown_button(ui, app.proxy_mode.label(), 220.0, tr!("settings-proxy"));
         widgets::menu_popup(&btn).show(|ui| {
             widgets::menu_body(ui, 220.0);
             for s in [Setting::System, Setting::Off, Setting::Custom(String::new())] {
@@ -2838,30 +2880,30 @@ fn network(app: &mut App, ui: &mut Ui) {
                 Some((_, desc)) => desc,
                 None => {
                     let desc = match (proxy::system(), cfg!(windows)) {
-                        (Some(p), true) => format!("Windows is set to use {}.", proxy::redact(&p)),
-                        (None, true) => "Windows isn't set to use a proxy, so ytm-rs connects directly.".to_owned(),
-                        (Some(p), false) => format!("The environment sets {}.", proxy::redact(&p)),
-                        (None, false) => "No HTTPS_PROXY or ALL_PROXY is set, so ytm-rs connects directly.".to_owned(),
+                        (Some(p), true) => tr!("settings-proxy-windows-uses", proxy = proxy::redact(&p)),
+                        (None, true) => tr!("settings-proxy-windows-none").to_owned(),
+                        (Some(p), false) => tr!("settings-proxy-environment-sets", proxy = proxy::redact(&p)),
+                        (None, false) => tr!("settings-proxy-environment-none").to_owned(),
                     };
                     ui.data_mut(|d| d.insert_temp(id, (now, desc.clone())));
                     desc
                 }
             };
-            setting_row(ui, if cfg!(windows) { "Windows proxy" } else { "System proxy" }, Some(&desc), |_| {});
+            setting_row(ui, if cfg!(windows) { tr!("settings-windows-proxy") } else { tr!("settings-system-proxy") }, Some(&desc), |_| {});
         }
-        Setting::Custom(_) if !filter_hit("Proxy address") => {}
+        Setting::Custom(_) if !filter_hit(tr!("settings-proxy-address")) => {}
         Setting::Custom(_) => {
             divider(ui);
             ui.add_space(12.0);
-            super::text_field(ui, "Address", &mut app.proxy_url, false, "http://127.0.0.1:8080 or socks5://user:pass@host:1080");
+            super::text_field(ui, tr!("settings-address"), &mut app.proxy_url, false, "http://127.0.0.1:8080 or socks5://user:pass@host:1080");
             ui.add_space(10.0);
             let custom = Setting::Custom(app.proxy_url.trim().to_owned());
             let saved = app.proxy_saved == custom;
             let mut save = false;
             ui.horizontal(|ui| {
-                save = pill(ui, if saved { "Saved" } else { "Save" }, None, !saved).clicked() && !saved;
+                save = pill(ui, if saved { tr!("settings-saved") } else { tr!("settings-save") }, None, !saved).clicked() && !saved;
                 ui.add_space(8.0);
-                ui.label(RichText::new("A password in the address is kept in Windows Credential Manager.").font(theme::regular(12.5)).color(theme::text_dim()));
+                ui.label(RichText::new(tr!("settings-proxy-password-note")).font(theme::regular(12.5)).color(theme::text_dim()));
             });
             if save {
                 match proxy::save(app.backend.data_dir(), &custom) {
@@ -2884,13 +2926,13 @@ fn network(app: &mut App, ui: &mut Ui) {
     let result = app.proxy_test.lock().unwrap().clone();
     let desc = match &result {
         Some(Some((_, msg))) => msg.clone(),
-        Some(None) => "Checking…".to_owned(),
-        None => "Checks that YouTube Music answers through this setting.".to_owned(),
+        Some(None) => tr!("settings-checking").to_owned(),
+        None => tr!("settings-proxy-test-desc").to_owned(),
     };
-    setting_row(ui, "Test connection", Some(&desc), |ui| {
+    setting_row(ui, tr!("settings-test-connection"), Some(&desc), |ui| {
         if matches!(result, Some(None)) {
             widgets::loader(ui);
-        } else if pill(ui, "Test", None, false).clicked() {
+        } else if pill(ui, tr!("settings-test"), None, false).clicked() {
             let s = match &app.proxy_mode {
                 Setting::Custom(_) => Setting::Custom(app.proxy_url.trim().to_owned()),
                 other => other.clone(),
@@ -2899,8 +2941,8 @@ fn network(app: &mut App, ui: &mut Ui) {
             *slot.lock().unwrap() = Some(None);
             app.backend.spawn(async move {
                 let out = match proxy::test(&s).await {
-                    Ok(t) => (true, format!("Working: YouTube Music answered in {} ms.", t.as_millis())),
-                    Err(e) => (false, format!("Didn't connect: {e:#}")),
+                    Ok(t) => (true, tr!("settings-test-working", ms = t.as_millis() as u64)),
+                    Err(e) => (false, tr!("settings-test-failed", error = format!("{e:#}"))),
                 };
                 *slot.lock().unwrap() = Some(Some(out));
                 b.wake();
@@ -2910,8 +2952,8 @@ fn network(app: &mut App, ui: &mut Ui) {
     if app.proxy_saved != *proxy::active() {
         divider(ui);
         let mut restart = false;
-        setting_row(ui, "Restart to apply", Some("The new proxy setting is used from the next start."), |ui| {
-            restart = pill(ui, "Restart now", None, true).clicked();
+        setting_row(ui, tr!("settings-restart-to-apply"), Some(tr!("settings-proxy-restart-desc")), |ui| {
+            restart = pill(ui, tr!("settings-restart-now"), None, true).clicked();
         });
         if restart {
             app.restart(ui.ctx());
@@ -2943,7 +2985,7 @@ fn app_icons(app: &mut App, ui: &mut Ui) {
 
 fn app_icon_tile(ui: &mut Ui, v: &crate::appicon::Variant, w: f32, selected: bool, accent: Color32) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 112.0), Sense::click());
-    let resp = named(resp, &format!("App icon: {}", v.name)).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let resp = named(resp, &tr!("settings-app-icon-named", name = v.name)).on_hover_cursor(egui::CursorIcon::PointingHand);
     if !ui.is_rect_visible(rect) {
         return resp;
     }
@@ -2993,7 +3035,7 @@ fn icon_at(ui: &Ui, v: &crate::appicon::Variant, rect: Rect) {
 /// Returns the new choice ("" for the theme's).
 fn font_picker(ui: &mut Ui) -> Option<String> {
     let current = theme::font_choice();
-    let btn = dropdown_button(ui, if current.is_empty() { "Theme's font" } else { &current }, 220.0, "Font");
+    let btn = dropdown_button(ui, if current.is_empty() { tr!("settings-themes-font") } else { &current }, 220.0, tr!("settings-font"));
     let just_opened = btn.clicked();
     let mut picked = None;
     widgets::menu_popup(&btn).show(|ui| {
@@ -3010,14 +3052,14 @@ fn font_picker(ui: &mut Ui) -> Option<String> {
                     ui.close();
                 }
             };
-            row(ui, "Theme's font", "");
+            row(ui, tr!("settings-themes-font"), "");
             for name in theme::BUNDLED_FONTS {
                 row(ui, name, name);
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
-                ui.label(RichText::new("Installed on this PC").font(theme::semibold(12.0)).color(theme::text_faint()));
+                ui.label(RichText::new(tr!("settings-installed-on-this-pc")).font(theme::semibold(12.0)).color(theme::text_faint()));
             });
             ui.add_space(4.0);
             let ctx = ui.ctx().clone();
@@ -3030,7 +3072,7 @@ fn font_picker(ui: &mut Ui) -> Option<String> {
                 None => {
                     ui.horizontal(|ui| {
                         ui.add_space(12.0);
-                        ui.label(RichText::new("Looking for fonts…").font(theme::regular(13.0)).color(theme::text_dim()));
+                        ui.label(RichText::new(tr!("settings-looking-for-fonts")).font(theme::regular(13.0)).color(theme::text_dim()));
                     });
                 }
             }
@@ -3039,18 +3081,20 @@ fn font_picker(ui: &mut Ui) -> Option<String> {
     picked.filter(|p| *p != current)
 }
 
-const SYSTEM_DEFAULT: &str = "Windows default";
+fn system_default() -> &'static str {
+    tr!("settings-windows-default")
+}
 
 fn output_device_picker(app: &mut App, ui: &mut Ui) {
     let current = match &app.output_device {
-        None => SYSTEM_DEFAULT.to_owned(),
+        None => system_default().to_owned(),
         Some((id, name)) => match app.output_devices.iter().find(|d| d.id == *id) {
             Some(d) => d.name.clone(),
             None if app.output_devices.is_empty() => name.clone(),
-            None => format!("{name} (not connected)"),
+            None => tr!("settings-not-connected", name = name.as_str()),
         },
     };
-    let btn = dropdown_button(ui, &current, 210.0, "Output device");
+    let btn = dropdown_button(ui, &current, 210.0, tr!("settings-output-device"));
     // Listed when opened, so a device that just connected shows up.
     if btn.clicked() || app.output_devices.is_empty() {
         app.output_devices = crate::audio::output_devices();
@@ -3059,7 +3103,7 @@ fn output_device_picker(app: &mut App, ui: &mut Ui) {
     widgets::menu_popup(&btn).show(|ui| {
         widgets::menu_body(ui, 340.0);
         dropdown_list(ui, 320.0, |ui| {
-            if option_row(ui, SYSTEM_DEFAULT, app.output_device.is_none()).clicked() {
+            if option_row(ui, system_default(), app.output_device.is_none()).clicked() {
                 pick = Some(None);
                 ui.close();
             }
@@ -3080,16 +3124,16 @@ fn output_device_picker(app: &mut App, ui: &mut Ui) {
 /// Settings › Playback › Equalizer.
 fn settings_equalizer(app: &mut App, ui: &mut Ui) {
     use crate::audio::eq;
-    settings_section(ui, "Equalizer", None, None, |ui| {
-        setting_row(ui, "Equalizer", Some("Shape the sound from deep bass to treble. Only what you hear changes: not downloads, or what others in a jam hear."), |ui| {
-            if toggle(ui, &mut app.eq_on, "Equalizer").changed() {
+    settings_section(ui, tr!("settings-equalizer"), None, None, |ui| {
+        setting_row(ui, tr!("settings-equalizer"), Some(tr!("settings-equalizer-desc")), |ui| {
+            if toggle(ui, &mut app.eq_on, tr!("settings-equalizer")).changed() {
                 app.set_eq();
             }
         });
         ui.add_enabled_ui(app.eq_on, |ui| {
             divider(ui);
-            setting_row(ui, "Preset", None, |ui| {
-                let btn = dropdown_button(ui, eq::preset_name(&app.eq_gains).unwrap_or("Custom"), 180.0, "Equalizer preset");
+            setting_row(ui, tr!("settings-preset"), None, |ui| {
+                let btn = dropdown_button(ui, eq::preset_name(&app.eq_gains).unwrap_or(tr!("settings-custom")), 180.0, tr!("settings-equalizer-preset"));
                 let mut pick = None;
                 widgets::menu_popup(&btn).show(|ui| {
                     widgets::menu_body(ui, 200.0);
@@ -3107,15 +3151,15 @@ fn settings_equalizer(app: &mut App, ui: &mut Ui) {
                     app.set_eq();
                 }
             });
-            if filter_show(ui, "Equalizer bands bass mids treble frequency") {
+            if filter_show(ui, tr!("settings-equalizer-search-words")) {
                 divider(ui);
                 if eq_bands(ui, &mut app.eq_gains) {
                     app.set_eq();
                 }
             }
             divider(ui);
-            setting_row(ui, "Prevent clipping", Some("Turn everything down by as much as the bands boost, so loud songs are less likely to crackle."), |ui| {
-                if toggle(ui, &mut app.eq_no_clip, "Prevent clipping").changed() {
+            setting_row(ui, tr!("settings-prevent-clipping"), Some(tr!("settings-prevent-clipping-desc")), |ui| {
+                if toggle(ui, &mut app.eq_no_clip, tr!("settings-prevent-clipping")).changed() {
                     app.set_eq();
                 }
             });
@@ -3125,21 +3169,23 @@ fn settings_equalizer(app: &mut App, ui: &mut Ui) {
 
 fn settings_tempo(app: &mut App, ui: &mut Ui) {
     let jam = app.jam.active();
-    settings_section(ui, "Playback speed", None, jam.then_some(TEMPO_IN_JAM), |ui| {
-        setting_row(ui, "Playback speed", Some("Play songs faster or slower, also from a button in the player bar. Faster sounds higher and slower lower, like a record. Lyrics stay in time. Back to 1× each time ytm-rs starts."), |ui| {
-            toggle(ui, &mut app.tempo_on, "Playback speed");
+    settings_section(ui, tr!("settings-playback-speed"), None, jam.then(tempo_in_jam), |ui| {
+        setting_row(ui, tr!("settings-playback-speed"), Some(tr!("settings-playback-speed-desc")), |ui| {
+            toggle(ui, &mut app.tempo_on, tr!("settings-playback-speed"));
         });
         ui.add_enabled_ui(app.tempo_on && !jam, |ui| {
             use crate::audio::tempo::{MAX_SPEED, MIN_SPEED};
             divider(ui);
-            setting_row_wide(ui, "Speed", None, SLIDER_W, |ui| {
-                step_slider(ui, &mut app.speed, (MIN_SPEED, MAX_SPEED, 0.05), Some(1.0), times, "Speed");
+            setting_row_wide(ui, tr!("settings-speed"), None, SLIDER_W, |ui| {
+                step_slider(ui, &mut app.speed, (MIN_SPEED, MAX_SPEED, 0.05), Some(1.0), times, tr!("settings-speed"));
             });
         });
     });
 }
 
-pub(super) const TEMPO_IN_JAM: &str = "Back to normal while you're in a jam, so everyone hears the same song.";
+pub(super) fn tempo_in_jam() -> &'static str {
+    tr!("settings-playback-speed-jam-note")
+}
 
 /// A speed as it's shown: 1×, 1.5×, 1.25×.
 pub(super) fn times(v: f32) -> String {
@@ -3212,7 +3258,7 @@ fn eq_bands(ui: &mut Ui, gains: &mut crate::audio::eq::Gains) -> bool {
         p.circle_filled(knob, 7.0 + h, theme::with_alpha(Color32::WHITE, fade));
         if h > 0.0 {
             let text = match value {
-                0.0 => "0 dB".to_owned(),
+                0.0 => tr!("settings-0-db").to_owned(),
                 v if v > 0.0 => format!("+{v} dB"),
                 v => format!("−{} dB", -v),
             };
@@ -3227,9 +3273,9 @@ fn eq_bands(ui: &mut Ui, gains: &mut crate::audio::eq::Gains) -> bool {
 fn normalization_desc(app: &App) -> String {
     use crate::audio::Normalize;
     let what = match app.normalize {
-        Normalize::Off => return "Songs play as loud as they were made. Normal brings them all to the same level, and Quiet to the same, lower one.".to_owned(),
-        Normalize::Normal => "Songs play at the same level: loud ones turned down, as on YouTube Music, and quiet ones up by as much as 6 dB.",
-        Normalize::Quiet => "Songs play at the same, lower level: loud ones turned down further, so quiet ones rarely need turning up.",
+        Normalize::Off => return tr!("settings-normalization-off-desc").to_owned(),
+        Normalize::Normal => tr!("settings-normalization-normal-desc"),
+        Normalize::Quiet => tr!("settings-normalization-quiet-desc"),
     };
     match (app.current().is_some(), super::shell::normalization_note(app)) {
         (true, Some(note)) => format!("{what} This song: {note}."),
@@ -3243,9 +3289,9 @@ fn stereo_settings(app: &mut App, ui: &mut Ui) {
     let before = app.stereo;
     // Nothing for it to do on mono: it's off (and shown off) until then.
     ui.add_enabled_ui(!app.stereo.mono, |ui| {
-        setting_row(ui, "Headphone crossfeed", Some("Let each ear hear a little of the other side's bass, as from speakers in front of you, so songs panned hard to one side are easier on the ears over headphones."), |ui| {
+        setting_row(ui, tr!("settings-headphone-crossfeed"), Some(tr!("settings-headphone-crossfeed-desc")), |ui| {
             let shown = if app.stereo.mono { Crossfeed::Off } else { app.stereo.crossfeed };
-            let btn = dropdown_button(ui, shown.label(), 120.0, "Headphone crossfeed");
+            let btn = dropdown_button(ui, shown.label(), 120.0, tr!("settings-headphone-crossfeed"));
             widgets::menu_popup(&btn).show(|ui| {
                 widgets::menu_body(ui, 120.0);
                 for c in Crossfeed::ALL {
@@ -3258,18 +3304,18 @@ fn stereo_settings(app: &mut App, ui: &mut Ui) {
         });
     });
     divider(ui);
-    setting_row(ui, "Mono audio", Some("Play both channels in each ear: for one earbud, or hearing in one ear."), |ui| {
-        toggle(ui, &mut app.stereo.mono, "Mono audio");
+    setting_row(ui, tr!("settings-mono-audio"), Some(tr!("settings-mono-audio-desc")), |ui| {
+        toggle(ui, &mut app.stereo.mono, tr!("settings-mono-audio"));
     });
     divider(ui);
-    setting_row_wide(ui, "Balance", Some("Move the sound towards the left or right ear. It stays as loud overall: the side it moves towards gets louder as the other gets quieter."), SLIDER_W, |ui| {
+    setting_row_wide(ui, tr!("settings-balance"), Some(tr!("settings-balance-desc")), SLIDER_W, |ui| {
         let mut b = app.stereo.balance as f32;
         let side = |v: f32| match v {
-            0.0 => "Centre".to_owned(),
+            0.0 => tr!("settings-centre").to_owned(),
             v if v < 0.0 => format!("L {}", -v),
             v => format!("R {v}"),
         };
-        if step_slider(ui, &mut b, (-100.0, 100.0, 5.0), Some(0.0), side, "Balance").changed() {
+        if step_slider(ui, &mut b, (-100.0, 100.0, 5.0), Some(0.0), side, tr!("settings-balance")).changed() {
             app.stereo.balance = b as i8;
         }
     });

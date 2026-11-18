@@ -55,6 +55,10 @@ unicode-bidi = "0.3"
 unicode-segmentation = "1.13.3"
 # System-wide media shortcuts (hotkeys.rs).
 global-hotkey = "0.9"
+# The interface in the listener's language, from locales/, built in (i18n.rs).
+fluent-templates = "0.15.1"
+# The system's languages, for the default one.
+sys-locale = "0.3.2"
 
 [target.'cfg(windows)'.dependencies]
 # Windows Credential Manager, for the Google and Spotify sign-ins.

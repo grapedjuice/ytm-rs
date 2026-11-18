@@ -619,10 +619,14 @@ mod frame {
                     to_work_area(hwnd, &mut *(lparam.0 as *mut MINMAXINFO));
                     return result;
                 }
-                if msg == WM_NCACTIVATE || msg == WM_NCPAINT {
-                    if msg == WM_NCPAINT {
-                        clear_edge(hwnd);
-                    }
+                // Activation still goes to winit, which tracks focus by it; lparam -1 asks
+                // Windows not to repaint the frame for it, so no old-style title bar shows.
+                if msg == WM_NCACTIVATE {
+                    DefSubclassProc(hwnd, msg, wparam, LPARAM(-1));
+                    return LRESULT(1);
+                }
+                if msg == WM_NCPAINT {
+                    clear_edge(hwnd);
                     return LRESULT(1);
                 }
             }

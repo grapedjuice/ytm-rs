@@ -1840,8 +1840,9 @@ mod time_tests {
         fonts.font_data.insert("inter".into(), std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../assets/fonts/Inter-Regular.ttf"))));
         fonts.families.insert(egui::FontFamily::Proportional, vec!["inter".into()]);
         ctx.set_fonts(fonts);
-        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        // Nothing paints these frames: their texture uploads are let go on purpose.
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
             let font = egui::FontId::proportional(13.0);
             let width = |s: &str| super::time_galley(ui, s, font.clone(), egui::Color32::WHITE).rows[0].row.size.x;
             // Inter's 1 is narrower than its 0, so these differ as plain text.
@@ -1852,5 +1853,6 @@ mod time_tests {
                 assert!((width(s) - base).abs() < 0.01, "{s}: {} vs {base}", width(s));
             }
         });
+        out.textures_delta.clear();
     }
 }

@@ -29,7 +29,7 @@ fluent_templates::static_loader! {
 
 /// The languages Settings offers: a language is added once it's mostly translated (what
 /// it hasn't got yet shows in English).
-pub const LANGUAGES: &[&str] = &["en-US", "pt-BR", "es-ES"];
+pub const LANGUAGES: &[&str] = &["en-US", "pt-BR", "es-ES", "ar"];
 
 /// Dev hook: YTM_PSEUDO_LOCALE=1 shows every message accented, bracketed and a good deal
 /// longer, the way a translation can be. Text still plain is text not yet translatable;

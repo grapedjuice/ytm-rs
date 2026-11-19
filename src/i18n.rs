@@ -29,7 +29,7 @@ fluent_templates::static_loader! {
 
 /// The languages Settings offers: a language is added once it's mostly translated (what
 /// it hasn't got yet shows in English).
-pub const LANGUAGES: &[&str] = &["en-US", "pt-BR", "es-ES"];
+pub const LANGUAGES: &[&str] = &["en-US", "pt-BR", "es-ES", "id-ID"];
 
 /// Dev hook: YTM_PSEUDO_LOCALE=1 shows every message accented, bracketed and a good deal
 /// longer, the way a translation can be. Text still plain is text not yet translatable;
@@ -48,7 +48,10 @@ static ACTIVE: OnceLock<Active> = OnceLock::new();
 pub fn init(picked: Option<&str>) {
     let lang = resolve(picked);
     log::info!("language: {lang}");
-    let _ = ACTIVE.set(Active { lang: lang.parse().unwrap_or_else(|_| english()), pseudo: std::env::var_os(PSEUDO).is_some() });
+    let _ = ACTIVE.set(Active {
+        lang: lang.parse().unwrap_or_else(|_| english()),
+        pseudo: std::env::var_os(PSEUDO).is_some(),
+    });
 }
 
 /// The language a start with `picked` shows (see [`init`]).
@@ -61,7 +64,10 @@ fn english() -> LanguageIdentifier {
 }
 
 fn active() -> &'static Active {
-    ACTIVE.get_or_init(|| Active { lang: english(), pseudo: false })
+    ACTIVE.get_or_init(|| Active {
+        lang: english(),
+        pseudo: false,
+    })
 }
 
 /// The language this run shows (one of [`LANGUAGES`]).
@@ -72,15 +78,27 @@ pub fn current() -> String {
 /// Of [`LANGUAGES`]: `picked`, else the first of the system's languages offered (its
 /// region's own if there is one, else the same language's), else English.
 fn choose(picked: Option<&str>, system: &[String]) -> &'static str {
-    let offered = |tag: &str| LANGUAGES.iter().copied().find(|l| l.eq_ignore_ascii_case(tag));
+    let offered = |tag: &str| {
+        LANGUAGES
+            .iter()
+            .copied()
+            .find(|l| l.eq_ignore_ascii_case(tag))
+    };
     if let Some(l) = picked.and_then(offered) {
         return l;
     }
-    let base = |tag: &str| tag.split(['-', '_']).next().unwrap_or_default().to_ascii_lowercase();
+    let base = |tag: &str| {
+        tag.split(['-', '_'])
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+    };
     for want in system {
         // Some systems say pt_BR, or add an encoding (en_US.UTF-8).
         let want = want.split('.').next().unwrap_or_default().replace('_', "-");
-        if let Some(l) = offered(&want).or_else(|| LANGUAGES.iter().copied().find(|l| base(l) == base(&want))) {
+        if let Some(l) =
+            offered(&want).or_else(|| LANGUAGES.iter().copied().find(|l| base(l) == base(&want)))
+        {
             return l;
         }
     }
@@ -108,7 +126,10 @@ pub fn text(id: &'static str) -> &'static str {
 
 /// The message `id` with its variables filled in.
 pub fn format(id: &'static str, args: &[(&'static str, FluentValue<'_>)]) -> String {
-    let args: HashMap<Cow<'static, str>, FluentValue> = args.iter().map(|(k, v)| (Cow::Borrowed(*k), v.clone())).collect();
+    let args: HashMap<Cow<'static, str>, FluentValue> = args
+        .iter()
+        .map(|(k, v)| (Cow::Borrowed(*k), v.clone()))
+        .collect();
     shown(LOCALES.lookup_with_args(&active().lang, id, &args))
 }
 
@@ -125,7 +146,10 @@ fn shown(t: String) -> String {
 fn pseudo(t: &str) -> String {
     const FROM: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const TO: &str = "ȧƀçđéƒĝĥîĵķĺɱñŏƥǫŕšţûṽŵẋýžÅƁÇĐÉƑĜĤÎĴĶĹṀÑÖƤǪŔŠŢÛṼŴẊÝŽ";
-    let body: String = t.chars().map(|c| FROM.find(c).and_then(|i| TO.chars().nth(i)).unwrap_or(c)).collect();
+    let body: String = t
+        .chars()
+        .map(|c| FROM.find(c).and_then(|i| TO.chars().nth(i)).unwrap_or(c))
+        .collect();
     let pad = "~".repeat((t.chars().count() * 2 / 5).max(1));
     format!("[{body} {pad}]")
 }
@@ -167,15 +191,23 @@ mod tests {
             }
         }
         let mut out = Vec::new();
-        walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut out);
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut out,
+        );
         out
     }
 
     /// The ids a language's files define.
     fn defined_ids(lang: &str) -> Vec<String> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("locales").join(lang);
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("locales")
+            .join(lang);
         let mut ids = Vec::new();
-        for e in std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display())).flatten() {
+        for e in std::fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+            .flatten()
+        {
             let src = std::fs::read_to_string(e.path()).unwrap();
             // A message starts a line with its id; its value's other lines are indented.
             for line in src.lines() {
@@ -193,13 +225,25 @@ mod tests {
     fn every_id_used_is_in_english_and_every_english_id_is_used() {
         let used = used_ids();
         let english = defined_ids("en-US");
-        let missing: Vec<_> = used.iter().filter(|(id, _)| !english.contains(id)).collect();
+        let missing: Vec<_> = used
+            .iter()
+            .filter(|(id, _)| !english.contains(id))
+            .collect();
         assert!(missing.is_empty(), "not in locales/en-US: {missing:?}");
-        let unused: Vec<_> = english.iter().filter(|id| *id != "language-name" && !used.iter().any(|(u, _)| u == *id)).collect();
-        assert!(unused.is_empty(), "in locales/en-US but not used: {unused:?}");
+        let unused: Vec<_> = english
+            .iter()
+            .filter(|id| *id != "language-name" && !used.iter().any(|(u, _)| u == *id))
+            .collect();
+        assert!(
+            unused.is_empty(),
+            "in locales/en-US but not used: {unused:?}"
+        );
         let mut seen = std::collections::HashSet::new();
         let twice: Vec<_> = english.iter().filter(|id| !seen.insert(*id)).collect();
-        assert!(twice.is_empty(), "defined twice in locales/en-US: {twice:?}");
+        assert!(
+            twice.is_empty(),
+            "defined twice in locales/en-US: {twice:?}"
+        );
     }
 
     #[test]
@@ -208,7 +252,9 @@ mod tests {
         for lang in std::fs::read_dir(&root).unwrap().flatten() {
             for file in std::fs::read_dir(lang.path()).unwrap().flatten() {
                 let src = std::fs::read_to_string(file.path()).unwrap();
-                if let Err((_, errors)) = fluent_templates::fluent_bundle::FluentResource::try_new(src) {
+                if let Err((_, errors)) =
+                    fluent_templates::fluent_bundle::FluentResource::try_new(src)
+                {
                     panic!("{}: {errors:?}", file.path().display());
                 }
             }
@@ -236,14 +282,23 @@ mod tests {
 
     #[test]
     fn variables_and_plurals_fill_in() {
-        assert_eq!(format("likes-removed", &[("count", arg(1))]), "Removed 1 like");
-        assert_eq!(format("likes-removed", &[("count", arg(3))]), "Removed 3 likes");
+        assert_eq!(
+            format("likes-removed", &[("count", arg(1))]),
+            "Removed 1 like"
+        );
+        assert_eq!(
+            format("likes-removed", &[("count", arg(3))]),
+            "Removed 3 likes"
+        );
     }
 
     #[test]
     fn pseudo_is_longer_and_bracketed() {
         let p = pseudo("Keep on top");
-        assert!(p.starts_with('[') && p.ends_with(']') && p.chars().count() > "Keep on top".len() + 4, "{p}");
+        assert!(
+            p.starts_with('[') && p.ends_with(']') && p.chars().count() > "Keep on top".len() + 4,
+            "{p}"
+        );
         assert!(!p.contains('K'));
     }
 }

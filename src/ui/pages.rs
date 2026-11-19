@@ -1938,6 +1938,12 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             }
         });
         divider(ui);
+        setting_row(ui, tr!("settings-fade-when-pausing"), Some(tr!("settings-fade-when-pausing-desc")), |ui| {
+            if toggle(ui, &mut app.pause_fade, tr!("settings-fade-when-pausing")).changed() {
+                app.audio.set_pause_fade(app.pause_fade);
+            }
+        });
+        divider(ui);
         setting_row(ui, tr!("settings-high-quality-audio"), Some(tr!("settings-high-quality-audio-desc")), |ui| {
             if toggle(ui, &mut app.high_quality, tr!("settings-high-quality-audio")).changed() {
                 app.backend.set_high_quality(app.high_quality);

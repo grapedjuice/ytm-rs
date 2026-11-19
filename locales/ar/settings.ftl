@@ -124,7 +124,7 @@ settings-songs-not-videos-desc = يُشغَّل الفيديو الموسيقي 
 settings-show-music-videos = عرض مقاطع الفيديو الموسيقية
 settings-show-music-videos-desc = تُشغَّل مقاطع الفيديو الموسيقية كفيديو متحرك بصوتها الخاص ودون كلمات. وعند إيقاف هذا الخيار وتشغيل الأغاني بدلًا منها، لا يظهر مفتاح التبديل بين أغنية وفيديو في شاشة «قيد التشغيل الآن» للأغاني، بينما تحتفظ به مقاطع الفيديو الموسيقية.
 settings-video-quality = جودة الفيديو
-settings-video-quality-desc = تُشغَّل مقاطع الفيديو الموسيقية بهذه الدقة، أو بأقرب دقة أقل متوفرة للفيديو. تتطلب دقة 1080p نحو ثلاثة أضعاف الجهد مقارنة بدقة 720p، وهو ما قد تعجز عنه الحواسيب الأبطأ.
+settings-video-quality-desc = تُشغَّل مقاطع الفيديو الموسيقية بهذه الدقة، أو بأقرب دقة أقل متوفرة للفيديو. تتطلب دقة 1080p نحو ثلاثة أضعاف الجهد مقارنة بدقة 720p، وهو ما قد تعجز عنه الحواسيب البطيئة.
 settings-ambient-light = الإضاءة المحيطية
 settings-ambient-light-desc = تتوهّج شاشة «قيد التشغيل الآن» بألوان الفيديو من حولها.
 settings-animated-covers = الأغلفة المتحركة
@@ -228,9 +228,9 @@ settings-app-icon-named = أيقونة التطبيق: { $name }
 
 settings-stream-deck = Stream Deck
 settings-stream-deck-desc = السماح لإضافة Stream Deck على هذا الجهاز بالتحكم في التشغيل.
-settings-lastfm-connected = إرسال سجل ما تشغّله (Scrobble) إلى ملف { $name } الشخصي.
+settings-lastfm-connected = إرسال سجل ما تشغّله إلى ملف { $name } الشخصي.
 settings-lastfm-allow = اسمح لـ ytm-rs في صفحة Last.fm التي فُتحت في متصفحك.
-settings-lastfm-desc = إرسال سجل ما تشغّله (Scrobble) إلى ملفك الشخصي على Last.fm.
+settings-lastfm-desc = إرسال سجل ما تشغّله إلى ملفك الشخصي على Last.fm.
 settings-disconnect = قطع الاتصال
 settings-connect = اتصال
 settings-listenbrainz-connected = إرسال ما تشغّله إلى ملف { $name } الشخصي.
@@ -290,6 +290,13 @@ settings-open = فتح
 ## Network
 
 settings-network = الشبكة
+settings-backup-stream = بث احتياطي عند توقف الأغاني
+settings-backup-stream-desc = عند تسجيل الدخول وإيقاف YouTube للأغنية بسبب التحقق من الروبوت (قد يحدث ذلك عند استخدام VPN)، يتم تشغيلها من بث مصاحب للفيديو. يستهلك بيانات أكثر.
+settings-backup-stream-prompt-title = توقف التشغيل
+settings-backup-stream-prompt-body = أوقف YouTube هذه الأغنية بسبب التحقق من الروبوت، وهو أمر قد يحدث عند استخدام VPN. يمكن تشغيلها عبر بث احتياطي بدلًا من ذلك، وبما أنه يأتي مع الفيديو فهو يستهلك بيانات أكثر.
+settings-backup-stream-prompt-enable = تشغيل وإعادة المحاولة
+settings-backup-stream-prompt-settings = الإعدادات
+settings-backup-stream-prompt-dismiss = ليس الآن
 settings-proxy = الوكيل (Proxy)
 settings-proxy-desc = إرسال كل ما يجلبه ytm-rs عبر وكيل: الأغاني، الكلمات، تسجيل الدخول، والاستماع معًا.
 settings-proxy-windows-uses = نظام Windows مضبوط لاستخدام { $proxy }.

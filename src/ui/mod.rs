@@ -1661,6 +1661,13 @@ impl eframe::App for App {
         crate::shader::set_glass_on(self.glass_on);
         let now = ctx.input(|i| i.time);
         self.sync_ratings(&ctx, now);
+        // In the tray, or minimized: nothing would be seen, so nothing is drawn. eframe skips
+        // a minimized window itself, but not one hidden in the tray (it can't tell on Windows
+        // or X11), and would otherwise draw the whole window, background and glass included,
+        // for every frame the player asks for. The player's bookkeeping is all in `logic`.
+        if self.window_hidden {
+            return;
+        }
         let screen = ctx.content_rect();
 
         self.sync_look();

@@ -43,10 +43,15 @@ impl App {
                     }
                 }
                 AudioEvent::Finished { .. } => {}
-                // Crossfade into the next song; repeat-one and the end of the queue wait for the end.
-                AudioEvent::Ending { generation } if generation == self.generation && !self.jam.guest() && !self.repeats_one() => {
+                // Crossfade into the next song, or into the song again on Repeat one; the
+                // end of the queue waits for the end.
+                AudioEvent::Ending { generation } if generation == self.generation && !self.jam.guest() => {
                     self.handoff = true;
-                    self.next();
+                    if self.repeats_one() {
+                        self.play_current();
+                    } else {
+                        self.next();
+                    }
                     self.handoff = false;
                 }
                 AudioEvent::Ending { .. } => {}

@@ -11,7 +11,7 @@
 use egui::{Event, Modifiers, MouseWheelSource, MouseWheelUnit, TouchPhase, Vec2};
 
 /// How far one wheel notch scrolls, in points.
-const NOTCH_PX: f32 = 70.0;
+pub(super) const NOTCH_PX: f32 = 70.0;
 /// A wheel glide's time constant, seconds (settles in ~0.18 s).
 const GLIDE: f32 = 0.06;
 /// A touchpad coast's time constant, seconds: it goes the lift-off speed × this far.
@@ -23,12 +23,12 @@ const SPEED_WINDOW: f64 = 0.15;
 /// How far a touchpad's pixel delta scrolls, in points. Wayland sends libinput's scroll
 /// units, which scroll slowly 1:1; GTK 4 scrolls 2.5× them (its `MAGIC_SCROLL_FACTOR`,
 /// coast included), Firefox 4× and Chromium 12× (#124).
-const TOUCHPAD_SCALE: f32 = 2.5;
+pub(super) const TOUCHPAD_SCALE: f32 = 2.5;
 /// The fastest a lift-off can coast at, points per second: a hard flick, 6000 touchpad
 /// units a second.
 const MAX_SPEED: f32 = 6000.0 * TOUCHPAD_SCALE;
 /// How long a pause ends a scroll, seconds, as egui's own timeout does.
-const PAUSE: f64 = 0.15;
+pub(super) const PAUSE: f64 = 0.15;
 
 pub(super) struct Glide {
     /// Points still to scroll, handed out a frame's share at a time.
@@ -206,7 +206,7 @@ impl Glide {
         true
     }
 
-    fn stop_coast(&mut self) {
+    pub(super) fn stop_coast(&mut self) {
         if self.coasting {
             self.pending = Vec2::ZERO;
             self.coasting = false;

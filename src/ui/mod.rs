@@ -29,6 +29,7 @@ mod queue;
 mod ratings;
 mod responses;
 mod row_drag;
+mod seek_wheel;
 mod shell;
 mod shuffle;
 mod titlebar;
@@ -565,6 +566,8 @@ pub struct App {
     /// The last song ended with nothing after it: radio carries on from there.
     ended: bool,
     seek_drag: Option<f32>,
+    /// The mouse wheel over a seek bar: where it's seeking to until it rests.
+    seek_wheel: seek_wheel::SeekWheel,
 
     // visuals
     art_key: Option<String>,
@@ -990,6 +993,7 @@ impl App {
             radio_pending: false,
             ended: false,
             seek_drag: None,
+            seek_wheel: seek_wheel::SeekWheel::default(),
             art_key: None,
             art_changed: -10.0,
             art_brightness: 0.0,
@@ -1539,6 +1543,7 @@ impl eframe::App for App {
             self.apply(a);
         }
         jam::tick(self);
+        self.seek_wheel_rest(ctx, now);
         jam::dev_script(self, ctx, now);
         self.dev_skip(ctx, now);
         if self.page_changed < 0.0 {
@@ -1980,6 +1985,8 @@ impl eframe::App for App {
                 log::info!("wheel t={:.3} {e:?}", raw.time.unwrap_or(0.0));
             }
         }
+        // Ahead of smooth scrolling: the wheel over a seek bar seeks rather than scrolls.
+        self.seek_by_wheel(ctx, &mut raw.events, raw.time.unwrap_or(0.0));
         let viewport_h = raw.screen_rect.map_or(800.0, |r| r.height());
         if self.wheel.filter(&mut raw.events, raw.time.unwrap_or(0.0), raw.predicted_dt, viewport_h) {
             ctx.request_repaint();

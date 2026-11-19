@@ -6,10 +6,18 @@ use crate::backend::Req;
 use crate::model::Target;
 use crate::theme;
 
-use super::{Action, App, Dialog, notes, pages, widgets};
+use super::{Action, App, Dialog, Page, BackupPrompt, notes, pages, widgets};
 
 impl App {
     pub(super) fn draw_dialog(&mut self, ctx: &egui::Context) {
+        if self.dialog.is_none() && self.backup_prompt == BackupPrompt::Open {
+            if self.backup_stream {
+                self.backup_prompt = BackupPrompt::Hidden;
+            } else {
+                self.backup_stream_dialog(ctx);
+                return;
+            }
+        }
         if let Some(Dialog::ConfirmClearCache) = &self.dialog {
             let body = match self.storage.known() {
                 Some(n) => format!("This frees up {}.", crate::cache::size_text(n)),
@@ -143,6 +151,51 @@ impl App {
         });
         let dismissed = modal.should_close() || ctx.input(|i| i.key_pressed(egui::Key::Escape));
         if !done && !dismissed { self.dialog = Some(dialog); }
+    }
+
+    fn backup_stream_dialog(&mut self, ctx: &egui::Context) {
+        let id = egui::Id::unique("backup-stream-dialog");
+        widgets::modal_extras(ctx, id);
+        let modal = egui::Modal::new(id).frame(notes::surface()).backdrop_color(theme::shade(0.55)).show(ctx, |ui| {
+            ui.set_width(400.0_f32.min(ctx.content_rect().width() - 48.0));
+            egui::Frame::new().inner_margin(egui::Margin { left: 26, right: 26, top: 24, bottom: 22 }).show(ui, |ui| {
+                ui.label(egui::RichText::new(tr!("settings-backup-stream-prompt-title")).font(theme::bold(22.0)).color(theme::text()));
+                ui.add_space(10.0);
+                let body = tr!("settings-backup-stream-prompt-body");
+                ui.add(egui::Label::new(egui::RichText::new(body).font(theme::regular(14.0)).color(theme::text_dim())).wrap());
+                ui.add_space(22.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    let enable = widgets::pill(ui, tr!("settings-backup-stream-prompt-enable"), None, true).clicked();
+                    let open = widgets::pill(ui, tr!("settings-backup-stream-prompt-settings"), None, false).clicked();
+                    let dismiss = widgets::pill(ui, tr!("settings-backup-stream-prompt-dismiss"), None, false).clicked();
+                    (enable, open, dismiss)
+                }).inner
+            }).inner
+        });
+        let (enable, open, dismiss) = modal.inner;
+        let pressed_outside = modal.is_top_modal && ctx.input(|input| {
+            input.events.iter().any(|event| {
+                matches!(event, egui::Event::PointerButton { pos, pressed: true, .. } if !modal.response.rect.contains(*pos))
+            })
+        });
+        if enable || open || dismiss || pressed_outside || modal.should_close() {
+            self.backup_prompt = BackupPrompt::Dismissed;
+        }
+        if enable {
+            self.backup_stream = true;
+            self.backend.set_backup_stream(true);
+            // The song waits where it stopped: reopen it there, now on the backup stream.
+            if let Some(at) = self.resume_at {
+                self.play_current_at(at, false);
+            }
+        }
+        if open {
+            self.settings_query.clear();
+            self.settings_tab = pages::SettingsTab::General;
+            self.reveal_backup_setting = true;
+            self.go(Page::Settings);
+        }
     }
 
     /// The Collaborate dialog's body: the two switches, the invite link and who has

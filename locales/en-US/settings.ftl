@@ -285,6 +285,13 @@ settings-folder-per-list-desc = Downloading an album or playlist from its page o
 ## Network
 
 settings-network = Network
+settings-backup-stream = Backup stream when songs stop
+settings-backup-stream-desc = Signed in, when YouTube stops a song with a bot check (this can happen on a VPN), play it from a stream that comes with the video. Uses more data.
+settings-backup-stream-prompt-title = Playback stopped
+settings-backup-stream-prompt-body = YouTube stopped this song with a bot check, which can happen on a VPN. A backup stream can play it instead. It comes with the video, so it uses more data.
+settings-backup-stream-prompt-enable = Turn on and retry
+settings-backup-stream-prompt-settings = Settings
+settings-backup-stream-prompt-dismiss = Not now
 settings-proxy = Proxy
 settings-proxy-desc = Send everything ytm-rs fetches through a proxy: songs, lyrics, sign-in and Listen together.
 settings-proxy-windows-uses = Windows is set to use { $proxy }.

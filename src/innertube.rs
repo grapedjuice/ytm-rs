@@ -253,6 +253,9 @@ mod tests {
         assert_eq!(hls_audio_playlist(master, "140"), None);
         let media = "#EXTM3U\n#EXT-X-TARGETDURATION:7\n#EXTINF:7.0,\nhttps://s/0\n#EXTINF:7.0,\nhttps://s/1\n#EXTINF:5.04,\nhttps://s/2\n#EXT-X-ENDLIST\n";
         assert_eq!(hls_segments(media), (vec![(0.0, "https://s/0".to_owned()), (7.0, "https://s/1".to_owned()), (14.0, "https://s/2".to_owned())], 19.04));
+        // A duration that doesn't read counts as 0 s: the song still plays.
+        let odd = "#EXTM3U\n#EXTINF:7.0,\nhttps://s/0\n#EXTINF:abc,\nhttps://s/1\n#EXTINF:5.0,\nhttps://s/2\n#EXT-X-ENDLIST\n";
+        assert_eq!(hls_segments(odd), (vec![(0.0, "https://s/0".to_owned()), (7.0, "https://s/1".to_owned()), (7.0, "https://s/2".to_owned())], 12.0));
     }
 
     #[test]

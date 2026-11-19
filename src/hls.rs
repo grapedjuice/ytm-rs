@@ -1,10 +1,14 @@
-//! HLS audio: YouTube's itag 234, the AAC of itag 140 cut into ~7 s segments, each
-//! an ID3 tag (its start time) and then ADTS frames (Apple's "packed audio").
+//! HLS audio comes as Apple's packed audio (an ID3 timestamp followed by ADTS
+//! frames) or as AAC multiplexed into Safari's MPEG-TS video segments.
 //!
 //! The visionOS player's progressive URLs are refused past 1 MiB where YouTube asks
 //! that client for a PO token (an experiment some networks get, Oct 2026); its HLS
 //! segments aren't. The segments are the buffer's blocks (`stream::Shared::segmented`),
 //! and this reads their frames in order and decodes them with Symphonia's AAC decoder.
+
+mod transport;
+
+pub(crate) use transport::unpack_audio;
 
 use std::num::NonZero;
 use std::ops::Range;
@@ -18,6 +22,49 @@ use symphonia::core::formats::Packet;
 use symphonia::default::codecs::AacDecoder;
 
 use crate::stream::StreamReader;
+
+pub(crate) struct MediaPlaylist {
+    pub segments: Vec<(f64, String)>,
+    pub duration: f64,
+}
+
+pub(crate) fn media_playlist(base: &reqwest::Url, text: &str) -> anyhow::Result<MediaPlaylist> {
+    let mut segments = Vec::new();
+    let mut duration = 0.0;
+    let mut pending = None;
+    for line in text.lines().map(str::trim) {
+        if let Some(value) = line.strip_prefix("#EXTINF:") {
+            anyhow::ensure!(pending.is_none(), "HLS duration has no segment");
+            let seconds = value.split(',').next().unwrap_or_default().trim().parse::<f64>()?;
+            anyhow::ensure!(seconds.is_finite() && seconds >= 0.0, "invalid HLS segment duration");
+            pending = Some(seconds);
+        } else if !line.starts_with('#') && !line.is_empty() {
+            let seconds = pending.take().ok_or_else(|| anyhow::anyhow!("HLS segment has no duration"))?;
+            let url = base.join(line)?;
+            anyhow::ensure!(matches!(url.scheme(), "http" | "https"), "unsupported HLS segment URL");
+            segments.push((duration, url.into()));
+            duration += seconds;
+        }
+    }
+    anyhow::ensure!(pending.is_none(), "HLS duration has no segment");
+    anyhow::ensure!(duration.is_finite() && duration > 0.0, "empty HLS audio playlist");
+    Ok(MediaPlaylist { segments, duration })
+}
+
+pub(crate) async fn safari_playlist(http: &reqwest::Client, url: &str, ua: &str) -> anyhow::Result<(Vec<(f64, String)>, u64)> {
+    let response = http.get(url).header("User-Agent", ua).timeout(Duration::from_secs(8))
+        .send().await.and_then(reqwest::Response::error_for_status).map_err(reqwest::Error::without_url)?;
+    let base = response.url().clone();
+    let text = response.text().await.map_err(reqwest::Error::without_url)?;
+    anyhow::ensure!(text.lines().any(|line| line.trim() == "#EXT-X-ENDLIST"), "Safari returned an unfinished HLS playlist");
+    anyhow::ensure!(!text.lines().map(str::trim).any(|line| {
+        line.starts_with("#EXT-X-MAP:") || line.starts_with("#EXT-X-BYTERANGE:")
+            || line.strip_prefix("#EXT-X-KEY:").is_some_and(|key| key != "METHOD=NONE")
+    }), "unsupported Safari HLS playlist");
+    let playlist = media_playlist(&base, &text)?;
+    let duration_ms = (playlist.duration * 1000.0).round() as u64;
+    Ok((playlist.segments, duration_ms))
+}
 
 /// AAC's sample rates, by ADTS index.
 const RATES: [u32; 13] = [96_000, 88_200, 64_000, 48_000, 44_100, 32_000, 24_000, 22_050, 16_000, 12_000, 11_025, 8_000, 7_350];
@@ -292,6 +339,65 @@ mod tests {
     #[test]
     fn untagged_segments_start_at_their_first_byte() {
         assert_eq!(id3(&frame(10)), (0, None));
+    }
+
+    #[test]
+    fn playlist_segments_resolve_against_the_playlist() {
+        let base = reqwest::Url::parse("https://s/index.m3u8").unwrap();
+        let media = "#EXTM3U\n#EXT-X-TARGETDURATION:7\n#EXTINF:7.0,\nhttps://s/0\n#EXTINF:7.0,\n1\n#EXTINF:5.04,\n/2\n#EXT-X-ENDLIST\n";
+        let playlist = media_playlist(&base, media).unwrap();
+        assert_eq!(playlist.segments, vec![(0.0, "https://s/0".to_owned()), (7.0, "https://s/1".to_owned()), (14.0, "https://s/2".to_owned())]);
+        assert_eq!(playlist.duration, 19.04);
+    }
+
+    #[test]
+    fn playlist_rejects_durations_without_segments() {
+        let base = reqwest::Url::parse("https://example.com/index.m3u8").unwrap();
+        for playlist in [
+            "#EXTM3U\n#EXTINF:7,\n#EXTINF:2,\na.ts\n#EXT-X-ENDLIST",
+            "#EXTM3U\n#EXTINF:7,\na.ts\n#EXTINF:2,\n#EXT-X-ENDLIST",
+        ] {
+            assert!(media_playlist(&base, playlist).is_err());
+        }
+    }
+
+    /// With a signed-in profile, exercise the Safari stream used when a bot check
+    /// blocks the main player. Both tracks must play past 1:00 and reach the end.
+    /// `YTM_DATA_DIR=<profile> cargo test -- --ignored safari_hls_stream_live --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn safari_hls_stream_live() {
+        use crate::{proxy, stream, webmusic, ytdlp};
+        use rodio::Source;
+
+        let dir = std::path::PathBuf::from(std::env::var_os("YTM_DATA_DIR").expect("a signed-in test profile"));
+        proxy::init(&dir);
+        let session = webmusic::Session::load(&dir).expect("a saved YouTube session");
+        let http = proxy::http();
+        for video_id in ["at-CzwFMJ7Y", "piSqk_okurY"] {
+            let meta = ytdlp::resolve(&http, &dir, &session.cookie, video_id, ytdlp::Format::SafariHls).await.unwrap();
+            let (segments, duration_ms) = safari_playlist(&http, &meta.url, &meta.user_agent).await.unwrap();
+            let (starts, urls) = segments.into_iter().unzip();
+            let shared = stream::Shared::segmented(starts, duration_ms, None, false);
+            stream::download(http.clone(), stream::Media::TransportStream(urls), meta.user_agent, shared.clone(), None).await;
+            assert!(shared.error().is_none(), "{video_id}: {:?}", shared.error());
+            assert!(shared.is_complete(), "{video_id}: incomplete audio");
+
+            let mut source = stream::decoder(shared.clone(), true).unwrap();
+            let samples_per_second = f64::from(source.channels().get()) * f64::from(source.sample_rate().get());
+            let (count, energy) = source.by_ref().fold((0, 0.0), |(count, energy), sample| (count + 1, energy + f64::from(sample).powi(2)));
+            let decoded_secs = f64::from(count) / samples_per_second;
+            println!("{video_id}: {decoded_secs:.3} s decoded of {duration_ms} ms");
+            assert!((decoded_secs - duration_ms as f64 / 1000.0).abs() < 0.25);
+            assert!(energy / f64::from(count) > 0.0001);
+            drop(source);
+
+            let mut source = stream::decoder(shared, true).unwrap();
+            source.try_seek(Duration::from_secs(80)).unwrap();
+            let remaining = source.count() as f64 / samples_per_second;
+            println!("{video_id}: {remaining:.3} s decoded after seeking to 80 s");
+            assert!((remaining - (decoded_secs - 80.0)).abs() < 0.25);
+        }
     }
 
     /// Signed out: plays a song's HLS audio end to end, and seeks in it.

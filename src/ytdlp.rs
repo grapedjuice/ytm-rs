@@ -49,6 +49,12 @@ const QJS_URL: &str = "https://github.com/quickjs-ng/quickjs/releases/latest/dow
 
 const QJS_MAX_AGE: Duration = Duration::from_secs(30 * 24 * 3600);
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    File,
+    SafariHls,
+}
+
 pub struct Stream {
     pub url: String,
     pub size: u64,
@@ -101,7 +107,7 @@ fn has_runtime() -> bool {
     std::env::split_paths(&path).any(|dir| ["node", "deno"].iter().any(|n| dir.join(exe(n)).is_file()))
 }
 
-pub async fn resolve(http: &reqwest::Client, data_dir: &Path, cookie: &str, video_id: &str) -> anyhow::Result<Stream> {
+pub async fn resolve(http: &reqwest::Client, data_dir: &Path, cookie: &str, video_id: &str, format: Format) -> anyhow::Result<Stream> {
     let bin = ensure(http, data_dir, BIN, URL, MAX_AGE).await?;
     // Signed in, yt-dlp can't get at the audio without solving YouTube's challenges.
     let qjs = if has_runtime() {
@@ -117,9 +123,9 @@ pub async fn resolve(http: &reqwest::Client, data_dir: &Path, cookie: &str, vide
     };
     let data_dir = data_dir.to_owned();
     let (cookie, video_id) = (cookie.to_owned(), video_id.to_owned());
-    let mut s = tokio::task::spawn_blocking(move || run(&bin, qjs.as_deref(), &data_dir, &video_id, &cookie)).await??;
+    let mut s = tokio::task::spawn_blocking(move || run(&bin, qjs.as_deref(), &data_dir, &video_id, &cookie, format)).await??;
     // The range downloader needs the exact size; yt-dlp sometimes only estimates it.
-    if s.size == 0 {
+    if format == Format::File && s.size == 0 {
         // Errors leave the URL out: it carries the client's IP address and signatures (logs).
         let head = http.head(&s.url).header("User-Agent", &s.user_agent).send().await.and_then(reqwest::Response::error_for_status).map_err(reqwest::Error::without_url)?;
         // Not `content_length()`: for a HEAD response that reports the empty body.
@@ -129,7 +135,7 @@ pub async fn resolve(http: &reqwest::Client, data_dir: &Path, cookie: &str, vide
     Ok(s)
 }
 
-fn run(bin: &Path, qjs: Option<&Path>, data_dir: &Path, video_id: &str, cookie: &str) -> anyhow::Result<Stream> {
+fn run(bin: &Path, qjs: Option<&Path>, data_dir: &Path, video_id: &str, cookie: &str, format: Format) -> anyhow::Result<Stream> {
     // Unique name per call; removed on every exit path by the guard below.
     let nonce = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let jar = data_dir.join(format!("cookies-{nonce}.txt"));
@@ -149,7 +155,15 @@ fn run(bin: &Path, qjs: Option<&Path>, data_dir: &Path, video_id: &str, cookie: 
     std::fs::write(&jar, txt)?;
 
     let mut cmd = Command::new(bin);
-    cmd.args(["--js-runtimes", "node", "--no-warnings", "--no-playlist", "--no-cache-dir", "-f", "140/bestaudio[ext=m4a]", "-j", "--cookies"])
+    let selector = match format {
+        Format::File => "140/bestaudio[ext=m4a]",
+        Format::SafariHls => {
+            cmd.args(["--extractor-args", "youtube:player_client=web_safari"]);
+            // The smallest video rendition with AAC-LC. Lower ones use HE-AAC.
+            "worst[protocol^=m3u8][acodec=mp4a.40.2]"
+        }
+    };
+    cmd.args(["--js-runtimes", "node", "--no-warnings", "--no-playlist", "--no-cache-dir", "-f", selector, "-j", "--cookies"])
         .arg(&jar)
         .args(qjs.map(|p| format!("quickjs:{}", p.display())).into_iter().flat_map(|q| ["--js-runtimes".to_owned(), q]))
         .args(crate::proxy::ytdlp_args())

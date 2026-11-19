@@ -49,6 +49,7 @@ mp4ameta = "0.13.0"
 md-5 = "0.10"
 unicode-normalization = "0.1.26"
 symphonia = { version = "0.5.5", default-features = false, features = ["mkv", "aac"] }
+mpeg2ts-reader = "0.18.2"
 rusty-opus = "1.0.2"
 unicode-bidi = "0.3"
 # Cutting the tray menu's song line between letters a reader sees as one (tray.rs).

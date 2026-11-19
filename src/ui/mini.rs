@@ -1543,7 +1543,8 @@ fn card_seek(app: &mut App, ui: &mut Ui, line: Rect, track: Option<&crate::model
         // As wide as it gets (all the time left), so a second click doesn't land on the card
         // (a double click there opens the main window).
         let w = widgets::time_galley(ui, &super::fmt_end(0.0, total, true), font, theme::text_faint()).size().x;
-        let hit = Rect::from_min_max(pos2(bar.right() - w, r.top()), r.max);
+        // Below the seek line's own hit, so a click just under its end still seeks.
+        let hit = Rect::from_min_max(pos2(bar.right() - w, r.top().max(resp.rect.bottom())), r.max);
         widgets::time_toggle(ui, hit, r.min, g, [theme::text_faint(), theme::text()], &mut app.time_left);
     } else {
         ui.painter().galley(r.min, g, theme::text_faint());

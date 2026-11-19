@@ -1017,6 +1017,11 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                         if super::actions::shareable(&target) && widgets::menu_action(ui, Some(icon::LINK), "Share") {
                             acts.push(Action::Share(target.clone()));
                         }
+                        if (crate::downloads::has_list_folder(id) || crate::downloads::any_listed(tracks))
+                            && widgets::menu_action(ui, Some(icon::FOLDER_OPEN), "Show in folder")
+                        {
+                            crate::downloads::show_list(id, tracks);
+                        }
                         if own {
                             if widgets::menu_action(ui, Some(icon::SETTINGS), "Edit") { acts.push(Action::EditPlaylist); }
                             if widgets::menu_action(ui, Some(icon::USERS), "Collaborate") { acts.push(Action::Collaborate); }
@@ -2004,6 +2009,13 @@ fn settings_downloads(ui: &mut Ui) {
             ui.add_space(6.0);
             if pill(ui, tr!("settings-open"), Some(icon::FOLDER_OPEN), false).clicked() {
                 crate::downloads::open_folder();
+            }
+        });
+        divider(ui);
+        setting_row(ui, tr!("settings-folder-per-list"), Some(tr!("settings-folder-per-list-desc")), |ui| {
+            let mut on = crate::downloads::per_list();
+            if toggle(ui, &mut on, tr!("settings-folder-per-list")).changed() {
+                crate::downloads::set_per_list(on);
             }
         });
     });

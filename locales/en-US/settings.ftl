@@ -277,6 +277,8 @@ settings-downloads-note = Download songs from their menu, or whole albums and pl
 settings-download-folder = Download folder
 settings-change = Change
 settings-open = Open
+settings-folder-per-list = Put albums and playlists in their own folder
+settings-folder-per-list-desc = Downloading an album or playlist from its page or menu saves its songs in a folder named after it. Songs downloaded already stay where they are.
 
 ## Network
 

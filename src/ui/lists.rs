@@ -53,8 +53,8 @@ pub struct Opened {
     pub c: Collection,
     /// The load it came from; only that load's next pages are added.
     pub load: u64,
-    /// When that load came in.
-    at: Instant,
+    /// When that load came in; `None` once it's outdated (Settings › Song info changed).
+    at: Option<Instant>,
     /// All of it came. A load that failed partway keeps what came, which isn't the whole
     /// playlist: "the end" of it isn't the playlist's.
     pub complete: bool,
@@ -224,7 +224,7 @@ impl Lists {
     /// Opening an album or playlist page: loaded unless a copy from the last few minutes is kept.
     pub fn visit(&mut self, id: &str, album: bool, now: Instant) -> Option<Start> {
         // One that didn't all come in is tried again right away.
-        match self.get(id).filter(|o| o.complete).map(|o| now.saturating_duration_since(o.at)) {
+        match self.get(id).filter(|o| o.complete).and_then(|o| o.at).map(|at| now.saturating_duration_since(at)) {
             Some(age) if age <= REFRESH_EVERY => {
                 log::debug!("list {id}: kept copy is {age:?} old, not reloading");
                 None
@@ -247,7 +247,7 @@ impl Lists {
         }
         let id = c.id.clone();
         log::debug!("list {id}: load {load} in, {sent} songs sent, {} after local edits, more={more}", c.tracks.len());
-        let at = Instant::now();
+        let at = Some(Instant::now());
         let complete = !more;
         match self.opened.iter_mut().find(|o| o.c.id == id) {
             Some(o) => *o = Opened { c, load, at, complete },
@@ -426,6 +426,11 @@ impl Lists {
         self.opened.retain(|o| o.c.id != id);
         self.running.remove(id);
         self.moves.remove(id);
+    }
+
+    /// Settings › Song info changed: each kept copy is loaded again, in the new language, when it's next opened.
+    pub fn outdate(&mut self) {
+        self.opened.iter_mut().for_each(|o| o.at = None);
     }
 
     /// Another account: everything goes but the edits.

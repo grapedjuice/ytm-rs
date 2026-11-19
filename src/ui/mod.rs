@@ -310,6 +310,14 @@ enum Dialog {
     Collaborate { id: String, info: Option<crate::ytm::Collaboration>, busy: bool, confirm_off: bool },
 }
 
+#[derive(Default, PartialEq, Eq)]
+enum BackupPrompt {
+    #[default]
+    Hidden,
+    Open,
+    Dismissed,
+}
+
 /// Songs picked in a list for a batch action: Ctrl-click toggles one, Shift-click a range,
 /// or the Select button makes every click pick.
 #[derive(Default)]
@@ -525,7 +533,13 @@ pub struct App {
     /// The level volume normalization brings songs to.
     normalize: crate::audio::Normalize,
     log_volume: bool,
+    /// Pausing and playing again fade, rather than cut off and start at once.
+    pause_fade: bool,
     high_quality: bool,
+    backup_stream: bool,
+    backup_prompt: BackupPrompt,
+    reveal_backup_setting: bool,
+    backup_setting_highlight_until: f64,
     /// Play an official music video as its song version when one is found.
     play_songs: bool,
     /// Show music videos moving, playing their own audio to stay in time.
@@ -560,6 +574,8 @@ pub struct App {
     show_comments: bool,
     /// With them, ask YouTube for its Restricted Mode too.
     restricted_mode: bool,
+    /// Settings › Song info: the language and country titles and names come in.
+    locale: crate::locale::Locale,
     /// The song version playing in place of the current music video, or the music video
     /// playing in place of the current song.
     playing_as: Option<PlayingAs>,
@@ -799,15 +815,19 @@ impl App {
         if app_icon != crate::appicon::CLASSIC {
             crate::appicon::sync_shortcuts(app_icon, backend.data_dir());
         }
-        crate::downloads::init(backend.data_dir(), &get("download_dir").unwrap_or_default());
+        crate::downloads::init(backend.data_dir(), &get("download_dir").unwrap_or_default(), get("download_folder_per_list").is_some_and(|v| v == "1"));
         crate::lastfm::init(backend.data_dir());
         let logged_in = backend.is_logged_in();
         // Before any request: a song started at launch (dev hooks) must see this setting.
         backend.set_high_quality(get("high_quality").is_none_or(|v| v == "1"));
+        let backup_stream = get("backup_stream").is_some_and(|v| v == "1");
+        backend.set_backup_stream(backup_stream);
         let hide_explicit = get("hide_explicit").is_some_and(|v| v == "1");
         crate::listenbrainz::init(backend.data_dir());
         let restricted_mode = get("restricted_mode").is_some_and(|v| v == "1");
         backend.set_hide_explicit(hide_explicit, restricted_mode);
+        let locale = crate::locale::Locale::from_codes(get("content_language").as_deref(), get("content_country").as_deref());
+        backend.set_locale(locale);
         let show_podcasts = get("podcasts").is_some_and(|v| v == "1");
         let show_comments = get("comments").is_some_and(|v| v == "1");
         crate::ytm::set_podcasts(show_podcasts);
@@ -920,7 +940,12 @@ impl App {
             autoplay: get("autoplay").is_none_or(|v| v == "1"),
             normalize: get("normalize").map_or_else(Default::default, |v| crate::audio::Normalize::from_key(&v)),
             log_volume: get("log_volume").is_none_or(|v| v == "1"),
+            pause_fade: get("pause_fade").is_none_or(|v| v == "1"),
             high_quality: get("high_quality").is_none_or(|v| v == "1"),
+            backup_stream,
+            backup_prompt: BackupPrompt::default(),
+            reveal_backup_setting: false,
+            backup_setting_highlight_until: 0.0,
             play_songs: get("play_songs").is_none_or(|v| v == "1"),
             show_video: dev_var("YTM_VIDEO").is_some() || get("show_video").is_some_and(|v| v == "1"),
             video_quality: get("video_quality").and_then(|v| v.parse().ok()).filter(|h| VIDEO_QUALITIES.contains(h)).unwrap_or(720),
@@ -939,6 +964,7 @@ impl App {
             show_podcasts,
             show_comments,
             restricted_mode,
+            locale,
             playing_as: None,
             music_videos: Default::default(),
             output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
@@ -1153,7 +1179,7 @@ impl App {
         if let Some(c) = std::fs::read(app.backend.data_dir().join(HOME_CACHE))
             .ok()
             .and_then(|b| serde_json::from_slice::<HomeCache>(&b).ok())
-            .filter(|c| c.logged_in == app.logged_in && !c.shelves.is_empty())
+            .filter(|c| c.logged_in == app.logged_in && c.hl == app.locale.hl && c.gl == app.locale.gl && !c.shelves.is_empty())
         {
             app.home = Some(HomeState { chips: c.chips, shelves: c.shelves, continuation: None, loading_more: None, picks_loading: false, picks_expanded: false });
         }
@@ -1164,6 +1190,7 @@ impl App {
         jam::dev_hooks(&mut app);
         app.audio.set_normalize(app.normalize);
         app.set_crossfade();
+        app.audio.set_pause_fade(app.pause_fade);
         app.set_eq();
         app.audio.set_stereo(app.stereo);
         app
@@ -1461,6 +1488,11 @@ impl App {
 
 
 
+fn window_refocused(was_focused: &mut bool, focused: bool) -> bool {
+    let previous = std::mem::replace(was_focused, focused);
+    focused && !previous
+}
+
 impl eframe::App for App {
     /// With a window material, nothing under the pages but what they paint.
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
@@ -1477,9 +1509,10 @@ impl eframe::App for App {
         self.lyric_view.release_hidden(ctx.cumulative_pass_nr());
         let now = ctx.input(|i| i.time);
         let focused = ctx.input(|i| i.focused);
-        let refocused = focused && !std::mem::replace(&mut self.was_focused, focused);
-        if refocused {
-            self.ratings.refresh_if_stale(now);
+        let refocused = window_refocused(&mut self.was_focused, focused);
+        if refocused && self.ratings.refresh_if_stale(now) {
+            // Refresh Liked Music too. Its entries stand in for individual rating reads.
+            self.request_liked(false);
         }
         self.sync_look();
         self.pump(ctx, now);
@@ -1654,6 +1687,13 @@ impl eframe::App for App {
         crate::shader::set_glass_on(self.glass_on);
         let now = ctx.input(|i| i.time);
         self.sync_ratings(&ctx, now);
+        // In the tray, or minimized: nothing would be seen, so nothing is drawn. eframe skips
+        // a minimized window itself, but not one hidden in the tray (it can't tell on Windows
+        // or X11), and would otherwise draw the whole window, background and glass included,
+        // for every frame the player asks for. The player's bookkeeping is all in `logic`.
+        if self.window_hidden {
+            return;
+        }
         let screen = ctx.content_rect();
 
         self.sync_look();
@@ -2010,7 +2050,9 @@ impl eframe::App for App {
         storage.set_string("account_cache", cache.and_then(|c| serde_json::to_string(&c).ok()).unwrap_or_default());
         storage.set_string("normalize", self.normalize.key().to_owned());
         storage.set_string("log_volume", b(self.log_volume));
+        storage.set_string("pause_fade", b(self.pause_fade));
         storage.set_string("high_quality", b(self.high_quality));
+        storage.set_string("backup_stream", b(self.backup_stream));
         storage.set_string("play_songs", b(self.play_songs));
         storage.set_string("show_video", b(self.show_video));
         storage.set_string("video_quality", self.video_quality.to_string());
@@ -2025,8 +2067,11 @@ impl eframe::App for App {
         storage.set_string("podcasts", b(self.show_podcasts));
         storage.set_string("comments", b(self.show_comments));
         storage.set_string("restricted_mode", b(self.restricted_mode));
+        storage.set_string("content_language", self.locale.hl.to_owned());
+        storage.set_string("content_country", self.locale.gl.to_owned());
         let folder = crate::downloads::folder();
         storage.set_string("download_dir", if folder == crate::downloads::default_folder() { String::new() } else { folder.display().to_string() });
+        storage.set_string("download_folder_per_list", b(crate::downloads::per_list()));
         let (device, device_name) = self.output_device.clone().unzip();
         storage.set_string("output_device", device.unwrap_or_default());
         storage.set_string("output_device_name", device_name.unwrap_or_default());
@@ -2159,8 +2204,21 @@ fn relaunch() {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(super) struct HomeCache {
     pub logged_in: bool,
+    /// The Song info language and country it came in (older caches: English, US).
+    #[serde(default = "english")]
+    pub hl: String,
+    #[serde(default = "us")]
+    pub gl: String,
     pub chips: Vec<crate::model::Chip>,
     pub shelves: Vec<crate::model::Shelf>,
+}
+
+fn english() -> String {
+    crate::locale::ENGLISH.hl.to_owned()
+}
+
+fn us() -> String {
+    crate::locale::ENGLISH.gl.to_owned()
 }
 
 impl HomeCache {

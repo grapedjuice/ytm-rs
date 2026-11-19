@@ -27,6 +27,7 @@ mod jsc;
 mod lastfm;
 mod login;
 mod listenbrainz;
+mod locale;
 mod lyrics;
 mod media;
 mod model;

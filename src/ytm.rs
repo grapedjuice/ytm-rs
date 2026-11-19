@@ -2,6 +2,8 @@
 //! itself gets (see `ytmapi.rs` for the transport): home feed, search, albums,
 //! playlists, artists, radio, charts, the library, and edits to it.
 
+use std::collections::HashSet;
+
 use serde_json::{Value, json};
 
 use crate::backend::{ArtistPage, Collection};
@@ -48,16 +50,24 @@ fn parse_home(v: &Value) -> HomePage {
     let sec = &v["contents"]["singleColumnBrowseResultsRenderer"]["tabs"][0]["tabRenderer"]["content"]["sectionListRenderer"];
     let chips = arr(&sec["header"]["chipCloudRenderer"]["chips"])
         .iter()
+        .map(|c| &c["chipCloudChipRenderer"])
+        .filter(|c| podcasts() || !podcasts_chip(c))
         .filter_map(|c| {
-            let c = &c["chipCloudChipRenderer"];
             let selected = c["isSelected"].as_bool().unwrap_or(false);
             // A selected chip's own endpoint re-selects it; deselecting returns to the default feed.
             let ep = if selected { &c["onDeselectedCommand"] } else { &c["navigationEndpoint"] };
             Some(Chip { title: text(&c["text"])?, params: ep["browseEndpoint"]["params"].as_str().map(str::to_owned), selected })
         })
-        .filter(|c: &Chip| podcasts() || c.title != "Podcasts")
         .collect();
     HomePage { chips, shelves: shelves(&sec["contents"]), continuation: continuation(sec) }
+}
+
+/// Home's Podcasts chip: by its title in English, and in any language by what it selects.
+/// Its params are `ggNC` and then one 6-byte entry a chip, in base64 8 characters each:
+/// `SgQIDBAD` is chip 12, Podcasts, selected.
+fn podcasts_chip(c: &Value) -> bool {
+    let params = c["navigationEndpoint"]["browseEndpoint"]["params"].as_str().unwrap_or_default();
+    text(&c["text"]).as_deref() == Some("Podcasts") || params.strip_prefix("ggNC").is_some_and(|p| p.as_bytes().chunks(8).any(|e| e == b"SgQIDBAD"))
 }
 
 pub async fn home_more(api: &Api, token: &str, auth: bool) -> anyhow::Result<HomePage> {
@@ -153,14 +163,25 @@ impl Filter {
 }
 
 async fn search_as(api: &Api, query: &str, filter: Filter, auth: bool) -> anyhow::Result<Vec<Value>> {
-    let v = api.call("search", json!({ "query": query, "params": filter.params() }), auth).await?;
+    Ok(search_rows(&api.call("search", json!({ "query": query, "params": filter.params() }), auth).await?))
+}
+
+fn search_rows(v: &Value) -> Vec<Value> {
     let sections = &v["contents"]["tabbedSearchResultsRenderer"]["tabs"][0]["tabRenderer"]["content"]["sectionListRenderer"]["contents"];
-    Ok(arr(sections).iter().flat_map(|s| arr(&s["musicShelfRenderer"]["contents"]).iter().cloned()).collect())
+    arr(sections).iter().flat_map(|s| arr(&s["musicShelfRenderer"]["contents"]).iter().cloned()).collect()
 }
 
 /// `auth`: as the signed-in account, which adds the query to its search history.
 pub async fn search_songs(api: &Api, query: &str, auth: bool) -> anyhow::Result<Vec<Track>> {
     Ok(search_as(api, query, Filter::Songs, auth).await?.iter().filter_map(|i| list_item(&i["musicResponsiveListItemRenderer"])).collect())
+}
+
+/// Like [`search_songs`], in English whatever Settings › Song info says: for matching
+/// against titles and names that aren't translated (a video's, an imported playlist's), which "スターボーイ"
+/// by "ザ・ウィークエンド" wouldn't.
+pub async fn search_songs_in_english(api: &Api, query: &str, auth: bool) -> anyhow::Result<Vec<Track>> {
+    let v = api.call_in_english("search", json!({ "query": query, "params": Filter::Songs.params() }), auth).await?;
+    Ok(search_rows(&v).iter().filter_map(|i| list_item(&i["musicResponsiveListItemRenderer"])).collect())
 }
 
 /// Videos for a search: music videos and plain uploads, which song results leave out.
@@ -287,7 +308,15 @@ pub async fn album(api: &Api, id: &str) -> anyhow::Result<Collection> {
     let v = api.call("browse", json!({ "browseId": id }), false).await?;
     let (mut a, videos) = parse_album(&v, id).ok_or_else(|| anyhow::anyhow!("YouTube Music returned an empty album"))?;
     if !videos.is_empty() {
-        songs_for_videos(&mut a, &videos).await;
+        // The song list it's matched against is in English whatever Settings › Song info
+        // says ("Starboy" for "スターボーイ"): so are the titles it's matched by.
+        let english = if api.locale().hl == crate::locale::ENGLISH.hl {
+            None
+        } else {
+            let v = api.call_in_english("browse", json!({ "browseId": id }), false).await;
+            v.ok().and_then(|v| parse_album(&v, id)).map(|(e, _)| e.tracks.into_iter().map(|t| t.title).collect::<Vec<_>>()).filter(|t| t.len() == a.tracks.len())
+        };
+        songs_for_videos(&mut a, &videos, english.as_deref()).await;
     }
     Ok(a)
 }
@@ -334,9 +363,12 @@ fn parse_paired_video(v: &Value, song_id: &str) -> Option<MusicVideo> {
     Some(MusicVideo { video, offset_ms })
 }
 
-/// The song of a music video, or the music video of a song.
-fn parse_other_half(v: &Value, video_id: &str) -> Option<String> {
-    counterparts(v, video_id).find_map(|c| half(c)["videoId"].as_str()).map(str::to_owned)
+/// The paired upload's ID if the pending unlike may touch it.
+fn parse_other_half(v: &Value, video_id: &str, keep: &HashSet<String>) -> Option<String> {
+    counterparts(v, video_id)
+        .find_map(|c| half(c)["videoId"].as_str())
+        .filter(|id| !keep.contains(*id))
+        .map(str::to_owned)
 }
 
 /// The other version itself, in a pair from [`counterparts`].
@@ -366,7 +398,7 @@ pub async fn searched_song(api: &Api, video: &Track, clean: bool) -> anyhow::Res
         Some(a) => format!("{title} {}", a.name),
         None => return Ok(None),
     };
-    let hits = search_songs(api, &query, false).await?;
+    let hits = search_songs_in_english(api, &query, false).await?;
     Ok(hits.into_iter().take(5).find(|h| same_song(video, h) && !(clean && h.explicit)))
 }
 
@@ -413,7 +445,8 @@ fn same_song(video: &Track, hit: &Track) -> bool {
 fn qualifiers_agree(a: &str, b: &str) -> bool {
     let harmless = |q: &String| {
         let w: Vec<&str> = q.split(' ').collect();
-        matches!(w.first(), Some(&("feat" | "ft" | "featuring" | "with" | "from")))
+        // A guest as other languages credit one too ("avec Justice", "con Bad Bunny").
+        matches!(w.first(), Some(&("feat" | "ft" | "featuring" | "with" | "from" | "avec" | "con" | "mit" | "com")))
             || w.iter().any(|w| w.starts_with("remaster"))
             || w.iter().all(|w| w.bytes().all(|c| c.is_ascii_digit()))
     };
@@ -538,7 +571,8 @@ fn words(s: &str) -> String {
 /// Impala's Currents does): swap in the album's song at the same position. The Android
 /// VR client lists an album's playlist as the album's songs, in album order, without a
 /// sign-in; one request for the whole album.
-async fn songs_for_videos(a: &mut Collection, videos: &[usize]) {
+/// `english`: the album's titles in English, row for row, when the page came in another language.
+async fn songs_for_videos(a: &mut Collection, videos: &[usize], english: Option<&[String]>) {
     let Some(list) = a.save_id.clone().filter(|l| l.starts_with("OLAK")) else { return };
     let songs = match crate::innertube::album_queue(&crate::proxy::http(), &list).await {
         Ok(q) => album_songs(&q),
@@ -552,7 +586,7 @@ async fn songs_for_videos(a: &mut Collection, videos: &[usize]) {
         log::info!("album {}: no song list that lines up with its {} rows; playing as listed", a.id, a.tracks.len());
         return;
     };
-    let swapped = swap_songs(a, videos, &songs);
+    let swapped = swap_songs(a, videos, &songs, english);
     log::info!("album {}: {swapped} of {} music videos swapped for the songs", a.id, videos.len());
 }
 
@@ -586,12 +620,13 @@ fn album_songs(v: &Value) -> Option<Vec<AlbumSong>> {
 }
 
 /// Swaps each music video row (`videos`) for the song at its position in `songs` (one
-/// per row), when the titles agree. Returns how many changed.
-fn swap_songs(a: &mut Collection, videos: &[usize], songs: &[AlbumSong]) -> usize {
+/// per row), when the titles agree (`english`'s, when given). Returns how many changed.
+fn swap_songs(a: &mut Collection, videos: &[usize], songs: &[AlbumSong], english: Option<&[String]>) -> usize {
     let mut swapped = 0;
     for &i in videos {
         let (Some(t), Some(s)) = (a.tracks.get_mut(i), songs.get(i)) else { continue };
-        if t.id != s.id && same_title(&t.title, &s.title) {
+        let title = english.and_then(|e| e.get(i)).unwrap_or(&t.title);
+        if t.id != s.id && same_title(title, &s.title) {
             (t.id, t.duration) = (s.id.clone(), s.duration.or(t.duration));
             (t.music_video, t.video) = (false, false);
             swapped += 1;
@@ -628,7 +663,7 @@ fn parse_album(v: &Value, id: &str) -> Option<(Collection, Vec<usize>)> {
     let title = text(&h["title"])?;
     let words: Vec<String> = runs(&h["subtitle"]).filter_map(|r| r["text"].as_str()).filter(|t| t.trim() != "•").map(str::to_owned).collect();
     let kind = words.first().cloned().unwrap_or_else(|| "Album".into());
-    let year = words.iter().rev().find(|w| w.len() == 4 && w.bytes().all(|b| b.is_ascii_digit())).cloned();
+    let year = words.iter().rev().find(|w| is_year(w)).cloned();
     let artists = links(&h["straplineTextOne"]);
     let names = artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", ");
     let subtitle = [Some(kind), (!names.is_empty()).then_some(names), year].into_iter().flatten().collect::<Vec<_>>().join(" • ");
@@ -737,10 +772,7 @@ fn parse_playlist(v: &Value, id: &str) -> Option<(Collection, Option<String>, Op
         id: face["rendererContext"]["commandContext"]["onTap"]["innertubeCommand"]["browseEndpoint"]["browseId"].as_str().map(str::to_owned),
     });
     let owners: Vec<Link> = owner.into_iter().chain(links(&h["straplineTextOne"])).collect();
-    let count = runs(&h["secondSubtitle"])
-        .filter_map(|r| r["text"].as_str())
-        .find(|t| ["song", "track", "episode", "video"].iter().any(|w| t.contains(w)))
-        .and_then(|t| t.split_whitespace().next()?.replace(',', "").parse::<u64>().ok());
+    let count = song_count(&h["secondSubtitle"]);
     let sub: Vec<String> = owners.first().map(|o| o.name.clone()).into_iter().collect();
     let count = count.or(Some(tracks.len() as u64));
     let thumb = &h["thumbnail"];
@@ -914,12 +946,14 @@ fn parse_artist(v: &Value, id: &str) -> Option<ArtistPage> {
             continue;
         }
         let title = text(&header["title"]).unwrap_or_default();
-        // Release shelves list just the year; spell out the kind and artist like elsewhere.
+        // Release cards list the year, singles their kind before it ("Single • 2026", in
+        // the language asked for); spell out the kind and artist like elsewhere.
         let kind = if title.starts_with("Single") { "Single" } else { "Album" };
         for card in arr(&carousel["contents"]).iter().filter_map(|i| two_row(&i["musicTwoRowItemRenderer"])) {
             match card.target {
                 Target::Album(_) => {
-                    let subtitle = [kind, me.name.as_str(), card.subtitle.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" • ");
+                    let (kind, rest) = card.subtitle.split_once(" • ").unwrap_or((kind, &card.subtitle));
+                    let subtitle = [kind, me.name.as_str(), rest].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" • ");
                     let links = if card.links.is_empty() { vec![me.clone()] } else { card.links.clone() };
                     page.albums.push(Card { subtitle, links, ..card });
                 }
@@ -943,9 +977,39 @@ fn parse_artist(v: &Value, id: &str) -> Option<ArtistPage> {
 pub async fn comments(api: &Api, video_id: &str, auth: bool) -> anyhow::Result<Option<Value>> {
     let watch = api.call("next", json!({ "videoId": video_id }), auth).await?;
     let tabs = &watch["contents"]["singleColumnMusicWatchNextResultsRenderer"]["tabbedRenderer"]["watchNextTabbedResultsRenderer"]["tabs"];
-    let tab = tabs.as_array().into_iter().flatten().find(|t| t["tabRenderer"]["title"] == "Comments");
+    let mut tabs = tabs.as_array().into_iter().flatten();
+    // By its title in English; in another language by its content: Up next holds the
+    // queue, Lyrics and Related are pages of their own, Comments a list loaded later.
+    let tab = tabs.clone().find(|t| t["tabRenderer"]["title"] == "Comments").or_else(|| tabs.find(|t| !t["tabRenderer"]["content"]["sectionListRenderer"].is_null()));
     let Some(token) = tab.and_then(|t| first_string(&t["tabRenderer"]["content"], "continuation")) else { return Ok(None) };
     api.call("next", json!({ "continuation": token }), auth).await.map(Some)
+}
+
+/// How many songs a playlist header's second subtitle says it has: "[views •] 39 songs
+/// [• duration]". In English by the word, in another language by where it stands.
+fn song_count(subtitle: &Value) -> Option<u64> {
+    let parts: Vec<&str> = runs(subtitle).filter_map(|r| r["text"].as_str()).filter(|t| t.trim() != "•").collect();
+    let part = parts
+        .iter()
+        .find(|t| ["song", "track", "episode", "video"].iter().any(|w| t.contains(w)))
+        .or(parts.get(if parts.len() == 3 { 1 } else { 0 }))?;
+    // Some languages put words first ("عدد الأغاني: 125").
+    leading_int(&part[part.find(|c: char| c.is_ascii_digit())?..])
+}
+
+/// The whole number `s` starts with, its digits grouped by commas, dots or spaces as a
+/// language writes them ("1,046", "1.046", "1 046"); `None` when it doesn't start with one.
+fn leading_int(s: &str) -> Option<u64> {
+    let mut digits = String::new();
+    let mut chars = s.trim_start().chars().peekable();
+    while let Some(c) = chars.next() {
+        if c.is_ascii_digit() {
+            digits.push(c);
+        } else if digits.is_empty() || !matches!(c, ',' | '.' | ' ' | '\u{a0}' | '\u{202f}') || !chars.peek().is_some_and(char::is_ascii_digit) {
+            break;
+        }
+    }
+    digits.parse().ok()
 }
 
 /// The first string keyed `key` anywhere under `v`.
@@ -1043,9 +1107,10 @@ pub struct Charts {
     pub artists: Vec<String>,
 }
 
-/// US charts.
+/// Charts for the country in Settings › Song info, or the global ones where YouTube Music
+/// has none for it.
 pub async fn charts(api: &Api) -> anyhow::Result<Charts> {
-    let body = json!({ "browseId": "FEmusic_charts", "params": "sgYPRkVtdXNpY19leHBsb3Jl", "formData": { "selectedValues": ["US"] } });
+    let body = json!({ "browseId": "FEmusic_charts", "params": "sgYPRkVtdXNpY19leHBsb3Jl", "formData": { "selectedValues": [api.locale().gl] } });
     Ok(parse_charts(&api.call("browse", body, false).await?))
 }
 
@@ -1403,8 +1468,9 @@ pub fn upload_entity(video_id: &str) -> Option<String> {
     UPLOAD_ENTITIES.lock().unwrap().get(video_id).cloned()
 }
 
+/// "2020", or with the mark some languages write after it ("2020年", "2020년").
 fn is_year(s: &str) -> bool {
-    s.len() == 4 && s.bytes().all(|b| b.is_ascii_digit())
+    s.get(..4).is_some_and(|y| y.bytes().all(|b| b.is_ascii_digit())) && matches!(&s[4..], "" | "年" | "년")
 }
 
 /// An uploaded album and the token for more of its songs. Its header is the one albums had
@@ -1543,13 +1609,13 @@ pub async fn set_like(api: &Api, video_id: &str, like: bool) -> anyhow::Result<(
 /// so the song shown may not be the one holding the like. `epoch`: the account and channel
 /// when the like was taken away; after a change the other half isn't theirs to touch.
 /// Returns the other half when its like was taken away too.
-pub async fn remove_other_half_like(api: &Api, video_id: &str, epoch: u64) -> anyhow::Result<Option<String>> {
+pub async fn remove_other_half_like(api: &Api, video_id: &str, epoch: u64, keep: &HashSet<String>) -> anyhow::Result<Option<String>> {
     if api.epoch() != epoch {
         return Ok(None);
     }
     let body = json!({"videoId": video_id, "isAudioOnly": true, "enablePersistentPlaylistPanel": true});
     let v = api.call_signed_in("next", body).await?;
-    let Some(other) = parse_other_half(&v, video_id) else { return Ok(None) };
+    let Some(other) = parse_other_half(&v, video_id, keep) else { return Ok(None) };
     tokio::time::sleep(crate::backend::LIKE_GAP).await;
     if api.epoch() != epoch {
         return Ok(None);
@@ -1852,6 +1918,7 @@ fn shelf(s: &Value) -> Option<Shelf> {
     let title = text(&h["title"])?;
     let strapline = text(&h["strapline"]);
     let strap_thumb = thumbs(&h["thumbnail"]["musicThumbnailRenderer"]).into_iter().next().map(|t| t.url);
+    let own = page_type(&h["thumbnail"]["musicThumbnailRenderer"]["onTap"]) == Some("MUSIC_PAGE_TYPE_USER_CHANNEL");
     let items: Vec<&Value> = arr(&r["contents"]).iter().filter(|i| !is_video(i)).collect();
     let kind = if podcasts() && items.iter().any(|i| !i["musicMultiRowListItemRenderer"].is_null()) {
         let tracks: Vec<Track> = items.iter().filter_map(|i| episode(&i["musicMultiRowListItemRenderer"])).collect();
@@ -1868,7 +1935,7 @@ fn shelf(s: &Value) -> Option<Shelf> {
         ShelfKind::Cards(c) => c.is_empty(),
         ShelfKind::Songs { tracks, .. } => tracks.is_empty(),
     };
-    (!empty).then_some(Shelf { title, strapline, strap_thumb, kind })
+    (!empty).then_some(Shelf { title, strapline, strap_thumb, own, kind })
 }
 
 /// A square/round card (album, playlist, artist, or a song shown as a card).
@@ -1932,8 +1999,10 @@ fn list_card(r: &Value) -> Option<Card> {
     let detail = col(1);
     let line: String = runs(detail).filter_map(|r| r["text"].as_str()).collect();
     let mut parts: Vec<&str> = line.split(" • ").filter(|p| !p.is_empty()).collect();
-    // Search rows lead with the kind ("Artist • 239M monthly audience"); a card shows it already.
-    if matches!(target, Target::Artist(_)) && parts.first() == Some(&"Artist") {
+    // Search rows lead with the kind ("Artist • 239M monthly audience", "アーティスト • …"),
+    // unlinked and in the language asked for; a card shows it already.
+    let unlinked_first = runs(detail).next().is_some_and(|r| r["navigationEndpoint"].is_null());
+    if matches!(target, Target::Artist(_)) && parts.len() >= 2 && unlinked_first {
         parts.remove(0);
     }
     let subtitle = match &target {
@@ -1954,11 +2023,12 @@ fn episode(r: &Value) -> Option<Track> {
 }
 
 /// An episode in search results: "Episode • Dec 28, 2025 • <its show>" where a song has
-/// its artists, which is what `list_item` would take the date for.
+/// its artists, which is what `list_item` would take the date for. Episodes show no plays.
 fn episode_row(r: &Value) -> Option<Track> {
     let mut t = list_item(r)?;
     t.artists = show_links(&r["flexColumns"][1]["musicResponsiveListItemFlexColumnRenderer"]["text"]);
     t.album = None;
+    t.plays = None;
     Some(t)
 }
 
@@ -1970,16 +2040,17 @@ fn show_links(v: &Value) -> Vec<Link> {
         .collect()
 }
 
-/// "3 hr 36 min", "49 min", "1 hr", "45 sec" → seconds.
+/// "3 hr 36 min", "49 min", "1 hr", "45 sec", and as some other languages write them
+/// ("7 分 49 秒", "1 Std. 5 Min.") → seconds.
 fn spoken_duration(s: &str) -> Option<u32> {
     let mut words = s.split_whitespace();
     let (mut total, mut any) = (0u32, false);
     while let (Some(n), Some(unit)) = (words.next(), words.next()) {
         let n: u32 = n.parse().ok()?;
-        total += n * match unit.trim_end_matches('s') {
-            "hr" | "hour" => 3600,
-            "min" => 60,
-            "sec" => 1,
+        total += n * match unit.trim_end_matches('.') {
+            "hr" | "hrs" | "hour" | "hours" | "h" | "Std" | "時間" | "시간" | "ч" => 3600,
+            "min" | "mins" | "Min" | "分" | "분" | "мин" => 60,
+            "sec" | "secs" | "s" | "Sek" | "秒" | "초" | "сек" => 1,
             _ => return None,
         };
         any = true;
@@ -2040,15 +2111,18 @@ fn list_item(r: &Value) -> Option<Track> {
     let mut duration = None;
     let mut plays = None;
     let mut in_artists = true;
+    let parts = [&r["overlay"], &r["flexColumns"][0]];
+    let (music_video, video) = (music_video(&parts), has_video(&parts));
     for c in 1..cols.len() {
-        for (i, run) in runs(col(c)?).enumerate() {
+        let column = arr(&col(c)?["runs"]);
+        for (i, run) in column.iter().enumerate() {
             let name = run["text"].as_str().unwrap_or_default();
             // Uploads link their artist and album to the account's own pages of them.
             let (kind, id) = (upload_page(run).or_else(|| page_type(run)), browse_id(run));
             if c == 1 && in_artists {
                 match name.trim() {
                     "•" => in_artists = false,
-                    "" | "," | "&" => {}
+                    _ if joins_names(column, i) => {}
                     "Song" | "Video" | "Episode" if i == 0 => {}
                     n if kind.is_none_or(|k| k == "MUSIC_PAGE_TYPE_ARTIST" || k == "MUSIC_PAGE_TYPE_USER_CHANNEL") && !looks_like_duration(n) && !n.ends_with(" plays") => {
                         artists.push(Link { name: n.to_owned(), id: id.clone() })
@@ -2067,6 +2141,10 @@ fn list_item(r: &Value) -> Option<Track> {
                 // Search rows put the length in the text ("Artist • Album • 3:22").
                 _ if duration.is_none() && looks_like_duration(name) => duration = parse_duration(name),
                 _ if name.ends_with(" plays") => plays = count(name),
+                // In another language ("再生回数 966万 回"): an unlinked count in a column
+                // of its own, or after the artists on a song's row (a video's is its views).
+                // Not a date ("Dec 28, 2025", "2025/12/28"), which holds more than one number.
+                None if plays.is_none() && id.is_none() && (c >= 2 || !video) => plays = lone_count(name),
                 _ => {}
             }
         }
@@ -2077,8 +2155,6 @@ fn list_item(r: &Value) -> Option<Track> {
         duration = Some(d);
     }
     let track_nr = text(&r["index"]).and_then(|n| n.parse().ok());
-    let parts = [&r["overlay"], &r["flexColumns"][0]];
-    let (music_video, video) = (music_video(&parts), has_video(&parts));
     let stands_for = like_target(&r["menu"]).filter(|v| *v != id);
     Some(Track { id, title, artists, album, duration, thumbs: thumbs(&r["thumbnail"]["musicThumbnailRenderer"]), track_nr, plays, music_video, video, explicit: explicit(&r["badges"]), stands_for })
 }
@@ -2135,12 +2211,19 @@ fn artist_links(v: &Value) -> Vec<Link> {
 
 /// Names in a header strapline, linked when they are.
 fn links(v: &Value) -> Vec<Link> {
-    runs(v)
-        .filter_map(|run| {
-            let name = run["text"].as_str()?.trim();
-            (!name.is_empty() && !matches!(name, "•" | "," | "&")).then(|| Link { name: name.to_owned(), id: browse_id(run) })
-        })
+    let all = arr(&v["runs"]);
+    (0..all.len())
+        .filter(|&i| !joins_names(all, i))
+        .filter_map(|i| Some(Link { name: all[i]["text"].as_str()?.trim().to_owned(), id: browse_id(&all[i]) }))
         .collect()
+}
+
+/// The run at `i` goes between names rather than being one, in any language: unlinked, and
+/// no letters or digits (",", "&", "•", "、"), or a word between two linked names ("und", "et", "및").
+fn joins_names(all: &[Value], i: usize) -> bool {
+    let linked = |j: usize| all.get(j).is_some_and(|r| !r["navigationEndpoint"].is_null());
+    let text = all[i]["text"].as_str().unwrap_or_default();
+    !linked(i) && (!text.chars().any(char::is_alphanumeric) || i > 0 && linked(i - 1) && linked(i + 1))
 }
 
 fn looks_like_duration(s: &str) -> bool {
@@ -2151,16 +2234,54 @@ fn parse_duration(s: &str) -> Option<u32> {
     s.split(':').try_fold(0u32, |acc, p| Some(acc * 60 + p.trim().parse::<u32>().ok()?))
 }
 
-/// "3.6B plays", "40.1M", "12K subscribers" → the number.
+/// "3.6B plays", "40.1M", "12K subscribers", and as other languages write them ("再生回数
+/// 966万 回", "1,2 Mio. Aufrufe") → the number. A comma or dot before three digits groups
+/// thousands, before fewer it's the decimal point. A fraction without a unit after it isn't
+/// a count: `None`, rather than one off by the unit.
 fn count(s: &str) -> Option<u64> {
-    let n = s.split_whitespace().next()?.replace(',', "");
-    let (num, mult) = match n.chars().last()? {
-        'K' => (&n[..n.len() - 1], 1e3),
-        'M' => (&n[..n.len() - 1], 1e6),
-        'B' => (&n[..n.len() - 1], 1e9),
-        _ => (n.as_str(), 1.0),
+    count_and_rest(s).map(|(n, _)| n)
+}
+
+/// [`count`], when `s` holds no other number: "2025年12月28日" and "28.12.2025" are dates.
+fn lone_count(s: &str) -> Option<u64> {
+    count_and_rest(s).filter(|(_, rest)| !rest.contains(|c: char| c.is_ascii_digit())).map(|(n, _)| n)
+}
+
+/// [`count`], and the text after its number.
+fn count_and_rest(s: &str) -> Option<(u64, &str)> {
+    let s = &s[s.find(|c: char| c.is_ascii_digit())?..];
+    let b = s.as_bytes();
+    let (mut num, mut fraction, mut i) = (String::new(), false, 0);
+    while let Some(&c) = b.get(i) {
+        let digits_after = b[i + 1..].iter().take_while(|d| d.is_ascii_digit()).count();
+        match c {
+            b'0'..=b'9' => num.push(c as char),
+            b',' | b'.' if !fraction && digits_after == 3 => {}
+            b',' | b'.' if !fraction && digits_after > 0 => {
+                fraction = true;
+                num.push('.');
+            }
+            _ => break,
+        }
+        i += 1;
+    }
+    let unit = s[i..].trim_start_matches([' ', '\u{a0}', '\u{202f}']);
+    let mut words = unit.split(|c: char| c.is_whitespace() || c == '.').filter(|w| !w.is_empty());
+    let word = words.next().unwrap_or_default();
+    let mult = match unit.chars().next() {
+        Some('万' | '萬' | '만') => 1e4,
+        Some('億' | '亿' | '억') => 1e8,
+        _ => match word {
+            // Spanish billions: "3,4 mil M".
+            "mil" if words.next() == Some("M") => 1e9,
+            "K" | "k" | "Tsd" | "mil" | "mila" | "tys" | "тыс" => 1e3,
+            "M" | "Mio" | "mi" | "Mln" | "mln" | "млн" => 1e6,
+            "B" | "Mrd" | "Md" | "bi" | "Mld" | "mld" | "млрд" => 1e9,
+            _ if fraction => return None,
+            _ => 1.0,
+        },
     };
-    Some((num.parse::<f64>().ok()? * mult).round() as u64)
+    Some(((num.parse::<f64>().ok()? * mult).round() as u64, &s[i..]))
 }
 
 fn arr(v: &Value) -> &[Value] {
@@ -2769,7 +2890,7 @@ mod tests {
     fn swapped(rows: &[(&str, &str, &str)], vr: &Value) -> Vec<String> {
         let (mut a, videos) = parse_album(&album_page(rows), "MPREb_x").unwrap();
         if let Some(songs) = album_songs(vr).filter(|s| s.len() == a.tracks.len()) {
-            swap_songs(&mut a, &videos, &songs);
+            swap_songs(&mut a, &videos, &songs, None);
         }
         a.tracks.into_iter().map(|t| t.id).collect()
     }
@@ -2779,10 +2900,22 @@ mod tests {
         let (mut a, videos) = parse_album(&album_page(&RICK_ROWS), "MPREb_x").unwrap();
         assert_eq!(videos, [0, 1]);
         let songs = album_songs(&vr_album("Album - Whenever You Need Somebody", &RICK_SONGS)).unwrap();
-        assert_eq!(swap_songs(&mut a, &videos, &songs), 2);
+        assert_eq!(swap_songs(&mut a, &videos, &songs, None), 2);
         assert_eq!(a.tracks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["lYBUbBu4W08", "raBobo3GZYA", "d0t04zd918U"]);
         // The song's own length; the album's title.
         assert_eq!((a.tracks[1].title.as_str(), a.tracks[1].duration), ("Whenever You Need Somebody", Some(234)));
+    }
+
+    #[test]
+    fn album_in_another_language_is_matched_by_its_english_titles() {
+        let rows = [("34Na4j8AVgA", "スターボーイ（feat. ダフト・パンク）", "MUSIC_VIDEO_TYPE_OMV"), ("diW6jXhLE0E", "パーティー・モンスター", "MUSIC_VIDEO_TYPE_OMV")];
+        let songs = album_songs(&vr_album("Album - Starboy", &[("aaaaaaaaaaa", "Starboy", "3:50"), ("bbbbbbbbbbb", "Party Monster", "4:09")])).unwrap();
+        let (mut a, videos) = parse_album(&album_page(&rows), "MPREb_x").unwrap();
+        assert_eq!(swap_songs(&mut a, &videos, &songs, None), 0);
+        let english = ["Starboy (feat. Daft Punk)".to_owned(), "Party Monster".to_owned()];
+        assert_eq!(swap_songs(&mut a, &videos, &songs, Some(&english)), 2);
+        // The page's own titles stay.
+        assert_eq!((a.tracks[0].id.as_str(), a.tracks[0].title.as_str()), ("aaaaaaaaaaa", "スターボーイ（feat. ダフト・パンク）"));
     }
 
     #[test]
@@ -2820,6 +2953,14 @@ mod tests {
         assert!(!same_title("Levitating (Remix)", "Levitating"));
         assert!(!same_title("Mitwa", "Tere Mere Honthon Pe - Mitwa"));
         assert!(!same_title("", ""));
+    }
+
+    #[test]
+    fn a_guest_credited_in_another_language_is_harmless() {
+        assert!(qualifiers_agree("Wake Me Up (avec Justice)", "Wake Me Up"));
+        assert!(qualifiers_agree("Tití Me Preguntó (con Bad Bunny)", "Tití Me Preguntó"));
+        assert!(!qualifiers_agree("Wake Me Up (Remix)", "Wake Me Up"));
+        assert!(!qualifiers_agree("Song (Part 2)", "Song") && !qualifiers_agree("Song (Part 1)", "Song (Part 2)"));
     }
 
     /// Looks up the plays of a real song an album page lists without them. Run alone:
@@ -2974,6 +3115,100 @@ mod tests {
         assert!(!looks_like_duration("Blinding Lights"));
     }
 
+    // Settings › Song info: what's told apart without the English words.
+
+    #[test]
+    fn counts_in_other_languages() {
+        assert_eq!(count("再生回数 966万 回"), Some(9_660_000));
+        assert_eq!(count("月間視聴者数: 1.56億 人"), Some(156_000_000));
+        assert_eq!(count("1968回視聴"), Some(1_968));
+        assert_eq!(count("조회수 3.2만회"), Some(32_000));
+        assert_eq!(count("1,2 Mio. Aufrufe"), Some(1_200_000));
+        assert_eq!(count("12.345 Aufrufe"), Some(12_345));
+        assert_eq!(count("3,4 Md lectures"), Some(3_400_000_000));
+        assert_eq!(count("Tocou 13 mi vezes"), Some(13_000_000));
+        assert_eq!(count("3,82 тыс."), Some(3_820));
+        assert_eq!(count("2,5 mil M reproducciones"), Some(2_500_000_000));
+        assert_eq!(count("12 mil reproducciones"), Some(12_000));
+        // A fraction with no unit is no count.
+        assert_eq!(count("1.5"), None);
+    }
+
+    #[test]
+    fn years_and_song_counts_in_other_languages() {
+        assert!(is_year("2020") && is_year("2024年") && is_year("2024년"));
+        assert!(!is_year("20245") && !is_year("2020s") && !is_year("3:05") && !is_year("2024!"));
+        let subtitle = |parts: &[&str]| json!({"runs": parts.iter().map(|t| json!({"text": t})).collect::<Vec<_>>()});
+        assert_eq!(song_count(&subtitle(&["39 曲", " • ", "2 時間 28 分"])), Some(39));
+        assert_eq!(song_count(&subtitle(&["1.2K views", " • ", "39 songs", " • ", "2+ hours"])), Some(39));
+        assert_eq!(song_count(&subtitle(&["12 k vues", " • ", "1 234 titres", " • ", "3 heures"])), Some(1_234));
+        assert_eq!(song_count(&subtitle(&["عدد الأغاني: 125", " • ", "أكثر من 6 ساعة"])), Some(125));
+    }
+
+    #[test]
+    fn artists_joined_by_a_word_in_another_language() {
+        let artist = |name: &str| json!({"text": name, "navigationEndpoint": {"browseEndpoint": {"browseId": format!("UC{name}"),
+            "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}}}}});
+        let names = |v: Vec<Link>| v.into_iter().map(|l| l.name).collect::<Vec<_>>();
+        for joiner in [" und ", " et ", " 및 ", "、", " & "] {
+            let strap = json!({"runs": [artist("A"), {"text": joiner}, artist("B")]});
+            assert_eq!(names(links(&strap)), ["A", "B"], "{joiner}");
+        }
+        // An unlinked artist is still one.
+        assert_eq!(names(links(&json!({"runs": [artist("A"), {"text": ", "}, {"text": "B"}, {"text": " & "}, artist("C")]}))), ["A", "B", "C"]);
+    }
+
+    #[test]
+    fn podcast_lengths_in_other_languages() {
+        assert_eq!(spoken_duration("7 分 49 秒"), Some(469));
+        assert_eq!(spoken_duration("1 Std. 5 Min."), Some(3_900));
+        assert_eq!(spoken_duration("2 시간"), Some(7_200));
+    }
+
+    #[test]
+    fn podcasts_chip_is_told_by_its_params() {
+        let chip = |params: &str| json!({"navigationEndpoint": {"browseEndpoint": {"params": params}}});
+        assert!(podcasts_chip(&chip("ggNCSgQIDBADSgQIBBABSgQICRAB")));
+        assert!(!podcasts_chip(&chip("ggNCSgQIDBABSgQIBBADSgQICRAB")));
+        assert!(!podcasts_chip(&chip("")));
+        // In English, by its title too.
+        assert!(podcasts_chip(&json!({"text": {"runs": [{"text": "Podcasts"}]}})));
+    }
+
+    #[test]
+    fn japanese_song_row_has_its_plays() {
+        let r = json!({
+            "flexColumns": [
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "咲き誇れ", "navigationEndpoint": {"watchEndpoint": {"videoId": "aaaaaaaaaaa",
+                    "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"}}}}}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "LE SSERAFIM", "navigationEndpoint": {"browseEndpoint": {"browseId": "UCx",
+                    "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}}}}}, {"text": "、"}, {"text": "YOASOBI", "navigationEndpoint": {"browseEndpoint": {"browseId": "UCy",
+                    "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}}}}}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "再生回数 966万 回"}]}}}
+            ]
+        });
+        let t = list_item(&r).unwrap();
+        assert_eq!(names(&t), ["LE SSERAFIM", "YOASOBI"]);
+        assert_eq!(t.plays, Some(9_660_000));
+    }
+
+    #[test]
+    fn japanese_artist_search_row_drops_its_kind() {
+        let r = row(&ARTIST_ROW.replace("\"Artist\"", "\"アーティスト\"").replace("239M monthly audience", "月間視聴者数: 4260万 人"));
+        assert_eq!(list_card(&r).unwrap().subtitle, "月間視聴者数: 4260万 人");
+    }
+
+    #[test]
+    fn listen_again_is_told_by_the_accounts_channel() {
+        let card = json!({"musicTwoRowItemRenderer": {"title": {"runs": [{"text": "Mellow"}]}, "navigationEndpoint": {"browseEndpoint": {"browseId": "VLRDCLAK5uy_x",
+            "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_PLAYLIST"}}}}}});
+        let shelf_with = |on_tap: Value| json!({"musicCarouselShelfRenderer": {"header": {"musicCarouselShelfBasicHeaderRenderer": {
+            "title": {"runs": [{"text": "もう一度聴く"}]}, "thumbnail": {"musicThumbnailRenderer": {"onTap": on_tap}}}}, "contents": [card.clone()]}});
+        let channel = json!({"browseEndpoint": {"browseId": "UCme", "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"}}}});
+        assert!(shelf(&shelf_with(channel)).unwrap().own);
+        assert!(!shelf(&shelf_with(Value::Null)).unwrap().own);
+    }
+
     #[test]
     fn server_queue_picks_the_selected_song() {
         let v: Value = serde_json::from_str(r#"{"contents":{"singleColumnMusicWatchNextResultsRenderer":{"tabbedRenderer":{"watchNextTabbedResultsRenderer":{"tabs":[{"tabRenderer":{"content":{"musicQueueRenderer":{
@@ -3110,10 +3345,17 @@ mod tests {
             wrap(item("dQw4w9WgXcQ", "Never Gonna Give You Up", "MUSIC_VIDEO_TYPE_OMV"), item("lYBUbBu4W08", "Never Gonna Give You Up", "MUSIC_VIDEO_TYPE_ATV")),
         ]}}}}}}]}}}}});
         // Both ways round, for taking a like away.
-        assert_eq!(parse_other_half(&v, "dQw4w9WgXcQ").as_deref(), Some("lYBUbBu4W08"));
-        assert_eq!(parse_other_half(&v, "raBobo3GZYA").as_deref(), Some("BeyEGebJ1l4"));
-        assert_eq!(parse_other_half(&v, "not-in-the-queue"), None);
-        assert_eq!(parse_other_half(&json!({}), "dQw4w9WgXcQ"), None);
+        let keep = HashSet::new();
+        assert_eq!(parse_other_half(&v, "dQw4w9WgXcQ", &keep).as_deref(), Some("lYBUbBu4W08"));
+        assert_eq!(parse_other_half(&v, "raBobo3GZYA", &keep).as_deref(), Some("BeyEGebJ1l4"));
+        assert_eq!(parse_other_half(&v, "not-in-the-queue", &keep), None);
+        assert_eq!(parse_other_half(&json!({}), "dQw4w9WgXcQ", &keep), None);
+        // Unliking the remaining uploads must preserve a new rating on either version.
+        let keep = HashSet::from(["lYBUbBu4W08".to_owned()]);
+        assert_eq!(parse_other_half(&v, "dQw4w9WgXcQ", &keep), None);
+        assert_eq!(parse_other_half(&v, "raBobo3GZYA", &keep).as_deref(), Some("BeyEGebJ1l4"));
+        let keep = HashSet::from(["BeyEGebJ1l4".to_owned()]);
+        assert_eq!(parse_other_half(&v, "raBobo3GZYA", &keep), None);
         let found = parse_paired_song(&v, "dQw4w9WgXcQ").unwrap();
         assert_eq!((found.id.as_str(), found.duration, found.music_video), ("lYBUbBu4W08", Some(214), false));
         // A song's counterpart is its video: no song version of a song.
@@ -3268,6 +3510,24 @@ mod podcast_tests {
         let t = episode_row(&r).unwrap();
         assert_eq!(t.title, "The Buried Bodies Case");
         assert_eq!(t.artists, [Link { name: "Radiolab".into(), id: Some("MPSPPL1".into()) }]);
+    }
+
+    #[test]
+    fn a_search_episode_dated_has_no_plays() {
+        let col = |runs: Value| json!({"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": runs}}});
+        let r = json!({
+            "playlistItemData": {"videoId": "xjZ31IKfu4Q"},
+            "flexColumns": [col(json!([{"text": "The Buried Bodies Case"}])), col(json!([{"text": "Episode"}, {"text": " • "}, {"text": "Dec 28, 2025"}, {"text": " • "}, show_run("Radiolab", "MPSPPL1")]))],
+        });
+        assert_eq!(list_item(&r).unwrap().plays, None);
+        let t = episode_row(&r).unwrap();
+        assert_eq!((t.plays, t.artists.len()), (None, 1));
+        // A date in any language holds more than one number; a count holds one.
+        for date in ["Dec 28, 2025", "2025/12/28", "28.12.2025", "2025年12月28日", "28 déc. 2025"] {
+            assert_eq!(lone_count(date), None, "{date}");
+        }
+        assert_eq!(lone_count("再生回数 966万 回"), Some(9_660_000));
+        assert_eq!(lone_count("1,2 Mio. Aufrufe"), Some(1_200_000));
     }
 
     #[test]

@@ -4,6 +4,7 @@
 //! Playback resolution also lives here: resolve stream → start progressive download →
 //! build the decoder on a blocking thread → hand it to the audio engine.
 
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -17,6 +18,14 @@ use crate::lyrics::{self, LyricsSet};
 use crate::model::{self, Card, Target, Thumb, Track, sized};
 use crate::stream::{self, Shared};
 use crate::{innertube, jsc, webmusic, ytdlp, ytm, ytmapi};
+
+#[derive(Default)]
+pub struct UnlikeVersions {
+    /// The known music videos that Liked Music lists as their audio versions.
+    pub stand_ins: HashMap<String, String>,
+    /// Uploads that received a new rating while these unlikes were pending.
+    pub keep: HashSet<String>,
+}
 
 pub enum Req {
     /// Home feed, optionally filtered by a mood chip's params.
@@ -103,9 +112,8 @@ pub enum Req {
     Like { video_id: String, like: bool },
     /// Take away the likes of a music video and the song version standing in for it.
     UnlikeBoth { song: String, video: String },
-    /// Take away just this like, not the other half's.
     /// Several likes (or unlikes) one after another, for a selection.
-    LikeMany { video_ids: Vec<String>, like: bool, stand_ins: std::collections::HashMap<String, String> },
+    LikeMany { video_ids: Vec<String>, like: bool, versions: UnlikeVersions },
     Dislike { video_id: String, skip_generation: Option<u64> },
     RemoveRating { video_id: String, was_disliked: bool },
     CreatePlaylist { title: String, video_ids: Vec<String> },
@@ -436,7 +444,7 @@ pub enum Resp {
     PlaylistMoved { id: String, move_id: u64, ok: bool },
     Collaboration(ytm::Collaboration),
     /// Playback for `generation` failed before reaching the audio engine.
-    PlayError { generation: u64, msg: String },
+    PlayError { generation: u64, msg: String, offer_backup_at: Option<std::time::Duration> },
     /// Play `generation` is the song version of the music video that was asked for
     /// (`None`: that song wouldn't start, and the music video plays after all).
     PlayingAs { generation: u64, listed: String, song: Option<Track> },
@@ -522,25 +530,25 @@ pub const LIKE_WAIT: std::time::Duration = std::time::Duration::from_millis(1500
 
 /// Like or unlike one song; whether YouTube Music took it. Refusals are retried by the
 /// API (after its shared pause while the account is limited); one that hangs or fails is
-/// sent again, up to three times in all. An unlike takes the other version's like too:
-/// `stand_in`'s, the video a song in Liked Music stands for, or else YouTube's pair's.
-async fn like_one(api: &ytmapi::Api, id: &str, like: bool, stand_in: Option<&str>, others: &mut Vec<String>) -> bool {
+/// sent again, up to three times in all. An unlike removes the counterpart's like too,
+/// unless that version received a new rating.
+async fn like_one(api: &ytmapi::Api, id: &str, like: bool, versions: &UnlikeVersions, others: &mut Vec<String>) -> bool {
     let epoch = api.epoch();
     for tries in 0..3 {
         match tokio::time::timeout(LIKE_WAIT, ytm::set_like(api, id, like)).await {
             Ok(Ok(())) => {
                 // Outside that wait: it takes longer, and checking Liked Music afterwards
                 // catches a like that's still there.
-                if !like && let Some(video) = stand_in {
-                    tokio::time::sleep(LIKE_GAP).await;
-                    if let Err(e) = ytm::set_like(api, video, false).await {
-                        // That's the one holding the like: not done, then.
-                        log::warn!("removing the like of the video {id} stands for: {e:#}");
-                        return false;
-                    }
-                    others.push(video.to_owned());
-                } else if !like {
-                    match ytm::remove_other_half_like(api, id, epoch).await {
+                if !like {
+                    let other = match versions.stand_ins.get(id) {
+                        Some(video) if versions.keep.contains(video) => Ok(None),
+                        Some(video) => {
+                            tokio::time::sleep(LIKE_GAP).await;
+                            ytm::set_like(api, video, false).await.map(|()| Some(video.clone()))
+                        }
+                        None => ytm::remove_other_half_like(api, id, epoch, &versions.keep).await,
+                    };
+                    match other {
                         Ok(other) => others.extend(other),
                         // Maybe that's the one holding the like: not done, then.
                         Err(e) => {
@@ -571,12 +579,12 @@ async fn like_one(api: &ytmapi::Api, id: &str, like: bool, stand_in: Option<&str
 /// getting anywhere count as refused, likes don't (songs that can't be played are liked but not listed).
 /// One run at a time, transfers included (`LIKES`); `progress(None, 0)` while waiting its turn.
 /// Third: the other versions whose likes went with the unlikes (`ytm::remove_other_half_like`,
-/// or `stand_ins`: songs in Liked Music and the liked videos they stand for).
+/// or the known stand-ins in Liked Music).
 pub async fn like_many(
     api: &ytmapi::Api,
     ids: Vec<String>,
     like: bool,
-    stand_ins: &std::collections::HashMap<String, String>,
+    versions: &UnlikeVersions,
     mut progress: impl FnMut(Option<&str>, usize),
 ) -> (Vec<String>, Vec<String>, Vec<String>) {
     let epoch = api.epoch();
@@ -596,7 +604,7 @@ pub async fn like_many(
     let mut failed = Vec::new();
     let mut others = Vec::new();
     for (i, id) in ids.iter().enumerate() {
-        let taken = like_one(api, id, like, stand_ins.get(id).map(String::as_str), &mut others).await;
+        let taken = like_one(api, id, like, versions, &mut others).await;
         if !taken {
             failed.push(id.clone());
         }
@@ -632,7 +640,7 @@ pub async fn like_many(
         }
         // The second go is paced either way.
         for id in &left {
-            like_one(api, id, like, stand_ins.get(id).map(String::as_str), &mut others).await;
+            like_one(api, id, like, versions, &mut others).await;
             tokio::time::sleep(LIKE_GAP).await;
         }
     }
@@ -664,6 +672,8 @@ pub struct DownloadRun {
     /// Their ids, in the same order: queued again, the run tries them again.
     pub failed_ids: Vec<String>,
     pub cancelled: bool,
+    /// The album's or playlist's own folder its songs go in (the setting's on).
+    pub folder: Option<crate::downloads::ListFolder>,
 }
 
 impl DownloadRun {
@@ -703,7 +713,7 @@ impl DownloadQueue {
     /// twice. Queued again, a run takes on just the songs it didn't have, and tries again
     /// the ones that failed (they're its songs already: not counted twice). Returns the
     /// run's key and how many songs were queued for it.
-    fn add(&mut self, key: Option<String>, title: String, listed: usize, todo: Vec<Track>) -> (String, usize) {
+    fn add(&mut self, key: Option<String>, title: String, listed: usize, todo: Vec<Track>, folder: Option<crate::downloads::ListFolder>) -> (String, usize) {
         let skipped = listed.saturating_sub(todo.len());
         let key = key.unwrap_or_else(|| {
             self.selections += 1;
@@ -737,10 +747,17 @@ impl DownloadQueue {
             Some(run) => {
                 run.total += added;
                 run.cancelled = false;
+                run.folder = folder;
             }
-            None => self.runs.push(DownloadRun { key: key.clone(), title, total: added + skipped, done: skipped, skipped, ..Default::default() }),
+            None => self.runs.push(DownloadRun { key: key.clone(), title, total: added + skipped, done: skipped, skipped, folder, ..Default::default() }),
         }
         (key, queued)
+    }
+
+    /// The folder a song waiting or downloading goes in: that of the first run that
+    /// wants it and has one (none: the downloads folder itself).
+    fn folder_for(&self, id: &str) -> Option<crate::downloads::ListFolder> {
+        self.wanted.get(id)?.iter().find_map(|k| self.runs.iter().find(|r| &r.key == k)?.folder.clone())
     }
 
     /// The next song to download, or none: then the worker asking stops.
@@ -871,6 +888,7 @@ pub struct Backend {
     /// High quality: with Premium, every song goes through the signed-in web player
     /// for its 256 kbps stream instead of the anonymous 128 kbps one.
     hq: Arc<std::sync::atomic::AtomicBool>,
+    backup_stream: Arc<std::sync::atomic::AtomicBool>,
     /// Explicit songs are hidden: a music video's song version has to be clean.
     clean: Arc<std::sync::atomic::AtomicBool>,
     /// The visionOS player's file URLs were refused past 1 MiB this session (YouTube
@@ -909,7 +927,7 @@ impl Backend {
         {
             log::warn!("proxy relay: {e:#}");
         }
-        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), clean: Default::default(), visionos_hls: Default::default(), songs: Default::default(), batch: Default::default() };
+        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), backup_stream: Default::default(), clean: Default::default(), visionos_hls: Default::default(), songs: Default::default(), batch: Default::default() };
         backend.keep_signed_in();
         Ok(backend)
     }
@@ -1046,7 +1064,7 @@ impl Backend {
                 Err(e) if e.is_panic() => {
                     log::error!("{what}: request panicked");
                     match (play_gen, subscribe) {
-                        (Some(generation), _) => Some(Resp::PlayError { generation, msg: "YouTube didn't respond properly".into() }),
+                        (Some(generation), _) => Some(Resp::PlayError { generation, msg: crate::tr!("backend-unexpected-reply").to_owned(), offer_backup_at: None }),
                         (_, Some((channel_id, on))) => Some(Resp::Subscribed { channel_id, on, ok: false }),
                         _ => (!quiet).then(|| Resp::Error(crate::tr!("backend-error", operation = what, error = crate::tr!("backend-unexpected-reply")))),
                     }
@@ -1231,7 +1249,7 @@ impl Backend {
                     Resp::PlayQueue { target, title, tracks }
                 }
                 Req::Download { track: t, for_video } => {
-                    let (path, _) = self.download(&t, for_video, false).await?;
+                    let (path, _) = self.download(&t, for_video, false, None).await?;
                     // Its lyrics too, for offline; the download is done without waiting for them.
                     let (this, song) = (self.clone(), t.clone());
                     tokio::spawn(async move {
@@ -1248,7 +1266,7 @@ impl Backend {
                     Ok(()) => return Ok(None),
                     Err(e) => {
                         log::warn!("play {video_id}: {e:#}");
-                        Resp::PlayError { generation, msg: format!("{e:#}") }
+                        Resp::PlayError { generation, msg: format!("{e:#}"), offer_backup_at: None }
                     }
                 },
                 Req::VideoStream { video_id, max_height } => {
@@ -1268,7 +1286,7 @@ impl Backend {
                     let epoch = api.epoch();
                     match ytm::set_like(api, &video_id, like).await {
                         Ok(_) => {
-                            let other = if like { None } else { ytm::remove_other_half_like(api, &video_id, epoch).await? };
+                            let other = if like { None } else { ytm::remove_other_half_like(api, &video_id, epoch, &HashSet::new()).await? };
                             Resp::Liked { video_id, like, other }
                         }
                         // Shown as done already: told apart, so it comes back as it was.
@@ -1299,7 +1317,7 @@ impl Backend {
                         Resp::LikedMany { video_ids, failed, like: false, others: Vec::new() }
                     }
                 }
-                Req::LikeMany { video_ids, like, stand_ins } => self.like_many(video_ids, like, stand_ins).await?,
+                Req::LikeMany { video_ids, like, versions } => self.like_many(video_ids, like, versions).await?,
                 Req::Dislike { video_id, skip_generation } => {
                     let result = ytm::dislike(api, &video_id).await;
                     if let Err(e) = &result {
@@ -1554,6 +1572,7 @@ impl Backend {
         }
         // The URL is looked up meanwhile, but the playing song finishes downloading
         // first: it gets the whole bandwidth.
+        let backup_stream = self.backup_stream.load(Ordering::Relaxed);
         let playing = self.current.lock().unwrap().as_ref().map(|(_, s)| s.clone());
         let (found, ()) = tokio::join!(self.find_stream(&video_id), async {
             if let Some(s) = playing {
@@ -1563,9 +1582,13 @@ impl Backend {
         if moot() {
             return Ok(());
         }
+        let mut prefetched = self.prefetched.lock().unwrap();
+        if self.backup_stream.load(Ordering::Relaxed) != backup_stream {
+            return Ok(());
+        }
         log::debug!("prefetch {video_id}");
         let shared = self.start_stream(&video_id, found?, true);
-        if let Some((_, old)) = self.prefetched.lock().unwrap().replace((video_id, shared)) {
+        if let Some((_, old)) = prefetched.replace((video_id, shared)) {
             old.cancel();
         }
         Ok(())
@@ -1816,7 +1839,11 @@ impl Backend {
                     wake();
                 }
                 None => {
-                    let _ = tx.send(Resp::PlayError { generation, msg: format!("decode: {e}") });
+                    let (msg, offer_backup_at) = match shared2.failure() {
+                        Some(failure) => (failure.reason, failure.offer_backup.then_some(at)),
+                        None => (format!("decode: {e}"), None),
+                    };
+                    let _ = tx.send(Resp::PlayError { generation, msg, offer_backup_at });
                     wake();
                 }
             },
@@ -2010,7 +2037,10 @@ impl Backend {
             None => log::info!("stream {video_id}: {} bytes {} from {source:?}", s.size, s.kind()),
         }
         let shared = s.buffer(prefetch);
-        let refresh = Some(self.refresher(source, video_id, s.opus, s.size));
+        if source == Source::YtDlpAfterBotCheck {
+            shared.mark_after_bot_check();
+        }
+        let refresh = Some(self.refresher(source, video_id, &s));
         let (this, buffer) = (self.clone(), shared.clone());
         self.rt.spawn(async move {
             stream::download(this.http(), s.media, s.user_agent, buffer.clone(), refresh).await;
@@ -2025,16 +2055,19 @@ impl Backend {
     }
 
     /// Resolves a fresh URL from the same source and format, for a download that got a 403.
-    fn refresher(&self, source: Source, video_id: &str, opus: bool, size: u64) -> stream::Refresh {
+    fn refresher(&self, source: Source, video_id: &str, stream: &ResolvedStream) -> stream::Refresh {
         let (this, id) = (self.clone(), video_id.to_owned());
+        let (opus, size) = (stream.opus, stream.size);
+        let starts = stream.starts.as_deref().map(Arc::<[f64]>::from);
         Arc::new(move || {
-            let (this, id) = (this.clone(), id.clone());
+            let (this, id, starts) = (this.clone(), id.clone(), starts.clone());
             Box::pin(async move {
                 let s = this.resolve_from(source, &id, opus).await?;
                 // The buffer is laid out for the format it started with.
                 anyhow::ensure!(s.opus == opus, "the stream changed format");
                 // A podcast host may put other ads in, which makes another file.
                 anyhow::ensure!(s.size == size, "the stream changed size");
+                anyhow::ensure!(same_segments(source, starts.as_deref(), s.starts.as_deref()), "the stream changed segment boundaries");
                 Ok(s.media)
             })
         })
@@ -2043,7 +2076,8 @@ impl Backend {
     /// Download a song into the downloads folder, at the best quality the account gets.
     /// `behind_player`: each part waits while the playing song still needs some of its own.
     /// Returns the file, and whether this saved it (false: it was there already).
-    async fn download(&self, t: &Track, for_video: Option<String>, behind_player: bool) -> anyhow::Result<(PathBuf, bool)> {
+    /// `folder`: the album's or playlist's own it goes in.
+    async fn download(&self, t: &Track, for_video: Option<String>, behind_player: bool, folder: Option<crate::downloads::ListFolder>) -> anyhow::Result<(PathBuf, bool)> {
         // One save of a song at a time: one on its way already, this waits and takes its file.
         let _saving = loop {
             if self.batch.lock().unwrap().saving.insert(t.id.clone()) {
@@ -2064,7 +2098,8 @@ impl Backend {
             let current = self.current.clone();
             Arc::new(move || current.lock().unwrap().as_ref().map(|(_, s)| s.clone())) as stream::Ahead
         });
-        stream::download_behind(self.http(), s.media, s.user_agent, shared.clone(), Some(self.refresher(source, &t.id, s.opus, s.size)), ahead).await;
+        let refresh = Some(self.refresher(source, &t.id, &s));
+        stream::download_behind(self.http(), s.media, s.user_agent, shared.clone(), refresh, ahead).await;
         if let Some(e) = shared.error() {
             anyhow::bail!("{e}");
         }
@@ -2081,7 +2116,7 @@ impl Backend {
                 Err(e) => log::debug!("download {}: no play count: {e:#}", t.id),
             }
         }
-        let path = tokio::task::spawn_blocking(move || crate::downloads::save(&t, &audio, duration_ms, loudness, cover, for_video)).await??;
+        let path = tokio::task::spawn_blocking(move || crate::downloads::save(&t, &audio, duration_ms, loudness, cover, for_video, folder.as_ref())).await??;
         Ok((path, true))
     }
 
@@ -2123,8 +2158,13 @@ impl Backend {
             }
         }
         let skipped = listed.len() - todo.len();
+        // An album or playlist of its own, not a selection, with the setting on.
+        let folder = key.as_ref().filter(|_| crate::downloads::per_list()).map(|id| crate::downloads::ListFolder {
+            id: id.clone(),
+            name: crate::downloads::list_name(&title, matches!(target, Some(Target::Album(_))), &listed),
+        });
         let mut q = self.batch.lock().unwrap();
-        let (key, queued) = q.add(key, title, listed.len(), todo);
+        let (key, queued) = q.add(key, title, listed.len(), todo, folder);
         log::info!("download {key}: {queued} songs queued, {skipped} downloaded already");
         for _ in 0..q.more_workers() {
             let this = self.clone();
@@ -2139,11 +2179,17 @@ impl Backend {
     /// Download queued songs, one after another, until none are left.
     async fn download_worker(&self) {
         loop {
-            let next = self.batch.lock().unwrap().next();
-            let Some(t) = next else { return };
+            let next = {
+                let mut q = self.batch.lock().unwrap();
+                q.next().map(|t| {
+                    let folder = q.folder_for(&t.id);
+                    (t, folder)
+                })
+            };
+            let Some((t, folder)) = next else { return };
             // On a task of its own, so a panic in it fails this song, not the whole queue.
             let (this, song) = (self.clone(), t.clone());
-            let result = tokio::spawn(async move { this.download_listed(&song).await }).await.unwrap_or_else(|e| Err(anyhow::anyhow!("{e}")));
+            let result = tokio::spawn(async move { this.download_listed(&song, folder).await }).await.unwrap_or_else(|e| Err(anyhow::anyhow!("{e}")));
             if let Err(e) = &result {
                 log::warn!("download {}: {e:#}", t.id);
             }
@@ -2158,7 +2204,8 @@ impl Backend {
 
     /// One song of a run, behind the playing song, unless it's downloaded by now. A music
     /// video saves its song version (with none found it isn't downloaded). True once saved.
-    async fn download_listed(&self, t: &Track) -> anyhow::Result<bool> {
+    /// `folder`: its album's or playlist's own, to save it in.
+    async fn download_listed(&self, t: &Track, folder: Option<crate::downloads::ListFolder>) -> anyhow::Result<bool> {
         let (song, for_video) = match t.music_video {
             true => (self.song_version(&t.id, Some(t), PREFETCH_SONG_WAIT).await.ok_or_else(|| anyhow::anyhow!("no song version of this music video"))?, Some(t.id.clone())),
             false => (t.clone(), None),
@@ -2167,7 +2214,7 @@ impl Backend {
         if reuse_download(&song.id, for_video.clone()).await.is_some() {
             return Ok(false);
         }
-        if !self.download(&song, for_video, true).await?.1 {
+        if !self.download(&song, for_video, true, folder).await?.1 {
             // Saved meanwhile by another download, lyrics and all.
             return Ok(false);
         }
@@ -2250,7 +2297,15 @@ impl Backend {
                 if let Some(s) = self.rss_episode(&session, video_id).await? {
                     return Ok((Source::Feed, s));
                 }
-                Ok((Source::YtDlp, self.resolve_from(Source::YtDlp, video_id, false).await?))
+                let blocked = bot_check(&e);
+                if !best && self.backup_stream.load(Ordering::Relaxed) && blocked {
+                    match self.resolve_from(Source::SafariHls, video_id, false).await {
+                        Ok(s) => return Ok((Source::SafariHls, s)),
+                        Err(e) => log::warn!("Safari HLS failed for {video_id} ({e:#}); trying the file stream"),
+                    }
+                }
+                let source = if blocked { Source::YtDlpAfterBotCheck } else { Source::YtDlp };
+                Ok((source, self.resolve_from(source, video_id, false).await?))
             }
             // An episode of a podcast added by RSS: YouTube doesn't have its audio, and
             // visionOS answers as for a video that's gone. Only the signed-in web player
@@ -2311,13 +2366,20 @@ impl Backend {
                 let feed = session.feed(&self.http(), &self.jsc, video_id).await?.ok_or_else(|| anyhow::anyhow!("not an RSS podcast episode"))?;
                 self.feed_stream(feed).await?
             }
-            Source::YtDlp => {
+            Source::YtDlp | Source::YtDlpAfterBotCheck | Source::SafariHls => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("sign in to play this song"))?;
-                let s = ytdlp::resolve(&self.http(), &self.data_dir, &session.cookie, video_id).await?;
+                let format = if source == Source::SafariHls { ytdlp::Format::SafariHls } else { ytdlp::Format::File };
+                let s = ytdlp::resolve(&self.http(), &self.data_dir, &session.cookie, video_id, format).await?;
                 // Cookies Google replaced while yt-dlp used the session.
                 self.api.keep(&session, s.replaced.iter().map(String::as_str));
-                // yt-dlp's JSON doesn't carry YouTube's loudness figure.
-                ResolvedStream { media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
+                if format == ytdlp::Format::SafariHls {
+                    let (segments, duration_ms) = crate::hls::safari_playlist(&self.http(), &s.url, &s.user_agent).await?;
+                    let (starts, urls) = segments.into_iter().unzip();
+                    ResolvedStream { media: stream::Media::TransportStream(urls), starts: Some(starts), size: 0, duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
+                } else {
+                    // yt-dlp's JSON doesn't carry YouTube's loudness figure.
+                    ResolvedStream { media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms, user_agent: s.user_agent, loudness_db: None, opus: false }
+                }
             }
         })
     }
@@ -2428,18 +2490,32 @@ impl Backend {
         self.hq.store(on, Ordering::Relaxed);
     }
 
+    pub fn set_backup_stream(&self, on: bool) {
+        let mut prefetched = self.prefetched.lock().unwrap();
+        if self.backup_stream.swap(on, Ordering::Relaxed) != on
+            && let Some((_, stream)) = prefetched.take()
+        {
+            stream.cancel();
+        }
+    }
+
     /// Explicit songs hidden, and whether YouTube's Restricted Mode is asked for as well.
     pub fn set_hide_explicit(&self, on: bool, restricted: bool) {
         self.clean.store(on, Ordering::Relaxed);
         self.api.set_restricted(on && restricted);
     }
 
+    /// Settings › Song info: the language and country titles and names come in.
+    pub fn set_locale(&self, locale: crate::locale::Locale) {
+        self.api.set_locale(locale);
+    }
+
     /// Like or unlike a selection, one at a time, then check Liked Music and try again
     /// what didn't take. Unlikes still listed after that count as refused; likes aren't
     /// counted so (songs that can't be played are liked but not listed).
-    async fn like_many(&self, ids: Vec<String>, like: bool, stand_ins: std::collections::HashMap<String, String>) -> anyhow::Result<Resp> {
+    async fn like_many(&self, ids: Vec<String>, like: bool, versions: UnlikeVersions) -> anyhow::Result<Resp> {
         let total = ids.len();
-        let (done, failed, others) = like_many(&self.api, ids, like, &stand_ins, |taken, n| {
+        let (done, failed, others) = like_many(&self.api, ids, like, &versions, |taken, n| {
             let _ = self.tx.send(Resp::LikeProgress { taken: taken.into_iter().map(str::to_owned).collect(), done: n, total, like });
             self.wake();
         })
@@ -2488,6 +2564,8 @@ enum Source {
     /// An RSS podcast episode's file, which the web player finds without Premium.
     Feed,
     YtDlp,
+    YtDlpAfterBotCheck,
+    SafariHls,
 }
 
 enum Found {
@@ -2535,6 +2613,19 @@ fn needs_account(e: &anyhow::Error) -> bool {
     msg.contains("LOGIN_REQUIRED") || msg.contains("Premium")
 }
 
+fn bot_check(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<innertube::Refused>().is_some_and(|r| {
+        r.status == "LOGIN_REQUIRED" && r.reason.to_ascii_lowercase().contains("not a bot")
+    })
+}
+
+/// Whether a refreshed stream's segments fit the buffer. The download checks their
+/// count. A Safari playlist can be cut differently each time, and each block holds
+/// one segment's audio, so its start times must match too.
+fn same_segments(source: Source, old: Option<&[f64]>, new: Option<&[f64]>) -> bool {
+    source != Source::SafariHls || old == new
+}
+
 /// The anonymous visionOS player says the video isn't there ("ERROR: This video is not
 /// available"), which is also its answer for an episode of a podcast added by RSS.
 /// Nothing in that answer tells the two apart.
@@ -2560,7 +2651,8 @@ fn popular_new_albums(albums: &[Card], ranked_artists: &[String], preferred_arti
 
 /// "Episodes for later" is listed even when empty; hide it then.
 fn saved_playlist_visible(card: &Card) -> bool {
-    card.target != Target::Playlist("SE".into()) || card.subtitle.split_whitespace().any(|w| w.parse::<u64>().is_ok_and(|n| n > 0))
+    // Digits however they're written around ("12 episodes", "12集").
+    card.target != Target::Playlist("SE".into()) || card.subtitle.split(|c: char| !c.is_ascii_digit()).any(|w| w.parse::<u64>().is_ok_and(|n| n > 0))
 }
 
 pub fn compact(n: u64) -> String {
@@ -2630,8 +2722,8 @@ mod download_queue_tests {
     #[test]
     fn a_song_two_runs_want_downloads_once_for_both() {
         let mut q = DownloadQueue::default();
-        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2"])), ("A".to_owned(), 2));
-        assert_eq!(q.add(Some("B".into()), "B".into(), 2, songs(&["2", "3"])), ("B".to_owned(), 2));
+        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2"]), None), ("A".to_owned(), 2));
+        assert_eq!(q.add(Some("B".into()), "B".into(), 2, songs(&["2", "3"]), None), ("B".to_owned(), 2));
         assert_eq!(waiting(&q), ["1", "2", "3"]);
         let (a, b) = (run(&q, "A"), run(&q, "B"));
         assert_eq!((a.total, a.done, a.skipped), (3, 1, 1));
@@ -2646,8 +2738,8 @@ mod download_queue_tests {
     #[test]
     fn queued_again_a_run_takes_on_only_what_it_lacks() {
         let mut q = DownloadQueue::default();
-        q.add(Some("A".into()), "A".into(), 2, songs(&["1", "2"]));
-        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"])).1, 1);
+        q.add(Some("A".into()), "A".into(), 2, songs(&["1", "2"]), None);
+        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"]), None).1, 1);
         assert_eq!(waiting(&q), ["1", "2", "3"]);
         assert_eq!(run(&q, "A").total, 3);
     }
@@ -2655,14 +2747,14 @@ mod download_queue_tests {
     #[test]
     fn queued_again_a_failed_song_is_retried_not_counted_twice() {
         let mut q = DownloadQueue::default();
-        q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"]));
+        q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"]), None);
         let one = q.next().unwrap();
         q.finish(&one, &Err::<bool, _>(()));
         assert_eq!((run(&q, "A").done, run(&q, "A").failed.clone()), (1, vec!["1".to_owned()]));
 
         // Queued again from the card's menu while 2 and 3 are still to go: 1 failed, so
         // it isn't downloaded and comes back; 2 and 3 are on their way already.
-        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"])).1, 1);
+        assert_eq!(q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"]), None).1, 1);
         let a = run(&q, "A");
         assert_eq!((a.total, a.done), (3, 0));
         assert!(a.failed.is_empty() && a.failed_ids.is_empty());
@@ -2683,8 +2775,8 @@ mod download_queue_tests {
     #[test]
     fn cancelling_drops_only_the_songs_no_other_run_wants() {
         let mut q = DownloadQueue::default();
-        q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"]));
-        q.add(Some("B".into()), "B".into(), 1, songs(&["3"]));
+        q.add(Some("A".into()), "A".into(), 3, songs(&["1", "2", "3"]), None);
+        q.add(Some("B".into()), "B".into(), 1, songs(&["3"]), None);
         // 1 is on its way: it finishes.
         let one = q.next().unwrap();
         assert!(q.cancel("A"));
@@ -2705,12 +2797,27 @@ mod download_queue_tests {
     #[test]
     fn selections_get_keys_of_their_own_and_workers_are_capped() {
         let mut q = DownloadQueue::default();
-        assert_eq!(q.add(None, String::new(), 1, songs(&["1"])).0, "selection-1");
-        assert_eq!(q.add(None, String::new(), 2, songs(&["2", "3"])).0, "selection-2");
+        assert_eq!(q.add(None, String::new(), 1, songs(&["1"]), None).0, "selection-1");
+        assert_eq!(q.add(None, String::new(), 2, songs(&["2", "3"]), None).0, "selection-2");
         assert_eq!(q.more_workers(), DOWNLOADS_AT_ONCE.min(3));
         assert_eq!(q.more_workers(), 0);
         while q.next().is_some() {}
         assert_eq!(q.workers, DOWNLOADS_AT_ONCE.min(3) - 1);
+    }
+
+    #[test]
+    fn a_song_goes_in_the_folder_of_the_first_run_that_wants_it() {
+        let mut q = DownloadQueue::default();
+        let folder = |id: &str| Some(crate::downloads::ListFolder { id: id.into(), name: id.into() });
+        q.add(Some("A".into()), "A".into(), 2, songs(&["1", "2"]), folder("A"));
+        q.add(Some("B".into()), "B".into(), 2, songs(&["2", "3"]), folder("B"));
+        q.add(None, String::new(), 1, songs(&["4"]), None);
+        assert_eq!(q.folder_for("2"), folder("A"));
+        assert_eq!(q.folder_for("3"), folder("B"));
+        assert_eq!(q.folder_for("4"), None);
+        // A's waiting songs dropped: B's is the folder now.
+        q.cancel("A");
+        assert_eq!(q.folder_for("2"), folder("B"));
     }
 }
 
@@ -2764,9 +2871,21 @@ mod resolve_tests {
         // Those that need an account keep their own route.
         assert!(!not_available(&refused("LOGIN_REQUIRED", "Sign in to confirm your age")));
         assert!(needs_account(&refused("LOGIN_REQUIRED", "Sign in to confirm your age")));
+        assert!(!bot_check(&refused("LOGIN_REQUIRED", "Sign in to confirm your age")));
+        assert!(bot_check(&refused("LOGIN_REQUIRED", "Sign in to confirm you’re not a bot")));
         assert!(!needs_account(&refused("ERROR", "This video is not available")));
         // Only the player's own answer, not an error that reads like one.
         assert!(!not_available(&anyhow::anyhow!("ERROR: This video is not available")));
+    }
+
+    #[test]
+    fn only_a_safari_refresh_must_keep_its_segment_starts() {
+        let (old, moved) = ([0.0, 7.0, 14.0], [0.0, 6.9, 14.0]);
+        // visionOS HLS: the download only checks the count, as before.
+        assert!(same_segments(Source::VisionOsHls, Some(&old), Some(&moved)));
+        assert!(same_segments(Source::VisionOs, None, None));
+        assert!(same_segments(Source::SafariHls, Some(&old), Some(&old)));
+        assert!(!same_segments(Source::SafariHls, Some(&old), Some(&moved)));
     }
 
     /// Read-only, signed in to an account with a podcast added by RSS (NPR's Planet

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::backend::Req;
+use crate::backend::{Req, UnlikeVersions};
 use crate::model::{Target, Track};
 
 use super::lists::{self, LIKED_MUSIC};
@@ -57,7 +57,8 @@ impl App {
         let tracks: Vec<Track> = tracks.into_iter().filter(|t| self.liked.contains(&t.id) != like).collect();
         if tracks.is_empty() { return; }
         let stand_ins = tracks.iter().filter(|_| !like).filter_map(|t| Some((t.id.clone(), t.stands_for.clone()?))).collect();
-        let send = Req::LikeMany { video_ids: tracks.iter().map(|t| t.id.clone()).collect(), like, stand_ins };
+        let versions = UnlikeVersions { stand_ins, ..Default::default() };
+        let send = Req::LikeMany { video_ids: tracks.iter().map(|t| t.id.clone()).collect(), like, versions };
         if !like {
             return self.unlike_soon(tracks, send);
         }
@@ -414,6 +415,7 @@ impl App {
         // In a text box, Ctrl+arrows move the cursor by words (and lines) instead; on a
         // focused button or slider they still skip and change the volume.
         let editing = ctx.text_edit_focused();
+        let backup_prompt_open = self.backup_prompt == super::BackupPrompt::Open && self.dialog.is_none();
         let i = ctx.input(|i| {
             // Once per press, and not with Ctrl+F and the like, which mean something else.
             let k = |key: egui::Key| {
@@ -423,9 +425,9 @@ impl App {
             let ctrl = |key| !editing && i.modifiers.ctrl && i.key_pressed(key);
             (
                 k(egui::Key::Space),
-                i.pointer.button_pressed(egui::PointerButton::Extra1)
+                (!backup_prompt_open && i.pointer.button_pressed(egui::PointerButton::Extra1))
                     || (i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft)),
-                i.pointer.button_pressed(egui::PointerButton::Extra2)
+                (!backup_prompt_open && i.pointer.button_pressed(egui::PointerButton::Extra2))
                     || (i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight)),
                 ctrl(egui::Key::ArrowRight),
                 ctrl(egui::Key::ArrowLeft),

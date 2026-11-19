@@ -1,3 +1,3 @@
 ### The language itself. Each language's folder has this file.
 
-language-name = Português (Brasil)
+language-name = Português

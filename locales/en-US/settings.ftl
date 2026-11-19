@@ -78,6 +78,8 @@ settings-sound = Sound
 settings-volume-normalization = Volume normalization
 settings-logarithmic-volume = Logarithmic volume
 settings-logarithmic-volume-desc = Space the volume slider out the way ears hear loudness, so quiet levels aren't squeezed into its first few pixels.
+settings-fade-when-pausing = Fade when pausing
+settings-fade-when-pausing-desc = Turn the music down when you pause, and back up when you play again, over a fifth of a second. Off, it stops and starts right away.
 settings-high-quality-audio = High quality audio
 settings-high-quality-audio-desc = 256 kbps instead of 128 kbps, for accounts with YouTube Premium. Applies from the next song.
 settings-output-device = Output device
@@ -244,10 +246,18 @@ settings-listenbrainz-token-link = Get your token on listenbrainz.org
 # { $language } is the system's language, in its own name.
 settings-language-system = System ({ $language })
 settings-language = Language
-settings-language-desc = The app's own words. Song titles, names and YouTube Music's shelves come as YouTube Music sends them.
+settings-language-desc = The app's own words. Song titles, names and YouTube Music's shelves come in the Song info language below.
 settings-restart-to-apply = Restart to apply
 settings-language-restart-desc = The app changes language from the next start.
 settings-restart-now = Restart now
+
+## Song info: the language and country YouTube Music answers in. Separate from Language above.
+
+settings-song-info = Song info
+settings-song-info-language = Song info language
+settings-song-info-language-desc = The language song titles, artist and album names and YouTube Music's shelves come in, where YouTube Music has them in it.
+settings-song-info-country = Song info country
+settings-song-info-country-desc = The country charts and recommendations are for.
 
 ## Window
 
@@ -277,10 +287,19 @@ settings-downloads-note = Download songs from their menu, or whole albums and pl
 settings-download-folder = Download folder
 settings-change = Change
 settings-open = Open
+settings-folder-per-list = Put albums and playlists in their own folder
+settings-folder-per-list-desc = Downloading an album or playlist from its page or menu saves its songs in a folder named after it. Songs downloaded already stay where they are.
 
 ## Network
 
 settings-network = Network
+settings-backup-stream = Backup stream when songs stop
+settings-backup-stream-desc = Signed in, when YouTube stops a song with a bot check (this can happen on a VPN), play it from a stream that comes with the video. Uses more data.
+settings-backup-stream-prompt-title = Playback stopped
+settings-backup-stream-prompt-body = YouTube stopped this song with a bot check, which can happen on a VPN. A backup stream can play it instead. It comes with the video, so it uses more data.
+settings-backup-stream-prompt-enable = Turn on and retry
+settings-backup-stream-prompt-settings = Settings
+settings-backup-stream-prompt-dismiss = Not now
 settings-proxy = Proxy
 settings-proxy-desc = Send everything ytm-rs fetches through a proxy: songs, lyrics, sign-in and Listen together.
 settings-proxy-windows-uses = Windows is set to use { $proxy }.

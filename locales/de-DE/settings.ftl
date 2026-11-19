@@ -244,7 +244,7 @@ settings-listenbrainz-token-link = Token auf listenbrainz.org abrufen
 # { $language } is the system's language, in its own name.
 settings-language-system = System ({ $language })
 settings-language = Sprache
-settings-language-desc = Sprache der Benutzeroberfläche. Titel, Namen und Rubriken erscheinen so, wie YouTube Music sie liefert.
+settings-language-desc = Sprache der App-Oberfläche. Titel, Namen und Inhaltsbereiche von YouTube Music verwenden die unten gewählte Sprache der Songinformationen.
 settings-restart-to-apply = Zum Übernehmen neu starten
 settings-language-restart-desc = Die Sprache ändert sich beim nächsten Start.
 settings-restart-now = Jetzt neu starten
@@ -378,3 +378,19 @@ settings-downloads-and-counting = { $count ->
    *[other] Schon { $shown } Downloads
 }
 settings-counting-downloads = Downloads werden gezählt…
+settings-fade-when-pausing = Sanftes Ausblenden beim Pausieren
+settings-fade-when-pausing-desc = Blendet die Musik beim Pausieren innerhalb von 0,2 Sekunden aus und beim Fortsetzen wieder ein. Ausgeschaltet stoppt und startet sie sofort.
+settings-song-info = Songinformationen
+settings-song-info-language = Sprache der Songinformationen
+settings-song-info-language-desc = Sprache für Songtitel, Künstler- und Albumnamen und Inhaltsbereiche von YouTube Music, soweit Übersetzungen verfügbar sind.
+settings-song-info-country = Land für Charts und Empfehlungen
+settings-song-info-country-desc = Das Land, für das Charts und Empfehlungen angezeigt werden.
+settings-folder-per-list = Alben und Playlists in eigenen Ordnern speichern
+settings-folder-per-list-desc = Beim Herunterladen eines Albums oder einer Playlist über die Seite oder das Menü werden die Songs in einem gleichnamigen Ordner gespeichert. Bereits heruntergeladene Songs bleiben an ihrem bisherigen Ort.
+settings-backup-stream = Ersatzstream bei Wiedergabeabbrüchen
+settings-backup-stream-desc = Wenn du angemeldet bist und YouTube einen Song wegen einer Bot-Prüfung stoppt (etwa bei einer VPN-Verbindung), wird ein Stream mit Video verwendet. Verbraucht mehr Daten.
+settings-backup-stream-prompt-title = Wiedergabe angehalten
+settings-backup-stream-prompt-body = YouTube hat diesen Song wegen einer Bot-Prüfung angehalten. Das kann bei einer VPN-Verbindung passieren. Ein Ersatzstream ermöglicht die Wiedergabe. Er enthält auch das Video und verbraucht mehr Daten.
+settings-backup-stream-prompt-enable = Aktivieren und erneut versuchen
+settings-backup-stream-prompt-settings = Einstellungen
+settings-backup-stream-prompt-dismiss = Jetzt nicht

@@ -1046,12 +1046,12 @@ async fn search_song(api: &Api, t: &Track) -> Result<Option<(YtTrack, bool)>> {
     };
     let queries = queries(t);
     for q in &queries {
-        let found = match ytm::search_songs(api, q, false).await {
+        let found = match ytm::search_songs_in_english(api, q, false).await {
             Ok(found) => found,
             // Refused even after retries: the account's search may still answer.
             Err(e) => {
                 log::debug!("transfer: signed-out search refused ({e:#}); searching signed in");
-                ytm::search_tracks_signed_in(api, q, ytm::Filter::Songs).await?
+                ytm::search_songs_in_english(api, q, true).await?
             }
         };
         add(&mut hits, found);
@@ -1060,7 +1060,7 @@ async fn search_song(api: &Api, t: &Track) -> Result<Option<(YtTrack, bool)>> {
         }
     }
     if api.account().is_some() {
-        match ytm::search_tracks_signed_in(api, &queries[0], ytm::Filter::Songs).await {
+        match ytm::search_songs_in_english(api, &queries[0], true).await {
             Ok(found) => add(&mut hits, found),
             Err(e) if hits.is_empty() => return Err(e),
             Err(e) => log::debug!("transfer: signed-in search: {e:#}"),
@@ -1078,7 +1078,7 @@ fn best(hits: &[YtTrack], t: &Track) -> Option<(YtTrack, bool)> {
 /// What to offer for a doubtful song: the top songs, likeliest first, then videos.
 async fn candidates(api: &Api, t: &Track) -> Result<Vec<(YtTrack, bool)>> {
     let q = queries(t).swap_remove(0);
-    let (songs, videos) = tokio::try_join!(ytm::search_tracks_signed_in(api, &q, ytm::Filter::Songs), ytm::search_tracks_signed_in(api, &q, ytm::Filter::Videos))?;
+    let (songs, videos) = tokio::try_join!(ytm::search_songs_in_english(api, &q, true), ytm::search_tracks_signed_in(api, &q, ytm::Filter::Videos))?;
     let mut out: Vec<(YtTrack, bool)> = Vec::new();
     for (hit, video) in songs.into_iter().take(5).map(|s| (s, false)).chain(videos.into_iter().take(3).map(|v| (v, true))) {
         // The same song is often listed twice, from the album and a single.

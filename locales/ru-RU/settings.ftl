@@ -244,7 +244,7 @@ settings-listenbrainz-token-link = Получить токен на listenbrainz
 # { $language } is the system's language, in its own name.
 settings-language-system = Как в системе ({ $language })
 settings-language = Язык
-settings-language-desc = Язык интерфейса. Названия песен, имена и подборки отображаются в том виде, в каком их передаёт YouTube Music.
+settings-language-desc = Язык интерфейса приложения. Названия песен, имена и разделы YouTube Music отображаются на языке, выбранном ниже в настройках данных о песнях.
 settings-restart-to-apply = Нужен перезапуск
 settings-language-restart-desc = Язык изменится при следующем запуске приложения.
 settings-restart-now = Перезапустить сейчас
@@ -380,3 +380,19 @@ settings-downloads-and-counting = { $count ->
    *[other] Уже { $shown } скачивания
 }
 settings-counting-downloads = Подсчёт загрузок…
+settings-fade-when-pausing = Плавное затухание при паузе
+settings-fade-when-pausing-desc = За пятую долю секунды плавно уменьшает громкость при паузе и повышает её при возобновлении. Если выключить, воспроизведение останавливается и возобновляется сразу.
+settings-song-info = Данные о песнях
+settings-song-info-language = Язык данных о песнях
+settings-song-info-language-desc = Язык названий песен, исполнителей, альбомов и разделов YouTube Music, если для них доступен перевод.
+settings-song-info-country = Страна для чартов и рекомендаций
+settings-song-info-country-desc = Страна, для которой YouTube Music подбирает чарты и рекомендации.
+settings-folder-per-list = Отдельная папка для каждого альбома и плейлиста
+settings-folder-per-list-desc = При скачивании альбома или плейлиста с его страницы или из меню песни сохраняются в папку с его названием. Ранее скачанные песни остаются на своих местах.
+settings-backup-stream = Резервный поток при остановке песни
+settings-backup-stream-desc = Если вы вошли в аккаунт, а YouTube остановил песню для проверки на бота (такое бывает при использовании VPN), воспроизвести её из потока с видео. Расходует больше трафика.
+settings-backup-stream-prompt-title = Воспроизведение остановлено
+settings-backup-stream-prompt-body = YouTube остановил эту песню для проверки на бота. Такое бывает при использовании VPN. Резервный поток позволит продолжить воспроизведение. Он содержит видео, поэтому расходует больше трафика.
+settings-backup-stream-prompt-enable = Включить и повторить
+settings-backup-stream-prompt-settings = Настройки
+settings-backup-stream-prompt-dismiss = Не сейчас

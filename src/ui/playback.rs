@@ -249,8 +249,13 @@ impl App {
     /// The song's download failed partway: pick it up where it stopped from a fresh
     /// stream, rather than letting it end early and skip to the next one. If that keeps
     /// failing, stay on the song, ready to resume from there.
-    pub(super) fn recover(&mut self, at: Duration, reason: &str) {
+    pub(super) fn recover(&mut self, at: Duration, failure: crate::stream::DownloadFailure) {
         const MAX_RECOVERIES: u32 = 3;
+        let reason = failure.reason;
+        if failure.offer_backup && self.offer_backup_stream(at) {
+            log::warn!("playback interrupted at {at:?} ({reason}); offering the backup stream");
+            return;
+        }
         if self.recoveries < MAX_RECOVERIES {
             self.recoveries += 1;
             log::warn!("playback interrupted at {at:?} ({reason}); reopening (try {})", self.recoveries);
@@ -258,12 +263,29 @@ impl App {
             return;
         }
         log::warn!("playback interrupted at {at:?} ({reason}); giving up");
-        // The player has already run dry; Stop would also reset the position to 0:00.
+        self.hold_interrupted_track(at);
+        let title = self.current().map(|t| t.title.clone()).unwrap_or_default();
+        self.toast(crate::tr!("status-track-disconnected", title = title.as_str()));
+    }
+
+    pub(super) fn offer_backup_stream(&mut self, at: Duration) -> bool {
+        use super::BackupPrompt;
+        if self.backup_stream || self.backup_prompt == BackupPrompt::Dismissed || self.jam.guest() || self.current().is_none() {
+            return false;
+        }
+        self.backup_prompt = BackupPrompt::Open;
+        self.skip_streak = 0;
+        self.recoveries = 0;
+        self.audio.send(AudioCmd::Pause);
+        self.hold_interrupted_track(at);
+        true
+    }
+
+    fn hold_interrupted_track(&mut self, at: Duration) {
+        // Stop would also reset the position to 0:00.
         self.audio.status.position_ms.store(at.as_millis() as u64, Ordering::Relaxed);
         self.resume_at = Some(at);
         self.buffering = false;
-        let title = self.current().map(|t| t.title.clone()).unwrap_or_default();
-        self.toast(crate::tr!("status-track-disconnected", title = title.as_str()));
     }
 
     pub(super) fn play_current(&mut self) {
@@ -477,6 +499,20 @@ impl App {
             self.page = super::Page::Library(super::LibTab::Playlists);
         }
         self.search = None;
+        self.home_mood = false;
+        self.backend.request(Req::Home(None));
+        if self.logged_in {
+            self.backend.request(Req::Library);
+        }
+    }
+
+    /// Settings › Song info: what's on screen is asked for again in the new language.
+    pub(super) fn set_locale(&mut self) {
+        self.backend.set_locale(self.locale);
+        self.search = None;
+        self.scoped.clear();
+        self.mood = None;
+        self.lists.outdate();
         self.home_mood = false;
         self.backend.request(Req::Home(None));
         if self.logged_in {

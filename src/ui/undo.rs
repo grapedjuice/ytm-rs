@@ -4,7 +4,7 @@
 //! the toast goes, the next one comes or the app closes: until then it's all here, and
 //! Undo just puts it back as it was.
 
-use crate::backend::Req;
+use crate::backend::{Req, UnlikeVersions};
 use crate::model::{Card, Target, Track};
 
 use super::lists::{LIKED_MUSIC, Taken, Unliked};
@@ -79,8 +79,8 @@ impl App {
     /// the Undo is gone.
     pub(super) fn unlike_soon(&mut self, tracks: Vec<Track>, send: Req) {
         let mut targets: Vec<_> = tracks.iter().map(|t| t.id.clone()).collect();
-        if let Req::LikeMany { stand_ins, .. } = &send {
-            targets.extend(stand_ins.values().cloned());
+        if let Req::LikeMany { versions, .. } = &send {
+            targets.extend(versions.stand_ins.values().cloned());
         }
         if targets.iter().all(|id| self.unliking_soon(id)) {
             return;
@@ -130,12 +130,13 @@ impl App {
         let Some(Undo::Unlike { targets, .. }) = self.undo.take() else { return };
         // Its toast's Undo has nothing left to take back.
         self.toast = None;
-        let rest: Vec<String> = targets.into_iter().filter(|id| !rated(id)).collect();
+        let (keep, rest): (Vec<_>, Vec<_>) = targets.into_iter().partition(|id| rated(id));
         if rest.is_empty() {
             return;
         }
         self.confirm_unliked(&rest);
-        self.backend.request(Req::LikeMany { video_ids: rest, like: false, stand_ins: Default::default() });
+        let versions = UnlikeVersions { keep: keep.into_iter().collect(), ..Default::default() };
+        self.backend.request(Req::LikeMany { video_ids: rest, like: false, versions });
     }
 
     /// Gone from here at once, and from YouTube Music once the Undo is: it can't bring

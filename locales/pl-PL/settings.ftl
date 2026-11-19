@@ -244,7 +244,7 @@ settings-listenbrainz-token-link = Pobierz token z listenbrainz.org
 # { $language } is the system's language, in its own name.
 settings-language-system = Systemowy ({ $language })
 settings-language = Język
-settings-language-desc = Język interfejsu. Tytuły, nazwy i sekcje YouTube Music są wyświetlane w postaci dostarczonej przez usługę.
+settings-language-desc = Język interfejsu aplikacji. Tytuły, nazwy i sekcje YouTube Music są wyświetlane w języku informacji o utworach wybranym poniżej.
 settings-restart-to-apply = Uruchom ponownie, aby zastosować
 settings-language-restart-desc = Język zmieni się przy następnym uruchomieniu aplikacji.
 settings-restart-now = Uruchom ponownie teraz
@@ -380,3 +380,19 @@ settings-downloads-and-counting = { $count ->
    *[other] Już { $shown } pobrania
 }
 settings-counting-downloads = Zliczanie pobrań…
+settings-fade-when-pausing = Wyciszaj stopniowo przy pauzie
+settings-fade-when-pausing-desc = Stopniowo wycisza muzykę przy pauzie i przywraca głośność przy wznowieniu, w ciągu 0,2 sekundy. Po wyłączeniu muzyka zatrzymuje się i wznawia natychmiast.
+settings-song-info = Informacje o utworach
+settings-song-info-language = Język informacji o utworach
+settings-song-info-language-desc = Język tytułów utworów, nazw wykonawców i albumów oraz sekcji YouTube Music, jeśli dostępne jest tłumaczenie.
+settings-song-info-country = Kraj list przebojów i rekomendacji
+settings-song-info-country-desc = Kraj, dla którego wyświetlane są listy przebojów i rekomendacje.
+settings-folder-per-list = Zapisuj każdy album i playlistę w osobnym folderze
+settings-folder-per-list-desc = Pobranie albumu lub playlisty z jej strony albo menu zapisuje utwory w folderze o tej samej nazwie. Wcześniej pobrane utwory pozostają na swoim miejscu.
+settings-backup-stream = Zapasowy strumień przy przerwaniu odtwarzania
+settings-backup-stream-desc = Po zalogowaniu, gdy YouTube zatrzyma utwór, aby sprawdzić, czy nie jesteś botem (może się to zdarzyć przy VPN), używa strumienia z wideo. Zużywa więcej danych.
+settings-backup-stream-prompt-title = Odtwarzanie przerwane
+settings-backup-stream-prompt-body = YouTube zatrzymał ten utwór, aby sprawdzić, czy nie jesteś botem. Może się to zdarzyć przy korzystaniu z VPN. Zapasowy strumień umożliwia odtwarzanie. Zawiera wideo, więc zużywa więcej danych.
+settings-backup-stream-prompt-enable = Włącz i spróbuj ponownie
+settings-backup-stream-prompt-settings = Ustawienia
+settings-backup-stream-prompt-dismiss = Nie teraz

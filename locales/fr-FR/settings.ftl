@@ -244,7 +244,7 @@ settings-listenbrainz-token-link = Obtenez votre jeton sur listenbrainz.org
 # { $language } is the system's language, in its own name.
 settings-language-system = Système ({ $language })
 settings-language = Langue
-settings-language-desc = Langue de l’interface. Les titres, noms et rubriques de YouTube Music s’affichent tels que le service les fournit.
+settings-language-desc = Langue de l'interface. Les titres, noms et rubriques de YouTube Music utilisent la langue des informations sur les titres choisie ci-dessous.
 settings-restart-to-apply = Redémarrer pour appliquer
 settings-language-restart-desc = La langue changera au prochain démarrage.
 settings-restart-now = Redémarrer maintenant
@@ -378,3 +378,19 @@ settings-downloads-and-counting = { $count ->
    *[other] Déjà { $shown } téléchargements
 }
 settings-counting-downloads = Comptage des téléchargements…
+settings-fade-when-pausing = Fondu sonore lors de la pause
+settings-fade-when-pausing-desc = Diminue progressivement le volume à la pause et le rétablit à la reprise, en 0,2 seconde. Si cette option est désactivée, la lecture s'arrête et reprend immédiatement.
+settings-song-info = Informations sur les titres
+settings-song-info-language = Langue des informations sur les titres
+settings-song-info-language-desc = Langue des titres de chansons, noms d'artistes et d'albums et rubriques de YouTube Music, lorsqu'une traduction est disponible.
+settings-song-info-country = Pays des classements et recommandations
+settings-song-info-country-desc = Pays auquel correspondent les classements et les recommandations.
+settings-folder-per-list = Enregistrer chaque album et playlist dans son dossier
+settings-folder-per-list-desc = Le téléchargement d'un album ou d'une playlist depuis sa page ou son menu enregistre les titres dans un dossier portant son nom. Les titres déjà téléchargés conservent leur emplacement.
+settings-backup-stream = Flux de secours en cas d'interruption
+settings-backup-stream-desc = Avec une session ouverte, si YouTube interrompt un titre pour vérifier que vous n'êtes pas un robot (cela peut arriver avec un VPN), utilise un flux incluant la vidéo. Consomme plus de données.
+settings-backup-stream-prompt-title = Lecture interrompue
+settings-backup-stream-prompt-body = YouTube a interrompu ce titre pour vérifier que vous n'êtes pas un robot. Cela peut arriver avec un VPN. Un flux de secours permet de reprendre la lecture. Il inclut la vidéo et consomme donc plus de données.
+settings-backup-stream-prompt-enable = Activer et réessayer
+settings-backup-stream-prompt-settings = Paramètres
+settings-backup-stream-prompt-dismiss = Pas maintenant

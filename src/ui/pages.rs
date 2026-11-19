@@ -528,6 +528,7 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
         ui.label(RichText::new(crate::tr!("nav-empty")).color(theme::text_dim()));
     }
     let mut more_picks = None;
+    let picks = crate::model::quick_picks(&h.shelves, app.locale.hl);
     for (i, s) in h.shelves.iter().enumerate() {
         let id = format!("home-{i}-{}", s.title);
         let title = match s.title.as_str() {
@@ -542,12 +543,12 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
                 if cards.is_empty() {
                     continue;
                 }
-                let (strap, thumb) = if s.title == "Listen again" { (None, None) } else { (s.strapline.as_deref(), s.strap_thumb.as_deref()) };
+                let (strap, thumb) = if s.own { (None, None) } else { (s.strapline.as_deref(), s.strap_thumb.as_deref()) };
                 cards_shelf(ui, &app.liked, &mut app.actions, &id, title, strap, thumb, &cards);
             }
             ShelfKind::Songs { tracks, rows: n } => {
                 let reached_end = song_grid(ui, &rows, &app.liked, &mut app.actions, &id, title, s.strapline.as_deref(), tracks, *n);
-                if s.title == "Quick picks" && reached_end && !h.picks_loading && !h.picks_expanded {
+                if picks == Some(i) && reached_end && !h.picks_loading && !h.picks_expanded {
                     more_picks = tracks.last().map(|t| t.id.clone());
                 }
             }
@@ -1079,6 +1080,11 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                         widgets::menu_body(ui, 190.0);
                         if super::actions::shareable(&target) && widgets::menu_action(ui, Some(icon::LINK), crate::tr!("ui-share")) {
                             acts.push(Action::Share(target.clone()));
+                        }
+                        if (crate::downloads::has_list_folder(id) || crate::downloads::any_listed(tracks))
+                            && widgets::menu_action(ui, Some(icon::FOLDER_OPEN), tr!("widget-show-in-folder"))
+                        {
+                            crate::downloads::show_list(id, tracks);
                         }
                         if own {
                             if widgets::menu_action(ui, Some(icon::SETTINGS), crate::tr!("ui-edit")) { acts.push(Action::EditPlaylist); }
@@ -1697,6 +1703,7 @@ fn settings_tab(app: &mut App, ui: &mut Ui, tab: SettingsTab) {
         }
         SettingsTab::General => {
             settings_language(app, ui);
+            settings_song_info(app, ui);
             settings_window(app, ui);
             settings_downloads(ui);
             super::transfer::settings_section(app, ui);
@@ -1994,6 +2001,12 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             }
         });
         divider(ui);
+        setting_row(ui, tr!("settings-fade-when-pausing"), Some(tr!("settings-fade-when-pausing-desc")), |ui| {
+            if toggle(ui, &mut app.pause_fade, tr!("settings-fade-when-pausing")).changed() {
+                app.audio.set_pause_fade(app.pause_fade);
+            }
+        });
+        divider(ui);
         setting_row(ui, tr!("settings-high-quality-audio"), Some(tr!("settings-high-quality-audio-desc")), |ui| {
             if toggle(ui, &mut app.high_quality, tr!("settings-high-quality-audio")).changed() {
                 app.backend.set_high_quality(app.high_quality);
@@ -2065,6 +2078,13 @@ fn settings_downloads(ui: &mut Ui) {
             ui.add_space(6.0);
             if pill(ui, tr!("settings-open"), Some(icon::FOLDER_OPEN), false).clicked() {
                 crate::downloads::open_folder();
+            }
+        });
+        divider(ui);
+        setting_row(ui, tr!("settings-folder-per-list"), Some(tr!("settings-folder-per-list-desc")), |ui| {
+            let mut on = crate::downloads::per_list();
+            if toggle(ui, &mut on, tr!("settings-folder-per-list")).changed() {
+                crate::downloads::set_per_list(on);
             }
         });
     });
@@ -2429,6 +2449,50 @@ fn language_picker(
         });
     });
     pick
+}
+
+/// Settings › General › Song info: the language and country YouTube Music answers in,
+/// for titles, names and shelves. Applies at once.
+fn settings_song_info(app: &mut App, ui: &mut Ui) {
+    use crate::locale::{self, COUNTRIES, LANGUAGES};
+    let mut pick = app.locale;
+    settings_section(ui, tr!("settings-song-info"), None, None, |ui| {
+        setting_row(ui, tr!("settings-song-info-language"), Some(tr!("settings-song-info-language-desc")), |ui| {
+            let current = locale::language(pick.hl).map_or_else(|| pick.hl.to_owned(), locale::language_label);
+            let btn = dropdown_button(ui, &current, 210.0, tr!("settings-song-info-language"));
+            widgets::menu_popup(&btn).show(|ui| {
+                widgets::menu_body(ui, 260.0);
+                dropdown_list(ui, 320.0, |ui| {
+                    for l in LANGUAGES {
+                        if option_row(ui, &locale::language_label(l), l.0 == pick.hl).clicked() {
+                            pick.hl = l.0;
+                            ui.close();
+                        }
+                    }
+                });
+            });
+        });
+        divider(ui);
+        setting_row(ui, tr!("settings-song-info-country"), Some(tr!("settings-song-info-country-desc")), |ui| {
+            let current = crate::i18n::country_name(pick.gl);
+            let btn = dropdown_button(ui, &current, 210.0, tr!("settings-song-info-country"));
+            widgets::menu_popup(&btn).show(|ui| {
+                widgets::menu_body(ui, 260.0);
+                dropdown_list(ui, 320.0, |ui| {
+                    for c in COUNTRIES {
+                        if option_row(ui, &crate::i18n::country_name(c.0), c.0 == pick.gl).clicked() {
+                            pick.gl = c.0;
+                            ui.close();
+                        }
+                    }
+                });
+            });
+        });
+    });
+    if pick != app.locale {
+        app.locale = pick;
+        app.set_locale();
+    }
 }
 
 /// Settings › Window.
@@ -2903,10 +2967,34 @@ fn settings_sign_off(app: &mut App, ui: &mut Ui) {
     ui.painter().text(pos2(rect.center().x, rect.top() + 82.0), Align2::CENTER_CENTER, text, theme::regular(13.0), theme::text_dim());
 }
 
-/// Settings › Network: the proxy everything goes through, a connection test, and a
-/// restart when the setting changed.
+/// Settings › Network: the stream fallback, proxy, and connection test.
 fn network(app: &mut App, ui: &mut Ui) {
     use crate::proxy::{self, Setting};
+    const HIGHLIGHT_SECS: f64 = 3.0;
+    let label = tr!("settings-backup-stream");
+    setting_row(ui, label, Some(tr!("settings-backup-stream-desc")), |ui| {
+        let response = toggle(ui, &mut app.backup_stream, label);
+        let now = ui.input(|input| input.time);
+        if std::mem::take(&mut app.reveal_backup_setting) {
+            response.scroll_to_me(Some(egui::Align::Center));
+            response.request_focus();
+            app.backup_setting_highlight_until = now + HIGHLIGHT_SECS;
+        }
+        let remaining = app.backup_setting_highlight_until - now;
+        if remaining > 0.0 {
+            let elapsed = (HIGHLIGHT_SECS - remaining) as f32;
+            let pulse = 0.5 + 0.5 * (elapsed * std::f32::consts::TAU).cos();
+            let fade = (remaining / 0.25).min(1.0) as f32;
+            let color = theme::with_alpha(app.accent_color(), (0.2 + 0.8 * pulse) * fade);
+            let stroke = egui::Stroke::new(2.0, color);
+            ui.painter().rect_stroke(response.rect.expand(4.0), response.rect.height() / 2.0 + 4.0, stroke, egui::StrokeKind::Outside);
+            ui.ctx().request_repaint();
+        }
+        if response.changed() {
+            app.backend.set_backup_stream(app.backup_stream);
+        }
+    });
+    divider(ui);
     let same = |a: &Setting, b: &Setting| std::mem::discriminant(a) == std::mem::discriminant(b);
     let mut pick = None;
     setting_row(ui, tr!("settings-proxy"), Some(tr!("settings-proxy-desc")), |ui| {

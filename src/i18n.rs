@@ -143,6 +143,15 @@ pub fn lyrics_name(code: &str) -> Cow<'_, str> {
         .map_or(Cow::Borrowed(code), |lang| Cow::Owned(name(lang.locale)))
 }
 
+/// Names in the Song info pickers, in the interface language.
+pub fn content_language_name(code: &str) -> String {
+    shown(LOCALES.lookup(&active().lang, &format!("content-language-{}", code.to_ascii_lowercase())))
+}
+
+pub fn country_name(code: &str) -> String {
+    shown(LOCALES.lookup(&active().lang, &format!("content-country-{}", code.to_ascii_lowercase())))
+}
+
 /// The message `id`. Each is looked up once a run and kept, so it's cheap every frame.
 pub fn text(id: &'static str) -> &'static str {
     static KEPT: Mutex<Option<HashMap<&'static str, &'static str>>> = Mutex::new(None);
@@ -218,6 +227,9 @@ mod tests {
         }
         let mut out = Vec::new();
         walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut out);
+        // The Song info pickers construct their IDs from the offered service codes.
+        out.extend(crate::locale::LANGUAGES.iter().map(|l| (format!("content-language-{}", l.0.to_ascii_lowercase()), "src/locale.rs".to_owned())));
+        out.extend(crate::locale::COUNTRIES.iter().map(|c| (format!("content-country-{}", c.0.to_ascii_lowercase()), "src/locale.rs".to_owned())));
         out
     }
 

@@ -50,7 +50,7 @@ impl App {
                     self.handoff = false;
                 }
                 AudioEvent::Ending { .. } => {}
-                AudioEvent::Interrupted { generation, at, reason } if generation == self.generation => self.recover(at, &reason),
+                AudioEvent::Interrupted { generation, at, failure } if generation == self.generation => self.recover(at, failure),
                 AudioEvent::Interrupted { .. } => {}
                 AudioEvent::Error(e) => self.toast(e),
             }
@@ -452,7 +452,7 @@ impl App {
             Resp::QuickPicksMore { seed, tracks } => {
                 if let Some(h) = &mut self.home {
                     h.picks_loading = false;
-                    if let Some(shelf) = h.shelves.iter_mut().find(|s| s.title == "Quick picks")
+                    if let Some(shelf) = crate::model::quick_picks(&h.shelves, self.locale.hl).map(|i| &mut h.shelves[i])
                         && let ShelfKind::Songs { tracks: picks, .. } = &mut shelf.kind
                         && picks.iter().any(|t| t.id == seed)
                     {
@@ -587,7 +587,7 @@ impl App {
             Resp::MusicVideo { song, video } => {
                 self.music_videos.insert(song, video);
             }
-            Resp::PlayError { generation, msg } => self.on_play_error(generation, msg),
+            Resp::PlayError { generation, msg, offer_backup_at } => self.on_play_error(generation, msg, offer_backup_at),
             Resp::ServerQueue(q) => self.adopt_server_queue(q),
             Resp::Account { name, photo } => {
                 self.account_name = name.or(self.account_name.take());
@@ -618,7 +618,7 @@ impl App {
     fn on_home(&mut self, page: HomePage) {
         // Until the account menu answers (Req::Account).
         if self.account_avatar.is_none() {
-            self.account_avatar = page.shelves.iter().find(|s| s.title == "Listen again").and_then(|s| s.strap_thumb.clone());
+            self.account_avatar = page.shelves.iter().find(|s| s.own).and_then(|s| s.strap_thumb.clone());
         }
         let mut chips = page.chips;
         // The feed marks the active mood itself; keep the bar when it doesn't send chips.
@@ -639,7 +639,7 @@ impl App {
         }
         // Kept for the next launch, unless a mood filters it.
         if let Some(h) = self.home.as_ref().filter(|h| !self.home_mood && !h.shelves.is_empty() && !h.chips.iter().any(|c| c.selected)) {
-            let cache = super::HomeCache { logged_in: self.logged_in, chips: h.chips.clone(), shelves: h.shelves.clone() };
+            let cache = super::HomeCache { logged_in: self.logged_in, hl: self.locale.hl.to_owned(), gl: self.locale.gl.to_owned(), chips: h.chips.clone(), shelves: h.shelves.clone() };
             super::HomeCache::store(self.backend.data_dir(), Some(cache));
         }
     }
@@ -792,8 +792,11 @@ impl App {
     }
 
     /// A song couldn't play: skip it, or stop when skipping can't help.
-    fn on_play_error(&mut self, generation: u64, msg: String) {
+    fn on_play_error(&mut self, generation: u64, msg: String, offer_backup_at: Option<Duration>) {
         if generation == self.generation {
+            if offer_backup_at.is_some_and(|at| self.offer_backup_stream(at)) {
+                return;
+            }
             self.buffering = false;
             let title = self.current().map(|t| t.title.clone()).unwrap_or_default();
             let has_next = !self.queue.at_end() && self.queue.index.is_some();

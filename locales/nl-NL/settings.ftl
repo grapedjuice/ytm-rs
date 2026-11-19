@@ -244,7 +244,7 @@ settings-listenbrainz-token-link = Haal je token op bij listenbrainz.org
 # { $language } is the system's language, in its own name.
 settings-language-system = Systeem ({ $language })
 settings-language = Taal
-settings-language-desc = Taal van de interface. Titels, namen en rubrieken worden getoond zoals YouTube Music ze aanlevert.
+settings-language-desc = Taal van de app. Titels, namen en secties van YouTube Music gebruiken de hieronder gekozen taal voor nummerinformatie.
 settings-restart-to-apply = Herstart om toe te passen
 settings-language-restart-desc = De taal verandert de volgende keer dat je de app opent.
 settings-restart-now = Nu herstarten
@@ -378,3 +378,19 @@ settings-downloads-and-counting = { $count ->
    *[other] Al { $shown } downloads
 }
 settings-counting-downloads = Downloads tellen…
+settings-fade-when-pausing = Geluid geleidelijk dempen bij pauzeren
+settings-fade-when-pausing-desc = Dempt de muziek bij pauzeren en herstelt het volume bij hervatten, in 0,2 seconden. Uitgeschakeld stopt en start de muziek meteen.
+settings-song-info = Nummerinformatie
+settings-song-info-language = Taal van de nummerinformatie
+settings-song-info-language-desc = Taal voor titels van nummers, namen van artiesten en albums en secties van YouTube Music, voor zover vertalingen beschikbaar zijn.
+settings-song-info-country = Land voor hitlijsten en aanbevelingen
+settings-song-info-country-desc = Het land waarop de hitlijsten en aanbevelingen zijn gebaseerd.
+settings-folder-per-list = Elk album en elke afspeellijst in een eigen map opslaan
+settings-folder-per-list-desc = Als je een album of afspeellijst via de pagina of het menu downloadt, worden de nummers in een map met die naam opgeslagen. Eerder gedownloade nummers blijven op hun plek.
+settings-backup-stream = Reservestream als de muziek stopt
+settings-backup-stream-desc = Als je bent ingelogd en YouTube een nummer stopt voor een botcontrole (dit kan met een VPN gebeuren), wordt een stream met video gebruikt. Verbruikt meer data.
+settings-backup-stream-prompt-title = Afspelen gestopt
+settings-backup-stream-prompt-body = YouTube heeft dit nummer gestopt voor een botcontrole. Dit kan met een VPN gebeuren. Je kunt het met een reservestream afspelen. Die bevat ook video en verbruikt meer data.
+settings-backup-stream-prompt-enable = Inschakelen en opnieuw proberen
+settings-backup-stream-prompt-settings = Instellingen
+settings-backup-stream-prompt-dismiss = Nu niet

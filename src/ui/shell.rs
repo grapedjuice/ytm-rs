@@ -709,7 +709,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
             ui.add_space(10.0);
         }
         if icon_button(ui, icon::CHEVRON_LEFT, 20.0, "Back", false).clicked() {
-            app.nav_back();
+            app.nav_back(ui.ctx());
         }
         if icon_button(ui, icon::CHEVRON_RIGHT, 20.0, "Forward", false).clicked() {
             app.nav_forward();

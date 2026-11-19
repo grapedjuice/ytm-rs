@@ -1193,8 +1193,11 @@ impl App {
         self.page_loaded();
     }
 
-    fn nav_back(&mut self) {
-        if self.np_open {
+    /// In full screen, back leaves it, as Esc does.
+    fn nav_back(&mut self, ctx: &egui::Context) {
+        if self.fullscreen {
+            self.set_fullscreen(ctx, false);
+        } else if self.np_open {
             self.np_open = false;
         } else if let Some(p) = self.back.pop() {
             self.forward.push(std::mem::replace(&mut self.page, p));
@@ -1660,6 +1663,12 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.shortcuts(&ctx);
+        // Full screen is now playing's: whatever closes it (L, a link to a page, the queue
+        // emptied under it) leaves full screen too, or the window would stay full screen
+        // with nothing in it (#239).
+        if self.fullscreen && !(self.np_open && self.current().is_some()) && dev_var("YTM_FAKE_FULLSCREEN").is_none() {
+            self.set_fullscreen(&ctx, false);
+        }
         self.rating_settings.share_unlike_settings(&ctx, self.backend.api().epoch());
         crate::shader::set_glass_on(self.glass_on);
         let now = ctx.input(|i| i.time);

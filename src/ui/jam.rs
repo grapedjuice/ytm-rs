@@ -84,6 +84,11 @@ impl Session {
         self.active() && !self.is_host()
     }
 
+    /// A guest the host hasn't let control playback.
+    pub fn guest_without_control(&self) -> bool {
+        self.guest() && !self.control
+    }
+
     /// The room's code, once it has let you in.
     pub fn code(&self) -> Option<&str> {
         self.conn.as_ref().filter(|_| self.welcomed).map(|c| c.code.as_str())

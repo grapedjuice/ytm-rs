@@ -637,10 +637,11 @@ fn fullbleed_fade(ui: &Ui, id: &str, thumbs: &[crate::model::Thumb], now: f64, d
 fn fullscreen_progress(app: &mut App, ui: &mut Ui, screen: Rect, px: f32) {
     let status = app.audio.status.clone();
     let total = status.duration().map_or(0.0, |d| d.as_secs_f32());
-    let pos = status.position_smooth().as_secs_f32().min(total.max(0.0));
+    let pos = app.seek_drag.unwrap_or(status.position_smooth().as_secs_f32()).min(total.max(0.0));
     let r = Rect::from_min_max(pos2(screen.left(), screen.bottom() - px), screen.max);
     let resp = ui.interact(r, ui.scope_id().with("full-seek"), Sense::click());
     let resp = named(resp, "Seek").on_hover_cursor(egui::CursorIcon::PointingHand);
+    app.seek_wheel.hover(&resp);
     let bar_r = app.look().now_playing.fullscreen_progress_radius;
     ui.painter().rect_filled(r, bar_r, theme::with_alpha(Color32::WHITE, 0.12));
     if total > 0.0 {
@@ -652,6 +653,7 @@ fn fullscreen_progress(app: &mut App, ui: &mut Ui, screen: Rect, px: f32) {
         if resp.clicked()
             && let Some(p) = resp.interact_pointer_pos()
         {
+            app.seek_drag = None;
             app.actions.push(Action::Seek(((p.x - r.left()) / r.width()).clamp(0.0, 1.0) * total));
         }
     }
@@ -1095,7 +1097,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     if !player && np.cover_progress && near_cover {
         let status = app.audio.status.clone();
         let total = status.duration().map_or(0.0, |d| d.as_secs_f32());
-        let pos = status.position_smooth().as_secs_f32().min(total.max(0.0));
+        let pos = app.seek_drag.unwrap_or(status.position_smooth().as_secs_f32()).min(total.max(0.0));
         let cap = Rect::from_center_size(pos2(art.center().x, art.bottom() - 34.0), vec2((art.width() - 40.0).max(120.0), 34.0));
         if let Some(g) = look.app.glass.tabs {
             crate::shader::frost(ui.painter(), cap, crate::shader::Frost { look: g, radius: 17.0, opacity: 1.0, fade: 0.0 });
@@ -1106,12 +1108,14 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         widgets::time_at(ui, cap.right_center() - vec2(14.0, 0.0), egui::Align2::RIGHT_CENTER, &super::fmt_time(total as u32), font, Color32::WHITE);
         let line = Rect::from_center_size(cap.center(), vec2((cap.width() - 110.0).max(40.0), 4.0));
         let seek = named(ui.interact(line.expand2(vec2(0.0, 10.0)), ui.scope_id().with("cover-seek"), Sense::click()), "Seek").on_hover_cursor(egui::CursorIcon::PointingHand);
+        app.seek_wheel.hover(&seek);
         ui.painter().rect_filled(line, 2.0, theme::with_alpha(Color32::WHITE, 0.25));
         if total > 0.0 {
             ui.painter().rect_filled(Rect::from_min_size(line.min, vec2(line.width() * pos / total, 4.0)), 2.0, Color32::WHITE);
             if seek.clicked()
                 && let Some(p) = seek.interact_pointer_pos()
             {
+                app.seek_drag = None;
                 app.actions.push(Action::Seek(((p.x - line.left()) / line.width()).clamp(0.0, 1.0) * total));
             }
         }
@@ -1391,6 +1395,7 @@ fn seek_line(app: &mut App, ui: &mut Ui, hit: Rect, id: egui::Id, (pos, total): 
     let seek = ui.interact(hit, id, Sense::click_and_drag());
     let seek = if total > 0.0 { seek.on_hover_cursor(egui::CursorIcon::PointingHand) } else { seek };
     seek.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
+    app.seek_wheel.hover(&seek);
     let lit = theme::anim_bool(ui.ctx(), id.with("h"), seek.hovered() || seek.dragged(), 0.15);
     let thick = 3.0 + 2.0 * lit;
     let track_r = Rect::from_center_size(pos2(hit.center().x, line_y), vec2(hit.width(), thick));

@@ -1211,6 +1211,11 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     // The two targets on two layers, as one.
     let any = |f: fn(&egui::Response) -> bool| f(&resp) || knob_resp.as_ref().is_some_and(f);
     let at = |f: fn(&egui::Response) -> Option<egui::Pos2>| f(&resp).or_else(|| knob_resp.as_ref().and_then(f));
+    // Pointed at, the wheel seeks (see `seek_wheel`).
+    app.seek_wheel.hover(&resp);
+    if let Some(k) = &knob_resp {
+        app.seek_wheel.hover(k);
+    }
     let h = theme::anim_bool(ui.ctx(), "progress-h", any(egui::Response::hovered) || any(egui::Response::dragged), 0.15);
     let thick = progress_px + if progress_thumb { 2.0 * h } else { 0.0 };
     // Along the bottom edge it thickens upward, staying inside the bar.

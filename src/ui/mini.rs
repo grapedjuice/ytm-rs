@@ -1524,6 +1524,7 @@ fn card_seek(app: &mut App, ui: &mut Ui, line: Rect, track: Option<&crate::model
     let resp = ui.interact(line.expand2(vec2(4.0, 9.0)), ui.scope_id().with("card-seek"), Sense::click_and_drag());
     let resp = if total > 0.0 { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
     resp.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
+    app.seek_wheel.hover(&resp);
     let h = theme::anim_bool(ui.ctx(), "card-seek-h", total > 0.0 && (resp.hovered() || resp.dragged()), 0.15);
     let thick = 4.0 + 2.0 * h;
     let bar = Rect::from_center_size(line.center(), vec2(line.width(), thick));
@@ -1674,6 +1675,7 @@ fn seek_line(app: &mut App, ui: &mut Ui, r: Rect, track: Option<&crate::model::T
     let resp = ui.interact(hit, ui.scope_id().with("mini-seek"), Sense::click_and_drag());
     let resp = if total > 0.0 { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
     resp.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
+    app.seek_wheel.hover(&resp);
     let h = theme::anim_bool(ui.ctx(), "mini-seek-h", total > 0.0 && (resp.hovered() || resp.dragged()), 0.15);
     let thick = 4.0 + 2.0 * h;
     let line = Rect::from_min_max(pos2(r.left(), r.bottom() - thick), r.max);

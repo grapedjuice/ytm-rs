@@ -636,6 +636,7 @@ impl App {
     }
 
     pub(super) fn seek_to(&mut self, at: Duration) {
+        self.seek_wheel_seeked(at.as_secs_f32());
         if self.resume_at.is_some() {
             // Restored but not loaded yet (nothing for the player to seek): move the start point instead.
             self.resume_at = Some(at);

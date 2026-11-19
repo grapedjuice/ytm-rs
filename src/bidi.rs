@@ -9,7 +9,7 @@
 
 use std::borrow::Cow;
 
-use unicode_bidi::ParagraphBidiInfo;
+use unicode_bidi::{Level, ParagraphBidiInfo};
 
 /// Letters (and their marks) of the right-to-left scripts, which fonts set as one
 /// right-to-left stretch.
@@ -52,7 +52,7 @@ pub fn visual(text: &str) -> Cow<'_, str> {
     if !has_rtl(text) {
         return Cow::Borrowed(text);
     }
-    Cow::Owned(text.split('\n').map(|l| visual_pieces(l).concat()).collect::<Vec<_>>().join("\n"))
+    Cow::Owned(text.split('\n').map(|l| visual_pieces(l, rtl_base(l)).concat()).collect::<Vec<_>>().join("\n"))
 }
 
 /// A layout job showing `text` in display order. Each RTL word is a section of its own:
@@ -61,6 +61,14 @@ pub fn visual(text: &str) -> Cow<'_, str> {
 /// text in one piece, a font holding both the letters and the spaces would turn the
 /// whole sentence around again.)
 pub fn job(text: &str, font: egui::FontId, color: egui::Color32) -> egui::text::LayoutJob {
+    job_based(text, font, color, None)
+}
+
+/// [`job`], with every line read right to left (`Some(true)`) or left to right
+/// (`Some(false)`) whatever it starts with: the interface's own sentences go its
+/// language's way, and a wrapped paragraph's rows go the paragraph's. `None`: each
+/// line by its first letter with a direction.
+pub fn job_based(text: &str, font: egui::FontId, color: egui::Color32, base: Option<bool>) -> egui::text::LayoutJob {
     use egui::epaint::text::{ByteIndex, LayoutSection};
     let mut job = egui::text::LayoutJob::default();
     let format = egui::TextFormat::simple(font, color);
@@ -74,7 +82,7 @@ pub fn job(text: &str, font: egui::FontId, color: egui::Color32) -> egui::text::
         if i > 0 {
             push(&mut job, "\n");
         }
-        for piece in visual_pieces(line) {
+        for piece in visual_pieces(line, base.unwrap_or_else(|| rtl_base(line))) {
             push(&mut job, &piece);
         }
     }
@@ -82,12 +90,13 @@ pub fn job(text: &str, font: egui::FontId, color: egui::Color32) -> egui::text::
 }
 
 /// A line in display order, in pieces: whole left-to-right runs, single RTL words (or
-/// stretches of RTL letters), and single other characters between them.
-fn visual_pieces(line: &str) -> Vec<String> {
+/// stretches of RTL letters), and single other characters between them. `rtl`: the
+/// line reads right to left.
+fn visual_pieces(line: &str, rtl: bool) -> Vec<String> {
     if !has_rtl(line) {
         return vec![line.to_owned()];
     }
-    let info = ParagraphBidiInfo::new(line, None);
+    let info = ParagraphBidiInfo::new(line, Some(if rtl { Level::rtl() } else { Level::ltr() }));
     let (levels, runs) = info.visual_runs(0..line.len());
     let mut out = Vec::new();
     for run in runs {
@@ -149,5 +158,23 @@ mod tests {
         assert_eq!(visual("(שלום)"), "(שלום)");
         assert!(rtl_base("שלום world"));
         assert!(!rtl_base("hello שלום"));
+    }
+
+    fn display(text: &str, rtl: bool) -> String {
+        job_based(text, egui::FontId::default(), egui::Color32::WHITE, Some(rtl)).text
+    }
+
+    #[test]
+    fn a_right_to_left_sentence_starting_in_latin_can_still_read_right_to_left() {
+        let line = "256 kbps بدلاً من 128.";
+        // Started by a Latin name, the line reads left to right on its own: the name on
+        // the left, the stop on the right…
+        let ltr = display(line, false);
+        assert!(ltr.starts_with("256 kbps") && ltr.ends_with('.'), "{ltr}");
+        // …but in a right-to-left interface, the name goes right and the stop left (with
+        // the number and unit each read right to left too: "kbps 256").
+        let rtl = display(line, true);
+        assert!(rtl.starts_with('.') && rtl.ends_with("kbps 256"), "{rtl}");
+        assert_eq!(display("الصق الرمز في ListenBrainz", true), "ListenBrainz في الرمز الصق");
     }
 }

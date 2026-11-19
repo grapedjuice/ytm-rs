@@ -16,13 +16,25 @@ pub fn named(resp: Response, name: &str) -> Response {
 /// Single-line text truncated with an ellipsis to `width`. Right-to-left text is put in
 /// display order (`bidi`), and cut at its end (the left) when it doesn't fit.
 pub fn galley(ui: &Ui, text: &str, font: egui::FontId, color: Color32, width: f32) -> std::sync::Arc<egui::Galley> {
+    galley_based(ui, text, font, color, width, None)
+}
+
+/// The interface's own text reads its language's way, whatever a sentence starts with.
+pub fn ui_base() -> Option<bool> {
+    crate::i18n::rtl().then_some(true)
+}
+
+/// [`galley`], read right to left or not as `base` says (`None`: by its first letter
+/// with a direction; see [`crate::bidi::job_based`]).
+pub fn galley_based(ui: &Ui, text: &str, font: egui::FontId, color: Color32, width: f32, base: Option<bool>) -> std::sync::Arc<egui::Galley> {
     let width = width.max(10.0);
+    let rtl = base.unwrap_or_else(|| crate::bidi::rtl_base(text));
     let mut job = if !crate::bidi::has_rtl(text) {
         egui::text::LayoutJob::simple_singleline(text.to_owned(), font, color)
-    } else if crate::bidi::rtl_base(text) {
-        crate::bidi::job(&rtl_fit(ui, text, &font, width), font, color)
+    } else if rtl {
+        crate::bidi::job_based(&rtl_fit(ui, text, &font, width), font, color, Some(true))
     } else {
-        crate::bidi::job(text, font, color)
+        crate::bidi::job_based(text, font, color, Some(false))
     };
     job.wrap = egui::text::TextWrapping::truncate_at_width(width);
     ui.fonts_mut(|f| f.layout_job(job))
@@ -89,31 +101,95 @@ pub fn galley_wrapped(
     width: f32,
     rows: usize,
 ) -> std::sync::Arc<egui::Galley> {
-    let mut job = egui::text::LayoutJob::simple(text.to_owned(), font.clone(), color, width.max(10.0));
-    job.wrap.max_rows = rows;
-    job.wrap.break_anywhere = false;
-    job.wrap.overflow_character = Some('…');
-    let g = ui.fonts_mut(|f| f.layout_job(job.clone()));
+    galley_wrapped_based(ui, text, font, color, width, rows, None)
+}
+
+/// [`galley_wrapped`], read right to left or not as `base` says (see [`galley_based`]).
+pub fn galley_wrapped_based(
+    ui: &Ui,
+    text: &str,
+    font: egui::FontId,
+    color: Color32,
+    width: f32,
+    rows: usize,
+    base: Option<bool>,
+) -> std::sync::Arc<egui::Galley> {
+    let width = width.max(10.0);
     if !crate::bidi::has_rtl(text) {
-        return g;
+        let mut job = egui::text::LayoutJob::simple(text.to_owned(), font, color, width);
+        job.wrap.max_rows = rows;
+        job.wrap.break_anywhere = false;
+        job.wrap.overflow_character = Some('…');
+        return ui.fonts_mut(|f| f.layout_job(job));
     }
     // Wrapped in reading order, then each row put in display order on its own (ordering
-    // the whole text first would start the first row with the end of the sentence).
-    let mut rows_text = Vec::with_capacity(g.rows.len());
-    let mut chars = text.chars();
-    for (i, row) in g.rows.iter().enumerate() {
-        let mut s: String = chars.by_ref().take(row.char_count_including_newline().0).collect();
-        if s.ends_with('\n') {
-            s.pop();
+    // the whole text first would start the first row with the end of the sentence). The
+    // rows are worked out here by measuring: a shaped row's glyphs don't count its
+    // letters (لا is two letters in one glyph), so cutting the text by them split words.
+    let measure = |s: &str| ui.fonts_mut(|f| f.layout_no_wrap(s.to_owned(), font.clone(), Color32::WHITE).size().x);
+    let rows_text = wrap_rows(text, width, rows, measure);
+    let rtl = base.unwrap_or_else(|| crate::bidi::rtl_base(text));
+    ui.fonts_mut(|f| f.layout_job(crate::bidi::job_based(&rows_text.join("\n"), font, color, Some(rtl))))
+}
+
+/// `text` in rows no wider than `width` by `measure`, broken between words, at most
+/// `rows` of them, the last ending in "…" when there was more. A word wider than a row
+/// has one to itself.
+fn wrap_rows(text: &str, width: f32, rows: usize, measure: impl Fn(&str) -> f32) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut more = false;
+    'lines: for line in text.split('\n') {
+        let mut row = String::new();
+        for word in line.split(' ').filter(|w| !w.is_empty()) {
+            let joined = if row.is_empty() { word.to_owned() } else { format!("{row} {word}") };
+            if row.is_empty() || measure(&joined) <= width {
+                row = joined;
+                continue;
+            }
+            out.push(std::mem::replace(&mut row, word.to_owned()));
+            if out.len() == rows {
+                more = true;
+                break 'lines;
+            }
         }
-        if i + 1 == g.rows.len() && g.elided {
-            s = format!("{}…", s.trim_end());
+        out.push(row);
+        if out.len() == rows {
+            more = text.split('\n').count() > rows;
+            break;
         }
-        rows_text.push(s.trim_end().to_owned());
     }
-    let mut job = crate::bidi::job(&rows_text.join("\n"), font, color);
-    job.halign = g.job.halign;
-    ui.fonts_mut(|f| f.layout_job(job))
+    if more && let Some(last) = out.last_mut() {
+        let mut words: Vec<&str> = last.split(' ').collect();
+        while words.len() > 1 && measure(&format!("{}…", words.join(" "))) > width {
+            words.pop();
+        }
+        *last = format!("{}…", words.join(" "));
+    }
+    out
+}
+
+/// A paragraph of the interface's own text across the width there is, in display
+/// order when it has right-to-left letters, and from the right in a right-to-left
+/// language. (egui's label would lay its words out left to right.)
+pub fn note(ui: &mut Ui, text: &str, font: egui::FontId, color: Color32) -> Response {
+    if !crate::bidi::has_rtl(text) {
+        return ui.label(egui::RichText::new(text).font(font).color(color));
+    }
+    let w = ui.available_width();
+    let g = galley_wrapped_based(ui, text, font, color, w, usize::MAX, ui_base());
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, g.size().y), Sense::hover());
+    let x = if crate::i18n::rtl() { rect.right() - g.size().x } else { rect.left() };
+    ui.painter().galley(pos2(x, rect.top()), g, color);
+    resp
+}
+
+/// The interface's own short text as a label's or a hint's, in display order (see
+/// [`note`]).
+pub fn ui_text(text: &str, font: egui::FontId, color: Color32) -> egui::WidgetText {
+    if !crate::bidi::has_rtl(text) {
+        return egui::RichText::new(text).font(font).color(color).into();
+    }
+    crate::bidi::job_based(text, font, color, ui_base()).into()
 }
 
 pub fn text_at(ui: &Ui, pos: Pos2, text: &str, font: egui::FontId, color: Color32, width: f32) -> Rect {
@@ -1827,6 +1903,38 @@ mod shelf_scroll_tests {
         assert_eq!(shelf_page_starts(1, 3), [0]);
         // The old last page is between new page starts after more picks arrive.
         assert_eq!(shelf_page_target(&shelf_page_starts(11, 3), 436.0, 2.0 * 436.0, 1), 3.0 * 436.0);
+    }
+}
+
+#[cfg(test)]
+mod wrap_tests {
+    use super::wrap_rows;
+
+    /// A letter a point: a word's width is its letter count.
+    fn width(s: &str) -> f32 {
+        s.chars().count() as f32
+    }
+
+    #[test]
+    fn rows_break_between_whole_words() {
+        // لأغنية has a two-letter ligature; a row's text is still whole words.
+        let text = "يُطبَّق بدءاً من الأغنية التالية";
+        let rows = wrap_rows(text, 14.0, 9, width);
+        assert_eq!(rows, ["يُطبَّق بدءاً", "من الأغنية", "التالية"]);
+        assert!(rows.iter().all(|r| width(r) <= 14.0));
+        assert_eq!(rows.join(" "), text);
+    }
+
+    #[test]
+    fn too_many_rows_end_in_an_ellipsis() {
+        assert_eq!(wrap_rows("one two three four five", 9.0, 2, width), ["one two", "three…"]);
+        assert_eq!(wrap_rows("a\nb\nc", 9.0, 2, width), ["a", "b…"]);
+        assert_eq!(wrap_rows("a\nb", 9.0, 2, width), ["a", "b"]);
+    }
+
+    #[test]
+    fn a_long_word_has_a_row_to_itself() {
+        assert_eq!(wrap_rows("hi extraordinarily so", 5.0, 9, width), ["hi", "extraordinarily", "so"]);
     }
 }
 

@@ -1276,7 +1276,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             let t = ((p.x - line.left()) / line.width()).clamp(0.0, 1.0) * total;
             let tip = pos2(p.x, line.top() - 16.0);
             let tip_text = crate::preset::hex(&chrome.tip_text).unwrap_or(Color32::WHITE);
-            let g = widgets::galley(ui, &fmt_time(t as u32), theme::semibold(12.0), tip_text, 80.0);
+            let g = widgets::time_galley(ui, &fmt_time(t as u32), theme::semibold(12.0), tip_text);
             let bg = Rect::from_center_size(tip, g.size() + vec2(12.0, 6.0));
             over.rect_filled(bg, 6.0, crate::preset::hex(&chrome.tip_fill).unwrap_or(theme::shade(0.75)));
             over.galley(bg.min + vec2(6.0, 3.0), g, tip_text);
@@ -1309,7 +1309,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     // progress line still shows it on hover). The title shortens to keep clear on the left.
     let time_g = (total > 0.0).then(|| {
         let txt = format!("{} / {}", fmt_time(pos as u32), fmt_time(total as u32));
-        widgets::galley(ui, &txt, theme::weighted(chrome.time_weight, 13.0), theme::with_alpha(theme::text_dim(), chrome.time_alpha), 200.0)
+        widgets::time_galley(ui, &txt, theme::weighted(chrome.time_weight, 13.0), theme::with_alpha(theme::text_dim(), chrome.time_alpha))
     });
     let time_w = time_g.as_ref().map_or(0.0, |g| g.size().x);
     // Where the song starts: at the left, or just right of the left-hand transport, the

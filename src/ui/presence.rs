@@ -402,7 +402,7 @@ fn profile_card(ui: &mut Ui, c: &Card, width: f32) {
 fn elapsed(ui: &Ui, at: egui::Pos2, start: i64) {
     let secs = ((now_ms() - start) / 1000).max(0) as u32;
     widgets::icon_at(ui, at + vec2(6.0, 0.0), icon::MUSIC, 13.0, GREEN);
-    ui.painter().text(at + vec2(17.0, 0.0), Align2::LEFT_CENTER, super::fmt_time(secs), theme::semibold(12.5), GREEN);
+    widgets::time_at(ui, at + vec2(17.0, 0.0), Align2::LEFT_CENTER, &super::fmt_time(secs), theme::semibold(12.5), GREEN);
 }
 
 fn member_row(ui: &mut Ui, c: &Card, name: &str, avatar: Option<&str>, width: f32) {

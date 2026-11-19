@@ -1535,8 +1535,8 @@ fn card_seek(app: &mut App, ui: &mut Ui, line: Rect, track: Option<&crate::model
         ui.painter().circle_filled(pos2(fill.right(), bar.center().y), 6.0 * h, theme::text());
     }
     let font = theme::regular(11.0);
-    text_at(ui, pos2(bar.left(), bar.bottom() + 7.0), &fmt_time(pos as u32), font.clone(), theme::text_faint(), 60.0);
-    let g = widgets::galley(ui, &fmt_time(total as u32), font, theme::text_faint(), 60.0);
+    widgets::time_at(ui, pos2(bar.left(), bar.bottom() + 7.0), egui::Align2::LEFT_TOP, &fmt_time(pos as u32), font.clone(), theme::text_faint());
+    let g = widgets::time_galley(ui, &fmt_time(total as u32), font, theme::text_faint());
     ui.painter().galley(pos2(bar.right() - g.size().x, bar.bottom() + 7.0), g, theme::text_faint());
     let at = |p: Pos2| ((p.x - bar.left()) / bar.width()).clamp(0.0, 1.0) * total;
     if total > 0.0
@@ -1685,7 +1685,7 @@ fn seek_line(app: &mut App, ui: &mut Ui, r: Rect, track: Option<&crate::model::T
         && let Some(p) = resp.hover_pos().or(resp.interact_pointer_pos())
     {
         let txt = format!("{} / {}", fmt_time(at(p) as u32), fmt_time(total as u32));
-        let g = widgets::galley(ui, &txt, theme::semibold(11.5), Color32::WHITE, 120.0);
+        let g = widgets::time_galley(ui, &txt, theme::semibold(11.5), Color32::WHITE);
         let half = g.size().x / 2.0 + 6.0;
         let x = p.x.clamp(r.left() + half + 2.0, r.right() - half - 2.0);
         let bg = Rect::from_center_size(pos2(x, line.top() - 13.0), g.size() + vec2(12.0, 5.0));

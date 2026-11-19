@@ -60,12 +60,12 @@ fn parse_home(v: &Value) -> HomePage {
     HomePage { chips, shelves: shelves(&sec["contents"]), continuation: continuation(sec) }
 }
 
-/// Home's Podcasts chip, told by what it selects, not its title (that comes in the
-/// language asked for). Its params are `ggNC` and then one 6-byte entry a chip, in
-/// base64 8 characters each: `SgQIDBAD` is chip 12, Podcasts, selected.
+/// Home's Podcasts chip: by its title in English, and in any language by what it selects.
+/// Its params are `ggNC` and then one 6-byte entry a chip, in base64 8 characters each:
+/// `SgQIDBAD` is chip 12, Podcasts, selected.
 fn podcasts_chip(c: &Value) -> bool {
     let params = c["navigationEndpoint"]["browseEndpoint"]["params"].as_str().unwrap_or_default();
-    params.strip_prefix("ggNC").is_some_and(|p| p.as_bytes().chunks(8).any(|e| e == b"SgQIDBAD"))
+    text(&c["text"]).as_deref() == Some("Podcasts") || params.strip_prefix("ggNC").is_some_and(|p| p.as_bytes().chunks(8).any(|e| e == b"SgQIDBAD"))
 }
 
 pub async fn home_more(api: &Api, token: &str, auth: bool) -> anyhow::Result<HomePage> {
@@ -175,7 +175,7 @@ pub async fn search_songs(api: &Api, query: &str, auth: bool) -> anyhow::Result<
 }
 
 /// Like [`search_songs`], in English whatever Settings › Song info says: for matching
-/// against titles and names that aren't translated (a video's, Spotify's), which "スターボーイ"
+/// against titles and names that aren't translated (a video's, an imported playlist's), which "スターボーイ"
 /// by "ザ・ウィークエンド" wouldn't.
 pub async fn search_songs_in_english(api: &Api, query: &str, auth: bool) -> anyhow::Result<Vec<Track>> {
     let v = api.call_in_english("search", json!({ "query": query, "params": Filter::Songs.params() }), auth).await?;
@@ -972,9 +972,10 @@ fn parse_artist(v: &Value, id: &str) -> Option<ArtistPage> {
 pub async fn comments(api: &Api, video_id: &str, auth: bool) -> anyhow::Result<Option<Value>> {
     let watch = api.call("next", json!({ "videoId": video_id }), auth).await?;
     let tabs = &watch["contents"]["singleColumnMusicWatchNextResultsRenderer"]["tabbedRenderer"]["watchNextTabbedResultsRenderer"]["tabs"];
-    // Told by its content, not its title (in the language asked for): Up next holds the
+    let mut tabs = tabs.as_array().into_iter().flatten();
+    // By its title in English; in another language by its content: Up next holds the
     // queue, Lyrics and Related are pages of their own, Comments a list loaded later.
-    let tab = tabs.as_array().into_iter().flatten().find(|t| !t["tabRenderer"]["content"]["sectionListRenderer"].is_null());
+    let tab = tabs.clone().find(|t| t["tabRenderer"]["title"] == "Comments").or_else(|| tabs.find(|t| !t["tabRenderer"]["content"]["sectionListRenderer"].is_null()));
     let Some(token) = tab.and_then(|t| first_string(&t["tabRenderer"]["content"], "continuation")) else { return Ok(None) };
     api.call("next", json!({ "continuation": token }), auth).await.map(Some)
 }
@@ -2017,11 +2018,12 @@ fn episode(r: &Value) -> Option<Track> {
 }
 
 /// An episode in search results: "Episode • Dec 28, 2025 • <its show>" where a song has
-/// its artists, which is what `list_item` would take the date for.
+/// its artists, which is what `list_item` would take the date for. Episodes show no plays.
 fn episode_row(r: &Value) -> Option<Track> {
     let mut t = list_item(r)?;
     t.artists = show_links(&r["flexColumns"][1]["musicResponsiveListItemFlexColumnRenderer"]["text"]);
     t.album = None;
+    t.plays = None;
     Some(t)
 }
 
@@ -2136,7 +2138,8 @@ fn list_item(r: &Value) -> Option<Track> {
                 _ if name.ends_with(" plays") => plays = count(name),
                 // In another language ("再生回数 966万 回"): an unlinked count in a column
                 // of its own, or after the artists on a song's row (a video's is its views).
-                None if plays.is_none() && id.is_none() && (c >= 2 || !video) && name.contains(|c: char| c.is_ascii_digit()) => plays = count(name),
+                // Not a date ("Dec 28, 2025", "2025/12/28"), which holds more than one number.
+                None if plays.is_none() && id.is_none() && (c >= 2 || !video) => plays = lone_count(name),
                 _ => {}
             }
         }
@@ -2231,6 +2234,16 @@ fn parse_duration(s: &str) -> Option<u32> {
 /// thousands, before fewer it's the decimal point. A fraction without a unit after it isn't
 /// a count: `None`, rather than one off by the unit.
 fn count(s: &str) -> Option<u64> {
+    count_and_rest(s).map(|(n, _)| n)
+}
+
+/// [`count`], when `s` holds no other number: "2025年12月28日" and "28.12.2025" are dates.
+fn lone_count(s: &str) -> Option<u64> {
+    count_and_rest(s).filter(|(_, rest)| !rest.contains(|c: char| c.is_ascii_digit())).map(|(n, _)| n)
+}
+
+/// [`count`], and the text after its number.
+fn count_and_rest(s: &str) -> Option<(u64, &str)> {
     let s = &s[s.find(|c: char| c.is_ascii_digit())?..];
     let b = s.as_bytes();
     let (mut num, mut fraction, mut i) = (String::new(), false, 0);
@@ -2263,7 +2276,7 @@ fn count(s: &str) -> Option<u64> {
             _ => 1.0,
         },
     };
-    Some((num.parse::<f64>().ok()? * mult).round() as u64)
+    Some(((num.parse::<f64>().ok()? * mult).round() as u64, &s[i..]))
 }
 
 fn arr(v: &Value) -> &[Value] {
@@ -3153,6 +3166,8 @@ mod tests {
         assert!(podcasts_chip(&chip("ggNCSgQIDBADSgQIBBABSgQICRAB")));
         assert!(!podcasts_chip(&chip("ggNCSgQIDBABSgQIBBADSgQICRAB")));
         assert!(!podcasts_chip(&chip("")));
+        // In English, by its title too.
+        assert!(podcasts_chip(&json!({"text": {"runs": [{"text": "Podcasts"}]}})));
     }
 
     #[test]
@@ -3483,6 +3498,24 @@ mod podcast_tests {
         let t = episode_row(&r).unwrap();
         assert_eq!(t.title, "The Buried Bodies Case");
         assert_eq!(t.artists, [Link { name: "Radiolab".into(), id: Some("MPSPPL1".into()) }]);
+    }
+
+    #[test]
+    fn a_search_episode_dated_has_no_plays() {
+        let col = |runs: Value| json!({"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": runs}}});
+        let r = json!({
+            "playlistItemData": {"videoId": "xjZ31IKfu4Q"},
+            "flexColumns": [col(json!([{"text": "The Buried Bodies Case"}])), col(json!([{"text": "Episode"}, {"text": " • "}, {"text": "Dec 28, 2025"}, {"text": " • "}, show_run("Radiolab", "MPSPPL1")]))],
+        });
+        assert_eq!(list_item(&r).unwrap().plays, None);
+        let t = episode_row(&r).unwrap();
+        assert_eq!((t.plays, t.artists.len()), (None, 1));
+        // A date in any language holds more than one number; a count holds one.
+        for date in ["Dec 28, 2025", "2025/12/28", "28.12.2025", "2025年12月28日", "28 déc. 2025"] {
+            assert_eq!(lone_count(date), None, "{date}");
+        }
+        assert_eq!(lone_count("再生回数 966万 回"), Some(9_660_000));
+        assert_eq!(lone_count("1,2 Mio. Aufrufe"), Some(1_200_000));
     }
 
     #[test]

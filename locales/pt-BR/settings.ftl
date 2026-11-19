@@ -22,7 +22,7 @@ settings-clear = Limpar
 
 ## Account
 
-settings-signed-in-desc = Conectado com o Google. Seu feed inicial, biblioteca e curtidas vêm desta conta. Salvos criptografados no Windows Credential Manager.
+settings-signed-in-desc = Conectado com o Google. Seu feed inicial, biblioteca e curtidas vêm desta conta. Salvos criptografados no Gerenciador de Credenciais do Windows.
 settings-sign-out = Sair
 settings-channel = Canal
 settings-channel-desc = Sua conta Google e cada canal do YouTube que ela gerencia têm sua própria biblioteca, curtidas, histórico e recomendações.
@@ -192,7 +192,7 @@ settings-pulse-with-the-music-desc = O fundo incha com a batida, em temas cujo f
 settings-dim-bright-covers = Atenuar capas claras
 settings-dim-bright-covers-desc = Escurece o fundo quando a capa é clara, para as letras e títulos sobre ela continuarem legíveis. Capas escuras ficam como estão.
 settings-font = Fonte
-settings-font-desc = Para o app inteiro e as letras. Qualquer fonte instalada neste PC serve, por exemplo. uma feita para o seu idioma.
+settings-font-desc = Para o app inteiro e as letras. Qualquer fonte instalada neste PC serve. Por exemplo: uma feita para o seu idioma.
 settings-themes = Temas
 settings-themes-note = Portados dos temas da comunidade Better Lyrics. Cada um restiliza o fundo, as letras, a capa, a barra do player e o resto do app, e cada configuração acima funciona em todos.
 settings-zoom = Zoom
@@ -293,7 +293,7 @@ settings-proxy-address = Endereço do proxy
 settings-address = Endereço
 settings-saved = Salvo
 settings-save = Salvar
-settings-proxy-password-note = Uma senha no endereço fica no Windows Credential Manager.
+settings-proxy-password-note = Uma senha no endereço fica no Gerenciador de Credenciais do Windows.
 settings-checking = Verificando…
 settings-proxy-test-desc = Verifica se o YouTube Music responde com esta configuração.
 settings-test-connection = Testar conexão

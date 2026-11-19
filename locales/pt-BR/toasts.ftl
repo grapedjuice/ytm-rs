@@ -2,6 +2,6 @@
 
 # After unliking several songs at once; Undo sits beside it.
 likes-removed = { $count ->
-    [one] Removido { $count } curtida
+    [one] Removida { $count } curtida
    *[other] Removidas { $count } curtidas
 }

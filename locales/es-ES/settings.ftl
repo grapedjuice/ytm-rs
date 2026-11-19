@@ -43,7 +43,7 @@ settings-crossfade-songs = Crossfade entre canciones
 settings-crossfade-songs-desc = Mezcla el final de cada canción con el inicio de la siguiente.
 settings-crossfade-length = Duración del crossfade
 settings-crossfade-when-skipping = Crossfade al saltar
-settings-crossfade-when-skipping-desc = También hace fundido a la siguiente canción al saltar. Volver o elegir una canción sigue cambiando al instante.
+settings-crossfade-when-skipping-desc = También hace crossfade a la siguiente canción al saltar. Volver o elegir una canción sigue cambiando al instante.
 settings-hide-explicit-songs = Ocultar canciones explícitas
 settings-hide-explicit-songs-desc = Deja fuera de listas, búsqueda, cola y reproducción automática las canciones marcadas con E. Las que ya suenan terminan.
 settings-show-podcasts = Mostrar pódcasts
@@ -207,8 +207,8 @@ settings-looking-for-fonts = Buscando fuentes…
 
 ## Mini player
 
-settings-pill-mini-player-desc = Experimental. Una pastilla pequeña que muestra sus controles al señalarla. Haz doble clic para la ventana completa.
-settings-pill-mini-player-desc-needs-opengl = Experimental. Una pastilla pequeña que muestra sus controles al señalarla. Necesita OpenGL, no Vulkan.
+settings-pill-mini-player-desc = Experimental. Una pastilla pequeña que muestra sus controles al pasar el cursor por encima. Haz doble clic para la ventana completa.
+settings-pill-mini-player-desc-needs-opengl = Experimental. Una pastilla pequeña que muestra sus controles al pasar el cursor por encima. Necesita OpenGL, no Vulkan.
 settings-mini-player = Mini reproductor
 settings-pill-mini-player = Mini reproductor en pastilla
 settings-keep-on-top = Mantener encima

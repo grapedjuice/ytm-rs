@@ -429,7 +429,7 @@ pub enum Resp {
     PlaylistMoved { id: String, move_id: u64, ok: bool },
     Collaboration(ytm::Collaboration),
     /// Playback for `generation` failed before reaching the audio engine.
-    PlayError { generation: u64, msg: String, offer_backup_at: Option<std::time::Duration> },
+    PlayError { generation: u64, at: std::time::Duration, msg: String, offer_backup_at: Option<std::time::Duration> },
     /// Play `generation` is the song version of the music video that was asked for
     /// (`None`: that song wouldn't start, and the music video plays after all).
     PlayingAs { generation: u64, listed: String, song: Option<Track> },
@@ -823,11 +823,33 @@ pub fn is_downloaded(t: &Track) -> bool {
 }
 
 /// A video id and its stream buffer.
-type StreamSlot = Arc<std::sync::Mutex<Option<(String, Arc<Shared>)>>>;
+type StreamSlot = Arc<std::sync::Mutex<Option<(String, OpenStream)>>>;
+
+#[derive(Clone)]
+struct OpenStream {
+    shared: Arc<Shared>,
+    source: Option<Source>,
+}
+
+#[derive(Clone, Copy)]
+struct PlayStart {
+    generation: u64,
+    requested: std::time::Instant,
+}
 type SongCell = Arc<tokio::sync::OnceCell<Option<Track>>>;
 
 /// A music video's stream opened while its song was looked up. Left unused, it stops.
-struct EarlyVideo(Option<tokio::task::JoinHandle<anyhow::Result<Arc<Shared>>>>);
+struct EarlyVideo(Option<tokio::task::JoinHandle<anyhow::Result<OpenStream>>>);
+
+impl EarlyVideo {
+    async fn take(&mut self) -> Option<anyhow::Result<OpenStream>> {
+        // Keep the join handle in the guard until it resolves. A skip drops the
+        // wait, and the guard then stops the early stream as soon as it opens.
+        let result = self.0.as_mut()?.await;
+        self.0 = None;
+        Some(result.map_err(anyhow::Error::from).flatten())
+    }
+}
 
 impl Drop for EarlyVideo {
     fn drop(&mut self) {
@@ -836,12 +858,82 @@ impl Drop for EarlyVideo {
         {
             rt.spawn(async move {
                 if let Ok(Ok(s)) = open.await {
-                    s.cancel();
+                    s.shared.cancel();
                 }
             });
         }
     }
 }
+
+/// A decoder being opened. Leaving it also wakes the reader blocked on its download.
+struct OpeningStream(Option<Arc<Shared>>);
+
+impl Drop for OpeningStream {
+    fn drop(&mut self) {
+        if let Some(shared) = &self.0 {
+            shared.cancel();
+        }
+    }
+}
+
+struct ReadyStream {
+    stream: OpenStream,
+    track: crate::audio::ReadyTrack,
+    prepared: std::time::Instant,
+}
+
+// A head start is a chance to play alone, never a deadline on a progressing download.
+const STREAM_HEAD_START: std::time::Duration = std::time::Duration::from_millis(250);
+const COLD_SOLVER_HEAD_START: std::time::Duration = std::time::Duration::from_millis(600);
+
+async fn first_ready<T>(
+    primary: impl Future<Output = anyhow::Result<T>>,
+    alternate: impl Future<Output = anyhow::Result<T>>,
+    head_start: std::time::Duration,
+) -> anyhow::Result<T> {
+    tokio::pin!(primary, alternate);
+    if !head_start.is_zero() {
+        tokio::select! {
+            biased;
+            result = &mut primary => return match result {
+                Ok(ready) => Ok(ready),
+                Err(_) => alternate.await,
+            },
+            () = tokio::time::sleep(head_start) => {}
+        }
+    }
+    tokio::select! {
+        biased;
+        result = &mut primary => match result {
+            Ok(ready) => Ok(ready),
+            Err(_) => alternate.await,
+        },
+        result = &mut alternate => match result {
+            Ok(ready) => Ok(ready),
+            Err(_) => primary.await,
+        },
+    }
+}
+
+// If both decoders finished between polls, the worker timestamps break the tie.
+async fn earliest_pcm<T, F>(aac: F, opus: F, prepared: impl Fn(&T) -> std::time::Instant) -> anyhow::Result<T>
+where
+    F: Future<Output = anyhow::Result<T>>,
+{
+    tokio::pin!(aac, opus);
+    let (first, other) = tokio::select! {
+        a = &mut aac => (a, opus),
+        o = &mut opus => (o, aac),
+    };
+    let Ok(first) = first else { return other.await };
+    match futures_util::FutureExt::now_or_never(other) {
+        Some(Ok(second)) if prepared(&second) < prepared(&first) => Ok(second),
+        _ => Ok(first),
+    }
+}
+
+#[cfg(test)]
+mod playback_start_tests;
 
 /// How long a play waits for a music video's song version before playing the video.
 const PLAY_SONG_WAIT: std::time::Duration = std::time::Duration::from_millis(2500);
@@ -876,9 +968,6 @@ pub struct Backend {
     backup_stream: Arc<std::sync::atomic::AtomicBool>,
     /// Explicit songs are hidden: a music video's song version has to be clean.
     clean: Arc<std::sync::atomic::AtomicBool>,
-    /// The visionOS player's file URLs were refused past 1 MiB this session (YouTube
-    /// wants a PO token for them on this network): songs play from its HLS segments.
-    visionos_hls: Arc<std::sync::atomic::AtomicBool>,
     /// Song versions of music videos looked up this session (`None`: there's none), by
     /// video and whether the account has Premium (which gets YouTube's own pairs). One
     /// cell each, so a prefetch and the play of the same video share a lookup.
@@ -912,7 +1001,7 @@ impl Backend {
         {
             log::warn!("proxy relay: {e:#}");
         }
-        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), backup_stream: Default::default(), clean: Default::default(), visionos_hls: Default::default(), songs: Default::default(), batch: Default::default() };
+        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), backup_stream: Default::default(), clean: Default::default(), songs: Default::default(), batch: Default::default() };
         backend.keep_signed_in();
         Ok(backend)
     }
@@ -1019,8 +1108,8 @@ impl Backend {
 
     pub fn request(&self, req: Req) {
         let (what, quiet) = (req.name(), req.quiet());
-        let play_gen = match &req {
-            Req::Play { generation, .. } => Some(*generation),
+        let play = match &req {
+            Req::Play { generation, at, .. } => Some((*generation, *at)),
             _ => None,
         };
         let collection = match &req {
@@ -1036,7 +1125,7 @@ impl Backend {
         let t0 = std::time::Instant::now();
         let epoch = self.api.epoch();
         let task = self.rt.spawn(async move {
-            let r = this.handle(req).await;
+            let r = this.handle(req, t0).await;
             log::debug!("{what}: done in {:?}", t0.elapsed());
             r
         });
@@ -1048,8 +1137,8 @@ impl Backend {
                 Ok(resp) => resp,
                 Err(e) if e.is_panic() => {
                     log::error!("{what}: request panicked");
-                    match (play_gen, subscribe) {
-                        (Some(generation), _) => Some(Resp::PlayError { generation, msg: "YouTube didn't respond properly".into(), offer_backup_at: None }),
+                    match (play, subscribe) {
+                        (Some((generation, at)), _) => Some(Resp::PlayError { generation, at, msg: "YouTube didn't respond properly".into(), offer_backup_at: None }),
                         (_, Some((channel_id, on))) => Some(Resp::Subscribed { channel_id, on, ok: false }),
                         _ => (!quiet).then(|| Resp::Error(format!("{what} failed: YouTube didn't respond properly"))),
                     }
@@ -1085,12 +1174,12 @@ impl Backend {
     pub fn request_now(&self, req: Req) {
         let what = req.name();
         // In the runtime: a timeout made outside it panics.
-        if self.rt.block_on(async { tokio::time::timeout(std::time::Duration::from_secs(3), self.handle(req)).await }).is_err() {
+        if self.rt.block_on(async { tokio::time::timeout(std::time::Duration::from_secs(3), self.handle(req, std::time::Instant::now())).await }).is_err() {
             log::warn!("{what}: no answer before closing");
         }
     }
 
-    async fn handle(&self, req: Req) -> Option<Resp> {
+    async fn handle(&self, req: Req, requested: std::time::Instant) -> Option<Resp> {
         let api = &*self.api;
         // Personalised pages ask as the account when signed in, like music.youtube.com.
         let me = self.is_logged_in();
@@ -1247,11 +1336,12 @@ impl Backend {
                     Some(r) => r,
                     None => return Ok(None),
                 },
-                Req::Play { video_id, generation, at, report, song_of, song } => match self.start_playback(&video_id, song_of.as_ref(), song, generation, at, report).await {
+                Req::Play { video_id, generation, at, report, song_of, song } => match self.start_playback(&video_id, song_of.as_ref(), song, PlayStart { generation, requested }, at, report).await {
                     Ok(()) => return Ok(None),
                     Err(e) => {
                         log::warn!("play {video_id}: {e:#}");
-                        Resp::PlayError { generation, msg: format!("{e:#}"), offer_backup_at: None }
+                        let offer_backup_at = e.downcast_ref::<stream::DownloadFailure>().and_then(|failure| failure.offer_backup.then_some(at));
+                        Resp::PlayError { generation, at, msg: format!("{e:#}"), offer_backup_at }
                     }
                 },
                 Req::VideoStream { video_id, max_height } => {
@@ -1561,7 +1651,7 @@ impl Backend {
         let playing = self.current.lock().unwrap().as_ref().map(|(_, s)| s.clone());
         let (found, ()) = tokio::join!(self.find_stream(&video_id), async {
             if let Some(s) = playing {
-                s.finished().await;
+                s.shared.finished().await;
             }
         });
         if moot() {
@@ -1574,7 +1664,7 @@ impl Backend {
         log::debug!("prefetch {video_id}");
         let shared = self.start_stream(&video_id, found?, true);
         if let Some((_, old)) = prefetched.replace((video_id, shared)) {
-            old.cancel();
+            old.shared.cancel();
         }
         Ok(())
     }
@@ -1640,7 +1730,7 @@ impl Backend {
     /// counts too: starting a song clears it, and a restored session sets it.
     async fn stream_duration(&self, video_id: &str) -> Option<u32> {
         for _ in 0..150 {
-            let ms = self.current.lock().unwrap().as_ref().filter(|(id, _)| id == video_id).map(|(_, s)| s.duration_ms);
+            let ms = self.current.lock().unwrap().as_ref().filter(|(id, _)| id == video_id).map(|(_, s)| s.shared.duration_ms);
             let ms = ms.filter(|ms| *ms > 0).or_else(|| self.audio.status.duration().map(|d| d.as_millis() as u64));
             if let Some(ms) = ms.filter(|ms| *ms > 0) {
                 return Some((ms / 1000) as u32);
@@ -1669,8 +1759,23 @@ impl Backend {
         Ok(())
     }
 
-    async fn start_playback(&self, listed: &str, song_of: Option<&Track>, carried: Option<Track>, generation: u64, at: std::time::Duration, report: bool) -> anyhow::Result<()> {
-        let t0 = std::time::Instant::now();
+    async fn start_playback(&self, listed: &str, song_of: Option<&Track>, carried: Option<Track>, start: PlayStart, at: std::time::Duration, report: bool) -> anyhow::Result<()> {
+        let generation = start.generation;
+        let opening = self.open_playback(listed, song_of, carried, start, at, report);
+        let superseded = async {
+            while self.audio.status.wanted_gen.load(Ordering::Relaxed) == generation {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        };
+        tokio::select! {
+            biased;
+            () = superseded => Ok(()),
+            result = opening => result,
+        }
+    }
+
+    async fn open_playback(&self, listed: &str, song_of: Option<&Track>, carried: Option<Track>, start: PlayStart, at: std::time::Duration, report: bool) -> anyhow::Result<()> {
+        let generation = start.generation;
         // A music video plays as its song when one is found in time (or goes on as the
         // one it was). From here on, everything (prefetch, replay, history) goes by what
         // actually plays.
@@ -1697,11 +1802,10 @@ impl Backend {
         }
         let mut video_id = song.as_ref().map_or(listed, |s| s.id.as_str()).to_owned();
         let prefetched = self.prefetched.lock().unwrap().take();
-        let replay = self.current.lock().unwrap().take().filter(|(id, s)| *id == video_id && s.is_complete()).map(|(_, s)| s);
+        let replay = self.current.lock().unwrap().as_ref().filter(|(id, s)| *id == video_id && s.shared.is_complete()).map(|(_, s)| s.clone());
         let ready = match prefetched {
             // Not one whose download failed (refused, say): that opens afresh.
-            // Nor a file stream fetched before file streams turned out to be cut off.
-            Some((id, s)) if id == video_id && s.error().is_none() && !(self.visionos_hls.load(Ordering::Relaxed) && s.segments.is_none() && !s.is_complete()) => Some(s),
+            Some((id, s)) if id == video_id && s.shared.error().is_none() => Some(s),
             // Replaying the current song keeps the next one's prefetch.
             other if replay.is_some() => {
                 *self.prefetched.lock().unwrap() = other;
@@ -1710,11 +1814,12 @@ impl Backend {
             // Playback went elsewhere: that prefetch is moot.
             other => {
                 if let Some((_, s)) = other {
-                    s.cancel();
+                    s.shared.cancel();
                 }
                 None
             }
         };
+        let mut switched = false;
         let shared = match ready {
             Some(s) => {
                 log::debug!("play {video_id} (gen {generation}): using buffered stream");
@@ -1725,12 +1830,11 @@ impl Backend {
                     return Ok(());
                 }
                 // Taken only for the video; otherwise dropping `early` stops it.
-                let opened = match early.0.take_if(|_| song.is_none()) {
-                    Some(open) => {
-                        log::debug!("play {video_id} (gen {generation}): stream opened during the song lookup");
-                        open.await.map_err(anyhow::Error::from).flatten()
-                    }
-                    None => self.open_stream(&video_id, false).await,
+                let opened = if song.is_none() && let Some(opened) = early.take().await {
+                    log::debug!("play {video_id} (gen {generation}): stream opened during the song lookup");
+                    opened
+                } else {
+                    self.open_stream(&video_id, false).await
                 };
                 match opened {
                     Ok(s) => s,
@@ -1738,14 +1842,8 @@ impl Backend {
                     Err(e) if song.is_some() => {
                         log::warn!("{listed}'s song {video_id} won't play ({e:#}); playing the music video");
                         (song, video_id) = (None, listed.to_owned());
-                        // The UI took the song as playing already.
-                        if was_carried {
-                            let _ = self.tx.send(Resp::PlayingAs { generation, listed: listed.to_owned(), song: None });
-                        }
-                        let opened = match early.0.take() {
-                            Some(open) => open.await.ok().and_then(Result::ok),
-                            None => None,
-                        };
+                        switched = true;
+                        let opened = early.take().await.and_then(Result::ok);
                         match opened {
                             Some(s) => s,
                             None => self.open_stream(listed, false).await?,
@@ -1755,85 +1853,160 @@ impl Backend {
                 }
             }
         };
-        // If the song's audio won't start after all, the music video plays instead.
-        let fallback = song.is_some().then(|| (self.clone(), listed.to_owned(), report));
-        if let Some(song) = song {
-            log::info!("play {listed} as its {} {video_id}", if song.has_video() { "music video" } else { "song" });
-            // Carried over, the UI has it already.
-            if !was_carried {
-                let _ = self.tx.send(Resp::PlayingAs { generation, listed: listed.to_owned(), song: Some(song) });
-                (self.wake)();
+        let (ReadyStream { stream, track, prepared }, alternate) = match self.prepare_stream(&video_id, shared, at).await {
+            Ok(ready) => ready,
+            Err(e) if song.is_some() => {
+                log::warn!("{listed}'s alternate upload won't start ({e:#}); playing the listed upload");
+                (song, video_id) = (None, listed.to_owned());
+                switched = true;
+                let opened = match early.take().await.and_then(Result::ok) {
+                    Some(opened) => opened,
+                    None => self.open_stream(listed, false).await?,
+                };
+                self.prepare_stream(listed, opened, at).await?
             }
+            Err(e) => return Err(e),
+        };
+
+        let pcm_ms = prepared.duration_since(start.requested).as_millis();
+        let shared = stream.shared.clone();
+        {
+            let mut current = self.current.lock().unwrap();
+            if self.audio.status.wanted_gen.load(Ordering::Relaxed) != generation {
+                shared.cancel();
+                return Ok(());
+            }
+            *current = Some((video_id.clone(), stream.clone()));
         }
-        let video_id = video_id.as_str();
-        *self.current.lock().unwrap() = Some((video_id.to_owned(), shared.clone()));
-        log::debug!("play {video_id} (gen {generation}): stream open in {:?}", t0.elapsed());
-        if self.audio.status.wanted_gen.load(Ordering::Relaxed) != generation {
-            shared.cancel();
-            return Ok(());
+        if (!was_carried && song.is_some()) || (was_carried && song.is_none()) {
+            let _ = self.tx.send(Resp::PlayingAs { generation, listed: listed.to_owned(), song });
+            (self.wake)();
+        }
+        let source = stream.source.map_or_else(|| "Saved".to_owned(), |s| format!("{s:?}"));
+        let format = if shared.feed { "feed" } else if shared.segments.is_some() { "HLS" } else if shared.opus { "Opus" } else { "AAC" };
+        let selected_ms = start.requested.elapsed().as_millis();
+        log::info!("play {video_id} (gen {generation}): first PCM ready in {pcm_ms} ms from {source} {format} at {at:?}, selected in {selected_ms} ms");
+        let fallback = (switched || alternate).then(|| listed.to_owned());
+        self.audio.send(AudioCmd::Start { generation, track, shared, fallback });
+        if report && self.is_logged_in() && reports_plays() {
+            let this = self.clone();
+            self.rt.spawn(async move {
+                // Skipped past before it started: that one doesn't count.
+                if this.audio.status.wanted_gen.load(Ordering::Relaxed) != generation {
+                    return;
+                }
+                let sts = match this.jsc.player(&this.http()).await {
+                    Ok(p) => Some(p.sts),
+                    Err(e) => {
+                        log::debug!("report play of {video_id} without signatureTimestamp: {e:#}");
+                        None
+                    }
+                };
+                if this.audio.status.wanted_gen.load(Ordering::Relaxed) != generation {
+                    return;
+                }
+                match ytm::report_play(&this.api, &video_id, sts).await {
+                    Ok(w) => {
+                        log::debug!("reported play of {video_id}");
+                        this.report_watchtime(&video_id, generation, w).await;
+                    }
+                    Err(e) => log::warn!("couldn't report play of {video_id}: {e:#}"),
+                }
+            });
+        }
+        Ok(())
+    }
+
+    async fn prepare_stream(&self, id: &str, stream: OpenStream, at: std::time::Duration) -> anyhow::Result<(ReadyStream, bool)> {
+        let primary = self.decode_stream(stream.clone(), at);
+        // Only the visionOS and web file streams take part in this race.
+        // Keep saved files, feeds and the separately selected backup path as they are.
+        if stream.shared.feed || !matches!(stream.source, Some(Source::VisionOs | Source::WebMusic)) {
+            return primary.await.map(|ready| (ready, false));
         }
 
-        let audio = self.audio.clone();
-        let tx = self.tx.clone();
-        let wake = self.wake.clone();
-        // Opening the decoder reads the container header, which blocks on the download.
-        // Starting mid-song needs the seekable decoder (it waits for every fragment
-        // header); from the top, the non-seekable one starts sooner.
-        let seek = !at.is_zero();
-        let shared2 = shared.clone();
-        let report = (report && self.is_logged_in() && reports_plays()).then(|| (self.clone(), video_id.to_owned()));
-        let open = move || -> anyhow::Result<crate::audio::TrackDecoder> {
-            let mut d = stream::decoder(shared.clone(), seek)?;
-            if seek {
-                rodio::Source::try_seek(&mut d, at).map_err(|e| anyhow::anyhow!("seek: {e}"))?;
-            }
-            Ok(d)
+        let alternative = |source| async move {
+            let s = self.resolve_from(source, id, false).await?;
+            self.decode_stream(self.start_stream(id, Found::Url(source, s), false), at).await
         };
-        tokio::task::spawn_blocking(move || match open() {
-            Ok(decoder) => {
-                log::debug!("play gen {generation}: decoder ready at {at:?} in {:?}", t0.elapsed());
-                audio.send(AudioCmd::Start { generation, decoder, shared: shared2, at });
-                // Skipped past before it started: that one doesn't count.
-                if let Some((this, id)) = report.filter(|_| audio.status.wanted_gen.load(Ordering::Relaxed) == generation) {
-                    let rt = this.rt.clone();
-                    rt.spawn(async move {
-                        // The player request needs the current signatureTimestamp, or YouTube
-                        // leaves out the stats URL. Without a solver, try anyway as before.
-                        let sts = match this.jsc.player(&this.http()).await {
-                            Ok(p) => Some(p.sts),
-                            Err(e) => {
-                                log::debug!("report play of {id} without signatureTimestamp: {e:#}");
-                                None
-                            }
-                        };
-                        match ytm::report_play(&this.api, &id, sts).await {
-                            Ok(w) => {
-                                log::debug!("reported play of {id}");
-                                this.report_watchtime(&id, generation, w).await;
-                            }
-                            Err(e) => log::warn!("couldn't report play of {id}: {e:#}"),
-                        }
-                    });
-                }
+        let (other_routes, vision_done) = tokio::sync::watch::channel(());
+        let vision = async {
+            let _other_routes = other_routes;
+            match primary.await {
+                Ok(ready) => return Ok((ready, false)),
+                Err(e) => log::warn!("stream {id} couldn't start at {at:?}: {e:#}"),
             }
-            Err(e) => match fallback {
-                Some((this, listed, report)) => {
-                    log::warn!("{listed}'s song won't start ({e}); playing the music video");
-                    let _ = tx.send(Resp::PlayingAs { generation, listed: listed.clone(), song: None });
-                    this.request(Req::Play { video_id: listed, generation, at, report, song_of: None, song: None });
-                    wake();
+            let hls = alternative(Source::VisionOsHls);
+            let ready = if stream.source == Some(Source::VisionOs) && !stream.shared.opus {
+                hls.await
+            } else if stream.shared.refused() {
+                match hls.await {
+                    Ok(ready) => Ok(ready),
+                    Err(_) => alternative(Source::VisionOs).await,
                 }
-                None => {
-                    let (msg, offer_backup_at) = match shared2.failure() {
-                        Some(failure) => (failure.reason, failure.offer_backup.then_some(at)),
-                        None => (format!("decode: {e}"), None),
-                    };
-                    let _ = tx.send(Resp::PlayError { generation, msg, offer_backup_at });
-                    wake();
+            } else {
+                first_ready(hls, alternative(Source::VisionOs), std::time::Duration::ZERO).await
+            }?;
+            Ok((ready, true))
+        };
+        let result = if self.is_logged_in() {
+            let signed_in = self.prepare_web_stream(id, at, &stream, vision_done);
+            let delay = if self.jsc.ready() { STREAM_HEAD_START } else { COLD_SOLVER_HEAD_START };
+            first_ready(vision, signed_in, delay).await
+        } else {
+            vision.await
+        };
+        result.map_err(|e| {
+            log::warn!("alternate stream {id}: {e:#}");
+            anyhow::anyhow!("Couldn't load this track's audio streams. Try playing it again.")
+        })
+    }
+
+    async fn prepare_web_stream(&self, id: &str, at: std::time::Duration, primary: &OpenStream, vision_done: tokio::sync::watch::Receiver<()>) -> anyhow::Result<(ReadyStream, bool)> {
+        let session = self.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
+        let formats = session.playback_formats(&self.http(), &self.jsc, id).await?;
+        let premium = self.premium.try_lock().is_ok_and(|p| matches!(*p, Ok(true)));
+        let prepare = |opus| {
+            let formats = &formats;
+            let mut vision_done = vision_done.clone();
+            async move {
+                let audio = formats.stream(&self.jsc, id, opus).await?;
+                let s = self.web_stream(audio).await?;
+                let ready = self.decode_stream(self.start_stream(id, Found::Url(Source::WebMusic, s), false), at).await?;
+                if !premium && !ready.stream.shared.feed {
+                    // A free account can get a playable prefix of a capped file. Keep
+                    // that prefix as the last resort if all other routes fail.
+                    let mut opening = OpeningStream(Some(ready.stream.shared.clone()));
+                    tokio::select! {
+                        Ok(()) = ready.stream.shared.past_web_preview() => {}
+                        _ = vision_done.changed() => {}
+                    }
+                    opening.0.take();
                 }
-            },
-        });
-        Ok(())
+                anyhow::Ok(ready)
+            }
+        };
+        // A signed-in primary already has one of these codecs in flight.
+        let ready = if primary.source == Some(Source::WebMusic) {
+            prepare(!primary.shared.opus).await
+        } else if formats.has_opus() {
+            earliest_pcm(prepare(false), prepare(true), |ready| ready.prepared).await
+        } else {
+            prepare(false).await
+        }?;
+        Ok((ready, true))
+    }
+
+    async fn decode_stream(&self, stream: OpenStream, at: std::time::Duration) -> anyhow::Result<ReadyStream> {
+        let shared = stream.shared.clone();
+        let mut opening = OpeningStream(Some(shared.clone()));
+        let audio = self.audio.clone();
+        let (track, prepared) = tokio::task::spawn_blocking(move || {
+            let track = audio.prepare(shared.clone(), at).map_err(|e| shared.failure().map_or_else(|| e.context("decode"), anyhow::Error::new))?;
+            anyhow::Ok((track, std::time::Instant::now()))
+        }).await??;
+        opening.0.take();
+        Ok(ReadyStream { stream, track, prepared })
     }
 
     /// Report how much of play `generation` is heard, on the web player's schedule
@@ -1997,7 +2170,7 @@ impl Backend {
         Ok(found.map(|video| ytm::MusicVideo { video, offset_ms: 0 }))
     }
 
-    async fn open_stream(&self, video_id: &str, prefetch: bool) -> anyhow::Result<Arc<Shared>> {
+    async fn open_stream(&self, video_id: &str, prefetch: bool) -> anyhow::Result<OpenStream> {
         let found = self.find_stream(video_id).await?;
         Ok(self.start_stream(video_id, found, prefetch))
     }
@@ -2012,9 +2185,9 @@ impl Backend {
         Ok(Found::Url(source, s))
     }
 
-    fn start_stream(&self, video_id: &str, found: Found, prefetch: bool) -> Arc<Shared> {
+    fn start_stream(&self, video_id: &str, found: Found, prefetch: bool) -> OpenStream {
         let (source, s) = match found {
-            Found::Saved(shared) => return shared,
+            Found::Saved(shared) => return OpenStream { shared, source: None },
             Found::Url(source, s) => (source, s),
         };
         match &s.starts {
@@ -2026,17 +2199,14 @@ impl Backend {
             shared.mark_after_bot_check();
         }
         let refresh = Some(self.refresher(source, video_id, &s));
-        let (this, buffer) = (self.clone(), shared.clone());
-        self.rt.spawn(async move {
-            stream::download(this.http(), s.media, s.user_agent, buffer.clone(), refresh).await;
-            // Fresh visionOS file URLs refused too: YouTube wants a PO token for them
-            // here, past the first MiB. Its HLS segments play without one; the song
-            // reopens where it stopped, and the rest of the session goes that way.
-            if source == Source::VisionOs && buffer.refused() && !this.visionos_hls.swap(true, Ordering::Relaxed) {
-                log::warn!("visionOS file streams are refused here past 1 MiB; playing HLS from now on");
-            }
-        });
-        shared
+        let http = self.http();
+        if matches!(source, Source::VisionOs | Source::VisionOsHls | Source::WebMusic) {
+            self.rt.spawn(stream::download(http, s.media, s.user_agent, shared.clone(), refresh));
+        } else {
+            // An explicitly selected backup has no alternate to hand off to.
+            self.rt.spawn(stream::download_behind(http, s.media, s.user_agent, shared.clone(), refresh, None));
+        }
+        OpenStream { shared, source: Some(source) }
     }
 
     /// Resolves a fresh URL from the same source and format, for a download that got a 403.
@@ -2047,7 +2217,13 @@ impl Backend {
         Arc::new(move || {
             let (this, id, starts) = (this.clone(), id.clone(), starts.clone());
             Box::pin(async move {
-                let s = this.resolve_from(source, &id, opus).await?;
+                let s = if source == Source::WebMusic && opus {
+                    let session = this.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
+                    let formats = session.playback_formats(&this.http(), &this.jsc, &id).await?;
+                    this.web_stream(formats.stream(&this.jsc, &id, true).await?).await?
+                } else {
+                    this.resolve_from(source, &id, opus).await?
+                };
                 // The buffer is laid out for the format it started with.
                 anyhow::ensure!(s.opus == opus, "the stream changed format");
                 // A podcast host may put other ads in, which makes another file.
@@ -2081,7 +2257,7 @@ impl Backend {
         let shared = s.buffer(false);
         let ahead: Option<stream::Ahead> = behind_player.then(|| {
             let current = self.current.clone();
-            Arc::new(move || current.lock().unwrap().as_ref().map(|(_, s)| s.clone())) as stream::Ahead
+            Arc::new(move || current.lock().unwrap().as_ref().map(|(_, s)| s.shared.clone())) as stream::Ahead
         });
         let refresh = Some(self.refresher(source, &t.id, &s));
         stream::download_behind(self.http(), s.media, s.user_agent, shared.clone(), refresh, ahead).await;
@@ -2256,15 +2432,6 @@ impl Backend {
                 Err(e) => log::warn!("high quality stream failed for {video_id} ({e:#}); using standard quality"),
             }
         }
-        // Downloads stay on the file stream: they're saved as the .m4a it is.
-        if !best && self.visionos_hls.load(Ordering::Relaxed) {
-            match self.resolve_from(Source::VisionOsHls, video_id, false).await {
-                Ok(s) => return Ok((Source::VisionOsHls, s)),
-                // The signed-in paths below take it.
-                Err(e) if needs_account(&e) => {}
-                Err(e) => log::warn!("HLS stream failed for {video_id} ({e:#}); trying the file stream"),
-            }
-        }
         match self.resolve_from(Source::VisionOs, video_id, !best).await {
             Ok(s) => Ok((Source::VisionOs, s)),
             // Age-restricted or Premium-only: only signed-in web players get it.
@@ -2323,17 +2490,8 @@ impl Backend {
     /// `opus`: the Opus stream where there is one (visionOS's 251, or Premium's 774 from
     /// the web player); yt-dlp and HLS are AAC.
     async fn resolve_from(&self, source: Source, video_id: &str, opus: bool) -> anyhow::Result<ResolvedStream> {
-        let plain = |s: innertube::Stream, ua: &str| ResolvedStream {
-            media: stream::Media::File(s.url),
-            starts: None,
-            size: s.size,
-            duration_ms: s.duration_ms,
-            user_agent: ua.to_owned(),
-            loudness_db: s.loudness_db,
-            opus: s.opus,
-        };
         Ok(match source {
-            Source::VisionOs => plain(self.visionos_stream(video_id, opus).await?, innertube::UA),
+            Source::VisionOs => ResolvedStream::file(self.visionos_stream(video_id, opus).await?, innertube::UA),
             Source::VisionOsHls => {
                 let s = self.visionos_hls(video_id).await?;
                 let (starts, urls) = s.segments.into_iter().unzip();
@@ -2341,10 +2499,7 @@ impl Backend {
             }
             Source::WebMusic => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
-                match session.audio_stream(&self.http(), &self.jsc, video_id, opus).await? {
-                    webmusic::Audio::YouTube(s) => plain(s, webmusic::UA),
-                    webmusic::Audio::Feed(feed) => self.feed_stream(feed).await?,
-                }
+                self.web_stream(session.audio_stream(&self.http(), &self.jsc, video_id, opus).await?).await?
             }
             Source::Feed => {
                 let session = self.api.account().ok_or_else(|| anyhow::anyhow!("signed out"))?;
@@ -2367,6 +2522,13 @@ impl Backend {
                 }
             }
         })
+    }
+
+    async fn web_stream(&self, audio: webmusic::Audio) -> anyhow::Result<ResolvedStream> {
+        match audio {
+            webmusic::Audio::YouTube(s) => Ok(ResolvedStream::file(s, webmusic::UA)),
+            webmusic::Audio::Feed(feed) => self.feed_stream(feed).await,
+        }
     }
 
     /// An RSS podcast episode's file, fetched from where its redirects (trackers, mostly)
@@ -2480,7 +2642,7 @@ impl Backend {
         if self.backup_stream.swap(on, Ordering::Relaxed) != on
             && let Some((_, stream)) = prefetched.take()
         {
-            stream.cancel();
+            stream.shared.cancel();
         }
     }
 
@@ -2572,6 +2734,10 @@ struct ResolvedStream {
 }
 
 impl ResolvedStream {
+    fn file(s: innertube::Stream, ua: &str) -> Self {
+        Self { media: stream::Media::File(s.url), starts: None, size: s.size, duration_ms: s.duration_ms, user_agent: ua.to_owned(), loudness_db: s.loudness_db, opus: s.opus }
+    }
+
     /// A buffer laid out for this stream. `head_only`: a prefetch's.
     fn buffer(&self, head_only: bool) -> Arc<Shared> {
         match (&self.starts, &self.media) {

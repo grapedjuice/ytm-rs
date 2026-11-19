@@ -16,12 +16,14 @@ use std::pin::Pin;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 
 const BLOCK: u64 = 256 * 1024;
 /// The first block is smaller: a decoder opens after a few hundred bytes, so playback
 /// waits on this one alone, and it still holds seconds of audio while the next arrive.
 const FIRST: u64 = 64 * 1024;
+/// Some signed-in file URLs serve only the first MiB.
+const WEB_PREVIEW: u64 = 1024 * 1024;
 const WORKERS: usize = 4;
 /// Tries per block before the download gives up, waiting a little longer each time
 /// (about half a minute in all): long enough to ride out a dropped connection.
@@ -75,10 +77,19 @@ pub enum Media {
 /// Resolves fresh URLs for the same video and format.
 pub type Refresh = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = anyhow::Result<Media>> + Send>> + Send + Sync>;
 
+#[derive(Debug)]
 pub struct DownloadFailure {
     pub reason: String,
     pub offer_backup: bool,
 }
+
+impl std::fmt::Display for DownloadFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.reason)
+    }
+}
+
+impl std::error::Error for DownloadFailure {}
 
 struct Inner {
     blocks: Vec<Option<Bytes>>,
@@ -102,6 +113,8 @@ struct Inner {
     /// once each was, even if a windowed file has dropped some since.
     ever: Vec<bool>,
     fetched: usize,
+    /// Verified file bytes past the web preview, even if the buffer has dropped them.
+    verified_past_web_preview: bool,
 }
 
 impl Inner {
@@ -186,6 +199,7 @@ impl Shared {
                 windowed,
                 ever: vec![false; n],
                 fetched: 0,
+                verified_past_web_preview: false,
             }),
             ready: Condvar::new(),
             total,
@@ -213,6 +227,7 @@ impl Shared {
             inner.windowed = false;
             inner.ever = vec![true; n];
             inner.fetched = n;
+            inner.verified_past_web_preview = total > WEB_PREVIEW;
         }
         shared.done.send_replace(true);
         shared
@@ -241,6 +256,24 @@ impl Shared {
     /// Why the download stopped early, if it failed.
     pub fn error(&self) -> Option<String> {
         self.inner.lock().unwrap().error.clone()
+    }
+
+    /// Before replacing a working route, check that this web file actually serves
+    /// audio beyond the preview. Observe the normal workers without starting a read.
+    pub async fn past_web_preview(&self) -> anyhow::Result<()> {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            {
+                let inner = self.inner.lock().unwrap();
+                anyhow::ensure!(!inner.cancelled && inner.error.is_none(), "web stream has stopped");
+                if self.total <= WEB_PREVIEW || inner.verified_past_web_preview {
+                    return Ok(());
+                }
+            }
+            changed.await;
+        }
     }
 
     /// The download failed on HTTP 403s that fresh URLs didn't get past.
@@ -298,6 +331,9 @@ impl Shared {
 
     fn put(&self, idx: usize, data: Bytes) {
         let mut inner = self.inner.lock().unwrap();
+        if inner.cancelled || inner.error.is_some() {
+            return;
+        }
         inner.blocks[idx] = Some(data);
         inner.in_flight[idx] = false;
         if !std::mem::replace(&mut inner.ever[idx], true) {
@@ -314,16 +350,39 @@ impl Shared {
             }
         }
         self.ready.notify_all();
+        if self.total > WEB_PREVIEW && idx >= block_of(WEB_PREVIEW) && !inner.verified_past_web_preview {
+            inner.verified_past_web_preview = true;
+            self.changed.notify_waiters();
+        }
     }
 
     fn fail(&self, err: String, refused: bool) {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.cancelled || inner.error.is_some() {
+            return;
+        }
         log::error!("download failed: {err}");
         FAIL_FROM.store(usize::MAX, std::sync::atomic::Ordering::Relaxed);
-        let mut inner = self.inner.lock().unwrap();
         inner.error = Some(err);
         inner.refused = refused;
         drop(inner);
         self.ready.notify_all();
+        self.changed.notify_waiters();
+    }
+
+    async fn until_stopped(&self) {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            {
+                let inner = self.inner.lock().unwrap();
+                if inner.cancelled || inner.error.is_some() {
+                    return;
+                }
+            }
+            changed.await;
+        }
     }
 
     fn range(&self, idx: usize) -> (u64, u64) {
@@ -380,12 +439,16 @@ pub type Ahead = Arc<dyn Fn() -> Option<Arc<Shared>> + Send + Sync>;
 /// Download into `shared` with parallel range requests; returns when complete,
 /// failed, or every reader was dropped.
 pub async fn download(http: reqwest::Client, media: Media, ua: String, shared: Arc<Shared>, refresh: Option<Refresh>) {
-    download_behind(http, media, ua, shared, refresh, None).await;
+    download_blocks(http, media, ua, shared, refresh, None, true).await;
 }
 
 /// `download`, but before each block it waits while `ahead`'s buffer still has blocks
 /// to come that a reader may need: the playing song gets the bandwidth first.
 pub async fn download_behind(http: reqwest::Client, media: Media, ua: String, shared: Arc<Shared>, refresh: Option<Refresh>, ahead: Option<Ahead>) {
+    download_blocks(http, media, ua, shared, refresh, ahead, false).await;
+}
+
+async fn download_blocks(http: reqwest::Client, media: Media, ua: String, shared: Arc<Shared>, refresh: Option<Refresh>, ahead: Option<Ahead>, playing: bool) {
     let segments = shared.segments.as_ref().map(|s| s.len());
     let transport_stream = matches!(&media, Media::TransportStream(_));
     // YouTube sometimes ends a Safari playlist with an empty segment shorter
@@ -418,12 +481,23 @@ pub async fn download_behind(http: reqwest::Client, media: Media, ua: String, sh
                 let (a, b) = if segments.is_none() { shared.range(idx) } else { (0, 0) };
                 let what = if segments.is_some() { format!("segment {idx}") } else { format!("range {a}-{b}") };
                 let mut attempt = 0;
+                let mut data = BytesMut::new();
+                let mut data_version = 0;
+                let mut unavailable = false;
                 loop {
                     let (url, range, version) = {
                         let slot = slot.url.lock().await;
+                        // Even if the format and length are unchanged, keep a partial
+                        // block within one URL generation.
+                        if data_version != slot.1 {
+                            data.clear();
+                            data_version = slot.1;
+                            unavailable = false;
+                        }
+                        let start = a + data.len() as u64;
                         match &slot.0 {
-                            Media::File(url) => (format!("{url}&range={a}-{b}"), Range::Param(a, b), slot.1),
-                            Media::Feed(url) => (url.clone(), Range::Header(a, b), slot.1),
+                            Media::File(url) => (format!("{url}&range={start}-{b}"), Range::Param(start, b), slot.1),
+                            Media::Feed(url) => (url.clone(), Range::Header(start, b), slot.1),
                             Media::Segments(urls) | Media::TransportStream(urls) => (urls[idx].clone(), Range::Whole, slot.1),
                         }
                     };
@@ -435,14 +509,17 @@ pub async fn download_behind(http: reqwest::Client, media: Media, ua: String, sh
                     } else if segments.is_none() && idx >= REFUSE_FROM.load(std::sync::atomic::Ordering::Relaxed) {
                         Err(anyhow::Error::new(SimulatedRefusal))
                     } else {
-                        fetch(&client, &url, &ua, range).await.and_then(|data| {
-                            let empty_tail = short_tail && Some(idx + 1) == segments && data.is_empty();
-                            if transport_stream && !empty_tail {
-                                crate::hls::unpack_audio(&data)
-                            } else {
+                        fetch(&client, &url, &ua, range, shared.total, &mut data, STALL).await
+                            .and_then(|()| {
+                                // A segment that fails to unpack is retried whole too.
+                                let data = data.split().freeze();
+                                if data.is_empty() {
+                                    anyhow::ensure!(short_tail && Some(idx + 1) == segments, "the server sent an empty segment");
+                                } else if transport_stream {
+                                    return crate::hls::unpack_audio(&data);
+                                }
                                 Ok(data)
-                            }
-                        })
+                            })
                     };
                     match res {
                         Ok(data) => {
@@ -451,6 +528,17 @@ pub async fn download_behind(http: reqwest::Client, media: Media, ua: String, sh
                         }
                         Err(e) if is_forbidden(&e) && slot.renew(version).await => {}
                         Err(e) if attempt < RETRIES && !is_forbidden(&e) => {
+                            // An explicit 503 before the first byte of playback can be a
+                            // bad rendition. Retry it once before letting another one play.
+                            // A slow or partial response keeps the usual retry budget.
+                            let unavailable_now = playing && idx == 0 && !shared.feed && data.is_empty()
+                                && e.downcast_ref::<reqwest::Error>().and_then(reqwest::Error::status)
+                                    == Some(reqwest::StatusCode::SERVICE_UNAVAILABLE);
+                            if unavailable && unavailable_now {
+                                shared.fail(format!("{what}: {e:#}"), false);
+                                return;
+                            }
+                            unavailable = unavailable_now;
                             attempt += 1;
                             log::warn!("{what}: {e:#} (retry {attempt})");
                             tokio::time::sleep(Duration::from_millis(400 * (attempt * attempt) as u64)).await;
@@ -469,6 +557,20 @@ pub async fn download_behind(http: reqwest::Client, media: Media, ua: String, sh
             }
         });
     }
+    loop {
+        tokio::select! {
+            _ = shared.until_stopped() => {
+                set.abort_all();
+                break;
+            }
+            result = set.join_next() => match result {
+                Some(Err(e)) => shared.fail(format!("stream worker stopped: {e}"), false),
+                Some(Ok(())) => {}
+                None => break,
+            }
+        }
+    }
+    // Release in-flight responses and refresh futures before marking a stop done.
     while set.join_next().await.is_some() {}
     shared.done.send_replace(true);
 }
@@ -521,51 +623,106 @@ enum Range {
     Whole,
 }
 
-/// A range comes back with exactly its length; a segment's isn't known.
-async fn fetch(http: &reqwest::Client, url: &str, ua: &str, range: Range) -> anyhow::Result<Bytes> {
-    let stalled = || anyhow::anyhow!("no data for {} s", STALL.as_secs());
+/// A concrete byte range, including the representation's total size.
+fn content_range(value: &str) -> Option<(u64, u64, u64)> {
+    let (unit, value) = value.split_once(' ')?;
+    if !unit.eq_ignore_ascii_case("bytes") {
+        return None;
+    }
+    let (range, total) = value.split_once('/')?;
+    let (a, b) = range.split_once('-')?;
+    let parse = |s: &str| -> Option<u64> {
+        if !s.bytes().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        s.parse().ok()
+    };
+    let (a, b, total) = (parse(a)?, parse(b)?, parse(total)?);
+    (a <= b && b < total).then_some((a, b, total))
+}
+
+fn response_range(resp: &reqwest::Response) -> Option<(u64, u64, u64)> {
+    let headers = resp.headers().get_all(reqwest::header::CONTENT_RANGE);
+    let mut headers = headers.iter();
+    let value = headers.next()?.to_str().ok()?;
+    if headers.next().is_some() {
+        return None;
+    }
+    content_range(value)
+}
+
+/// Append to a block's verified prefix. An interrupted segment starts over.
+async fn fetch(http: &reqwest::Client, url: &str, ua: &str, range: Range, total: u64, buf: &mut BytesMut, idle: Duration) -> anyhow::Result<()> {
+    let stalled = || anyhow::anyhow!("no data for {} s", idle.as_secs());
     let mut req = http.get(url).header("User-Agent", ua);
+    if !matches!(range, Range::Whole) {
+        req = req.header("Accept-Encoding", "identity");
+    }
     if let Range::Header(a, b) = range {
         req = req.header("Range", format!("bytes={a}-{b}"));
     }
     // Errors leave the URL out: it carries the client's IP address and signatures (logs).
-    let mut resp = tokio::time::timeout(STALL, req.send())
+    let mut resp = tokio::time::timeout(idle, req.send())
         .await
         .map_err(|_| stalled())?
         .and_then(reqwest::Response::error_for_status)
         .map_err(reqwest::Error::without_url)?;
-    if matches!(range, Range::Header(..)) {
-        anyhow::ensure!(resp.status() == reqwest::StatusCode::PARTIAL_CONTENT, "the server sent the whole file, not a range");
-    }
-    let expect = match range {
-        Range::Param(a, b) | Range::Header(a, b) => Some(b - a + 1),
-        Range::Whole => None,
+    let status = resp.status();
+    let partial = status == reqwest::StatusCode::PARTIAL_CONTENT;
+    let ok = status == reqwest::StatusCode::OK;
+    let (expect, resume) = match range {
+        Range::Param(a, b) | Range::Header(a, b) => {
+            anyhow::ensure!(partial || (matches!(range, Range::Param(..)) && ok), "the server did not honor the range ({status})");
+            let has_range = resp.headers().contains_key(reqwest::header::CONTENT_RANGE);
+            // googlevideo also returns 200 for query ranges, without Content-Range.
+            if partial || has_range {
+                anyhow::ensure!(response_range(&resp) == Some((a, b, total)), "the server sent a different byte range");
+            }
+            let expect = b - a + 1;
+            let length = resp.content_length();
+            anyhow::ensure!(length.is_none_or(|n| n == expect), "the server sent a different range length");
+            buf.reserve(expect as usize);
+            (Some(expect), has_range || length.is_some())
+        }
+        Range::Whole => {
+            anyhow::ensure!((ok || status == reqwest::StatusCode::NO_CONTENT) && !resp.headers().contains_key(reqwest::header::CONTENT_RANGE), "the server did not send a whole segment ({status})");
+            (None, false)
+        }
     };
-    let mut buf = bytes::BytesMut::with_capacity(expect.or(resp.content_length()).unwrap_or(0) as usize);
-    while let Some(chunk) = tokio::time::timeout(STALL, resp.chunk()).await.map_err(|_| stalled())?.map_err(reqwest::Error::without_url)? {
-        buf.extend_from_slice(&chunk);
+    let base = buf.len();
+    let result = async {
+        while let Some(chunk) = tokio::time::timeout(idle, resp.chunk()).await.map_err(|_| stalled())?.map_err(reqwest::Error::without_url)? {
+            if expect.is_some_and(|n| chunk.len() as u64 > n - (buf.len() - base) as u64) {
+                buf.truncate(base);
+                anyhow::bail!("the server sent more bytes than requested");
+            }
+            buf.extend_from_slice(&chunk);
+        }
+        if let Some(expect) = expect {
+            anyhow::ensure!((buf.len() - base) as u64 == expect, "short read: {} of {expect} bytes", buf.len() - base);
+        }
+        Ok(())
+    }.await;
+    // An unverified prefix or an exact-length body with broken framing can't be
+    // resumed. In the latter case retrying the suffix would also invert the range.
+    if result.is_err() && (!resume || expect == Some((buf.len() - base) as u64)) {
+        buf.truncate(base);
     }
-    if let Some(expect) = expect {
-        anyhow::ensure!(buf.len() as u64 == expect, "short read: {} of {expect} bytes", buf.len());
-    }
-    Ok(buf.freeze())
+    result
 }
 
 /// Where a podcast feed's file ends up after its redirects (trackers, mostly), and its
 /// size: asked with a one-byte range, which also shows the server serves ranges.
 pub async fn probe_feed(http: &reqwest::Client, url: &str, ua: &str) -> anyhow::Result<(String, u64)> {
-    let resp = tokio::time::timeout(STALL, http.get(url).header("User-Agent", ua).header("Range", "bytes=0-0").send())
+    let resp = tokio::time::timeout(STALL, http.get(url).header("User-Agent", ua).header("Range", "bytes=0-0").header("Accept-Encoding", "identity").send())
         .await
         .map_err(|_| anyhow::anyhow!("the podcast's server didn't answer"))?
         .and_then(reqwest::Response::error_for_status)
         .map_err(reqwest::Error::without_url)?;
     anyhow::ensure!(resp.status() == reqwest::StatusCode::PARTIAL_CONTENT, "the podcast's server doesn't serve ranges ({})", resp.status());
-    let total = resp
-        .headers()
-        .get(reqwest::header::CONTENT_RANGE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.rsplit_once('/'))
-        .and_then(|(_, t)| t.parse().ok())
+    let total = response_range(&resp)
+        .filter(|&(a, b, _)| a == 0 && b == 0 && resp.content_length().is_none_or(|n| n == 1))
+        .map(|(_, _, total)| total)
         .ok_or_else(|| anyhow::anyhow!("the podcast's server didn't give the file's size"))?;
     Ok((resp.url().to_string(), total))
 }
@@ -599,7 +756,7 @@ impl Drop for StreamReader {
         inner.readers -= 1;
         inner.wants.retain(|&(id, _)| id != self.id);
         if inner.readers == 0 {
-            // Stops the workers once their current request finishes.
+            // Stops the workers, including their current requests.
             inner.cancelled = true;
         }
         self.shared.changed.notify_waiters();
@@ -804,5 +961,457 @@ mod tests {
         println!("  {left:.1} s left");
         // Coarse: an estimate from the bitrate.
         assert!((left - (secs - half.as_secs_f64())).abs() < 5.0, "seek off");
+    }
+
+    mod web_preview {
+        use std::future::Future;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::task::{Context, Poll, Wake, Waker};
+
+        use bytes::Bytes;
+
+        use super::super::{Shared, WEB_PREVIEW, block_count, block_of};
+
+        const KIB: u64 = 1024;
+
+        #[derive(Default)]
+        struct Notified(AtomicBool);
+
+        impl Wake for Notified {
+            fn wake(self: Arc<Self>) {
+                self.0.store(true, Ordering::Relaxed);
+            }
+        }
+
+        fn put_block(shared: &Shared, index: usize) {
+            let (first, last) = shared.range(index);
+            shared.put(index, Bytes::from(vec![0; (last - first + 1) as usize]));
+        }
+
+        #[test]
+        fn past_web_preview_waits_for_the_verified_boundary_block() {
+            let shared = Shared::new(1088 * KIB, 0, None, false, false);
+            assert_eq!(shared.range(0), (0, 64 * KIB - 1));
+            assert_eq!(block_of(WEB_PREVIEW), 4);
+            assert_eq!(shared.range(4), (832 * KIB, 1088 * KIB - 1));
+
+            let notified = Arc::new(Notified::default());
+            let waker = Waker::from(notified.clone());
+            let mut cx = Context::from_waker(&waker);
+            let mut check = std::pin::pin!(shared.past_web_preview());
+            assert!(check.as_mut().poll(&mut cx).is_pending());
+            for index in 0..4 {
+                put_block(&shared, index);
+                assert!(check.as_mut().poll(&mut cx).is_pending());
+            }
+            assert!(!notified.0.load(Ordering::Relaxed));
+
+            put_block(&shared, 4);
+            assert!(notified.0.load(Ordering::Relaxed));
+            assert!(matches!(check.as_mut().poll(&mut cx), Poll::Ready(Ok(()))));
+        }
+
+        #[test]
+        fn past_web_preview_accepts_a_later_block_without_the_boundary_block() {
+            let shared = Shared::new(48 * 1024 * KIB, 0, None, false, false);
+            let notified = Arc::new(Notified::default());
+            let waker = Waker::from(notified.clone());
+            let mut cx = Context::from_waker(&waker);
+            let mut check = std::pin::pin!(shared.past_web_preview());
+            assert!(check.as_mut().poll(&mut cx).is_pending());
+
+            // A far seek can fetch this block before those near the beginning.
+            put_block(&shared, 100);
+            assert!(notified.0.swap(false, Ordering::Relaxed));
+            assert!(matches!(check.as_mut().poll(&mut cx), Poll::Ready(Ok(()))));
+
+            let mut changed = std::pin::pin!(shared.changed.notified());
+            assert!(changed.as_mut().poll(&mut cx).is_pending());
+            put_block(&shared, 4);
+            assert!(!notified.0.load(Ordering::Relaxed));
+        }
+
+        #[test]
+        fn past_web_preview_wakes_and_fails_on_cancel_or_error() {
+            for cancel in [true, false] {
+                let shared = Shared::new(WEB_PREVIEW + 1, 0, None, false, false);
+                let notified = Arc::new(Notified::default());
+                let waker = Waker::from(notified.clone());
+                let mut cx = Context::from_waker(&waker);
+                let mut check = std::pin::pin!(shared.past_web_preview());
+                assert!(check.as_mut().poll(&mut cx).is_pending());
+
+                if cancel {
+                    shared.cancel();
+                } else {
+                    shared.fail("fixture range refused".into(), true);
+                }
+                assert!(notified.0.load(Ordering::Relaxed));
+                assert!(matches!(check.as_mut().poll(&mut cx), Poll::Ready(Err(_))));
+            }
+        }
+
+        #[test]
+        fn past_web_preview_accepts_complete_files_up_to_the_limit() {
+            for size in [64 * KIB, WEB_PREVIEW] {
+                let shared = Shared::new(size, 0, None, false, false);
+                for index in 0..block_count(size) {
+                    put_block(&shared, index);
+                }
+                assert!(shared.is_complete());
+                let mut check = std::pin::pin!(shared.past_web_preview());
+                let mut cx = Context::from_waker(Waker::noop());
+                assert!(matches!(check.as_mut().poll(&mut cx), Poll::Ready(Ok(()))));
+            }
+        }
+        #[test]
+        fn past_web_preview_checks_for_stops_before_short_or_verified_success() {
+            for size in [64 * KIB, WEB_PREVIEW + 1] {
+                for cancel in [true, false] {
+                    let shared = Shared::new(size, 0, None, false, false);
+                    // A full short file or the block spanning the preview boundary.
+                    put_block(&shared, block_count(size) - 1);
+                    if cancel {
+                        shared.cancel();
+                    } else {
+                        shared.fail("fixture range refused".into(), true);
+                    }
+                    let mut check = std::pin::pin!(shared.past_web_preview());
+                    let mut cx = Context::from_waker(Waker::noop());
+                    assert!(matches!(check.as_mut().poll(&mut cx), Poll::Ready(Err(_))));
+                }
+            }
+        }
+
+        #[test]
+        fn past_web_preview_accepts_a_saved_file_over_the_limit() {
+            let shared = Shared::from_bytes(vec![0; WEB_PREVIEW as usize + 1], 0, None);
+            let mut check = std::pin::pin!(shared.past_web_preview());
+            let mut cx = Context::from_waker(Waker::noop());
+            assert!(matches!(check.as_mut().poll(&mut cx), Poll::Ready(Ok(()))));
+        }
+    }
+
+    mod http {
+        use super::super::*;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        use tokio::sync::{Notify, mpsc};
+        use tokio::task::JoinHandle;
+        use tokio::time::timeout;
+
+        const WAIT: Duration = Duration::from_secs(4);
+
+        enum Reply {
+            Bytes(String),
+            Stall,
+            Drip,
+        }
+
+        fn reply(status: &str, headers: &str, body: &str) -> Reply {
+            Reply::Bytes(format!("HTTP/1.1 {status}\r\n{headers}Connection: close\r\n\r\n{body}"))
+        }
+
+        struct Server {
+            url: String,
+            requests: mpsc::UnboundedReceiver<String>,
+            task: JoinHandle<()>,
+        }
+
+        impl Server {
+            async fn new(replies: Vec<Reply>) -> Self {
+                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let url = format!("http://{}/audio?test=1", listener.local_addr().unwrap());
+                let (sent, requests) = mpsc::unbounded_channel();
+                let task = tokio::spawn(async move {
+                    for reply in replies {
+                        let (mut socket, _) = listener.accept().await.unwrap();
+                        let mut request = Vec::new();
+                        while !request.ends_with(b"\r\n\r\n") {
+                            let mut chunk = [0; 1024];
+                            let n = socket.read(&mut chunk).await.unwrap();
+                            assert!(n > 0 && request.len() < 16 * 1024);
+                            request.extend_from_slice(&chunk[..n]);
+                        }
+                        match &reply {
+                            Reply::Bytes(bytes) => {
+                                socket.write_all(bytes.as_bytes()).await.unwrap();
+                            }
+                            Reply::Stall | Reply::Drip => {
+                                socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nA").await.unwrap();
+                            }
+                        }
+                        sent.send(String::from_utf8(request).unwrap()).unwrap();
+                        match reply {
+                            Reply::Bytes(_) => {}
+                            Reply::Stall => {
+                                // Dropping the in-flight HTTP response closes its socket.
+                                let result = socket.read(&mut [0]).await;
+                                assert!(matches!(result, Ok(0)) || result.is_err());
+                            }
+                            Reply::Drip => {
+                                for byte in b"BCDEFG" {
+                                    tokio::time::sleep(Duration::from_millis(100)).await;
+                                    socket.write_all(&[*byte]).await.unwrap();
+                                }
+                            }
+                        }
+                    }
+                });
+                Self { url, requests, task }
+            }
+
+            async fn request(&mut self) -> String {
+                timeout(WAIT, self.requests.recv()).await.unwrap().expect("missing request")
+            }
+
+            async fn finish(&mut self) {
+                timeout(WAIT, &mut self.task).await.unwrap().unwrap();
+            }
+        }
+
+        impl Drop for Server {
+            fn drop(&mut self) {
+                self.task.abort();
+            }
+        }
+
+        fn client() -> reqwest::Client {
+            reqwest::Client::builder().no_proxy().build().unwrap()
+        }
+
+        #[tokio::test]
+        async fn interrupted_file_and_feed_resume_at_the_missing_byte() {
+            for feed in [false, true] {
+                let replies = if feed {
+                    vec![
+                        reply("206 Partial Content", "Content-Length: 6\r\nContent-Range: bytes 0-5/6\r\n", "ABC"),
+                        reply("206 Partial Content", "Content-Length: 3\r\nContent-Range: bytes 3-5/6\r\n", "DEF"),
+                    ]
+                } else {
+                    vec![
+                        reply("200 OK", "Content-Length: 6\r\n", "ABC"),
+                        reply("200 OK", "Content-Length: 3\r\n", "DEF"),
+                    ]
+                };
+                let mut server = Server::new(replies).await;
+                let (media, shared) = if feed {
+                    (Media::Feed(server.url.clone()), Shared::feed(6, 0, false))
+                } else {
+                    (Media::File(server.url.clone()), Shared::new(6, 0, None, false, false))
+                };
+                timeout(WAIT, download(client(), media, "test".into(), shared.clone(), None)).await.unwrap();
+                let first = server.request().await.to_ascii_lowercase();
+                let second = server.request().await.to_ascii_lowercase();
+                if feed {
+                    assert!(first.contains("\r\nrange: bytes=0-5\r\n"));
+                    assert!(second.contains("\r\nrange: bytes=3-5\r\n"));
+                } else {
+                    assert!(first.starts_with("get /audio?test=1&range=0-5 "));
+                    assert!(second.starts_with("get /audio?test=1&range=3-5 "));
+                }
+                server.finish().await;
+                assert_eq!(shared.bytes().unwrap(), b"ABCDEF");
+                assert!(shared.error().is_none());
+            }
+        }
+
+        #[tokio::test]
+        async fn interrupted_hls_segment_restarts_whole() {
+            let mut server = Server::new(vec![
+                reply("200 OK", "Content-Length: 6\r\n", "bad"),
+                reply("200 OK", "Content-Length: 6\r\n", "ABCDEF"),
+            ]).await;
+            let shared = Shared::segmented(vec![0.0], 1000, None, false);
+            let media = Media::Segments(vec![server.url.clone()]);
+            timeout(WAIT, download(client(), media, "test".into(), shared.clone(), None)).await.unwrap();
+            let first = server.request().await;
+            let second = server.request().await;
+            assert_eq!(first.lines().next(), second.lines().next());
+            assert!(!second.to_ascii_lowercase().contains("range"));
+            server.finish().await;
+            assert_eq!(shared.bytes().unwrap(), b"ABCDEF");
+        }
+
+        #[tokio::test]
+        async fn only_a_short_transport_tail_can_finish_empty() {
+            for transport in [false, true] {
+                let empty = reply("204 No Content", "", "");
+                let (replies, expected) = if transport {
+                    (vec![reply("200 OK", "Content-Length: 3\r\n", "bad"), empty], b"".as_slice())
+                } else {
+                    (vec![empty, reply("200 OK", "Content-Length: 3\r\n", "AAC")], b"AAC".as_slice())
+                };
+                let mut server = Server::new(replies).await;
+                let urls = vec![server.url.clone()];
+                let media = if transport { Media::TransportStream(urls) } else { Media::Segments(urls) };
+                let shared = Shared::segmented(vec![0.0], 2, None, false);
+                timeout(WAIT, download(client(), media, "test".into(), shared.clone(), None)).await.unwrap();
+                assert_eq!(shared.bytes().as_deref(), Some(expected));
+                assert!(shared.failure().is_none());
+                server.finish().await;
+            }
+        }
+
+        #[tokio::test]
+        async fn invalid_ranges_and_framing_do_not_change_the_verified_prefix() {
+            for (range, reply) in [
+                (Range::Header(2, 5), reply("200 OK", "Content-Length: 4\r\n", "CDEF")),
+                (Range::Header(2, 5), reply("206 Partial Content", "Content-Length: 4\r\n", "CDEF")),
+                (Range::Header(2, 5), reply("206 Partial Content", "Content-Range: bytes 2-5/7\r\n", "CDEF")),
+                (Range::Param(2, 5), reply("206 Partial Content", "Content-Range: bytes 1-4/6\r\n", "BCDE")),
+                (Range::Param(2, 5), reply("206 Partial Content", "Content-Range: bytes 2-5/6\r\nContent-Range: bytes 1-4/6\r\n", "CDEF")),
+                (Range::Param(2, 5), reply("200 OK", "Content-Length: 5\r\n", "CDEFG")),
+                (Range::Param(2, 5), reply("200 OK", "Transfer-Encoding: chunked\r\n", "2\r\nCD\r\n3\r\nEFG\r\n0\r\n\r\n")),
+                (Range::Param(2, 5), reply("200 OK", "Content-Range: bytes 2-5/6\r\nTransfer-Encoding: chunked\r\n", "4\r\nCDEF\r\n")),
+                (Range::Param(2, 5), reply("200 OK", "", "CD")),
+            ] {
+                let mut server = Server::new(vec![reply]).await;
+                let mut bytes = BytesMut::from(&b"AB"[..]);
+                let result = timeout(WAIT, fetch(&client(), &server.url, "test", range, 6, &mut bytes, STALL)).await.unwrap();
+                assert!(result.is_err());
+                assert_eq!(&bytes[..], b"AB");
+                server.finish().await;
+            }
+        }
+
+        #[tokio::test]
+        async fn feed_probe_checks_requested_byte_and_total() {
+            for (range, valid) in [
+                ("bytes 0-0/6", true),
+                ("bytes 1-1/6", false),
+                ("bytes 0-1/6", false),
+                ("bytes 0-0/*", false),
+                ("bytes 0-0/0", false),
+            ] {
+                let mut server = Server::new(vec![reply("206 Partial Content", &format!("Content-Length: 1\r\nContent-Range: {range}\r\n"), "A")]).await;
+                let result = timeout(WAIT, probe_feed(&client(), &server.url, "test")).await.unwrap();
+                if valid {
+                    assert_eq!(result.unwrap(), (server.url.clone(), 6));
+                } else {
+                    assert!(result.is_err(), "accepted {range}");
+                }
+                server.finish().await;
+            }
+        }
+
+        #[tokio::test]
+        async fn idle_timeout_restarts_on_progress_and_retains_a_stalled_prefix() {
+            let idle = Duration::from_millis(400);
+            let mut server = Server::new(vec![Reply::Drip, Reply::Stall]).await;
+            let mut bytes = BytesMut::new();
+            let started = std::time::Instant::now();
+            timeout(WAIT, fetch(&client(), &server.url, "test", Range::Param(0, 6), 7, &mut bytes, idle)).await.unwrap().unwrap();
+            assert!(started.elapsed() > idle);
+            assert_eq!(&bytes[..], b"ABCDEFG");
+            bytes.clear();
+            let result = timeout(WAIT, fetch(&client(), &server.url, "test", Range::Param(0, 6), 7, &mut bytes, idle)).await.unwrap();
+            assert!(result.unwrap_err().to_string().starts_with("no data"));
+            assert_eq!(&bytes[..], b"A");
+            server.finish().await;
+        }
+
+        #[tokio::test]
+        async fn last_reader_drop_cancels_an_in_flight_response() {
+            let mut server = Server::new(vec![Reply::Stall]).await;
+            let shared = Shared::new(7, 0, None, false, false);
+            let reader = StreamReader::new(shared.clone());
+            let dl = download(client(), Media::File(server.url.clone()), "test".into(), shared.clone(), None);
+            timeout(WAIT, async {
+                tokio::join!(dl, async {
+                    server.request().await;
+                    drop(reader);
+                    shared.finished().await;
+                });
+            }).await.unwrap();
+            server.finish().await;
+            assert!(!shared.is_complete());
+            assert!(shared.error().is_none());
+        }
+
+        #[tokio::test]
+        async fn cancellation_drops_a_hanging_refresh_before_finishing() {
+            let mut server = Server::new(vec![reply("403 Forbidden", "Content-Length: 0\r\n", "")]).await;
+            let shared = Shared::new(6, 0, None, false, false);
+            let entered = Arc::new(Notify::new());
+            let (sent, mut dropped) = tokio::sync::oneshot::channel::<()>();
+            let sent = Mutex::new(Some(sent));
+            let refresh: Refresh = {
+                let entered = entered.clone();
+                Arc::new(move || {
+                    let entered = entered.clone();
+                    let sender = sent.lock().unwrap().take().unwrap();
+                    Box::pin(async move {
+                        entered.notify_one();
+                        std::future::pending::<()>().await;
+                        let _ = sender.send(());
+                        unreachable!()
+                    })
+                })
+            };
+            let dl = download(client(), Media::File(server.url.clone()), "test".into(), shared.clone(), Some(refresh));
+            timeout(WAIT, async {
+                tokio::join!(dl, async {
+                    entered.notified().await;
+                    shared.cancel();
+                    shared.finished().await;
+                    assert_eq!(dropped.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Closed));
+                });
+            }).await.unwrap();
+            server.finish().await;
+            assert!(shared.error().is_none());
+        }
+
+        #[tokio::test]
+        async fn repeated_503_at_the_start_ends_playback_before_the_download_budget() {
+            for (playing, refusals) in [(true, 1), (true, 2), (false, 2)] {
+                let mut replies: Vec<_> = (0..refusals)
+                    .map(|_| reply("503 Service Unavailable", "Content-Length: 0\r\n", ""))
+                    .collect();
+                let fails = playing && refusals == 2;
+                if !fails {
+                    replies.push(reply("200 OK", "Content-Length: 3\r\n", "AAC"));
+                }
+                let mut server = Server::new(replies).await;
+                let shared = Shared::new(3, 0, None, false, false);
+                shared.mark_after_bot_check();
+                let media = Media::File(server.url.clone());
+                timeout(WAIT, async {
+                    if playing {
+                        download(client(), media, "test".into(), shared.clone(), None).await;
+                    } else {
+                        download_behind(client(), media, "test".into(), shared.clone(), None, None).await;
+                    }
+                }).await.unwrap();
+                if fails {
+                    let failure = shared.failure().unwrap();
+                    assert!(failure.reason.contains("503"));
+                    assert!(!failure.offer_backup);
+                    assert!(!shared.is_complete());
+                } else {
+                    assert_eq!(shared.bytes().as_deref(), Some(b"AAC".as_slice()));
+                }
+                server.finish().await;
+            }
+        }
+
+        #[tokio::test]
+        async fn terminal_prefetch_error_wakes_idle_workers() {
+            let mut server = Server::new(vec![reply("403 Forbidden", "Content-Length: 0\r\n", "")]).await;
+            let shared = Shared::new(BLOCK * 3, 0, None, false, true);
+            timeout(WAIT, async {
+                tokio::join!(
+                    download(client(), Media::File(server.url.clone()), "test".into(), shared.clone(), None),
+                    shared.finished(),
+                );
+            }).await.unwrap();
+            assert!(!shared.is_complete());
+            assert!(shared.refused());
+            let error = shared.error().unwrap();
+            assert!(error.contains("403"));
+            assert!(!error.contains(&server.url));
+            server.finish().await;
+        }
     }
 }

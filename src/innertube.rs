@@ -109,8 +109,10 @@ pub async fn hls_audio(http: &reqwest::Client, video_id: &str, visitor_data: &st
     let resp = player(http, video_id, visitor_data).await?;
     let master_url = resp["streamingData"]["hlsManifestUrl"].as_str().ok_or_else(|| anyhow::anyhow!("no HLS manifest in visionOS player response"))?;
     let get = |url: String| async move {
-        let r = http.get(url).header("User-Agent", UA).timeout(std::time::Duration::from_secs(8)).send().await?.error_for_status()?;
-        anyhow::Ok(r.text().await?)
+        let r = http.get(url).header("User-Agent", UA).timeout(std::time::Duration::from_secs(8))
+            .send().await.map_err(reqwest::Error::without_url)?
+            .error_for_status().map_err(reqwest::Error::without_url)?;
+        anyhow::Ok(r.text().await.map_err(reqwest::Error::without_url)?)
     };
     let master = get(master_url.to_owned()).await?;
     let media_url = hls_audio_playlist(&master, "234").ok_or_else(|| anyhow::anyhow!("no AAC audio (234) in the HLS manifest"))?;

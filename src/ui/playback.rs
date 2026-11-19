@@ -655,6 +655,7 @@ impl App {
             // Last session's song, already counted when it started then (unless it was
             // another device's).
             let report = std::mem::take(&mut self.resume_counts);
+            self.recoveries = 0;
             self.play_current_at(at, report);
             return;
         }

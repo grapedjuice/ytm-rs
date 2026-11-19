@@ -152,6 +152,11 @@ impl<S: rodio::Source> Tempo<S> {
         t
     }
 
+    /// Convert this one song to the mixer's format before it enters the player queue.
+    pub(super) fn for_mixer(self, channels: rodio::ChannelCount, rate: rodio::SampleRate) -> impl rodio::Source {
+        rodio::source::UniformSourceIterator::new(WholeSong(self), channels, rate)
+    }
+
     fn ch(&self) -> usize {
         self.channels.get() as usize
     }
@@ -280,6 +285,35 @@ impl<S: rodio::Source> rodio::Source for Tempo<S> {
     }
 }
 
+/// Tempo's format is fixed for this song. Its working blocks aren't format changes:
+/// rodio would restart resampling at each one if the converter could see them.
+struct WholeSong<S: rodio::Source>(Tempo<S>);
+
+impl<S: rodio::Source> Iterator for WholeSong<S> {
+    type Item = rodio::Sample;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+impl<S: rodio::Source> rodio::Source for WholeSong<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+    fn channels(&self) -> rodio::ChannelCount {
+        rodio::Source::channels(&self.0)
+    }
+    fn sample_rate(&self) -> rodio::SampleRate {
+        rodio::Source::sample_rate(&self.0)
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        rodio::Source::total_duration(&self.0)
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), rodio::source::SeekError> {
+        rodio::Source::try_seek(&mut self.0, pos)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,6 +346,24 @@ mod tests {
 
     fn left(samples: &[f32]) -> Vec<f32> {
         samples.iter().step_by(2).copied().collect()
+    }
+
+    #[test]
+    fn device_rate_conversion_stays_continuous_across_tempo_blocks() {
+        use rodio::conversions::SampleRateConverter;
+
+        let channels = NonZero::new(2).unwrap();
+        for (from, to) in [(44_100, 48_000), (48_000, 44_100), (48_000, 48_000)] {
+            let input: Vec<_> = (0..from).flat_map(|i| {
+                let t = std::f32::consts::TAU * 997.0 * i as f32 / from as f32;
+                [t.sin() * 0.5, t.cos() * 0.3]
+            }).collect();
+            let new_source = || rodio::buffer::SamplesBuffer::new(channels, NonZero::new(from).unwrap(), input.clone());
+            let to = NonZero::new(to).unwrap();
+            let expected = SampleRateConverter::new(new_source(), NonZero::new(from).unwrap(), to, channels);
+            let tempo = Tempo::new(new_source(), Arc::new(Speed::default()), Duration::ZERO, Arc::new(AtomicU64::new(0)));
+            assert!(tempo.for_mixer(channels, to).eq(expected), "{from} Hz → {to} Hz");
+        }
     }
 
     #[test]

@@ -15,8 +15,8 @@ use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
 
 use crate::innertube::Stream;
+use crate::jsc::{Player, Solver};
 use crate::locale::ENGLISH;
-use crate::jsc::Solver;
 
 pub const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 const VERSION: &str = "1.20260707.12.00";
@@ -374,17 +374,62 @@ impl Session {
 
     /// `opus`: Premium's Opus (774) first; otherwise AAC, which downloads save as .m4a.
     pub async fn audio_stream(&self, http: &reqwest::Client, solver: &Solver, video_id: &str, opus: bool) -> anyhow::Result<Audio> {
+        let formats = self.playback_formats(http, solver, video_id).await?;
+        formats.preferred_stream(solver, video_id, opus).await
+    }
+
+    /// Fetch the signed-in player response once for the playback candidates.
+    pub async fn playback_formats(&self, http: &reqwest::Client, solver: &Solver, video_id: &str) -> anyhow::Result<PlaybackFormats> {
         let player = solver.player(http).await?;
-        let resp = self.player(http, video_id, player.sts).await?;
-        if let Some(feed) = feed_of(&resp)? {
+        let response = self.player(http, video_id, player.sts).await?;
+        Ok(PlaybackFormats { player, response })
+    }
+}
+
+pub struct PlaybackFormats {
+    player: Player,
+    response: Value,
+}
+
+impl PlaybackFormats {
+    pub fn has_opus(&self) -> bool {
+        self.opus_format().is_some()
+    }
+
+    /// Solve one codec's playback URL. RSS episodes use the AAC candidate's branch.
+    pub async fn stream(&self, solver: &Solver, video_id: &str, opus: bool) -> anyhow::Result<Audio> {
+        if opus {
+            self.solve_format(solver, video_id, self.opus_format()).await
+        } else {
+            self.preferred_stream(solver, video_id, false).await
+        }
+    }
+
+    async fn preferred_stream(&self, solver: &Solver, video_id: &str, opus: bool) -> anyhow::Result<Audio> {
+        if let Some(feed) = feed_of(&self.response)? {
             return Ok(Audio::Feed(feed));
         }
-        let formats = resp["streamingData"]["adaptiveFormats"].as_array().map(Vec::as_slice).unwrap_or_default();
-        let f = pick_format(formats, opus).ok_or_else(|| anyhow::anyhow!("no audio stream in web player response"))?;
+        self.solve_format(solver, video_id, pick_format(self.adaptive_formats(), opus)).await
+    }
+
+    fn adaptive_formats(&self) -> &[Value] {
+        self.response["streamingData"]["adaptiveFormats"].as_array().map(Vec::as_slice).unwrap_or_default()
+    }
+
+    fn opus_format(&self) -> Option<&Value> {
+        if self.response["videoDetails"]["isExternallyHostedPodcast"] == true {
+            return None;
+        }
+        let formats = self.adaptive_formats();
+        [774_u64, 251].into_iter().find_map(|itag| formats.iter().find(|f| f["itag"] == itag && is_opus(f)))
+    }
+
+    async fn solve_format(&self, solver: &Solver, video_id: &str, format: Option<&Value>) -> anyhow::Result<Audio> {
+        let f = format.ok_or_else(|| anyhow::anyhow!("no audio stream in web player response"))?;
         log::info!("web music: {video_id} itag {} ({} kbps)", f["itag"], f["bitrate"].as_u64().unwrap_or(0) / 1000);
         let size = f["contentLength"].as_str().and_then(|s| s.parse().ok()).ok_or_else(|| anyhow::anyhow!("unknown stream size"))?;
         let duration_ms = f["approxDurationMs"].as_str().and_then(|d| d.parse().ok()).unwrap_or(0);
-        let loudness_db = crate::innertube::loudness(&resp, f);
+        let loudness_db = crate::innertube::loudness(&self.response, f);
 
         // Either a plain URL, or `signatureCipher` = s=<challenge>&sp=<param>&url=<url>.
         let (raw, cipher) = match f["url"].as_str() {
@@ -401,7 +446,7 @@ impl Session {
         let mut url = Url::parse(&raw)?;
         let mut pairs: Vec<(String, String)> = url.query_pairs().into_owned().collect();
         let n = pairs.iter().find(|(k, _)| k == "n").map(|(_, v)| v.clone());
-        let (n_out, sig_out) = solver.solve(&player, n, cipher.as_ref().map(|(s, _)| s.clone())).await?;
+        let (n_out, sig_out) = solver.solve(&self.player, n, cipher.as_ref().map(|(s, _)| s.clone())).await?;
         if let Some(n) = n_out {
             pairs.iter_mut().filter(|(k, _)| k == "n").for_each(|(_, v)| *v = n.clone());
         }
@@ -515,6 +560,28 @@ mod tests {
         assert_eq!(picked(&standard, false), Some((140, false)));
         // Downloads never take Opus, even when it's all there is.
         assert_eq!(picked(&[f(251, opus)], false), None);
+    }
+
+    #[test]
+    fn playback_candidates_use_distinct_codecs() {
+        let aac = json!({"itag": 141, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\""});
+        let opus = json!({"itag": 251, "mimeType": "audio/webm; codecs=\"opus\""});
+        let candidates = |formats: Vec<Value>, rss: bool| PlaybackFormats {
+            player: Player { id: String::new(), sts: 0 },
+            response: json!({
+                "videoDetails": {"isExternallyHostedPodcast": rss},
+                "streamingData": {"adaptiveFormats": formats},
+            }),
+        };
+
+        let both = candidates(vec![aac.clone(), opus.clone()], false);
+        assert_eq!(pick_format(both.adaptive_formats(), true), Some(&aac));
+        assert_eq!(pick_format(both.adaptive_formats(), false), Some(&aac));
+        assert_eq!(both.opus_format(), Some(&opus));
+        assert!(both.has_opus());
+
+        assert!(!candidates(vec![aac], false).has_opus());
+        assert!(!candidates(vec![opus], true).has_opus());
     }
 
     #[test]

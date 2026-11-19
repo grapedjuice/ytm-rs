@@ -52,6 +52,11 @@ impl App {
                 AudioEvent::Ending { .. } => {}
                 AudioEvent::Interrupted { generation, at, failure } if generation == self.generation => self.recover(at, failure),
                 AudioEvent::Interrupted { .. } => {}
+                AudioEvent::FallbackStarted { generation, listed } => {
+                    if generation == self.generation && self.current_id() == Some(listed.as_str()) {
+                        self.toast("Playback continued using another audio stream");
+                    }
+                }
                 AudioEvent::Error(e) => self.toast(e),
             }
         }
@@ -581,7 +586,7 @@ impl App {
             Resp::MusicVideo { song, video } => {
                 self.music_videos.insert(song, video);
             }
-            Resp::PlayError { generation, msg, offer_backup_at } => self.on_play_error(generation, msg, offer_backup_at),
+            Resp::PlayError { generation, at, msg, offer_backup_at } => self.on_play_error(generation, at, msg, offer_backup_at),
             Resp::ServerQueue(q) => self.adopt_server_queue(q),
             Resp::Account { name, photo } => {
                 self.account_name = name.or(self.account_name.take());
@@ -771,7 +776,7 @@ impl App {
     }
 
     /// A song couldn't play: skip it, or stop when skipping can't help.
-    fn on_play_error(&mut self, generation: u64, msg: String, offer_backup_at: Option<Duration>) {
+    fn on_play_error(&mut self, generation: u64, at: Duration, msg: String, offer_backup_at: Option<Duration>) {
         if generation == self.generation {
             if offer_backup_at.is_some_and(|at| self.offer_backup_stream(at)) {
                 return;
@@ -783,6 +788,12 @@ impl App {
             } else {
                 msg
             };
+            if self.recoveries > 0 || !at.is_zero() {
+                self.audio.status.position_ms.store(at.as_millis() as u64, std::sync::atomic::Ordering::Relaxed);
+                self.resume_at = Some(at);
+                self.toast(format!("Couldn't resume \"{title}\". Press play to try again."));
+                return;
+            }
             let has_next = !self.queue.at_end() && self.queue.index.is_some();
             // Skipping can't help when the account is the problem: the rest of
             // an album like this needs it too. Stop on the song instead.

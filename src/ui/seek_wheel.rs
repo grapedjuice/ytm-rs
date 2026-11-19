@@ -24,6 +24,9 @@ const SETTLE: f64 = 0.3;
 const HOLD: f64 = 2.0;
 /// How near playback counts as there, seconds.
 const NEAR: f32 = 1.0;
+/// How far short of the end the wheel stops, seconds: a seek to the very end finishes the
+/// song, which a notch too many near the end shouldn't.
+const END: f32 = 1.0;
 
 pub(super) struct SeekWheel {
     /// The seek bar pointed at, last frame (set while drawing them).
@@ -56,7 +59,7 @@ impl SeekWheel {
 
     /// Takes the wheel events over the seek bar pointed at last frame out of one frame's
     /// `events`, at `time`, the pointer starting at `pointer`, and moves the target from `pos`
-    /// within `0..=total` (seconds). Ctrl+wheel zoom stays. Returns whether it took any.
+    /// within `0..=total`, short of its end (seconds). Ctrl+wheel zoom stays. Returns whether it took any.
     fn take(&mut self, events: &mut Vec<Event>, time: f64, mut pointer: Option<Pos2>, pos: f32, total: f32) -> bool {
         let Some(over) = self.over.take().filter(|_| total > 0.0) else { return false };
         // A notch anywhere in the frame makes it the wheel's, whatever order its events are in.
@@ -101,9 +104,13 @@ impl SeekWheel {
             self.last = time;
             // Turning on from a seek sent takes more than drift too.
             if (self.target.is_some() && self.sent.is_none()) || self.secs.abs() >= MIN {
-                let t = (self.target.unwrap_or(pos) + std::mem::take(&mut self.secs)).clamp(0.0, total);
-                // Past the end, a seek there already sent isn't sent again.
-                if self.target != Some(t) {
+                let from = self.target.unwrap_or(pos);
+                // Already within `END` of the end, onward goes nowhere (and back still works).
+                let last = (total - END).max(from.min(total));
+                let t = (from + std::mem::take(&mut self.secs)).clamp(0.0, last);
+                // At the end, a seek there already sent isn't sent again, nor one to where
+                // playback already is.
+                if self.target != Some(t) && (self.target.is_some() || t != pos) {
                     (self.target, self.sent) = (Some(t), None);
                 }
             }
@@ -186,7 +193,9 @@ impl App {
         let total = self.seek_length();
         let pos = self.seek_drag.unwrap_or(self.audio.status.position_smooth().as_secs_f32()).min(total.max(0.0));
         let (down, pointer) = ctx.input(|i| (i.pointer.any_down(), i.pointer.latest_pos()));
-        if down {
+        // Nor for a jam guest the host hasn't given control: the bar would move, then go
+        // back once the host said no.
+        if down || self.jam.guest_without_control() {
             self.seek_wheel.over = None;
         }
         if self.seek_wheel.take(events, time, pointer, pos, total) {
@@ -306,9 +315,19 @@ mod tests {
         let mut w = SeekWheel::default();
         assert_eq!(turn(&mut w, vec![notch(-3.0)], 1.0, 4.0), Some(0.0));
         let mut w = SeekWheel::default();
-        assert_eq!(turn(&mut w, vec![notch(10.0)], 1.0, 190.0), Some(200.0));
-        // Back from the end goes from the end, not from past it.
-        assert_eq!(turn(&mut w, vec![notch(-1.0)], 1.1, 200.0), Some(195.0));
+        // A second short of the end, so the song doesn't finish.
+        assert_eq!(turn(&mut w, vec![notch(10.0)], 1.0, 190.0), Some(199.0));
+        // Back from there goes from there, not from past it.
+        assert_eq!(turn(&mut w, vec![notch(-1.0)], 1.1, 199.0), Some(194.0));
+    }
+
+    #[test]
+    fn in_the_last_second_onward_goes_nowhere() {
+        let mut w = SeekWheel::default();
+        assert_eq!(turn(&mut w, vec![notch(1.0)], 1.0, 199.5), None);
+        assert_eq!(w.wait(1.0 + SETTLE), None);
+        assert_eq!(w.settled(1.0 + SETTLE), None);
+        assert_eq!(turn(&mut w, vec![notch(-1.0)], 2.0, 199.5), Some(194.5));
     }
 
     #[test]
@@ -391,8 +410,8 @@ mod tests {
     fn past_the_end_a_seek_sent_there_isnt_sent_again() {
         let mut w = SeekWheel::default();
         turn(&mut w, vec![notch(3.0)], 1.0, 190.0);
-        assert_eq!(w.settled(2.0), Some(200.0));
-        assert_eq!(turn(&mut w, vec![notch(1.0)], 2.1, 200.0), Some(200.0));
+        assert_eq!(w.settled(2.0), Some(199.0));
+        assert_eq!(turn(&mut w, vec![notch(1.0)], 2.1, 199.0), Some(199.0));
         assert_eq!(w.settled(3.0), None);
     }
 }

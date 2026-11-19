@@ -111,8 +111,10 @@ settings-0-db = 0 dB
 ## Playback speed
 
 settings-playback-speed = Velocidad de reproducción
-settings-playback-speed-desc = Reproduce las canciones más rápido o más lento, también desde un botón en la barra del reproductor. Más rápido suena más agudo y más lento más grave, como un disco. Las letras siguen el tempo. Vuelve a 1× cada vez que arranca ytm-rs.
+settings-playback-speed-desc = Reproduce las canciones más rápido o más lento, también desde un botón en la barra del reproductor. Las letras siguen el tempo. Vuelve a 1× cada vez que arranca ytm-rs.
 settings-speed = Velocidad
+settings-keep-pitch = Mantener el tono
+settings-keep-pitch-desc = Más rápido o más lento sin sonar más agudo o más grave. Desactivado, el tono cambia con la velocidad, como un disco.
 settings-playback-speed-jam-note = Vuelve a lo normal mientras estás en un jam, para que todos oigan la misma canción.
 
 ## Music videos

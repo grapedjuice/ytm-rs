@@ -467,6 +467,7 @@ impl App {
     /// everyone hears the same song at the same moment.
     pub(super) fn sync_tempo(&self) {
         self.audio.set_speed(if self.jam.active() || !self.tempo_on { 1.0 } else { self.speed });
+        self.audio.set_keep_pitch(self.keep_pitch);
     }
 
     pub(crate) fn set_crossfade(&self) {

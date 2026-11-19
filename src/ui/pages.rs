@@ -3267,6 +3267,10 @@ fn settings_tempo(app: &mut App, ui: &mut Ui) {
             setting_row_wide(ui, tr!("settings-speed"), None, SLIDER_W, |ui| {
                 step_slider(ui, &mut app.speed, (MIN_SPEED, MAX_SPEED, 0.05), Some(1.0), times, tr!("settings-speed"));
             });
+            divider(ui);
+            setting_row(ui, tr!("settings-keep-pitch"), Some(tr!("settings-keep-pitch-desc")), |ui| {
+                toggle(ui, &mut app.keep_pitch, tr!("settings-keep-pitch"));
+            });
         });
     });
 }

@@ -606,6 +606,8 @@ pub struct App {
     /// and the speed (not saved: 1× each launch).
     tempo_on: bool,
     speed: f32,
+    /// Speed changes the tempo only, not the pitch (saved; on unless switched off).
+    keep_pitch: bool,
     /// The next song starts because this one is ending: crossfade into it.
     handoff: bool,
     /// SponsorBlock segments for a video, and when one was last skipped.
@@ -1022,6 +1024,7 @@ impl App {
             },
             tempo_on: get("tempo").is_some_and(|v| v == "1"),
             speed: 1.0,
+            keep_pitch: get("keep_pitch").is_none_or(|v| v == "1"),
             segments: None,
             segment_skipped: f64::NEG_INFINITY,
             hotkeys,
@@ -2110,6 +2113,7 @@ impl eframe::App for App {
         storage.set_string("mono", b(self.stereo.mono));
         storage.set_string("balance", self.stereo.balance.to_string());
         storage.set_string("tempo", b(self.tempo_on));
+        storage.set_string("keep_pitch", b(self.keep_pitch));
         storage.set_string("show_roman", b(self.show_roman));
         storage.set_string("show_trans", b(self.show_trans));
         storage.set_string("quick_lyric_scroll", b(self.quick_lyric_scroll));

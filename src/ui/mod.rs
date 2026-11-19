@@ -1132,7 +1132,7 @@ impl App {
         if let Some(c) = std::fs::read(app.backend.data_dir().join(HOME_CACHE))
             .ok()
             .and_then(|b| serde_json::from_slice::<HomeCache>(&b).ok())
-            .filter(|c| c.logged_in == app.logged_in && c.hl == app.locale.hl && !c.shelves.is_empty())
+            .filter(|c| c.logged_in == app.logged_in && c.hl == app.locale.hl && c.gl == app.locale.gl && !c.shelves.is_empty())
         {
             app.home = Some(HomeState { chips: c.chips, shelves: c.shelves, continuation: None, loading_more: None, picks_loading: false, picks_expanded: false });
         }
@@ -2140,15 +2140,21 @@ fn relaunch() {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(super) struct HomeCache {
     pub logged_in: bool,
-    /// The Song info language it came in (older caches: English).
+    /// The Song info language and country it came in (older caches: English, US).
     #[serde(default = "english")]
     pub hl: String,
+    #[serde(default = "us")]
+    pub gl: String,
     pub chips: Vec<crate::model::Chip>,
     pub shelves: Vec<crate::model::Shelf>,
 }
 
 fn english() -> String {
     crate::locale::ENGLISH.hl.to_owned()
+}
+
+fn us() -> String {
+    crate::locale::ENGLISH.gl.to_owned()
 }
 
 impl HomeCache {

@@ -648,7 +648,7 @@ fn fullscreen_progress(app: &mut App, ui: &mut Ui, screen: Rect, px: f32) {
         ui.painter().rect_filled(filled, bar_r, theme::with_alpha(Color32::WHITE, 0.32));
         let font = theme::semibold((px * 0.55).clamp(10.0, 14.0));
         widgets::time_at(ui, pos2(r.left() + 12.0, r.center().y), egui::Align2::LEFT_CENTER, &super::fmt_time(pos as u32), font.clone(), Color32::WHITE);
-        widgets::time_at(ui, pos2(r.right() - 12.0, r.center().y), egui::Align2::RIGHT_CENTER, &super::fmt_time(total as u32), font, Color32::WHITE);
+        widgets::time_at(ui, pos2(r.right() - 12.0, r.center().y), egui::Align2::RIGHT_CENTER, &super::fmt_end(pos, total, app.time_left), font, Color32::WHITE);
         if resp.clicked()
             && let Some(p) = resp.interact_pointer_pos()
         {
@@ -862,7 +862,7 @@ fn cover_player(app: &mut App, ui: &mut Ui, track: &crate::model::Track, art: Re
         let font = theme::semibold(12.0 * s);
         let dim = theme::with_alpha(Color32::WHITE, 0.75);
         widgets::time_at(ui, pos2(seek_hit.left(), label_y), egui::Align2::LEFT_CENTER, &super::fmt_time(times.0 as u32), font.clone(), dim);
-        widgets::time_at(ui, pos2(seek_hit.right(), label_y), egui::Align2::RIGHT_CENTER, &super::fmt_time(times.1 as u32), font, dim);
+        widgets::time_at(ui, pos2(seek_hit.right(), label_y), egui::Align2::RIGHT_CENTER, &super::fmt_end(times.0, times.1, app.time_left), font, dim);
     }
     // Taking over from the rising hairline once it's arrived, in the same place and size.
     if !morphing {
@@ -1103,7 +1103,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         ui.painter().rect_filled(cap, 17.0, theme::shade(0.4));
         let font = theme::semibold(12.0);
         widgets::time_at(ui, cap.left_center() + vec2(14.0, 0.0), egui::Align2::LEFT_CENTER, &super::fmt_time(pos as u32), font.clone(), Color32::WHITE);
-        widgets::time_at(ui, cap.right_center() - vec2(14.0, 0.0), egui::Align2::RIGHT_CENTER, &super::fmt_time(total as u32), font, Color32::WHITE);
+        widgets::time_at(ui, cap.right_center() - vec2(14.0, 0.0), egui::Align2::RIGHT_CENTER, &super::fmt_end(pos, total, app.time_left), font, Color32::WHITE);
         let line = Rect::from_center_size(cap.center(), vec2((cap.width() - 110.0).max(40.0), 4.0));
         let seek = named(ui.interact(line.expand2(vec2(0.0, 10.0)), ui.scope_id().with("cover-seek"), Sense::click()), "Seek").on_hover_cursor(egui::CursorIcon::PointingHand);
         ui.painter().rect_filled(line, 2.0, theme::with_alpha(Color32::WHITE, 0.25));
@@ -1522,10 +1522,12 @@ fn video_fullscreen(app: &mut App, ui: &mut Ui, rect: Rect, track: &crate::model
     super::shell::volume_slider(app, &mut left, slider, "video-full-vol");
     left.add_space(14.0);
     if total > 0.0 {
-        let time = format!("{} / {}", super::fmt_time(pos as u32), super::fmt_time(total as u32));
-        let g = widgets::time_galley(&left, &time, theme::regular(13.5), Color32::WHITE);
-        let (r, _) = left.allocate_exact_size(g.size(), Sense::hover());
-        left.painter().galley(r.min, g, Color32::WHITE);
+        let g = widgets::time_galley(&left, &super::fmt_running(pos, total, app.time_left), theme::regular(13.5), Color32::WHITE);
+        // Room for the widest it gets (all the time left), so a second click doesn't land on
+        // the video (pause).
+        let w = widgets::time_galley(&left, &super::fmt_running(0.0, total, true), theme::regular(13.5), Color32::WHITE).size().x;
+        let (r, _) = left.allocate_exact_size(vec2(w, g.size().y), Sense::hover());
+        widgets::time_toggle(&left, r, r.min, g, [Color32::WHITE; 2], &mut app.time_left);
     }
     let mut right = ui.new_child(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::right_to_left(egui::Align::Center)));
     right.spacing_mut().item_spacing.x = 2.0;

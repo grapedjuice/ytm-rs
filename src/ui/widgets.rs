@@ -1560,6 +1560,25 @@ pub fn time_galley(ui: &Ui, s: &str, font: egui::FontId, color: Color32) -> std:
     ui.fonts_mut(|f| f.layout_job(job))
 }
 
+/// A running time `g` painted at `at` that's a button too (on `hit`): a click swaps the
+/// song's length for the time left and back (`left`). Its own target, over the player
+/// bar's click for now playing; brighter while hovered or focused.
+pub fn time_toggle(ui: &Ui, hit: Rect, at: Pos2, g: std::sync::Arc<egui::Galley>, [rest, hover]: [Color32; 2], left: &mut bool) {
+    let name = if *left { tr!("player-time-show-length", time = g.text()) } else { tr!("player-time-show-left", time = g.text()) };
+    let resp = named(ui.interact(hit, ui.scope_id().with("time-toggle"), Sense::click()), &name).on_hover_cursor(egui::CursorIcon::PointingHand);
+    if resp.clicked() {
+        *left = !*left;
+    }
+    let ring = Rect::from_min_size(at, g.size()).expand(2.0);
+    focus_ring(ui, &resp, ring, 4.0);
+    // Themes without a focus ring still show where focus is, white text over video included.
+    if resp.has_focus() && crate::preset::active().app.controls.focus.is_none() {
+        ui.painter().rect_stroke(ring, 4.0, egui::Stroke::new(1.0, hover), egui::StrokeKind::Outside);
+    }
+    let lit = resp.hovered() || resp.has_focus();
+    ui.painter().galley_with_override_text_color(at, g, if lit { hover } else { rest });
+}
+
 /// [`time_galley`] painted with `align` at `pos`, as `Painter::text` would.
 pub fn time_at(ui: &Ui, pos: Pos2, align: Align2, s: &str, font: egui::FontId, color: Color32) -> Rect {
     let g = time_galley(ui, s, font, color);

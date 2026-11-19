@@ -528,6 +528,7 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
         ui.label(RichText::new("Nothing here yet").color(theme::text_dim()));
     }
     let mut more_picks = None;
+    let picks = crate::model::quick_picks(&h.shelves, app.locale.hl);
     for (i, s) in h.shelves.iter().enumerate() {
         let id = format!("home-{i}-{}", s.title);
         match &s.kind {
@@ -536,12 +537,12 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
                 if cards.is_empty() {
                     continue;
                 }
-                let (strap, thumb) = if s.title == "Listen again" { (None, None) } else { (s.strapline.as_deref(), s.strap_thumb.as_deref()) };
+                let (strap, thumb) = if s.own { (None, None) } else { (s.strapline.as_deref(), s.strap_thumb.as_deref()) };
                 cards_shelf(ui, &app.liked, &mut app.actions, &id, &s.title, strap, thumb, &cards);
             }
             ShelfKind::Songs { tracks, rows: n } => {
                 let reached_end = song_grid(ui, &rows, &app.liked, &mut app.actions, &id, &s.title, s.strapline.as_deref(), tracks, *n);
-                if s.title == "Quick picks" && reached_end && !h.picks_loading && !h.picks_expanded {
+                if picks == Some(i) && reached_end && !h.picks_loading && !h.picks_expanded {
                     more_picks = tracks.last().map(|t| t.id.clone());
                 }
             }
@@ -1649,6 +1650,7 @@ fn settings_tab(app: &mut App, ui: &mut Ui, tab: SettingsTab) {
         }
         SettingsTab::General => {
             settings_language(app, ui);
+            settings_song_info(app, ui);
             settings_window(app, ui);
             settings_downloads(ui);
             super::transfer::settings_section(app, ui);
@@ -2382,6 +2384,50 @@ fn settings_language(app: &mut App, ui: &mut Ui) {
             }
         }
     });
+}
+
+/// Settings › General › Song info: the language and country YouTube Music answers in,
+/// for titles, names and shelves. Applies at once.
+fn settings_song_info(app: &mut App, ui: &mut Ui) {
+    use crate::locale::{self, COUNTRIES, LANGUAGES};
+    let mut pick = app.locale;
+    settings_section(ui, tr!("settings-song-info"), None, None, |ui| {
+        setting_row(ui, tr!("settings-song-info-language"), Some(tr!("settings-song-info-language-desc")), |ui| {
+            let current = locale::language(pick.hl).map_or_else(|| pick.hl.to_owned(), locale::language_label);
+            let btn = dropdown_button(ui, &current, 210.0, tr!("settings-song-info-language"));
+            widgets::menu_popup(&btn).show(|ui| {
+                widgets::menu_body(ui, 260.0);
+                dropdown_list(ui, 320.0, |ui| {
+                    for l in LANGUAGES {
+                        if option_row(ui, &locale::language_label(l), l.0 == pick.hl).clicked() {
+                            pick.hl = l.0;
+                            ui.close();
+                        }
+                    }
+                });
+            });
+        });
+        divider(ui);
+        setting_row(ui, tr!("settings-song-info-country"), Some(tr!("settings-song-info-country-desc")), |ui| {
+            let current = locale::country(pick.gl).map_or(pick.gl, |c| c.1);
+            let btn = dropdown_button(ui, current, 210.0, tr!("settings-song-info-country"));
+            widgets::menu_popup(&btn).show(|ui| {
+                widgets::menu_body(ui, 260.0);
+                dropdown_list(ui, 320.0, |ui| {
+                    for c in COUNTRIES {
+                        if option_row(ui, c.1, c.0 == pick.gl).clicked() {
+                            pick.gl = c.0;
+                            ui.close();
+                        }
+                    }
+                });
+            });
+        });
+    });
+    if pick != app.locale {
+        app.locale = pick;
+        app.set_locale();
+    }
 }
 
 fn settings_window(app: &mut App, ui: &mut Ui) {

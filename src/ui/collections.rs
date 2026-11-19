@@ -243,8 +243,9 @@ impl App {
     pub(super) fn preferred_artist_ids(&self) -> Vec<String> {
         let mut ids = HashSet::new();
         if let Some(home) = &self.home {
-            for shelf in &home.shelves {
-                if shelf.title != "Listen again" && shelf.title != "Quick picks" { continue; }
+            let picks = crate::model::quick_picks(&home.shelves, self.locale.hl);
+            for (i, shelf) in home.shelves.iter().enumerate() {
+                if !shelf.own && picks != Some(i) { continue; }
                 match &shelf.kind {
                     ShelfKind::Cards(cards) => {
                         for card in cards {

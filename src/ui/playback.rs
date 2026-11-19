@@ -506,6 +506,20 @@ impl App {
         }
     }
 
+    /// Settings › Song info: what's on screen is asked for again in the new language.
+    pub(super) fn set_locale(&mut self) {
+        self.backend.set_locale(self.locale);
+        self.search = None;
+        self.scoped.clear();
+        self.mood = None;
+        self.lists.outdate();
+        self.home_mood = false;
+        self.backend.request(Req::Home(None));
+        if self.logged_in {
+            self.backend.request(Req::Library);
+        }
+    }
+
     pub(super) fn set_hide_explicit(&mut self) {
         self.queue.hide_explicit = self.hide_explicit;
         self.find.hide_explicit = self.hide_explicit;

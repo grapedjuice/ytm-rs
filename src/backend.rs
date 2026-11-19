@@ -2490,6 +2490,11 @@ impl Backend {
         self.api.set_restricted(on && restricted);
     }
 
+    /// Settings › Song info: the language and country titles and names come in.
+    pub fn set_locale(&self, locale: crate::locale::Locale) {
+        self.api.set_locale(locale);
+    }
+
     /// Like or unlike a selection, one at a time, then check Liked Music and try again
     /// what didn't take. Unlikes still listed after that count as refused; likes aren't
     /// counted so (songs that can't be played are liked but not listed).
@@ -2631,7 +2636,8 @@ fn popular_new_albums(albums: &[Card], ranked_artists: &[String], preferred_arti
 
 /// "Episodes for later" is listed even when empty; hide it then.
 fn saved_playlist_visible(card: &Card) -> bool {
-    card.target != Target::Playlist("SE".into()) || card.subtitle.split_whitespace().any(|w| w.parse::<u64>().is_ok_and(|n| n > 0))
+    // Digits however they're written around ("12 episodes", "12集").
+    card.target != Target::Playlist("SE".into()) || card.subtitle.split(|c: char| !c.is_ascii_digit()).any(|w| w.parse::<u64>().is_ok_and(|n| n > 0))
 }
 
 pub fn compact(n: u64) -> String {

@@ -246,10 +246,18 @@ settings-listenbrainz-token-link = Get your token on listenbrainz.org
 # { $language } is the system's language, in its own name.
 settings-language-system = System ({ $language })
 settings-language = Language
-settings-language-desc = The app's own words. Song titles, names and YouTube Music's shelves come as YouTube Music sends them.
+settings-language-desc = The app's own words. Song titles, names and YouTube Music's shelves come in the Song info language below.
 settings-restart-to-apply = Restart to apply
 settings-language-restart-desc = The app changes language from the next start.
 settings-restart-now = Restart now
+
+## Song info: the language and country YouTube Music answers in. Separate from Language above.
+
+settings-song-info = Song info
+settings-song-info-language = Song info language
+settings-song-info-language-desc = The language song titles, artist and album names and YouTube Music's shelves come in, where YouTube Music has them in it.
+settings-song-info-country = Song info country
+settings-song-info-country-desc = The country charts and recommendations are for.
 
 ## Window
 

@@ -1660,9 +1660,10 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.shortcuts(&ctx);
-        // Full screen is now playing's: whatever closes it (L, a link to a page) leaves
-        // full screen too, or the window would stay full screen with nothing in it (#239).
-        if self.fullscreen && !self.np_open && dev_var("YTM_FAKE_FULLSCREEN").is_none() {
+        // Full screen is now playing's: whatever closes it (L, a link to a page, the queue
+        // emptied under it) leaves full screen too, or the window would stay full screen
+        // with nothing in it (#239).
+        if self.fullscreen && !(self.np_open && self.current().is_some()) && dev_var("YTM_FAKE_FULLSCREEN").is_none() {
             self.set_fullscreen(&ctx, false);
         }
         self.rating_settings.share_unlike_settings(&ctx, self.backend.api().epoch());

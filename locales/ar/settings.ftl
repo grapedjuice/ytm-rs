@@ -78,6 +78,8 @@ settings-sound = الصوت
 settings-volume-normalization = موازنة مستوى الصوت
 settings-logarithmic-volume = الصوت اللوغاريتمي
 settings-logarithmic-volume-desc = توزيع شريط مستوى الصوت بالطريقة التي تدرك بها الأذن علوّ الصوت، بحيث لا تُضغط المستويات المنخفضة في بضعة بكسل الأولى.
+settings-fade-when-pausing = تلاشي الصوت عند الإيقاف المؤقت
+settings-fade-when-pausing-desc = خفض صوت الموسيقى تدريجياً عند الإيقاف المؤقت، ورفعه مجدداً عند التشغيل، خلال خُمس ثانية. عند الإيقاف، يتوقف الصوت ويبدأ فوراً.
 settings-high-quality-audio = صوت عالي الجودة
 settings-high-quality-audio-desc = 256 kbps بدلاً من 128 kbps، للحسابات المشتركة في YouTube Premium. يُطبَّق بدءاً من الأغنية التالية.
 settings-output-device = جهاز الإخراج
@@ -286,6 +288,8 @@ settings-downloads-note = نزّل الأغاني من قائمتها، أو ا�
 settings-download-folder = مجلد التنزيلات
 settings-change = تغيير
 settings-open = فتح
+settings-folder-per-list = وضع الألبومات وقوائم التشغيل في مجلد خاص بها
+settings-folder-per-list-desc = تنزيل ألبوم أو قائمة تشغيل من صفحتها أو قائمتها يحفظ أغانيها في مجلد يحمل اسمها. تبقى الأغاني المُنزَّلة مسبقاً في مكانها الحالي.
 
 ## Network
 

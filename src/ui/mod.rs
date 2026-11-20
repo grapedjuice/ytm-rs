@@ -2367,8 +2367,8 @@ fn too_big(size: egui::Vec2, monitor: egui::Vec2) -> bool {
     size.x > monitor.x + 24.0 || size.y > monitor.y + 24.0
 }
 
-/// Whether this is the installed or the portable app, or the .deb or the Arch package
-/// (which only say a new version is out): updates only apply there. It
+/// Whether this is the installed or the portable app, or the .deb, the Arch package or
+/// a Flatpak (which only say a new version is out): updates only apply there. It
 /// can't change while running, and the check touches the disk, so it runs once.
 fn updatable() -> bool {
     static UPDATABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();

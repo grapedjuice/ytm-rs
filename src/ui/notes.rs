@@ -221,8 +221,11 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
                 crate::tr!("window-notes-status", version = crate::update::current_version(), step = crate::update::package_step())
             } else if ready {
                 crate::tr!("window-installed-when-closed", version = d.version.as_str())
-            } else {
+            } else if d.version == crate::update::current_version() {
                 crate::tr!("window-current-version").to_owned()
+            } else {
+                // An update's dialog whose state a later check has moved on.
+                crate::tr!("window-release-available", version = d.version.as_str())
             };
             ui.label(egui::RichText::new(sub).font(theme::regular(13.5)).color(theme::text_dim()));
         });

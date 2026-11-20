@@ -372,7 +372,7 @@ impl App {
                 self.update_announced = true;
                 self.notes_dialog = Some(notes::NotesDialog { version, ready: true });
             }
-            // The .deb: once per version, not every launch (the sidebar keeps saying so).
+            // A packaged copy (.deb, Arch, Flatpak): once per version, not every launch (the sidebar keeps saying so).
             State::Available { version, .. } if !self.update_announced && self.update_seen.as_ref() != Some(&version) => {
                 self.update_announced = true;
                 self.update_seen = Some(version.clone());

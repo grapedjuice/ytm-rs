@@ -60,12 +60,12 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 - **Explore and search:** new releases, charts, and search across songs, albums, artists and playlists.
 - **Your library:** liked songs, saved albums and playlists, history and uploads. Upload your own songs from the Uploads tab or by dropping files on the window. Turn on podcasts to see shows and episodes too.
 - **Song lists:** drag songs to reorder the queue and your own playlists, or drop them on a playlist in the sidebar to add them. A find box narrows any list to the songs that match.
-- **Playback:** queue, song radio, shuffle, repeat, autoplay and crossfade, with the next track prefetched for instant skips. Volume normalization, a 10-band equalizer with presets, playback speed (the pitch goes with it, like a record), and a choice of output device.
+- **Playback:** queue, song radio, shuffle, repeat, autoplay and crossfade, with the next track prefetched for instant skips. Volume normalization, a 10-band equalizer with presets, playback speed that keeps the pitch (or lets it go with the speed, like a record), and a choice of output device.
 - **Sound quality:** Opus at about 256 kbps with YouTube Premium, the best stream YouTube offers, and Opus at about 130 kbps without it.
 - **Songs, not music videos:** an official music video plays as its album recording, without the intros and skits, or switch to the video itself in Now playing.
 - **Skip non-music parts:** jumps over talking, skits and sponsor breaks in music videos, as marked by SponsorBlock.
 - **Explicit songs:** marked with an E. Turn on Hide explicit songs to leave them out of lists, search, the queue and autoplay, and optionally use YouTube's Restricted Mode as well.
-- **Downloads:** save any song as a tagged `.m4a` with cover art, at the best quality your account gets. Saved songs are listed in Library › Downloads and play offline.
+- **Downloads:** save any song as a tagged `.m4a` with cover art, at the best quality your account gets, with its lyrics inside (timed as LRC where the source has them). Albums and playlists can each go in their own folder. Saved songs are listed in Library › Downloads and play offline.
 
 **Lyrics and looks**
 - **Karaoke lyrics:** word-by-word lyrics drawn the way the Better Lyrics extension draws them, from every Better Lyrics source, with automatic fallback, romanization, translations and per-song timing offsets.
@@ -81,6 +81,8 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 **Desktop**
 - System media controls with a seekable timeline, taskbar thumbnail buttons, close to tray (Wayland too), song notifications while the window is in the background, a choice of page to open on, a collapsible sidebar and screen-reader-accessible controls.
 - The app draws its own title bar on Windows, so the window is one surface, and on Linux desktops that draw none. On Windows 11, Mica or Acrylic can show behind the window.
+- **Your language:** the interface comes in 20 languages, and song titles, shelves and charts can follow your language and country.
+- **Touch screens:** swipe to scroll pages and lyrics, and swipe the player bar up to open Now playing.
 - **Mini player:** shrink the window to a small strip with the song and controls (Ctrl+M), or try the experimental pill that sits in a corner and opens on hover.
 - **System-wide media shortcuts:** play/pause, next, previous and volume work while another app is in front or the window is in the tray. Change them in Settings › Keyboard shortcuts.
 - Automatic updates in the background for both the installed and portable versions, with release notes when an update is ready. Pick the Nightly channel for builds of the newest changes.
@@ -161,7 +163,7 @@ Sign-ins are still kept by the system (Credential Manager, Keychain or your keyr
 | **Listen together** | Click **Listen together** in the sidebar, start a jam and share the code or link. Songs guests add play next, marked with who added them, up to 5 waiting per guest. |
 | **Transfer from Spotify** | **Settings › General › Transfer from Spotify**, then sign in to Spotify to pick a playlist or Liked Songs, or paste a public playlist link without signing in. Matches ytm-rs isn't sure about come to you for review before it creates a private playlist. |
 | **Upload music** | **Library › Uploads › Upload music**, or drop MP3, M4A, FLAC, OGG or WMA files on the window. Title, artist, album and cover come from the file's tags. |
-| **Download songs** | Open a song's menu and click **Download**. Files go to `Music\ytm-rs`; change this in **Settings › General › Downloads**. |
+| **Download songs** | Open a song's menu and click **Download**. Files go to `Music\ytm-rs`; change this, the lyrics saved in the file and per-album or per-playlist folders in **Settings › General › Downloads**. |
 | **Scrobble to Last.fm** | **Settings › Connections**, click **Connect** next to Last.fm, then allow ytm-rs in your browser. Songs scrobble after half their length or four minutes. |
 | **Send listens to ListenBrainz** | Copy your user token from [listenbrainz.org/settings](https://listenbrainz.org/settings/), then in **Settings › Connections** paste it under ListenBrainz and click **Connect**. Songs count after half their length or four minutes. |
 | **Change the theme** | **Settings › Appearance**, click a theme card. Mode switches between light and dark, and Accent colour sets the highlight colour. |
@@ -226,7 +228,7 @@ The relay in `server/` is a separate Cloudflare Worker, also in Rust ([workers-r
 - The interface and audio playback are native. Google and Spotify sign-in and lyrics verification open temporary system webview windows (WebView2 on Windows).
 - Lyrics come from the providers Better Lyrics uses (Better Lyrics, Unison, Musixmatch, LRCLib and others), so availability depends on the track. Translations come from the lyrics when included, otherwise from Unison or Google Translate; machine translations and romanization can be rough.
 - The first song after launch can take about 5 seconds to start while the app prepares YouTube's player. After that, songs start instantly.
-- Premium-only and age-restricted songs play through your signed-in account. With YouTube Premium they play natively; without it, age-restricted songs fall back to `yt-dlp`, which needs Node.js.
+- Premium-only and age-restricted songs play through your signed-in account. With YouTube Premium they play natively; without it, age-restricted songs fall back to `yt-dlp`, which uses Node.js. If Node.js isn't installed, ytm-rs downloads it once (about 35 MB) the first time it's needed.
 - No audio goes through the Listen together relay. It only passes along what's playing and where; every listener streams the song from YouTube Music themselves.
 - Themes are native translations of CSS themes, so some details differ from the originals. Fonts that can't be redistributed (SF Pro, Spotify's) are replaced with the closest open fonts.
 - ytm-rs is an unofficial client. Changes to YouTube Music or third-party services can affect playback, sign-in or lyrics.

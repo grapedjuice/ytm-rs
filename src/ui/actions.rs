@@ -305,7 +305,7 @@ impl App {
                     return self.toast(crate::tr!("status-playlist-loading"));
                 }
                 if let Some(list) = self.page_list().map(str::to_owned) {
-                    self.settle_removal(&list);
+                    self.settle_edit(&list);
                 }
                 let Some(c) = self.current_collection().filter(|c| c.owned && !c.is_album && c.tracks.get(from).is_some_and(|t| t.id == id)) else { return };
                 let playlist_id = c.id.clone();

@@ -67,12 +67,15 @@ impl App {
     }
 
     /// Add songs to one of the account's playlists. They show in it at once, even while
-    /// YouTube Music goes on listing it without them.
+    /// YouTube Music goes on listing it without them. YouTube Music is told once the
+    /// toast's Undo is gone, as with songs taken out.
     pub(super) fn add_to_playlist(&mut self, playlist_id: String, tracks: &[Track]) {
+        // What was waiting goes first, so this add's Undo has only this add to take back.
+        self.settle();
         self.lists.added(&playlist_id, tracks);
         self.sync_card_count(&playlist_id);
         let video_ids = tracks.iter().map(|t| t.id.clone()).collect();
-        self.backend.request(Req::AddToPlaylist { playlist_id, video_ids });
+        self.toast_undo(crate::tr!("status-playlist-added"), super::undo::Undo::Add { id: playlist_id, video_ids });
     }
 
     /// The sidebar's and Library's playlist cards ("Suko • 4 tracks") count what YouTube

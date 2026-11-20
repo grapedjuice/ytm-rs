@@ -1,5 +1,5 @@
 //! Undo for what has no button to take it back: songs out of the queue, the queue
-//! cleared, songs out of your playlist, a like taken away, a playlist deleted. The toast
+//! cleared, songs into or out of your playlist, a like taken away, a playlist deleted. The toast
 //! saying so has the Undo (Ctrl+Z too, while it shows). YouTube Music is only told once
 //! the toast goes, the next one comes or the app closes: until then it's all here, and
 //! Undo just puts it back as it was.
@@ -14,6 +14,8 @@ pub enum Undo {
     Queue(queue::Saved),
     /// The exact uploads being unrated, their prior liked state and rows, and the request.
     Unlike { targets: Vec<String>, liked: Vec<String>, was: Unliked, send: Box<Req> },
+    /// Songs added to a playlist, shown in it already.
+    Add { id: String, video_ids: Vec<String> },
     /// Rows taken out of a playlist.
     Removal { id: String, rows: Vec<Taken> },
     /// A playlist deleted, and its card with its place in the library.
@@ -26,6 +28,7 @@ impl Undo {
         match self {
             Undo::Queue(_) => None,
             Undo::Unlike { send, .. } => Some(*send),
+            Undo::Add { id, video_ids } => Some(Req::AddToPlaylist { playlist_id: id, video_ids }),
             Undo::Removal { id, rows } => Some(Req::RemoveFromPlaylist { items: items(&rows), playlist_id: id }),
             Undo::Delete { id, .. } => Some(Req::DeletePlaylist(id)),
         }
@@ -171,9 +174,10 @@ impl App {
         }
     }
 
-    /// Settled before playlist `id` changes order: rows put back go by the rows near them.
-    pub(super) fn settle_removal(&mut self, id: &str) {
-        if matches!(&self.undo, Some(Undo::Removal { id: p, .. }) if p == id) {
+    /// Settled before playlist `id` changes order: rows put back go by the rows near them,
+    /// and songs added go to YouTube Music before they're moved.
+    pub(super) fn settle_edit(&mut self, id: &str) {
+        if matches!(&self.undo, Some(Undo::Removal { id: p, .. } | Undo::Add { id: p, .. }) if p == id) {
             self.settle();
         }
     }
@@ -208,12 +212,18 @@ impl App {
                 self.toast = None;
                 self.liked.extend(liked);
                 self.lists.unlike_undone(was);
-                self.after_put_back(LIKED_MUSIC);
+                self.after_rows_changed(LIKED_MUSIC);
+            }
+            Undo::Add { id, video_ids } => {
+                self.toast = None;
+                // Never sent: out again, as if YouTube Music hadn't taken them.
+                self.lists.add_failed(&id, &video_ids);
+                self.after_rows_changed(&id);
             }
             Undo::Removal { id, rows } => {
                 self.toast = None;
                 self.lists.put_back(&id, rows);
-                self.after_put_back(&id);
+                self.after_rows_changed(&id);
             }
             Undo::Delete { card, .. } => {
                 self.toast = None;
@@ -231,8 +241,9 @@ impl App {
         self.library.as_mut().map(|l| &mut l.playlists).or(self.sidebar_cache.as_mut())
     }
 
-    /// Rows came back into `list`: its count, and picks (by row number) on its page.
-    fn after_put_back(&mut self, list: &str) {
+    /// Rows came back into or went out of `list`: its count, and picks (by row number)
+    /// on its page.
+    fn after_rows_changed(&mut self, list: &str) {
         self.sync_card_count(list);
         if self.page_list() == Some(list) {
             self.selection.clear();

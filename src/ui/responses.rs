@@ -785,8 +785,7 @@ impl App {
         }
         let message = match change {
             // Their earlier toasts offer Undo.
-            PlaylistChange::Removed | PlaylistChange::Deleted => return,
-            PlaylistChange::Added => crate::tr!("status-playlist-added"),
+            PlaylistChange::Added | PlaylistChange::Removed | PlaylistChange::Deleted => return,
             PlaylistChange::Updated => crate::tr!("status-playlist-updated"),
             PlaylistChange::Sorted => crate::tr!("status-playlist-sorted"),
             PlaylistChange::SortFailed => crate::tr!("status-playlist-sort-failed"),

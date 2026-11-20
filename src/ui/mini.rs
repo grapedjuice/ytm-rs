@@ -1537,8 +1537,19 @@ fn card_seek(app: &mut App, ui: &mut Ui, line: Rect, track: Option<&crate::model
     }
     let font = theme::regular(11.0);
     widgets::time_at(ui, pos2(bar.left(), bar.bottom() + 7.0), egui::Align2::LEFT_TOP, &fmt_time(pos as u32), font.clone(), theme::text_faint());
-    let g = widgets::time_galley(ui, &fmt_time(total as u32), font, theme::text_faint());
-    ui.painter().galley(pos2(bar.right() - g.size().x, bar.bottom() + 7.0), g, theme::text_faint());
+    let g = widgets::time_galley(ui, &super::fmt_end(pos, total, app.time_left), font.clone(), theme::text_faint());
+    let r = Rect::from_min_size(pos2(bar.right() - g.size().x, bar.bottom() + 7.0), g.size());
+    // With no length yet there's no time left to show: just the 0:00.
+    if total > 0.0 {
+        // As wide as it gets (all the time left), so a second click doesn't land on the card
+        // (a double click there opens the main window).
+        let w = widgets::time_galley(ui, &super::fmt_end(0.0, total, true), font, theme::text_faint()).size().x;
+        // Below the seek line's own hit, so a click just under its end still seeks.
+        let hit = Rect::from_min_max(pos2(bar.right() - w, r.top().max(resp.rect.bottom())), r.max);
+        widgets::time_toggle(ui, hit, r.min, g, [theme::text_faint(), theme::text()], &mut app.time_left);
+    } else {
+        ui.painter().galley(r.min, g, theme::text_faint());
+    }
     let at = |p: Pos2| ((p.x - bar.left()) / bar.width()).clamp(0.0, 1.0) * total;
     if total > 0.0
         && let Some(p) = resp.interact_pointer_pos()
@@ -1686,7 +1697,8 @@ fn seek_line(app: &mut App, ui: &mut Ui, r: Rect, track: Option<&crate::model::T
     if h > 0.0
         && let Some(p) = resp.hover_pos().or(resp.interact_pointer_pos())
     {
-        let txt = format!("{} / {}", fmt_time(at(p) as u32), fmt_time(total as u32));
+        // With the time left on, what would be left from there.
+        let txt = super::fmt_running(at(p), total, app.time_left);
         let g = widgets::time_galley(ui, &txt, theme::semibold(11.5), Color32::WHITE);
         let half = g.size().x / 2.0 + 6.0;
         let x = p.x.clamp(r.left() + half + 2.0, r.right() - half - 2.0);

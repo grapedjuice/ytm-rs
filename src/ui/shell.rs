@@ -1312,11 +1312,12 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     // Narrow windows give way in steps so nothing overlaps: the transport tightens, the
     // volume slider folds into its icon (hover to show it), then the time goes (the
     // progress line still shows it on hover). The title shortens to keep clear on the left.
-    let time_g = (total > 0.0).then(|| {
-        let txt = format!("{} / {}", fmt_time(pos as u32), fmt_time(total as u32));
-        widgets::time_galley(ui, &txt, theme::weighted(chrome.time_weight, 13.0), theme::with_alpha(theme::text_dim(), chrome.time_alpha))
-    });
-    let time_w = time_g.as_ref().map_or(0.0, |g| g.size().x);
+    let time_c = [theme::with_alpha(theme::text_dim(), chrome.time_alpha), theme::text()];
+    let time_galley = |pos: f32, left: bool| widgets::time_galley(ui, &super::fmt_running(pos, total, left), theme::weighted(chrome.time_weight, 13.0), time_c[0]);
+    let time_g = (total > 0.0).then(|| time_galley(pos, app.time_left));
+    // Room for the widest it gets, all the time left from the start, so neither a click on
+    // the time nor its counting down folds it away or moves it.
+    let time_w = time_g.as_ref().map_or(0.0, |_| time_galley(0.0, true).size().x);
     // Where the song starts: at the left, or just right of the left-hand transport, the
     // middle of what's left then being about the bar's.
     let art_side = chrome.thumb_px.unwrap_or(full.height() - 26.0).clamp(28.0, 64.0);
@@ -1625,12 +1626,18 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     if time_under
         && let Some(g) = time_g.clone()
     {
-        ui.painter().galley(pos2(center.x - g.size().x / 2.0, center.y + 21.0), g, theme::text_dim());
+        let at = pos2(center.x - g.size().x / 2.0, center.y + 21.0);
+        // As wide as the wider of the two, so a second click lands on it too; clear of Play above.
+        let hit = Rect::from_x_y_ranges(center.x - time_w / 2.0..=center.x + time_w / 2.0, at.y.max(pr.bottom())..=at.y + g.size().y);
+        widgets::time_toggle(ui, hit, at, g, time_c, &mut app.time_left);
     }
     if time_over
         && let Some(g) = time_g.clone()
     {
-        ui.painter().galley(pos2(line.center().x - g.size().x / 2.0, edge_y - g.size().y - 3.0), g, theme::text_dim());
+        let at = pos2(line.center().x - g.size().x / 2.0, edge_y - g.size().y - 3.0);
+        // Clear of the progress line's target below, which a press there drags.
+        let hit = Rect::from_x_y_ranges(line.center().x - time_w / 2.0..=line.center().x + time_w / 2.0, at.y..=(at.y + g.size().y).min(bar_hit.top()));
+        widgets::time_toggle(ui, hit, at, g, time_c, &mut app.time_left);
     }
 
     // Right: time, volume, lyrics, queue, expand
@@ -1715,7 +1722,10 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     }
     if let Some(g) = time_g.filter(|_| show_time) {
         let gap = if compact_vol { 4.0 } else { 10.0 };
-        ui.painter().galley(pos2(vi.left() - gap - g.size().x, cy - g.size().y / 2.0), g, theme::text_dim());
+        let right = vi.left() - gap;
+        let at = pos2(right - g.size().x, cy - g.size().y / 2.0);
+        let hit = Rect::from_x_y_ranges(right - time_w..=right, at.y..=at.y + g.size().y);
+        widgets::time_toggle(ui, hit, at, g, time_c, &mut app.time_left);
     }
 }
 

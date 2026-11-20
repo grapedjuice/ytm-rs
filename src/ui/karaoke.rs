@@ -1299,7 +1299,7 @@ impl View {
         };
         // What a line's own picture depends on. The view's height isn't in it: that only moves
         // the lines, and a new blurred image per line for every step of a resize piled up.
-        let image_key = hash((f.key, rect.width().round() as i32, (cfg.size.to_bits(), cfg.deco_scale.to_bits()), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, cfg.weight as u8, cfg.spacing.to_bits(), cfg.line_height.to_bits(), (cfg.align as u8, cfg.agent_align as u8, cfg.wave.on), theme::fonts_generation()));
+        let image_key = hash((f.key, rect.width().round() as i32, (cfg.size.to_bits(), cfg.deco_scale.to_bits()), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, (cfg.weight as u8, cfg.bg_weight as u8), cfg.spacing.to_bits(), cfg.line_height.to_bits(), (cfg.align as u8, cfg.agent_align as u8, cfg.wave.on), theme::fonts_generation()));
         let layout_key = hash((image_key, rect.height().round() as i32));
         if self.layout.as_ref().is_none_or(|l| l.key != layout_key) {
             self.relayout(ui, &cfg, &f, layout_key, rect);

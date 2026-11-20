@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = عرض المزيد من التعليقات
+comment-more-replies = عرض المزيد من الردود
+comment-sort-failed = تعذّر ترتيب التعليقات.
+comment-like-failed = تعذّر الإعجاب بهذا التعليق.
+comment-post-failed = تعذّر نشر تعليقك. لا يزال مسودة في الحقل.
+comment-reply-failed = تعذّر نشر ردك. لا يزال مسودة في الحقل.
+comment-posted = تم نشر التعليق.
+comment-reply-posted = تم نشر الرد.
+comment-loading = جارٍ تحميل التعليقات…
+comment-loading-replies = جارٍ تحميل الردود…
+comment-disabled = التعليقات متوقفة لهذه الأغنية.
+comment-load-failed = تعذّر تحميل التعليقات.
+comment-retry = تعذّر تحميلها. أعد المحاولة
+comment-posting = جارٍ نشر تعليقك…
+comment-posting-reply = جارٍ نشر ردك…
+comment-replies-unavailable = لا يسمح YouTube بالرد على هذا التعليق.
+comment-unavailable = لا يسمح YouTube بالتعليقات هنا.
+comment-sign-in-like = سجّل الدخول للإعجاب بالتعليقات.
+comment-like-unavailable = لا يسمح YouTube بالإعجاب بهذا التعليق.
+comment-newest = الأحدث
+comment-top = الأهم
+comment-empty = لا توجد تعليقات بعد.
+comment-sign-in = سجّل الدخول للتعليق
+comment-new = أضف تعليقاً…
+comment-compose-disabled = التعليق غير متاح هنا
+comment-reply = رد
+comment-hide-replies = إخفاء الردود
+comment-reply-count = الردود ({ $count })
+comment-new-reply = أضف رداً…
+comment-sign-in-reply = سجّل الدخول للرد
+comment-post = نشر

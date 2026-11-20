@@ -113,8 +113,10 @@ settings-0-db = 0 dB
 ## Playback speed
 
 settings-playback-speed = Kecepatan putar
-settings-playback-speed-desc = Putar lagu lebih cepat atau lebih lambat, bisa juga dari tombol di bilah pemutar. Lebih cepat bunyinya lebih tinggi dan lebih lambat lebih rendah, kayak piringan hitam. Lirik tetap sinkron. Balik ke 1× tiap ytm-rs dijalankan.
+settings-playback-speed-desc = Putar lagu lebih cepat atau lebih lambat, bisa juga dari tombol di bilah pemutar. Lirik tetap sinkron. Balik ke 1× tiap ytm-rs dijalankan.
 settings-speed = Kecepatan
+settings-keep-pitch = Jaga nada
+settings-keep-pitch-desc = Lebih cepat atau lebih lambat tanpa bunyinya jadi lebih tinggi atau lebih rendah. Kalau dimatiin, nadanya ikut berubah sama kecepatan, kayak piringan hitam.
 settings-playback-speed-jam-note = Balik normal selama kamu di jam, biar semua orang dengar lagu yang sama.
 
 ## Music videos

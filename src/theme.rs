@@ -1558,6 +1558,9 @@ pub fn install_style(ctx: &egui::Context) {
         s.spacing.button_padding = egui::vec2(14.0, 7.0);
         s.spacing.menu_margin = egui::Margin::same(MENU_INSET);
         s.spacing.scroll = egui::style::ScrollStyle::floating();
+        // egui fades a scrolled list's edges in its own panel colour, square: over the app's
+        // own backgrounds that's a dark band, showing at the corners of a rounded row.
+        s.spacing.scroll.fade.strength = 0.0;
         if crate::preset::active().app.hide_scrollbars {
             let bar = &mut s.spacing.scroll;
             (bar.dormant_handle_opacity, bar.active_handle_opacity, bar.interact_handle_opacity) = (0.0, 0.0, 0.0);

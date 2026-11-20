@@ -1,9 +1,9 @@
-### The short notices at the bottom of the window.
-
 # After unliking several songs at once; Undo sits beside it.
 likes-removed = { $count ->
-    [one] أُلغي إعجاب واحد
-    [two] أُلغي إعجابان
-    [few] أُلغيت { $count } إعجابات
-   *[other] أُلغي { $count } إعجابًا
+    [zero] لم تتم إزالة أي إعجاب
+    [one] تمت إزالة إعجاب واحد
+    [two] تمت إزالة إعجابين
+    [few] تمت إزالة { $count } إعجابات
+    [many] تمت إزالة { $count } إعجابًا
+   *[other] تمت إزالة { $count } إعجاب
 }

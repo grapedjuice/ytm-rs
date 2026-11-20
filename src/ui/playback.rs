@@ -467,6 +467,7 @@ impl App {
     /// everyone hears the same song at the same moment.
     pub(super) fn sync_tempo(&self) {
         self.audio.set_speed(if self.jam.active() || !self.tempo_on { 1.0 } else { self.speed });
+        self.audio.set_keep_pitch(self.keep_pitch);
     }
 
     pub(crate) fn set_crossfade(&self) {
@@ -635,6 +636,7 @@ impl App {
     }
 
     pub(super) fn seek_to(&mut self, at: Duration) {
+        self.seek_wheel_seeked(at.as_secs_f32());
         if self.resume_at.is_some() {
             // Restored but not loaded yet (nothing for the player to seek): move the start point instead.
             self.resume_at = Some(at);

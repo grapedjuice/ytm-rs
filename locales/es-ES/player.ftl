@@ -1,5 +1,9 @@
-### Player controls and synced lyrics.
+### The player: the bar along the bottom, now playing and the mini player.
 
+player-time-show-left = { $time }. Mostrar tiempo restante
+player-time-show-length = { $time }. Mostrar duración de la canción
+
+# From the interface-wide catalog (#228).
 player-full-screen = Pantalla completa
 player-exit-full-screen = Salir de pantalla completa
 player-pip = Imagen en imagen

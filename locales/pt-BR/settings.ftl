@@ -111,8 +111,10 @@ settings-0-db = 0 dB
 ## Playback speed
 
 settings-playback-speed = Velocidade de reprodução
-settings-playback-speed-desc = Toca as músicas mais rápido ou mais lento, também por um botão na barra do player. Mais rápido soa mais agudo e mais lento mais grave, como um disco. As letras acompanham o tempo. Volta a 1× cada vez que o ytm-rs inicia.
+settings-playback-speed-desc = Toca as músicas mais rápido ou mais lento, também por um botão na barra do player. As letras acompanham o tempo. Volta a 1× cada vez que o ytm-rs inicia.
 settings-speed = Velocidade
+settings-keep-pitch = Manter o tom
+settings-keep-pitch-desc = Mais rápido ou mais lento sem soar mais agudo ou mais grave. Desligado, o tom muda com a velocidade, como um disco.
 settings-playback-speed-jam-note = Volta ao normal enquanto você está em um jam, para todos ouvirem a mesma música.
 
 ## Music videos
@@ -244,7 +246,7 @@ settings-listenbrainz-token-link = Obtenha seu token em listenbrainz.org
 # { $language } is the system's language, in its own name.
 settings-language-system = Sistema ({ $language })
 settings-language = Idioma
-settings-language-desc = Idioma da interface. Os títulos, nomes e seções do YouTube Music usam o idioma das informações das músicas escolhido abaixo.
+settings-language-desc = As palavras do próprio app. Títulos de músicas, nomes e seções do YouTube Music vêm como o YouTube Music envia.
 settings-restart-to-apply = Reinicie para aplicar
 settings-language-restart-desc = O app muda de idioma no próximo início.
 settings-restart-now = Reiniciar agora
@@ -254,7 +256,7 @@ settings-restart-now = Reiniciar agora
 settings-window = Janela
 settings-open-on = Abrir em
 settings-open-on-desc = A página em que o app inicia. As abas da Biblioteca exigem login, exceto Downloads; desconectado, o app abre na Home.
-settings-home = Início
+settings-home = Home
 settings-close-to-tray-desc-linux = Mantém um ícone na bandeja. Clicar em × esconde a janela lá e a música continua. O menu do ícone traz de volta, esconde ou sai. Clicar na música nos controles de mídia do sistema também traz de volta, e Ctrl+Q sai.
 settings-close-to-tray-desc = Mantém um ícone na bandeja. Clicar em × esconde a janela lá e a música continua. Clique no ícone para trazer de volta, ou clique com o botão direito para esconder, mostrar ou sair.
 settings-close-to-tray = Fechar para a bandeja

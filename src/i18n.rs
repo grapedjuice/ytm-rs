@@ -99,6 +99,12 @@ pub fn current() -> String {
     active().lang.to_string()
 }
 
+/// Whether this run's language reads right to left: its sentences do, even one that
+/// starts with a Latin name ("YouTube Premium …").
+pub fn rtl() -> bool {
+    matches!(active().lang.language.as_str(), "ar" | "fa" | "he" | "ur" | "ps" | "sd" | "ug" | "ckb" | "dv" | "yi")
+}
+
 /// Of [`LANGUAGES`]: `picked`, else the first of the system's languages offered (its
 /// region's own if there is one, else the same language's), else English.
 fn choose(picked: Option<&str>, system: &[String]) -> &'static str {

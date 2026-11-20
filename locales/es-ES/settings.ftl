@@ -111,8 +111,10 @@ settings-0-db = 0 dB
 ## Playback speed
 
 settings-playback-speed = Velocidad de reproducción
-settings-playback-speed-desc = Reproduce las canciones más rápido o más lento, también desde un botón en la barra del reproductor. Más rápido suena más agudo y más lento más grave, como un disco. Las letras siguen el tempo. Vuelve a 1× cada vez que arranca ytm-rs.
+settings-playback-speed-desc = Reproduce las canciones más rápido o más lento, también desde un botón en la barra del reproductor. Las letras siguen el tempo. Vuelve a 1× cada vez que arranca ytm-rs.
 settings-speed = Velocidad
+settings-keep-pitch = Mantener el tono
+settings-keep-pitch-desc = Más rápido o más lento sin sonar más agudo o más grave. Desactivado, el tono cambia con la velocidad, como un disco.
 settings-playback-speed-jam-note = Vuelve a lo normal mientras estás en un jam, para que todos oigan la misma canción.
 
 ## Music videos
@@ -244,7 +246,7 @@ settings-listenbrainz-token-link = Obtén tu token en listenbrainz.org
 # { $language } is the system's language, in its own name.
 settings-language-system = Sistema ({ $language })
 settings-language = Idioma
-settings-language-desc = Idioma de la interfaz. Los títulos, nombres y secciones de YouTube Music usan el idioma de información de las canciones elegido abajo.
+settings-language-desc = Las palabras propias de la app. Títulos de canciones, nombres y secciones de YouTube Music llegan como YouTube Music los envía.
 settings-restart-to-apply = Reinicia para aplicar
 settings-language-restart-desc = La app cambia de idioma en el próximo inicio.
 settings-restart-now = Reiniciar ahora

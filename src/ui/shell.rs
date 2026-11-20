@@ -455,7 +455,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             // Too wide to squeeze: cross-fade the message and the rail's icon.
             if t < 0.5 {
                 ui.multiply_opacity(1.0 - 2.0 * t);
-                ui.label(egui::RichText::new(crate::tr!("nav-sign-in-playlists")).color(theme::text_dim()));
+                widgets::note(ui, crate::tr!("nav-sign-in-playlists"), egui::TextStyle::Body.resolve(ui.style()), theme::text_dim());
                 ui.add_space(8.0);
                 if widgets::pill(ui, crate::tr!("nav-sign-in"), Some(icon::CIRCLE_USER), false).clicked() {
                     app.start_sign_in(ui.ctx());

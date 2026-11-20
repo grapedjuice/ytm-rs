@@ -1322,7 +1322,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
     // Downloads are on this computer; the rest is the account's.
     if !app.logged_in && tab != LibTab::Downloads {
         ui.add_space(10.0);
-        ui.label(RichText::new(crate::tr!("nav-library-sign-in")).color(theme::text_dim()));
+        widgets::note(ui, crate::tr!("nav-library-sign-in"), egui::TextStyle::Body.resolve(ui.style()), theme::text_dim());
         ui.add_space(12.0);
         if pill(ui, crate::tr!("settings-sign-in-with-google"), Some(icon::CIRCLE_USER), true).clicked() {
             app.start_sign_in(ui.ctx());

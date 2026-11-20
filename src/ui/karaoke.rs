@@ -414,7 +414,7 @@ impl Cfg {
             glow_ratio: s.glow_ratio as f64,
             glow_min: s.glow_min_secs as f64,
             bg_alpha: s.background_alpha,
-            bg_weight: s.background_weight,
+            bg_weight: own.weight.unwrap_or(s.background_weight),
             roman_weight: deco.romanization_weight,
             roman_family: (!deco.romanization_font.is_empty()).then(|| theme::effective_font(&deco.romanization_font)),
             trans_weight: deco.translation_weight,
@@ -1215,7 +1215,7 @@ pub struct Frame<'a> {
     pub quick_scroll: bool,
 }
 
-/// Settings â€º Lyrics over the theme's own look.
+/// Settings › Lyrics over the theme's own look.
 #[derive(Clone, Copy, PartialEq)]
 pub struct Own {
     /// Text size, a multiple of the theme's.
@@ -3079,6 +3079,10 @@ fn glow_source(j: &GlowJob, bounds: Rect, ppp: f32) -> u64 {
     let step = |v: f32| (v * 4.0).round() as i32;
     for r in j.quads.iter().map(|q| q.0).chain(std::iter::once(j.word)) {
         [step(r.left() - bounds.left()), step(r.top() - bounds.top()), step(r.right() - bounds.left()), step(r.bottom() - bounds.top())].hash(&mut h);
+    }
+    // The glyphs too: another weight can set the same boxes.
+    for q in &j.quads {
+        [q.1.min.x, q.1.min.y, q.1.max.x, q.1.max.y].map(f32::to_bits).hash(&mut h);
     }
     let gradient = |v: f32| (v * 64.0).round() as i32;
     (gradient(j.look.start), gradient(j.look.end), j.radius.to_bits(), ppp.to_bits(), j.by_letter, j.rtl).hash(&mut h);

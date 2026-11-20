@@ -67,7 +67,7 @@ impl Prefs {
             line_trim: num("lyric_trim_line"),
             text_scale: get("lyric_scale").and_then(|v| v.parse::<f32>().ok()).unwrap_or(1.0).clamp(TEXT_SCALE.0, TEXT_SCALE.1),
             weight: get("lyric_weight").and_then(|v| Weight::from_key(&v)),
-            deco_scale: get("lyric_deco_scale").and_then(|v| v.parse::<f32>().ok()).filter(|v| v.is_finite()).unwrap_or(1.0).clamp(DECO_SCALE.0, DECO_SCALE.1),
+            deco_scale: super::shell::load_factor(get("lyric_deco_scale"), DECO_SCALE),
             song_offsets: get("lyric_song_offsets").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
             pins: get("lyric_pins")
                 .and_then(|s| serde_json::from_str::<HashMap<String, String>>(&s).ok())

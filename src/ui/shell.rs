@@ -74,22 +74,27 @@ pub fn pages_bg_moves(look: &crate::preset::Preset) -> bool {
     matches!(page_mode(look), BgMode::Kawarp | BgMode::CoverFullbleed) && b.speed > 0.0 && b.intensity > 0.0
 }
 
-/// Range and step of Settings â€º Appearance â€º Background speed and brightness, as
+/// Range and step of Settings › Appearance › Background speed and brightness, as
 /// multiples of the theme's own (1: the theme's).
 pub const BG_SPEED: (f32, f32, f32) = (0.25, 3.0, 0.25);
 pub const BG_BRIGHTNESS: (f32, f32, f32) = (0.5, 2.0, 0.1);
 
-/// A saved background factor: the theme's own (1) unless one in range was saved.
-pub fn load_bg_factor(saved: Option<String>, (min, max, _): (f32, f32, f32)) -> f32 {
-    saved.and_then(|v| v.parse::<f32>().ok()).filter(|v| v.is_finite()).unwrap_or(1.0).clamp(min, max)
+/// A saved factor: the theme's own (1) unless one in range was saved, on its steps so
+/// stepping can come back to exactly 100%.
+pub fn load_factor(saved: Option<String>, (min, max, step): (f32, f32, f32)) -> f32 {
+    let v = saved.and_then(|v| v.parse::<f32>().ok()).filter(|v| v.is_finite()).unwrap_or(1.0);
+    (((v / step).round() * step * 100.0).round() / 100.0).clamp(min, max)
 }
 
 /// Moves the animated background's clock on by a frame. Now playing's backdrop runs on
 /// it too, also where the pages' background isn't drawn (full screen).
 pub fn background_clock(app: &mut App, now: f64) {
     use crate::preset::BgMode;
-    let dt = (now - app.last_frame).clamp(0.0, 0.1);
+    let elapsed = (now - app.last_frame).max(0.0);
+    let dt = elapsed.min(0.1);
     app.last_frame = now;
+    // A theme's turning or pulsing cover keeps the wall clock's pace (paused too), times Background speed.
+    app.layer_time += elapsed * app.bg_speed as f64;
     let b = &app.look().background;
     let animated = matches!(b.mode, BgMode::Kawarp | BgMode::CoverFullbleed) && b.speed > 0.0;
     if app.anim_bg && animated && app.playing() {
@@ -165,7 +170,9 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64) {
     if light {
         // A solid theme's light colour needs no wash.
         if mode != BgMode::Solid {
-            painter.rect_filled(screen, 0.0, Color32::from_white_alpha(212));
+            // Background brightness thins or thickens it (212 at 100%).
+            let wash = 1.0 - (1.0 - 212.0 / 255.0) / app.bg_brightness;
+            painter.rect_filled(screen, 0.0, Color32::from_white_alpha((wash * 255.0).round() as u8));
         }
     } else if mode != BgMode::Solid {
         // Keep text readable: darken toward the bottom and under the sidebar.
@@ -2002,16 +2009,19 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{BG_BRIGHTNESS, BG_SPEED, load_bg_factor};
+    use super::{BG_BRIGHTNESS, BG_SPEED, load_factor};
 
     /// Unsaved or unreadable, the background is the theme's own; saved, it stays in range.
     #[test]
     fn background_factors_default_to_the_theme() {
-        assert_eq!(load_bg_factor(None, BG_SPEED), 1.0);
-        assert_eq!(load_bg_factor(Some("NaN".into()), BG_BRIGHTNESS), 1.0);
-        assert_eq!(load_bg_factor(Some("x".into()), BG_SPEED), 1.0);
-        assert_eq!(load_bg_factor(Some("1.50".into()), BG_SPEED), 1.5);
-        assert_eq!(load_bg_factor(Some("9".into()), BG_BRIGHTNESS), BG_BRIGHTNESS.1);
-        assert_eq!(load_bg_factor(Some("0".into()), BG_SPEED), BG_SPEED.0);
+        assert_eq!(load_factor(None, BG_SPEED), 1.0);
+        assert_eq!(load_factor(Some("NaN".into()), BG_BRIGHTNESS), 1.0);
+        assert_eq!(load_factor(Some("x".into()), BG_SPEED), 1.0);
+        assert_eq!(load_factor(Some("1.50".into()), BG_SPEED), 1.5);
+        assert_eq!(load_factor(Some("9".into()), BG_BRIGHTNESS), BG_BRIGHTNESS.1);
+        assert_eq!(load_factor(Some("0".into()), BG_SPEED), BG_SPEED.0);
+        // Off its steps (an older or hand-edited save), it comes back onto them.
+        assert_eq!(load_factor(Some("1.05".into()), BG_SPEED), 1.0);
+        assert_eq!(load_factor(Some("0.93".into()), BG_BRIGHTNESS), 0.9);
     }
 }

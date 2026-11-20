@@ -655,6 +655,8 @@ pub struct App {
     /// Background animation clock: advances only while music plays, so pausing
     /// freezes the motion instead of jumping when resumed.
     bg_time: f64,
+    /// Clock of a theme's turning or pulsing cover, at Background speed.
+    layer_time: f64,
     last_frame: f64,
     search_rect: Option<egui::Rect>,
     search_focused: bool,
@@ -1046,8 +1048,8 @@ impl App {
             accent_source: AccentSource::from_key(&get("custom_accent").unwrap_or_default()),
             accent_controls: get("accent_controls").is_some_and(|v| v == "1"),
             anim_bg: get("anim_bg").is_none_or(|v| v == "1"),
-            bg_speed: shell::load_bg_factor(get("bg_speed"), shell::BG_SPEED),
-            bg_brightness: shell::load_bg_factor(get("bg_brightness"), shell::BG_BRIGHTNESS),
+            bg_speed: shell::load_factor(get("bg_speed"), shell::BG_SPEED),
+            bg_brightness: shell::load_factor(get("bg_brightness"), shell::BG_BRIGHTNESS),
             glass_on: get("glass_on").is_none_or(|v| v == "1"),
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
             dim_bright: get("dim_bright").is_none_or(|v| v == "1"),
@@ -1073,6 +1075,7 @@ impl App {
             segment_skipped: f64::NEG_INFINITY,
             hotkeys,
             bg_time: 0.0,
+            layer_time: 0.0,
             last_frame: 0.0,
             search_rect: None,
             search_focused: false,

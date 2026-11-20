@@ -195,6 +195,9 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
         _ => None,
     });
     let deb_url = available.clone().filter(|_| !crate::update::flatpak());
+    // Only while that version is still the one downloaded: a later check moves the
+    // state on (an Available one to Checking), and Restart would then install nothing.
+    let ready = app.updater.as_ref().is_some_and(|u| matches!(u.state(), crate::update::State::Ready { version, .. } if d.ready && version == d.version));
     let (mut close, mut restart) = (false, false);
     let accent = app.accent_color();
     widgets::modal_extras(ctx, egui::Id::unique("release-notes"));
@@ -206,7 +209,7 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 widgets::icon_at(ui, ui.cursor().min + vec2(8.0, 8.0), icon::SPARKLES, 15.0, accent);
                 ui.add_space(22.0);
-                let label = if available.is_some() { crate::tr!("window-update-available") } else if d.ready { crate::tr!("window-update-ready") } else { crate::tr!("settings-whats-new") };
+                let label = if available.is_some() { crate::tr!("window-update-available") } else if ready { crate::tr!("window-update-ready") } else { crate::tr!("settings-whats-new") };
                 let mut j = LayoutJob::default();
                 j.append(&label.to_uppercase(), 0.0, TextFormat { font_id: theme::semibold(12.0), color: theme::text_dim(), extra_letter_spacing: 1.0, ..Default::default() });
                 ui.label(j);
@@ -216,7 +219,7 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
             ui.add_space(6.0);
             let sub = if available.is_some() {
                 crate::tr!("window-notes-status", version = crate::update::current_version(), step = crate::update::package_step())
-            } else if d.ready {
+            } else if ready {
                 crate::tr!("window-installed-when-closed", version = d.version.as_str())
             } else {
                 crate::tr!("window-current-version").to_owned()
@@ -253,7 +256,7 @@ pub fn dialog(app: &mut App, ctx: &egui::Context) {
                     close |= widgets::pill(ui, crate::tr!("window-later"), None, false).clicked();
                 } else if available.is_some() {
                     close = widgets::pill(ui, crate::tr!("ui-close"), None, true).clicked();
-                } else if d.ready {
+                } else if ready {
                     restart = widgets::pill(ui, crate::tr!("settings-restart-to-update"), None, true).clicked();
                     close = widgets::pill(ui, crate::tr!("window-later"), None, false).clicked();
                 } else {

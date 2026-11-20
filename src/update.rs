@@ -70,7 +70,8 @@ pub enum State {
     /// `installer` is the setup exe, or for the portable build the new ytm-rs.exe.
     Ready { version: String, installer: PathBuf },
     /// A newer version is out, for a copy that can't install it itself (the .deb, the
-    /// Arch package, a Flatpak): `url` is its package (unused for a Flatpak).
+    /// Arch package, a Flatpak): `url` is its package (for a Flatpak, the release's page,
+    /// unused).
     Available { version: String, url: String },
     Failed(String),
 }
@@ -581,6 +582,12 @@ impl Updater {
             return Ok(State::UpToDate);
         }
         let version = tag.trim_start_matches('v').to_owned();
+        // A Flatpak downloads nothing, so it doesn't wait for an asset (and there's none
+        // for every architecture it may run on): the link is to the release's page.
+        if flatpak() {
+            log::info!("update: {version} is out");
+            return Ok(State::Available { url: format!("{RELEASES}/tag/{tag}"), version });
+        }
         let portable = portable_dir().is_some();
         let want = asset_name(&version);
         // A release published before its installer was built: nothing to install

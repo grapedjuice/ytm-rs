@@ -74,6 +74,16 @@ pub fn pages_bg_moves(look: &crate::preset::Preset) -> bool {
     matches!(page_mode(look), BgMode::Kawarp | BgMode::CoverFullbleed) && b.speed > 0.0 && b.intensity > 0.0
 }
 
+/// Range and step of Settings â€º Appearance â€º Background speed and brightness, as
+/// multiples of the theme's own (1: the theme's).
+pub const BG_SPEED: (f32, f32, f32) = (0.25, 3.0, 0.25);
+pub const BG_BRIGHTNESS: (f32, f32, f32) = (0.5, 2.0, 0.1);
+
+/// A saved background factor: the theme's own (1) unless one in range was saved.
+pub fn load_bg_factor(saved: Option<String>, (min, max, _): (f32, f32, f32)) -> f32 {
+    saved.and_then(|v| v.parse::<f32>().ok()).filter(|v| v.is_finite()).unwrap_or(1.0).clamp(min, max)
+}
+
 /// Moves the animated background's clock on by a frame. Now playing's backdrop runs on
 /// it too, also where the pages' background isn't drawn (full screen).
 pub fn background_clock(app: &mut App, now: f64) {
@@ -85,7 +95,7 @@ pub fn background_clock(app: &mut App, now: f64) {
     if app.anim_bg && animated && app.playing() {
         // `audioSpeedMultiplier`: louder music moves it faster.
         let boost = if app.reactive_bg { 1.0 + app.audio.status.level().min(1.0) * b.audio_speed } else { 1.0 };
-        app.bg_time += dt * b.speed as f64 * boost as f64;
+        app.bg_time += dt * (b.speed * app.bg_speed) as f64 * boost as f64;
     }
 }
 
@@ -111,7 +121,7 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64) {
     let mode = page_mode(look);
     // Light pages are the art at full strength under a white wash, a pale tint of the cover.
     let light = theme::light();
-    let dim = if light { 1.0 } else { look.app.page_dim.unwrap_or(b.page_dim).clamp(0.02, 1.0) };
+    let dim = if light { 1.0 } else { (look.app.page_dim.unwrap_or(b.page_dim) * app.bg_brightness).clamp(0.02, 1.0) };
     // Darker still where bright art would show through too bright for white text (the
     // shade drawn over it below takes about a third off).
     let dim = if light || !app.dim_bright { dim } else { dim * crate::art::readable_dim(app.art_brightness * dim * (1.0 - 0.335)) };
@@ -1987,5 +1997,21 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
         ctx.request_repaint_after(std::time::Duration::from_secs_f32(hold - age));
     } else if age < hold + 0.4 {
         ctx.request_repaint();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BG_BRIGHTNESS, BG_SPEED, load_bg_factor};
+
+    /// Unsaved or unreadable, the background is the theme's own; saved, it stays in range.
+    #[test]
+    fn background_factors_default_to_the_theme() {
+        assert_eq!(load_bg_factor(None, BG_SPEED), 1.0);
+        assert_eq!(load_bg_factor(Some("NaN".into()), BG_BRIGHTNESS), 1.0);
+        assert_eq!(load_bg_factor(Some("x".into()), BG_SPEED), 1.0);
+        assert_eq!(load_bg_factor(Some("1.50".into()), BG_SPEED), 1.5);
+        assert_eq!(load_bg_factor(Some("9".into()), BG_BRIGHTNESS), BG_BRIGHTNESS.1);
+        assert_eq!(load_bg_factor(Some("0".into()), BG_SPEED), BG_SPEED.0);
     }
 }

@@ -614,6 +614,9 @@ pub struct App {
     /// The play button and volume slider in the accent colour, like the progress line.
     accent_controls: bool,
     anim_bg: bool,
+    /// The animated background's speed and brightness, as multiples of the theme's.
+    bg_speed: f32,
+    bg_brightness: f32,
     /// Panels frost what's behind them, in themes that have them do so.
     glass_on: bool,
     reactive_bg: bool,
@@ -1043,6 +1046,8 @@ impl App {
             accent_source: AccentSource::from_key(&get("custom_accent").unwrap_or_default()),
             accent_controls: get("accent_controls").is_some_and(|v| v == "1"),
             anim_bg: get("anim_bg").is_none_or(|v| v == "1"),
+            bg_speed: shell::load_bg_factor(get("bg_speed"), shell::BG_SPEED),
+            bg_brightness: shell::load_bg_factor(get("bg_brightness"), shell::BG_BRIGHTNESS),
             glass_on: get("glass_on").is_none_or(|v| v == "1"),
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
             dim_bright: get("dim_bright").is_none_or(|v| v == "1"),
@@ -2155,6 +2160,8 @@ impl eframe::App for App {
         }
         storage.set_string("accent_controls", b(self.accent_controls));
         storage.set_string("anim_bg", b(self.anim_bg));
+        storage.set_string("bg_speed", format!("{:.2}", self.bg_speed));
+        storage.set_string("bg_brightness", format!("{:.2}", self.bg_brightness));
         storage.set_string("glass_on", b(self.glass_on));
         storage.set_string("reactive_bg", b(self.reactive_bg));
         storage.set_string("dim_bright", b(self.dim_bright));

@@ -217,6 +217,27 @@ pub enum Weight {
     ExtraBold,
 }
 
+impl Weight {
+    /// Lightest first, as Settings › Lyrics › Line weight lists them.
+    pub const ALL: [Weight; 6] = [Weight::Light, Weight::Regular, Weight::Medium, Weight::Semibold, Weight::Bold, Weight::ExtraBold];
+
+    /// Its name in the theme files, and in the settings.
+    pub fn key(self) -> &'static str {
+        match self {
+            Weight::Light => "light",
+            Weight::Regular => "regular",
+            Weight::Medium => "medium",
+            Weight::Semibold => "semibold",
+            Weight::Bold => "bold",
+            Weight::ExtraBold => "extra_bold",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Weight> {
+        Weight::ALL.into_iter().find(|w| w.key() == key)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Fill {
@@ -2243,6 +2264,16 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A weight's settings key reads back as the same weight, and as the theme files spell it.
+    #[test]
+    fn weight_keys_round_trip() {
+        for w in Weight::ALL {
+            assert!(Weight::from_key(w.key()) == Some(w));
+            assert!(serde_json::from_str::<Weight>(&format!("\"{}\"", w.key())).ok() == Some(w));
+        }
+        assert!(Weight::from_key("").is_none());
     }
 
     #[test]

@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 
 use crate::lyrics::{Line, LyricsSet, Provider};
+use crate::preset::Weight;
 
 /// Offsets are seconds taken off the lyrics clock: positive shows lyrics later.
 pub struct Prefs {
@@ -19,10 +20,16 @@ pub struct Prefs {
     pub pins: HashMap<String, Provider>,
     /// Lyrics text size, as a multiple of the theme's own size.
     pub text_scale: f32,
+    /// The lines' weight in place of the theme's. `None`: the theme's own.
+    pub weight: Option<Weight>,
+    /// Translations' and romanizations' size, as a multiple of their own against the line.
+    pub deco_scale: f32,
 }
 
 /// The range and step of the lyrics text size setting.
 pub const TEXT_SCALE: (f32, f32, f32) = (0.6, 1.8, 0.1);
+/// … and of the translation size setting.
+pub const DECO_SCALE: (f32, f32, f32) = (0.6, 2.0, 0.1);
 
 impl Prefs {
     pub fn load(get: &dyn Fn(&str) -> Option<String>) -> Self {
@@ -59,6 +66,8 @@ impl Prefs {
             word_trim: num("lyric_trim_word"),
             line_trim: num("lyric_trim_line"),
             text_scale: get("lyric_scale").and_then(|v| v.parse::<f32>().ok()).unwrap_or(1.0).clamp(TEXT_SCALE.0, TEXT_SCALE.1),
+            weight: get("lyric_weight").and_then(|v| Weight::from_key(&v)),
+            deco_scale: get("lyric_deco_scale").and_then(|v| v.parse::<f32>().ok()).filter(|v| v.is_finite()).unwrap_or(1.0).clamp(DECO_SCALE.0, DECO_SCALE.1),
             song_offsets: get("lyric_song_offsets").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
             pins: get("lyric_pins")
                 .and_then(|s| serde_json::from_str::<HashMap<String, String>>(&s).ok())
@@ -75,6 +84,8 @@ impl Prefs {
         storage.set_string("lyric_trim_word", format!("{:.1}", self.word_trim));
         storage.set_string("lyric_trim_line", format!("{:.1}", self.line_trim));
         storage.set_string("lyric_scale", format!("{:.2}", self.text_scale));
+        storage.set_string("lyric_weight", self.weight.map_or("", Weight::key).to_owned());
+        storage.set_string("lyric_deco_scale", format!("{:.2}", self.deco_scale));
         storage.set_string("lyric_song_offsets", serde_json::to_string(&self.song_offsets).unwrap_or_default());
         let pins: HashMap<&String, &str> = self.pins.iter().map(|(k, p)| (k, p.key())).collect();
         storage.set_string("lyric_pins", serde_json::to_string(&pins).unwrap_or_default());
@@ -172,6 +183,23 @@ impl Clock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Unsaved, or saved as anything unreadable, the weight and translation size are the theme's own.
+    #[test]
+    fn theme_overrides_default_to_the_theme() {
+        let p = Prefs::load(&|_| None);
+        assert!(p.weight.is_none() && p.deco_scale == 1.0);
+        let get = |k: &str| match k {
+            "lyric_weight" => Some("extra_bold".to_owned()),
+            "lyric_deco_scale" => Some("1.40".to_owned()),
+            _ => None,
+        };
+        let p = Prefs::load(&get);
+        assert!(p.weight == Some(Weight::ExtraBold) && p.deco_scale == 1.4);
+        let bad = |k: &str| (k != "lyric_providers").then(|| "NaN".to_owned());
+        let p = Prefs::load(&bad);
+        assert!(p.weight.is_none() && p.deco_scale == 1.0);
+    }
 
     #[test]
     fn stored_order_merges_new_sources_and_keeps_disabled() {

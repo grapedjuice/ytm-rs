@@ -2104,6 +2104,7 @@ fn lyric_options(app: &mut App, ui: &mut Ui) {
     }
     if let Some(p) = pick.filter(|p| *p != shown) {
         app.lyric_prefs.pick(&id, set, p);
+        crate::downloads::lyrics_picked(&id);
         log::info!("lyrics: showing {} ({}/{}) by choice", p.key(), available.iter().position(|x| *x == p).map_or(0, |i| i + 1), n);
         app.lyric_view.reset();
     }

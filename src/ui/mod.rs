@@ -823,7 +823,12 @@ impl App {
         if app_icon != crate::appicon::CLASSIC {
             crate::appicon::sync_shortcuts(app_icon, backend.data_dir());
         }
-        crate::downloads::init(backend.data_dir(), &get("download_dir").unwrap_or_default(), get("download_folder_per_list").is_some_and(|v| v == "1"));
+        crate::downloads::init(
+            backend.data_dir(),
+            &get("download_dir").unwrap_or_default(),
+            get("download_folder_per_list").is_some_and(|v| v == "1"),
+            crate::downloads::FileLyrics::from_key(&get("download_lyrics").unwrap_or_default()),
+        );
         crate::lastfm::init(backend.data_dir());
         let logged_in = backend.is_logged_in();
         // Before any request: a song started at launch (dev hooks) must see this setting.
@@ -1090,7 +1095,12 @@ impl App {
             quick_lyric_scroll: get("quick_lyric_scroll").is_some_and(|v| v == "1"),
             lyrics_full_rate: get("lyrics_full_rate").is_some_and(|v| v == "1"),
             full_rate_frame: false,
-            lyric_prefs: lyric_prefs::Prefs::load(&get),
+            lyric_prefs: {
+                // Downloaded files' lyrics follow the same source order and picks.
+                let p = lyric_prefs::Prefs::load(&get);
+                p.share();
+                p
+            },
             lyric_view: Default::default(),
             lyric_clock: Default::default(),
             record_angle: 0.0,
@@ -2095,6 +2105,7 @@ impl eframe::App for App {
         let folder = crate::downloads::folder();
         storage.set_string("download_dir", if folder == crate::downloads::default_folder() { String::new() } else { folder.display().to_string() });
         storage.set_string("download_folder_per_list", b(crate::downloads::per_list()));
+        storage.set_string("download_lyrics", crate::downloads::file_lyrics().key().to_owned());
         let (device, device_name) = self.output_device.clone().unzip();
         storage.set_string("output_device", device.unwrap_or_default());
         storage.set_string("output_device_name", device_name.unwrap_or_default());

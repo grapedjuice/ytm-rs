@@ -4,7 +4,9 @@
 //!
 //! `downloads.json` in the data dir maps video ids to their files; a file that was
 //! moved or deleted just stops counting as downloaded. A downloaded song's lyrics are
-//! kept in the data dir's `lyrics` folder, so they show offline too.
+//! kept in the data dir's `lyrics` folder, every source's, so they show offline too.
+//! The file's own lyrics tag, for other players, has the source the listener goes by
+//! for that song: timed (LRC) when it has timing, unless the setting says otherwise.
 //!
 //! With `per_list` on, an album's or playlist's own download puts its songs in a folder
 //! of their own under the downloads folder. A song is saved once: one downloaded already
@@ -16,7 +18,7 @@ use std::sync::{Arc, LazyLock, RwLock};
 
 use serde::{Deserialize, Serialize};
 
-use crate::lyrics::LyricsSet;
+use crate::lyrics::{LyricsSet, Provider};
 use crate::model::Track;
 use crate::stream::Shared;
 
@@ -58,6 +60,8 @@ struct State {
     folder: PathBuf,
     /// Albums and playlists get a folder each (the setting).
     per_list: bool,
+    /// What goes in a file's lyrics tag (the setting).
+    file_lyrics: FileLyrics,
     /// Songs whose file wasn't there when last looked for. They stay in the index: a
     /// folder on a drive that's away has them back when it's back.
     gone: HashSet<String>,
@@ -67,7 +71,7 @@ struct State {
 }
 
 static STATE: LazyLock<RwLock<State>> =
-    LazyLock::new(|| RwLock::new(State { index: HashMap::new(), file: PathBuf::new(), folder: default_folder(), per_list: false, gone: HashSet::new(), saved: Vec::new() }));
+    LazyLock::new(|| RwLock::new(State { index: HashMap::new(), file: PathBuf::new(), folder: default_folder(), per_list: false, file_lyrics: FileLyrics::Synced, gone: HashSet::new(), saved: Vec::new() }));
 
 /// Music\ytm-rs.
 pub fn default_folder() -> PathBuf {
@@ -77,9 +81,34 @@ pub fn default_folder() -> PathBuf {
     base.join("ytm-rs")
 }
 
+/// What a downloaded file's lyrics tag holds.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FileLyrics {
+    /// Timed lyrics as LRC, where the source has timing; plain words where it doesn't.
+    Synced,
+    Plain,
+    Off,
+}
+
+impl FileLyrics {
+    pub const ALL: [Self; 3] = [Self::Synced, Self::Plain, Self::Off];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Synced => "synced",
+            Self::Plain => "plain",
+            Self::Off => "off",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Self {
+        Self::ALL.into_iter().find(|m| m.key() == key).unwrap_or(Self::Synced)
+    }
+}
+
 /// Load the index; `folder` is the saved setting (empty for the default), `per_list` the
-/// folder-per-list one.
-pub fn init(data_dir: &Path, folder: &str, per_list: bool) {
+/// folder-per-list one, `file_lyrics` the lyrics-in-the-file one.
+pub fn init(data_dir: &Path, folder: &str, per_list: bool, file_lyrics: FileLyrics) {
     let file = data_dir.join("downloads.json");
     let index = match std::fs::read(&file) {
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
@@ -95,6 +124,7 @@ pub fn init(data_dir: &Path, folder: &str, per_list: bool) {
     st.file = file;
     st.folder = if folder.is_empty() { default_folder() } else { PathBuf::from(folder) };
     st.per_list = per_list;
+    st.file_lyrics = file_lyrics;
     drop(st);
     // Which files are gone: disk work, off the UI thread.
     std::thread::spawn(|| {
@@ -151,6 +181,51 @@ pub fn per_list() -> bool {
 
 pub fn set_per_list(on: bool) {
     STATE.write().unwrap().per_list = on;
+}
+
+pub fn file_lyrics() -> FileLyrics {
+    STATE.read().unwrap().file_lyrics
+}
+
+/// Change what files' lyrics tags hold, and retag every downloaded song to match (in the
+/// background; only files whose tag changes are written).
+pub fn set_file_lyrics(m: FileLyrics) {
+    let ids: Vec<String> = {
+        let mut st = STATE.write().unwrap();
+        if st.file_lyrics == m {
+            return;
+        }
+        st.file_lyrics = m;
+        st.index.keys().filter(|id| !st.gone.contains(*id)).cloned().collect()
+    };
+    std::thread::spawn(move || {
+        for id in ids {
+            retag(&id);
+        }
+    });
+}
+
+/// The listener's lyrics source order and per-song picks, which the files' lyrics follow.
+struct Choice {
+    order: Vec<(Provider, bool)>,
+    pins: HashMap<String, Provider>,
+}
+
+static CHOICE: LazyLock<RwLock<Choice>> = LazyLock::new(|| RwLock::new(Choice { order: Provider::ALL.iter().map(|p| (*p, true)).collect(), pins: HashMap::new() }));
+
+/// Take on the listener's source order and picks (at start, and when they change).
+pub fn set_lyric_choice(order: Vec<(Provider, bool)>, pins: HashMap<String, Provider>) {
+    *CHOICE.write().unwrap() = Choice { order, pins };
+}
+
+/// After the listener picks another source for a song: its file's lyrics follow, when
+/// it's downloaded (in the background).
+pub fn lyrics_picked(video_id: &str) {
+    if path(video_id).is_none() {
+        return;
+    }
+    let id = video_id.to_owned();
+    std::thread::spawn(move || retag(&id));
 }
 
 /// Ask for a new folder (the system picker, on its own thread).
@@ -467,38 +542,66 @@ pub fn saved_lyrics(video_id: &str) -> Option<LyricsSet> {
     (!set.sources.is_empty()).then_some(set)
 }
 
-/// Keep a downloaded song's lyrics for offline, and put their words in the file's
-/// lyrics tag (for other players) when they changed. Nothing for a song that isn't
-/// downloaded, or lyrics that are empty.
+/// Keep a downloaded song's lyrics for offline, and bring the file's lyrics tag (for
+/// other players) up to date. Nothing for a song that isn't downloaded, or lyrics that
+/// are empty.
 pub fn save_lyrics(video_id: &str, set: &LyricsSet) {
     let (Some(audio), Some(file)) = (path(video_id), lyrics_file(video_id)) else { return };
     if set.sources.is_empty() {
         return;
     }
-    let words = plain_lyrics(set);
-    let before = saved_lyrics(video_id).map(|s| plain_lyrics(&s));
     let saved = file.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&file, serde_json::to_vec(set).unwrap_or_default()));
     if let Err(e) = saved {
         log::warn!("couldn't save the lyrics of {video_id}: {e}");
         return;
     }
-    if before.as_deref() != Some(words.as_str())
-        && !words.is_empty()
-        && audio.extension().is_some_and(|e| e == "m4a")
-        && let Err(e) = mp4ameta::Tag::read_from_path(&audio).and_then(|mut tag| {
-            tag.set_lyrics(&words);
-            tag.write_to_path(&audio)
-        })
-    {
+    tag_lyrics(&audio, video_id, set);
+}
+
+/// Bring a downloaded song's lyrics tag in line with its saved lyrics.
+fn retag(video_id: &str) {
+    if let (Some(audio), Some(set)) = (path(video_id), saved_lyrics(video_id)) {
+        tag_lyrics(&audio, video_id, &set);
+    }
+}
+
+/// Write the lyrics tag `video_id`'s file should have, when it has something else.
+fn tag_lyrics(audio: &Path, video_id: &str, set: &LyricsSet) {
+    // Only .m4a files are tagged (title, cover and all).
+    if audio.extension().is_none_or(|e| e != "m4a") {
+        return;
+    }
+    let want = {
+        let c = CHOICE.read().unwrap();
+        tag_text(set, crate::lyrics::choose(&c.order, &c.pins, video_id, set), file_lyrics())
+    };
+    // One write to a file at a time: a new pick and a play can both retag it.
+    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    let written = mp4ameta::Tag::read_from_path(audio).and_then(|mut tag| {
+        if tag.lyrics() == want.as_deref() {
+            return Ok(());
+        }
+        match &want {
+            Some(w) => tag.set_lyrics(w),
+            None => tag.remove_lyrics(),
+        }
+        tag.write_to_path(audio)
+    });
+    if let Err(e) = written {
         log::warn!("couldn't tag the lyrics of {}: {e}", audio.display());
     }
 }
 
-/// The words of the first source's lyrics, a line each.
-fn plain_lyrics(set: &LyricsSet) -> String {
-    let Some(l) = set.sources.first() else { return String::new() };
-    l.lines.iter().filter(|l| !l.instrumental).map(|l| l.text.trim()).collect::<Vec<_>>().join("
-").trim().to_owned()
+/// What a file's lyrics tag holds: the `source`'s lyrics, as the setting says.
+fn tag_text(set: &LyricsSet, source: Option<Provider>, mode: FileLyrics) -> Option<String> {
+    let l = set.get(source?)?;
+    let text = match mode {
+        FileLyrics::Synced => crate::lyrics::to_lrc(l),
+        FileLyrics::Plain => crate::lyrics::plain_words(l),
+        FileLyrics::Off => return None,
+    };
+    (!text.trim().is_empty()).then_some(text)
 }
 
 /// A downloaded song's audio, as a complete stream buffer for playback.
@@ -814,7 +917,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ytm-rs-downloads-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        init(&dir, &dir.join("music").display().to_string(), false);
+        init(&dir, &dir.join("music").display().to_string(), false, FileLyrics::Synced);
         let song = |id: &str, title: &str| Track { id: id.into(), title: title.into(), ..Default::default() };
         let from = saves();
 
@@ -864,5 +967,25 @@ mod tests {
         assert!(any_listed(&[song("x", "X"), song("c", "C")]) && !all_listed(&[song("x", "X"), song("c", "C")]));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_file_gets_the_chosen_sources_lyrics_as_set() {
+        use crate::lyrics::{Line, Lyrics, Sync};
+        let lyrics = |provider, text: &str| Lyrics { lines: vec![Line { start: 2000, dur: 1000, text: text.into(), ..Default::default() }], sync: Sync::Line, provider, language: None, songwriters: vec![] };
+        let set = LyricsSet { sources: vec![lyrics(Provider::BLyricsRich, "first"), lyrics(Provider::LrclibSynced, "picked")] };
+        let order: Vec<(Provider, bool)> = Provider::ALL.iter().map(|p| (*p, true)).collect();
+        let pins = HashMap::from([("v".to_owned(), Provider::LrclibSynced)]);
+        let chosen = crate::lyrics::choose(&order, &pins, "v", &set);
+        assert_eq!(tag_text(&set, chosen, FileLyrics::Synced).as_deref(), Some("[00:02.00]picked
+[00:03.00]"));
+        assert_eq!(tag_text(&set, chosen, FileLyrics::Plain).as_deref(), Some("picked"));
+        assert_eq!(tag_text(&set, chosen, FileLyrics::Off), None);
+        // No pick: the first in order.
+        let first = crate::lyrics::choose(&order, &HashMap::new(), "v", &set);
+        assert_eq!(tag_text(&set, first, FileLyrics::Plain).as_deref(), Some("first"));
+        assert_eq!(tag_text(&set, None, FileLyrics::Synced), None);
+        assert_eq!(FileLyrics::from_key(""), FileLyrics::Synced);
+        assert!(FileLyrics::ALL.iter().all(|m| FileLyrics::from_key(m.key()) == *m));
     }
 }

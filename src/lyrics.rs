@@ -203,6 +203,62 @@ impl LyricsSet {
     }
 }
 
+/// Lyrics worth showing: some line is sung (the extension's `hideInstrumentalOnly`).
+pub fn usable(l: &Lyrics) -> bool {
+    l.lines.iter().any(|x| !x.instrumental && !x.text.trim().is_empty())
+}
+
+/// Sources that have lyrics for a song, in the listener's `order` (switched-off ones
+/// left out).
+pub fn available(order: &[(Provider, bool)], set: &LyricsSet) -> Vec<Provider> {
+    order.iter().filter(|(p, on)| *on && set.get(*p).is_some_and(usable)).map(|(p, _)| *p).collect()
+}
+
+/// The source a song's lyrics come from: its pick when that has lyrics, else the first
+/// in the listener's order that does (`orderByPin`, then fall through on failure).
+pub fn choose(order: &[(Provider, bool)], pins: &HashMap<String, Provider>, video_id: &str, set: &LyricsSet) -> Option<Provider> {
+    let available = available(order, set);
+    pins.get(video_id).filter(|p| available.contains(p)).copied().or_else(|| available.first().copied())
+}
+
+/// Lyrics as LRC, a `[mm:ss.xx]` line each, for players that read timed lyrics from a
+/// file's lyrics tag. A break nobody sings over is an empty timed line, so the last
+/// line sung doesn't stay up through it. Lyrics without timing are just their words.
+pub fn to_lrc(l: &Lyrics) -> String {
+    if l.sync == Sync::None {
+        return plain_words(l);
+    }
+    let stamp = |ms: i32| {
+        let cs = ms.max(0) / 10;
+        format!("[{:02}:{:02}.{:02}]", cs / 6000, cs / 100 % 60, cs % 100)
+    };
+    let mut out = Vec::with_capacity(l.lines.len());
+    for (i, line) in l.lines.iter().enumerate() {
+        if line.instrumental {
+            out.push(stamp(line.start));
+            continue;
+        }
+        let text = line.text.trim();
+        if text.is_empty() {
+            out.push(stamp(line.start));
+            continue;
+        }
+        out.push(format!("{}{text}", stamp(line.start)));
+        // A long quiet after this line that the lyrics don't mark: clear it at its end.
+        let next = l.lines.get(i + 1);
+        let quiet = next.map_or(line.dur > 0, |n| !n.instrumental && line.dur > 0 && n.start - line.end() > 5000);
+        if quiet {
+            out.push(stamp(line.end()));
+        }
+    }
+    out.join("\n")
+}
+
+/// The words, a sung line each.
+pub fn plain_words(l: &Lyrics) -> String {
+    l.lines.iter().filter(|l| !l.instrumental).map(|l| l.text.trim()).collect::<Vec<_>>().join("\n").trim().to_owned()
+}
+
 // ------------------------------------------------------------------- API client
 
 pub struct Client {
@@ -1353,6 +1409,32 @@ pub fn parse_ttml(text: &str, song_ms: i32) -> Ttml {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn timed(lines: &[(i32, i32, &str, bool)], sync: Sync) -> Lyrics {
+        let lines = lines.iter().map(|&(start, dur, text, instrumental)| Line { start, dur, text: text.into(), instrumental, ..Default::default() }).collect();
+        Lyrics { lines, sync, provider: Provider::LrclibSynced, language: None, songwriters: vec![] }
+    }
+
+    #[test]
+    fn lrc_has_a_timed_line_each_and_clears_the_quiet() {
+        let l = timed(
+            &[(1500, 2000, " Hello ", false), (3500, 1000, "world", false), (4500, 8000, "", true), (12500, 1000, "again", false), (61_230, 500, "late", false)],
+            Sync::Line,
+        );
+        assert_eq!(to_lrc(&l), "[00:01.50]Hello
+[00:03.50]world
+[00:04.50]
+[00:12.50]again
+[00:13.50]
+[01:01.23]late
+[01:01.73]");
+        // Word-timed lyrics go in by line: what every LRC reader takes.
+        assert_eq!(to_lrc(&timed(&[(0, 900, "Hi", false)], Sync::Word)), "[00:00.00]Hi
+[00:00.90]");
+        // Without timing, just the words.
+        assert_eq!(to_lrc(&timed(&[(0, 0, "One", false), (0, 0, "Two", false)], Sync::None)), "One
+Two");
+    }
 
     #[test]
     fn enhanced_lrc_parts() {

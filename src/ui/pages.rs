@@ -2087,6 +2087,30 @@ fn settings_downloads(ui: &mut Ui) {
                 crate::downloads::set_per_list(on);
             }
         });
+        divider(ui);
+        use crate::downloads::FileLyrics;
+        let label = |m: FileLyrics| match m {
+            FileLyrics::Synced => tr!("settings-file-lyrics-synced"),
+            FileLyrics::Plain => tr!("settings-file-lyrics-plain"),
+            FileLyrics::Off => tr!("settings-file-lyrics-off"),
+        };
+        let mut pick = None;
+        setting_row(ui, tr!("settings-file-lyrics"), Some(tr!("settings-file-lyrics-desc")), |ui| {
+            let now = crate::downloads::file_lyrics();
+            let btn = dropdown_button(ui, label(now), 160.0, tr!("settings-file-lyrics"));
+            widgets::menu_popup(&btn).show(|ui| {
+                widgets::menu_body(ui, 160.0);
+                for m in FileLyrics::ALL {
+                    if option_row(ui, label(m), m == now).clicked() {
+                        pick = Some(m);
+                        ui.close();
+                    }
+                }
+            });
+        });
+        if let Some(m) = pick {
+            crate::downloads::set_file_lyrics(m);
+        }
     });
 }
 
@@ -2191,6 +2215,7 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
         ui.add_space(8.0);
         let n = app.lyric_prefs.order.len();
         let mut swap: Option<(usize, usize)> = None;
+        let mut changed = false;
         for (i, entry) in app.lyric_prefs.order.iter_mut().enumerate() {
             let (p, on) = *entry;
             let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::hover());
@@ -2198,6 +2223,7 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
             let mut enabled = on;
             if toggle(&mut row, &mut enabled, p.name()).changed() {
                 entry.1 = enabled;
+                changed = true;
             }
             row.add_space(10.0);
             let kind = match p.sync() {
@@ -2219,6 +2245,11 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
         }
         if let Some((a, b)) = swap {
             app.lyric_prefs.order.swap(a, b);
+            changed = true;
+        }
+        // Downloaded files' lyrics follow the new order the next time each song plays.
+        if changed {
+            app.lyric_prefs.share();
         }
         ui.add_space(6.0);
     });

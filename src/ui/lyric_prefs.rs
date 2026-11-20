@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use crate::lyrics::{Line, Lyrics, LyricsSet, Provider};
+use crate::lyrics::{Line, LyricsSet, Provider};
 
 /// Offsets are seconds taken off the lyrics clock: positive shows lyrics later.
 pub struct Prefs {
@@ -83,14 +83,13 @@ impl Prefs {
     /// Sources that have lyrics for this song, in the listener's order (switched-off ones
     /// left out). This is what the source counter counts through.
     pub fn available(&self, set: &LyricsSet) -> Vec<Provider> {
-        self.order.iter().filter(|(p, on)| *on && set.get(*p).is_some_and(usable)).map(|(p, _)| *p).collect()
+        crate::lyrics::available(&self.order, set)
     }
 
     /// The source to show: the song's pick when it has lyrics, else the first in the
     /// listener's order that does (`orderByPin`, then fall through on failure).
     pub fn choose(&self, video_id: &str, set: &LyricsSet) -> Option<Provider> {
-        let available = self.available(set);
-        self.pins.get(video_id).filter(|p| available.contains(p)).copied().or_else(|| available.first().copied())
+        crate::lyrics::choose(&self.order, &self.pins, video_id, set)
     }
 
     /// Pick a source for one song (`pinForPick`: the listener's own first choice needs no pin).
@@ -100,6 +99,12 @@ impl Prefs {
         } else {
             self.pins.insert(video_id.to_owned(), p);
         }
+        self.share();
+    }
+
+    /// Hand the source order and picks to the downloads, whose files' lyrics follow them.
+    pub fn share(&self) {
+        crate::downloads::set_lyric_choice(self.order.clone(), self.pins.clone());
     }
 
     pub fn song_offset(&self, video_id: &str, source: Provider) -> f32 {
@@ -121,11 +126,6 @@ impl Prefs {
     pub fn offset(&self, video_id: &str, source: Provider, richsync: bool) -> f64 {
         (self.global_offset + self.song_offset(video_id, source) + if richsync { self.word_trim } else { self.line_trim }) as f64
     }
-}
-
-/// Lyrics worth showing: some line is sung (the extension's `hideInstrumentalOnly`).
-pub fn usable(l: &Lyrics) -> bool {
-    l.lines.iter().any(|x| !x.instrumental && !x.text.trim().is_empty())
 }
 
 /// `findBestLanguageMatch`: a translation shipped with the lyrics in the listener's language.
@@ -184,7 +184,7 @@ mod tests {
     }
 
     fn set(of: &[Provider]) -> LyricsSet {
-        use crate::lyrics::Sync;
+        use crate::lyrics::{Lyrics, Sync};
         let line = Line { start: 1000, dur: 1000, text: "la".into(), ..Default::default() };
         LyricsSet { sources: of.iter().map(|p| Lyrics { lines: vec![line.clone()], sync: Sync::Line, provider: *p, language: None, songwriters: vec![] }).collect() }
     }

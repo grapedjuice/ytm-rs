@@ -291,6 +291,11 @@ settings-change = Change
 settings-open = Open
 settings-folder-per-list = Put albums and playlists in their own folder
 settings-folder-per-list-desc = Downloading an album or playlist from its page or menu saves its songs in a folder named after it. Songs downloaded already stay where they are.
+settings-file-lyrics = Lyrics in the file
+settings-file-lyrics-desc = Downloaded songs carry the lyrics you see for them, for other music players. Timed lyrics are saved as LRC.
+settings-file-lyrics-synced = Timed
+settings-file-lyrics-plain = Words only
+settings-file-lyrics-off = None
 
 ## Network
 

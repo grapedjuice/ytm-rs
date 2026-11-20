@@ -291,6 +291,11 @@ settings-change = Ubah
 settings-open = Buka
 settings-folder-per-list = Taruh album dan playlist di foldernya sendiri
 settings-folder-per-list-desc = Kalau kamu mengunduh album atau playlist dari halaman atau menunya, lagunya disimpan di folder yang dinamai sesuai album atau playlist itu. Lagu yang sudah diunduh sebelumnya tetap di tempatnya.
+settings-file-lyrics = Lirik di file
+settings-file-lyrics-desc = Lagu yang diunduh membawa lirik yang kamu lihat untuk lagu itu, untuk pemutar musik lain. Lirik tersinkron disimpan sebagai LRC.
+settings-file-lyrics-synced = Tersinkron
+settings-file-lyrics-plain = Teks saja
+settings-file-lyrics-off = Tidak ada
 
 ## Network
 

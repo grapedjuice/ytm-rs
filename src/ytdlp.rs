@@ -1,7 +1,8 @@
 //! Last-resort stream resolution through yt-dlp: age-restricted songs on accounts
 //! without Premium (whose signed-in web streams need a PO token), or when the native
 //! signed-in path in `webmusic` breaks. yt-dlp solves the URL challenges with Node or
-//! Deno; without either, with QuickJS, which it can't get the audio without.
+//! Deno, which it can't get the audio without; where neither is installed, with the
+//! Node fetched for it (`node`), and with QuickJS while that's on its way.
 //!
 //! yt-dlp is downloaded into the app's data folder on first use and refreshed
 //! weekly; QuickJS likewise, only where there's no Node or Deno, and monthly. The signed-in session is passed as a Netscape cookies file that exists
@@ -109,12 +110,17 @@ fn has_runtime() -> bool {
 
 pub async fn resolve(http: &reqwest::Client, data_dir: &Path, cookie: &str, video_id: &str, format: Format) -> anyhow::Result<Stream> {
     let bin = ensure(http, data_dir, BIN, URL, MAX_AGE).await?;
-    // Signed in, yt-dlp can't get at the audio without solving YouTube's challenges.
-    let qjs = if has_runtime() {
+    // Signed in, yt-dlp can't get at the audio without solving YouTube's challenges: with
+    // Node or Deno installed, or the Node fetched for it. Until that's here, QuickJS, at
+    // about twice the time a song.
+    let runtime = if has_runtime() {
         None
+    } else if let Some(node) = crate::node::installed(http, data_dir) {
+        Some(format!("node:{}", node.display()))
     } else {
+        crate::node::fetch_later(http, data_dir);
         match ensure(http, data_dir, QJS, QJS_URL, QJS_MAX_AGE).await {
-            Ok(p) => Some(p),
+            Ok(p) => Some(format!("quickjs:{}", p.display())),
             Err(e) => {
                 log::warn!("no Node or Deno, and QuickJS couldn't be fetched: {e:#}");
                 None
@@ -123,7 +129,7 @@ pub async fn resolve(http: &reqwest::Client, data_dir: &Path, cookie: &str, vide
     };
     let data_dir = data_dir.to_owned();
     let (cookie, video_id) = (cookie.to_owned(), video_id.to_owned());
-    let mut s = tokio::task::spawn_blocking(move || run(&bin, qjs.as_deref(), &data_dir, &video_id, &cookie, format)).await??;
+    let mut s = tokio::task::spawn_blocking(move || run(&bin, runtime.as_deref(), &data_dir, &video_id, &cookie, format)).await??;
     // The range downloader needs the exact size; yt-dlp sometimes only estimates it.
     if format == Format::File && s.size == 0 {
         // Errors leave the URL out: it carries the client's IP address and signatures (logs).
@@ -135,7 +141,9 @@ pub async fn resolve(http: &reqwest::Client, data_dir: &Path, cookie: &str, vide
     Ok(s)
 }
 
-fn run(bin: &Path, qjs: Option<&Path>, data_dir: &Path, video_id: &str, cookie: &str, format: Format) -> anyhow::Result<Stream> {
+/// `runtime`: a JavaScript runtime yt-dlp is told about (`node:<path>`, `quickjs:<path>`)
+/// when there's no Node or Deno on the `PATH` for it to find.
+fn run(bin: &Path, runtime: Option<&str>, data_dir: &Path, video_id: &str, cookie: &str, format: Format) -> anyhow::Result<Stream> {
     // Unique name per call; removed on every exit path by the guard below.
     let nonce = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let jar = data_dir.join(format!("cookies-{nonce}.txt"));
@@ -165,7 +173,7 @@ fn run(bin: &Path, qjs: Option<&Path>, data_dir: &Path, video_id: &str, cookie: 
     };
     cmd.args(["--js-runtimes", "node", "--no-warnings", "--no-playlist", "--no-cache-dir", "-f", selector, "-j", "--cookies"])
         .arg(&jar)
-        .args(qjs.map(|p| format!("quickjs:{}", p.display())).into_iter().flat_map(|q| ["--js-runtimes".to_owned(), q]))
+        .args(runtime.into_iter().flat_map(|r| ["--js-runtimes", r]))
         .args(crate::proxy::ytdlp_args())
         .arg(format!("https://music.youtube.com/watch?v={video_id}"));
     crate::proxy::ytdlp_env(&mut cmd);
@@ -216,7 +224,7 @@ fn run(bin: &Path, qjs: Option<&Path>, data_dir: &Path, video_id: &str, cookie: 
         let err = String::from_utf8_lossy(&out.stderr);
         let line = err.lines().rfind(|l| l.contains("ERROR")).unwrap_or("yt-dlp failed");
         // No runtime to solve the challenges with: only the video's preview images were left.
-        if line.contains("Requested format is not available") && qjs.is_none() && !has_runtime() {
+        if line.contains("Requested format is not available") && runtime.is_none() && !has_runtime() {
             anyhow::bail!("this song needs Node.js (nodejs.org) installed to play");
         }
         anyhow::bail!("{}", line.trim_start_matches("ERROR: ").trim());

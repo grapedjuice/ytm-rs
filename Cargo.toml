@@ -60,6 +60,11 @@ global-hotkey = "0.9"
 fluent-templates = "0.15.1"
 # The system's languages, for the default one.
 sys-locale = "0.3.2"
+# Node.js for yt-dlp, fetched when a song first needs it (node.rs): the binary out of
+# nodejs.org's .zip (Windows) or .tar.xz (macOS, Linux).
+zip = { version = "9.8.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+tar = { version = "0.4.46", default-features = false }
+liblzma = { version = "0.4.9", features = ["static"] }
 
 [target.'cfg(windows)'.dependencies]
 # Windows Credential Manager, for the Google and Spotify sign-ins.

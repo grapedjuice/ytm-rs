@@ -1128,6 +1128,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     if ui.interact(full, ui.scope_id().with("bar-np"), Sense::click()).clicked() {
         app.actions.push(Action::OpenNowPlaying(!app.np_open));
     }
+    // A finger swiping up the bar opens it too, and down closes it.
+    super::bar_swipe::player_bar(app, ui.ctx(), full);
     // A floating bar is rounded: keep the progress line clear of its corners.
     let look = app.look();
     let inset = if look.chrome.player_bar == crate::preset::PlayerBar::Floating { look.chrome.bar_radius.min(full.height() / 2.0) } else { 0.0 };

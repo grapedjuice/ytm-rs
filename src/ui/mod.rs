@@ -5,6 +5,7 @@
 
 mod account;
 mod actions;
+mod bar_swipe;
 mod collections;
 mod colorpick;
 mod comments;

@@ -22,17 +22,17 @@ pub(super) fn settings(app: &mut App, ui: &mut Ui) {
     // Where `section_label` puts the heading, for Reset at its right end.
     let heading = Rect::from_min_size(ui.cursor().min + vec2(0.0, 30.0), vec2(ui.available_width(), 20.0));
     settings_section(ui, "Discord", None, None, |ui| {
-        setting_row(ui, "Rich Presence", Some("Show the song you're playing on your Discord profile."), |ui| {
+        setting_row(ui, "Rich Presence", Some(crate::tr!("discord-show-song")), |ui| {
             toggle(ui, &mut enabled, "Rich Presence");
         });
         reveal(ui, "discord-settings-top", shown, |ui| {
             divider(ui);
-            setting_row(ui, "Show when paused", Some("Keep the card up while the song is paused. Discord has no paused state, so the time goes rather than keep running."), |ui| {
-                toggle(ui, &mut prefs.when_paused, "Show when paused");
+            setting_row(ui, crate::tr!("discord-show-paused"), Some(crate::tr!("discord-show-paused-desc")), |ui| {
+                toggle(ui, &mut prefs.when_paused, crate::tr!("discord-show-paused"));
             });
             divider(ui);
-            setting_row(ui, "Hide details", Some("Say only that music is playing. No title, artist, album, artwork, time or buttons leave your computer."), |ui| {
-                toggle(ui, &mut prefs.hide_details, "Hide details");
+            setting_row(ui, crate::tr!("discord-hide-details"), Some(crate::tr!("discord-hide-details-desc")), |ui| {
+                toggle(ui, &mut prefs.hide_details, crate::tr!("discord-hide-details"));
             });
         });
     });
@@ -58,71 +58,71 @@ fn rest(app: &App, ui: &mut Ui, prefs: &mut Prefs) {
         preview(app, ui, prefs);
     }
     let on = !prefs.hide_details;
-    settings_section(ui, "Discord status", None, None, |ui| {
+    settings_section(ui, crate::tr!("discord-status"), None, None, |ui| {
         ui.add_enabled_ui(on, |ui| {
-            setting_row(ui, "Status text", Some("Which line comes first under your name in the member list. The profile card always shows the app's name."), |ui| {
+            setting_row(ui, crate::tr!("discord-status-text"), Some(crate::tr!("discord-status-text-desc")), |ui| {
                 let lines = prefs.lines;
                 let label = |s: Status| match s {
-                    Status::Name => "App name".to_owned(),
-                    Status::Line1 => format!("Line 1 · {}", lines[0].label()),
-                    Status::Line2 => format!("Line 2 · {}", lines[1].label()),
+                    Status::Name => crate::tr!("discord-app-name").to_owned(),
+                    Status::Line1 => format!("{} · {}", crate::tr!("discord-line-one"), lines[0].label()),
+                    Status::Line2 => format!("{} · {}", crate::tr!("discord-line-two"), lines[1].label()),
                 };
-                dropdown(ui, "Status text", &mut prefs.status, &Status::ALL, label);
+                dropdown(ui, crate::tr!("discord-status-text"), &mut prefs.status, &Status::ALL, label);
             });
         });
         divider(ui);
-        let desc = format!("Replaces \"{}\" wherever the app's name shows. Leave it empty to keep that.", discord::APP_NAME);
-        setting_row(ui, "App name", Some(&desc), |ui| {
+        let desc = crate::tr!("discord-app-name-desc", name = discord::APP_NAME);
+        setting_row(ui, crate::tr!("discord-app-name"), Some(&desc), |ui| {
             name_field(ui, &mut prefs.app_name);
         });
     });
-    let note = "The link beside a line makes it clickable. It opens what it shows on YouTube Music: a line with the artist opens the artist.";
-    settings_section(ui, "Discord card", None, Some(note), |ui| {
+    let note = crate::tr!("discord-card-note");
+    settings_section(ui, crate::tr!("discord-card"), None, Some(note), |ui| {
         ui.add_enabled_ui(on, |ui| {
-            setting_row_wide(ui, "Line 1", Some("The bold line, under the header."), LINKED_W, |ui| {
-                dropdown(ui, "Line 1", &mut prefs.lines[0], &Show::ALL, |s| s.label().to_owned());
-                link_toggle(ui, &mut prefs.links[0], "Line 1 is clickable", prefs.lines[0] != Show::Nothing);
+            setting_row_wide(ui, crate::tr!("discord-line-one"), Some(crate::tr!("discord-line-one-desc")), LINKED_W, |ui| {
+                dropdown(ui, crate::tr!("discord-line-one"), &mut prefs.lines[0], &Show::ALL, |s| s.label().to_owned());
+                link_toggle(ui, &mut prefs.links[0], &crate::tr!("discord-clickable", label = crate::tr!("discord-line-one")), prefs.lines[0] != Show::Nothing);
             });
             divider(ui);
-            setting_row_wide(ui, "Line 2", Some("The line below it."), LINKED_W, |ui| {
-                dropdown(ui, "Line 2", &mut prefs.lines[1], &Show::ALL, |s| s.label().to_owned());
-                link_toggle(ui, &mut prefs.links[1], "Line 2 is clickable", prefs.lines[1] != Show::Nothing);
+            setting_row_wide(ui, crate::tr!("discord-line-two"), Some(crate::tr!("discord-line-two-desc")), LINKED_W, |ui| {
+                dropdown(ui, crate::tr!("discord-line-two"), &mut prefs.lines[1], &Show::ALL, |s| s.label().to_owned());
+                link_toggle(ui, &mut prefs.links[1], &crate::tr!("discord-clickable", label = crate::tr!("discord-line-two")), prefs.lines[1] != Show::Nothing);
             });
             divider(ui);
-            setting_row(ui, "Album art", Some("Show the artwork beside the song. Its link opens the album, or the song when it has none."), |ui| {
-                toggle(ui, &mut prefs.art, "Album art");
-                link_toggle(ui, &mut prefs.art_link, "Album art is clickable", prefs.art);
+            setting_row(ui, crate::tr!("discord-album-art"), Some(crate::tr!("discord-album-art-desc")), |ui| {
+                toggle(ui, &mut prefs.art, crate::tr!("discord-album-art"));
+                link_toggle(ui, &mut prefs.art_link, &crate::tr!("discord-clickable", label = crate::tr!("discord-album-art")), prefs.art);
             });
             ui.add_enabled_ui(prefs.art, |ui| {
                 divider(ui);
-                setting_row(ui, "Badge", Some("A small picture on the artwork's corner: the artist's, or the app icon picked in Appearance."), |ui| {
-                    dropdown(ui, "Badge", &mut prefs.badge, &BadgeShows::ALL, |b| b.label().to_owned());
+                setting_row(ui, crate::tr!("discord-badge"), Some(crate::tr!("discord-badge-desc")), |ui| {
+                    dropdown(ui, crate::tr!("discord-badge"), &mut prefs.badge, &BadgeShows::ALL, |b| b.label().to_owned());
                 });
                 divider(ui);
-                setting_row(ui, "Line 3", Some("The last line. Discord also shows it when the artwork is hovered, so it needs the artwork."), |ui| {
-                    dropdown(ui, "Line 3", &mut prefs.lines[2], &Show::ALL, |s| s.label().to_owned());
+                setting_row(ui, crate::tr!("discord-line-three"), Some(crate::tr!("discord-line-three-desc")), |ui| {
+                    dropdown(ui, crate::tr!("discord-line-three"), &mut prefs.lines[2], &Show::ALL, |s| s.label().to_owned());
                 });
             });
             divider(ui);
-            setting_row(ui, "Time", Some("Show how far into the song you are. Discord's full profile draws it as a progress bar."), |ui| {
-                toggle(ui, &mut prefs.progress, "Time");
+            setting_row(ui, crate::tr!("discord-time"), Some(crate::tr!("discord-time-desc")), |ui| {
+                toggle(ui, &mut prefs.progress, crate::tr!("discord-time"));
             });
         });
     });
-    let note = "Discord shows at most two, and never on your own profile: only others see them. A button for a page the song doesn't have is left out, and Listen together shows only while you're in a room.";
-    settings_section(ui, "Discord buttons", None, Some(note), |ui| {
+    let note = crate::tr!("discord-buttons-note");
+    settings_section(ui, crate::tr!("discord-buttons"), None, Some(note), |ui| {
         ui.add_enabled_ui(on, |ui| {
-            setting_row(ui, "Buttons", Some("Put buttons under the card, such as one that opens the song on YouTube Music."), |ui| {
-                toggle(ui, &mut prefs.show_buttons, "Buttons");
+            setting_row(ui, crate::tr!("discord-buttons-toggle"), Some(crate::tr!("discord-buttons-desc")), |ui| {
+                toggle(ui, &mut prefs.show_buttons, crate::tr!("discord-buttons-toggle"));
             });
             ui.add_enabled_ui(prefs.show_buttons, |ui| {
                 divider(ui);
-                setting_row(ui, "First button", None, |ui| {
-                    dropdown(ui, "First button", &mut prefs.buttons[0], &Page::ALL, |p| p.label().to_owned());
+                setting_row(ui, crate::tr!("discord-first-button"), None, |ui| {
+                    dropdown(ui, crate::tr!("discord-first-button"), &mut prefs.buttons[0], &Page::ALL, |p| p.label().to_owned());
                 });
                 divider(ui);
-                setting_row(ui, "Second button", None, |ui| {
-                    dropdown(ui, "Second button", &mut prefs.buttons[1], &Page::ALL, |p| p.label().to_owned());
+                setting_row(ui, crate::tr!("discord-second-button"), None, |ui| {
+                    dropdown(ui, crate::tr!("discord-second-button"), &mut prefs.buttons[1], &Page::ALL, |p| p.label().to_owned());
                 });
             });
         });
@@ -226,10 +226,10 @@ fn example(app_icon: &'static str) -> Presence {
     let now = now_ms();
     Presence {
         video_id: String::new(),
-        title: "Song title".into(),
-        artist: "Artist".into(),
+        title: crate::tr!("discord-song-title").into(),
+        artist: crate::tr!("ui-artist").into(),
         artist_id: None,
-        album: Some("Album".into()),
+        album: Some(crate::tr!("ui-album").into()),
         album_id: None,
         art: Some(discord::ICON.into()),
         artist_pic: None,
@@ -244,18 +244,18 @@ fn example(app_icon: &'static str) -> Presence {
 /// The profile card and member list as Discord would show them, under the Discord section.
 fn preview(app: &App, ui: &mut Ui, prefs: &Prefs) {
     let (p, state) = shown(app);
-    section_label(ui, "Preview", Some(state));
+    section_label(ui, crate::tr!("settings-preview"), Some(state));
     // Paused, the card is drawn as it would be kept up.
     let card = Card::new(&p, prefs);
     let notes = notes(&p, &card, prefs);
-    let name = app.account_name.as_deref().unwrap_or("You");
+    let name = app.account_name.as_deref().unwrap_or(crate::tr!("discord-you"));
     settings_card(ui, |ui| {
         ui.add_space(16.0);
         let w = ui.available_width();
         let wide = w >= 600.0;
         let card_w = if wide { CARD_W } else { w.min(380.0) };
         let side = |ui: &mut Ui| {
-            caption(ui, "Member list");
+            caption(ui, crate::tr!("discord-member-list"));
             member_row(ui, &card, name, app.account_avatar.as_deref(), ui.available_width().min(380.0));
             for n in &notes {
                 note(ui, n);
@@ -265,7 +265,7 @@ fn preview(app: &App, ui: &mut Ui, prefs: &Prefs) {
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     ui.set_width(card_w);
-                    caption(ui, "Profile card");
+                    caption(ui, crate::tr!("discord-profile-card"));
                     profile_card(ui, &card, card_w);
                 });
                 ui.add_space(24.0);
@@ -277,7 +277,7 @@ fn preview(app: &App, ui: &mut Ui, prefs: &Prefs) {
                 ui.add_space(((w - card_w) / 2.0).max(0.0));
                 ui.vertical(|ui| {
                     ui.set_width(card_w);
-                    caption(ui, "Profile card");
+                    caption(ui, crate::tr!("discord-profile-card"));
                     profile_card(ui, &card, card_w);
                     ui.add_space(14.0);
                     side(ui);
@@ -294,12 +294,12 @@ fn preview(app: &App, ui: &mut Ui, prefs: &Prefs) {
 /// A dim "Reset" at the right end of the heading in `rect`, brighter on hover. True when clicked.
 fn reset_link(ui: &mut Ui, rect: Rect) -> bool {
     let font = theme::semibold(13.0);
-    let size = ui.painter().layout_no_wrap("Reset".to_owned(), font.clone(), theme::text_dim()).size();
+    let size = ui.painter().layout_no_wrap(crate::tr!("extra-reset").to_owned(), font.clone(), theme::text_dim()).size();
     let area = Align2::RIGHT_CENTER.anchor_size(pos2(rect.right() - 2.0, rect.center().y), size);
     let link = ui.interact(area.expand(4.0), Id::unique("discord-reset"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-    link.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Reset Discord settings to defaults"));
+    link.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, crate::tr!("discord-reset")));
     let color = if link.hovered() { theme::text() } else { theme::text_dim() };
-    ui.painter().text(area.right_center(), Align2::RIGHT_CENTER, "Reset", font, color);
+    ui.painter().text(area.right_center(), Align2::RIGHT_CENTER, crate::tr!("extra-reset"), font, color);
     link.clicked()
 }
 
@@ -307,9 +307,9 @@ fn reset_link(ui: &mut Ui, rect: Rect) -> bool {
 fn shown(app: &App) -> (Presence, &'static str) {
     let p = app.discord_presence();
     let state = match &p {
-        None => "Example",
-        Some(p) if p.paused => "Paused",
-        Some(_) => "Now playing",
+        None => crate::tr!("discord-example"),
+        Some(p) if p.paused => crate::tr!("transfer-paused"),
+        Some(_) => crate::tr!("ui-now-playing"),
     };
     (p.unwrap_or_else(|| example(app.app_icon)), state)
 }
@@ -318,10 +318,10 @@ fn shown(app: &App) -> (Presence, &'static str) {
 fn notes(p: &Presence, card: &Card, prefs: &Prefs) -> Vec<&'static str> {
     let mut notes = Vec::new();
     if p.paused && !prefs.when_paused {
-        notes.push("Paused, so this isn't on your profile right now. Turn on Show when paused to keep it up.");
+        notes.push(crate::tr!("discord-preview-paused"));
     }
     if !card.buttons.is_empty() {
-        notes.push("Only others see the buttons.");
+        notes.push(crate::tr!("discord-preview-buttons"));
     }
     notes
 }
@@ -356,7 +356,7 @@ fn profile_card(ui: &mut Ui, c: &Card, width: f32) {
     ui.painter().rect_filled(rect, 10.0, theme::glass(0.07));
     let inner_w = width - 2.0 * PAD;
     let mut y = rect.top() + PAD;
-    widgets::text_at(ui, pos2(rect.left() + PAD, y), &format!("Listening to {}", c.name()), theme::semibold(12.5), theme::text_dim(), inner_w - 28.0);
+    widgets::text_at(ui, pos2(rect.left() + PAD, y), &crate::tr!("discord-listening-to", name = c.name()), theme::semibold(12.5), theme::text_dim(), inner_w - 28.0);
     // The card's ··· menu.
     for i in 0..3 {
         ui.painter().circle_filled(pos2(rect.right() - PAD - 2.0 - 6.0 * i as f32, y + 9.0), 1.6, theme::text_dim());

@@ -203,7 +203,7 @@ impl ListFind {
         // In a child, so what comes after the box (the Sort button) isn't drawn over it.
         let edit = ui.new_child(egui::UiBuilder::new().id_salt("find-field").max_rect(inner).layout(egui::Layout::left_to_right(egui::Align::Center))).add(
             egui::TextEdit::singleline(&mut self.query)
-                .hint_text(egui::RichText::new("Find in this list").color(theme::text_faint()))
+                .hint_text(egui::RichText::new(crate::tr!("ui-find-list")).color(theme::text_faint()))
                 .font(theme::regular(14.0))
                 .frame(egui::Frame::NONE)
                 .align(egui::Align2::LEFT_CENTER)
@@ -212,7 +212,7 @@ impl ListFind {
         let mut changed = edit.changed();
         if clearable {
             let x = Rect::from_center_size(pos2(rect.right() - 19.0, rect.center().y), Vec2::splat(26.0));
-            let resp = named(ui.interact(x, ui.scope_id().with("find-clear"), Sense::click()), "Clear").on_hover_cursor(egui::CursorIcon::PointingHand);
+            let resp = named(ui.interact(x, ui.scope_id().with("find-clear"), Sense::click()), crate::tr!("settings-clear")).on_hover_cursor(egui::CursorIcon::PointingHand);
             let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
             if h > 0.0 {
                 ui.painter().circle_filled(x.center(), 13.0, theme::glass(0.10 * h));

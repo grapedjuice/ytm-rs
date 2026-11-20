@@ -24,13 +24,13 @@ impl App {
             f.extension().and_then(|e| e.to_str()).is_some_and(|e| UPLOAD_EXTS.contains(&e.to_ascii_lowercase().as_str()))
         });
         if !self.logged_in {
-            self.toast("Sign in to upload music");
+            self.toast(crate::tr!("status-sign-in-upload"));
         } else if ok.is_empty() {
             if !skipped.is_empty() {
-                self.toast("YouTube Music only takes MP3, M4A, FLAC, OGG and WMA files");
+                self.toast(crate::tr!("status-upload-formats"));
             }
         } else {
-            self.toast(if ok.len() == 1 { "Uploading 1 song…".to_owned() } else { format!("Uploading {} songs…", ok.len()) });
+            self.toast(crate::tr!("status-uploading", count = ok.len()));
             self.backend.request(Req::Upload(ok));
         }
     }
@@ -45,7 +45,7 @@ impl App {
             match outcome {
                 crate::login::Outcome::Cookie(c) => xfer.set_cookie(Some(c), &backend),
                 crate::login::Outcome::Cancelled => {}
-                crate::login::Outcome::Failed(e) => backend.report_error(format!("Spotify sign-in window failed: {e}")),
+                crate::login::Outcome::Failed(e) => backend.report_error(crate::tr!("login-spotify-failed", error = e.as_str())),
             }
             xfer.signing_in.store(false, Ordering::Relaxed);
             ctx.request_repaint();
@@ -61,7 +61,7 @@ impl App {
             match outcome {
                 crate::login::Outcome::Cookie(c) => backend.request(Req::SetCookie(c)),
                 crate::login::Outcome::Cancelled => {}
-                crate::login::Outcome::Failed(e) => backend.report_error(format!("Sign-in window failed: {e}")),
+                crate::login::Outcome::Failed(e) => backend.report_error(crate::tr!("login-failed", error = e.as_str())),
             }
             busy.store(false, Ordering::Relaxed);
             ctx.request_repaint();

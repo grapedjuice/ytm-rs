@@ -101,7 +101,7 @@ impl App {
     /// rule for that title (and the app, ytm-rs) can.
     pub(super) fn sync_title(&mut self, ctx: &egui::Context) {
         let want = if self.mini.active() && super::mini::video_active() {
-            "Picture in picture".to_owned()
+            crate::tr!("player-pip").to_owned()
         } else {
             window_title(self.current().map(|t| (t.title.as_str(), t.artist_line())))
         };
@@ -207,28 +207,28 @@ impl App {
         if let Some(r) = result {
             match r {
                 Ok(name) => {
-                    self.toast(format!("Scrobbling to Last.fm as {name}"));
+                    self.toast(crate::tr!("settings-lastfm-connected", name = name.as_str()));
                     // Only when nothing was listening already, so this play isn't sent twice.
                     if self.listenbrainz_user.is_none() {
                         self.scrobble = None;
                     }
                     self.lastfm_user = Some(name);
                 }
-                Err(e) => self.toast(format!("Last.fm sign-in failed: {e}")),
+                Err(e) => self.toast(crate::tr!("backend-error", operation = "Last.fm", error = e.to_string())),
             }
         }
         let result = self.listenbrainz_result.lock().unwrap().take();
         if let Some(r) = result {
             match r {
                 Ok(name) => {
-                    self.toast(format!("Sending listens to ListenBrainz as {name}"));
+                    self.toast(crate::tr!("settings-listenbrainz-connected", name = name.as_str()));
                     if self.lastfm_user.is_none() {
                         self.scrobble = None;
                     }
                     self.listenbrainz_user = Some(name);
                     self.listenbrainz_token.clear();
                 }
-                Err(e) => self.toast(format!("Couldn't connect ListenBrainz: {e}")),
+                Err(e) => self.toast(crate::tr!("backend-error", operation = "ListenBrainz", error = e.to_string())),
             }
         }
         let (lastfm, listenbrainz) = (self.lastfm_user.is_some(), self.listenbrainz_user.is_some());

@@ -6,7 +6,7 @@ use std::time::Duration;
 use souvlaki::MediaControlEvent;
 
 use crate::audio::{AudioCmd, AudioEvent};
-use crate::backend::{Req, Resp};
+use crate::backend::{PlaylistChange, Req, Resp};
 use crate::model::{ShelfKind, Target, Track};
 use crate::ytm::HomePage;
 
@@ -192,7 +192,7 @@ impl App {
                     if none {
                         // Not the picture from before a change of quality, frozen.
                         self.video_frame = None;
-                        self.toast("This video can't be shown");
+                        self.toast(crate::tr!("status-video-unavailable"));
                     }
                 }
             }
@@ -303,7 +303,7 @@ impl App {
             }
             Resp::UploadDeleted(t) => {
                 self.uploads = Some(t);
-                self.toast("Deleted from your uploads");
+                self.toast(crate::tr!("status-upload-deleted"));
             }
             Resp::Uploads(t) => {
                 self.uploads = Some(t);
@@ -313,7 +313,7 @@ impl App {
             }
             Resp::Downloaded { title, path } => {
                 log::info!("downloaded to {}", path.display());
-                self.toast(format!("Downloaded \u{201c}{title}\u{201d}"));
+                self.toast(crate::tr!("status-downloaded", title = title.as_str()));
                 self.all_downloaded.clear();
                 if self.page == Page::Library(LibTab::Downloads) {
                     self.reload_downloads();
@@ -322,11 +322,10 @@ impl App {
             Resp::Downloads(runs) => self.on_download_runs(runs),
             Resp::ConfirmDownload { target, title, tracks, count } => self.dialog = Some(Dialog::ConfirmDownload { target, title, tracks, count }),
             Resp::Uploaded { done, failed } => {
-                let songs = |n: usize| if n == 1 { "1 song".to_owned() } else { format!("{n} songs") };
                 self.toast(match (done, failed.len()) {
-                    (_, 0) => format!("Uploaded {}. It can take a minute for YouTube Music to process them.", songs(done)),
-                    (0, _) => format!("Upload failed: {}", failed.join(", ")),
-                    _ => format!("Uploaded {}; failed: {}", songs(done), failed.join(", ")),
+                    (_, 0) => crate::tr!("status-upload-complete", count = done),
+                    (0, _) => crate::tr!("status-upload-failed", details = failed.join(", ")),
+                    _ => crate::tr!("status-upload-partial", count = done, details = failed.join(", ")),
                 });
             }
             Resp::Lyrics { video_id, lyrics } => {
@@ -417,7 +416,7 @@ impl App {
                     self.ratings.confirm(&video_id, crate::ytm::SongRating::Dislike);
                     self.lists.edits.confirm_likes(id, &[]);
                     if self.rating_settings.dislike_notices {
-                        self.toast("Disliked song");
+                        self.toast(crate::tr!("status-disliked"));
                     }
                     let rated = Some(video_id.as_str());
                     if self.rating_settings.skip_disliked
@@ -429,7 +428,7 @@ impl App {
                 } else {
                     self.lists.edits.confirm_likes(&[], id);
                     self.request_liked(true);
-                    self.toast("Couldn't dislike song");
+                    self.toast(crate::tr!("status-dislike-failed"));
                 }
             }
             Resp::RatingRemoved { video_id, was_disliked, ok } => {
@@ -437,7 +436,7 @@ impl App {
                     self.ratings.confirm(&video_id, crate::ytm::SongRating::Indifferent);
                     if was_disliked {
                         if self.rating_settings.dislike_notices {
-                            self.toast("Dislike removed");
+                            self.toast(crate::tr!("status-undisliked"));
                         }
                     } else {
                         self.liked.remove(&video_id);
@@ -451,7 +450,7 @@ impl App {
                         self.lists.edits.confirm_likes(&[], std::slice::from_ref(&video_id));
                         self.request_liked(true);
                     }
-                    self.toast(if was_disliked { "Couldn't remove dislike" } else { "Couldn't remove like" });
+                    self.toast(if was_disliked { crate::tr!("status-undislike-failed") } else { crate::tr!("status-unlike-failed") });
                 }
             }
             Resp::SongRating { video_id, round, rating } => self.ratings.finish(video_id, round, rating, now),
@@ -474,10 +473,18 @@ impl App {
                 }
                 if done == 0 {
                     // A Spotify transfer is adding to Liked Music (maybe paused): this waits for it.
-                    self.toast("Waiting for the transfer to finish adding to Liked Music…");
+                    self.toast(crate::tr!("status-waiting-transfer"));
                 } else if total > 1 && done < total && (like || self.rating_settings.unlike_notices) {
-                    let note = if self.backend.api().limited() { " (YouTube Music is limiting requests; waiting)" } else { "" };
-                    self.toast(format!("{} {done} of {total} songs…{note}", if like { "Liking" } else { "Removing likes:" }));
+                    let mut note = if like {
+                        crate::tr!("status-liking-progress", done = done, total = total)
+                    } else {
+                        crate::tr!("status-unliking-progress", done = done, total = total)
+                    };
+                    if self.backend.api().limited() {
+                        note.push(' ');
+                        note.push_str(crate::tr!("transfer-rate-limited"));
+                    }
+                    self.toast(note);
                 }
             }
             Resp::LikedMany { video_ids, failed, like, others } => {
@@ -490,13 +497,12 @@ impl App {
             Resp::PlaylistCreated { id, songs } => {
                 self.request_library();
                 self.toast(match songs {
-                    0 => "Playlist created".to_owned(),
-                    1 => "Song added to new playlist".to_owned(),
-                    n => format!("{n} songs added to new playlist"),
+                    0 => crate::tr!("status-playlist-created").to_owned(),
+                    n => crate::tr!("status-new-playlist-tracks", count = n),
                 });
                 self.go(Page::Playlist(id));
             }
-            Resp::PlaylistChanged { id, message } => self.on_playlist_changed(id, message),
+            Resp::PlaylistChanged { id, change } => self.on_playlist_changed(id, change),
             Resp::Subscribed { channel_id, on, ok } => {
                 // As it now stands, over a reload fetched before the change.
                 let now = self.subscriptions.finish(&channel_id, on, ok);
@@ -508,10 +514,10 @@ impl App {
                     self.request_library();
                 }
                 self.toast(match (ok, on) {
-                    (true, true) => "Subscribed",
-                    (true, false) => "Unsubscribed",
-                    (false, true) => "Couldn't subscribe",
-                    (false, false) => "Couldn't unsubscribe",
+                    (true, true) => crate::tr!("ui-subscribed"),
+                    (true, false) => crate::tr!("status-unsubscribed"),
+                    (false, true) => crate::tr!("status-subscribe-failed"),
+                    (false, false) => crate::tr!("status-unsubscribe-failed"),
                 });
             }
             Resp::DeleteFailed { error } => {
@@ -529,7 +535,7 @@ impl App {
             }
             Resp::AddedToPlaylist { id, video_ids, error: None } => {
                 self.lists.edits.confirm_add(&id, &video_ids);
-                self.on_playlist_changed(id, "Added to playlist");
+                self.on_playlist_changed(id, PlaylistChange::Added);
             }
             Resp::AddedToPlaylist { id, video_ids, error: Some(e) } => {
                 // Shown as added: out again, and a reload makes sure of the rest.
@@ -543,7 +549,7 @@ impl App {
             Resp::PlaylistMoved { id, move_id, ok } => {
                 // Not for moves of an account or channel left since.
                 if !ok && self.lists.awaiting_move(&id, move_id) {
-                    self.toast("YouTube Music didn't take that move");
+                    self.toast(crate::tr!("status-playlist-move-failed"));
                 }
                 if let Some(s) = self.lists.move_answered(&id, move_id, ok) {
                     self.start_load(s);
@@ -604,7 +610,7 @@ impl App {
                         let asked = self.channels_asked;
                         self.on_resp(Resp::LoggedIn(true), now);
                         (self.channels, self.channels_asked) = (channels, asked);
-                        self.toast(format!("Switched to {name}"));
+                        self.toast(crate::tr!("status-switched-channel", name = name.as_str()));
                     }
                 }
             }
@@ -693,11 +699,15 @@ impl App {
     fn on_download_runs(&mut self, runs: Vec<crate::backend::DownloadRun>) {
         let mut notes = Vec::new();
         for r in &runs {
-            let name = if r.title.is_empty() { String::new() } else { format!(" \u{201c}{}\u{201d}", r.title) };
             if r.finished() {
-                notes.push(download_summary(r, &name));
+                notes.push(download_summary(r, &r.title));
             } else if !self.download_runs.iter().any(|o| o.key == r.key) {
-                notes.push(format!("Downloading {}{}", songs(r.total - r.done), if name.is_empty() { String::new() } else { format!(" from{name}") }));
+                let count = r.total - r.done;
+                notes.push(if r.title.is_empty() {
+                    crate::tr!("status-download-batch", count = count)
+                } else {
+                    crate::tr!("status-download-collection", title = r.title.as_str(), count = count)
+                });
             }
         }
         // Lists that finished are looked at again for their "Downloaded".
@@ -731,28 +741,32 @@ impl App {
             return;
         }
         let count = video_ids.len();
-        let mut msg = format!("{} {count} {}", if like { "Liked" } else { "Removed like from" }, if count == 1 { "song" } else { "songs" });
-        if count == 0 && failed.len() == 1 {
-            msg = "YouTube Music didn't take that; try again in a while".to_owned();
-        } else if count == 0 {
-            msg = format!("YouTube Music refused all {} songs; try again in a while", failed.len());
-        } else if !failed.is_empty() {
-            msg += &format!("; YouTube Music refused {}", failed.len());
+        if count == 0 {
+            let note = crate::tr!("status-like-refused");
+            return self.toast(if failed.len() > 1 {
+                format!("{}. {note}", crate::tr!("status-refused-count", count = failed.len()))
+            } else {
+                note.to_owned()
+            });
+        }
+        let mut msg = if like { crate::tr!("status-like-success", count = count) } else { crate::tr!("likes-removed", count = count) };
+        if !failed.is_empty() {
+            msg += &format!(" · {}", crate::tr!("status-refused-count", count = failed.len()));
         }
         self.toast(msg);
     }
 
-    /// A playlist was edited, added to, removed from, saved or deleted; `message` says which.
-    fn on_playlist_changed(&mut self, id: String, message: &'static str) {
+    /// Apply an acknowledged playlist change.
+    fn on_playlist_changed(&mut self, id: String, change: PlaylistChange) {
         self.request_library();
         // A sort taken waits on, for the reload in its order; anything else ends it.
         match self.sorting.get_mut(&id) {
-            Some(w) if message == "Playlist sorted" => w.taken(),
+            Some(w) if change == PlaylistChange::Sorted => w.taken(),
             _ => {
                 self.sorting.remove(&id);
             }
         }
-        if message == "Playlist deleted" {
+        if change == PlaylistChange::Deleted {
             // Its load is dropped too, and the queue stops waiting for it.
             self.lists.forget(&id);
             if self.queue.fill.as_ref().is_some_and(|f| f.id == id) {
@@ -760,7 +774,7 @@ impl App {
             }
             self.leave_playlist(&id);
         } else {
-            if message == "Removed from playlist" {
+            if change == PlaylistChange::Removed {
                 self.lists.edits.confirm_removal(&id);
             }
             // Kept for going back (or playing): reload it. What YouTube Music still
@@ -769,10 +783,17 @@ impl App {
                 self.load_list(&id, false, true);
             }
         }
-        // These the toast said when they were made (and another now would take an Undo's place).
-        if !matches!(message, "Removed from playlist" | "Playlist deleted") {
-            self.toast(message);
-        }
+        let message = match change {
+            // Their earlier toasts offer Undo.
+            PlaylistChange::Removed | PlaylistChange::Deleted => return,
+            PlaylistChange::Added => crate::tr!("status-playlist-added"),
+            PlaylistChange::Updated => crate::tr!("status-playlist-updated"),
+            PlaylistChange::Sorted => crate::tr!("status-playlist-sorted"),
+            PlaylistChange::SortFailed => crate::tr!("status-playlist-sort-failed"),
+            PlaylistChange::SavedToLibrary => crate::tr!("status-library-saved"),
+            PlaylistChange::RemovedFromLibrary => crate::tr!("status-library-removed"),
+        };
+        self.toast(message);
     }
 
     /// A song couldn't play: skip it, or stop when skipping can't help.
@@ -783,27 +804,29 @@ impl App {
             }
             self.buffering = false;
             let title = self.current().map(|t| t.title.clone()).unwrap_or_default();
-            let reason = if msg.contains("age-restricted") || msg.contains("confirm your age") {
-                "it's age-restricted".to_owned()
-            } else {
-                msg
-            };
             let has_next = !self.queue.at_end() && self.queue.index.is_some();
+            let age_restricted = msg.contains("age-restricted") || msg.contains("confirm your age");
             // Skipping can't help when the account is the problem: the rest of
             // an album like this needs it too. Stop on the song instead.
-            if let Some(why) = account_block(&reason, self.logged_in) {
+            if let Some(block) = account_block(&msg, self.logged_in) {
                 self.skip_streak = 0;
-                self.toast(why.replace("{title}", &title));
-            } else if has_next && !self.jam.guest() && self.skip_streak < MAX_SKIPS {
+                self.toast(match block {
+                    AccountBlock::Premium => crate::tr!("status-play-premium", title = title.as_str()),
+                    AccountBlock::SignIn => crate::tr!("status-play-sign-in", title = title.as_str()),
+                });
+                return;
+            }
+            let reason = if age_restricted { crate::tr!("status-age-restricted") } else { msg.as_str() };
+            if has_next && !self.jam.guest() && self.skip_streak < MAX_SKIPS {
                 // Don't stall the queue on one unplayable song.
                 self.skip_streak += 1;
-                self.toast(format!("Skipped \"{title}\": {reason}"));
+                self.toast(crate::tr!("status-skipped-track", title = title.as_str(), reason = reason));
                 self.next();
             } else {
                 self.skip_streak = 0;
                 // The last song: radio's next songs, when they come, go on from it.
                 self.ended = !has_next;
-                self.toast(format!("Can't play \"{title}\": {reason}"));
+                self.toast(crate::tr!("status-track-failed", title = title.as_str(), reason = reason));
             }
         }
     }
@@ -856,7 +879,7 @@ impl App {
             self.request_liked(false);
             self.backend.request(Req::Account);
         }
-        self.toast(if v { "Signed in" } else { "Signed out" });
+        self.toast(if v { crate::tr!("status-signed-in") } else { crate::tr!("status-signed-out") });
     }
 
     /// A request failed: pages waiting for it stop waiting, and the error shows.
@@ -884,26 +907,29 @@ impl App {
 /// Unplayable songs skipped in a row before playback stops.
 const MAX_SKIPS: u32 = 3;
 
-fn songs(n: usize) -> String {
-    if n == 1 { "1 song".to_owned() } else { format!("{n} songs") }
-}
-
-/// What a finished download of many songs did; `name` is " “its title”", or empty for a selection.
-fn download_summary(r: &crate::backend::DownloadRun, name: &str) -> String {
-    let mut msg = if r.cancelled {
-        format!("Stopped downloading{name}: {} saved", songs(r.saved))
-    } else if r.saved == 0 && r.failed.is_empty() {
-        return if name.is_empty() { "Downloaded already".to_owned() } else { format!("{} is downloaded already", name.trim_start()) };
+/// What a finished download of many songs did. A selection has an empty title.
+fn download_summary(r: &crate::backend::DownloadRun, title: &str) -> String {
+    let name = if title.is_empty() {
+        String::new()
     } else {
-        format!("Downloaded{name}: {}", songs(r.saved))
+        format!(" {}", crate::tr!("status-download-quoted-title", title = title))
+    };
+    let songs = crate::tr!("status-songs", count = r.saved);
+    let mut msg = if r.cancelled {
+        crate::tr!("status-download-stopped", name = name.as_str(), songs = songs.as_str())
+    } else if r.saved == 0 && r.failed.is_empty() {
+        return if title.is_empty() { crate::tr!("status-download-already").to_owned() } else { crate::tr!("status-download-name-already", title = title) };
+    } else {
+        crate::tr!("status-download-done", name = name.as_str(), songs = songs.as_str())
     };
     if r.skipped > 0 && !r.cancelled {
-        msg += &format!(", {} already there", r.skipped);
+        msg += &format!(", {}", crate::tr!("status-download-already-count", count = r.skipped));
     }
     if !r.failed.is_empty() {
         let few: Vec<&str> = r.failed.iter().take(3).map(String::as_str).collect();
         let more = if r.failed.len() > 3 { ", …" } else { "" };
-        msg += &format!("; {} couldn't be downloaded ({}{more})", r.failed.len(), few.join(", "));
+        let details = format!("{}{more}", few.join(", "));
+        msg += &format!("; {}", crate::tr!("status-download-fail-count", count = r.failed.len(), details = details));
     }
     msg
 }
@@ -920,7 +946,7 @@ mod download_summary_tests {
 
     #[test]
     fn says_what_a_run_did() {
-        let name = " \u{201c}Mix\u{201d}";
+        let name = "Mix";
         assert_eq!(download_summary(&run(37, 3, &[], false), name), "Downloaded \u{201c}Mix\u{201d}: 37 songs, 3 already there");
         assert_eq!(download_summary(&run(0, 12, &[], false), name), "\u{201c}Mix\u{201d} is downloaded already");
         assert_eq!(download_summary(&run(0, 2, &[], false), ""), "Downloaded already");
@@ -935,12 +961,17 @@ mod download_summary_tests {
 /// When a song failed because of the account (Premium-only, or needs signing in),
 /// the message to show instead of skipping: the rest of an album like that fails the
 /// same way.
-fn account_block(msg: &str, logged_in: bool) -> Option<&'static str> {
+enum AccountBlock {
+    Premium,
+    SignIn,
+}
+
+fn account_block(msg: &str, logged_in: bool) -> Option<AccountBlock> {
     let m = msg.to_ascii_lowercase();
     if m.contains("premium") {
-        Some("\"{title}\" needs YouTube Music Premium")
-    } else if !logged_in && (m.contains("sign in") || m.contains("age-restricted")) {
-        Some("Sign in to play \"{title}\"")
+        Some(AccountBlock::Premium)
+    } else if !logged_in && (m.contains("sign in") || m.contains("age-restricted") || m.contains("confirm your age")) {
+        Some(AccountBlock::SignIn)
     } else {
         None
     }

@@ -985,7 +985,7 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
     let text_w = (x1 - x0).max(20.0);
     let (title, artists) = match &track {
         Some(t) => (t.title.clone(), t.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", ")),
-        None => ("Nothing playing".to_owned(), String::new()),
+        None => (crate::tr!("player-nothing-playing").to_owned(), String::new()),
     };
     let explicit = track.as_ref().is_some_and(|t| t.explicit);
     let tr = super::widgets::title_at(ui, pos2(x0, art.top() + 1.0), &title, explicit, theme::semibold(14.5), theme::text(), text_w);
@@ -1029,14 +1029,14 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
         resp.clicked() && (reveal > 0.5 || resp.has_focus())
     };
     // The system's frame has its own close button.
-    if titlebar::custom() && top_btn(ui, icon::X, "close", "Close", true, false) {
+    if titlebar::custom() && top_btn(ui, icon::X, "close", crate::tr!("ui-close"), true, false) {
         close_window(app, &ctx);
     }
-    if top_btn(ui, icon::MAXIMIZE_2, "full", "Full window (Ctrl+M)", false, false) {
+    if top_btn(ui, icon::MAXIMIZE_2, "full", &crate::tr!("player-with-shortcut", action = crate::tr!("player-full-window"), key = "Ctrl+M"), false, false) {
         app.actions.push(Action::Mini(false));
     }
     let pinned = app.mini.pinned;
-    if top_btn(ui, if pinned { icon::PIN } else { icon::PIN_OFF }, "pin", if pinned { "Stop keeping on top" } else { "Keep on top" }, false, pinned) {
+    if top_btn(ui, if pinned { icon::PIN } else { icon::PIN_OFF }, "pin", if pinned { crate::tr!("ui-unpin-window") } else { crate::tr!("settings-keep-on-top") }, false, pinned) {
         app.mini.set_pinned(&ctx, !pinned);
     }
 
@@ -1051,15 +1051,15 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(b));
         widgets::icon_button(&mut child, glyph, 18.0, name, false).clicked()
     };
-    if small(ui, pos2(cx - gap, cy), icon::SKIP_BACK, "Previous") && enabled {
+    if small(ui, pos2(cx - gap, cy), icon::SKIP_BACK, crate::tr!("ui-previous")) && enabled {
         app.prev();
     }
-    if small(ui, pos2(cx + gap, cy), icon::SKIP_FORWARD, "Next") && enabled {
+    if small(ui, pos2(cx + gap, cy), icon::SKIP_FORWARD, crate::tr!("ui-next")) && enabled {
         app.next();
     }
     let playing = app.playing();
     let pr = Rect::from_center_size(pos2(cx, cy), Vec2::splat(36.0));
-    let presp = named(ui.interact(pr, ui.scope_id().with("mini-play"), Sense::click()), if playing { "Pause" } else { "Play" }).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let presp = named(ui.interact(pr, ui.scope_id().with("mini-play"), Sense::click()), if playing { crate::tr!("ui-pause") } else { crate::tr!("ui-play") }).on_hover_cursor(egui::CursorIcon::PointingHand);
     let ph = theme::anim_bool(&ctx, presp.id.with("h"), presp.hovered(), 0.15);
     let scale = if presp.is_pointer_button_down_on() { 0.92 } else { 1.0 + 0.05 * ph };
     let c = pr.center();
@@ -1075,7 +1075,7 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
         let liked = app.heard_liked();
         let lpos = pos2(cx - gap * if show_dislike { 3.0 } else { 2.0 }, cy);
         let lresp = ui.interact(Rect::from_center_size(lpos, Vec2::splat(32.0)), ui.scope_id().with(("mini-like", &t.id, app.generation)), Sense::click());
-        let name = if liked { "Remove like" } else { "Like" };
+        let name = if liked { crate::tr!("ui-unlike") } else { crate::tr!("ui-like") };
         let lresp = named(lresp, name).on_hover_cursor(egui::CursorIcon::PointingHand);
         let gesture = super::ratings::like_gesture(ui, &lresp, (), liked, None);
         let lh = theme::anim_bool(&ctx, lresp.id.with("h"), lresp.hovered(), 0.15);
@@ -1100,8 +1100,8 @@ pub fn strip(app: &mut App, ui: &mut Ui, now: f64) {
     let vol = app.audio.volume();
     let vpos = pos2(cx + 2.0 * gap, cy);
     let vresp = ui.interact(Rect::from_center_size(vpos, Vec2::splat(32.0)), ui.scope_id().with("mini-vol"), Sense::click());
-    let pct = format!("Volume {}%", (vol * 100.0).round());
-    let vresp = named(vresp, "Mute").on_hover_text(pct).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let pct = crate::tr!("player-volume-level", percent = (vol * 100.0).round());
+    let vresp = named(vresp, crate::tr!("ui-mute")).on_hover_text(pct).on_hover_cursor(egui::CursorIcon::PointingHand);
     let vh = theme::anim_bool(&ctx, vresp.id.with("h"), vresp.hovered(), 0.15);
     ui.painter().circle_filled(vpos, 16.0, theme::glass(0.1 * vh));
     let vglyph = if vol == 0.0 { icon::VOLUME_X } else if vol < 0.5 { icon::VOLUME_1 } else { icon::VOLUME_2 };
@@ -1209,7 +1209,7 @@ pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
         back.disable();
     }
     let drag = titlebar::drag_strip(&back, rect, "mini");
-    let name = app.current().map_or_else(|| "Nothing playing".to_owned(), |t| widgets::song_name(&t.title, t.explicit).into_owned());
+    let name = app.current().map_or_else(|| crate::tr!("player-nothing-playing").to_owned(), |t| widgets::song_name(&t.title, t.explicit).into_owned());
     if named(drag, &name).double_clicked() {
         app.actions.push(Action::Mini(false));
     }
@@ -1273,7 +1273,7 @@ fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<S
     let cy = rect.center().y;
     let (title, artists) = match &track {
         Some(t) => (t.title.clone(), t.artist_line()),
-        None => ("Nothing playing".to_owned(), String::new()),
+        None => (crate::tr!("player-nothing-playing").to_owned(), String::new()),
     };
     let explicit = track.as_ref().is_some_and(|t| t.explicit);
     if let Some(msg) = toast {
@@ -1299,9 +1299,9 @@ fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<S
     let right = rect.right();
     // Which way it'll open from here, while the window is the pill's.
     let up = if app.mini.tall { app.mini.up } else { app.mini.opens_up(&ctx) };
-    let mut buttons = vec![(113.0 + shift, icon::SKIP_BACK, "prev", "Previous"), (47.0 + shift, icon::SKIP_FORWARD, "next", "Next"), (21.0, icon::X, "close", "Close")];
+    let mut buttons = vec![(113.0 + shift, icon::SKIP_BACK, "prev", crate::tr!("ui-previous")), (47.0 + shift, icon::SKIP_FORWARD, "next", crate::tr!("ui-next")), (21.0, icon::X, "close", crate::tr!("ui-close"))];
     if CARD {
-        buttons.push((47.0, if up { icon::CHEVRON_UP } else { icon::CHEVRON_DOWN }, "card", "More"));
+        buttons.push((47.0, if up { icon::CHEVRON_UP } else { icon::CHEVRON_DOWN }, "card", crate::tr!("player-more")));
     }
     for (dx, glyph, key, name) in buttons {
         let center = pos2(right - dx, cy);
@@ -1322,7 +1322,7 @@ fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<S
         }
     }
     let center = pos2(right - 80.0 - shift, cy);
-    let resp = button(ui, center, "play", if app.playing() { "Pause" } else { "Play" });
+    let resp = button(ui, center, "play", if app.playing() { crate::tr!("ui-pause") } else { crate::tr!("ui-play") });
     ui.painter().circle_filled(center, 15.0, if theme::light() { theme::text() } else { Color32::WHITE }.gamma_multiply(reveal));
     play_glyph(app, ui, center, 0.82, theme::on_text().gamma_multiply(reveal), now);
     if resp.clicked() && enabled {
@@ -1345,14 +1345,14 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
     // Where it's playing from (its name opens it in the full window); keep on top, the full
     // window and back to the pill beside it.
     let head = top + 30.0;
-    if button(ui, pos2(rt - 8.0, head), if app.mini.up { icon::CHEVRON_DOWN } else { icon::CHEVRON_UP }, 16.0, "Less", false) {
+    if button(ui, pos2(rt - 8.0, head), if app.mini.up { icon::CHEVRON_DOWN } else { icon::CHEVRON_UP }, 16.0, crate::tr!("player-less"), false) {
         app.mini.set_card(&ctx, false);
     }
-    if button(ui, pos2(rt - 42.0, head), icon::MAXIMIZE_2, 14.0, "Full window (Ctrl+M)", false) {
+    if button(ui, pos2(rt - 42.0, head), icon::MAXIMIZE_2, 14.0, &crate::tr!("player-with-shortcut", action = crate::tr!("player-full-window"), key = "Ctrl+M"), false) {
         app.actions.push(Action::Mini(false));
     }
     let pinned = app.mini.pinned;
-    if button(ui, pos2(rt - 76.0, head), if pinned { icon::PIN } else { icon::PIN_OFF }, 14.0, if pinned { "Stop keeping on top" } else { "Keep on top" }, pinned) {
+    if button(ui, pos2(rt - 76.0, head), if pinned { icon::PIN } else { icon::PIN_OFF }, 14.0, if pinned { crate::tr!("ui-unpin-window") } else { crate::tr!("settings-keep-on-top") }, pinned) {
         app.mini.set_pinned(&ctx, !pinned);
     }
     let head_w = rt - 100.0 - l;
@@ -1378,8 +1378,8 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
         from_ui.multiply_opacity(1.0 - tt);
         let ui = &mut from_ui;
         match app.playing_from() {
-            Some((kind, name, target)) => {
-                text_at(ui, pos2(l, head - 16.0), &format!("Playing from {kind}"), theme::regular(11.0), theme::text_faint(), head_w);
+            Some((label, name, target)) => {
+                text_at(ui, pos2(l, head - 16.0), label, theme::regular(11.0), theme::text_faint(), head_w);
                 let nr = text_at(ui, pos2(l, head - 1.0), &name, theme::semibold(13.0), theme::text(), head_w);
                 let sense = if live { Sense::click() } else { Sense::hover() };
                 let resp = named(ui.interact(nr, ui.scope_id().with("card-from"), sense), &name);
@@ -1395,7 +1395,7 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
                 }
             }
             None => {
-                text_at(ui, pos2(l, head - 8.0), "Now playing", theme::semibold(13.0), theme::text_dim(), head_w);
+                text_at(ui, pos2(l, head - 8.0), crate::tr!("ui-now-playing"), theme::semibold(13.0), theme::text_dim(), head_w);
             }
         }
     }
@@ -1422,7 +1422,7 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
             }
         }
         None => {
-            text_at(ui, pos2(x0, art.center().y - 9.0), "Nothing playing", theme::semibold(15.0), theme::text_dim(), text_w);
+            text_at(ui, pos2(x0, art.center().y - 9.0), crate::tr!("player-nothing-playing"), theme::semibold(15.0), theme::text_dim(), text_w);
         }
     }
     if let Some(t) = &track {
@@ -1431,7 +1431,7 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
         let liked = app.heard_liked();
         let lpos = pos2(rt - if show_dislike { 44.0 } else { 8.0 }, art.center().y);
         let lresp = ui.interact(Rect::from_center_size(lpos, Vec2::splat(32.0)), ui.scope_id().with(("card-like", &t.id, app.generation)), Sense::click());
-        let name = if liked { "Remove like" } else { "Like" };
+        let name = if liked { crate::tr!("ui-unlike") } else { crate::tr!("ui-like") };
         let lresp = named(lresp, name).on_hover_cursor(egui::CursorIcon::PointingHand);
         let gesture = super::ratings::like_gesture(ui, &lresp, (), liked, None);
         let lh = theme::anim_bool(&ctx, lresp.id.with("h"), lresp.hovered(), 0.15);
@@ -1458,16 +1458,16 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
     let cy = top + 192.0;
     let cx = cr.center().x;
     let spos = pos2(cx - 104.0, cy);
-    if button(ui, spos, icon::SHUFFLE, 16.0, "Shuffle", app.queue.shuffled()) {
+    if button(ui, spos, icon::SHUFFLE, 16.0, crate::tr!("ui-shuffle"), app.queue.shuffled()) {
         app.toggle_shuffle();
     }
     if app.queue.shuffled() {
         ui.painter().circle_filled(spos + vec2(0.0, 15.0), 2.0, app.accent_color());
     }
-    if button(ui, pos2(cx - 54.0, cy), icon::SKIP_BACK, 20.0, "Previous", false) && enabled {
+    if button(ui, pos2(cx - 54.0, cy), icon::SKIP_BACK, 20.0, crate::tr!("ui-previous"), false) && enabled {
         app.prev();
     }
-    if button(ui, pos2(cx + 54.0, cy), icon::SKIP_FORWARD, 20.0, "Next", false) && enabled {
+    if button(ui, pos2(cx + 54.0, cy), icon::SKIP_FORWARD, 20.0, crate::tr!("ui-next"), false) && enabled {
         app.next();
     }
     use super::Repeat;
@@ -1477,7 +1477,7 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
         Repeat::One => (icon::REPEAT_1, true),
     };
     let rpos = pos2(cx + 104.0, cy);
-    if button(ui, rpos, rep_icon, 16.0, "Repeat", rep_on) {
+    if button(ui, rpos, rep_icon, 16.0, crate::tr!("ui-repeat"), rep_on) {
         app.queue.repeat = app.queue.repeat.next();
     }
     if rep_on {
@@ -1485,7 +1485,7 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
     }
     let playing = app.playing();
     let pr = Rect::from_center_size(pos2(cx, cy), Vec2::splat(44.0));
-    let presp = named(ui.interact(pr, ui.scope_id().with("card-play"), Sense::click()), if playing { "Pause" } else { "Play" }).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let presp = named(ui.interact(pr, ui.scope_id().with("card-play"), Sense::click()), if playing { crate::tr!("ui-pause") } else { crate::tr!("ui-play") }).on_hover_cursor(egui::CursorIcon::PointingHand);
     let ph = theme::anim_bool(&ctx, presp.id.with("h"), presp.hovered(), 0.15);
     let scale = if presp.is_pointer_button_down_on() { 0.92 } else { 1.0 + 0.05 * ph };
     ui.painter().circle_filled(pr.center(), 22.0 * scale, if theme::light() { theme::text() } else { Color32::WHITE });
@@ -1499,7 +1499,7 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
     let vy = top + 232.0;
     let vol = app.audio.volume();
     let vglyph = if vol == 0.0 { icon::VOLUME_X } else if vol < 0.5 { icon::VOLUME_1 } else { icon::VOLUME_2 };
-    if button(ui, pos2(l + 6.0, vy), vglyph, 16.0, if vol == 0.0 { "Unmute" } else { "Mute" }, false) {
+    if button(ui, pos2(l + 6.0, vy), vglyph, 16.0, if vol == 0.0 { crate::tr!("ui-unmute") } else { crate::tr!("ui-mute") }, false) {
         toggle_mute(app, ui);
     }
     super::shell::volume_slider(app, ui, Rect::from_min_max(pos2(l + 30.0, vy - 10.0), pos2(rt, vy + 10.0)), "card-vol");
@@ -1523,7 +1523,7 @@ fn card_seek(app: &mut App, ui: &mut Ui, line: Rect, track: Option<&crate::model
     let pos = app.seek_drag.unwrap_or(app.audio.status.position_smooth().as_secs_f32()).min(total.max(0.0));
     let resp = ui.interact(line.expand2(vec2(4.0, 9.0)), ui.scope_id().with("card-seek"), Sense::click_and_drag());
     let resp = if total > 0.0 { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
-    resp.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
+    resp.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, crate::tr!("ui-seek")));
     app.seek_wheel.hover(&resp);
     let h = theme::anim_bool(ui.ctx(), "card-seek-h", total > 0.0 && (resp.hovered() || resp.dragged()), 0.15);
     let thick = 4.0 + 2.0 * h;
@@ -1623,17 +1623,17 @@ pub fn video_pip(app: &mut App, ui: &mut Ui, now: f64) {
     // Previous, play, next, in the middle.
     let c = r.center();
     let gap = (r.width() * 0.16).clamp(48.0, 84.0);
-    let prev = btn(ui, c - vec2(gap, 0.0), 44.0, "prev", "Previous");
+    let prev = btn(ui, c - vec2(gap, 0.0), 44.0, "prev", crate::tr!("ui-previous"));
     icon_at(ui, c - vec2(gap, 0.0), icon::SKIP_BACK, 22.0, white);
     if live(&prev) && enabled {
         app.prev();
     }
-    let next = btn(ui, c + vec2(gap, 0.0), 44.0, "next", "Next");
+    let next = btn(ui, c + vec2(gap, 0.0), 44.0, "next", crate::tr!("ui-next"));
     icon_at(ui, c + vec2(gap, 0.0), icon::SKIP_FORWARD, 22.0, white);
     if live(&next) && enabled {
         app.next();
     }
-    let play = btn(ui, c, 56.0, "play", if app.playing() { "Pause" } else { "Play" });
+    let play = btn(ui, c, 56.0, "play", if app.playing() { crate::tr!("ui-pause") } else { crate::tr!("ui-play") });
     ui.painter().circle_filled(c, 26.0, white);
     play_glyph(app, ui, c, 1.3, Color32::BLACK.gamma_multiply(reveal), now);
     if live(&play) && enabled {
@@ -1648,14 +1648,14 @@ pub fn video_pip(app: &mut App, ui: &mut Ui, now: f64) {
         x -= 36.0;
         live(&resp)
     };
-    if titlebar::custom() && corner(ui, icon::X, "close", "Close") {
+    if titlebar::custom() && corner(ui, icon::X, "close", crate::tr!("ui-close")) {
         close_window(app, &ctx);
     }
-    if corner(ui, icon::MAXIMIZE_2, "full", "Full window (Ctrl+M)") {
+    if corner(ui, icon::MAXIMIZE_2, "full", &crate::tr!("player-with-shortcut", action = crate::tr!("player-full-window"), key = "Ctrl+M")) {
         app.actions.push(Action::Mini(false));
     }
     let pinned = app.mini.pinned;
-    if corner(ui, if pinned { icon::PIN } else { icon::PIN_OFF }, "pin", if pinned { "Stop keeping on top" } else { "Keep on top" }) {
+    if corner(ui, if pinned { icon::PIN } else { icon::PIN_OFF }, "pin", if pinned { crate::tr!("ui-unpin-window") } else { crate::tr!("settings-keep-on-top") }) {
         app.mini.set_pinned(&ctx, !pinned);
     }
 
@@ -1685,7 +1685,7 @@ fn seek_line(app: &mut App, ui: &mut Ui, r: Rect, track: Option<&crate::model::T
     let hit = Rect::from_min_max(pos2(r.left(), r.bottom() - 10.0), r.max);
     let resp = ui.interact(hit, ui.scope_id().with("mini-seek"), Sense::click_and_drag());
     let resp = if total > 0.0 { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
-    resp.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
+    resp.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, crate::tr!("ui-seek")));
     app.seek_wheel.hover(&resp);
     let h = theme::anim_bool(ui.ctx(), "mini-seek-h", total > 0.0 && (resp.hovered() || resp.dragged()), 0.15);
     let thick = 4.0 + 2.0 * h;

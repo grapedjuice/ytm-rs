@@ -20,10 +20,10 @@ impl App {
         }
         if let Some(Dialog::ConfirmClearCache) = &self.dialog {
             let body = match self.storage.known() {
-                Some(n) => format!("This frees up {}.", crate::cache::size_text(n)),
-                None => "This frees up space.".to_owned(),
+                Some(n) => crate::tr!("dialog-cache-freed-size", size = crate::cache::size_text(n)),
+                None => crate::tr!("dialog-cache-frees-space").to_owned(),
             };
-            match confirm(ctx, "Clear cache?", &body, "Clear", "Clear cache") {
+            match confirm(ctx, crate::tr!("dialog-clear-cache-title"), &body, crate::tr!("settings-clear"), crate::tr!("settings-clear-cache")) {
                 Some(true) => {
                     self.clear_cache(ctx);
                     self.dialog = None;
@@ -35,8 +35,8 @@ impl App {
         }
         if let Some(Dialog::ConfirmDelete { id, title }) = &self.dialog {
             let (id, title) = (id.clone(), title.clone());
-            let body = format!("\u{201c}{title}\u{201d} will be removed from your YouTube Music library. This can't be undone.");
-            match confirm(ctx, "Delete playlist?", &body, "Delete", "Delete playlist") {
+            let body = crate::tr!("dialog-delete-playlist-body", title = title.as_str());
+            match confirm(ctx, crate::tr!("dialog-delete-playlist-title"), &body, crate::tr!("ui-delete"), crate::tr!("dialog-delete-playlist")) {
                 Some(true) => {
                     self.dialog = None;
                     self.delete_soon(id);
@@ -48,8 +48,8 @@ impl App {
         }
         if let Some(Dialog::ConfirmDeleteUpload { entity, title }) = &self.dialog {
             let (entity, title) = (entity.clone(), title.clone());
-            let body = format!("\u{201c}{title}\u{201d} will be deleted from your uploads on YouTube Music. This can't be undone.");
-            match confirm(ctx, "Delete upload?", &body, "Delete", "Delete upload") {
+            let body = crate::tr!("dialog-delete-upload-body", title = title.as_str());
+            match confirm(ctx, crate::tr!("dialog-delete-upload-title"), &body, crate::tr!("ui-delete"), crate::tr!("dialog-delete-upload")) {
                 Some(true) => {
                     self.dialog = None;
                     self.backend.request(Req::DeleteUpload { entity, title });
@@ -63,14 +63,14 @@ impl App {
         let accent = self.accent_color();
         let mut done = false;
         let heading = match &dialog {
-            Dialog::PickPlaylist(_) => "Add to playlist",
-            Dialog::NewPlaylist { .. } => "New playlist",
-            Dialog::EditPlaylist { .. } => "Edit playlist",
-            Dialog::ConfirmDelete { .. } => "Delete playlist",
-            Dialog::ConfirmDeleteUpload { .. } => "Delete upload",
-            Dialog::ConfirmClearCache => "Clear cache",
-            Dialog::ConfirmDownload { .. } => "Download",
-            Dialog::Collaborate { .. } => "Collaborate",
+            Dialog::PickPlaylist(_) => crate::tr!("ui-add-playlist"),
+            Dialog::NewPlaylist { .. } => crate::tr!("ui-new-playlist"),
+            Dialog::EditPlaylist { .. } => crate::tr!("dialog-edit-playlist"),
+            Dialog::ConfirmDelete { .. } => crate::tr!("dialog-delete-playlist"),
+            Dialog::ConfirmDeleteUpload { .. } => crate::tr!("dialog-delete-upload"),
+            Dialog::ConfirmClearCache => crate::tr!("settings-clear-cache"),
+            Dialog::ConfirmDownload { .. } => crate::tr!("settings-download"),
+            Dialog::Collaborate { .. } => crate::tr!("ui-collaborate"),
         };
         // The same modal card as "Delete playlist?" and the update dialog.
         widgets::modal_extras(ctx, egui::Id::unique("playlist-dialog"));
@@ -82,7 +82,7 @@ impl App {
                 ui.add_space(18.0);
                 match &mut dialog {
                     Dialog::PickPlaylist(tracks) => {
-                        if dialog_row(ui, None, Some(theme::icon::LIST_PLUS), "New playlist") {
+                        if dialog_row(ui, None, Some(theme::icon::LIST_PLUS), crate::tr!("ui-new-playlist")) {
                             self.actions.push(Action::NewPlaylist(tracks.clone()));
                             done = true;
                         }
@@ -104,13 +104,13 @@ impl App {
                         });
                     }
                     Dialog::NewPlaylist { title, tracks } => {
-                        let name = text_field(ui, "Name", title, false, "My playlist");
+                        let name = text_field(ui, crate::tr!("dialog-name"), title, false, crate::tr!("dialog-my-playlist"));
                         if ui.memory(|m| m.focused().is_none()) { name.request_focus(); }
                         ui.add_space(8.0);
-                        ui.label(egui::RichText::new("Private · only you can see it").font(theme::regular(12.5)).color(theme::text_faint()));
+                        ui.label(egui::RichText::new(crate::tr!("dialog-private-desc")).font(theme::regular(12.5)).color(theme::text_faint()));
                         ui.add_space(24.0);
                         let enter = name.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        let (ok, cancel) = dialog_buttons(ui, "Create", !title.trim().is_empty(), accent);
+                        let (ok, cancel) = dialog_buttons(ui, crate::tr!("ui-create"), !title.trim().is_empty(), accent);
                         if (ok || enter) && !title.trim().is_empty() {
                             self.backend.request(Req::CreatePlaylist { title: title.trim().to_owned(), video_ids: tracks.iter().map(|t| t.id.clone()).collect() });
                             done = true;
@@ -118,14 +118,14 @@ impl App {
                         done |= cancel;
                     }
                     Dialog::EditPlaylist { id, title, description, privacy } => {
-                        text_field(ui, "Name", title, false, "Playlist name");
+                        text_field(ui, crate::tr!("dialog-name"), title, false, crate::tr!("dialog-playlist-name"));
                         ui.add_space(16.0);
-                        text_field(ui, "Description", description, true, "Add an optional description");
+                        text_field(ui, crate::tr!("dialog-description"), description, true, crate::tr!("dialog-optional-description"));
                         ui.add_space(16.0);
-                        field_label(ui, "Visibility");
+                        field_label(ui, crate::tr!("dialog-visibility"));
                         privacy_picker(ui, privacy);
                         ui.add_space(26.0);
-                        let (ok, cancel) = dialog_buttons(ui, "Save", !title.trim().is_empty(), accent);
+                        let (ok, cancel) = dialog_buttons(ui, crate::tr!("settings-save"), !title.trim().is_empty(), accent);
                         if ok {
                             self.backend.request(Req::EditPlaylist { id: id.clone(), title: title.trim().to_owned(), description: description.clone(), privacy: privacy.clone() });
                             done = true;
@@ -133,11 +133,14 @@ impl App {
                         done |= cancel;
                     }
                     Dialog::ConfirmDownload { target, title, tracks, count } => {
-                        let what = if target.is_some() { format!("\u{201c}{title}\u{201d} has {count} songs") } else { format!("{count} songs are") };
-                        let body = format!("{what} not downloaded yet. They download in the background, and the song that's playing goes first.");
+                        let body = if target.is_some() {
+                            crate::tr!("dialog-download-collection-body", title = title.as_str(), count = *count)
+                        } else {
+                            crate::tr!("dialog-download-body", count = *count)
+                        };
                         ui.add(egui::Label::new(egui::RichText::new(body).font(theme::regular(14.0)).color(theme::text_dim())).wrap());
                         ui.add_space(22.0);
-                        let (ok, cancel) = dialog_buttons(ui, &format!("Download {count} songs"), true, accent);
+                        let (ok, cancel) = dialog_buttons(ui, &crate::tr!("dialog-download-count", count = *count), true, accent);
                         if ok {
                             let (target, title, tracks) = (target.clone(), title.clone(), Some(std::mem::take(tracks)));
                             self.backend.request(Req::DownloadMany { target, title, tracks, confirmed: true });
@@ -203,17 +206,17 @@ impl App {
     fn collaborate_dialog(&mut self, ui: &mut Ui, info: &mut Option<crate::ytm::Collaboration>, busy: &mut bool, confirm_off: &mut bool, accent: Color32) -> bool {
         use crate::ytm::CollabChange;
         let Some(c) = info.clone() else {
-            ui.label(egui::RichText::new("Loading…").font(theme::regular(14.0)).color(theme::text_dim()));
+            ui.label(egui::RichText::new(crate::tr!("ui-loading")).font(theme::regular(14.0)).color(theme::text_dim()));
             ui.add_space(24.0);
             return done_button(ui);
         };
         let mut change = None;
         if *confirm_off {
-            ui.label(egui::RichText::new("Turn off collaboration?").font(theme::semibold(15.0)).color(theme::text()));
+            ui.label(egui::RichText::new(crate::tr!("dialog-stop-collaboration")).font(theme::semibold(15.0)).color(theme::text()));
             ui.add_space(6.0);
-            ui.label(egui::RichText::new("Collaborators will be removed from the playlist. Songs they added stay.").font(theme::regular(13.0)).color(theme::text_dim()));
+            ui.label(egui::RichText::new(crate::tr!("dialog-stop-collaboration-desc")).font(theme::regular(13.0)).color(theme::text_dim()));
             ui.add_space(24.0);
-            let (ok, cancel) = dialog_buttons(ui, "Turn off", !*busy, accent);
+            let (ok, cancel) = dialog_buttons(ui, crate::tr!("dialog-turn-off"), !*busy, accent);
             if ok {
                 change = Some(CollabChange::Collaborate(false));
             }
@@ -222,17 +225,17 @@ impl App {
             }
         } else {
             ui.add_enabled_ui(!*busy, |ui| {
-                let desc = if c.private && !c.on { "Collaborators can add songs. Makes this private playlist unlisted." } else { "Collaborators can add songs." };
-                pages::setting_row(ui, "Collaborate", Some(desc), |ui| {
+                let desc = if c.private && !c.on { crate::tr!("dialog-collaboration-allow-private") } else { crate::tr!("dialog-collaboration-allow") };
+                pages::setting_row(ui, crate::tr!("ui-collaborate"), Some(desc), |ui| {
                     let mut on = c.on;
-                    if pages::toggle(ui, &mut on, "Collaborate").changed() {
+                    if pages::toggle(ui, &mut on, crate::tr!("ui-collaborate")).changed() {
                         if on { change = Some(CollabChange::Collaborate(true)) } else { *confirm_off = true }
                     }
                 });
                 if c.on {
-                    pages::setting_row(ui, "Allow new collaborators", Some("Turn off to stop new people joining with the link."), |ui| {
+                    pages::setting_row(ui, crate::tr!("dialog-new-collaborators"), Some(crate::tr!("dialog-new-collaborators-desc")), |ui| {
                         let mut on = c.allow_new;
-                        if pages::toggle(ui, &mut on, "Allow new collaborators").changed() {
+                        if pages::toggle(ui, &mut on, crate::tr!("dialog-new-collaborators")).changed() {
                             change = Some(CollabChange::AllowNew(on));
                         }
                     });
@@ -241,19 +244,19 @@ impl App {
             if c.on {
                 ui.add_space(10.0);
                 if let Some(link) = c.invite_link.as_deref().filter(|_| c.allow_new) {
-                    if widgets::pill(ui, "Copy invite link", Some(theme::icon::LINK), true).clicked() {
+                    if widgets::pill(ui, crate::tr!("dialog-copy-invite"), Some(theme::icon::LINK), true).clicked() {
                         ui.ctx().copy_text(link.to_owned());
-                        self.toast("Invite link copied. Whoever opens it can add songs.");
+                        self.toast(crate::tr!("dialog-invite-copied"));
                     }
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new("Send the link to the people you want to add. They join from YouTube Music.").font(theme::regular(12.5)).color(theme::text_faint()));
+                    ui.label(egui::RichText::new(crate::tr!("dialog-invite-instructions")).font(theme::regular(12.5)).color(theme::text_faint()));
                 } else {
-                    ui.label(egui::RichText::new("New collaborators can't join. Turn on Allow new collaborators for an invite link.").font(theme::regular(12.5)).color(theme::text_faint()));
+                    ui.label(egui::RichText::new(crate::tr!("dialog-invites-off")).font(theme::regular(12.5)).color(theme::text_faint()));
                 }
                 ui.add_space(16.0);
-                field_label(ui, "Collaborators");
+                field_label(ui, crate::tr!("dialog-collaborators"));
                 if c.collaborators.is_empty() {
-                    ui.label(egui::RichText::new("No one has joined yet.").font(theme::regular(13.5)).color(theme::text_dim()));
+                    ui.label(egui::RichText::new(crate::tr!("dialog-no-collaborators")).font(theme::regular(13.5)).color(theme::text_dim()));
                 }
                 for name in &c.collaborators {
                     ui.label(egui::RichText::new(name).font(theme::regular(14.0)).color(theme::text()));
@@ -305,7 +308,7 @@ fn privacy_picker(ui: &mut Ui, privacy: &mut Option<String>) {
     use egui::{Sense, vec2};
     let (track, _) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::hover());
     ui.painter().rect_filled(track, 10.0, theme::glass(0.08));
-    let options = [("PRIVATE", "Private"), ("UNLISTED", "Unlisted"), ("PUBLIC", "Public")];
+    let options = [("PRIVATE", crate::tr!("dialog-private")), ("UNLISTED", crate::tr!("dialog-unlisted")), ("PUBLIC", crate::tr!("dialog-public"))];
     let w = (track.width() - 6.0) / options.len() as f32;
     for (i, (value, label)) in options.into_iter().enumerate() {
         let r = egui::Rect::from_min_size(track.min + vec2(3.0 + w * i as f32, 3.0), vec2(w, track.height() - 6.0));
@@ -323,7 +326,7 @@ fn privacy_picker(ui: &mut Ui, privacy: &mut Option<String>) {
     }
     if privacy.is_none() {
         ui.add_space(8.0);
-        ui.label(egui::RichText::new("Unchanged. Pick one to change who can see it.").font(theme::regular(12.5)).color(theme::text_faint()));
+        ui.label(egui::RichText::new(crate::tr!("dialog-visibility-prompt")).font(theme::regular(12.5)).color(theme::text_faint()));
     }
 }
 
@@ -343,14 +346,14 @@ fn dialog_buttons(ui: &mut Ui, primary: &str, enabled: bool, accent: Color32) ->
         ui.painter().rect_filled(rect, 19.0, theme::with_alpha(fill, if enabled { 1.0 } else { 0.35 }));
         ui.painter().galley_with_override_text_color(rect.center() - g.size() / 2.0, g, theme::with_alpha(fg, if enabled { 1.0 } else { 0.6 }));
         ok = resp.clicked();
-        cancel = widgets::pill(ui, "Cancel", None, false).clicked();
+        cancel = widgets::pill(ui, crate::tr!("ui-cancel"), None, false).clicked();
     });
     (ok, cancel)
 }
 
 /// A lone right-aligned Done for a dialog whose changes apply as they're made.
 fn done_button(ui: &mut Ui) -> bool {
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| widgets::pill(ui, "Done", None, true).clicked()).inner
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| widgets::pill(ui, crate::tr!("ui-done"), None, true).clicked()).inner
 }
 
 /// A playlist (or "New playlist") row in the Add to playlist dialog.
@@ -399,7 +402,7 @@ fn confirm(ctx: &egui::Context, heading: &str, body: &str, label: &str, name: &s
                 if resp.clicked() {
                     answer = Some(true);
                 }
-                if widgets::pill(ui, "Cancel", None, false).clicked() {
+                if widgets::pill(ui, crate::tr!("ui-cancel"), None, false).clicked() {
                     answer = Some(false);
                 }
             });

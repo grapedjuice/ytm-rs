@@ -105,7 +105,7 @@ fn my_name(app: &App) -> String {
         .flatten()
         .map(|n| n.trim().to_owned())
         .find(|n| !n.is_empty())
-        .unwrap_or_else(|| "Guest".to_owned())
+        .unwrap_or_else(|| crate::tr!("jam-guest").to_owned())
 }
 
 /// A new session, keeping what the page holds (the typed code, the name).
@@ -130,7 +130,7 @@ fn start_with(app: &mut App, code: String) {
 
 pub fn join(app: &mut App, code: &str) {
     let Some(code) = crate::jam::normalize_code(code) else {
-        app.jam.error = Some("Codes are 6 letters and numbers".into());
+        app.jam.error = Some(crate::tr!("jam-code-length").into());
         return;
     };
     if app.jam.conn.as_ref().is_some_and(|c| c.code == code) {
@@ -217,7 +217,7 @@ pub fn open_link(app: &mut App, code: String) {
     app.jam.code_input = normalized.unwrap_or(code);
     app.jam.error = None;
     if app.jam.conn.is_some() {
-        app.toast("Leave this jam to join the one in the link");
+        app.toast(crate::tr!("jam-leave-before-joining"));
     }
 }
 
@@ -257,9 +257,9 @@ fn on_event(app: &mut App, e: Event) {
             // Send our state straight away when hosting.
             s.sent_sig = 0;
             if !rejoin && s.created {
-                app.toast("Jam started: share the code or link");
+                app.toast(crate::tr!("jam-started"));
             } else if !rejoin {
-                app.toast("Joined the jam");
+                app.toast(crate::tr!("jam-joined"));
             }
         }
         Event::Members { host, members } => {
@@ -270,7 +270,7 @@ fn on_event(app: &mut App, e: Event) {
                 s.sent_sig = 0;
                 // The queue is ours now: hidden explicit songs leave it.
                 app.queue.drop_explicit();
-                app.toast("You're the host now");
+                app.toast(crate::tr!("jam-became-host"));
             }
         }
         Event::Control { on, queue } => {
@@ -397,7 +397,7 @@ fn host_request(app: &mut App, from: String, name: String, cmd: Cmd) {
     if let Cmd::Add { track } | Cmd::Next { track } = &cmd {
         // The host's setting decides what the jam plays.
         if app.hide_explicit && track.explicit {
-            app.toast(format!("Skipped an explicit song {name} added"));
+            app.toast(crate::tr!("jam-explicit-skipped", name = name.as_str()));
             return;
         }
         // Their app checks this too; two adds can cross the latest state, though.
@@ -410,7 +410,7 @@ fn host_request(app: &mut App, from: String, name: String, cmd: Cmd) {
     match cmd {
         Cmd::Add { track } | Cmd::Next { track } if track.id.is_empty() => {}
         Cmd::Add { track } => {
-            app.toast(format!("{name} added \"{}\"", track.title));
+            app.toast(crate::tr!("jam-guest-added", name = name.as_str(), title = track.title.as_str()));
             app.jam.by.insert(track.id.clone(), name);
             let Some(i) = app.queue.index else {
                 app.queue.tracks.push(track);
@@ -427,7 +427,7 @@ fn host_request(app: &mut App, from: String, name: String, cmd: Cmd) {
             app.prefetch_next();
         }
         Cmd::Next { track } => {
-            app.toast(format!("{name} queued \"{}\" next", track.title));
+            app.toast(crate::tr!("jam-guest-queued-next", name = name.as_str(), title = track.title.as_str()));
             app.jam.by.insert(track.id.clone(), name);
             let at = app.queue.index.map_or(0, |i| i + 1).min(app.queue.tracks.len());
             app.queue.tracks.insert(at, track);
@@ -562,11 +562,11 @@ fn guest_follow(app: &mut App) {
 /// Ask the host to do something (as a guest).
 pub fn request(app: &mut App, cmd: Cmd) {
     if cmd.is_control() && !app.jam.control {
-        app.toast("Only the host can control playback");
+        app.toast(crate::tr!("jam-host-only-playback"));
         return;
     }
     if !cmd.is_control() && !app.jam.queue {
-        app.toast("The host turned off adding songs");
+        app.toast(crate::tr!("jam-adding-off"));
         return;
     }
     if let Cmd::Add { track } | Cmd::Next { track } = &cmd
@@ -576,12 +576,12 @@ pub fn request(app: &mut App, cmd: Cmd) {
     }
     if !cmd.is_control() && waiting(app, &app.jam.you) >= GUEST_WAITING {
         log::info!("jam: {GUEST_WAITING} songs already waiting");
-        app.toast(format!("You have {GUEST_WAITING} songs waiting. Add more once one plays"));
+        app.toast(crate::tr!("jam-queue-limit", count = GUEST_WAITING));
         return;
     }
     match &cmd {
-        Cmd::Add { .. } => app.toast("Added to the jam"),
-        Cmd::Next { .. } => app.toast("Playing next in the jam"),
+        Cmd::Add { .. } => app.toast(crate::tr!("jam-added")),
+        Cmd::Next { .. } => app.toast(crate::tr!("jam-next")),
         _ => {}
     }
     if let Some(c) = &app.jam.conn {
@@ -604,11 +604,11 @@ pub fn guest_action(app: &mut App, a: Action) -> Option<Action> {
         }
         Action::Open(Target::Song(t)) | Action::Radio(t) | Action::Enqueue(t) => request(app, Cmd::Add { track: t }),
         Action::PlayNext(t) => request(app, Cmd::Next { track: t }),
-        Action::PlayCollection(..) | Action::Shuffle(_) => app.toast("In a jam, add songs one at a time"),
+        Action::PlayCollection(..) | Action::Shuffle(_) => app.toast(crate::tr!("jam-add-one")),
         Action::QueueJump(i) => request(app, Cmd::Jump { index: i }),
-        Action::QueueRemove(_) => app.toast("Only the host can remove songs"),
-        Action::QueueClear => app.toast("Only the host can clear the jam's queue"),
-        Action::QueueMove { .. } => app.toast("Only the host can reorder the jam"),
+        Action::QueueRemove(_) => app.toast(crate::tr!("jam-host-only-queue")),
+        Action::QueueClear => app.toast(crate::tr!("jam-host-only-queue")),
+        Action::QueueMove { .. } => app.toast(crate::tr!("jam-host-only-queue")),
         Action::Seek(secs) => request(app, Cmd::Seek { pos: (secs.max(0.0) * 1000.0) as u64 }),
         Action::TogglePlay => request(app, Cmd::Toggle),
         a => return Some(a),
@@ -625,7 +625,7 @@ pub fn page(app: &mut App, ui: &mut Ui) {
         ui.add_space(((avail - w) / 2.0).max(0.0));
         ui.vertical(|ui| {
             ui.set_width(w);
-            page_title(ui, "Listen together");
+            page_title(ui, crate::tr!("nav-listen-together"));
             if app.jam.active() {
                 room(app, ui);
             } else {
@@ -640,11 +640,11 @@ fn dim(ui: &mut Ui, text: &str) {
 }
 
 fn lobby(app: &mut App, ui: &mut Ui) {
-    dim(ui, "Start a jam and friends hear what you play, at the same moment. Everyone listens on their own ytm-rs, and anyone can add songs.");
-    section_label(ui, "Start a jam", None);
+    dim(ui, crate::tr!("jam-intro"));
+    section_label(ui, crate::tr!("jam-start"), None);
     settings_card(ui, |ui| {
-        let hint = app.account_name.clone().unwrap_or_else(|| "Guest".to_owned());
-        setting_row(ui, "Your name", Some("What others in the jam see."), |ui| {
+        let hint = app.account_name.clone().unwrap_or_else(|| crate::tr!("jam-guest").to_owned());
+        setting_row(ui, crate::tr!("jam-name"), Some(crate::tr!("jam-name-desc")), |ui| {
             let (rect, _) = ui.allocate_exact_size(vec2(200.0, 36.0), Sense::hover());
             ui.painter().rect_filled(rect, 10.0, theme::glass(0.08));
             let inner = rect.shrink2(vec2(12.0, 4.0));
@@ -660,21 +660,21 @@ fn lobby(app: &mut App, ui: &mut Ui) {
             );
         });
         divider(ui);
-        setting_row(ui, "Host a jam", Some("You get a code and a link to share. You control playback."), |ui| {
-            if pill(ui, "Start", Some(icon::USERS), true).clicked() {
+        setting_row(ui, crate::tr!("jam-host-session"), Some(crate::tr!("jam-host-desc")), |ui| {
+            if pill(ui, crate::tr!("jam-start-button"), Some(icon::USERS), true).clicked() {
                 start(app);
             }
         });
     });
-    section_label(ui, "Join a jam", None);
+    section_label(ui, crate::tr!("jam-join-session"), None);
     settings_card(ui, |ui| {
         ui.add_space(12.0);
-        dim(ui, "Type the code from the host, or open the link they shared.");
+        dim(ui, crate::tr!("jam-join-desc"));
         ui.add_space(10.0);
         let mut join_now = false;
         // Button on the right edge, the field filling the rest, both one height.
         ui.allocate_ui_with_layout(vec2(ui.available_width(), 42.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            join_now |= pill(ui, "Join", None, true).clicked();
+            join_now |= pill(ui, crate::tr!("jam-join-button"), None, true).clicked();
             ui.add_space(10.0);
             let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::hover());
             ui.painter().rect_filled(rect, 10.0, theme::glass(0.08));
@@ -710,15 +710,15 @@ fn room(app: &mut App, ui: &mut Ui) {
     let code = app.jam.conn.as_ref().map(|c| c.code.clone()).unwrap_or_default();
     let host = app.jam.is_host();
     let status = if !app.jam.welcomed {
-        Some("Connecting…")
+        Some(crate::tr!("jam-connecting"))
     } else if app.jam.reconnecting {
-        Some("Connection lost, reconnecting…")
+        Some(crate::tr!("jam-reconnecting"))
     } else {
         None
     };
     settings_card(ui, |ui| {
         ui.add_space(16.0);
-        dim(ui, if host { "Share this code or link with friends" } else { "You're in the jam" });
+        dim(ui, if host { crate::tr!("jam-share-code") } else { crate::tr!("jam-you-joined") });
         ui.add_space(6.0);
         let spaced: String = code.chars().map(|c| c.to_string()).collect::<Vec<_>>().join(" ");
         ui.label(RichText::new(spaced).font(theme::bold(40.0)).color(theme::text()));
@@ -730,48 +730,48 @@ fn room(app: &mut App, ui: &mut Ui) {
         }
         ui.add_space(10.0);
         ui.horizontal(|ui| {
-            if pill(ui, "Copy link", Some(icon::LINK), true).clicked() {
+            if pill(ui, crate::tr!("ui-copy-link"), Some(icon::LINK), true).clicked() {
                 app.share_pending = Some(crate::jam::share_link(&code));
-                app.toast("Link copied");
+                app.toast(crate::tr!("status-link-copied"));
             }
             ui.add_space(8.0);
-            if pill(ui, "Copy code", Some(icon::COPY), false).clicked() {
+            if pill(ui, crate::tr!("jam-copy-code"), Some(icon::COPY), false).clicked() {
                 app.share_pending = Some(code.clone());
-                app.toast("Code copied");
+                app.toast(crate::tr!("jam-code-copied"));
             }
         });
         ui.add_space(16.0);
     });
 
-    section_label(ui, "Playback", None);
+    section_label(ui, crate::tr!("settings-playback"), None);
     settings_card(ui, |ui| {
         if host {
             let (mut queue, mut on) = (app.jam.queue, app.jam.control);
-            setting_row(ui, "Guests can add songs", Some("Songs they play go into the queue, right after the current one."), |ui| {
-                if toggle(ui, &mut queue, "Guests can add songs").changed() {
+            setting_row(ui, crate::tr!("jam-allow-add"), Some(crate::tr!("jam-allow-add-desc")), |ui| {
+                if toggle(ui, &mut queue, crate::tr!("jam-allow-add")).changed() {
                     set_control(app, on, queue);
                 }
             });
             divider(ui);
-            setting_row(ui, "Guests can control playback", Some("Play and pause, skip, go back, seek, and jump to a song in the queue."), |ui| {
-                if toggle(ui, &mut on, "Guests can control playback").changed() {
+            setting_row(ui, crate::tr!("jam-allow-control"), Some(crate::tr!("jam-allow-control-desc")), |ui| {
+                if toggle(ui, &mut on, crate::tr!("jam-allow-control")).changed() {
                     set_control(app, on, queue);
                 }
             });
         } else {
             let desc = match (app.jam.queue, app.jam.control) {
-                (true, true) => "You can add songs and control playback.",
-                (true, false) => "Songs you play are added to the queue. The host controls playback.",
-                (false, true) => "You can control playback. The host turned off adding songs.",
-                (false, false) => "The host controls the queue and playback.",
+                (true, true) => crate::tr!("jam-guest-can-do-both"),
+                (true, false) => crate::tr!("jam-guest-can-add"),
+                (false, true) => crate::tr!("jam-guest-can-control"),
+                (false, false) => crate::tr!("jam-host-controls"),
             };
-            setting_row(ui, "Following the host", Some(desc), |_| {});
+            setting_row(ui, crate::tr!("jam-follow-host"), Some(desc), |_| {});
         }
         divider(ui);
         let (title, desc, label) = if host {
-            ("End the jam", "Everyone leaves; your music keeps playing.", "End jam")
+            (crate::tr!("jam-end"), crate::tr!("jam-end-desc"), crate::tr!("jam-end-button"))
         } else {
-            ("Leave the jam", "The music keeps playing here, on your own.", "Leave")
+            (crate::tr!("jam-leave"), crate::tr!("jam-leave-desc"), crate::tr!("jam-leave-button"))
         };
         setting_row(ui, title, Some(desc), |ui| {
             if pill(ui, label, Some(icon::LOG_OUT), false).clicked() {
@@ -781,7 +781,7 @@ fn room(app: &mut App, ui: &mut Ui) {
     });
 
     let n = app.jam.members.len();
-    section_label(ui, "People", Some(&format!("{n} listening")));
+    section_label(ui, crate::tr!("jam-people"), Some(&crate::tr!("jam-listening-count", count = n)));
     settings_card(ui, |ui| {
         ui.add_space(6.0);
         for m in &app.jam.members {
@@ -791,7 +791,7 @@ fn room(app: &mut App, ui: &mut Ui) {
             let you = if m.id == app.jam.you { " (you)" } else { "" };
             ui.painter().text(pos2(rect.left() + 34.0, rect.center().y), Align2::LEFT_CENTER, format!("{}{you}", m.name), theme::semibold(14.5), theme::text());
             if is_host {
-                ui.painter().text(pos2(rect.right() - 4.0, rect.center().y), Align2::RIGHT_CENTER, "Host", theme::regular(12.5), theme::text_dim());
+                ui.painter().text(pos2(rect.right() - 4.0, rect.center().y), Align2::RIGHT_CENTER, crate::tr!("jam-host"), theme::regular(12.5), theme::text_dim());
             }
         }
         ui.add_space(6.0);

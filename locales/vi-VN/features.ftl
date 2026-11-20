@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = Hiển thị thêm bình luận
+comment-more-replies = Hiển thị thêm câu trả lời
+comment-sort-failed = Không thể sắp xếp nhận xét.
+comment-like-failed = Không thể thích bình luận đó.
+comment-post-failed = Không thể đăng bình luận của bạn. Bản nháp của bạn vẫn còn trong trường.
+comment-reply-failed = Không thể đăng câu trả lời của bạn. Bản nháp của bạn vẫn còn trong trường.
+comment-posted = Đã đăng bình luận.
+comment-reply-posted = Đã đăng phản hồi.
+comment-loading = Đang tải bình luận…
+comment-loading-replies = Đang tải câu trả lời…
+comment-disabled = Tính năng bình luận bị tắt đối với bài hát này.
+comment-load-failed = Không thể tải bình luận.
+comment-retry = Không thể tải những thứ này. Thử lại
+comment-posting = Đăng bình luận của bạn…
+comment-posting-reply = Đang đăng câu trả lời của bạn…
+comment-replies-unavailable = YouTube không cho phép trả lời bình luận này.
+comment-unavailable = YouTube không cho phép bình luận ở đây.
+comment-sign-in-like = Đăng nhập để thích bình luận.
+comment-like-unavailable = YouTube không cho phép thích bình luận này.
+comment-newest = Mới nhất
+comment-top = Hàng đầu
+comment-empty = Chưa có bình luận nào.
+comment-sign-in = Đăng nhập để bình luận
+comment-new = Thêm bình luận…
+comment-compose-disabled = Tính năng bình luận không có sẵn ở đây
+comment-reply = đáp lại
+comment-hide-replies = Ẩn câu trả lời
+comment-reply-count = Trả lời ({ $count })
+comment-new-reply = Thêm câu trả lời…
+comment-sign-in-reply = Đăng nhập để trả lời
+comment-post = Bài đăng

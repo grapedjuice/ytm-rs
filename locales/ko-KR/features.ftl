@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = 댓글 더 보기
+comment-more-replies = 더 많은 답글 표시
+comment-sort-failed = 댓글을 정렬할 수 없습니다.
+comment-like-failed = 해당 댓글에 좋아요를 표시할 수 없습니다.
+comment-post-failed = 댓글을 게시할 수 없습니다. 초안이 아직 현장에 있습니다.
+comment-reply-failed = 답글을 게시할 수 없습니다. 초안이 아직 현장에 있습니다.
+comment-posted = 댓글이 게시되었습니다.
+comment-reply-posted = 답변이 게시되었습니다.
+comment-loading = 댓글 불러오는 중…
+comment-loading-replies = 답글 로드 중…
+comment-disabled = 이 노래에 대한 댓글이 사용 중지되었습니다.
+comment-load-failed = 댓글을 로드할 수 없습니다.
+comment-retry = 로드할 수 없습니다. 다시 시도하세요
+comment-posting = 댓글을 게시하는 중…
+comment-posting-reply = 답글을 게시하는 중…
+comment-replies-unavailable = YouTube는 이 댓글에 대한 답변을 허용하지 않습니다.
+comment-unavailable = YouTube는 여기에 댓글을 허용하지 않습니다.
+comment-sign-in-like = 댓글에 좋아요를 누르려면 로그인하세요.
+comment-like-unavailable = YouTube는 이 댓글에 좋아요를 누르는 것을 허용하지 않습니다.
+comment-newest = 최신
+comment-top = 상단
+comment-empty = 아직 댓글이 없습니다.
+comment-sign-in = 댓글을 달려면 로그인하세요.
+comment-new = 댓글 추가…
+comment-compose-disabled = 여기서는 댓글을 달 수 없습니다.
+comment-reply = 답장하다
+comment-hide-replies = 답글 숨기기
+comment-reply-count = 답글 ({ $count })
+comment-new-reply = 답글 추가…
+comment-sign-in-reply = 답장하려면 로그인하세요.
+comment-post = 게시물

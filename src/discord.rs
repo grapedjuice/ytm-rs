@@ -40,10 +40,10 @@ impl Show {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Title => "Song title",
-            Self::Artist => "Artist",
-            Self::Album => "Album",
-            Self::Nothing => "Nothing",
+            Self::Title => crate::tr!("discord-song-title"),
+            Self::Artist => crate::tr!("ui-artist"),
+            Self::Album => crate::tr!("ui-album"),
+            Self::Nothing => crate::tr!("ui-none"),
         }
     }
 }
@@ -78,9 +78,9 @@ impl BadgeShows {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Nothing => "Nothing",
-            Self::Artist => "Artist's picture",
-            Self::AppIcon => "App icon",
+            Self::Nothing => crate::tr!("ui-none"),
+            Self::Artist => crate::tr!("discord-artist-photo"),
+            Self::AppIcon => crate::tr!("settings-app-icon"),
         }
     }
 }
@@ -122,21 +122,21 @@ impl Page {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::None => "None",
-            Self::Song => "Song",
-            Self::Artist => "Artist",
-            Self::Album => "Album",
-            Self::Jam => "Listen together",
+            Self::None => crate::tr!("ui-none"),
+            Self::Song => crate::tr!("ui-song"),
+            Self::Artist => crate::tr!("ui-artist"),
+            Self::Album => crate::tr!("ui-album"),
+            Self::Jam => crate::tr!("nav-listen-together"),
         }
     }
 
     fn button(self) -> &'static str {
         match self {
             Self::None => "",
-            Self::Song => "Listen on YouTube Music",
-            Self::Artist => "View artist",
-            Self::Album => "View album",
-            Self::Jam => "Listen together",
+            Self::Song => crate::tr!("discord-listen-on-youtube"),
+            Self::Artist => crate::tr!("discord-view-artist"),
+            Self::Album => crate::tr!("discord-view-album"),
+            Self::Jam => crate::tr!("nav-listen-together"),
         }
     }
 }

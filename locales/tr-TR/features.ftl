@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = Daha fazla yorum göster
+comment-more-replies = Daha fazla yanıt göster
+comment-sort-failed = Yorumlar sıralanamadı.
+comment-like-failed = Bu yorum hoşuma gitmedi.
+comment-post-failed = Yorumunuz yayınlanamadı. Taslağınız hâlâ sahada.
+comment-reply-failed = Yanıtınız gönderilemedi. Taslağınız hâlâ sahada.
+comment-posted = Yorum gönderildi.
+comment-reply-posted = Yanıt gönderildi.
+comment-loading = Yorumlar yükleniyor…
+comment-loading-replies = Yanıtlar yükleniyor…
+comment-disabled = Bu şarkı için yorumlar kapatıldı.
+comment-load-failed = Yorumlar yüklenemedi.
+comment-retry = Bunlar yüklenemedi. Tekrar dene
+comment-posting = Yorumunuz yayınlanıyor…
+comment-posting-reply = Yanıtınız gönderiliyor…
+comment-replies-unavailable = YouTube bu yoruma yanıt verilmesine izin vermiyor.
+comment-unavailable = YouTube burada yorumlara izin vermiyor.
+comment-sign-in-like = Yorumları beğenmek için oturum açın.
+comment-like-unavailable = YouTube bu yorumun beğenilmesine izin vermiyor.
+comment-newest = En Yeni
+comment-top = Üst
+comment-empty = Henüz yorum yok.
+comment-sign-in = Yorum yapmak için oturum açın
+comment-new = Bir yorum ekleyin…
+comment-compose-disabled = Burada yorum yapılamaz
+comment-reply = Yanıtla
+comment-hide-replies = Yanıtları gizle
+comment-reply-count = Yanıtlar ({ $count })
+comment-new-reply = Bir yanıt ekleyin…
+comment-sign-in-reply = Yanıtlamak için oturum açın
+comment-post = Gönderi

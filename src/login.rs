@@ -35,8 +35,8 @@ impl Site {
 
     fn title(self) -> &'static str {
         match self {
-            Site::Google => "Sign in to YouTube Music",
-            Site::Spotify => "Sign in to Spotify",
+            Site::Google => crate::tr!("login-youtube"),
+            Site::Spotify => crate::tr!("transfer-sign-in-spotify"),
         }
     }
 
@@ -90,6 +90,7 @@ pub fn spawn(site: Site, profile_dir: PathBuf, done: impl FnOnce(Outcome) + Send
                 webkit_env(&mut cmd);
                 cmd.arg(site.flag())
                     .arg(&profile_dir)
+                    .arg(crate::i18n::current())
                     .stdin(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())
                     .output()

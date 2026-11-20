@@ -2,7 +2,8 @@
 
 Thanks for helping! The app's own text (its buttons, menus, settings and notices) lives in `locales/`, one folder per language. English, in `locales/en-US/`, is the source.
 
-So far the Settings page is ready to translate. More of the app follows, a screen at a time.
+The desktop interface has catalogs for Settings, navigation, playback, dialogs, comments,
+Listen together, Spotify transfer, and other app messages.
 
 ## How to translate
 
@@ -44,7 +45,7 @@ You need [Rust](https://rustup.rs) to build the app from source:
 cargo run
 ```
 
-Then pick your language in **Settings › General › Language** and restart. A language shows in that list once it's added to `LANGUAGES` in `src/i18n.rs`, which happens when it's mostly translated. Add it there yourself to try it.
+Then pick your language in **Settings › General › Language** and restart. `LANGUAGES` in `src/i18n.rs` sets the order in both the interface and lyrics language pickers. Each entry pairs a catalog locale with the lyrics translation service's language code.
 
 `cargo test i18n` checks that every file reads correctly.
 

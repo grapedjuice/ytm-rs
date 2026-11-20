@@ -28,11 +28,11 @@ impl Cmd {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::TogglePlay => "Play / pause",
-            Self::Next => "Next song",
-            Self::Prev => "Previous song",
-            Self::VolumeUp => "Volume up",
-            Self::VolumeDown => "Volume down",
+            Self::TogglePlay => crate::tr!("settings-play-pause"),
+            Self::Next => crate::tr!("player-next-song"),
+            Self::Prev => crate::tr!("player-previous-song"),
+            Self::VolumeUp => crate::tr!("window-keyboard-volume-up"),
+            Self::VolumeDown => crate::tr!("window-keyboard-volume-down"),
         }
     }
 }

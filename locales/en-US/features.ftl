@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = Show more comments
+comment-more-replies = Show more replies
+comment-sort-failed = Couldn't sort the comments.
+comment-like-failed = Couldn't like that comment.
+comment-post-failed = Couldn't post your comment. Your draft is still in the field.
+comment-reply-failed = Couldn't post your reply. Your draft is still in the field.
+comment-posted = Comment posted.
+comment-reply-posted = Reply posted.
+comment-loading = Loading comments…
+comment-loading-replies = Loading replies…
+comment-disabled = Comments are turned off for this song.
+comment-load-failed = Couldn't load the comments.
+comment-retry = Couldn't load these. Try again
+comment-posting = Posting your comment…
+comment-posting-reply = Posting your reply…
+comment-replies-unavailable = YouTube doesn't allow replies to this comment.
+comment-unavailable = YouTube doesn't allow comments here.
+comment-sign-in-like = Sign in to like comments.
+comment-like-unavailable = YouTube doesn't allow liking this comment.
+comment-newest = Newest
+comment-top = Top
+comment-empty = No comments yet.
+comment-sign-in = Sign in to comment
+comment-new = Add a comment…
+comment-compose-disabled = Commenting isn't available here
+comment-reply = Reply
+comment-hide-replies = Hide replies
+comment-reply-count = Replies ({ $count })
+comment-new-reply = Add a reply…
+comment-sign-in-reply = Sign in to reply
+comment-post = Post

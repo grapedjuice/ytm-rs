@@ -97,7 +97,7 @@ impl App {
         self.set_liked(&tracks, false);
         let msg = match send {
             Req::LikeMany { .. } => tr!("likes-removed", count = tracks.len()),
-            _ => "Removed from liked songs".to_owned(),
+            _ => crate::tr!("status-removed-liked").to_owned(),
         };
         self.toast_undo(msg, Undo::Unlike { targets, liked, was, send: Box::new(send) });
     }
@@ -147,7 +147,7 @@ impl App {
             Some((i, cards.remove(i)))
         });
         self.leave_playlist(&id);
-        self.toast_undo("Playlist deleted", Undo::Delete { id, card });
+        self.toast_undo(crate::tr!("status-playlist-deleted"), Undo::Delete { id, card });
     }
 
     /// Off a deleted playlist's page, and Back and Forward skip it.
@@ -186,11 +186,11 @@ impl App {
     pub(super) fn undo(&mut self) {
         let Some(undo) = self.undo.take() else { return };
         match undo {
-            Undo::Queue(_) if self.jam.guest() => self.toast("Only the host can change the jam's queue"),
+            Undo::Queue(_) if self.jam.guest() => self.toast(crate::tr!("jam-host-only-queue")),
             Undo::Queue(saved) => {
                 let source = &self.queue_source;
                 let Some(go_on) = self.queue.restore(saved, |id| matches!(source, Some(Target::Playlist(p)) if p == id)) else {
-                    return self.toast("The queue changed since, so that can't be undone");
+                    return self.toast(crate::tr!("status-queue-changed"));
                 };
                 // Its load ended or gave way to another meanwhile: nothing more comes.
                 let live = self.queue.fill.as_ref().is_some_and(|f| self.receiving(&f.id) && self.opened(&f.id).is_some_and(|o| o.load == f.load));

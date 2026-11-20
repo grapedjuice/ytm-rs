@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = Pokaż więcej komentarzy
+comment-more-replies = Pokaż więcej odpowiedzi
+comment-sort-failed = Nie udało się posortować komentarzy.
+comment-like-failed = Nie udało się polubić komentarza.
+comment-post-failed = Nie udało się opublikować komentarza. Szkic nadal jest w polu.
+comment-reply-failed = Nie udało się opublikować odpowiedzi. Szkic nadal jest w polu.
+comment-posted = Opublikowano komentarz.
+comment-reply-posted = Opublikowano odpowiedź.
+comment-loading = Wczytywanie komentarzy…
+comment-loading-replies = Wczytywanie odpowiedzi…
+comment-disabled = Komentarze do tego utworu są wyłączone.
+comment-load-failed = Nie udało się wczytać komentarzy.
+comment-retry = Błąd wczytywania. Spróbuj ponownie
+comment-posting = Publikowanie komentarza…
+comment-posting-reply = Publikowanie odpowiedzi…
+comment-replies-unavailable = YouTube nie pozwala odpowiadać na ten komentarz.
+comment-unavailable = YouTube nie pozwala tu komentować.
+comment-sign-in-like = Zaloguj się, aby polubić komentarze.
+comment-like-unavailable = YouTube nie pozwala polubić tego komentarza.
+comment-newest = Najnowsze
+comment-top = Najpopularniejsze
+comment-empty = Nie ma jeszcze komentarzy.
+comment-sign-in = Zaloguj się, aby komentować
+comment-new = Dodaj komentarz…
+comment-compose-disabled = Nie można tu komentować
+comment-reply = Odpowiedz
+comment-hide-replies = Ukryj odpowiedzi
+comment-reply-count = Odpowiedzi ({ $count })
+comment-new-reply = Dodaj odpowiedź…
+comment-sign-in-reply = Zaloguj się, aby odpowiedzieć
+comment-post = Opublikuj

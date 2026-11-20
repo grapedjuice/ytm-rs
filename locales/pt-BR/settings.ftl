@@ -380,3 +380,19 @@ settings-downloads-and-counting = { $count ->
    *[other] { $shown } downloads e contando
 }
 settings-counting-downloads = Contando downloads…
+settings-fade-when-pausing = Reduzir o som gradualmente ao pausar
+settings-fade-when-pausing-desc = Reduz o volume gradualmente ao pausar e o restaura ao retomar, em 0,2 segundo. Desativado, a música para e volta a tocar imediatamente.
+settings-song-info = Informações das músicas
+settings-song-info-language = Idioma das informações das músicas
+settings-song-info-language-desc = Idioma dos títulos de músicas, nomes de artistas e álbuns e seções do YouTube Music, quando houver tradução disponível.
+settings-song-info-country = País das paradas e recomendações
+settings-song-info-country-desc = País usado nas paradas e recomendações.
+settings-folder-per-list = Salvar cada álbum e playlist em sua própria pasta
+settings-folder-per-list-desc = Ao baixar um álbum ou playlist pela página ou pelo menu, as músicas são salvas em uma pasta com o nome dele. As músicas já baixadas continuam no mesmo lugar.
+settings-backup-stream = Fluxo alternativo quando a música para
+settings-backup-stream-desc = Se você estiver conectado e o YouTube interromper uma música para verificar se você é um robô (pode acontecer com VPN), usa um fluxo que inclui o vídeo. Consome mais dados.
+settings-backup-stream-prompt-title = Reprodução interrompida
+settings-backup-stream-prompt-body = O YouTube interrompeu esta música para verificar se você é um robô. Isso pode acontecer com VPN. Um fluxo alternativo permite continuar ouvindo. Ele inclui o vídeo e consome mais dados.
+settings-backup-stream-prompt-enable = Ativar e tentar novamente
+settings-backup-stream-prompt-settings = Configurações
+settings-backup-stream-prompt-dismiss = Agora não

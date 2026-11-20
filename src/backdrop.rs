@@ -20,7 +20,7 @@ impl Backdrop {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::None => "None",
+            Self::None => crate::tr!("ui-none"),
             Self::Mica => "Mica",
             Self::MicaAlt => "Mica Alt",
             Self::Acrylic => "Acrylic",

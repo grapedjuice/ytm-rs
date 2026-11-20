@@ -18,7 +18,7 @@ impl App {
 
     fn request_unlike(&mut self, unlike: Unlike) {
         if !self.logged_in {
-            self.toast("Sign in to like songs");
+            self.toast(crate::tr!("status-sign-in-like"));
             return;
         }
         match unlike {
@@ -47,7 +47,7 @@ impl App {
 
     fn set_many_likes(&mut self, tracks: Vec<Track>, like: bool) {
         if !self.logged_in {
-            self.toast("Sign in to like songs");
+            self.toast(crate::tr!("status-sign-in-like"));
             return;
         }
         // Liking songs whose unlike waits: those stay liked, so it doesn't go.
@@ -64,7 +64,7 @@ impl App {
         }
         self.set_liked(&tracks, true);
         if tracks.len() > 10 {
-            self.toast(format!("Liking {} songs…", tracks.len()));
+            self.toast(crate::tr!("status-liking", count = tracks.len()));
         }
         self.backend.request(send);
     }
@@ -103,7 +103,7 @@ impl App {
             // Kept already: at once. A playlist that isn't starts with its first page.
             Action::PlayCollection(Target::Album(id) | Target::Playlist(id), shuffle) if self.opened(&id).is_some() => self.play_opened(id, shuffle),
             Action::PlayCollection(target, shuffle) => {
-                self.toast("Starting playback…");
+                self.toast(crate::tr!("status-starting-playback"));
                 self.play_pending = Some((target.clone(), shuffle));
                 match target {
                     Target::Playlist(id) => self.load_list(&id, false, false),
@@ -136,7 +136,7 @@ impl App {
             Action::PlayNext(t) | Action::Enqueue(t) | Action::QueueInsert { track: t, .. } if self.explicit_hidden(&t) => {}
             Action::PlayNext(t) => {
                 let start = self.queue.play_next(t);
-                self.toast("Playing next");
+                self.toast(crate::tr!("status-playing-next"));
                 if start {
                     self.play_current();
                 } else {
@@ -145,7 +145,7 @@ impl App {
             }
             Action::Enqueue(t) => {
                 let start = self.queue.enqueue(t);
-                self.toast("Added to queue");
+                self.toast(crate::tr!("status-added-queue"));
                 if start {
                     self.play_current();
                 }
@@ -163,19 +163,19 @@ impl App {
             }
             Action::QueueRemove(i) => {
                 if let Some(saved) = self.queue.remove(i) {
-                    self.toast_undo("Removed from queue", Undo::Queue(saved));
+                    self.toast_undo(crate::tr!("status-removed-queue"), Undo::Queue(saved));
                     self.prefetch_next();
                 }
             }
             Action::QueueClear => {
                 if let Some(saved) = self.queue.clear() {
-                    self.toast_undo("Queue cleared", Undo::Queue(saved));
+                    self.toast_undo(crate::tr!("status-cleared-queue"), Undo::Queue(saved));
                 }
             }
             Action::Undo => self.undo(),
             Action::QueueInsert { gap, track } => {
                 self.queue.insert_at(gap, track);
-                self.toast("Added to queue");
+                self.toast(crate::tr!("status-added-queue"));
                 self.prefetch_next();
             }
             Action::QueueMove { from, gap, id } => {
@@ -210,7 +210,7 @@ impl App {
             Action::Like(t, false) => self.request_unlike(Unlike::Track(t)),
             Action::Like(t, true) => {
                 if !self.logged_in {
-                    self.toast("Sign in to like songs");
+                    self.toast(crate::tr!("status-sign-in-like"));
                     return;
                 }
                 // Liked again while its unlike waits: that unlike just doesn't go.
@@ -241,7 +241,7 @@ impl App {
             Action::LikeMany(tracks, false) => self.request_unlike(Unlike::Selection(tracks)),
             Action::LikeMany(tracks, true) => self.set_many_likes(tracks, true),
             Action::Dislike(t) => {
-                if !self.logged_in { self.toast("Sign in to rate songs"); return; }
+                if !self.logged_in { self.toast(crate::tr!("status-sign-in-rate")); return; }
                 let id = Some(t.id.as_str());
                 let skip_generation = (!self.jam.guest() && (self.current_id() == id || self.playing_id() == id)).then_some(self.generation);
                 self.rating(|id| id == t.id);
@@ -249,14 +249,14 @@ impl App {
                 self.backend.request(Req::Dislike { video_id: t.id, skip_generation });
             }
             Action::RemoveDislike(video_id) => {
-                if !self.logged_in { self.toast("Sign in to rate songs"); return; }
+                if !self.logged_in { self.toast(crate::tr!("status-sign-in-rate")); return; }
                 self.rating(|id| id == video_id);
                 self.backend.request(Req::RemoveRating { video_id, was_disliked: true });
             }
             Action::RemoveLike(track) => self.request_unlike(Unlike::Rating(track)),
             Action::Share(target) => {
                 self.share_pending = Some(share_url(&target));
-                self.toast("Link copied");
+                self.toast(crate::tr!("status-link-copied"));
             }
             Action::Pin(id, on) => {
                 self.pinned.retain(|p| *p != id);
@@ -265,7 +265,7 @@ impl App {
                 }
             }
             Action::Download(track) => {
-                self.toast(format!("Downloading \u{201c}{}\u{201d}", track.title));
+                self.toast(crate::tr!("status-downloading", title = track.title.as_str()));
                 // The song version playing for a music video: that video plays the file too.
                 let for_video = if self.playing_as().is_some_and(|s| s.id == track.id && !s.has_video()) { self.current_id().map(str::to_owned) } else { None };
                 self.backend.request(Req::Download { track, for_video });
@@ -276,7 +276,7 @@ impl App {
             Action::CancelDownload(key) => self.backend.cancel_downloads(&key),
             Action::AddToPlaylist(tracks) => {
                 if self.logged_in { self.dialog = Some(Dialog::PickPlaylist(tracks)); }
-                else { self.toast("Sign in to edit playlists"); }
+                else { self.toast(crate::tr!("status-sign-in-edit")); }
             }
             Action::RemoveFromPlaylist(mut rows) => {
                 let Some(c) = self.current_collection().filter(|c| c.owned && !c.is_album) else { return };
@@ -284,7 +284,7 @@ impl App {
                 rows.dedup();
                 rows.retain(|&i| c.set_ids.get(i).is_some_and(Option::is_some));
                 if rows.is_empty() {
-                    self.toast("YouTube Music didn't say where these songs are in the playlist. Reload it and try again.");
+                    self.toast(crate::tr!("status-playlist-reload"));
                     return;
                 }
                 let items: Vec<(String, String)> = rows.iter().map(|&i| (c.tracks[i].id.clone(), c.set_ids[i].clone().unwrap_or_default())).collect();
@@ -297,12 +297,12 @@ impl App {
                 self.lists.edits.remove(&playlist, &items);
                 self.sync_card_count(&playlist);
                 self.selection.clear();
-                self.toast_undo("Removed from playlist", Undo::Removal { id: playlist, rows: taken });
+                self.toast_undo(crate::tr!("status-removed-playlist"), Undo::Removal { id: playlist, rows: taken });
             }
             Action::PlaylistMove { from, gap, id } => {
                 // A load that started during the drag would answer with the old order.
                 if self.page_list().is_some_and(|p| self.lists.loading(p)) {
-                    return self.toast("This playlist is still loading. Try again in a moment.");
+                    return self.toast(crate::tr!("status-playlist-loading"));
                 }
                 if let Some(list) = self.page_list().map(str::to_owned) {
                     self.settle_removal(&list);
@@ -316,12 +316,12 @@ impl App {
                         let move_id = self.lists.move_sent(&playlist_id);
                         self.backend.request(Req::MoveInPlaylist { playlist_id, move_id, set_id, before });
                     }
-                    None => self.toast("YouTube Music didn't say where these songs are in the playlist. Reload it and try again."),
+                    None => self.toast(crate::tr!("status-playlist-reload")),
                 }
             }
             Action::NewPlaylist(tracks) => {
                 if self.logged_in { self.dialog = Some(Dialog::NewPlaylist { title: String::new(), tracks }); }
-                else { self.toast("Sign in to create playlists"); }
+                else { self.toast(crate::tr!("status-sign-in-create")); }
             }
             Action::SortPlaylist(id, actions) => {
                 self.sorting.insert(id.clone(), super::lists::SortWait::new(actions.clone()));
@@ -352,11 +352,11 @@ impl App {
             }
             Action::SaveCollection(id, save) => {
                 if self.logged_in { self.backend.request(Req::SaveCollection { id, save }); }
-                else { self.toast("Sign in to save to library"); }
+                else { self.toast(crate::tr!("status-sign-in-save")); }
             }
             Action::Subscribe(on) => {
                 if !self.logged_in {
-                    self.toast("Sign in to subscribe");
+                    self.toast(crate::tr!("status-sign-in-subscribe"));
                 } else if let Some(a) = self.artist.as_mut().filter(|a| a.subscribed != on)
                     && let Some(channel_id) = a.channel_id.clone()
                     // One at a time, and not queued: the pill is greyed out while one runs.

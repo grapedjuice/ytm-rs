@@ -144,9 +144,9 @@ pub fn packaged() -> bool {
 /// What to do with the new version, for a copy a package manager owns.
 pub fn package_step() -> &'static str {
     if pacman() {
-        "Download the new package and install it over this one with sudo pacman -U."
+        crate::tr!("window-package-instructions")
     } else {
-        "Download the new .deb and open it to install it over this one."
+        crate::tr!("window-package-download")
     }
 }
 

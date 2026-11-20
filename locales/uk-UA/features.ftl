@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = Показати більше коментарів
+comment-more-replies = Показати більше відповідей
+comment-sort-failed = Не вдалося відсортувати коментарі.
+comment-like-failed = Не вдалося вподобати коментар.
+comment-post-failed = Не вдалося надіслати коментар. Чернетка лишилася в полі введення.
+comment-reply-failed = Не вдалося надіслати відповідь. Чернетка лишилася в полі введення.
+comment-posted = Коментар надіслано.
+comment-reply-posted = Відповідь надіслано.
+comment-loading = Завантаження коментарів…
+comment-loading-replies = Завантаження відповідей…
+comment-disabled = Коментарі для цього треку вимкнено.
+comment-load-failed = Не вдалося завантажити коментарі.
+comment-retry = Не вдалося завантажити. Спробувати знову
+comment-posting = Надсилання коментаря…
+comment-posting-reply = Надсилання відповіді…
+comment-replies-unavailable = YouTube не дозволяє відповідати на цей коментар.
+comment-unavailable = YouTube не дозволяє тут коментувати.
+comment-sign-in-like = Увійдіть, щоб уподобати коментарі.
+comment-like-unavailable = YouTube не дозволяє вподобати цей коментар.
+comment-newest = Спочатку нові
+comment-top = Популярні
+comment-empty = Коментарів поки немає.
+comment-sign-in = Увійдіть, щоб коментувати
+comment-new = Додати коментар…
+comment-compose-disabled = Тут не можна коментувати
+comment-reply = Відповісти
+comment-hide-replies = Приховати відповіді
+comment-reply-count = Відповіді ({ $count })
+comment-new-reply = Додати відповідь…
+comment-sign-in-reply = Увійдіть, щоб відповісти
+comment-post = Надіслати

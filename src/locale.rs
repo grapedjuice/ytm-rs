@@ -27,9 +27,10 @@ impl Locale {
     }
 }
 
-/// How a language is listed: its English name, then its own when that differs.
+/// How a language is listed: its localized name, then its own when that differs.
 pub fn language_label(l: &(&str, &str, &str)) -> String {
-    if l.2.is_empty() || l.1 == l.2 { l.1.to_owned() } else { format!("{} ({})", l.1, l.2) }
+    let name = crate::i18n::content_language_name(l.0);
+    if l.2.is_empty() || name == l.2 { name } else { format!("{name} ({})", l.2) }
 }
 
 pub fn language(hl: &str) -> Option<&'static (&'static str, &'static str, &'static str)> {

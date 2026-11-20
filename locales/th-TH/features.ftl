@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = แสดงความคิดเห็นเพิ่มเติม
+comment-more-replies = แสดงคำตอบเพิ่มเติม
+comment-sort-failed = ไม่สามารถจัดเรียงความคิดเห็นได้
+comment-like-failed = ไม่ชอบความคิดเห็นนั้น
+comment-post-failed = ไม่สามารถโพสต์ความคิดเห็นของคุณได้ ร่างของคุณยังอยู่ในสนาม
+comment-reply-failed = ไม่สามารถโพสต์คำตอบของคุณได้ ร่างของคุณยังอยู่ในสนาม
+comment-posted = โพสต์ความคิดเห็นแล้ว
+comment-reply-posted = โพสต์ตอบกลับแล้ว
+comment-loading = กำลังโหลดความคิดเห็น...
+comment-loading-replies = กำลังโหลดคำตอบ...
+comment-disabled = ความคิดเห็นถูกปิดสำหรับเพลงนี้
+comment-load-failed = ไม่สามารถโหลดความคิดเห็นได้
+comment-retry = ไม่สามารถโหลดสิ่งเหล่านี้ได้ ลองอีกครั้ง
+comment-posting = กำลังโพสต์ความคิดเห็นของคุณ...
+comment-posting-reply = กำลังโพสต์คำตอบของคุณ...
+comment-replies-unavailable = YouTube ไม่อนุญาตให้ตอบกลับความคิดเห็นนี้
+comment-unavailable = YouTube ไม่อนุญาตให้แสดงความคิดเห็นที่นี่
+comment-sign-in-like = ลงชื่อเข้าใช้เพื่อชอบความคิดเห็น
+comment-like-unavailable = YouTube ไม่อนุญาตให้กดไลค์ความคิดเห็นนี้
+comment-newest = ใหม่ล่าสุด
+comment-top = ด้านบน
+comment-empty = ยังไม่มีความคิดเห็น
+comment-sign-in = ลงชื่อเข้าใช้เพื่อแสดงความคิดเห็น
+comment-new = เพิ่มความคิดเห็น...
+comment-compose-disabled = ไม่สามารถแสดงความคิดเห็นได้ที่นี่
+comment-reply = ตอบ
+comment-hide-replies = ซ่อนการตอบกลับ
+comment-reply-count = ตอบกลับ ({ $count })
+comment-new-reply = เพิ่มการตอบกลับ...
+comment-sign-in-reply = ลงชื่อเข้าใช้เพื่อตอบกลับ
+comment-post = โพสต์

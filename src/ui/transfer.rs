@@ -126,9 +126,9 @@ fn big_button(ui: &mut Ui, label: &str, accent: Color32, enabled: bool, width: f
 }
 
 fn breadcrumb(app: &mut App, ui: &mut Ui) {
-    let g = widgets::galley(ui, "Settings › General › Transfer from Spotify", theme::regular(13.0), theme::text_dim(), 400.0);
+    let g = widgets::galley(ui, &[crate::tr!("settings-title"), crate::tr!("settings-general"), crate::tr!("transfer-title")].join(" › "), theme::regular(13.0), theme::text_dim(), 400.0);
     let (rect, resp) = ui.allocate_exact_size(g.size(), Sense::click());
-    let resp = named(resp, "Back to Settings").on_hover_cursor(egui::CursorIcon::PointingHand);
+    let resp = named(resp, crate::tr!("transfer-back-settings")).on_hover_cursor(egui::CursorIcon::PointingHand);
     let c = if resp.hovered() { theme::text() } else { theme::text_dim() };
     ui.painter().galley(rect.min, g, c);
     if resp.clicked() {
@@ -149,11 +149,19 @@ fn fmt_n(n: usize) -> String {
     out
 }
 
+fn numbered(label: &str, count: usize) -> String {
+    crate::tr!("transfer-numbered-label", label = label, count = fmt_n(count))
+}
+
+fn progress_of(count: usize, state: &str) -> String {
+    crate::tr!("transfer-progress-of", count = fmt_n(count), state = state)
+}
+
 fn fmt_secs(s: u64) -> String {
     match s {
-        0..60 => format!("{s} s"),
-        _ if s.is_multiple_of(60) || s >= 600 => format!("{} min", (s + 30) / 60),
-        _ => format!("{} min {} s", s / 60, s % 60),
+        0..60 => crate::tr!("transfer-seconds", count = s),
+        _ if s.is_multiple_of(60) || s >= 600 => crate::tr!("transfer-minutes", count = (s + 30) / 60),
+        _ => crate::tr!("transfer-minutes-seconds", minutes = s / 60, seconds = s % 60),
     }
 }
 
@@ -194,16 +202,16 @@ fn setup(app: &mut App, ui: &mut Ui) {
         let (r, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
         badge(ui, r);
         ui.add_space(6.0);
-        ui.label(RichText::new("Transfer from Spotify").font(theme::bold(30.0)).color(theme::text()));
+        ui.label(RichText::new(crate::tr!("transfer-title")).font(theme::bold(30.0)).color(theme::text()));
     });
     ui.add_space(4.0);
-    dim(ui, "Copy your Liked Songs or any playlist into YouTube Music. It runs in the background, so you can keep listening.");
+    dim(ui, crate::tr!("transfer-intro"));
     ui.add_space(18.0);
 
     if !app.logged_in {
         settings_card(ui, |ui| {
-            setting_row(ui, "Sign in to YouTube Music first", Some("The songs go into your YouTube Music account."), |ui| {
-                if pill(ui, "Go to Settings", None, true).clicked() {
+            setting_row(ui, crate::tr!("transfer-youtube-sign-in"), Some(crate::tr!("transfer-youtube-account")), |ui| {
+                if pill(ui, crate::tr!("transfer-go-settings"), None, true).clicked() {
                     app.settings_tab = super::pages::SettingsTab::Account;
                     app.actions.push(Action::Go(Page::Settings));
                 }
@@ -217,13 +225,13 @@ fn setup(app: &mut App, ui: &mut Ui) {
     if let Some(r) = resumable {
         let mut go = None;
         settings_card(ui, |ui| {
-            let desc = format!("{} of {} songs searched. Nothing is searched twice.", fmt_n(r.searched), fmt_n(r.total));
-            setting_row(ui, &format!("Pick up \"{}\" where it stopped", r.name), Some(&desc), |ui| {
-                if pill(ui, "Discard", None, false).clicked() {
+            let desc = crate::tr!("transfer-resume-progress", done = fmt_n(r.searched), total = fmt_n(r.total));
+            setting_row(ui, &crate::tr!("transfer-pick-up", name = r.name.as_str()), Some(&desc), |ui| {
+                if pill(ui, crate::tr!("transfer-discard"), None, false).clicked() {
                     go = Some(false);
                 }
                 ui.add_space(8.0);
-                if pill(ui, "Resume", None, true).clicked() {
+                if pill(ui, crate::tr!("transfer-resume"), None, true).clicked() {
                     go = Some(true);
                 }
             });
@@ -269,7 +277,7 @@ fn setup(app: &mut App, ui: &mut Ui) {
                 ui.add_space(14.0);
                 small_caps(ui, "1 · WHAT TO COPY");
                 match &account {
-                    Account::SignedIn { .. } if library.is_empty() => dim(ui, "Your Spotify library has no playlists."),
+                    Account::SignedIn { .. } if library.is_empty() => dim(ui, crate::tr!("transfer-empty-library")),
                     Account::SignedIn { .. } => {
                         // Five rows show at a time; the rest scroll, so a big library doesn't
                         // stretch the page.
@@ -289,15 +297,15 @@ fn setup(app: &mut App, ui: &mut Ui) {
                     Account::Unknown | Account::Loading => {
                         ui.horizontal(|ui| {
                             widgets::loader(ui);
-                            dim(ui, "Reading your Spotify library…");
+                            dim(ui, crate::tr!("transfer-loading-library"));
                         });
                     }
                     Account::SignedOut | Account::Failed(_) => {
-                        dim(ui, "Sign in to Spotify to pick from your playlists and Liked Songs. Public playlists work without signing in: paste a link below.");
+                        dim(ui, crate::tr!("transfer-spotify-sign-in-desc"));
                     }
                 }
                 ui.add_space(14.0);
-                dim(ui, "Or paste any playlist link");
+                dim(ui, crate::tr!("transfer-paste-link"));
                 ui.add_space(6.0);
                 let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::hover());
                 ui.painter().rect_filled(rect, 10.0, theme::glass(0.08));
@@ -319,7 +327,7 @@ fn setup(app: &mut App, ui: &mut Ui) {
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
                             widgets::loader(ui);
-                            dim(ui, "Looking it up…");
+                            dim(ui, crate::tr!("transfer-looking-up"));
                         });
                     }
                     Some((_, Some(Err(e)))) => {
@@ -351,18 +359,18 @@ fn setup(app: &mut App, ui: &mut Ui) {
             // Liked Songs are only readable signed in.
             let needs_sign_in = chosen.as_ref().is_some_and(|c| c.source == Source::Liked) && !matches!(account, Account::SignedIn { .. });
             let ready = chosen.is_some() && !needs_sign_in;
-            if big_button(ui, "Start transfer", accent, ready, ui.available_width()) {
+            if big_button(ui, crate::tr!("transfer-start"), accent, ready, ui.available_width()) {
                 start = true;
             }
             ui.add_space(8.0);
             let estimate = match chosen.as_ref().and_then(|c| c.count) {
-                _ if needs_sign_in => "Sign in to Spotify to copy your Liked Songs.".to_owned(),
+                _ if needs_sign_in => crate::tr!("transfer-sign-in-liked").to_owned(),
                 Some(n) => {
                     let secs = (n as u64 / 20).max(5);
-                    format!("About {} to search {} songs. You can keep listening meanwhile.", fmt_secs(secs), fmt_n(n))
+                    crate::tr!("transfer-estimate", time = fmt_secs(secs), count = fmt_n(n))
                 }
-                None if chosen.is_some() => "You can keep listening while it runs.".to_owned(),
-                None => "Pick a playlist to copy.".to_owned(),
+                None if chosen.is_some() => crate::tr!("transfer-listen-while-running").to_owned(),
+                None => crate::tr!("transfer-pick-playlist").to_owned(),
             };
             ui.vertical_centered(|ui| dim(ui, &estimate));
         }
@@ -435,12 +443,12 @@ fn source_row(app: &mut App, ui: &mut Ui, e: &Entry, selected: bool, accent: Col
     let tw = rect.right() - x - 44.0;
     text_at(ui, pos2(x, rect.center().y - 19.0), &e.name, theme::semibold(15.0), theme::text(), tw);
     let meta = match (&e.source, e.count) {
-        (Source::Liked, Some(n)) => format!("{} songs", fmt_n(n)),
-        (Source::Liked, None) => "Your liked songs".to_owned(),
-        (_, Some(n)) if !e.owner.is_empty() => format!("Playlist · {} · {} songs", e.owner, fmt_n(n)),
-        (_, Some(n)) => format!("Playlist · {} songs", fmt_n(n)),
-        _ if !e.owner.is_empty() => format!("Playlist · {}", e.owner),
-        _ => "Playlist".to_owned(),
+        (Source::Liked, Some(n)) => numbered(crate::tr!("nav-songs"), n),
+        (Source::Liked, None) => crate::tr!("nav-liked-songs").to_owned(),
+        (_, Some(n)) if !e.owner.is_empty() => format!("{} · {} · {}", crate::tr!("transfer-playlist"), e.owner, numbered(crate::tr!("nav-songs"), n)),
+        (_, Some(n)) => format!("{} · {}", crate::tr!("transfer-playlist"), numbered(crate::tr!("nav-songs"), n)),
+        _ if !e.owner.is_empty() => format!("{} · {}", crate::tr!("transfer-playlist"), e.owner),
+        _ => crate::tr!("transfer-playlist").to_owned(),
     };
     text_at(ui, pos2(x, rect.center().y + 2.0), &meta, theme::regular(13.0), theme::text_dim(), tw);
     radio(ui, pos2(rect.right() - 22.0, rect.center().y), s, accent);
@@ -455,30 +463,30 @@ fn spotify_account_row(app: &mut App, ui: &mut Ui, account: &Account, compact: b
     let (mut sign_in, mut sign_out) = (false, false);
     let (title, desc) = match account {
         Account::SignedIn { name, .. } if compact => (
-            if name.is_empty() { "Signed in".to_owned() } else { name.clone() },
-            "Signed in · works with Free and Premium".to_owned(),
+            if name.is_empty() { crate::tr!("status-signed-in").to_owned() } else { name.clone() },
+            crate::tr!("transfer-signed-in-plan").to_owned(),
         ),
         Account::SignedIn { name, .. } => {
-            let who = if name.is_empty() { "Signed in".to_owned() } else { format!("Signed in as {name}") };
-            ("Spotify account".to_owned(), format!("{who}. Saved encrypted in Windows Credential Manager."))
+            let who = if name.is_empty() { crate::tr!("status-signed-in").to_owned() } else { crate::tr!("transfer-signed-in-as", name = name.as_str()) };
+            (crate::tr!("transfer-spotify-account").to_owned(), format!("{who}. {}", crate::tr!("transfer-credential-storage")))
         }
-        Account::Unknown | Account::Loading => ("Spotify account".to_owned(), "Checking your sign-in…".to_owned()),
-        Account::SignedOut if compact => ("Not signed in".to_owned(), "Needed for Liked Songs and private playlists. Public playlists work without it.".to_owned()),
-        Account::SignedOut => ("Spotify account".to_owned(), "Not signed in. Needed for Liked Songs and private playlists; public playlists work without it.".to_owned()),
-        Account::Failed(e) => ("Spotify account".to_owned(), e.clone()),
+        Account::Unknown | Account::Loading => (crate::tr!("transfer-spotify-account").to_owned(), crate::tr!("transfer-checking-sign-in").to_owned()),
+        Account::SignedOut if compact => (crate::tr!("settings-not-signed-in").to_owned(), crate::tr!("transfer-private-sign-in").to_owned()),
+        Account::SignedOut => (crate::tr!("transfer-spotify-account").to_owned(), format!("{}. {}", crate::tr!("settings-not-signed-in"), crate::tr!("transfer-private-sign-in"))),
+        Account::Failed(e) => (crate::tr!("transfer-spotify-account").to_owned(), e.clone()),
     };
     let signed_in = matches!(account, Account::SignedIn { .. } | Account::Unknown | Account::Loading);
     setting_row(ui, &title, Some(&desc), |ui| {
         if busy {
             widgets::loader(ui);
         } else if signed_in {
-            sign_out = pill(ui, if compact { "Change" } else { "Sign out" }, None, false).clicked();
+            sign_out = pill(ui, if compact { crate::tr!("settings-change") } else { crate::tr!("settings-sign-out") }, None, false).clicked();
         } else {
-            sign_in = pill(ui, "Sign in to Spotify", None, true).clicked();
+            sign_in = pill(ui, crate::tr!("transfer-sign-in-spotify"), None, true).clicked();
         }
     });
     if busy {
-        dim(ui, "Finish signing in in the window that opened.");
+        dim(ui, crate::tr!("settings-sign-in-finish"));
     }
     if sign_out {
         xfer.set_cookie(None, &app.backend);
@@ -498,7 +506,7 @@ fn destination(app: &mut App, ui: &mut Ui, chosen: Option<&Entry>, accent: Color
     let src = chosen.map(|c| c.source.clone());
     if app.xfer.name_for != src {
         if let Some(c) = chosen {
-            app.xfer.name = format!("{} from Spotify", c.name);
+            app.xfer.name = crate::tr!("transfer-from-spotify", name = c.name.as_str());
             app.xfer.to_liked = likes_like(c);
         }
         app.xfer.name_for = src;
@@ -507,8 +515,8 @@ fn destination(app: &mut App, ui: &mut Ui, chosen: Option<&Entry>, accent: Color
     if liked_offer {
         small_caps(ui, "3 · WHERE SHOULD THEY GO?");
         for (to_liked, title, desc) in [
-            (true, "Add to your Liked Music", "Likes each song on YouTube Music, in Spotify's order. Songs you already like stay as they are."),
-            (false, "Make a new playlist", "A private playlist with these songs."),
+            (true, crate::tr!("transfer-dest-liked"), crate::tr!("transfer-dest-liked-desc")),
+            (false, crate::tr!("transfer-dest-new"), crate::tr!("transfer-private-playlist")),
         ] {
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
             let resp = named(resp, title).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -531,7 +539,7 @@ fn destination(app: &mut App, ui: &mut Ui, chosen: Option<&Entry>, accent: Color
     } else {
         small_caps(ui, "3 · NEW YOUTUBE MUSIC PLAYLIST");
     }
-    dim(ui, "Name");
+    dim(ui, crate::tr!("dialog-name"));
     ui.add_space(6.0);
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::hover());
     ui.painter().rect_filled(rect, 10.0, theme::glass(0.08));
@@ -539,14 +547,14 @@ fn destination(app: &mut App, ui: &mut Ui, chosen: Option<&Entry>, accent: Color
     ui.put(
         inner,
         egui::TextEdit::singleline(&mut app.xfer.name)
-            .hint_text(RichText::new("Same as on Spotify").color(theme::text_faint()))
+            .hint_text(RichText::new(crate::tr!("transfer-name-hint")).color(theme::text_faint()))
             .font(theme::regular(14.0))
             .frame(egui::Frame::NONE)
             .align(egui::Align2::LEFT_CENTER)
             .desired_width(inner.width()),
     );
     ui.add_space(10.0);
-    dim(ui, "Private · only you can see it");
+    dim(ui, crate::tr!("dialog-private-desc"));
 }
 
 // ------------------------------------------------------------------- 2. running
@@ -560,13 +568,13 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
     ui.add_space(6.0);
     breadcrumb(app, ui);
     let title = match job.phase {
-        Phase::Reading if job.name.is_empty() => "Reading from Spotify".to_owned(),
-        Phase::Reading => format!("Reading {}", job.name),
+        Phase::Reading if job.name.is_empty() => crate::tr!("transfer-reading-spotify").to_owned(),
+        Phase::Reading => crate::tr!("transfer-reading-name", name = job.name.as_str()),
         Phase::Saving => match &job.dest {
-            Dest::Liked => "Adding to your Liked Music".to_owned(),
-            Dest::Playlist(_) => "Creating the playlist".to_owned(),
+            Dest::Liked => crate::tr!("transfer-adding-liked").to_owned(),
+            Dest::Playlist(_) => crate::tr!("transfer-creating-playlist").to_owned(),
         },
-        _ => format!("Copying {}", job.name),
+        _ => crate::tr!("transfer-copying-name", name = job.name.as_str()),
     };
     let (mut pause, mut cancel, mut check) = (false, false, false);
     let paused = job.paused;
@@ -581,21 +589,21 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
             dim(
                 ui,
                 if to_check.is_some() {
-                    "Every song's been searched. Look over the matches below, then check the ones that need a look."
+                    crate::tr!("transfer-review-ready")
                 } else {
-                    "Keep listening or browse anywhere. This keeps running, and the sidebar shows its progress."
+                    crate::tr!("transfer-progress-background")
                 },
             );
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            cancel = pill(ui, "Cancel", None, false).clicked();
+            cancel = pill(ui, crate::tr!("ui-cancel"), None, false).clicked();
             ui.add_space(8.0);
             match to_check {
                 Some(n) => {
-                    let label = if n == 1 { "Check 1 song".to_owned() } else { format!("Check {} songs", fmt_n(n)) };
+                    let label = crate::tr!("transfer-check-count", count = fmt_n(n));
                     check = big_button(ui, &label, accent, true, 220.0);
                 }
-                None => pause = pill(ui, if paused { "Resume" } else { "Pause" }, None, false).clicked(),
+                None => pause = pill(ui, if paused { crate::tr!("transfer-resume") } else { crate::tr!("ui-pause") }, None, false).clicked(),
             }
         });
     });
@@ -605,33 +613,33 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
     let total = job.tracks.len();
     let searched = job.searched();
     let (big, of, frac, eta) = match job.phase {
-        Phase::Reading => (fmt_n(job.read.0), format!("of {} songs read from Spotify", fmt_n(job.read.1)), job.read.0 as f32 / job.read.1.max(1) as f32, None),
+        Phase::Reading => (fmt_n(job.read.0), progress_of(job.read.1, crate::tr!("transfer-read-from-spotify")), job.read.0 as f32 / job.read.1.max(1) as f32, None),
         Phase::Saving if job.waiting => ("…".to_owned(), "waiting for the likes being changed in the app to finish".to_owned(), 0.0, None),
         Phase::Saving if let Some((done, of)) = job.redo => (
             fmt_n(done),
-            format!("of {} songs liked again: YouTube Music dropped them", fmt_n(of)),
+            progress_of(of, crate::tr!("transfer-readding-reason")),
             done as f32 / of.max(1) as f32,
             Some("checking Liked Music".to_owned()),
         ),
         Phase::Saving => (
             fmt_n(job.saving.0),
             match job.dest {
-                Dest::Liked => format!("of {} songs liked", fmt_n(job.saving.1)),
-                Dest::Playlist(_) => format!("of {} songs added", fmt_n(job.saving.1)),
+                Dest::Liked => progress_of(job.saving.1, crate::tr!("transfer-liked")),
+                Dest::Playlist(_) => progress_of(job.saving.1, crate::tr!("transfer-added")),
             },
             job.saving.0 as f32 / job.saving.1.max(1) as f32,
             None,
         ),
-        Phase::Checking => (fmt_n(searched), format!("of {} songs searched", fmt_n(total)), 1.0, Some("checking the doubtful ones".to_owned())),
-        Phase::Review => (fmt_n(searched), format!("of {} songs searched", fmt_n(total)), 1.0, None),
-        _ => (fmt_n(searched), format!("of {} songs searched", fmt_n(total)), searched as f32 / total.max(1) as f32, job.eta().map(|s| format!("about {} left", fmt_secs(s)))),
+        Phase::Checking => (fmt_n(searched), progress_of(total, crate::tr!("transfer-progress-searching")), 1.0, Some(crate::tr!("transfer-reviewing-doubtful").to_owned())),
+        Phase::Review => (fmt_n(searched), progress_of(total, crate::tr!("transfer-progress-searching")), 1.0, None),
+        _ => (fmt_n(searched), progress_of(total, crate::tr!("transfer-progress-searching")), searched as f32 / total.max(1) as f32, job.eta().map(|s| crate::tr!("transfer-remaining", time = fmt_secs(s)))),
     };
     let limited = app.backend.api().limited();
     let eta = if paused {
         Some("paused".to_owned())
     } else if limited && job.phase.running() {
         // YouTube Music refused requests: everything waits a little, then carries on.
-        Some("YouTube Music is limiting requests; carrying on in a moment".to_owned())
+        Some(crate::tr!("transfer-rate-limited").to_owned())
     } else {
         eta
     };
@@ -657,14 +665,14 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
         // Steps
         let steps = [
             (Phase::Reading, match job.read_secs {
-                Some(s) => format!("Read from Spotify · {s:.1} s"),
-                None => "Read from Spotify".to_owned(),
+                Some(s) => format!("{} · {}", crate::tr!("transfer-read-from-spotify"), crate::tr!("transfer-seconds", count = format!("{s:.1}"))),
+                None => crate::tr!("transfer-read-from-spotify").to_owned(),
             }),
-            (Phase::Searching, "Search YouTube Music".to_owned()),
-            (Phase::Checking, "Check doubtful songs".to_owned()),
+            (Phase::Searching, crate::tr!("transfer-search-youtube").to_owned()),
+            (Phase::Checking, crate::tr!("transfer-check-doubtful").to_owned()),
             (Phase::Saving, match &job.dest {
-                Dest::Liked => "Add to Liked Music".to_owned(),
-                Dest::Playlist(_) => "Create playlist".to_owned(),
+                Dest::Liked => crate::tr!("transfer-dest-liked").to_owned(),
+                Dest::Playlist(_) => crate::tr!("transfer-create-playlist").to_owned(),
             }),
         ];
         let order = |p: &Phase| match p {
@@ -700,10 +708,10 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
     let missing = job.count(|r| *r == Search::Missing);
     let dups = duplicates(job);
     let stats = [
-        (fmt_n(found), "Matched", false),
-        (fmt_n(unsure), "Need a look at the end", unsure > 0),
-        (fmt_n(missing), "Not found yet", false),
-        (fmt_n(dups), "Duplicates, added once", false),
+        (fmt_n(found), crate::tr!("transfer-matched"), false),
+        (fmt_n(unsure), crate::tr!("transfer-needs-review"), unsure > 0),
+        (fmt_n(missing), crate::tr!("transfer-not-found-yet"), false),
+        (fmt_n(dups), crate::tr!("transfer-duplicates"), false),
     ];
     stat_row(ui, &stats, accent);
     ui.add_space(16.0);
@@ -720,10 +728,10 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
     let mut tab = app.xfer.tab;
     ui.horizontal(|ui| {
         for (t, label) in [
-            (Tab::All, "All".to_owned()),
-            (Tab::Matched, format!("Matched {}", fmt_n(found))),
-            (Tab::Look, format!("Needs a look {}", fmt_n(unsure))),
-            (Tab::Missing, format!("Not found {}", fmt_n(missing))),
+            (Tab::All, crate::tr!("transfer-all").to_owned()),
+            (Tab::Matched, numbered(crate::tr!("transfer-matched"), found)),
+            (Tab::Look, numbered(crate::tr!("transfer-needs-review"), unsure)),
+            (Tab::Missing, numbered(crate::tr!("transfer-not-found"), missing)),
         ] {
             if widgets::chip(ui, &label, tab == t).clicked() {
                 tab = t;
@@ -746,7 +754,7 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
         list_header(ui);
         if rows.is_empty() {
             ui.add_space(10.0);
-            dim(ui, "Nothing here yet.");
+            dim(ui, crate::tr!("nav-empty"));
             ui.add_space(10.0);
         }
         widgets::visible_rows(ui, rows.len(), |ui, k| {
@@ -765,7 +773,7 @@ fn apply_controls(app: &mut App, pause: bool, cancel: bool, paused: bool) {
     }
     if cancel {
         app.transfer.cancel();
-        app.toast("Transfer cancelled");
+        app.toast(crate::tr!("transfer-cancelled"));
     }
 }
 
@@ -809,7 +817,7 @@ fn list_header(ui: &mut Ui) {
     let (num, sp, _, yt, status) = columns(rect);
     let c = theme::text_faint();
     let f = theme::bold(11.0);
-    for (x, t) in [(num, "#"), (sp, "ON SPOTIFY"), (yt, "ON YOUTUBE MUSIC"), (status, "STATUS")] {
+    for (x, t) in [(num, "#"), (sp, "SPOTIFY"), (yt, "YOUTUBE MUSIC"), (status, &crate::tr!("settings-status").to_uppercase())] {
         ui.painter().text(pos2(x, rect.center().y), Align2::LEFT_CENTER, t, f.clone(), c);
     }
 }
@@ -827,23 +835,23 @@ fn song_row(ui: &mut Ui, i: usize, sp: &Track, result: &Search, accent: Color32,
     paint_cover(ui, img, &spotify_thumbs(&sp.art), theme::thumb_radius(), 1.0);
     let tw = half - 50.0;
     text_at(ui, pos2(img.right() + 10.0, rect.top() + 9.0), &sp.name, theme::semibold(13.5), theme::text(), tw);
-    let artist = if sp.local { format!("{} · local file", sp.artist_line()) } else { sp.artist_line() };
+    let artist = if sp.local { format!("{} · {}", sp.artist_line(), crate::tr!("transfer-local-file")) } else { sp.artist_line() };
     text_at(ui, pos2(img.right() + 10.0, rect.top() + 29.0), &artist, theme::regular(12.0), theme::text_dim(), tw);
     icon_at(ui, pos2(arrow + 10.0, rect.center().y), icon::CHEVRON_RIGHT, 16.0, theme::text_faint());
     let yw = status - ytx - 16.0;
     let (label, dot, fg) = match result {
-        Search::Pending => ("Searching…", theme::glass(0.2), theme::text_dim()),
-        Search::Found(_) => ("Matched", theme::text(), theme::text()),
-        Search::Unsure(_) => ("Needs a look", accent, accent),
-        Search::Missing => ("Not found", theme::text_faint(), theme::text_dim()),
-        Search::Skipped => ("Skipped", theme::text_faint(), theme::text_dim()),
+        Search::Pending => (crate::tr!("transfer-searching"), theme::glass(0.2), theme::text_dim()),
+        Search::Found(_) => (crate::tr!("transfer-matched"), theme::text(), theme::text()),
+        Search::Unsure(_) => (crate::tr!("transfer-needs-review"), accent, accent),
+        Search::Missing => (crate::tr!("transfer-not-found"), theme::text_faint(), theme::text_dim()),
+        Search::Skipped => (crate::tr!("transfer-skipped"), theme::text_faint(), theme::text_dim()),
     };
     match result.track() {
         Some(t) => {
             let img = Rect::from_min_size(pos2(ytx, rect.center().y - 19.0), vec2(38.0, 38.0));
             paint_cover(ui, img, &t.thumbs, theme::thumb_radius(), 1.0);
             let r = ui.interact(img, ui.scope_id().with(("prev", i)), Sense::click());
-            if named(r.clone(), "Play this match").on_hover_text("Play").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+            if named(r.clone(), crate::tr!("transfer-play-match")).on_hover_text(crate::tr!("ui-play")).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                 acts.push(Action::Play(vec![t.clone()], 0));
             }
             if r.hovered() {
@@ -858,7 +866,7 @@ fn song_row(ui: &mut Ui, i: usize, sp: &Track, result: &Search, accent: Color32,
             text_at(ui, pos2(img.right() + 10.0, rect.top() + 29.0), &meta, theme::regular(12.0), theme::text_dim(), yw - 48.0);
         }
         None => {
-            let t = if *result == Search::Pending { "" } else { "No result" };
+            let t = if *result == Search::Pending { "" } else { crate::tr!("transfer-no-result") };
             ui.painter().text(pos2(ytx, rect.center().y), Align2::LEFT_CENTER, t, theme::regular(13.0), theme::text_faint());
         }
     }
@@ -902,18 +910,17 @@ fn review(app: &mut App, ui: &mut Ui) {
             ui.set_width((ui.available_width() - 300.0).max(200.0));
             ui.add_space(4.0);
             let title = match left {
-                0 => "Everything's checked".to_owned(),
-                1 => "Check 1 song".to_owned(),
-                n => format!("Check {} songs", fmt_n(n)),
+                0 => crate::tr!("transfer-reviewed").to_owned(),
+                n => crate::tr!("transfer-check-count", count = fmt_n(n)),
             };
             ui.label(RichText::new(title).font(theme::bold(28.0)).color(theme::text()));
             ui.add_space(2.0);
-            dim(ui, "These didn't match cleanly. Pick the right one, skip it, or keep the current pick. Click a cover to play it.");
+            dim(ui, crate::tr!("transfer-review-intro"));
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            finish = pill(ui, "Keep current picks for the rest", None, false).clicked();
+            finish = pill(ui, crate::tr!("transfer-keep-rest"), None, false).clicked();
             ui.add_space(8.0);
-            if pill(ui, "All songs", Some(icon::CHEVRON_LEFT), false).on_hover_text("Back to the full list of matches").clicked() {
+            if pill(ui, crate::tr!("transfer-all-songs"), Some(icon::CHEVRON_LEFT), false).on_hover_text(crate::tr!("transfer-back-matches")).clicked() {
                 list = true;
             }
         });
@@ -942,10 +949,10 @@ fn review(app: &mut App, ui: &mut Ui) {
                     ui.set_height(card_h - 20.0);
                     let matched: Vec<usize> = (0..job.results.len()).filter(|&i| matches!(job.results[i], Search::Found(_))).collect();
                     ui.horizontal(|ui| {
-                        if widgets::chip(ui, &format!("To check {}", fmt_n(total)), !app.xfer.show_matched).clicked() {
+                        if widgets::chip(ui, &numbered(crate::tr!("transfer-needs-review"), total), !app.xfer.show_matched).clicked() {
                             app.xfer.show_matched = false;
                         }
-                        if widgets::chip(ui, &format!("Matched {}", fmt_n(matched.len())), app.xfer.show_matched).clicked() {
+                        if widgets::chip(ui, &numbered(crate::tr!("transfer-matched"), matched.len()), app.xfer.show_matched).clicked() {
                             app.xfer.show_matched = true;
                         }
                     });
@@ -967,7 +974,7 @@ fn review(app: &mut App, ui: &mut Ui) {
                                 (i, "", job.doubts.get(at).is_some_and(|d| d.index == i))
                             } else {
                                 let mark = match job.doubts[r].decision {
-                                    Some(Decision::Skip) => "Skipped",
+                                    Some(Decision::Skip) => crate::tr!("transfer-skipped"),
                                     Some(_) => "✓",
                                     None => "",
                                 };
@@ -1009,27 +1016,28 @@ fn review(app: &mut App, ui: &mut Ui) {
                 paint_cover(ui, img, &spotify_thumbs(&sp.art), 8.0, 1.0);
                 let x = img.right() + 16.0;
                 let tw = head.right() - x;
-                let state = match d.decision {
-                    Some(Decision::Skip) => " · SKIPPED",
-                    Some(_) => " · CHECKED",
-                    None => "",
-                };
-                ui.painter().text(pos2(x, head.top() + 1.0), Align2::LEFT_TOP, format!("ON SPOTIFY · {} OF {}{state}", fmt_n(at + 1), fmt_n(total)), theme::bold(11.5), theme::text_faint());
+                let state = d.decision.map(|decision| match decision {
+                    Decision::Skip => crate::tr!("transfer-skipped"),
+                    Decision::Keep => crate::tr!("transfer-review-kept"),
+                    Decision::Pick(_) => crate::tr!("transfer-review-picked"),
+                }).map_or_else(String::new, |label| format!(" · {label}"));
+                ui.painter().text(pos2(x, head.top() + 1.0), Align2::LEFT_TOP, format!("{}{state}", crate::tr!("transfer-on-spotify-index", current = fmt_n(at + 1), total = fmt_n(total))).to_uppercase(), theme::bold(11.5), theme::text_faint());
                 text_at(ui, pos2(x, head.top() + 17.0), &sp.name, theme::bold(21.0), theme::text(), tw);
                 let r = text_at(ui, pos2(x, head.top() + 45.0), &sp.artist_line(), theme::regular(14.0), theme::text_dim(), tw - 100.0);
                 if sp.local {
                     let gx = if sp.artists.is_empty() { x } else { r.right() + 10.0 };
-                    let g = widgets::galley(ui, "LOCAL FILE", theme::bold(10.5), theme::text(), 200.0);
-                    tag(ui, pos2(gx + g.size().x + 14.0, head.top() + 54.0), "LOCAL FILE", theme::glass(0.14));
+                    let label = crate::tr!("transfer-local-file").to_uppercase();
+                    let g = widgets::galley(ui, &label, theme::bold(10.5), theme::text(), 200.0);
+                    tag(ui, pos2(gx + g.size().x + 14.0, head.top() + 54.0), &label, theme::glass(0.14));
                 }
                 ui.add_space(10.0);
                 let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
                 ui.painter().rect_filled(line, 0.0, theme::glass_panel(0.10));
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("PICK THE RIGHT ONE ON YOUTUBE MUSIC").font(theme::bold(11.5)).color(theme::text_faint()));
+                    ui.label(RichText::new(crate::tr!("transfer-pick-youtube-match").to_uppercase()).font(theme::bold(11.5)).color(theme::text_faint()));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        search = pill(ui, "Search YouTube Music", Some(icon::SEARCH), false).on_hover_text("Not in the list? Find it yourself").clicked();
+                        search = pill(ui, crate::tr!("transfer-search-youtube"), Some(icon::SEARCH), false).on_hover_text(crate::tr!("transfer-find-yourself")).clicked();
                     });
                 });
                 ui.add_space(8.0);
@@ -1050,10 +1058,10 @@ fn review(app: &mut App, ui: &mut Ui) {
                             ui.add_space(8.0);
                             ui.horizontal(|ui| {
                                 widgets::loader(ui);
-                                dim(ui, "Finding other versions…");
+                                dim(ui, crate::tr!("transfer-searching-versions"));
                             });
                         } else if d.candidates.is_empty() && current_label.is_none() {
-                            dim(ui, "Nothing on YouTube Music looks like this song.");
+                            dim(ui, crate::tr!("transfer-no-match"));
                         }
                         for (k, c) in d.candidates.iter().enumerate() {
                             if candidate_row(ui, c, d.videos[k], current == Some(k), picked == Some(k), accent, &mut acts) {
@@ -1063,19 +1071,19 @@ fn review(app: &mut App, ui: &mut Ui) {
                     });
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
-                    if pill(ui, "Skip this song", None, false).on_hover_text("Skipped songs are listed at the end").clicked() {
+                    if pill(ui, crate::tr!("transfer-skip-song"), None, false).on_hover_text(crate::tr!("transfer-skip-tip")).clicked() {
                         decision = Some(Decision::Skip);
                     }
                     ui.add_space(4.0);
-                    if at > 0 && pill(ui, "Previous song", Some(icon::CHEVRON_LEFT), false).clicked() {
+                    if at > 0 && pill(ui, crate::tr!("player-previous-song"), Some(icon::CHEVRON_LEFT), false).clicked() {
                         back = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let has_current = current.is_some() || current_label.is_some();
                         let (label, choice) = match picked {
-                            Some(k) if Some(k) != current => ("Use selected", Decision::Pick(k)),
-                            _ if has_current => ("Keep current pick", Decision::Keep),
-                            _ => ("Leave it out", Decision::Skip),
+                            Some(k) if Some(k) != current => (crate::tr!("transfer-use-selected"), Decision::Pick(k)),
+                            _ if has_current => (crate::tr!("transfer-keep-current"), Decision::Keep),
+                            _ => (crate::tr!("transfer-leave-out"), Decision::Skip),
                         };
                         if big_button(ui, label, accent, true, 200.0) {
                             decision = Some(choice);
@@ -1163,12 +1171,12 @@ pub fn pick_banner(app: &mut App, ui: &mut Ui) -> bool {
                 let text_w = (ui.available_width() - 200.0).max(120.0);
                 ui.vertical(|ui| {
                     ui.set_width(text_w);
-                    ui.label(RichText::new("CHOOSING A MATCH FOR").font(theme::bold(11.5)).color(theme::text_faint()));
+                    ui.label(RichText::new(crate::tr!("transfer-choosing-for").to_uppercase()).font(theme::bold(11.5)).color(theme::text_faint()));
                     ui.add(egui::Label::new(RichText::new(format!("{} · {}", sp.name, sp.artist_line())).font(theme::semibold(15.0)).color(theme::text())).truncate());
-                    dim(ui, "Click a song to use it. Click a cover to play it.");
+                    dim(ui, crate::tr!("transfer-pick-or-play"));
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    back = pill(ui, "Back to transfer", Some(icon::CHEVRON_LEFT), false).clicked();
+                    back = pill(ui, crate::tr!("transfer-back"), Some(icon::CHEVRON_LEFT), false).clicked();
                 });
             });
         });
@@ -1210,15 +1218,15 @@ fn candidate_row(ui: &mut Ui, t: &YtTrack, video: bool, current: bool, selected:
         ui.painter().rect_filled(img, theme::thumb_radius(), theme::shade(0.45));
         widgets::play_triangle(ui, img.center(), 8.0, Color32::WHITE);
     }
-    let play = named(play, "Play").on_hover_text("Play").on_hover_cursor(egui::CursorIcon::PointingHand);
+    let play = named(play, crate::tr!("ui-play")).on_hover_text(crate::tr!("ui-play")).on_hover_cursor(egui::CursorIcon::PointingHand);
     let mut right = rect.right() - 12.0;
     if let Some(d) = t.duration {
         ui.painter().text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, format!("{}:{:02}", d / 60, d % 60), theme::regular(13.0), theme::text_dim());
         right -= 52.0;
     }
-    right = tag(ui, pos2(right, rect.center().y), if video { "VIDEO" } else { "SONG" }, theme::glass(if video { 0.16 } else { 0.10 })) - 8.0;
+    right = tag(ui, pos2(right, rect.center().y), &if video { crate::tr!("ui-video") } else { crate::tr!("ui-song") }.to_uppercase(), theme::glass(if video { 0.16 } else { 0.10 })) - 8.0;
     if current {
-        right = tag(ui, pos2(right, rect.center().y), "CURRENT PICK", theme::with_alpha(accent, 0.35)) - 8.0;
+        right = tag(ui, pos2(right, rect.center().y), &crate::tr!("transfer-current-pick").to_uppercase(), theme::with_alpha(accent, 0.35)) - 8.0;
     }
     let x = img.right() + 12.0;
     let tw = right - x - 8.0;
@@ -1227,7 +1235,7 @@ fn candidate_row(ui: &mut Ui, t: &YtTrack, video: bool, current: bool, selected:
     if let Some(a) = &t.album {
         meta = format!("{meta} • {}", a.name);
     } else if let Some(p) = t.plays {
-        meta = format!("{meta} • {} views", crate::backend::compact(p));
+        meta = format!("{meta} • {}", crate::tr!("transfer-views", count = crate::backend::compact(p)));
     }
     text_at(ui, pos2(x, rect.top() + 28.0), &meta, theme::regular(13.0), theme::text_dim(), tw);
     if play.clicked() {
@@ -1252,15 +1260,15 @@ fn done(app: &mut App, ui: &mut Ui) {
     let (mut open, mut another) = (false, false);
     let cover: Vec<Thumb> = job.results.iter().find_map(|r| r.track().map(|t| t.thumbs.clone())).unwrap_or_default();
     let title = match &job.dest {
-        Dest::Liked => "Liked Music".to_owned(),
+        Dest::Liked => crate::tr!("nav-liked-songs").to_owned(),
         Dest::Playlist(t) => t.clone(),
     };
     let secs = sum.elapsed.as_secs();
+    let time = crate::tr!("transfer-finished-time", time = fmt_secs(secs));
     let line = match &job.dest {
-        Dest::Liked if sum.already > 0 => format!("{} songs liked, {} were already · finished in {}", fmt_n(sum.added), fmt_n(sum.already), fmt_secs(secs)),
-        Dest::Liked => format!("{} songs liked · finished in {}", fmt_n(sum.added), fmt_secs(secs)),
-        Dest::Playlist(_) if sum.playlists.len() > 1 => format!("{} private playlists · {} songs · finished in {}", sum.playlists.len(), fmt_n(sum.added), fmt_secs(secs)),
-        Dest::Playlist(_) => format!("Private playlist · {} songs · finished in {}", fmt_n(sum.added), fmt_secs(secs)),
+        Dest::Liked if sum.already > 0 => format!("{} · {} · {time}", numbered(crate::tr!("transfer-liked"), sum.added), numbered(crate::tr!("transfer-already-liked"), sum.already)),
+        Dest::Liked => format!("{} · {time}", numbered(crate::tr!("transfer-liked"), sum.added)),
+        Dest::Playlist(_) => format!("{} · {} · {time}", numbered(crate::tr!("transfer-private-playlists"), sum.playlists.len()), numbered(crate::tr!("nav-songs"), sum.added)),
     };
     ui.horizontal(|ui| {
         let (img, _) = ui.allocate_exact_size(vec2(120.0, 120.0), Sense::hover());
@@ -1274,26 +1282,26 @@ fn done(app: &mut App, ui: &mut Ui) {
         ui.vertical(|ui| {
             ui.set_width((ui.available_width() - 330.0).max(200.0));
             ui.add_space(22.0);
-            ui.label(RichText::new("TRANSFER COMPLETE").font(theme::bold(13.0)).color(accent));
+            ui.label(RichText::new(crate::tr!("transfer-complete").to_uppercase()).font(theme::bold(13.0)).color(accent));
             ui.add_space(2.0);
             ui.label(RichText::new(&title).font(theme::bold(32.0)).color(theme::text()));
             ui.add_space(2.0);
             ui.label(RichText::new(&line).font(theme::regular(14.0)).color(theme::text_dim()));
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            another = pill(ui, "Transfer another", None, false).clicked();
+            another = pill(ui, crate::tr!("transfer-another"), None, false).clicked();
             ui.add_space(8.0);
-            open = pill(ui, if job.dest == Dest::Liked { "Open Liked Music" } else { "Open playlist" }, Some(icon::PLAY), true).clicked();
+            open = pill(ui, if job.dest == Dest::Liked { crate::tr!("transfer-open-liked") } else { crate::tr!("transfer-open-playlist") }, Some(icon::PLAY), true).clicked();
         });
     });
     ui.add_space(20.0);
     let skipped = job.count(|r| *r == Search::Skipped);
     let missing = job.count(|r| *r == Search::Missing);
-    let mut stats = vec![(fmt_n(sum.added), if job.dest == Dest::Liked { "Liked" } else { "Added" }, false)];
+    let mut stats = vec![(fmt_n(sum.added), if job.dest == Dest::Liked { crate::tr!("transfer-liked") } else { crate::tr!("transfer-added") }, false)];
     if job.dest == Dest::Liked {
-        stats.push((fmt_n(sum.already), "Already liked", false));
+        stats.push((fmt_n(sum.already), crate::tr!("transfer-already-liked"), false));
     }
-    stats.extend([(fmt_n(sum.duplicates), "Duplicates, added once", false), (fmt_n(skipped), "Skipped in review", false), (fmt_n(missing), "Not on YouTube Music", false)]);
+    stats.extend([(fmt_n(sum.duplicates), crate::tr!("transfer-duplicates"), false), (fmt_n(skipped), crate::tr!("transfer-skipped-review"), false), (fmt_n(missing), crate::tr!("transfer-not-on-youtube"), false)]);
     stat_row(ui, &stats, accent);
     ui.add_space(20.0);
 
@@ -1302,8 +1310,8 @@ fn done(app: &mut App, ui: &mut Ui) {
         .iter()
         .zip(&job.results)
         .filter_map(|(t, r)| match r {
-            Search::Missing => Some((t, "Not on YouTube Music")),
-            Search::Skipped => Some((t, "Skipped in review")),
+            Search::Missing => Some((t, crate::tr!("transfer-not-on-youtube"))),
+            Search::Skipped => Some((t, crate::tr!("transfer-skipped-review"))),
             _ => None,
         })
         .collect();
@@ -1313,9 +1321,9 @@ fn done(app: &mut App, ui: &mut Ui) {
         egui::Frame::new().fill(theme::glass_panel(0.04)).corner_radius(theme::panel_radius()).inner_margin(egui::Margin::symmetric(16, 12)).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("NOT ADDED ({})", fmt_n(missed.len()))).font(theme::bold(11.5)).color(theme::text_faint()));
+                ui.label(RichText::new(numbered(crate::tr!("transfer-not-added"), missed.len()).to_uppercase()).font(theme::bold(11.5)).color(theme::text_faint()));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if pill(ui, "Copy list", None, false).clicked() {
+                    if pill(ui, crate::tr!("transfer-copy-list"), None, false).clicked() {
                         copy = Some(missed.iter().map(|(t, _)| format!("{} - {}", t.name, t.artist_line())).collect::<Vec<_>>().join("\n"));
                     }
                 });
@@ -1330,7 +1338,7 @@ fn done(app: &mut App, ui: &mut Ui) {
                 text_at(ui, pos2(img.right() + 12.0, rect.top() + 9.0), &t.name, theme::semibold(13.5), theme::text(), tw);
                 text_at(ui, pos2(img.right() + 12.0, rect.top() + 29.0), &t.artist_line(), theme::regular(12.0), theme::text_dim(), tw);
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::right_to_left(egui::Align::Center)));
-                if pill(&mut child, "Search", Some(icon::SEARCH), false).clicked() {
+                if pill(&mut child, crate::tr!("settings-search"), Some(icon::SEARCH), false).clicked() {
                     search = Some(format!("{} {}", t.name, t.artist_line()));
                 }
                 child.add_space(14.0);
@@ -1343,7 +1351,7 @@ fn done(app: &mut App, ui: &mut Ui) {
     drop(guard);
     if let Some(text) = copy {
         ui.ctx().copy_text(text);
-        app.toast("Copied the list");
+        app.toast(crate::tr!("transfer-list-copied"));
     }
     if let Some(q) = search {
         app.actions.push(Action::Go(Page::Search(q)));
@@ -1367,18 +1375,18 @@ fn failed(app: &mut App, ui: &mut Ui, e: &str) {
     let xfer = app.transfer.clone();
     ui.add_space(6.0);
     breadcrumb(app, ui);
-    page_title(ui, "Transfer stopped");
+    page_title(ui, crate::tr!("transfer-stopped"));
     ui.add_space(10.0);
     // Only this transfer's own progress (one that failed before saving any has none).
     let source = xfer.job.lock().unwrap().as_ref().map(|j| j.source.clone());
     let resumable = xfer.resumable.lock().unwrap().clone().filter(|r| Some(&r.source) == source.as_ref());
     let (mut retry, mut close) = (false, false);
     settings_card(ui, |ui| {
-        setting_row(ui, "Something went wrong", Some(e), |ui| {
-            close = pill(ui, "Start over", None, false).clicked();
+        setting_row(ui, crate::tr!("transfer-error"), Some(e), |ui| {
+            close = pill(ui, crate::tr!("transfer-start-over"), None, false).clicked();
             if resumable.is_some() {
                 ui.add_space(8.0);
-                retry = pill(ui, "Try again", None, true).clicked();
+                retry = pill(ui, crate::tr!("ui-try-again"), None, true).clicked();
             }
         });
     });
@@ -1398,8 +1406,8 @@ pub fn settings_section(app: &mut App, ui: &mut Ui) {
     xfer.ensure_account(&app.backend);
     let account = xfer.account.lock().unwrap().clone();
     let mut open = false;
-    section(ui, "Import", None, None, |ui| {
-        if !filter_show(ui, "Transfer from Spotify copy your liked songs or any playlist into YouTube Music") {
+    section(ui, crate::tr!("transfer-import"), None, None, |ui| {
+        if !filter_show(ui, &format!("{} {}", crate::tr!("transfer-title"), crate::tr!("transfer-intro"))) {
             return;
         }
         let w = ui.available_width();
@@ -1408,11 +1416,11 @@ pub fn settings_section(app: &mut App, ui: &mut Ui) {
         badge(ui, b);
         let x = b.right() + 16.0;
         let tw = rect.right() - x - 120.0;
-        ui.painter().text(pos2(x, rect.center().y - 10.0), Align2::LEFT_CENTER, "Transfer from Spotify", theme::semibold(14.5), theme::text());
-        let g = widgets::galley_wrapped(ui, "Copy your Liked Songs or any playlist into YouTube Music. It runs in the background, so you can keep listening.", theme::regular(12.5), theme::text_dim(), tw, 2);
+        ui.painter().text(pos2(x, rect.center().y - 10.0), Align2::LEFT_CENTER, crate::tr!("transfer-title"), theme::semibold(14.5), theme::text());
+        let g = widgets::galley_wrapped(ui, crate::tr!("transfer-intro"), theme::regular(12.5), theme::text_dim(), tw, 2);
         ui.painter().galley(pos2(x, rect.center().y + 2.0), g, theme::text_dim());
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::right_to_left(egui::Align::Center)));
-        open = pill(&mut child, "Open", None, true).clicked();
+        open = pill(&mut child, crate::tr!("settings-open"), None, true).clicked();
         super::pages::divider(ui);
         spotify_account_row(app, ui, &account, false);
     });
@@ -1436,33 +1444,34 @@ const DONE_LINGER: f64 = 6.0;
 
 /// The card above Settings in the sidebar while a transfer runs, waits or just finished.
 pub fn sidebar_card(app: &mut App, ui: &mut Ui, collapsed: bool, fade: f32, icon_x: f32) {
-    let (frac, status) = {
+    let (frac, status, needs_review) = {
         let guard = app.transfer.job.lock().unwrap();
         let Some(job) = guard.as_ref() else { return };
-        match &job.phase {
-            Phase::Reading => (0.0, "Reading".to_owned()),
+        let (frac, status) = match &job.phase {
+            Phase::Reading => (0.0, crate::tr!("transfer-reading").to_owned()),
             Phase::Searching => {
                 let f = job.searched() as f32 / job.tracks.len().max(1) as f32;
-                (f, if job.paused { "Paused".to_owned() } else { format!("{}%", (f * 100.0) as u32) })
+                (f, if job.paused { crate::tr!("transfer-paused").to_owned() } else { format!("{}%", (f * 100.0) as u32) })
             }
-            Phase::Checking => (1.0, "Checking".to_owned()),
-            Phase::Review => (1.0, "Review".to_owned()),
+            Phase::Checking => (1.0, crate::tr!("transfer-checking").to_owned()),
+            Phase::Review => (1.0, crate::tr!("transfer-review").to_owned()),
             Phase::Saving => match job.redo {
-                Some((done, of)) => (done as f32 / of.max(1) as f32, "Re-adding".to_owned()),
-                None => (job.saving.0 as f32 / job.saving.1.max(1) as f32, "Adding".to_owned()),
+                Some((done, of)) => (done as f32 / of.max(1) as f32, crate::tr!("transfer-readding").to_owned()),
+                None => (job.saving.0 as f32 / job.saving.1.max(1) as f32, crate::tr!("transfer-adding").to_owned()),
             },
-            Phase::Done => (1.0, "Done".to_owned()),
-            Phase::Failed(_) => (0.0, "Stopped".to_owned()),
-        }
+            Phase::Done => (1.0, crate::tr!("ui-done").to_owned()),
+            Phase::Failed(_) => (0.0, crate::tr!("transfer-stopped-status").to_owned()),
+        };
+        (frac, status, matches!(job.phase, Phase::Review))
     };
     let accent = app.accent_color();
     ui.add_space(6.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 58.0), Sense::click());
-    let mut resp = named(resp, "Spotify transfer").on_hover_cursor(egui::CursorIcon::PointingHand);
+    let mut resp = named(resp, crate::tr!("transfer-short-title")).on_hover_cursor(egui::CursorIcon::PointingHand);
     if collapsed {
-        resp = resp.on_hover_text(format!("Spotify transfer: {status}"));
-    } else if status == "Review" {
-        resp = resp.on_hover_text("Some songs need a look before they're added");
+        resp = resp.on_hover_text(crate::tr!("transfer-sidebar-status", status = status.as_str()));
+    } else if needs_review {
+        resp = resp.on_hover_text(crate::tr!("transfer-sidebar-review-tip"));
     }
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
     ui.painter().rect_filled(rect, 12.0, theme::glass(0.06 + 0.04 * h));
@@ -1471,8 +1480,8 @@ pub fn sidebar_card(app: &mut App, ui: &mut Ui, collapsed: bool, fade: f32, icon
     badge(ui, b);
     if fade > 0.0 {
         let c = theme::with_alpha(theme::text(), fade);
-        let st = ui.painter().text(pos2(rect.right() - 12.0, rect.top() + 22.0), Align2::RIGHT_CENTER, &status, theme::regular(12.0), theme::with_alpha(if status == "Review" { accent } else { theme::text_dim() }, fade));
-        text_at(ui, pos2(rect.left() + 48.0, rect.top() + 14.0), "Spotify transfer", theme::semibold(13.0), c, st.left() - rect.left() - 56.0);
+        let st = ui.painter().text(pos2(rect.right() - 12.0, rect.top() + 22.0), Align2::RIGHT_CENTER, &status, theme::regular(12.0), theme::with_alpha(if needs_review { accent } else { theme::text_dim() }, fade));
+        text_at(ui, pos2(rect.left() + 48.0, rect.top() + 14.0), crate::tr!("transfer-short-title"), theme::semibold(13.0), c, st.left() - rect.left() - 56.0);
     }
     let bar = Rect::from_min_max(pos2(rect.left() + 12.0, rect.bottom() - 14.0), pos2(rect.right() - 12.0, rect.bottom() - 10.0));
     ui.painter().rect_filled(bar, 2.0, theme::glass(0.14));
@@ -1513,16 +1522,16 @@ pub fn poll(app: &mut App, ctx: &egui::Context, now: f64) {
     }
     let on_page = app.page == Page::Transfer;
     match &phase {
-        Some(Phase::Review) if !on_page => app.toast(format!("Spotify transfer: {} songs need a look", fmt_n(doubts))),
+        Some(Phase::Review) if !on_page => app.toast(crate::tr!("transfer-review-notice", count = fmt_n(doubts))),
         Some(Phase::Done) => {
             // Liked Music and the sidebar's playlists changed.
             app.request_library();
             app.request_liked(true);
             if !on_page {
-                app.toast(format!("Finished copying {name} from Spotify"));
+                app.toast(crate::tr!("transfer-complete-notice", name = name.as_str()));
             }
         }
-        Some(Phase::Failed(_)) if !on_page => app.toast("The Spotify transfer stopped. Open it to try again"),
+        Some(Phase::Failed(_)) if !on_page => app.toast(crate::tr!("transfer-failed-notice")),
         _ => {}
     }
     app.xfer.seen = phase;

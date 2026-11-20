@@ -23,7 +23,6 @@ pub(super) const MIN_UNLIKE_MS: f32 = 200.0;
 pub(super) const MAX_UNLIKE_MS: f32 = 3000.0;
 pub(super) const DEFAULT_UNLIKE_MS: f32 = 600.0;
 const UNLIKE_MS: &str = "ratings_unlike_hold_ms";
-const UNLIKE_HINT: &str = "Hold to remove like";
 
 pub(super) struct Settings {
     pub player_button: bool,
@@ -246,7 +245,7 @@ pub(super) fn unlike_hint(ui: &Ui, response: &Response) {
     let anchor = ctx.layer_transform_to_global(response.layer_id).map_or(response.rect, |transform| transform * response.rect);
     let screen = ctx.content_rect();
     let text = theme::text();
-    let g = painter.layout_no_wrap(UNLIKE_HINT.to_owned(), theme::semibold(12.0), text);
+    let g = painter.layout_no_wrap(crate::tr!("settings-ratings-hold-to-remove").to_owned(), theme::semibold(12.0), text);
     let size = g.size() + vec2(16.0, 8.0);
     let left = (anchor.center().x - size.x / 2.0).min(screen.right() - size.x - 4.0).max(screen.left() + 4.0);
     let top = (anchor.top() - size.y - 4.0).max(screen.top() + 4.0);
@@ -433,7 +432,7 @@ pub(super) fn row(ui: &Ui, track: &Track, liked: bool, hovered: bool) -> (Option
 
 pub(super) fn player_button(app: &mut App, ui: &Ui, rect: Rect, track: &Track, size: f32, visible: bool) {
     let disliked = app.ratings.get(&track.id) == Some(SongRating::Dislike);
-    let name = if disliked { "Remove dislike" } else { "Dislike song" };
+    let name = if disliked { crate::tr!("ui-remove-dislike") } else { crate::tr!("ui-dislike-song") };
     let resp = widgets::named(ui.interact(rect, ui.scope_id().with("dislike"), Sense::click()), name)
         .on_hover_text(name)
         .on_hover_cursor(egui::CursorIcon::PointingHand);

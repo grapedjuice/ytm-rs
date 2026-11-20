@@ -380,3 +380,19 @@ settings-downloads-and-counting = { $count ->
    *[other] { $shown } descargas y contando
 }
 settings-counting-downloads = Contando descargas…
+settings-fade-when-pausing = Atenuar el sonido al pausar
+settings-fade-when-pausing-desc = Reduce el volumen gradualmente al pausar y lo restablece al reanudar, en 0,2 segundos. Si se desactiva, la música se detiene y se reanuda al instante.
+settings-song-info = Información de las canciones
+settings-song-info-language = Idioma de la información de las canciones
+settings-song-info-language-desc = Idioma de los títulos de canciones, nombres de artistas y álbumes y secciones de YouTube Music, cuando hay traducciones disponibles.
+settings-song-info-country = País para listas y recomendaciones
+settings-song-info-country-desc = País para el que se muestran las listas de éxitos y las recomendaciones.
+settings-folder-per-list = Guardar cada álbum y lista en su propia carpeta
+settings-folder-per-list-desc = Al descargar un álbum o una lista desde su página o menú, las canciones se guardan en una carpeta con su nombre. Las canciones ya descargadas permanecen donde están.
+settings-backup-stream = Flujo alternativo cuando se detiene la música
+settings-backup-stream-desc = Con la sesión iniciada, si YouTube detiene una canción para verificar que no eres un bot (puede ocurrir con una VPN), permite reproducirla mediante un flujo que incluye vídeo. Consume más datos.
+settings-backup-stream-prompt-title = Reproducción detenida
+settings-backup-stream-prompt-body = YouTube detuvo esta canción para verificar que no eres un bot. Puede ocurrir con una VPN. Un flujo alternativo permite seguir escuchándola. Incluye vídeo, por lo que consume más datos.
+settings-backup-stream-prompt-enable = Activar y reintentar
+settings-backup-stream-prompt-settings = Configuración
+settings-backup-stream-prompt-dismiss = Ahora no

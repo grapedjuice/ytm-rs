@@ -30,10 +30,10 @@ impl Crossfeed {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Off => "Off",
-            Self::Light => "Light",
-            Self::Medium => "Medium",
-            Self::Strong => "Strong",
+            Self::Off => crate::tr!("ui-off"),
+            Self::Light => crate::tr!("ui-crossfeed-light"),
+            Self::Medium => crate::tr!("ui-crossfeed-medium"),
+            Self::Strong => crate::tr!("ui-crossfeed-strong"),
         }
     }
 

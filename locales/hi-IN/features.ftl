@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = अधिक टिप्पणियाँ दिखाएँ
+comment-more-replies = अधिक उत्तर दिखाएँ
+comment-sort-failed = टिप्पणियाँ क्रमबद्ध नहीं की जा सकीं।
+comment-like-failed = उस टिप्पणी को पसंद नहीं किया जा सका।
+comment-post-failed = आपकी टिप्पणी पोस्ट नहीं की जा सकी। आपका ड्राफ्ट अभी भी फ़ील्ड में है.
+comment-reply-failed = आपका उत्तर पोस्ट नहीं किया जा सका। आपका ड्राफ्ट अभी भी फ़ील्ड में है.
+comment-posted = टिप्पणी पोस्ट की गई।
+comment-reply-posted = उत्तर पोस्ट किया गया।
+comment-loading = टिप्पणियाँ लोड हो रही हैं...
+comment-loading-replies = उत्तर लोड हो रहे हैं...
+comment-disabled = इस गीत के लिए टिप्पणियाँ बंद हैं।
+comment-load-failed = टिप्पणियाँ लोड नहीं की जा सकीं।
+comment-retry = इन्हें लोड नहीं किया जा सका। पुनः प्रयास करें
+comment-posting = अपनी टिप्पणी पोस्ट कर रहा हूं...
+comment-posting-reply = अपना उत्तर पोस्ट कर रहा हूं...
+comment-replies-unavailable = YouTube इस टिप्पणी के उत्तर की अनुमति नहीं देता है।
+comment-unavailable = YouTube यहां टिप्पणियों की अनुमति नहीं देता है।
+comment-sign-in-like = टिप्पणियाँ पसंद करने के लिए साइन इन करें।
+comment-like-unavailable = YouTube इस टिप्पणी को पसंद करने की अनुमति नहीं देता है।
+comment-newest = नवीनतम
+comment-top = शीर्ष
+comment-empty = अभी तक कोई टिप्पणी नहीं।
+comment-sign-in = टिप्पणी करने के लिए साइन इन करें
+comment-new = एक टिप्पणी जोड़ें...
+comment-compose-disabled = टिप्पणी यहां उपलब्ध नहीं है
+comment-reply = उत्तर दें
+comment-hide-replies = उत्तर छिपाएँ
+comment-reply-count = उत्तर ({ $count })
+comment-new-reply = एक उत्तर जोड़ें...
+comment-sign-in-reply = उत्तर देने के लिए साइन इन करें
+comment-post = पोस्ट

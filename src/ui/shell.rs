@@ -206,7 +206,7 @@ pub fn overlay_light(painter: &egui::Painter, area: Rect, o: &crate::preset::Ove
 /// The ☰ button at the top of the sidebar: collapses it to an icon rail and back.
 fn menu_button(app: &mut App, ui: &mut Ui) {
     let (r, resp) = ui.allocate_exact_size(vec2(40.0, 32.0), Sense::click());
-    let label = if is_rail(app) { "Expand sidebar" } else { "Collapse sidebar" };
+    let label = if is_rail(app) { crate::tr!("nav-expand-sidebar") } else { crate::tr!("settings-collapse-sidebar") };
     let resp = named(resp, label).on_hover_text(label).on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
     ui.painter().circle_filled(r.center(), 18.0, theme::glass(0.08 * h));
@@ -366,7 +366,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         ui.painter().circle_filled(r.center(), 16.0, theme::RED);
         ui.painter().circle_stroke(r.center(), 9.5, egui::Stroke::new(1.6, Color32::WHITE));
         widgets::play_triangle(ui, r.center() + vec2(0.8, 0.0), 4.6, Color32::WHITE);
-        let resp = named(resp, "Home");
+        let resp = named(resp, crate::tr!("settings-home"));
         let resp = if collapsed { resp } else { resp.on_hover_cursor(egui::CursorIcon::PointingHand) };
         if resp.clicked() && !collapsed {
             app.actions.push(Action::Go(Page::Home));
@@ -392,7 +392,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         let mut resp = named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
         // Clicking the page you're on reloads it; say so where that loads anything.
         if page == p && (matches!(page, Page::Home | Page::Explore) || (logged_in && matches!(page, Page::Library(_)))) {
-            resp = resp.on_hover_text("Refresh (F5)");
+            resp = resp.on_hover_text(crate::tr!("nav-refresh-shortcut"));
         } else if collapsed && !item.rail_labels {
             resp = resp.on_hover_text(label);
         }
@@ -430,12 +430,12 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             *go_to = Some(page);
         }
     };
-    nav(ui, icon::HOUSE, "Home", Page::Home, p == Page::Home, &mut go_to);
-    nav(ui, icon::COMPASS, "Explore", Page::Explore, matches!(p, Page::Explore | Page::Mood(_)), &mut go_to);
-    nav(ui, icon::LIBRARY, "Library", Page::Library(LibTab::Playlists), matches!(p, Page::Library(_)), &mut go_to);
+    nav(ui, icon::HOUSE, crate::tr!("settings-home"), Page::Home, p == Page::Home, &mut go_to);
+    nav(ui, icon::COMPASS, crate::tr!("nav-explore"), Page::Explore, matches!(p, Page::Explore | Page::Mood(_)), &mut go_to);
+    nav(ui, icon::LIBRARY, crate::tr!("nav-library"), Page::Library(LibTab::Playlists), matches!(p, Page::Library(_)), &mut go_to);
     let jam_label = match app.jam.member_count() {
-        n if app.jam.active() && n > 0 => format!("Jam · {n} listening"),
-        _ => "Listen together".to_owned(),
+        n if app.jam.active() && n > 0 => crate::tr!("jam-listening-count", count = n),
+        _ => crate::tr!("nav-listen-together").to_owned(),
     };
     nav(ui, icon::USERS, &jam_label, Page::Jam, p == Page::Jam, &mut go_to);
 
@@ -455,14 +455,14 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             // Too wide to squeeze: cross-fade the message and the rail's icon.
             if t < 0.5 {
                 ui.multiply_opacity(1.0 - 2.0 * t);
-                ui.label(egui::RichText::new("Sign in to see your playlists").color(theme::text_dim()));
+                ui.label(egui::RichText::new(crate::tr!("nav-sign-in-playlists")).color(theme::text_dim()));
                 ui.add_space(8.0);
-                if widgets::pill(ui, "Sign in", Some(icon::CIRCLE_USER), false).clicked() {
+                if widgets::pill(ui, crate::tr!("nav-sign-in"), Some(icon::CIRCLE_USER), false).clicked() {
                     app.start_sign_in(ui.ctx());
                 }
             } else {
                 ui.multiply_opacity(2.0 * t - 1.0);
-                nav(ui, icon::CIRCLE_USER, "Sign in", Page::Settings, false, &mut go_to);
+                nav(ui, icon::CIRCLE_USER, crate::tr!("nav-sign-in"), Page::Settings, false, &mut go_to);
                 if go_to.is_some() {
                     app.settings_tab = super::pages::SettingsTab::Account;
                 }
@@ -472,11 +472,15 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         // The heading folds away with the labels.
         let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0 * (1.0 - t)), Sense::hover());
         if a > 0.0 {
-            let label = if item.playlists_label.is_empty() { "PLAYLISTS" } else { item.playlists_label.as_str() };
+            let label = match item.playlists_label.as_str() {
+                "" | "PLAYLISTS" => crate::tr!("nav-playlists").to_uppercase(),
+                "Playlists" => crate::tr!("nav-playlists").to_owned(),
+                custom => custom.to_owned(),
+            };
             ui.painter().text(head.left_top(), Align2::LEFT_TOP, label, theme::semibold(11.5), theme::with_alpha(theme::text_faint(), a));
             if item.playlists_plus {
                 let plus = Rect::from_center_size(pos2(head.right() - 10.0, head.top() + 7.0), Vec2::splat(22.0));
-                let resp = named(ui.interact(plus, ui.scope_id().with("new-playlist"), Sense::click()), "New playlist").on_hover_text("New playlist").on_hover_cursor(egui::CursorIcon::PointingHand);
+                let resp = named(ui.interact(plus, ui.scope_id().with("new-playlist"), Sense::click()), crate::tr!("ui-new-playlist")).on_hover_text(crate::tr!("ui-new-playlist")).on_hover_cursor(egui::CursorIcon::PointingHand);
                 let color = if resp.hovered() { theme::text() } else { theme::text_faint() };
                 let stroke = egui::Stroke::new(1.6, theme::with_alpha(color, a));
                 ui.painter().line_segment([plus.center() - vec2(6.0, 0.0), plus.center() + vec2(6.0, 0.0)], stroke);
@@ -498,9 +502,9 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                     });
                 } else if t < 0.5 {
                     ui.multiply_opacity(1.0 - 2.0 * t);
-                    ui.label(egui::RichText::new("Couldn't load your playlists").color(theme::text_dim()));
+                    ui.label(egui::RichText::new(crate::tr!("nav-playlists-failed")).color(theme::text_dim()));
                     ui.add_space(8.0);
-                    if widgets::pill(ui, "Try again", None, false).clicked() {
+                    if widgets::pill(ui, crate::tr!("ui-try-again"), None, false).clicked() {
                         app.request_library();
                     }
                 }
@@ -571,7 +575,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             match dropped {
                 Some((id, t)) if id == "LM" => {
                     app.actions.push(Action::Like(t, true));
-                    app.toast("Added to Liked Music");
+                    app.toast(crate::tr!("status-added-liked"));
                 }
                 Some((playlist_id, t)) => app.add_to_playlist(playlist_id, &[t]),
                 None => {}
@@ -586,17 +590,17 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     };
     let mut restart = false;
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-        nav(ui, icon::SETTINGS, "Settings", Page::Settings, p == Page::Settings, &mut go_to);
+        nav(ui, icon::SETTINGS, crate::tr!("settings-title"), Page::Settings, p == Page::Settings, &mut go_to);
         if transferring {
             super::transfer::sidebar_card(app, ui, collapsed, a, ICON_X);
         }
         if let Some(v) = &ready {
             ui.add_space(6.0);
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 52.0), Sense::click());
-            let title = if available { "Update available" } else { "Restart to update" };
+            let title = if available { crate::tr!("window-update-available") } else { crate::tr!("settings-restart-to-update") };
             let mut resp = named(resp, title).on_hover_cursor(egui::CursorIcon::PointingHand);
             if collapsed {
-                resp = resp.on_hover_text(if available { format!("ytm-rs {v} is out") } else { format!("Restart to update to ytm-rs {v}") });
+                resp = resp.on_hover_text(if available { crate::tr!("window-release-available", version = v.as_str()) } else { crate::tr!("window-update-to", version = v.as_str()) });
             }
             let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
             ui.painter().rect_filled(rect, 12.0, theme::with_alpha(look.accent, 0.22 + 0.12 * h));
@@ -628,7 +632,7 @@ fn refresh_button(ui: &mut Ui) -> egui::Response {
     const SIZE: f32 = 18.0;
     let d = SIZE + 18.0;
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(d), Sense::click());
-    let resp = named(resp, "Refresh").on_hover_text("Refresh (F5)").on_hover_cursor(egui::CursorIcon::PointingHand);
+    let resp = named(resp, crate::tr!("nav-refresh")).on_hover_text(crate::tr!("nav-refresh-shortcut")).on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
     if h > 0.0 {
         ui.painter().circle_filled(rect.center(), d / 2.0, theme::glass(0.10 * h));
@@ -708,10 +712,10 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
             ui.allocate_ui_with_layout(vec2(136.0, app.look().app.search_look.height.max(30.0)), egui::Layout::left_to_right(egui::Align::Center), |ui| logo_name(ui, tb, app.accent_color()));
             ui.add_space(10.0);
         }
-        if icon_button(ui, icon::CHEVRON_LEFT, 20.0, "Back", false).clicked() {
+        if icon_button(ui, icon::CHEVRON_LEFT, 20.0, crate::tr!("nav-back"), false).clicked() {
             app.nav_back(ui.ctx());
         }
-        if icon_button(ui, icon::CHEVRON_RIGHT, 20.0, "Forward", false).clicked() {
+        if icon_button(ui, icon::CHEVRON_RIGHT, 20.0, crate::tr!("nav-forward"), false).clicked() {
             app.nav_forward();
         }
         if refresh_button(ui).clicked() {
@@ -804,7 +808,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         let edit = ui.put(
             inner,
             egui::TextEdit::singleline(&mut app.search_text)
-                .hint_text(egui::RichText::new(if app.show_podcasts { "Search songs, albums, artists, podcasts" } else { "Search songs, albums, artists" }).color(theme::text_faint()))
+                .hint_text(egui::RichText::new(if app.show_podcasts { crate::tr!("nav-search-podcasts") } else { crate::tr!("nav-search-music") }).color(theme::text_faint()))
                 .font(theme::regular(15.0))
                 .frame(egui::Frame::NONE)
                 .align(egui::Align2::LEFT_CENTER)
@@ -820,7 +824,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         }
         if clearable {
             let x = Rect::from_center_size(pos2(rect.right() - 25.0, rect.center().y), Vec2::splat(30.0));
-            let resp = named(ui.interact(x, ui.scope_id().with("search-clear"), Sense::click()), "Clear search").on_hover_cursor(egui::CursorIcon::PointingHand);
+            let resp = named(ui.interact(x, ui.scope_id().with("search-clear"), Sense::click()), crate::tr!("nav-clear-search")).on_hover_cursor(egui::CursorIcon::PointingHand);
             let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
             if h > 0.0 {
                 ui.painter().circle_filled(x.center(), 15.0, theme::glass(0.10 * h));
@@ -857,7 +861,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 20.0));
             let (r, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
-            let resp = named(resp, "Account").on_hover_cursor(egui::CursorIcon::PointingHand);
+            let resp = named(resp, crate::tr!("settings-account")).on_hover_cursor(egui::CursorIcon::PointingHand);
             let initial = app.account_name.as_deref().and_then(|n| n.chars().next()).unwrap_or('?');
             if app.logged_in {
                 ui.painter().circle_filled(r.center(), 18.0, theme::lerp_color(app.accent_color(), Color32::BLACK, 0.35));
@@ -959,8 +963,8 @@ pub fn suggestions(app: &mut App, ctx: &egui::Context) {
                         // A past search can be removed from the account's history.
                         if let Some(token) = s.forget {
                             let x = Rect::from_center_size(pos2(r.right() - 22.0, r.center().y), Vec2::splat(30.0));
-                            let xr = named(ui.interact(x, resp.id.with("forget"), Sense::click()), "Remove from recent searches")
-                                .on_hover_text("Remove")
+                            let xr = named(ui.interact(x, resp.id.with("forget"), Sense::click()), crate::tr!("nav-remove-recent-search"))
+                                .on_hover_text(crate::tr!("ui-remove"))
                                 .on_hover_cursor(egui::CursorIcon::PointingHand);
                             let xh = theme::anim_bool(ui.ctx(), xr.id.with("h"), xr.hovered(), 0.1);
                             if xh > 0.0 {
@@ -1058,8 +1062,8 @@ pub fn floating_bar(app: &mut App, ui: &mut Ui, slot: Rect, now: f64) {
 fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32, dot_floor: f32) {
     let jam = app.jam.active();
     let changed = !jam && (app.speed - 1.0).abs() > 0.001;
-    let resp = named(ui.interact(r, ui.scope_id().with("tempo"), Sense::click()), "Playback speed")
-        .on_hover_text("Playback speed")
+    let resp = named(ui.interact(r, ui.scope_id().with("tempo"), Sense::click()), crate::tr!("settings-playback-speed"))
+        .on_hover_text(crate::tr!("settings-playback-speed"))
         .on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
     if h > 0.0 {
@@ -1091,7 +1095,7 @@ fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32,
             use crate::audio::tempo::{MAX_SPEED, MIN_SPEED};
             ui.horizontal(|ui| {
                 ui.add_space(pad);
-                ui.label(egui::RichText::new("Speed").font(theme::semibold(13.5)).color(theme::text()));
+                ui.label(egui::RichText::new(crate::tr!("settings-speed")).font(theme::semibold(13.5)).color(theme::text()));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(pad);
                     ui.label(egui::RichText::new(p::times(speed)).font(theme::regular(13.0)).color(theme::text_dim()));
@@ -1099,7 +1103,7 @@ fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32,
             });
             ui.horizontal(|ui| {
                 ui.add_space(pad - 8.0);
-                p::slider_track(ui, &mut app.speed, (MIN_SPEED, MAX_SPEED, 0.05), Some(1.0), ui.available_width() - pad + 8.0, "Speed");
+                p::slider_track(ui, &mut app.speed, (MIN_SPEED, MAX_SPEED, 0.05), Some(1.0), ui.available_width() - pad + 8.0, crate::tr!("settings-speed"));
             });
             // Always there, so the card keeps its size while the slider moves.
             widgets::menu_divider(ui);
@@ -1108,7 +1112,7 @@ fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32,
                 if normal {
                     ui.multiply_opacity(0.4);
                 }
-                if widgets::menu_action(ui, Some(icon::HISTORY), "Back to normal") {
+                if widgets::menu_action(ui, Some(icon::HISTORY), crate::tr!("ui-back-normal")) {
                     app.speed = 1.0;
                 }
             });
@@ -1196,7 +1200,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     };
     let resp = ui.interact(bar_hit, ui.scope_id().with("progress"), Sense::click_and_drag());
     let resp = if total > 0.0 { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
-    resp.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
+    resp.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, crate::tr!("ui-seek")));
     // A knob shown all the time sticks out of the bar, past the clip that cuts the line's
     // target: it gets a target of its own, above now playing and under menus. Not where the
     // narrow window's queue floats over it.
@@ -1390,7 +1394,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let ar = ui.interact(art, ui.scope_id().with("np-art"), Sense::click());
         // Like the corner's button: opens now playing, or closes it while it's open.
         let np_open = app.np_open;
-        let ar = named(ar, if np_open { "Close now playing" } else { "Open now playing" }).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let ar = named(ar, if np_open { crate::tr!("ui-close-now-playing") } else { crate::tr!("ui-open-now-playing") }).on_hover_cursor(egui::CursorIcon::PointingHand);
         menu_on.push(ar.clone());
         let ah = theme::anim_bool(ui.ctx(), ar.id.with("h"), ar.hovered(), 0.15);
         if let Some(secs) = chrome.thumb_disc_secs {
@@ -1499,7 +1503,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             widgets::context_popup(r).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| widgets::song_menu(ui, t, liked, None, &mut app.actions));
         }
         let lresp = ui.interact(lr, ui.scope_id().with(("like", &t.id, app.generation)), Sense::click());
-        let lresp = named(lresp, if liked { "Remove like" } else { "Like" }).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let lresp = named(lresp, if liked { crate::tr!("ui-unlike") } else { crate::tr!("ui-like") }).on_hover_cursor(egui::CursorIcon::PointingHand);
         let gesture = super::ratings::like_gesture(ui, &lresp, (), liked, None);
         let lh = theme::anim_bool(ui.ctx(), lresp.id.with("h"), lresp.hovered(), 0.15);
         let pop = theme::anim_bool(ui.ctx(), ("liked", &t.id), liked, 0.3);
@@ -1527,7 +1531,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let kid = ui.scope_id().with("song-more");
         let open_id = kid.with("open");
         if !chrome.like_on_hover || on_song || ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false)) {
-            let more = widgets::more_button(ui, kr, kid, "Song options");
+            let more = widgets::more_button(ui, kr, kid, crate::tr!("ui-song-options"));
             // Up from the bar: below it is the window's edge.
             widgets::menu_popup(&more).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).align(egui::RectAlign::TOP_START).show(|ui| widgets::song_menu(ui, t, liked, None, &mut app.actions));
             let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&more));
@@ -1545,7 +1549,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let dx = dx * chrome.transport_gap.clamp(0.7, 1.5);
         let r = Rect::from_center_size(center + vec2(dx, 0.0), Vec2::splat(size + 16.0));
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
-        if matches!(name, "Previous" | "Next") {
+        if matches!(glyph, icon::SKIP_BACK | icon::SKIP_FORWARD) {
             child.multiply_opacity(chrome.side_alpha.clamp(0.5, 1.0));
         }
         let resp = icon_button(&mut child, glyph, size, name, active);
@@ -1555,10 +1559,10 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         resp.clicked()
     };
     let (outer, inner) = if tight { (108.0, 56.0) } else { (124.0, 64.0) };
-    if ctl(ui, -outer, icon::SHUFFLE, "Shuffle", app.queue.shuffled(), 18.0) {
+    if ctl(ui, -outer, icon::SHUFFLE, crate::tr!("ui-shuffle"), app.queue.shuffled(), 18.0) {
         app.toggle_shuffle();
     }
-    if ctl(ui, -inner, icon::SKIP_BACK, "Previous", false, 22.0) {
+    if ctl(ui, -inner, icon::SKIP_BACK, crate::tr!("ui-previous"), false, 22.0) {
         app.prev();
     }
     let (rep_icon, rep_on) = match app.queue.repeat {
@@ -1566,16 +1570,16 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         Repeat::All => (icon::REPEAT, true),
         Repeat::One => (icon::REPEAT_1, true),
     };
-    if ctl(ui, inner, icon::SKIP_FORWARD, "Next", false, 22.0) {
+    if ctl(ui, inner, icon::SKIP_FORWARD, crate::tr!("ui-next"), false, 22.0) {
         app.next();
     }
-    if ctl(ui, outer, rep_icon, "Repeat", rep_on, 18.0) {
+    if ctl(ui, outer, rep_icon, crate::tr!("ui-repeat"), rep_on, 18.0) {
         app.queue.repeat = app.queue.repeat.next();
     }
     let play_size = chrome.play_scale.clamp(0.8, 1.5);
     let pr = Rect::from_center_size(center, Vec2::splat(46.0 * play_size));
     let presp = ui.interact(pr, ui.scope_id().with("play"), Sense::click());
-    let presp = named(presp, if playing { "Pause" } else { "Play" }).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let presp = named(presp, if playing { crate::tr!("ui-pause") } else { crate::tr!("ui-play") }).on_hover_cursor(egui::CursorIcon::PointingHand);
     let ph = theme::anim_bool(ui.ctx(), presp.id.with("h"), presp.hovered(), 0.15);
     let controls = &app.look().app.controls;
     let scale = play_size * if presp.is_pointer_button_down_on() { 0.92 } else { 1.0 + (controls.play_hover_scale - 1.0) * ph };
@@ -1656,18 +1660,18 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         resp.clicked()
     };
     // Right to left: now playing keeps the corner (as in YouTube Music), the mini player next to it.
-    if right_btn(ui, if app.np_open { icon::CHEVRON_DOWN } else { icon::CHEVRON_UP }, "Now playing", app.np_open) {
+    if right_btn(ui, if app.np_open { icon::CHEVRON_DOWN } else { icon::CHEVRON_UP }, crate::tr!("ui-now-playing"), app.np_open) {
         app.actions.push(Action::OpenNowPlaying(!app.np_open));
     }
-    if right_btn(ui, icon::PICTURE_IN_PICTURE, "Mini player (Ctrl+M)", false) {
+    if right_btn(ui, icon::PICTURE_IN_PICTURE, crate::tr!("ui-mini-shortcut"), false) {
         app.actions.push(Action::Mini(true));
     }
-    if right_btn(ui, icon::LIST_MUSIC, "Queue", app.queue_shown()) {
+    if right_btn(ui, icon::LIST_MUSIC, crate::tr!("ui-queue"), app.queue_shown()) {
         app.toggle_queue();
     }
     // Not lit for a song without lyrics: now playing shows its artwork instead.
     let lyrics_on = app.np_open && app.np_tab == NpTab::Lyrics && !app.no_lyrics();
-    if right_btn(ui, icon::MIC_VOCAL, "Lyrics", lyrics_on) {
+    if right_btn(ui, icon::MIC_VOCAL, crate::tr!("settings-lyrics"), lyrics_on) {
         if lyrics_on {
             app.np_tab = NpTab::Art;
         } else {
@@ -1691,7 +1695,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         Rect::from_center_size(pos2(slider.left() - 18.0, cy), Vec2::splat(32.0))
     };
     let vglyph = if vol == 0.0 { icon::VOLUME_X } else if vol < 0.5 { icon::VOLUME_1 } else { icon::VOLUME_2 };
-    let mresp = named(ui.interact(vi, ui.scope_id().with("mute"), Sense::click()), "Mute").on_hover_cursor(egui::CursorIcon::PointingHand);
+    let mresp = named(ui.interact(vi, ui.scope_id().with("mute"), Sense::click()), crate::tr!("ui-mute")).on_hover_cursor(egui::CursorIcon::PointingHand);
     icon_at(ui, vi.center(), vglyph, 18.0, if mresp.hovered() { theme::text() } else { theme::text_dim() });
     if compact_vol {
         let pop_id = ui.scope_id().with("vol-pop");
@@ -1751,7 +1755,7 @@ pub(super) fn normalization_note(app: &App) -> Option<String> {
 pub(super) fn volume_slider(app: &mut App, ui: &mut Ui, slider: Rect, salt: &str) {
     let vol = app.audio.volume();
     let vresp = ui.interact(slider, ui.scope_id().with(salt), Sense::click_and_drag()).on_hover_cursor(egui::CursorIcon::PointingHand);
-    vresp.widget_info(|| egui::WidgetInfo::slider(true, vol as f64, "Volume"));
+    vresp.widget_info(|| egui::WidgetInfo::slider(true, vol as f64, crate::tr!("ui-volume")));
     let vh = theme::anim_bool(ui.ctx(), ui.scope_id().with((salt, "h")), vresp.hovered() || vresp.dragged(), 0.15);
     let track_r = Rect::from_center_size(slider.center(), vec2(slider.width(), 4.0));
     ui.painter().rect_filled(track_r, 2.0, theme::glass(0.15));
@@ -1797,7 +1801,8 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
         white_on_card = theme::light();
     }
     ui.horizontal(|ui| {
-        let (label, size) = if q.queue_upper { ("UP NEXT", 13.0) } else { ("Up next", 20.0) };
+        let label = crate::tr!("ui-up-next");
+        let (label, size) = if q.queue_upper { (label.to_uppercase(), 13.0) } else { (label.to_owned(), 20.0) };
         let heading = egui::RichText::new(label).font(theme::bold(size));
         ui.label(if white_on_card { heading.color(Color32::WHITE) } else { heading });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1805,20 +1810,20 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
             ui.add_space(super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 0.0));
             let close = if white_on_card {
                 let (r, resp) = ui.allocate_exact_size(Vec2::splat(32.0), Sense::click());
-                let resp = named(resp, "Close queue").on_hover_text("Close queue").on_hover_cursor(egui::CursorIcon::PointingHand);
+                let resp = named(resp, crate::tr!("ui-close-queue")).on_hover_text(crate::tr!("ui-close-queue")).on_hover_cursor(egui::CursorIcon::PointingHand);
                 let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
                 ui.painter().circle_filled(r.center(), 16.0, theme::with_alpha(Color32::WHITE, 0.15 * h));
                 widgets::focus_ring(ui, &resp, r, 16.0);
                 icon_at(ui, r.center(), icon::X, 16.0, Color32::WHITE);
                 resp
             } else {
-                icon_button(ui, icon::X, 16.0, "Close queue", false)
+                icon_button(ui, icon::X, 16.0, crate::tr!("ui-close-queue"), false)
             };
             if close.clicked() {
                 app.queue_open = false;
             }
             // Left of Close, with more in the queue than the song playing.
-            if app.queue.tracks.len() > usize::from(app.queue.index.is_some()) && icon_button(ui, icon::TRASH_2, 15.0, "Clear queue", false).clicked() {
+            if app.queue.tracks.len() > usize::from(app.queue.index.is_some()) && icon_button(ui, icon::TRASH_2, 15.0, crate::tr!("ui-clear-queue"), false).clicked() {
                 app.actions.push(Action::QueueClear);
             }
         });
@@ -1829,8 +1834,8 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
 
 /// "Playing from playlist", and its name, which opens it.
 fn playing_from(app: &mut App, ui: &mut Ui) {
-    let Some((kind, name, target)) = app.playing_from() else { return };
-    ui.label(egui::RichText::new(format!("Playing from {kind}")).font(theme::regular(12.5)).color(theme::text_dim()));
+    let Some((label, name, target)) = app.playing_from() else { return };
+    ui.label(egui::RichText::new(label).font(theme::regular(12.5)).color(theme::text_dim()));
     let w = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(vec2(w, 22.0), Sense::hover());
     let r = text_at(ui, pos2(rect.left(), rect.top() + 1.0), &name, theme::semibold(15.0), theme::text(), w);
@@ -1853,7 +1858,7 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
     let q = app.look().app.queue_look;
     let differs = q.thumb_radius.is_some() || q.radius.is_some() || q.pad.is_some() || q.hover_border.is_some() || q.image_zoom.is_some() || q.image_dim.is_some();
     if app.queue.tracks.is_empty() {
-        ui.label(egui::RichText::new("Nothing queued yet").color(theme::text_dim()));
+        ui.label(egui::RichText::new(crate::tr!("ui-empty-queue")).color(theme::text_dim()));
         return;
     }
     let start = app.queue.index.unwrap_or(0);
@@ -1861,7 +1866,7 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
     playing_from(app, ui);
     ui.horizontal(|ui| {
         ui.add_space(q.side_pad);
-        ui.checkbox(&mut app.autoplay, egui::RichText::new("Autoplay similar songs").color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
+        ui.checkbox(&mut app.autoplay, egui::RichText::new(crate::tr!("ui-auto-similar")).color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
     });
     ui.add_space(6.0);
     // A new current song (or a new queue) brings it back to the top of the list.
@@ -1959,9 +1964,9 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
                         ui.label(egui::RichText::new(msg.as_str()).font(theme::regular(14.0)).color(color));
                         if undo {
                             ui.add_space(10.0);
-                            let text = ui.painter().layout_no_wrap("Undo".to_owned(), theme::semibold(14.0), color);
+                            let text = ui.painter().layout_no_wrap(crate::tr!("ui-undo").to_owned(), theme::semibold(14.0), color);
                             let (r, resp) = ui.allocate_exact_size(text.size(), Sense::click());
-                            let resp = named(resp, "Undo").on_hover_text("Undo (Ctrl+Z)").on_hover_cursor(egui::CursorIcon::PointingHand);
+                            let resp = named(resp, crate::tr!("ui-undo")).on_hover_text(crate::tr!("ui-undo-shortcut")).on_hover_cursor(egui::CursorIcon::PointingHand);
                             if resp.hovered() {
                                 ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, color));
                             }

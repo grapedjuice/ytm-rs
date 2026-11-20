@@ -1718,7 +1718,7 @@ fn settings_search(app: &mut App, ui: &mut Ui) {
     let edit = ui.put(
         inner,
         egui::TextEdit::singleline(&mut app.settings_query)
-            .hint_text(RichText::new(tr!("settings-search-box")).color(theme::text_faint()))
+            .hint_text(widgets::ui_text(tr!("settings-search-box"), egui::TextStyle::Body.resolve(ui.style()), theme::text_faint()))
             .font(theme::regular(14.0))
             .frame(egui::Frame::NONE)
             .align(Align2::LEFT_CENTER)
@@ -1782,7 +1782,7 @@ fn settings_account(app: &mut App, ui: &mut Ui) {
     });
     if busy && !filtering() {
         ui.add_space(6.0);
-        ui.label(RichText::new(tr!("settings-sign-in-finish")).font(theme::regular(12.5)).color(theme::text_dim()));
+        widgets::note(ui, tr!("settings-sign-in-finish"), theme::regular(12.5), theme::text_dim());
     }
     if sign_in {
         app.start_sign_in(ui.ctx());
@@ -1809,7 +1809,7 @@ fn channel_picker(app: &mut App, ui: &mut Ui) {
     };
     // A transfer would go on as the new channel.
     if app.transfer.running() {
-        ui.label(RichText::new(tr!("settings-channel-not-during-transfer")).font(theme::regular(13.0)).color(theme::text_dim()));
+        widgets::note(ui, tr!("settings-channel-not-during-transfer"), theme::regular(13.0), theme::text_dim());
         return;
     }
     let switching = app.switching_to.is_some();
@@ -2141,7 +2141,7 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
             return;
         }
         ui.add_space(12.0);
-        ui.label(RichText::new(tr!("settings-lyrics-sources-note")).font(theme::regular(12.5)).color(theme::text_dim()));
+        widgets::note(ui, tr!("settings-lyrics-sources-note"), theme::regular(12.5), theme::text_dim());
         ui.add_space(8.0);
         let n = app.lyric_prefs.order.len();
         let mut swap: Option<(usize, usize)> = None;
@@ -2309,7 +2309,7 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         FILTER.with_borrow_mut(|f| f.total += shown.len());
         section_label(ui, tr!("settings-themes"), settings_value(Some(&current)).as_deref());
         if !filtering() {
-            ui.label(RichText::new(tr!("settings-themes-note")).font(theme::regular(13.0)).color(theme::text_dim()));
+            widgets::note(ui, tr!("settings-themes-note"), theme::regular(13.0), theme::text_dim());
             ui.add_space(12.0);
         }
         themes(app, ui, &shown);
@@ -2706,7 +2706,7 @@ fn settings_connections(app: &mut App, ui: &mut Ui) {
             let resp = super::text_field(ui, tr!("settings-user-token"), &mut app.listenbrainz_token, false, tr!("settings-listenbrainz-token-hint"));
             connect |= typed && !busy && resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             ui.horizontal(|ui| {
-                ui.hyperlink_to(RichText::new(tr!("settings-listenbrainz-token-link")).font(theme::regular(12.5)).color(if theme::light() { Color32::from_rgb(0, 102, 204) } else { Color32::from_rgb(62, 166, 255) }), "https://listenbrainz.org/settings/");
+                ui.hyperlink_to(widgets::ui_text(tr!("settings-listenbrainz-token-link"), theme::regular(12.5), if theme::light() { Color32::from_rgb(0, 102, 204) } else { Color32::from_rgb(62, 166, 255) }), "https://listenbrainz.org/settings/");
             });
             ui.add_space(12.0);
         }
@@ -2991,7 +2991,7 @@ fn network(app: &mut App, ui: &mut Ui) {
             ui.horizontal(|ui| {
                 save = pill(ui, if saved { tr!("settings-saved") } else { tr!("settings-save") }, None, !saved).clicked() && !saved;
                 ui.add_space(8.0);
-                ui.label(RichText::new(tr!("settings-proxy-password-note")).font(theme::regular(12.5)).color(theme::text_dim()));
+                widgets::note(ui, tr!("settings-proxy-password-note"), theme::regular(12.5), theme::text_dim());
             });
             if save {
                 match proxy::save(app.backend.data_dir(), &custom) {
@@ -3147,7 +3147,7 @@ fn font_picker(ui: &mut Ui) -> Option<String> {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
-                ui.label(RichText::new(tr!("settings-installed-on-this-pc")).font(theme::semibold(12.0)).color(theme::text_faint()));
+                widgets::note(ui, tr!("settings-installed-on-this-pc"), theme::semibold(12.0), theme::text_faint());
             });
             ui.add_space(4.0);
             let ctx = ui.ctx().clone();
@@ -3160,7 +3160,7 @@ fn font_picker(ui: &mut Ui) -> Option<String> {
                 None => {
                     ui.horizontal(|ui| {
                         ui.add_space(12.0);
-                        ui.label(RichText::new(tr!("settings-looking-for-fonts")).font(theme::regular(13.0)).color(theme::text_dim()));
+                        widgets::note(ui, tr!("settings-looking-for-fonts"), theme::regular(13.0), theme::text_dim());
                     });
                 }
             }
@@ -3266,6 +3266,10 @@ fn settings_tempo(app: &mut App, ui: &mut Ui) {
             divider(ui);
             setting_row_wide(ui, tr!("settings-speed"), None, SLIDER_W, |ui| {
                 step_slider(ui, &mut app.speed, (MIN_SPEED, MAX_SPEED, 0.05), Some(1.0), times, tr!("settings-speed"));
+            });
+            divider(ui);
+            setting_row(ui, tr!("settings-keep-pitch"), Some(tr!("settings-keep-pitch-desc")), |ui| {
+                toggle(ui, &mut app.keep_pitch, tr!("settings-keep-pitch"));
             });
         });
     });
@@ -3512,7 +3516,7 @@ pub(super) fn settings_section(ui: &mut Ui, title: &str, value: Option<&str>, no
     if !filtering() {
         section_label(ui, title, value);
         if let Some(n) = note {
-            ui.label(RichText::new(n).font(theme::regular(13.0)).color(theme::text_dim()));
+            widgets::note(ui, n, theme::regular(13.0), theme::text_dim());
             ui.add_space(12.0);
         }
         settings_card(ui, body);
@@ -3551,22 +3555,34 @@ pub(super) fn setting_row_wide(ui: &mut Ui, title: &str, desc: Option<&str>, con
         return;
     }
     let w = ui.available_width();
+    // A control wider than its room (a long button label, in some languages) takes
+    // more, as wide as it was last frame, so the text never runs under it.
+    let drawn = ui.scope_id().with(("setting-control", title));
+    let control_w = control_w.max(ui.data(|d| d.get_temp::<f32>(drawn)).unwrap_or(0.0));
     let text_w = (w - control_w - 20.0).max(200.0);
-    let title_g = widgets::galley(ui, title, theme::semibold(14.5), theme::text(), text_w);
+    let base = widgets::ui_base();
+    let title_g = widgets::galley_based(ui, title, theme::semibold(14.5), theme::text(), text_w, base);
     // Up to three lines, and as many again for each line the description starts itself.
-    let desc_g = desc.map(|d| widgets::galley_wrapped(ui, d, theme::regular(12.5), theme::text_dim(), text_w, 3 * (1 + d.matches('\n').count())));
+    let desc_g = desc.map(|d| widgets::galley_wrapped_based(ui, d, theme::regular(12.5), theme::text_dim(), text_w, 3 * (1 + d.matches('\n').count()), base));
     let text_h = title_g.size().y + desc_g.as_ref().map_or(0.0, |g| g.size().y + 3.0);
     let h = (text_h + 26.0).max(58.0);
     let (rect, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
     let fade = if ui.is_enabled() { 1.0 } else { 0.45 };
     let top = rect.center().y - text_h / 2.0;
-    ui.painter().galley(pos2(rect.left(), top), title_g.clone(), theme::with_alpha(theme::text(), fade));
+    // In a right-to-left language, the text starts at the right of its column.
+    let x = |g: &egui::Galley| if base.is_some() { rect.left() + text_w - g.size().x } else { rect.left() };
+    ui.painter().galley(pos2(x(&title_g), top), title_g.clone(), theme::with_alpha(theme::text(), fade));
     if let Some(g) = desc_g {
-        ui.painter().galley(pos2(rect.left(), top + title_g.size().y + 3.0), g, theme::with_alpha(theme::text_dim(), fade));
+        ui.painter().galley(pos2(x(&g), top + title_g.size().y + 3.0), g, theme::with_alpha(theme::text_dim(), fade));
     }
     let ctl = Rect::from_min_max(pos2(rect.left() + text_w + 20.0, rect.top()), rect.max);
     let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(ctl).layout(egui::Layout::right_to_left(egui::Align::Center)));
     control(&mut cui);
+    let used = cui.min_rect().width();
+    if used > control_w + 0.5 {
+        ui.data_mut(|d| d.insert_temp(drawn, used));
+        ui.ctx().request_repaint();
+    }
 }
 
 pub(super) fn divider(ui: &mut Ui) {

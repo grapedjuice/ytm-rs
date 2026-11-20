@@ -637,21 +637,23 @@ fn fullbleed_fade(ui: &Ui, id: &str, thumbs: &[crate::model::Thumb], now: f64, d
 fn fullscreen_progress(app: &mut App, ui: &mut Ui, screen: Rect, px: f32) {
     let status = app.audio.status.clone();
     let total = status.duration().map_or(0.0, |d| d.as_secs_f32());
-    let pos = status.position_smooth().as_secs_f32().min(total.max(0.0));
+    let pos = app.seek_drag.unwrap_or(status.position_smooth().as_secs_f32()).min(total.max(0.0));
     let r = Rect::from_min_max(pos2(screen.left(), screen.bottom() - px), screen.max);
     let resp = ui.interact(r, ui.scope_id().with("full-seek"), Sense::click());
     let resp = named(resp, "Seek").on_hover_cursor(egui::CursorIcon::PointingHand);
+    app.seek_wheel.hover(&resp);
     let bar_r = app.look().now_playing.fullscreen_progress_radius;
     ui.painter().rect_filled(r, bar_r, theme::with_alpha(Color32::WHITE, 0.12));
     if total > 0.0 {
         let filled = Rect::from_min_size(r.min, vec2(r.width() * pos / total, r.height()));
         ui.painter().rect_filled(filled, bar_r, theme::with_alpha(Color32::WHITE, 0.32));
         let font = theme::semibold((px * 0.55).clamp(10.0, 14.0));
-        ui.painter().text(pos2(r.left() + 12.0, r.center().y), egui::Align2::LEFT_CENTER, super::fmt_time(pos as u32), font.clone(), Color32::WHITE);
-        ui.painter().text(pos2(r.right() - 12.0, r.center().y), egui::Align2::RIGHT_CENTER, super::fmt_time(total as u32), font, Color32::WHITE);
+        widgets::time_at(ui, pos2(r.left() + 12.0, r.center().y), egui::Align2::LEFT_CENTER, &super::fmt_time(pos as u32), font.clone(), Color32::WHITE);
+        widgets::time_at(ui, pos2(r.right() - 12.0, r.center().y), egui::Align2::RIGHT_CENTER, &super::fmt_end(pos, total, app.time_left), font, Color32::WHITE);
         if resp.clicked()
             && let Some(p) = resp.interact_pointer_pos()
         {
+            app.seek_drag = None;
             app.actions.push(Action::Seek(((p.x - r.left()) / r.width()).clamp(0.0, 1.0) * total));
         }
     }
@@ -861,8 +863,8 @@ fn cover_player(app: &mut App, ui: &mut Ui, track: &crate::model::Track, art: Re
     if times.1 > 0.0 {
         let font = theme::semibold(12.0 * s);
         let dim = theme::with_alpha(Color32::WHITE, 0.75);
-        ui.painter().text(pos2(seek_hit.left(), label_y), egui::Align2::LEFT_CENTER, super::fmt_time(times.0 as u32), font.clone(), dim);
-        ui.painter().text(pos2(seek_hit.right(), label_y), egui::Align2::RIGHT_CENTER, super::fmt_time(times.1 as u32), font, dim);
+        widgets::time_at(ui, pos2(seek_hit.left(), label_y), egui::Align2::LEFT_CENTER, &super::fmt_time(times.0 as u32), font.clone(), dim);
+        widgets::time_at(ui, pos2(seek_hit.right(), label_y), egui::Align2::RIGHT_CENTER, &super::fmt_end(times.0, times.1, app.time_left), font, dim);
     }
     // Taking over from the rising hairline once it's arrived, in the same place and size.
     if !morphing {
@@ -1095,23 +1097,25 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     if !player && np.cover_progress && near_cover {
         let status = app.audio.status.clone();
         let total = status.duration().map_or(0.0, |d| d.as_secs_f32());
-        let pos = status.position_smooth().as_secs_f32().min(total.max(0.0));
+        let pos = app.seek_drag.unwrap_or(status.position_smooth().as_secs_f32()).min(total.max(0.0));
         let cap = Rect::from_center_size(pos2(art.center().x, art.bottom() - 34.0), vec2((art.width() - 40.0).max(120.0), 34.0));
         if let Some(g) = look.app.glass.tabs {
             crate::shader::frost(ui.painter(), cap, crate::shader::Frost { look: g, radius: 17.0, opacity: 1.0, fade: 0.0 });
         }
         ui.painter().rect_filled(cap, 17.0, theme::shade(0.4));
         let font = theme::semibold(12.0);
-        ui.painter().text(cap.left_center() + vec2(14.0, 0.0), egui::Align2::LEFT_CENTER, super::fmt_time(pos as u32), font.clone(), Color32::WHITE);
-        ui.painter().text(cap.right_center() - vec2(14.0, 0.0), egui::Align2::RIGHT_CENTER, super::fmt_time(total as u32), font, Color32::WHITE);
+        widgets::time_at(ui, cap.left_center() + vec2(14.0, 0.0), egui::Align2::LEFT_CENTER, &super::fmt_time(pos as u32), font.clone(), Color32::WHITE);
+        widgets::time_at(ui, cap.right_center() - vec2(14.0, 0.0), egui::Align2::RIGHT_CENTER, &super::fmt_end(pos, total, app.time_left), font, Color32::WHITE);
         let line = Rect::from_center_size(cap.center(), vec2((cap.width() - 110.0).max(40.0), 4.0));
         let seek = named(ui.interact(line.expand2(vec2(0.0, 10.0)), ui.scope_id().with("cover-seek"), Sense::click()), "Seek").on_hover_cursor(egui::CursorIcon::PointingHand);
+        app.seek_wheel.hover(&seek);
         ui.painter().rect_filled(line, 2.0, theme::with_alpha(Color32::WHITE, 0.25));
         if total > 0.0 {
             ui.painter().rect_filled(Rect::from_min_size(line.min, vec2(line.width() * pos / total, 4.0)), 2.0, Color32::WHITE);
             if seek.clicked()
                 && let Some(p) = seek.interact_pointer_pos()
             {
+                app.seek_drag = None;
                 app.actions.push(Action::Seek(((p.x - line.left()) / line.width()).clamp(0.0, 1.0) * total));
             }
         }
@@ -1391,6 +1395,7 @@ fn seek_line(app: &mut App, ui: &mut Ui, hit: Rect, id: egui::Id, (pos, total): 
     let seek = ui.interact(hit, id, Sense::click_and_drag());
     let seek = if total > 0.0 { seek.on_hover_cursor(egui::CursorIcon::PointingHand) } else { seek };
     seek.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
+    app.seek_wheel.hover(&seek);
     let lit = theme::anim_bool(ui.ctx(), id.with("h"), seek.hovered() || seek.dragged(), 0.15);
     let thick = 3.0 + 2.0 * lit;
     let track_r = Rect::from_center_size(pos2(hit.center().x, line_y), vec2(hit.width(), thick));
@@ -1402,7 +1407,7 @@ fn seek_line(app: &mut App, ui: &mut Ui, hit: Rect, id: egui::Id, (pos, total): 
         ui.painter().circle_filled(pos2(filled.right(), line_y), 6.5 * lit, fill);
         if let Some(p) = seek.hover_pos() {
             let t = ((p.x - track_r.left()) / track_r.width()).clamp(0.0, 1.0) * total;
-            let g = widgets::galley(ui, &super::fmt_time(t as u32), theme::semibold(12.0), Color32::WHITE, 80.0);
+            let g = widgets::time_galley(ui, &super::fmt_time(t as u32), theme::semibold(12.0), Color32::WHITE);
             let tip = Rect::from_center_size(pos2(p.x, line_y - 22.0), g.size() + vec2(12.0, 6.0));
             ui.painter().rect_filled(tip, 6.0, theme::shade(0.75));
             ui.painter().galley(tip.min + vec2(6.0, 3.0), g, Color32::WHITE);
@@ -1522,8 +1527,12 @@ fn video_fullscreen(app: &mut App, ui: &mut Ui, rect: Rect, track: &crate::model
     super::shell::volume_slider(app, &mut left, slider, "video-full-vol");
     left.add_space(14.0);
     if total > 0.0 {
-        let time = format!("{} / {}", super::fmt_time(pos as u32), super::fmt_time(total as u32));
-        left.label(egui::RichText::new(time).font(theme::regular(13.5)).color(Color32::WHITE));
+        let g = widgets::time_galley(&left, &super::fmt_running(pos, total, app.time_left), theme::regular(13.5), Color32::WHITE);
+        // Room for the widest it gets (all the time left), so a second click doesn't land on
+        // the video (pause).
+        let w = widgets::time_galley(&left, &super::fmt_running(0.0, total, true), theme::regular(13.5), Color32::WHITE).size().x;
+        let (r, _) = left.allocate_exact_size(vec2(w, g.size().y), Sense::hover());
+        widgets::time_toggle(&left, r, r.min, g, [Color32::WHITE; 2], &mut app.time_left);
     }
     let mut right = ui.new_child(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::right_to_left(egui::Align::Center)));
     right.spacing_mut().item_spacing.x = 2.0;

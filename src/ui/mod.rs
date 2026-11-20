@@ -29,6 +29,7 @@ mod queue;
 mod ratings;
 mod responses;
 mod row_drag;
+mod seek_wheel;
 mod shell;
 mod shuffle;
 mod titlebar;
@@ -565,6 +566,8 @@ pub struct App {
     /// The last song ended with nothing after it: radio carries on from there.
     ended: bool,
     seek_drag: Option<f32>,
+    /// The mouse wheel over a seek bar: where it's seeking to until it rests.
+    seek_wheel: seek_wheel::SeekWheel,
 
     // visuals
     art_key: Option<String>,
@@ -589,6 +592,8 @@ pub struct App {
     dim_bright: bool,
     /// The progress line's knob shown all the time, not only on hover.
     seek_knob_always: bool,
+    /// The time left in place of the song's length beside a running time (click the time).
+    time_left: bool,
     /// Skip the parts of music videos SponsorBlock marks as not music.
     sponsorblock: bool,
     /// Crossfade between songs, and over how many seconds.
@@ -606,6 +611,8 @@ pub struct App {
     /// and the speed (not saved: 1× each launch).
     tempo_on: bool,
     speed: f32,
+    /// Speed changes the tempo only, not the pitch (saved; on unless switched off).
+    keep_pitch: bool,
     /// The next song starts because this one is ending: crossfade into it.
     handoff: bool,
     /// SponsorBlock segments for a video, and when one was last skipped.
@@ -990,6 +997,7 @@ impl App {
             radio_pending: false,
             ended: false,
             seek_drag: None,
+            seek_wheel: seek_wheel::SeekWheel::default(),
             art_key: None,
             art_changed: -10.0,
             art_brightness: 0.0,
@@ -1007,6 +1015,7 @@ impl App {
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
             dim_bright: get("dim_bright").is_none_or(|v| v == "1"),
             seek_knob_always: get("seek_knob_always").is_some_and(|v| v == "1"),
+            time_left: get("time_left").is_some_and(|v| v == "1"),
             sponsorblock: get("sponsorblock").is_some_and(|v| v == "1"),
             crossfade: get("crossfade").is_some_and(|v| v == "1"),
             handoff: false,
@@ -1022,6 +1031,7 @@ impl App {
             },
             tempo_on: get("tempo").is_some_and(|v| v == "1"),
             speed: 1.0,
+            keep_pitch: get("keep_pitch").is_none_or(|v| v == "1"),
             segments: None,
             segment_skipped: f64::NEG_INFINITY,
             hotkeys,
@@ -1190,8 +1200,11 @@ impl App {
         self.page_loaded();
     }
 
-    fn nav_back(&mut self) {
-        if self.np_open {
+    /// In full screen, back leaves it, as Esc does.
+    fn nav_back(&mut self, ctx: &egui::Context) {
+        if self.fullscreen {
+            self.set_fullscreen(ctx, false);
+        } else if self.np_open {
             self.np_open = false;
         } else if let Some(p) = self.back.pop() {
             self.forward.push(std::mem::replace(&mut self.page, p));
@@ -1539,6 +1552,7 @@ impl eframe::App for App {
             self.apply(a);
         }
         jam::tick(self);
+        self.seek_wheel_rest(ctx, now);
         jam::dev_script(self, ctx, now);
         self.dev_skip(ctx, now);
         if self.page_changed < 0.0 {
@@ -1657,10 +1671,23 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.shortcuts(&ctx);
+        // Full screen is now playing's: whatever closes it (L, a link to a page, the queue
+        // emptied under it) leaves full screen too, or the window would stay full screen
+        // with nothing in it (#239).
+        if self.fullscreen && !(self.np_open && self.current().is_some()) && dev_var("YTM_FAKE_FULLSCREEN").is_none() {
+            self.set_fullscreen(&ctx, false);
+        }
         self.rating_settings.share_unlike_settings(&ctx, self.backend.api().epoch());
         crate::shader::set_glass_on(self.glass_on);
         let now = ctx.input(|i| i.time);
         self.sync_ratings(&ctx, now);
+        // In the tray, or minimized: nothing would be seen, so nothing is drawn. eframe skips
+        // a minimized window itself, but not one hidden in the tray (it can't tell on Windows
+        // or X11), and would otherwise draw the whole window, background and glass included,
+        // for every frame the player asks for. The player's bookkeeping is all in `logic`.
+        if self.window_hidden {
+            return;
+        }
         let screen = ctx.content_rect();
 
         self.sync_look();
@@ -1973,6 +2000,8 @@ impl eframe::App for App {
                 log::info!("wheel t={:.3} {e:?}", raw.time.unwrap_or(0.0));
             }
         }
+        // Ahead of smooth scrolling: the wheel over a seek bar seeks rather than scrolls.
+        self.seek_by_wheel(ctx, &mut raw.events, raw.time.unwrap_or(0.0));
         let viewport_h = raw.screen_rect.map_or(800.0, |r| r.height());
         if self.wheel.filter(&mut raw.events, raw.time.unwrap_or(0.0), raw.predicted_dt, viewport_h) {
             ctx.request_repaint();
@@ -2092,6 +2121,7 @@ impl eframe::App for App {
         storage.set_string("reactive_bg", b(self.reactive_bg));
         storage.set_string("dim_bright", b(self.dim_bright));
         storage.set_string("seek_knob_always", b(self.seek_knob_always));
+        storage.set_string("time_left", b(self.time_left));
         storage.set_string("sponsorblock", b(self.sponsorblock));
         storage.set_string("crossfade", b(self.crossfade));
         storage.set_string("crossfade_secs", self.crossfade_secs.to_string());
@@ -2103,6 +2133,7 @@ impl eframe::App for App {
         storage.set_string("mono", b(self.stereo.mono));
         storage.set_string("balance", self.stereo.balance.to_string());
         storage.set_string("tempo", b(self.tempo_on));
+        storage.set_string("keep_pitch", b(self.keep_pitch));
         storage.set_string("show_roman", b(self.show_roman));
         storage.set_string("show_trans", b(self.show_trans));
         storage.set_string("quick_lyric_scroll", b(self.quick_lyric_scroll));
@@ -2308,6 +2339,54 @@ fn updatable() -> bool {
 
 pub fn fmt_time(secs: u32) -> String {
     format!("{}:{:02}", secs / 60, secs % 60)
+}
+
+/// The time still to go ("-0:51"), with `left` and a length to count down from. Whole
+/// seconds of both, so the time so far and the time left add up to the length; never
+/// past it.
+fn fmt_left(pos: f32, total: f32, left: bool) -> Option<String> {
+    (left && total > 0.0).then(|| format!("-{}", fmt_time((total as u32).saturating_sub(pos as u32))))
+}
+
+/// The right end of a time split along a seek bar: the song's length, or with `left` the
+/// time still to go ("0:36 ... -0:51").
+pub fn fmt_end(pos: f32, total: f32, left: bool) -> String {
+    fmt_left(pos, total, left).unwrap_or_else(|| fmt_time(total as u32))
+}
+
+/// A running time as one label: "0:36 / 1:27", or with `left` the time still to go of
+/// the length ("-0:51 / 1:27"), so one side runs and the other stays put either way.
+pub fn fmt_running(pos: f32, total: f32, left: bool) -> String {
+    format!("{} / {}", fmt_left(pos, total, left).unwrap_or_else(|| fmt_time(pos as u32)), fmt_time(total as u32))
+}
+
+#[cfg(test)]
+mod time_tests {
+    use super::{fmt_end, fmt_running};
+
+    #[test]
+    fn the_time_left_adds_up_to_the_length() {
+        assert_eq!(fmt_end(36.7, 87.9, false), "1:27");
+        assert_eq!(fmt_end(36.7, 87.9, true), "-0:51");
+        assert_eq!(fmt_end(0.0, 3725.0, true), "-62:05");
+        // At the very end, and a position a hair past it.
+        assert_eq!(fmt_end(87.9, 87.9, true), "-0:00");
+        assert_eq!(fmt_end(90.0, 87.9, true), "-0:00");
+        // A known length under a second is still one, with its time left.
+        assert_eq!(fmt_end(0.2, 0.9, true), "-0:00");
+        // No length (a live stream, or not known yet): nothing negative.
+        assert_eq!(fmt_end(12.0, 0.0, true), "0:00");
+        assert_eq!(fmt_end(f32::NAN, f32::NAN, true), "0:00");
+    }
+
+    #[test]
+    fn one_label_counts_down_its_left_side() {
+        assert_eq!(fmt_running(193.4, 236.2, false), "3:13 / 3:56");
+        assert_eq!(fmt_running(193.4, 236.2, true), "-0:43 / 3:56");
+        assert_eq!(fmt_running(240.0, 236.2, true), "-0:00 / 3:56");
+        // No length: the time so far, as before.
+        assert_eq!(fmt_running(12.0, 0.0, true), "0:12 / 0:00");
+    }
 }
 
 #[cfg(test)]

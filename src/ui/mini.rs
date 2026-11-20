@@ -1524,6 +1524,7 @@ fn card_seek(app: &mut App, ui: &mut Ui, line: Rect, track: Option<&crate::model
     let resp = ui.interact(line.expand2(vec2(4.0, 9.0)), ui.scope_id().with("card-seek"), Sense::click_and_drag());
     let resp = if total > 0.0 { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
     resp.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
+    app.seek_wheel.hover(&resp);
     let h = theme::anim_bool(ui.ctx(), "card-seek-h", total > 0.0 && (resp.hovered() || resp.dragged()), 0.15);
     let thick = 4.0 + 2.0 * h;
     let bar = Rect::from_center_size(line.center(), vec2(line.width(), thick));
@@ -1535,9 +1536,20 @@ fn card_seek(app: &mut App, ui: &mut Ui, line: Rect, track: Option<&crate::model
         ui.painter().circle_filled(pos2(fill.right(), bar.center().y), 6.0 * h, theme::text());
     }
     let font = theme::regular(11.0);
-    text_at(ui, pos2(bar.left(), bar.bottom() + 7.0), &fmt_time(pos as u32), font.clone(), theme::text_faint(), 60.0);
-    let g = widgets::galley(ui, &fmt_time(total as u32), font, theme::text_faint(), 60.0);
-    ui.painter().galley(pos2(bar.right() - g.size().x, bar.bottom() + 7.0), g, theme::text_faint());
+    widgets::time_at(ui, pos2(bar.left(), bar.bottom() + 7.0), egui::Align2::LEFT_TOP, &fmt_time(pos as u32), font.clone(), theme::text_faint());
+    let g = widgets::time_galley(ui, &super::fmt_end(pos, total, app.time_left), font.clone(), theme::text_faint());
+    let r = Rect::from_min_size(pos2(bar.right() - g.size().x, bar.bottom() + 7.0), g.size());
+    // With no length yet there's no time left to show: just the 0:00.
+    if total > 0.0 {
+        // As wide as it gets (all the time left), so a second click doesn't land on the card
+        // (a double click there opens the main window).
+        let w = widgets::time_galley(ui, &super::fmt_end(0.0, total, true), font, theme::text_faint()).size().x;
+        // Below the seek line's own hit, so a click just under its end still seeks.
+        let hit = Rect::from_min_max(pos2(bar.right() - w, r.top().max(resp.rect.bottom())), r.max);
+        widgets::time_toggle(ui, hit, r.min, g, [theme::text_faint(), theme::text()], &mut app.time_left);
+    } else {
+        ui.painter().galley(r.min, g, theme::text_faint());
+    }
     let at = |p: Pos2| ((p.x - bar.left()) / bar.width()).clamp(0.0, 1.0) * total;
     if total > 0.0
         && let Some(p) = resp.interact_pointer_pos()
@@ -1674,6 +1686,7 @@ fn seek_line(app: &mut App, ui: &mut Ui, r: Rect, track: Option<&crate::model::T
     let resp = ui.interact(hit, ui.scope_id().with("mini-seek"), Sense::click_and_drag());
     let resp = if total > 0.0 { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
     resp.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, "Seek"));
+    app.seek_wheel.hover(&resp);
     let h = theme::anim_bool(ui.ctx(), "mini-seek-h", total > 0.0 && (resp.hovered() || resp.dragged()), 0.15);
     let thick = 4.0 + 2.0 * h;
     let line = Rect::from_min_max(pos2(r.left(), r.bottom() - thick), r.max);
@@ -1684,8 +1697,9 @@ fn seek_line(app: &mut App, ui: &mut Ui, r: Rect, track: Option<&crate::model::T
     if h > 0.0
         && let Some(p) = resp.hover_pos().or(resp.interact_pointer_pos())
     {
-        let txt = format!("{} / {}", fmt_time(at(p) as u32), fmt_time(total as u32));
-        let g = widgets::galley(ui, &txt, theme::semibold(11.5), Color32::WHITE, 120.0);
+        // With the time left on, what would be left from there.
+        let txt = super::fmt_running(at(p), total, app.time_left);
+        let g = widgets::time_galley(ui, &txt, theme::semibold(11.5), Color32::WHITE);
         let half = g.size().x / 2.0 + 6.0;
         let x = p.x.clamp(r.left() + half + 2.0, r.right() - half - 2.0);
         let bg = Rect::from_center_size(pos2(x, line.top() - 13.0), g.size() + vec2(12.0, 5.0));

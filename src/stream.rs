@@ -144,7 +144,7 @@ pub struct Shared {
     pub segments: Option<Arc<[f64]>>,
     /// Flips to true once the download task has stopped (complete, failed or cancelled).
     done: tokio::sync::watch::Sender<bool>,
-    /// Wakes waiting workers: `limit` lifted, a reader moved or left, or cancelled.
+    /// Wakes waiting workers: `limit` lifted, a reader moved or left, or stopped.
     changed: tokio::sync::Notify,
 }
 
@@ -274,6 +274,23 @@ impl Shared {
         self.changed.notify_waiters();
     }
 
+    /// Interrupt all the workers, including requests and retries already in progress.
+    async fn stopped(&self) {
+        loop {
+            // Register before checking, so a stop between the check and await is seen.
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            {
+                let inner = self.inner.lock().unwrap();
+                if inner.cancelled || inner.error.is_some() {
+                    return;
+                }
+            }
+            changed.await;
+        }
+    }
+
     fn claim(&self) -> Claim {
         let mut inner = self.inner.lock().unwrap();
         if inner.cancelled || inner.error.is_some() {
@@ -324,6 +341,7 @@ impl Shared {
         inner.refused = refused;
         drop(inner);
         self.ready.notify_all();
+        self.changed.notify_waiters();
     }
 
     fn range(&self, idx: usize) -> (u64, u64) {
@@ -469,7 +487,24 @@ pub async fn download_behind(http: reqwest::Client, media: Media, ua: String, sh
             }
         });
     }
-    while set.join_next().await.is_some() {}
+    let stopped = shared.stopped();
+    tokio::pin!(stopped);
+    loop {
+        tokio::select! {
+            _ = &mut stopped => {
+                // Waiting for the workers to finish by themselves can keep a skipped
+                // song alive indefinitely (a server trickling data, a URL refresh).
+                // Drain them before reporting completion, releasing their buffers too.
+                set.shutdown().await;
+                break;
+            }
+            next = set.join_next() => {
+                if next.is_none() {
+                    break;
+                }
+            }
+        }
+    }
     shared.done.send_replace(true);
 }
 
@@ -753,6 +788,182 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use rodio::Source;
+
+    /// One response, with the socket kept open so an incomplete body really stalls.
+    async fn serve(response: &'static [u8]) -> (String, tokio::sync::oneshot::Receiver<()>, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/audio?test=1", listener.local_addr().unwrap());
+        let (started, waiting) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                let mut chunk = [0; 1024];
+                let n = socket.read(&mut chunk).await.unwrap();
+                assert!(n > 0, "connection closed before the request headers arrived");
+                request.extend_from_slice(&chunk[..n]);
+            }
+            socket.write_all(response).await.unwrap();
+            let _ = started.send(());
+            std::future::pending::<()>().await;
+        });
+        (url, waiting, server)
+    }
+
+    /// Skipping a song must release its buffer even if the server stops mid-block.
+    #[tokio::test]
+    async fn dropping_last_reader_stops_a_stalled_download() {
+        let (url, waiting, server) = serve(b"HTTP/1.1 200 OK\r\nContent-Length: 262144\r\n\r\nx").await;
+        let shared = super::Shared::new(super::FIRST + super::BLOCK, 0, None, false, false);
+        shared.put(0, bytes::Bytes::from(vec![0; super::FIRST as usize]));
+        let reader = super::StreamReader::new(shared.clone());
+        let weak = std::sync::Arc::downgrade(&shared);
+        let mut download = tokio::spawn(super::download(
+            reqwest::Client::builder().no_proxy().build().unwrap(),
+            super::Media::File(url), String::new(), shared.clone(), None,
+        ));
+        tokio::time::timeout(Duration::from_secs(5), waiting).await.unwrap().unwrap();
+        drop(reader);
+        drop(shared);
+        let stopped = tokio::time::timeout(Duration::from_secs(1), &mut download).await;
+        server.abort();
+        if stopped.is_err() {
+            download.abort();
+        }
+        stopped.expect("a skipped song kept its stalled download alive").unwrap();
+        assert!(weak.upgrade().is_none(), "the old song's buffer is still held");
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_prefetch_interrupts_url_refresh() {
+        use std::sync::Arc;
+
+        let (url, _, server) = serve(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n").await;
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let refresh: super::Refresh = Arc::new({
+            let entered = entered.clone();
+            move || {
+                entered.notify_one();
+                Box::pin(std::future::pending())
+            }
+        });
+        let shared = super::Shared::new(1, 0, None, false, true);
+        let weak = Arc::downgrade(&shared);
+        let mut download = tokio::spawn(super::download(
+            reqwest::Client::builder().no_proxy().build().unwrap(),
+            super::Media::File(url), String::new(), shared.clone(), Some(refresh),
+        ));
+        tokio::time::timeout(Duration::from_secs(5), entered.notified()).await.unwrap();
+        shared.cancel();
+        drop(shared);
+        let stopped = tokio::time::timeout(Duration::from_secs(1), &mut download).await;
+        server.abort();
+        if stopped.is_err() {
+            download.abort();
+        }
+        stopped.expect("a cancelled prefetch kept refreshing its URL").unwrap();
+        assert!(weak.upgrade().is_none(), "the prefetch buffer is still held");
+    }
+
+    #[tokio::test]
+    async fn cancelled_background_download_stops_waiting_for_playback() {
+        use std::sync::Arc;
+
+        let playing = super::Shared::new(1, 0, None, false, false);
+        let shared = super::Shared::new(1, 0, None, false, true);
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let ahead: super::Ahead = Arc::new({
+            let entered = entered.clone();
+            move || {
+                entered.notify_one();
+                Some(playing.clone())
+            }
+        });
+        let weak = Arc::downgrade(&shared);
+        let mut download = tokio::spawn(super::download_behind(
+            reqwest::Client::new(), super::Media::File(String::new()), String::new(),
+            shared.clone(), None, Some(ahead),
+        ));
+        tokio::time::timeout(Duration::from_secs(5), entered.notified()).await.unwrap();
+        shared.cancel();
+        drop(shared);
+        let stopped = tokio::time::timeout(Duration::from_secs(1), &mut download).await;
+        if stopped.is_err() {
+            download.abort();
+        }
+        stopped.expect("a cancelled download kept waiting for the playing song").unwrap();
+        assert!(weak.upgrade().is_none(), "the cancelled buffer is still held");
+    }
+
+    #[tokio::test]
+    async fn failure_stops_workers_waiting_on_the_prefetch_limit() {
+        let shared = super::Shared::new(super::FIRST + 2 * super::BLOCK, 0, None, false, true);
+        shared.put(0, bytes::Bytes::from_static(b"head"));
+        shared.put(1, bytes::Bytes::from_static(b"head"));
+        let mut download = tokio::spawn(super::download(
+            reqwest::Client::new(), super::Media::File(String::new()), String::new(), shared.clone(), None,
+        ));
+        // Poll the coordinator until it is waiting, then fail the buffer as a worker would.
+        assert!(tokio::time::timeout(Duration::from_millis(50), &mut download).await.is_err());
+        shared.fail("test download failed".into(), true);
+        tokio::time::timeout(Duration::from_secs(1), download).await.expect("workers slept through failure").unwrap();
+        shared.finished().await;
+        assert!(shared.refused());
+        assert_eq!(shared.error().as_deref(), Some("test download failed"));
+    }
+
+    #[tokio::test]
+    async fn stopping_before_download_starts_is_not_missed() {
+        let playing = super::Shared::new(1, 0, None, false, false);
+        let ahead: super::Ahead = std::sync::Arc::new(move || Some(playing.clone()));
+        for fail in [false, true] {
+            let shared = super::Shared::new(1, 0, None, false, true);
+            if fail {
+                shared.fail("test download failed".into(), false);
+            } else {
+                shared.cancel();
+            }
+            tokio::time::timeout(Duration::from_secs(1), super::download_behind(
+                reqwest::Client::new(), super::Media::File(String::new()), String::new(), shared.clone(), None, Some(ahead.clone()),
+            )).await.expect("a stop before registration was missed");
+            shared.finished().await;
+            assert_eq!(shared.error().is_some(), fail);
+        }
+    }
+
+    #[tokio::test]
+    async fn completed_download_can_be_read_again() {
+        let (url, _, server) = serve(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx").await;
+        let shared = super::Shared::new(1, 0, None, false, false);
+        tokio::time::timeout(Duration::from_secs(5), super::download(
+            reqwest::Client::builder().no_proxy().build().unwrap(),
+            super::Media::File(url), String::new(), shared.clone(), None,
+        )).await.expect("a successful download didn't finish");
+        server.abort();
+        assert!(shared.is_complete());
+        assert!(shared.error().is_none());
+        for _ in 0..2 {
+            assert_eq!(super::StreamReader::new(shared.clone()).block_at(0).unwrap(), b"x"[..]);
+        }
+    }
+
+    #[tokio::test]
+    async fn windowed_download_keeps_workers_until_last_reader_leaves() {
+        let shared = super::Shared::build(1, 1, true, 0, None, false, false, None, false);
+        let reader = super::StreamReader::new(shared.clone());
+        shared.put(0, bytes::Bytes::from_static(b"x"));
+        // Fetching every block once signals finished, but seeks may need evicted blocks again.
+        shared.finished().await;
+        let mut download = tokio::spawn(super::download(
+            reqwest::Client::new(), super::Media::File(String::new()), String::new(), shared.clone(), None,
+        ));
+        assert!(tokio::time::timeout(Duration::from_millis(50), &mut download).await.is_err());
+        drop(reader);
+        tokio::time::timeout(Duration::from_secs(1), download).await.expect("the windowed download stayed alive").unwrap();
+        assert!(shared.error().is_none());
+    }
 
     #[test]
     fn backup_offer_requires_both_a_bot_check_and_a_refused_stream() {

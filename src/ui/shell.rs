@@ -1002,6 +1002,9 @@ pub fn suggestions(app: &mut App, ctx: &egui::Context) {
                     }
                     if let Some((t, _)) = app.forgetting.take_if(|(_, at)| now - *at >= 0.18) {
                         app.suggestions.1.retain(|s| s.forget.as_deref() != Some(t.as_str()));
+                        // The rows below moved up: a pick made while it folded away would
+                        // now be another one, maybe a song where it was a search.
+                        app.suggest_sel = None;
                     }
                 });
         });

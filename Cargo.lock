@@ -7847,6 +7847,7 @@ dependencies = [
  "tao",
  "tar",
  "tokio",
+ "tokio-native-tls",
  "tokio-tungstenite",
  "tray-icon",
  "unicode-bidi",

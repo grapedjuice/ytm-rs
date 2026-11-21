@@ -24,6 +24,8 @@ use crate::model::Track;
 
 /// The relay. `YTM_JAM_SERVER` overrides it (e.g. `ws://127.0.0.1:8787` for `wrangler dev`).
 const SERVER: &str = "wss://ytm-rs-jam.grapedjuice.workers.dev";
+/// Starts after the direct or proxy connection has been established.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Room codes: no 0/O, 1/I/L, so they survive being read out loud.
 pub const ALPHABET: &str = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -381,13 +383,11 @@ impl Conn {
             let u = url::Url::parse(&url)?;
             let host = u.host_str().unwrap_or_default().to_owned();
             let port = u.port_or_known_default().unwrap_or(443);
-            let tcp = crate::proxy::connect(&host, port).await?;
-            anyhow::Ok(tokio_tungstenite::client_async_tls(url, tcp).await?)
+            connect_websocket(&url, crate::proxy::connect(&host, port), HANDSHAKE_TIMEOUT).await
         };
-        let ws = match tokio::time::timeout(Duration::from_secs(10), connect).await {
-            Ok(Ok((ws, _))) => ws,
-            Ok(Err(e)) => return End::Dropped(e.to_string()),
-            Err(_) => return End::Dropped("timed out".into()),
+        let ws = match connect.await {
+            Ok(ws) => ws,
+            Err(e) => return End::Dropped(e.to_string()),
         };
         let (mut tx, mut rx) = ws.split();
         let mut keepalive = tokio::time::interval(Duration::from_secs(25));
@@ -501,6 +501,21 @@ impl Conn {
     }
 }
 
+async fn connect_websocket<S>(
+    url: &str,
+    connect: impl Future<Output = anyhow::Result<S>>,
+    deadline: Duration,
+) -> anyhow::Result<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<S>>>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    // The transport owns its establishment deadline; only start the TLS/WebSocket
+    // timer once it is ready, so a slow proxy doesn't use the handshake's budget.
+    let socket = connect.await?;
+    let (ws, _) = tokio::time::timeout(deadline, tokio_tungstenite::client_async_tls(url, socket)).await.map_err(|_| anyhow::anyhow!("the Jam WebSocket handshake timed out"))??;
+    Ok(ws)
+}
+
 fn url_encode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
@@ -513,6 +528,39 @@ fn url_encode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn slow_connection_does_not_consume_the_websocket_handshake_budget() {
+        let deadline = Duration::from_millis(250);
+        let (socket, peer) = tokio::io::duplex(16 * 1024);
+        let connect = async {
+            tokio::time::sleep(2 * deadline).await;
+            anyhow::Ok(socket)
+        };
+        let client = connect_websocket("ws://localhost/jam/ABC234", connect, deadline);
+        let server = tokio_tungstenite::accept_async(peer);
+        let (client, server) = tokio::join!(client, server);
+        assert!(client.is_ok(), "slow transport must leave a full handshake budget: {client:?}");
+        assert!(server.is_ok());
+    }
+
+    #[tokio::test]
+    async fn stalled_target_tls_and_websocket_handshakes_report_their_phase() {
+        for url in ["ws://localhost/jam/ABC234", "wss://localhost/jam/ABC234"] {
+            let (socket, _peer) = tokio::io::duplex(16 * 1024);
+            let error = connect_websocket(url, std::future::ready(Ok(socket)), Duration::from_millis(100)).await.unwrap_err();
+            assert_eq!(error.to_string(), "the Jam WebSocket handshake timed out");
+        }
+    }
+
+    #[tokio::test]
+    async fn transport_errors_reach_jam_without_being_replaced_by_a_handshake_timeout() {
+        for message in ["the connection timed out", "proxy refused the connection: HTTP/1.1 407 Proxy Authentication Required"] {
+            let connect = std::future::ready(Err::<tokio::io::DuplexStream, _>(anyhow::anyhow!(message)));
+            let error = connect_websocket("ws://localhost/jam/ABC234", connect, Duration::ZERO).await.unwrap_err();
+            assert_eq!(error.to_string(), message);
+        }
+    }
 
     #[test]
     fn codes() {

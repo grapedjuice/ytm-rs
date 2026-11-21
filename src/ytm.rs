@@ -1411,10 +1411,21 @@ pub async fn history(api: &Api) -> anyhow::Result<Vec<Track>> {
 
 /// Songs the account uploaded (Library > Uploads on music.youtube.com).
 pub async fn uploads(api: &Api) -> anyhow::Result<Vec<Track>> {
-    let v = api.call_signed_in("browse", json!({ "browseId": format!("{UPLOADS}tracks") })).await?;
+    shelf_songs(api, &format!("{UPLOADS}tracks"), 20).await
+}
+
+/// The songs in the account's library (Library › Songs on music.youtube.com): those saved
+/// to it, and the songs of albums saved, as well as liked ones. Up to 200 pages (~5000).
+pub async fn library_songs(api: &Api) -> anyhow::Result<Vec<Track>> {
+    shelf_songs(api, "FEmusic_liked_videos", 200).await
+}
+
+/// A library page's songs shelf, all of it up to `pages` pages more.
+async fn shelf_songs(api: &Api, browse_id: &str, pages: usize) -> anyhow::Result<Vec<Track>> {
+    let v = api.call_signed_in("browse", json!({ "browseId": browse_id })).await?;
     let Some(shelf) = upload_shelf(&v) else { return Ok(Vec::new()) };
     let mut tracks = upload_rows(shelf);
-    tracks.extend(more_uploads(api, continuation(shelf)).await?);
+    tracks.extend(more_uploads(api, continuation(shelf), pages).await?);
     Ok(tracks)
 }
 
@@ -1424,7 +1435,7 @@ async fn upload_album(api: &Api, id: &str) -> anyhow::Result<Collection> {
     let v = api.call_signed_in("browse", json!({ "browseId": id })).await?;
     let (mut a, token) = parse_upload_album(&v, id).ok_or_else(|| anyhow::anyhow!("YouTube Music returned an empty album"))?;
     let link = Link { name: a.title.clone(), id: Some(id.to_owned()) };
-    for t in more_uploads(api, token).await? {
+    for t in more_uploads(api, token, 20).await? {
         let t = album_song(t, &a.thumbs, &a.artists, &link);
         a.tracks.push(t);
     }
@@ -1435,14 +1446,14 @@ async fn upload_album(api: &Api, id: &str) -> anyhow::Result<Collection> {
 async fn upload_artist(api: &Api, id: &str) -> anyhow::Result<ArtistPage> {
     let v = api.call_signed_in("browse", json!({ "browseId": id })).await?;
     let (mut page, token) = parse_upload_artist(&v, id).ok_or_else(|| anyhow::anyhow!("YouTube Music returned an empty artist page"))?;
-    page.top.extend(more_uploads(api, token).await?);
+    page.top.extend(more_uploads(api, token, 20).await?);
     Ok(page)
 }
 
-/// The songs after `token` on a page of your uploads, up to 20 pages more.
-async fn more_uploads(api: &Api, mut token: Option<String>) -> anyhow::Result<Vec<Track>> {
+/// The songs after `token` on a page of your library or uploads, up to `pages` pages more.
+async fn more_uploads(api: &Api, mut token: Option<String>, pages: usize) -> anyhow::Result<Vec<Track>> {
     let mut tracks = Vec::new();
-    for _ in 0..20 {
+    for _ in 0..pages {
         let Some(t) = token.take() else { break };
         let v = api.call_signed_in("browse", json!({ "continuation": t })).await?;
         let more = &v["continuationContents"]["musicShelfContinuation"];
@@ -2512,6 +2523,20 @@ mod tests {
         assert_eq!(ids, [("Ada", None), ("Ada Records", Some("900")), ("Ada Live", Some("901"))]);
         assert_eq!(list[0].handle.as_deref(), Some("@ada"));
         assert!(list.iter().all(|c| c.has_channel));
+    }
+
+    /// Library › Songs of the signed-in account, all pages of it.
+    /// `YTM_DATA_DIR=<profile> cargo test --release -- --ignored library_songs_live --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn library_songs_live() {
+        let api = Api::new(&std::path::PathBuf::from(std::env::var("YTM_DATA_DIR").unwrap()));
+        let songs = library_songs(&api).await.unwrap();
+        println!("{} songs", songs.len());
+        for t in songs.iter().take(5) {
+            println!("{} {} — {}", t.id, t.title, t.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", "));
+        }
+        assert!(!songs.is_empty() && songs.iter().all(|t| !t.id.is_empty()));
     }
 
     /// The signed-in account's channels, as Settings lists them.

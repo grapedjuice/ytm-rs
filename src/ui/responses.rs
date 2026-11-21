@@ -304,6 +304,10 @@ impl App {
                 self.history = Some(h);
                 self.loading = false;
             }
+            Resp::LibrarySongs(t) => {
+                self.library_songs = Some(t);
+                self.loading = false;
+            }
             Resp::UploadDeleted(t) => {
                 self.uploads = Some(t);
                 self.toast(crate::tr!("status-upload-deleted"));
@@ -856,6 +860,7 @@ impl App {
         self.sidebar_cache = None;
         self.library = None;
         self.history = None;
+        self.library_songs = None;
         self.uploads = None;
         self.scoped.clear();
         // Whether it's subscribed is this account's (or channel's) to say.

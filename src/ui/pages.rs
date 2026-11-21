@@ -333,6 +333,7 @@ fn sort_options(page: &Page) -> Vec<(Sort, &'static str)> {
         Page::Playlist(_) => (crate::tr!("ui-custom-order"), false),
         Page::Library(LibTab::Songs) => (crate::tr!("ui-recently-liked"), true),
         Page::Library(LibTab::History) => (crate::tr!("ui-recently-played"), true),
+        Page::Library(LibTab::AllSongs) => (crate::tr!("ui-recently-added"), true),
         Page::Library(LibTab::Uploads) => (crate::tr!("ui-recently-added"), true),
         Page::Library(LibTab::Downloads) => (crate::tr!("ui-newest-first"), true),
         Page::Library(LibTab::Playlists | LibTab::Albums | LibTab::Artists | LibTab::Podcasts) => return vec![(Sort::Default, crate::tr!("ui-recent")), (Sort::Title, "A–Z"), (Sort::TitleDesc, "Z–A")],
@@ -412,6 +413,7 @@ fn selectable<'a>(app: &'a App, page: &Page) -> Option<(&'a [Track], bool)> {
         }
         Page::Library(LibTab::Songs) => app.opened(super::LIKED_MUSIC).map(|o| (o.c.tracks.as_slice(), false)),
         Page::Library(LibTab::History) => app.history.as_deref().map(|h| (h, false)),
+        Page::Library(LibTab::AllSongs) => app.library_songs.as_deref().map(|s| (s, false)),
         Page::Library(LibTab::Uploads) => app.uploads.as_deref().map(|u| (u, false)),
         Page::Library(LibTab::Downloads) => app.downloads.as_deref().map(|d| (d, false)),
         _ => None,
@@ -1352,6 +1354,29 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
             ui.add_space(8.0);
             list(ui, &rows, &app.liked, h, true, plain, ListCtx { sel: &mut app.selection, find: &app.find, drag: &mut app.row_drag, movable: false, page: &app.page, own: false }, &mut app.actions);
         }
+        LibTab::AllSongs => {
+            let Some(songs) = &app.library_songs else {
+                placeholder(app, ui, now, 1, 48.0);
+                return;
+            };
+            if songs.is_empty() {
+                ui.add_space(20.0);
+                ui.label(RichText::new(crate::tr!("nav-empty")).color(theme::text_dim()));
+                return;
+            }
+            ui.horizontal(|ui| {
+                if pill(ui, crate::tr!("ui-play"), Some(icon::PLAY), true).clicked() {
+                    app.actions.push(play_all(&app.find, &app.page, songs));
+                }
+                if pill(ui, crate::tr!("ui-shuffle"), Some(icon::SHUFFLE), false).clicked() {
+                    app.actions.push(Action::Shuffle(songs.clone()));
+                }
+                select_pill(ui, &mut app.selection, &app.page);
+                find_box_right(ui, &mut app.find, &mut app.selection, &app.page, songs);
+            });
+            ui.add_space(10.0);
+            list(ui, &rows, &app.liked, songs, true, plain, ListCtx { sel: &mut app.selection, find: &app.find, drag: &mut app.row_drag, movable: false, page: &app.page, own: false }, &mut app.actions);
+        }
         LibTab::Uploads => {
             ui.horizontal(|ui| {
                 if pill(ui, crate::tr!("nav-upload-music"), Some(icon::UPLOAD), true).clicked() {
@@ -1469,7 +1494,7 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
                 LibTab::Albums => &lib.albums,
                 LibTab::Artists => &lib.artists,
                 LibTab::Podcasts => &lib.podcasts,
-                LibTab::Songs | LibTab::History | LibTab::Uploads | LibTab::Downloads => unreachable!(),
+                LibTab::Songs | LibTab::AllSongs | LibTab::History | LibTab::Uploads | LibTab::Downloads => unreachable!(),
             };
             let page = &app.page;
             ui.horizontal(|ui| {

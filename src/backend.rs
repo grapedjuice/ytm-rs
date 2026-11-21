@@ -50,6 +50,8 @@ pub enum Req {
     Playlist { id: String, load: u64, stream: bool },
     Library,
     History,
+    /// Library › Songs: the songs in the account's library.
+    LibrarySongs,
     /// Songs the account uploaded to YouTube Music.
     Uploads,
     /// The signed-in account's name and photo.
@@ -152,6 +154,7 @@ impl Req {
             Req::Playlist { .. } => crate::tr!("transfer-playlist"),
             Req::Library => crate::tr!("nav-library"),
             Req::History => crate::tr!("nav-history"),
+            Req::LibrarySongs => crate::tr!("nav-songs"),
             Req::Uploads => crate::tr!("nav-uploads"),
             Req::Account => crate::tr!("settings-account"),
             Req::Channels => crate::tr!("settings-channel"),
@@ -391,6 +394,7 @@ pub enum Resp {
     Artist(ArtistPage),
     Library(Library),
     History(Vec<Track>),
+    LibrarySongs(Vec<Track>),
     Uploads(Vec<Track>),
     /// An upload was deleted: the uploads as they are now.
     UploadDeleted(Vec<Track>),
@@ -468,6 +472,7 @@ impl Resp {
                 | Resp::SearchIn(_)
                 | Resp::Library(_)
                 | Resp::History(_)
+                | Resp::LibrarySongs(_)
                 | Resp::Uploads(_)
                 | Resp::Account { .. }
                 | Resp::Channels(_)
@@ -1136,6 +1141,7 @@ impl Backend {
                 Req::Artist(id) => Resp::Artist(ytm::artist(api, &id, me).await?),
                 Req::Library => self.library().await?,
                 Req::History => Resp::History(ytm::history(api).await?),
+                Req::LibrarySongs => Resp::LibrarySongs(ytm::library_songs(api).await?),
                 Req::Uploads => Resp::Uploads(ytm::uploads(api).await?),
                 Req::Account => {
                     let (name, photo) = ytm::account(api).await?;

@@ -88,7 +88,10 @@ pub enum Page {
 #[derive(Clone, Copy, PartialEq, Hash, Debug)]
 pub enum LibTab {
     Playlists,
+    /// Liked Music.
     Songs,
+    /// The songs in the library, liked or not (music.youtube.com's Library › Songs).
+    AllSongs,
     Albums,
     /// Subscribed artists.
     Artists,
@@ -101,8 +104,8 @@ pub enum LibTab {
 }
 
 impl LibTab {
-    pub(super) const ALL: [Self; 8] = [
-        Self::Playlists, Self::Songs, Self::Albums, Self::Artists,
+    pub(super) const ALL: [Self; 9] = [
+        Self::Playlists, Self::Songs, Self::AllSongs, Self::Albums, Self::Artists,
         Self::Podcasts, Self::History, Self::Uploads, Self::Downloads,
     ];
 
@@ -110,6 +113,7 @@ impl LibTab {
         match self {
             Self::Playlists => crate::tr!("nav-playlists"),
             Self::Songs => crate::tr!("nav-liked-songs"),
+            Self::AllSongs => crate::tr!("nav-songs"),
             Self::Albums => crate::tr!("nav-albums"),
             Self::Artists => crate::tr!("nav-artists"),
             Self::Podcasts => crate::tr!("nav-podcasts"),
@@ -133,11 +137,12 @@ pub use mini::{init_pill, set_hwnd as set_mini_hwnd};
 
 /// Settings › General › Window › Open on: the pages the app can start on, as saved and
 /// as listed.
-pub(super) const START_PAGES: [(&str, Page); 10] = [
+pub(super) const START_PAGES: [(&str, Page); 11] = [
     ("home", Page::Home),
     ("explore", Page::Explore),
     ("library", Page::Library(LibTab::Playlists)),
     ("liked", Page::Library(LibTab::Songs)),
+    ("songs", Page::Library(LibTab::AllSongs)),
     ("albums", Page::Library(LibTab::Albums)),
     ("artists", Page::Library(LibTab::Artists)),
     ("podcasts", Page::Library(LibTab::Podcasts)),
@@ -495,6 +500,8 @@ pub struct App {
     /// When the library was last requested; the sidebar spinner gives up after a while.
     library_requested: std::time::Instant,
     history: Option<Vec<Track>>,
+    /// Library › Songs.
+    library_songs: Option<Vec<Track>>,
     uploads: Option<Vec<Track>>,
     /// Library › Downloads, read from the download index when the tab opens.
     downloads: Option<Vec<Track>>,
@@ -933,6 +940,7 @@ impl App {
             library: None,
             library_requested: std::time::Instant::now(),
             history: None,
+            library_songs: None,
             uploads: None,
             downloads: None,
             downloads_seen: 0,
@@ -1171,6 +1179,7 @@ impl App {
             Ok("artists") => app.go(Page::Library(LibTab::Artists)),
             Ok("uploads") => app.go(Page::Library(LibTab::Uploads)),
             Ok("liked") => app.go(Page::Library(LibTab::Songs)),
+            Ok("songs") => app.go(Page::Library(LibTab::AllSongs)),
             Ok("history") => app.go(Page::Library(LibTab::History)),
             Ok("downloads") => app.go(Page::Library(LibTab::Downloads)),
             Ok("settings") => app.go(Page::Settings),
@@ -1332,6 +1341,7 @@ impl App {
             }
             Page::Artist(id) => Some(Req::Artist(id.clone())),
             Page::Library(LibTab::History) if self.logged_in => Some(Req::History),
+            Page::Library(LibTab::AllSongs) if self.logged_in => Some(Req::LibrarySongs),
             Page::Library(LibTab::Uploads) if self.logged_in => Some(Req::Uploads),
             Page::Library(LibTab::Songs) => {
                 if self.logged_in {
@@ -1356,6 +1366,7 @@ impl App {
             Page::Album(id) | Page::Playlist(id) => self.opened(id).is_some(),
             Page::Artist(id) => self.artist.as_ref().is_some_and(|a| &a.id == id),
             Page::Library(LibTab::History) => self.history.is_some(),
+            Page::Library(LibTab::AllSongs) => self.library_songs.is_some(),
             Page::Library(LibTab::Uploads) => self.uploads.is_some(),
             Page::Library(LibTab::Songs) => self.opened(LIKED_MUSIC).is_some(),
             Page::Library(LibTab::Downloads) => true,

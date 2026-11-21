@@ -263,11 +263,10 @@ impl App {
         if self.scrobble.is_none_or(|(g, _)| g != self.generation) {
             self.scrobble = Some((self.generation, false));
             if lastfm {
-                let (http, p) = (http.clone(), play.clone());
-                self.backend.spawn(async move { crate::lastfm::now_playing(&http, &p).await });
+                self.backend.spawn(crate::lastfm::now_playing(&http, &play));
             }
             if listenbrainz {
-                self.backend.spawn(async move { crate::listenbrainz::now_playing(&http, &listen).await });
+                self.backend.spawn(crate::listenbrainz::now_playing(&http, &listen));
             }
             return;
         }

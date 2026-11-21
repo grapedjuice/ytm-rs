@@ -25,6 +25,7 @@ mod jam;
 mod innertube;
 mod jsc;
 mod lastfm;
+mod scrobble_store;
 mod login;
 mod listenbrainz;
 mod locale;

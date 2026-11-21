@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
+use crate::scrobble_store::{Credentials, QueueFile, Vault};
+
 use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -43,21 +45,38 @@ struct State {
     session: Option<Arc<Session>>,
     data_dir: PathBuf,
     queue: Vec<Scrobble>,
+    credentials: Arc<dyn Credentials>,
 }
 
-static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| Mutex::new(State { session: None, data_dir: PathBuf::new(), queue: Vec::new() }));
+static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| Mutex::new(State { session: None, data_dir: PathBuf::new(), queue: Vec::new(), credentials: Arc::new(Vault) }));
 /// One send at a time, so a queued scrobble never goes out twice.
 static SENDING: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(Default::default);
 
 /// Load the saved session and any scrobbles still waiting to be sent.
 pub fn init(data_dir: &Path) {
-    let session = crate::vault::get(VAULT, data_dir).and_then(|b| {
+    *STATE.lock().unwrap() = load_state(data_dir, Arc::new(Vault));
+}
+
+fn load_state(data_dir: &Path, credentials: Arc<dyn Credentials>) -> State {
+    let mut session = credentials.get(VAULT, data_dir).and_then(|b| {
         let s = String::from_utf8(b).ok()?;
         let (name, key) = s.split_once('\n')?;
+        if name.trim().is_empty() || key.trim().is_empty() {
+            return None;
+        }
         Some(Arc::new(Session { name: name.to_owned(), key: key.to_owned() }))
     });
-    let queue = std::fs::read(data_dir.join("lastfm_queue.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-    *STATE.lock().unwrap() = State { session, data_dir: data_dir.to_owned(), queue };
+    let queue = match QueueFile(data_dir.join("lastfm_queue.json")).restore(session.as_ref().map(|s| s.name.as_str())) {
+        Ok(queue) => queue,
+        Err(e) => {
+            // An unread queue must not be overwritten by an empty active state.
+            // Keep credentials and disk data intact for a guarded login or restart.
+            log::warn!("lastfm: couldn't restore queued plays; session inactive: {e:#}");
+            session = None;
+            Vec::new()
+        }
+    };
+    State { session, data_dir: data_dir.to_owned(), queue, credentials }
 }
 
 /// The signed-in Last.fm user.
@@ -70,19 +89,22 @@ pub fn sign_out() {
 }
 
 fn disconnect(st: &mut State) {
-    st.session = None;
     st.queue.clear();
-    save_queue(st);
-    crate::vault::delete(VAULT, &st.data_dir);
+    persist_queue(st);
+    st.session = None;
+    st.credentials.delete(VAULT, &st.data_dir);
 }
 
 fn keep_session(st: &mut State, session: Session) -> anyhow::Result<()> {
-    crate::vault::set(VAULT, &st.data_dir, format!("{}\n{}", session.name, session.key).as_bytes())?;
-    // Pending scrobbles belong to the session being replaced.
+    anyhow::ensure!(!session.name.trim().is_empty() && !session.key.trim().is_empty(), "last.fm: incomplete session");
+    // Bind any legacy backlog before changing the saved credentials. If preserving
+    // an unknown queue fails, leave the current account and credentials unchanged.
     if st.session.is_some() {
-        st.queue.clear();
-        save_queue(st);
+        save_queue(st)?;
     }
+    let queue = QueueFile(st.data_dir.join("lastfm_queue.json")).prepare(&session.name)?;
+    st.credentials.set(VAULT, &st.data_dir, format!("{}\n{}", session.name, session.key).as_bytes())?;
+    st.queue = queue;
     st.session = Some(Arc::new(session));
     Ok(())
 }
@@ -116,8 +138,27 @@ pub async fn sign_in(http: &reqwest::Client) -> anyhow::Result<String> {
     }
 }
 
-pub async fn now_playing(http: &reqwest::Client, s: &Scrobble) {
-    let Some(sk) = session_key() else { return };
+pub fn now_playing(http: &reqwest::Client, s: &Scrobble) -> impl Future<Output = ()> + Send + 'static {
+    let (http, s) = (http.clone(), s.clone());
+    now_playing_with(&STATE, move |session| async move { send_now_playing(&http, &s, &session).await })
+}
+
+fn now_playing_with<F: Future<Output = anyhow::Result<()>> + Send>(state: &Mutex<State>, send: impl FnOnce(Arc<Session>) -> F + Send) -> impl Future<Output = ()> + Send {
+    let session = state.lock().unwrap().session.clone();
+    async move {
+        let Some(session) = session else { return };
+        if !is_current(&state.lock().unwrap(), &session) {
+            log::debug!("last.fm: skipping now playing from a replaced session");
+            return;
+        }
+        match send(session).await {
+            Ok(()) => log::debug!("last.fm: now playing sent"),
+            Err(e) => log::warn!("last.fm: now playing failed: {e:#}"),
+        }
+    }
+}
+
+async fn send_now_playing(http: &reqwest::Client, s: &Scrobble, session: &Session) -> anyhow::Result<()> {
     let duration = s.duration.map(|d| d.to_string());
     let mut params = vec![("artist", s.artist.as_str()), ("track", s.track.as_str())];
     if let Some(album) = &s.album {
@@ -126,10 +167,7 @@ pub async fn now_playing(http: &reqwest::Client, s: &Scrobble) {
     if let Some(d) = &duration {
         params.push(("duration", d));
     }
-    match call(http, "track.updateNowPlaying", &params, Some(&sk), true).await {
-        Ok(_) => log::debug!("last.fm: now playing {} - {}", s.artist, s.track),
-        Err(e) => log::warn!("last.fm: now playing failed: {e:#}"),
-    }
+    call(http, "track.updateNowPlaying", &params, Some(&session.key), true).await.map(|_| ())
 }
 
 /// Scrobble `s`, along with any earlier ones still waiting.
@@ -151,18 +189,27 @@ fn scrobble_with<F: Future<Output = anyhow::Result<Value>> + Send>(
     let session = state.lock().unwrap().session.clone();
     async move {
         let Some(session) = session else { return };
-        let _sending = sending.lock().await;
         {
             let mut st = state.lock().unwrap();
             if !is_current(&st, &session) {
+                log::debug!("last.fm: ignoring work from a replaced session");
                 return;
             }
             st.queue.push(s);
+            if !persist_queue(&st) {
+                return;
+            }
         }
+        // Persist even while another request owns the transport lock.
+        let _sending = sending.lock().await;
         loop {
             let batch: Vec<Scrobble> = {
                 let st = state.lock().unwrap();
                 if !is_current(&st, &session) {
+                    log::debug!("last.fm: skipping queued work from a replaced session");
+                    return;
+                }
+                if !st.queue.is_empty() && !persist_queue(&st) {
                     return;
                 }
                 st.queue.iter().take(BATCH).cloned().collect()
@@ -175,6 +222,7 @@ fn scrobble_with<F: Future<Output = anyhow::Result<Value>> + Send>(
             let mut st = state.lock().unwrap();
             // Check and apply the result under one lock, including revoked keys.
             if !is_current(&st, &session) {
+                log::debug!("last.fm: ignoring a response from a replaced session");
                 return;
             }
             match result {
@@ -182,7 +230,9 @@ fn scrobble_with<F: Future<Output = anyhow::Result<Value>> + Send>(
                     let accepted = v["scrobbles"]["@attr"]["accepted"].as_u64().unwrap_or(0);
                     log::info!("last.fm: scrobbled {accepted} of {count}");
                     st.queue.drain(..count);
-                    save_queue(&st);
+                    if !persist_queue(&st) {
+                        return;
+                    }
                 }
                 // 9: the session was revoked on last.fm.
                 Err(e) if code(&e) == Some(9) => {
@@ -193,7 +243,7 @@ fn scrobble_with<F: Future<Output = anyhow::Result<Value>> + Send>(
                 // Offline or Last.fm trouble (11, 16, 29): keep them for next time.
                 Err(e) => {
                     log::warn!("last.fm: scrobble failed, keeping {count} for later: {e:#}");
-                    save_queue(&st);
+                    persist_queue(&st);
                     break;
                 }
             }
@@ -220,17 +270,22 @@ async fn send_batch(http: &reqwest::Client, batch: &[Scrobble], sk: &str) -> any
     call(http, "track.scrobble", &params, Some(sk), true).await
 }
 
-fn session_key() -> Option<String> {
-    STATE.lock().unwrap().session.as_ref().map(|s| s.key.clone())
+fn save_queue(st: &State) -> anyhow::Result<()> {
+    match &st.session {
+        Some(session) => QueueFile(st.data_dir.join("lastfm_queue.json")).save(&session.name, &st.queue),
+        None => {
+            anyhow::ensure!(st.queue.is_empty(), "last.fm: queue has no owner");
+            Ok(())
+        }
+    }
 }
 
-fn save_queue(st: &State) {
-    let path = st.data_dir.join("lastfm_queue.json");
-    if st.queue.is_empty() {
-        let _ = std::fs::remove_file(path);
-    } else if let Ok(json) = serde_json::to_vec(&st.queue) {
-        let _ = std::fs::write(path, json);
+fn persist_queue(st: &State) -> bool {
+    if let Err(e) = save_queue(st) {
+        log::warn!("last.fm: couldn't save queued plays: {e:#}");
+        return false;
     }
+    true
 }
 
 /// Last.fm's error number, from an error `call` returned.

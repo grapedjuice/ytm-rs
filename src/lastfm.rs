@@ -7,7 +7,7 @@
 //! and go out with the next one.
 
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use md5::{Digest, Md5};
@@ -40,7 +40,7 @@ struct Session {
 }
 
 struct State {
-    session: Option<Session>,
+    session: Option<Arc<Session>>,
     data_dir: PathBuf,
     queue: Vec<Scrobble>,
 }
@@ -54,7 +54,7 @@ pub fn init(data_dir: &Path) {
     let session = crate::vault::get(VAULT, data_dir).and_then(|b| {
         let s = String::from_utf8(b).ok()?;
         let (name, key) = s.split_once('\n')?;
-        Some(Session { name: name.to_owned(), key: key.to_owned() })
+        Some(Arc::new(Session { name: name.to_owned(), key: key.to_owned() }))
     });
     let queue = std::fs::read(data_dir.join("lastfm_queue.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     *STATE.lock().unwrap() = State { session, data_dir: data_dir.to_owned(), queue };
@@ -66,11 +66,29 @@ pub fn user() -> Option<String> {
 }
 
 pub fn sign_out() {
-    let mut st = STATE.lock().unwrap();
+    disconnect(&mut STATE.lock().unwrap());
+}
+
+fn disconnect(st: &mut State) {
     st.session = None;
     st.queue.clear();
-    save_queue(&st);
+    save_queue(st);
     crate::vault::delete(VAULT, &st.data_dir);
+}
+
+fn keep_session(st: &mut State, session: Session) -> anyhow::Result<()> {
+    crate::vault::set(VAULT, &st.data_dir, format!("{}\n{}", session.name, session.key).as_bytes())?;
+    // Pending scrobbles belong to the session being replaced.
+    if st.session.is_some() {
+        st.queue.clear();
+        save_queue(st);
+    }
+    st.session = Some(Arc::new(session));
+    Ok(())
+}
+
+fn is_current(st: &State, session: &Arc<Session>) -> bool {
+    st.session.as_ref().is_some_and(|current| Arc::ptr_eq(current, session))
 }
 
 /// Ask the user to allow ytm-rs on last.fm (in their browser) and wait until they do.
@@ -86,9 +104,7 @@ pub async fn sign_in(http: &reqwest::Client) -> anyhow::Result<String> {
             Ok(v) => {
                 let name = v["session"]["name"].as_str().unwrap_or_default().to_owned();
                 let key = v["session"]["key"].as_str().ok_or_else(|| anyhow::anyhow!("no session key from Last.fm"))?.to_owned();
-                let data_dir = STATE.lock().unwrap().data_dir.clone();
-                crate::vault::set(VAULT, &data_dir, format!("{name}\n{key}").as_bytes())?;
-                STATE.lock().unwrap().session = Some(Session { name: name.clone(), key });
+                keep_session(&mut STATE.lock().unwrap(), Session { name: name.clone(), key })?;
                 log::info!("last.fm: signed in as {name}");
                 return Ok(name);
             }
@@ -117,52 +133,91 @@ pub async fn now_playing(http: &reqwest::Client, s: &Scrobble) {
 }
 
 /// Scrobble `s`, along with any earlier ones still waiting.
-pub async fn scrobble(http: &reqwest::Client, s: Scrobble) {
-    let _sending = SENDING.lock().await;
-    let Some(sk) = session_key() else { return };
-    STATE.lock().unwrap().queue.push(s);
-    loop {
-        let batch: Vec<Scrobble> = STATE.lock().unwrap().queue.iter().take(BATCH).cloned().collect();
-        if batch.is_empty() {
-            break;
+pub fn scrobble(http: &reqwest::Client, s: Scrobble) -> impl Future<Output = ()> + Send + 'static {
+    let http = http.clone();
+    scrobble_with(&STATE, &SENDING, s, move |batch, session| {
+        let http = http.clone();
+        async move { send_batch(&http, &batch, &session.key).await }
+    })
+}
+
+/// Capture the session now, before the returned future is spawned or waits its turn.
+fn scrobble_with<F: Future<Output = anyhow::Result<Value>> + Send>(
+    state: &Mutex<State>,
+    sending: &tokio::sync::Mutex<()>,
+    s: Scrobble,
+    mut send: impl FnMut(Vec<Scrobble>, Arc<Session>) -> F + Send,
+) -> impl Future<Output = ()> + Send {
+    let session = state.lock().unwrap().session.clone();
+    async move {
+        let Some(session) = session else { return };
+        let _sending = sending.lock().await;
+        {
+            let mut st = state.lock().unwrap();
+            if !is_current(&st, &session) {
+                return;
+            }
+            st.queue.push(s);
         }
-        let fields: Vec<(String, String)> = batch
-            .iter()
-            .enumerate()
-            .flat_map(|(i, s)| {
-                let mut f = vec![(format!("artist[{i}]"), s.artist.clone()), (format!("track[{i}]"), s.track.clone()), (format!("timestamp[{i}]"), s.timestamp.to_string())];
-                if let Some(album) = &s.album {
-                    f.push((format!("album[{i}]"), album.clone()));
+        loop {
+            let batch: Vec<Scrobble> = {
+                let st = state.lock().unwrap();
+                if !is_current(&st, &session) {
+                    return;
                 }
-                if let Some(d) = s.duration {
-                    f.push((format!("duration[{i}]"), d.to_string()));
-                }
-                f
-            })
-            .collect();
-        let params: Vec<(&str, &str)> = fields.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-        match call(http, "track.scrobble", &params, Some(&sk), true).await {
-            Ok(v) => {
-                let accepted = v["scrobbles"]["@attr"]["accepted"].as_u64().unwrap_or(0);
-                log::info!("last.fm: scrobbled {accepted} of {}", batch.len());
-                let mut st = STATE.lock().unwrap();
-                st.queue.drain(..batch.len());
-                save_queue(&st);
-            }
-            // 9: the session was revoked on last.fm.
-            Err(e) if code(&e) == Some(9) => {
-                log::warn!("last.fm: session no longer valid; signing out");
-                sign_out();
+                st.queue.iter().take(BATCH).cloned().collect()
+            };
+            if batch.is_empty() {
                 break;
             }
-            // Offline or Last.fm trouble (11, 16, 29): keep them for next time.
-            Err(e) => {
-                log::warn!("last.fm: scrobble failed, keeping {} for later: {e:#}", batch.len());
-                save_queue(&STATE.lock().unwrap());
-                break;
+            let count = batch.len();
+            let result = send(batch, session.clone()).await;
+            let mut st = state.lock().unwrap();
+            // Check and apply the result under one lock, including revoked keys.
+            if !is_current(&st, &session) {
+                return;
+            }
+            match result {
+                Ok(v) => {
+                    let accepted = v["scrobbles"]["@attr"]["accepted"].as_u64().unwrap_or(0);
+                    log::info!("last.fm: scrobbled {accepted} of {count}");
+                    st.queue.drain(..count);
+                    save_queue(&st);
+                }
+                // 9: the session was revoked on last.fm.
+                Err(e) if code(&e) == Some(9) => {
+                    log::warn!("last.fm: session no longer valid; signing out");
+                    disconnect(&mut st);
+                    break;
+                }
+                // Offline or Last.fm trouble (11, 16, 29): keep them for next time.
+                Err(e) => {
+                    log::warn!("last.fm: scrobble failed, keeping {count} for later: {e:#}");
+                    save_queue(&st);
+                    break;
+                }
             }
         }
     }
+}
+
+async fn send_batch(http: &reqwest::Client, batch: &[Scrobble], sk: &str) -> anyhow::Result<Value> {
+    let fields: Vec<(String, String)> = batch
+        .iter()
+        .enumerate()
+        .flat_map(|(i, s)| {
+            let mut f = vec![(format!("artist[{i}]"), s.artist.clone()), (format!("track[{i}]"), s.track.clone()), (format!("timestamp[{i}]"), s.timestamp.to_string())];
+            if let Some(album) = &s.album {
+                f.push((format!("album[{i}]"), album.clone()));
+            }
+            if let Some(d) = s.duration {
+                f.push((format!("duration[{i}]"), d.to_string()));
+            }
+            f
+        })
+        .collect();
+    let params: Vec<(&str, &str)> = fields.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    call(http, "track.scrobble", &params, Some(sk), true).await
 }
 
 fn session_key() -> Option<String> {
@@ -237,6 +292,9 @@ fn open_browser(url: &str) {
     #[cfg(all(unix, not(target_os = "macos")))]
     let _ = std::process::Command::new("xdg-open").arg(url).spawn();
 }
+
+#[cfg(test)]
+mod race_tests;
 
 #[cfg(test)]
 mod tests {

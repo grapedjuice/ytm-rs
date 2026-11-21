@@ -274,11 +274,10 @@ impl App {
         if dur >= Duration::from_secs(30) && pos >= (dur / 2).min(Duration::from_secs(240)) && self.scrobble.is_some_and(|(_, done)| !done) {
             self.scrobble = Some((self.generation, true));
             if lastfm {
-                let http = http.clone();
-                self.backend.spawn(async move { crate::lastfm::scrobble(&http, play).await });
+                self.backend.spawn(crate::lastfm::scrobble(&http, play));
             }
             if listenbrainz {
-                self.backend.spawn(async move { crate::listenbrainz::listen(&http, listen).await });
+                self.backend.spawn(crate::listenbrainz::listen(&http, listen));
             }
         }
     }

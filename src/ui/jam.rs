@@ -97,6 +97,17 @@ impl Session {
     pub fn member_count(&self) -> usize {
         self.members.len()
     }
+
+    fn leave(&mut self) {
+        // is_host() depends on conn still being present.
+        let host = self.is_host();
+        if let Some(c) = self.conn.take() {
+            if host {
+                c.end();
+            }
+            c.leave();
+        }
+    }
 }
 
 fn my_name(app: &App) -> String {
@@ -144,12 +155,7 @@ pub fn join(app: &mut App, code: &str) {
 
 /// Leave the room (the host ends it for everyone). Playback carries on locally.
 pub fn leave(app: &mut App) {
-    if let Some(c) = app.jam.conn.take() {
-        if app.jam.is_host() {
-            c.end();
-        }
-        c.leave();
-    }
+    app.jam.leave();
     fresh(app, false);
     // A guest's queue was the host's: hidden explicit songs leave it.
     app.queue.drop_explicit();
@@ -796,4 +802,68 @@ fn room(app: &mut App, ui: &mut Ui) {
         }
         ui.add_space(6.0);
     });
+}
+
+#[cfg(test)]
+mod leave_tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn connected(created: bool, welcomed: bool, host: &str) -> (Session, impl FnMut() -> Vec<Value>) {
+        let (conn, commands) = Jam::test_connection();
+        (Session { conn: Some(conn), created, welcomed, you: "me".into(), host: host.into(), ..Default::default() }, commands)
+    }
+
+    #[test]
+    fn a_host_ends_the_room_before_leaving_including_after_promotion() {
+        for created in [false, true] {
+            let (mut session, mut commands) = connected(created, true, "me");
+            session.leave();
+            let commands = commands();
+            assert!(!session.active());
+            assert_eq!(commands.first(), Some(&json!({ "t": "end" })));
+            assert!(commands.len() > 1);
+            assert!(commands[1..].iter().all(|m| m == &json!({ "t": "bye" })));
+        }
+    }
+
+    #[test]
+    fn a_guest_only_leaves_even_if_they_originally_created_the_room() {
+        for created in [false, true] {
+            let (mut session, mut commands) = connected(created, true, "other");
+            session.leave();
+            let commands = commands();
+            assert!(!session.active());
+            assert!(!commands.is_empty());
+            assert!(commands.iter().all(|m| m == &json!({ "t": "bye" })));
+        }
+    }
+
+    #[test]
+    fn leaving_before_welcome_uses_the_created_role() {
+        for created in [false, true] {
+            let (mut session, mut commands) = connected(created, false, "");
+            session.leave();
+            let commands = commands();
+            assert_eq!(commands.iter().any(|m| m["t"] == "end"), created);
+            assert_eq!(commands.last(), Some(&json!({ "t": "bye" })));
+        }
+    }
+
+    #[test]
+    fn leaving_an_inactive_session_does_not_send_more_commands() {
+        let (mut session, mut commands) = connected(true, true, "me");
+        session.leave();
+        assert!(!commands().is_empty());
+        session.leave();
+        assert!(commands().is_empty());
+        Session::default().leave();
+    }
+
+    #[test]
+    fn dropping_a_connection_does_not_end_the_room() {
+        let (session, mut commands) = connected(true, true, "me");
+        drop(session);
+        assert_eq!(commands(), vec![json!({ "t": "bye" })]);
+    }
 }

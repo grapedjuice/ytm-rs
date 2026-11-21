@@ -123,20 +123,22 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
     // A video has the background.
     let on_video = (b.video_backdrop && app.video.as_ref().is_some_and(|(_, player)| player.is_some())).then_some(());
     let over = ((app.art_brightness - b.auto_dim_from) / (1.0 - b.auto_dim_from).max(0.01)).max(0.0);
-    let auto_dim = 1.0 - on_video.and(b.video.auto_dim).unwrap_or(b.auto_dim) * over;
+    // Settings › Appearance › Background brightness goes on top of the theme's dimming.
+    let auto_dim = (1.0 - on_video.and(b.video.auto_dim).unwrap_or(b.auto_dim) * over) * app.bg_brightness;
     let theme_fullscreen = b.fullscreen_fullbleed.filter(|_| app.fullscreen);
-    let fullbleed_level = theme_fullscreen.unwrap_or(b.np_dim).clamp(0.0, 1.0);
+    let fullbleed_level = (theme_fullscreen.unwrap_or(b.np_dim) * app.bg_brightness).clamp(0.0, 1.0);
     // Then darker still where the art would show too bright for the white text over it,
     // unless the theme sets how bright its full-screen cover is (reCover: at full).
     let readable = if app.dim_bright && theme_fullscreen.is_none() { crate::art::readable_dim(app.art_brightness * shown_level(b, art, fullbleed_level, app.fullscreen, auto_dim)) } else { 1.0 };
-    let auto_dim = auto_dim * readable;
     if let (Some(layer), Some(bg)) = (b.layer, app.bg.as_ref()) {
         // The theme's still cover under everything, pulsing if it does.
-        let pulse = if layer.pulse_secs > 0.0 { (now as f32 * std::f32::consts::TAU / layer.pulse_secs).sin() * layer.pulse } else { 0.0 };
-        let rotate = if layer.rotate_secs > 0.0 { (now / layer.rotate_secs as f64 % 1.0) as f32 * std::f32::consts::TAU } else { 0.0 };
+        // On the background's clock, so Settings › Appearance › Background speed moves it too.
+        let t = app.layer_time;
+        let pulse = if layer.pulse_secs > 0.0 { (t as f32 * std::f32::consts::TAU / layer.pulse_secs).sin() * layer.pulse } else { 0.0 };
+        let rotate = if layer.rotate_secs > 0.0 { (t / layer.rotate_secs as f64 % 1.0) as f32 * std::f32::consts::TAU } else { 0.0 };
         // Turning, it needs room for its corners.
         let room = if layer.rotate_secs > 0.0 { 1.45 } else { 1.0 };
-        bg.paint(&painter, rect, Params { time: 0.0, blend: 1.0, intensity: 0.0, saturation: layer.saturate.unwrap_or(b.saturation), dim: layer.opacity * layer.brightness.unwrap_or(1.0) * auto_dim, scale: (b.scale * room) + pulse, contrast: 1.0, dither: b.dither, rotate, alpha: 1.0 });
+        bg.paint(&painter, rect, Params { time: 0.0, blend: 1.0, intensity: 0.0, saturation: layer.saturate.unwrap_or(b.saturation), dim: (layer.opacity * layer.brightness.unwrap_or(1.0) * auto_dim).min(1.0) * readable, scale: (b.scale * room) + pulse, contrast: 1.0, dither: b.dither, rotate, alpha: 1.0 });
         if (layer.pulse_secs > 0.0 || layer.rotate_secs > 0.0) && app.playing() {
             ctx.request_repaint_after(std::time::Duration::from_millis(33));
         }
@@ -148,7 +150,7 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
         let level = if app.reactive_bg && app.playing() && b.mode != BgMode::CoverStatic { (app.audio.status.level() - b.beat_threshold).max(0.0) * b.reactive } else { 0.0 };
         // Over a layer the dim is the canvas's opacity (the theme's `opacity`): the
         // layer shows through instead of black, so only `auto_dim` darkens it.
-        let (dim, alpha) = if b.layer.is_some() { (auto_dim, b.np_dim) } else { (b.np_dim * auto_dim, 1.0) };
+        let (dim, alpha) = if b.layer.is_some() { (auto_dim.min(1.0) * readable, b.np_dim) } else { ((b.np_dim * auto_dim).min(1.0) * readable, 1.0) };
         bg.paint(
             &painter,
             rect,
@@ -228,9 +230,10 @@ fn shown_level(b: &crate::preset::Background, art: bool, fullbleed_level: f32, f
     // Without the art, what's under it is a flat colour (which covers any layer too).
     let mut level = match b.layer {
         _ if !art => 0.0,
-        None => b.np_dim * auto_dim,
+        // Each as painted: no brighter than the art itself.
+        None => (b.np_dim * auto_dim).min(1.0),
         // The art at `np_dim` over the layer.
-        Some(l) => auto_dim * (b.np_dim + (1.0 - b.np_dim) * l.opacity * l.brightness.unwrap_or(1.0)),
+        Some(l) => b.np_dim * auto_dim.min(1.0) + (1.0 - b.np_dim) * (l.opacity * l.brightness.unwrap_or(1.0) * auto_dim).min(1.0),
     };
     if b.fullbleed(fullscreen) {
         level = level.max(fullbleed_level);
@@ -1915,11 +1918,11 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
         trans.hash(&mut h);
         h.finish()
     };
-    let scale = app.lyric_prefs.text_scale;
+    let own = karaoke::Own { scale: app.lyric_prefs.text_scale, weight: app.lyric_prefs.weight, deco_scale: app.lyric_prefs.deco_scale };
     let fullscreen = app.fullscreen;
     let glass_chip = app.look().app.glass.instrumental;
     let quick_scroll = app.quick_lyric_scroll;
-    let frame = karaoke::Frame { lyrics, key, roman, trans, t, playing, now, rect, style, accent, centered, scale, fullscreen, glass_chip, quick_scroll };
+    let frame = karaoke::Frame { lyrics, key, roman, trans, t, playing, now, rect, style, accent, centered, own, fullscreen, glass_chip, quick_scroll };
     // The view lives in `app`; the frame borrows `app` for decorations, so swap it out.
     let mut view = std::mem::take(&mut app.lyric_view);
     let out = if karaoke::dev_off("view") { karaoke::Out { seek: None, animating: true, user_scrolling: false } } else { view.show(ui, frame) };
@@ -1998,7 +2001,7 @@ fn plain_lyrics(app: &mut App, ui: &mut Ui, rect: Rect, lyrics: &Lyrics) {
         let style = &app.look().lyrics;
         let size = style.plain_size().min(rect.width() / 14.0).max(18.0);
         for l in &lyrics.lines {
-            let font = theme::lyric_font_for(&style.font, style.weight, size, &l.text);
+            let font = theme::lyric_font_for(&style.font, app.lyric_prefs.weight.unwrap_or(style.weight), size, &l.text);
             let color = theme::with_alpha(Color32::WHITE, 0.85);
             if crate::bidi::has_rtl(&l.text) {
                 // Wrapped in reading order, each row in display order; RTL lines start on the right.

@@ -126,6 +126,8 @@ struct Cfg {
     font: String,
     weight: Weight,
     size: f32,
+    /// The listener's translation size, against the theme's.
+    deco_scale: f32,
     /// One CSS rem in points.
     rem: f32,
     active: Color32,
@@ -291,7 +293,7 @@ impl Cfg {
 
     /// `width`: the lyrics panel; `viewport`: the window (the theme's media queries).
     #[allow(clippy::too_many_arguments)]
-    fn new(s: &LyricStyle, accent: Color32, width: f32, viewport: f32, viewport_h: f32, centered: bool, scale: f32, fullscreen: bool) -> Self {
+    fn new(s: &LyricStyle, accent: Color32, width: f32, viewport: f32, viewport_h: f32, centered: bool, own: Own, fullscreen: bool) -> Self {
         // Romanization and translation look the same in every theme: the app's own values.
         let deco = &crate::preset::get(crate::preset::DEFAULT_ID).lyrics;
         let mut rem = s.rem;
@@ -313,14 +315,15 @@ impl Cfg {
         // (romanization, translation, spacing), so the theme keeps its proportions.
         // Whole points: every new size fills the font atlas again (it never shrinks),
         // and resizing the window would otherwise make one per pixel of width.
-        let rounded = (size * scale).round().max(1.0);
+        let rounded = (size * own.scale).round().max(1.0);
         rem *= rounded / size;
         size = rounded;
         let colour = |c: &str| crate::preset::hex(c);
         Self {
             font: theme::effective_font(&s.font),
-            weight: s.weight,
+            weight: own.weight.unwrap_or(s.weight),
             size,
+            deco_scale: own.deco_scale,
             rem,
             active: theme::with_alpha(crate::preset::paint(&s.sung_color, accent), s.active_alpha),
             dim_alpha: s.dim_alpha,
@@ -411,7 +414,7 @@ impl Cfg {
             glow_ratio: s.glow_ratio as f64,
             glow_min: s.glow_min_secs as f64,
             bg_alpha: s.background_alpha,
-            bg_weight: s.background_weight,
+            bg_weight: own.weight.unwrap_or(s.background_weight),
             roman_weight: deco.romanization_weight,
             roman_family: (!deco.romanization_font.is_empty()).then(|| theme::effective_font(&deco.romanization_font)),
             trans_weight: deco.translation_weight,
@@ -477,7 +480,7 @@ impl Cfg {
     /// The unit romanization and translation are sized in: a third of the line, as in the
     /// default look, so they keep the same proportion to it whatever the theme's own rem.
     fn deco_rem(&self) -> f32 {
-        self.size / 3.0
+        self.size / 3.0 * self.deco_scale
     }
     fn rem(&self) -> f32 {
         self.rem
@@ -507,12 +510,12 @@ impl Cfg {
     /// `both`: the line has a romanization and a translation.
     fn roman_font(&self, text: &str, both: bool) -> FontId {
         let rem = self.both_rem.filter(|_| both).map_or(self.roman_rem, |b| b[0]);
-        let px = self.deco_em.map_or(self.deco_rem() * rem, |em| self.size * em);
+        let px = self.deco_em.map_or(self.deco_rem() * rem, |em| self.size * em * self.deco_scale);
         theme::lyric_font_for(self.roman_family.as_ref().unwrap_or(&self.font), self.roman_weight, px, text)
     }
     fn trans_font(&self, text: &str, both: bool) -> FontId {
         let rem = self.both_rem.filter(|_| both).map_or(self.trans_rem, |b| b[1]);
-        let px = self.deco_em.map_or(self.deco_rem() * rem, |em| self.size * em);
+        let px = self.deco_em.map_or(self.deco_rem() * rem, |em| self.size * em * self.deco_scale);
         theme::lyric_font_for(self.trans_family.as_ref().unwrap_or(&self.font), self.trans_weight, px, text)
     }
 }
@@ -1180,8 +1183,9 @@ struct CfgKey {
     /// The theme's style, by address: it lives as long as the app does.
     style: usize,
     accent: Color32,
-    /// Panel width, window width and height, text scale.
-    sizes: [u32; 4],
+    /// Panel width, window width and height, text scale, translation size.
+    sizes: [u32; 5],
+    weight: Option<Weight>,
     centered: bool,
     fullscreen: bool,
     fonts: u32,
@@ -1202,13 +1206,30 @@ pub struct Frame<'a> {
     pub style: &'static LyricStyle,
     pub accent: Color32,
     pub centered: bool,
-    /// The listener's lyrics text size, a multiple of the theme's.
-    pub scale: f32,
+    /// The listener's settings over the theme's look.
+    pub own: Own,
     pub fullscreen: bool,
     /// The break's chip frosts what's behind it.
     pub glass_chip: Option<[f32; 3]>,
     /// "Quick line changes": lines scroll the extension's own way, not the theme's.
     pub quick_scroll: bool,
+}
+
+/// Settings › Lyrics over the theme's own look.
+#[derive(Clone, Copy, PartialEq)]
+pub struct Own {
+    /// Text size, a multiple of the theme's.
+    pub scale: f32,
+    /// The lines' weight in place of the theme's.
+    pub weight: Option<Weight>,
+    /// Translations' and romanizations' size, a multiple of the theme's.
+    pub deco_scale: f32,
+}
+
+impl Default for Own {
+    fn default() -> Self {
+        Self { scale: 1.0, weight: None, deco_scale: 1.0 }
+    }
 }
 
 pub struct Out {
@@ -1262,7 +1283,8 @@ impl View {
         let cfg_key = CfgKey {
             style: std::ptr::from_ref(f.style) as usize,
             accent: f.accent,
-            sizes: [rect.width().to_bits(), viewport.to_bits(), viewport_h.to_bits(), f.scale.to_bits()],
+            sizes: [rect.width().to_bits(), viewport.to_bits(), viewport_h.to_bits(), f.own.scale.to_bits(), f.own.deco_scale.to_bits()],
+            weight: f.own.weight,
             centered: f.centered,
             fullscreen: f.fullscreen,
             fonts: theme::fonts_generation(),
@@ -1270,14 +1292,14 @@ impl View {
         let cfg = match &self.cfg {
             Some((key, font, cfg)) if *key == cfg_key && theme::font_choice_is(font) => cfg.clone(),
             _ => {
-                let cfg = Arc::new(Cfg::new(f.style, f.accent, rect.width(), viewport, viewport_h, f.centered, f.scale, f.fullscreen));
+                let cfg = Arc::new(Cfg::new(f.style, f.accent, rect.width(), viewport, viewport_h, f.centered, f.own, f.fullscreen));
                 self.cfg = Some((cfg_key, theme::font_choice(), cfg.clone()));
                 cfg
             }
         };
         // What a line's own picture depends on. The view's height isn't in it: that only moves
         // the lines, and a new blurred image per line for every step of a resize piled up.
-        let image_key = hash((f.key, rect.width().round() as i32, cfg.size.to_bits(), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, cfg.weight as u8, cfg.spacing.to_bits(), cfg.line_height.to_bits(), (cfg.align as u8, cfg.agent_align as u8, cfg.wave.on), theme::fonts_generation()));
+        let image_key = hash((f.key, rect.width().round() as i32, (cfg.size.to_bits(), cfg.deco_scale.to_bits()), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, (cfg.weight as u8, cfg.bg_weight as u8), cfg.spacing.to_bits(), cfg.line_height.to_bits(), (cfg.align as u8, cfg.agent_align as u8, cfg.wave.on), theme::fonts_generation()));
         let layout_key = hash((image_key, rect.height().round() as i32));
         if self.layout.as_ref().is_none_or(|l| l.key != layout_key) {
             self.relayout(ui, &cfg, &f, layout_key, rect);
@@ -3058,6 +3080,10 @@ fn glow_source(j: &GlowJob, bounds: Rect, ppp: f32) -> u64 {
     for r in j.quads.iter().map(|q| q.0).chain(std::iter::once(j.word)) {
         [step(r.left() - bounds.left()), step(r.top() - bounds.top()), step(r.right() - bounds.left()), step(r.bottom() - bounds.top())].hash(&mut h);
     }
+    // The glyphs too: another weight can set the same boxes.
+    for q in &j.quads {
+        [q.1.min.x, q.1.min.y, q.1.max.x, q.1.max.y].map(f32::to_bits).hash(&mut h);
+    }
     let gradient = |v: f32| (v * 64.0).round() as i32;
     (gradient(j.look.start), gradient(j.look.end), j.radius.to_bits(), ppp.to_bits(), j.by_letter, j.rtl).hash(&mut h);
     h.finish().max(1)
@@ -3582,7 +3608,7 @@ mod tests {
             let mut animating = false;
             let mut out = ctx.run_ui(input, |ui| {
                 let n = lyrics.lines.len();
-                let f = Frame { lyrics: &lyrics, key: 1, roman: (0..n).map(|_| None).collect(), trans: vec![None; n], t, playing, now, rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 500.0)), style, accent: Color32::RED, centered: false, scale: 1.0, fullscreen: false, glass_chip: None, quick_scroll: false };
+                let f = Frame { lyrics: &lyrics, key: 1, roman: (0..n).map(|_| None).collect(), trans: vec![None; n], t, playing, now, rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 500.0)), style, accent: Color32::RED, centered: false, own: Own::default(), fullscreen: false, glass_chip: None, quick_scroll: false };
                 animating = view.show(ui, f).animating;
             });
             out.textures_delta.clear();
@@ -3628,7 +3654,7 @@ mod tests {
             let mut seek = None;
             let mut out = ctx.run_ui(input, |ui| {
                 let n = lyrics.lines.len();
-                let f = Frame { lyrics: &lyrics, key: 1, roman: (0..n).map(|_| None).collect(), trans: vec![None; n], t: 0.5, playing: false, now, rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 500.0)), style, accent: Color32::RED, centered: false, scale: 1.0, fullscreen: false, glass_chip: None, quick_scroll: false };
+                let f = Frame { lyrics: &lyrics, key: 1, roman: (0..n).map(|_| None).collect(), trans: vec![None; n], t: 0.5, playing: false, now, rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 500.0)), style, accent: Color32::RED, centered: false, own: Own::default(), fullscreen: false, glass_chip: None, quick_scroll: false };
                 seek = view.show(ui, f).seek;
             });
             out.textures_delta.clear();

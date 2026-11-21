@@ -2155,15 +2155,35 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
         });
         divider(ui);
         setting_row(ui, tr!("settings-text-size"), Some(tr!("settings-text-size-desc")), |ui| {
-            let (min, max, step) = super::lyric_prefs::TEXT_SCALE;
-            let v = &mut app.lyric_prefs.text_scale;
-            if ui.add_enabled(*v < max - 0.01, egui::Button::new("+").min_size(vec2(28.0, 26.0))).on_hover_text(tr!("settings-larger")).clicked() {
-                *v = ((*v + step) * 10.0).round() / 10.0;
-            }
-            ui.label(egui::RichText::new(format!("{:.0}%", *v * 100.0)).font(theme::semibold(13.0)));
-            if ui.add_enabled(*v > min + 0.01, egui::Button::new("−").min_size(vec2(28.0, 26.0))).on_hover_text(tr!("settings-smaller")).clicked() {
-                *v = ((*v - step) * 10.0).round() / 10.0;
-            }
+            percent_stepper(ui, &mut app.lyric_prefs.text_scale, super::lyric_prefs::TEXT_SCALE, tr!("settings-larger"), tr!("settings-smaller"));
+        });
+        divider(ui);
+        use crate::preset::Weight;
+        let weight_name = |w: Option<Weight>| match w {
+            None => tr!("settings-theme-default"),
+            Some(Weight::Light) => tr!("settings-weight-light"),
+            Some(Weight::Regular) => tr!("settings-weight-regular"),
+            Some(Weight::Medium) => tr!("settings-weight-medium"),
+            Some(Weight::Semibold) => tr!("settings-weight-semibold"),
+            Some(Weight::Bold) => tr!("settings-weight-bold"),
+            Some(Weight::ExtraBold) => tr!("settings-weight-extra-bold"),
+        };
+        setting_row(ui, tr!("settings-line-weight"), Some(tr!("settings-line-weight-desc")), |ui| {
+            let now = app.lyric_prefs.weight;
+            let btn = dropdown_button(ui, weight_name(now), 160.0, tr!("settings-line-weight"));
+            widgets::menu_popup(&btn).show(|ui| {
+                widgets::menu_body(ui, 160.0);
+                for w in std::iter::once(None).chain(Weight::ALL.map(Some)) {
+                    if option_row(ui, weight_name(w), w == now).clicked() {
+                        app.lyric_prefs.weight = w;
+                        ui.close();
+                    }
+                }
+            });
+        });
+        divider(ui);
+        setting_row(ui, tr!("settings-translation-size"), Some(tr!("settings-translation-size-desc")), |ui| {
+            percent_stepper(ui, &mut app.lyric_prefs.deco_scale, super::lyric_prefs::DECO_SCALE, tr!("settings-larger"), tr!("settings-smaller"));
         });
         divider(ui);
         setting_row(ui, tr!("settings-quick-line-changes"), Some(tr!("settings-quick-line-changes-desc")), |ui| {
@@ -2253,6 +2273,20 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
         }
         ui.add_space(6.0);
     });
+}
+
+/// A setting that's a multiple of the theme's own value: + and − by `step` within
+/// `min..=max`, shown as a percentage (100%: the theme's).
+fn percent_stepper(ui: &mut Ui, v: &mut f32, (min, max, step): (f32, f32, f32), more: &str, less: &str) {
+    // In hundredths, so steps land on exact values and 100% is exactly the theme's.
+    let snap = |x: f32| (x * 100.0).round() / 100.0;
+    if ui.add_enabled(*v < max - 0.001, egui::Button::new("+").min_size(vec2(28.0, 26.0))).on_hover_text(more).clicked() {
+        *v = snap(*v + step).min(max);
+    }
+    ui.label(egui::RichText::new(format!("{:.0}%", *v * 100.0)).font(theme::semibold(13.0)));
+    if ui.add_enabled(*v > min + 0.001, egui::Button::new("−").min_size(vec2(28.0, 26.0))).on_hover_text(less).clicked() {
+        *v = snap(*v - step).max(min);
+    }
 }
 
 /// Settings › Appearance and Theme.
@@ -2351,6 +2385,14 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         divider(ui);
         setting_row(ui, tr!("settings-animated-background"), Some(tr!("settings-animated-background-desc")), |ui| {
             toggle(ui, &mut app.anim_bg, tr!("settings-animated-background"));
+        });
+        divider(ui);
+        setting_row(ui, tr!("settings-background-speed"), Some(tr!("settings-background-speed-desc")), |ui| {
+            percent_stepper(ui, &mut app.bg_speed, super::shell::BG_SPEED, tr!("settings-faster"), tr!("settings-slower"));
+        });
+        divider(ui);
+        setting_row(ui, tr!("settings-background-brightness"), Some(tr!("settings-background-brightness-desc")), |ui| {
+            percent_stepper(ui, &mut app.bg_brightness, super::shell::BG_BRIGHTNESS, tr!("settings-brighter"), tr!("settings-darker"));
         });
         divider(ui);
         setting_row(ui, tr!("settings-frosted-glass"), Some(tr!("settings-frosted-glass-desc")), |ui| {

@@ -674,6 +674,8 @@ pub struct App {
     np_open: bool,
     np_tab: NpTab,
     queue_open: bool,
+    /// The side Up next's width, as its left edge was last dragged to.
+    queue_w: f32,
     /// Where the queue floats over the page in a narrow window, as last drawn.
     queue_float: Option<egui::Rect>,
     /// A song row being dragged.
@@ -1089,6 +1091,7 @@ impl App {
             np_open: false,
             np_tab: if get("np_art").is_some_and(|v| v == "1") { NpTab::Art } else { NpTab::Lyrics },
             queue_open: false,
+            queue_w: shell::load_queue_w(get("queue_width")),
             queue_float: None,
             row_drag: None,
             settings_tab: Default::default(),
@@ -1913,7 +1916,8 @@ impl eframe::App for App {
             let q = theme::anim_bool(&ctx, "queue-drawer", self.queue_open && !self.np_open, 0.25).min(1.0);
             if q > 0.01 && screen.width() < 1000.0 {
                 // No room to give it without crushing the page: it floats over that instead.
-                let r = egui::Rect::from_min_size(egui::pos2(screen.right() - 340.0 * q, screen.top()), egui::vec2(340.0, screen.height() - self.bar_height()));
+                let w = shell::queue_w(self, screen.width() - 40.0);
+                let r = egui::Rect::from_min_size(egui::pos2(screen.right() - w * q, screen.top()), egui::vec2(w, screen.height() - self.bar_height()));
                 self.queue_float = Some(r);
                 egui::Area::new(egui::Id::unique("queue-float")).order(egui::Order::Middle).fixed_pos(r.min).show(&ctx, |ui| {
                     ui.allocate_rect(r, egui::Sense::click_and_drag());
@@ -1925,11 +1929,18 @@ impl eframe::App for App {
                     shell::queue_drawer(self, &mut inner);
                 });
             } else if q > 0.01 {
-                egui::Panel::right("queue").resizable(false)
-                    .exact_size(340.0 * q)
+                // As wide as it was dragged, leaving the page room beside it.
+                let room = screen.width() - shell::sidebar_w(self) - shell::QUEUE_PAGE_MIN;
+                let w = shell::queue_w(self, room);
+                let panel = egui::Panel::right("queue").resizable(false)
+                    .exact_size(w * q)
                     .frame(egui::Frame::new().fill(theme::panel(0.42)).inner_margin(egui::Margin::symmetric(14, 16)))
                     .show_separator_line(false)
                     .show(ui, |ui| shell::queue_drawer(self, ui));
+                // Once it's all the way out: the left edge drags.
+                if q >= 1.0 {
+                    shell::queue_resize_handle(self, &ctx, panel.response.rect, room);
+                }
             }
             let sheet = app_style.sheet.map_or((Color32::TRANSPARENT, 0), |[a, r]| (theme::glass(a), r as u8));
             egui::CentralPanel::default()
@@ -2166,6 +2177,7 @@ impl eframe::App for App {
         }
         storage.set_string("accent_controls", b(self.accent_controls));
         storage.set_string("anim_bg", b(self.anim_bg));
+        storage.set_string("queue_width", format!("{:.0}", self.queue_w));
         storage.set_string("bg_speed", format!("{:.2}", self.bg_speed));
         storage.set_string("bg_brightness", format!("{:.2}", self.bg_brightness));
         storage.set_string("glass_on", b(self.glass_on));

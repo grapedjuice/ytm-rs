@@ -1806,6 +1806,44 @@ pub(super) fn volume_slider(app: &mut App, ui: &mut Ui, slider: Rect, salt: &str
 
 // ------------------------------------------------------------------ queue drawer
 
+/// The side Up next's width: narrowest, as it starts, and widest.
+pub const QUEUE_W: (f32, f32, f32) = (300.0, 340.0, 720.0);
+/// What the page keeps beside a widened Up next.
+pub const QUEUE_PAGE_MIN: f32 = 480.0;
+
+/// The width saved, or as it starts.
+pub fn load_queue_w(saved: Option<String>) -> f32 {
+    saved.and_then(|v| v.parse::<f32>().ok()).filter(|v| v.is_finite()).unwrap_or(QUEUE_W.1).clamp(QUEUE_W.0, QUEUE_W.2)
+}
+
+/// How wide Up next is drawn: as dragged, within `room`, but never narrower than its least.
+pub fn queue_w(app: &App, room: f32) -> f32 {
+    app.queue_w.min(room).max(QUEUE_W.0)
+}
+
+/// Up next's left edge (`panel` is the panel): drag it to make Up next wider or narrower,
+/// within `room`; a double click puts it back.
+pub fn queue_resize_handle(app: &mut App, ctx: &egui::Context, panel: Rect, room: f32) {
+    // Below the title bar's row, which moves the window, and mostly over the panel: the
+    // page's scroll bar is just left of it.
+    let edge = Rect::from_min_max(pos2(panel.left() - 2.0, panel.top() + super::titlebar::HEIGHT), pos2(panel.left() + 5.0, panel.bottom()));
+    egui::Area::new(egui::Id::unique("queue-resize")).order(egui::Order::Middle).fixed_pos(edge.min).show(ctx, |ui| {
+        let resp = ui.allocate_rect(edge, Sense::click_and_drag()).on_hover_cursor(egui::CursorIcon::ResizeHorizontal);        if resp.dragged() {
+            // Leftwards is wider. From the width drawn, so a drag starts where the edge is.
+            let from = app.queue_w.min(room).max(QUEUE_W.0);
+            app.queue_w = (from - resp.drag_delta().x).clamp(QUEUE_W.0, room.clamp(QUEUE_W.0, QUEUE_W.2));
+        }
+        if resp.double_clicked() {
+            app.queue_w = QUEUE_W.1;
+        }
+        let shown = theme::anim_bool(ctx, "queue-resize-hover", resp.hovered() || resp.dragged(), 0.12);
+        if shown > 0.0 {
+            let x = panel.left() + 1.0;
+            ui.painter().line_segment([pos2(x, edge.top()), pos2(x, edge.bottom())], egui::Stroke::new(2.0, theme::with_alpha(theme::text(), 0.3 * shown)));
+        }
+    });
+}
+
 pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
     let q = &app.look().app;
     // The card is dark in light mode too: what's on it stays white.
@@ -2009,7 +2047,18 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{BG_BRIGHTNESS, BG_SPEED, load_factor};
+    use super::{BG_BRIGHTNESS, BG_SPEED, QUEUE_W, load_factor, load_queue_w};
+
+    /// Up next starts at its own width; saved, it stays between its narrowest and widest.
+    #[test]
+    fn queue_width_loads_within_its_range() {
+        assert_eq!(load_queue_w(None), QUEUE_W.1);
+        assert_eq!(load_queue_w(Some("x".into())), QUEUE_W.1);
+        assert_eq!(load_queue_w(Some("NaN".into())), QUEUE_W.1);
+        assert_eq!(load_queue_w(Some("512".into())), 512.0);
+        assert_eq!(load_queue_w(Some("10".into())), QUEUE_W.0);
+        assert_eq!(load_queue_w(Some("5000".into())), QUEUE_W.2);
+    }
 
     /// Unsaved or unreadable, the background is the theme's own; saved, it stays in range.
     #[test]

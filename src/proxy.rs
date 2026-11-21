@@ -6,7 +6,7 @@
 //!   `HTTPS_PROXY`/`ALL_PROXY`/`HTTP_PROXY` environment variables, else direct. On
 //!   Linux and macOS, just those variables.
 //! - Off: always direct.
-//! - Custom: `http://host:port` or `socks5://host:port`, optionally `user:pass@`.
+//! - Custom: `http://host:port`, `https://host:port` or `socks5://host:port`, optionally `user:pass@`.
 //!
 //! Streams and the requests that resolve them must leave from the same address (a
 //! stream URL is tied to the IP that asked for it), which one setting for everything
@@ -18,8 +18,14 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio_native_tls::{TlsConnector, native_tls};
+use tokio_tungstenite::MaybeTlsStream;
+
+/// A tunnel may itself use TLS to the proxy, underneath the destination's TLS.
+pub type Connection = MaybeTlsStream<TcpStream>;
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum Setting {
@@ -105,7 +111,7 @@ pub fn parse(s: &str) -> anyhow::Result<url::Url> {
     // "host:port" alone means an HTTP proxy, as Windows writes it.
     let full = if s.contains("://") { s.to_owned() } else { format!("http://{s}") };
     let u = url::Url::parse(&full).map_err(|_| anyhow::anyhow!("that isn't a proxy address, like http://127.0.0.1:8080"))?;
-    anyhow::ensure!(matches!(u.scheme(), "http" | "https" | "socks5" | "socks5h"), "use an http:// or socks5:// address");
+    anyhow::ensure!(matches!(u.scheme(), "http" | "https" | "socks5" | "socks5h"), "use an http://, https:// or socks5:// address");
     anyhow::ensure!(u.host_str().is_some_and(|h| !h.is_empty()), "the address needs a host");
     anyhow::ensure!(u.port_or_known_default().is_some(), "the address needs a port, like :8080");
     Ok(u)
@@ -276,6 +282,13 @@ pub async fn start_relay() -> anyhow::Result<u16> {
 }
 
 async fn relay_one(client: &mut TcpStream) -> anyhow::Result<()> {
+    relay_with(client, |host, port| async move { connect(&host, port).await }).await
+}
+
+async fn relay_with<F: Future<Output = anyhow::Result<Connection>>>(
+    client: &mut TcpStream,
+    dial: impl FnOnce(String, u16) -> F,
+) -> anyhow::Result<()> {
     let mut head = Vec::new();
     while !head.ends_with(b"\r\n\r\n") {
         anyhow::ensure!(head.len() < 8192, "oversized request");
@@ -289,7 +302,7 @@ async fn relay_one(client: &mut TcpStream) -> anyhow::Result<()> {
         anyhow::bail!("{method} isn't CONNECT");
     }
     let (host, port) = target.rsplit_once(':').ok_or_else(|| anyhow::anyhow!("bad target {target}"))?;
-    let mut upstream = match connect(host, port.parse()?).await {
+    let mut upstream = match dial(host.to_owned(), port.parse()?).await {
         Ok(s) => s,
         Err(e) => {
             client.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n").await?;
@@ -360,24 +373,56 @@ fn has_login(p: &url::Url) -> bool {
     !p.username().is_empty() || p.password().is_some()
 }
 
-/// A TCP connection to `host:port`, through the active proxy when there is one.
+/// A connection to `host:port`, through the active proxy when there is one.
 /// Used for Listen together's WebSocket, which reqwest doesn't carry.
-pub async fn connect(host: &str, port: u16) -> anyhow::Result<TcpStream> {
-    let Some(p) = active().resolve().or_else(env_proxy) else {
-        return Ok(TcpStream::connect((host, port)).await?);
-    };
-    let (ph, pp) = (p.host_str().unwrap_or_default().to_owned(), p.port_or_known_default().unwrap_or(8080));
-    let mut s = TcpStream::connect((ph.as_str(), pp)).await?;
-    match p.scheme() {
-        "socks5" | "socks5h" => socks5(&mut s, &p, host, port).await?,
-        "http" => http_connect(&mut s, &p, host, port).await?,
-        other => anyhow::bail!("can't tunnel through a {other}:// proxy"),
-    }
-    Ok(s)
+pub async fn connect(host: &str, port: u16) -> anyhow::Result<Connection> {
+    let proxy = active().resolve().or_else(env_proxy);
+    connect_via(host, port, proxy.as_ref(), None, CONNECT_TIMEOUT).await
 }
 
-async fn http_connect(s: &mut TcpStream, p: &url::Url, host: &str, port: u16) -> anyhow::Result<()> {
-    let mut req = format!("CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n");
+/// Explicit settings and connector keep tests independent of process-global state.
+/// Production uses the platform's default certificate roots and hostname checks.
+async fn connect_via(host: &str, port: u16, proxy: Option<&url::Url>, tls: Option<&TlsConnector>, deadline: Duration) -> anyhow::Result<Connection> {
+    tokio::time::timeout(deadline, async {
+        let host = bare_host(host);
+        let Some(p) = proxy else {
+            return Ok(Connection::Plain(TcpStream::connect((host, port)).await?));
+        };
+        let ph = bare_host(p.host_str().ok_or_else(|| anyhow::anyhow!("the proxy needs a host"))?);
+        let pp = p.port_or_known_default().ok_or_else(|| anyhow::anyhow!("the proxy needs a port"))?;
+        let mut socket = TcpStream::connect((ph, pp)).await?;
+        match p.scheme() {
+            "socks5" | "socks5h" => {
+                socks5(&mut socket, p, host, port).await?;
+                Ok(Connection::Plain(socket))
+            }
+            "http" => {
+                http_connect(&mut socket, p, host, port).await?;
+                Ok(Connection::Plain(socket))
+            }
+            "https" => {
+                let tls = match tls {
+                    Some(tls) => tls.clone(),
+                    None => TlsConnector::from(native_tls::TlsConnector::new()?),
+                };
+                // Complete verification of the proxy before sending CONNECT or credentials.
+                let mut socket = tls.connect(ph, socket).await?;
+                http_connect(&mut socket, p, host, port).await?;
+                Ok(Connection::NativeTls(socket))
+            }
+            other => anyhow::bail!("can't tunnel through a {other}:// proxy"),
+        }
+    }).await.map_err(|_| anyhow::anyhow!("the connection timed out"))?
+}
+
+fn bare_host(host: &str) -> &str {
+    host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host)
+}
+
+async fn http_connect<S: AsyncRead + AsyncWrite + Unpin>(s: &mut S, p: &url::Url, host: &str, port: u16) -> anyhow::Result<()> {
+    let host = bare_host(host);
+    let authority = if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") };
+    let mut req = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n");
     if !p.username().is_empty() {
         use base64::Engine;
         let user = percent(p.username());
@@ -386,6 +431,7 @@ async fn http_connect(s: &mut TcpStream, p: &url::Url, host: &str, port: u16) ->
     }
     req += "\r\n";
     s.write_all(req.as_bytes()).await?;
+    s.flush().await?;
     // Read the response head byte by byte, so nothing past it is consumed.
     let mut head = Vec::new();
     while !head.ends_with(b"\r\n\r\n") {
@@ -539,6 +585,9 @@ fn plain(e: reqwest::Error, proxy: Option<&url::Url>) -> String {
         e.to_string()
     }
 }
+
+#[cfg(test)]
+mod transport_tests;
 
 #[cfg(test)]
 mod tests {

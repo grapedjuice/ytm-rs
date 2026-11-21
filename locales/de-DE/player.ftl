@@ -1,5 +1,7 @@
 ### Player controls and synced lyrics.
 
+player-time-show-left = { $time }. Restzeit anzeigen
+player-time-show-length = { $time }. Titellänge anzeigen
 player-full-screen = Vollbild
 player-exit-full-screen = Vollbild verlassen
 player-pip = Bild im Bild

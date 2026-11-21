@@ -2048,31 +2048,9 @@ impl eframe::App for App {
         theme::set_mode(&ctx, light);
     }
 
-    /// Dev hook: `YTM_FAKE_POINTER=x,y` parks a synthetic pointer there, for testing
-    /// hover behaviour without touching the real mouse.
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.zoom = ctx.zoom_factor();
         dev::dev_script(ctx, raw);
-        // Dev hook: YTM_FAKE_WHEEL="secs,notches" injects one wheel event, for testing.
-        if let Some((at, n)) = dev_var("YTM_FAKE_WHEEL").and_then(|v| {
-            let (a, n) = v.split_once(',')?;
-            Some((a.parse::<f64>().ok()?, n.parse::<f32>().ok()?))
-        }) {
-            let fired = egui::Id::unique("dev-wheel-fired");
-            let t = raw.time.unwrap_or(0.0);
-            if t >= at && !ctx.data(|d| d.get_temp::<bool>(fired).unwrap_or(false)) {
-                ctx.data_mut(|d| d.insert_temp(fired, true));
-                raw.events.push(egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Line,
-                    delta: egui::vec2(0.0, -n),
-                    phase: egui::TouchPhase::Move,
-                    modifiers: egui::Modifiers::NONE,
-                    source: egui::MouseWheelSource::Wheel,
-                });
-            } else if t < at {
-                ctx.request_repaint_after(Duration::from_millis(100));
-            }
-        }
         // Dev hook: YTM_LOG_WHEEL=1 logs the wheel events the window sends.
         if dev_var("YTM_LOG_WHEEL").is_some() {
             for e in raw.events.iter().filter(|e| matches!(e, egui::Event::MouseWheel { .. })) {
@@ -2086,13 +2064,6 @@ impl eframe::App for App {
             ctx.request_repaint();
         }
         frame_pace(raw, std::mem::take(&mut self.full_rate_frame));
-        if let Some((x, y)) = dev_var("YTM_FAKE_POINTER").and_then(|v| {
-            let (x, y) = v.split_once(',')?;
-            Some((x.trim().parse::<f32>().ok()?, y.trim().parse::<f32>().ok()?))
-        }) {
-            raw.events.retain(|e| !matches!(e, egui::Event::PointerMoved(_) | egui::Event::PointerGone));
-            raw.events.push(egui::Event::PointerMoved(egui::pos2(x, y)));
-        }
     }
 
     /// egui's memory is ~200 KB of scroll offsets and text cursors, written every 30 s

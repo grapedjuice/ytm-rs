@@ -229,9 +229,12 @@ impl App {
                     self.suggest_due = Some(now);
                 }
             }
-            Resp::Suggest { query, round, terms } => {
+            Resp::Suggest { query, round, terms, mut hits } => {
                 if round == self.suggest_round && self.search_text.trim() == query {
-                    self.suggestions = (query, terms);
+                    // Searching podcasts, songs and artists aren't what's looked for; and
+                    // explicit songs stay out while those are hidden.
+                    hits.retain(|c| !self.show_podcasts && !matches!(&c.target, Target::Song(t) if self.hide_explicit && t.explicit));
+                    self.suggestions = (query, terms, hits);
                     self.suggest_sel = None;
                 }
             }

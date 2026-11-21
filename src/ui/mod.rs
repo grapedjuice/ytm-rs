@@ -456,8 +456,11 @@ pub struct App {
     /// The current page's request failed with nothing cached: show a retry, not a skeleton.
     load_failed: bool,
     search_text: String,
-    suggestions: (String, Vec<crate::ytm::Suggestion>),
-    /// The suggestion picked with the arrow keys, which Enter searches.
+    /// What was typed, the search terms for it, and the songs, artists and albums it
+    /// most likely means.
+    suggestions: (String, Vec<crate::ytm::Suggestion>, Vec<Card>),
+    /// The suggestion picked with the arrow keys, which Enter searches (or, past the
+    /// terms, plays or opens).
     suggest_sel: Option<usize>,
     /// Bumped when a past search is removed or the account changes: suggestions
     /// requested before that are dropped when they arrive, rather than bring it back.

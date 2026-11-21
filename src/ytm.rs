@@ -269,15 +269,43 @@ pub struct Suggestion {
     pub forget: Option<String>,
 }
 
-/// Search terms for `input`. Signed in, the account's matching past searches come
-/// first, and an empty `input` gives just those (its recent searches).
-pub async fn suggestions(api: &Api, input: &str, auth: bool) -> anyhow::Result<Vec<Suggestion>> {
+/// Search terms for `input`, and the songs, videos, artists and albums it most likely
+/// means. Signed in, the account's matching past searches come first, and an empty
+/// `input` gives just those (its recent searches).
+pub async fn suggestions(api: &Api, input: &str, auth: bool) -> anyhow::Result<(Vec<Suggestion>, Vec<Card>)> {
     let v = api.call("music/get_search_suggestions", json!({ "input": input }), auth).await?;
-    Ok(parse_suggestions(&v))
+    Ok((parse_suggestions(&v), parse_suggested_hits(&v)))
+}
+
+/// The answer's second section: what the typed words most likely mean, as rows.
+fn parse_suggested_hits(v: &Value) -> Vec<Card> {
+    arr(&v["contents"][1]["searchSuggestionsSectionRenderer"]["contents"]).iter().filter_map(|i| suggested_hit(&i["musicResponsiveListItemRenderer"])).collect()
+}
+
+/// An artist or album opens its page; a song or video plays.
+fn suggested_hit(r: &Value) -> Option<Card> {
+    if let Some(c) = list_card(r) {
+        return Some(c);
+    }
+    let mut t = list_item(r)?;
+    let detail = &r["flexColumns"][1]["musicResponsiveListItemFlexColumnRenderer"]["text"];
+    // These rows lead with their kind ("Song • Daft Punk • 401M plays"), in the language
+    // asked for: not an artist, whatever it's called.
+    let mut lead = runs(detail);
+    if let (Some(kind), Some(dot)) = (lead.next(), lead.next())
+        && kind["navigationEndpoint"].is_null()
+        && dot["text"].as_str().is_some_and(|s| s.trim() == "•")
+    {
+        let kind = kind["text"].as_str().unwrap_or_default();
+        if t.artists.first().is_some_and(|a| a.id.is_none() && a.name == kind) {
+            t.artists.remove(0);
+        }
+    }
+    let subtitle = runs(detail).filter_map(|r| r["text"].as_str()).collect::<String>();
+    Some(Card { title: t.title.clone(), subtitle, thumbs: t.thumbs.clone(), round: false, links: t.artists.clone(), target: Target::Song(t) })
 }
 
 fn parse_suggestions(v: &Value) -> Vec<Suggestion> {
-    // A second section holds songs and artists, which the dropdown doesn't show.
     let items = &v["contents"][0]["searchSuggestionsSectionRenderer"]["contents"];
     arr(items)
         .iter()
@@ -2551,6 +2579,48 @@ mod tests {
                 Suggestion { text: "love songs".into(), forget: None },
             ]
         );
+    }
+
+    #[test]
+    fn suggestions_offer_the_songs_artists_and_albums_they_mean() {
+        // Trimmed from get_search_suggestions answers to "daft punk" and "random access
+        // memories" (November 2026).
+        let browse = |id: &str, kind: &str| json!({"browseEndpoint": {"browseId": id, "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": kind}}}});
+        let col = |runs: Value| json!({"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": runs}}});
+        let thumb = json!({"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [{"url": "https://lh3.googleusercontent.com/qLhu6P", "width": 60, "height": 60}]}}});
+        let daft = browse("UCRr1xG_2WIDs18a6cIiCxeA", "MUSIC_PAGE_TYPE_ARTIST");
+        let artist = json!({"musicResponsiveListItemRenderer": {"thumbnail": thumb, "navigationEndpoint": daft,
+            "flexColumns": [col(json!([{"text": "Daft Punk"}])), col(json!([{"text": "65.2M monthly audience"}]))]}});
+        let song = |kind: &str, id: &str, title: &str, count: &str| {
+            let watch = json!({"watchEndpoint": {"videoId": id, "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"}}}});
+            json!({"musicResponsiveListItemRenderer": {"thumbnail": thumb, "navigationEndpoint": watch, "playlistItemData": {"videoId": id},
+                "flexColumns": [col(json!([{"text": title, "navigationEndpoint": watch}])),
+                    col(json!([{"text": kind}, {"text": " • "}, {"text": "Daft Punk", "navigationEndpoint": daft}, {"text": " • "}, {"text": count}]))]}})
+        };
+        let album = json!({"musicResponsiveListItemRenderer": {"thumbnail": thumb, "navigationEndpoint": browse("MPREb_ram", "MUSIC_PAGE_TYPE_ALBUM"),
+            "flexColumns": [col(json!([{"text": "Random Access Memories"}])),
+                col(json!([{"text": "Album"}, {"text": " • "}, {"text": "Daft Punk", "navigationEndpoint": daft}, {"text": " • "}, {"text": "2013"}]))]}});
+        let answer = |rows: Vec<Value>| json!({"contents": [
+            {"searchSuggestionsSectionRenderer": {"contents": [{"searchSuggestionRenderer": {"suggestion": {"runs": [{"text": "daft punk"}]}}}]}},
+            {"searchSuggestionsSectionRenderer": {"contents": rows}}
+        ]});
+        let hits = parse_suggested_hits(&answer(vec![artist, song("Song", "JhulBGMA7G4", "Harder, Better, Faster, Stronger", "401M plays"), album]));
+        let shown: Vec<_> = hits.iter().map(|c| (c.title.as_str(), c.subtitle.as_str(), c.round)).collect();
+        assert_eq!(
+            shown,
+            [("Daft Punk", "65.2M monthly audience", true), ("Harder, Better, Faster, Stronger", "Song • Daft Punk • 401M plays", false), ("Random Access Memories", "Album • Daft Punk • 2013", false)]
+        );
+        assert!(matches!(&hits[0].target, Target::Artist(id) if id == "UCRr1xG_2WIDs18a6cIiCxeA"));
+        assert!(matches!(&hits[2].target, Target::Album(id) if id == "MPREb_ram"));
+        let Target::Song(t) = &hits[1].target else { panic!("a song plays") };
+        assert_eq!((t.id.as_str(), t.artist_line().as_str()), ("JhulBGMA7G4", "Daft Punk"));
+        assert!(!hits[0].thumbs.is_empty() && !t.thumbs.is_empty());
+        // In another language the kind is no artist either.
+        let hits = parse_suggested_hits(&answer(vec![song("Canción", "wU26xVT_vBU", "One More Time", "860 M de reproducciones")]));
+        let Target::Song(t) = &hits[0].target else { panic!("a song plays") };
+        assert_eq!(t.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), ["Daft Punk"]);
+        // Recent searches, with nothing typed, have no second section.
+        assert!(parse_suggested_hits(&json!({"contents": [{"searchSuggestionsSectionRenderer": {"contents": []}}]})).is_empty());
     }
 
     #[test]

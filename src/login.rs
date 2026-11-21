@@ -138,21 +138,15 @@ pub fn child_main(site: Site, profile_dir: PathBuf) {
 /// Put the webview in its window. On Linux it goes in the GTK box tao made for it:
 /// wry's plain `build` only works with an X11 window that already exists, and these
 /// start hidden (and Wayland has no such window at all).
-pub trait BuildIn<'a> {
-    fn build_in(self, window: &'a tao::window::Window) -> wry::Result<wry::WebView>;
-}
-
-impl<'a> BuildIn<'a> for WebViewBuilder<'a> {
-    fn build_in(self, window: &'a tao::window::Window) -> wry::Result<wry::WebView> {
-        #[cfg(target_os = "linux")]
-        {
-            use tao::platform::unix::WindowExtUnix;
-            use wry::WebViewBuilderExtUnix;
-            self.build_gtk(window.default_vbox().expect("tao makes a vbox by default"))
-        }
-        #[cfg(not(target_os = "linux"))]
-        self.build(window)
+pub fn build_in<'a>(builder: WebViewBuilder<'a>, window: &'a tao::window::Window) -> wry::Result<wry::WebView> {
+    #[cfg(target_os = "linux")]
+    {
+        use tao::platform::unix::WindowExtUnix;
+        use wry::WebViewBuilderExtUnix;
+        builder.build_gtk(window.default_vbox().expect("tao makes a vbox by default"))
     }
+    #[cfg(not(target_os = "linux"))]
+    builder.build(window)
 }
 
 /// The cookies the browser would send to `url`.
@@ -238,14 +232,16 @@ fn run(site: Site, profile_dir: PathBuf) -> anyhow::Result<Outcome> {
     // only that browser holds (`__Secure-1PSIDRTS`, renewed every 10 minutes), so the
     // copy the app takes stops working after some hours. Without them Google signs in
     // the way it does Firefox and Safari, and the copy lasts.
-    let webview = crate::proxy::webview(builder, matches!(site, Site::Google))
-        .with_url(site.start())
-        .with_on_page_load_handler(move |ev, url| {
-            if matches!(ev, PageLoadEvent::Finished) && url.starts_with(site.home()) {
-                let _ = proxy.send_event(());
-            }
-        })
-        .build_in(&window)?;
+    let webview = build_in(
+        crate::proxy::webview(builder, matches!(site, Site::Google))
+            .with_url(site.start())
+            .with_on_page_load_handler(move |ev, url| {
+                if matches!(ev, PageLoadEvent::Finished) && url.starts_with(site.home()) {
+                    let _ = proxy.send_event(());
+                }
+            }),
+        &window,
+    )?;
 
     let mut outcome = Outcome::Cancelled;
     event_loop.run_return(|event, _, flow| {

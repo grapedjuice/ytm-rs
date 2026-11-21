@@ -470,8 +470,7 @@ pub fn icon_button_turning(ui: &mut Ui, glyph: char, size: f32, name: &str, acti
         ui.painter().circle_filled(rect.center(), d / 2.0, theme::glass(c.press_fill));
     }
     focus_ring(ui, &resp, rect, d / 2.0);
-    let lit = crate::preset::hex(&c.hover_color).unwrap_or_else(theme::text);
-    let color = if active { theme::text() } else { theme::lerp_color(theme::with_alpha(theme::text_dim(), c.idle_alpha.clamp(0.5, 1.0)), lit, h) };
+    let color = if active { theme::text() } else { theme::lerp_color(theme::with_alpha(theme::text_dim(), c.idle_alpha.clamp(0.5, 1.0)), theme::text(), h) };
     let press = if resp.is_pointer_button_down_on() { c.press_scale } else { 1.0 + (c.hover_scale - 1.0) * h };
     if degrees != 0.0 {
         icon_turned(ui, rect.center(), glyph, size * press * grow, color, degrees);
@@ -1080,8 +1079,7 @@ fn menu_row(ui: &mut Ui, glyph: Option<char>, label: &str, arrow: bool, unlike: 
     if m.separator > 0.0 {
         ui.painter().hline(rect.x_range(), rect.bottom() + ui.spacing().item_spacing.y / 2.0, egui::Stroke::new(1.0, theme::glass(m.separator)));
     }
-    let lit = if m.hover_accent { ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED) } else { theme::text() };
-    let color = if response.hovered() { lit } else { theme::text_dim() };
+    let color = if response.hovered() { theme::text() } else { theme::text_dim() };
     // Rows slide in as the menu opens.
     let slide = if m.item_slide > 0.0 {
         let since = ui.ctx().input(|i| i.time) - ui.ctx().data(|d| d.get_temp::<f64>(egui::Id::unique("menu-opened"))).unwrap_or(0.0);
@@ -1102,7 +1100,7 @@ fn menu_row(ui: &mut Ui, glyph: Option<char>, label: &str, arrow: bool, unlike: 
     } else if arrow {
         ui.painter().text(pos2(icon_x, rect.center().y), Align2::CENTER_CENTER, "↗", theme::semibold(17.0), color);
     }
-    ui.painter().text(pos2(text_x, rect.center().y), Align2::LEFT_CENTER, label, theme::regular(14.0), if response.hovered() { lit } else { theme::text() });
+    ui.painter().text(pos2(text_x, rect.center().y), Align2::LEFT_CENTER, label, theme::regular(14.0), theme::text());
     let activate = gesture.map_or_else(|| response.clicked(), |gesture| gesture.activate);
     if activate { ui.close(); }
     activate

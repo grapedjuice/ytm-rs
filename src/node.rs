@@ -55,12 +55,35 @@ fn bin(data_dir: &Path) -> PathBuf {
     data_dir.join("node").join(EXE)
 }
 
+/// The version fetched, written each time it's checked: how old it is says when to look
+/// again. (Not the binary's own time: that can't be changed while yt-dlp is running it.)
+fn version_file(data_dir: &Path) -> PathBuf {
+    data_dir.join("node").join("version")
+}
+
+/// Where Windows has the Node a newer one replaced: it can't be overwritten while a song
+/// runs it, but it can be moved. Removed once it's let go.
+#[cfg(windows)]
+fn replaced(data_dir: &Path) -> PathBuf {
+    data_dir.join("node").join("node.old.exe")
+}
+
 /// The downloaded Node, if there is one. Past `MAX_AGE`, a newer LTS is looked for in
 /// the background; this one goes on being used meanwhile.
 pub fn installed(http: &reqwest::Client, data_dir: &Path) -> Option<PathBuf> {
     let bin = bin(data_dir);
-    let age = std::fs::metadata(&bin).and_then(|m| m.modified()).ok()?;
-    if SystemTime::now().duration_since(age).unwrap_or_default() > MAX_AGE {
+    if !bin.is_file() {
+        return None;
+    }
+    #[cfg(windows)]
+    {
+        let old = replaced(data_dir);
+        if old.exists() {
+            let _ = std::fs::remove_file(old);
+        }
+    }
+    let checked = std::fs::metadata(version_file(data_dir)).and_then(|m| m.modified()).ok();
+    if checked.is_none_or(|t| SystemTime::now().duration_since(t).unwrap_or_default() > MAX_AGE) {
         fetch_later(http, data_dir);
     }
     Some(bin)
@@ -91,9 +114,9 @@ async fn fetch(http: &reqwest::Client, data_dir: &Path) -> anyhow::Result<String
     let version = newest_lts(&index, build.key).ok_or_else(|| anyhow::anyhow!("no LTS release has {}", build.key))?;
     let dir = data_dir.join("node");
     let bin = bin(data_dir);
-    let have = std::fs::read_to_string(dir.join("version")).unwrap_or_default();
+    let have = std::fs::read_to_string(version_file(data_dir)).unwrap_or_default();
     if have.trim() == version && bin.is_file() {
-        std::fs::File::options().write(true).open(&bin)?.set_modified(SystemTime::now())?;
+        std::fs::write(version_file(data_dir), &version)?;
         return Ok(version);
     }
     let file = archive_name(&version, build);
@@ -117,8 +140,14 @@ async fn fetch(http: &reqwest::Client, data_dir: &Path) -> anyhow::Result<String
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
     }
+    #[cfg(windows)]
+    if bin.exists() {
+        let old = replaced(data_dir);
+        let _ = std::fs::remove_file(&old);
+        std::fs::rename(&bin, &old)?;
+    }
     std::fs::rename(&tmp, &bin)?;
-    std::fs::write(dir.join("version"), &version)?;
+    std::fs::write(version_file(data_dir), &version)?;
     Ok(version)
 }
 
@@ -208,14 +237,28 @@ mod tests {
             let node = installed(&http, &dir).expect("installed after the fetch");
             let out = std::process::Command::new(&node).arg("--version").output().unwrap();
             assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), version);
+            // Both checks below happen while a song is running this Node, as yt-dlp does.
+            let running = || std::process::Command::new(&node).args(["-e", "setTimeout(() => {}, 120000)"]).spawn().unwrap();
             // A month on, nothing newer: no download, just marked fresh.
             let old = SystemTime::now() - MAX_AGE - Duration::from_secs(60);
-            std::fs::File::options().write(true).open(&node).unwrap().set_modified(old).unwrap();
+            std::fs::File::options().write(true).open(version_file(&dir)).unwrap().set_modified(old).unwrap();
+            let mut song = running();
             let t = std::time::Instant::now();
             assert_eq!(fetch(&http, &dir).await.unwrap(), version);
             println!("checked again in {:.1} s", t.elapsed().as_secs_f64());
-            let age = SystemTime::now().duration_since(std::fs::metadata(&node).unwrap().modified().unwrap()).unwrap();
+            let age = SystemTime::now().duration_since(std::fs::metadata(version_file(&dir)).unwrap().modified().unwrap()).unwrap();
             assert!(age < Duration::from_secs(60), "not marked fresh");
+            // A newer LTS out: it replaces the one running.
+            std::fs::write(version_file(&dir), "v0.0.0").unwrap();
+            assert_eq!(fetch(&http, &dir).await.unwrap(), version);
+            let out = std::process::Command::new(&node).arg("--version").output().unwrap();
+            assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), version);
+            let _ = song.kill();
+            let _ = song.wait();
+            // Once it's let go, the one replaced goes.
+            installed(&http, &dir).unwrap();
+            #[cfg(windows)]
+            assert!(!replaced(&dir).exists(), "the replaced Node stays");
         });
         let _ = std::fs::remove_dir_all(&dir);
     }

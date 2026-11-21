@@ -7,8 +7,10 @@
 //! next one.
 
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
+
+use crate::scrobble_store::{Credentials, QueueFile, Vault};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -36,24 +38,41 @@ struct Session {
 }
 
 struct State {
-    session: Option<Session>,
+    session: Option<Arc<Session>>,
     data_dir: PathBuf,
     queue: Vec<Listen>,
+    credentials: Arc<dyn Credentials>,
 }
 
-static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| Mutex::new(State { session: None, data_dir: PathBuf::new(), queue: Vec::new() }));
+static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| Mutex::new(State { session: None, data_dir: PathBuf::new(), queue: Vec::new(), credentials: Arc::new(Vault) }));
 /// One send at a time, so a queued listen never goes out twice.
 static SENDING: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(Default::default);
 
 /// Load the saved token and any listens still waiting to be sent.
 pub fn init(data_dir: &Path) {
-    let session = crate::vault::get(VAULT, data_dir).and_then(|b| {
+    *STATE.lock().unwrap() = load_state(data_dir, Arc::new(Vault));
+}
+
+fn load_state(data_dir: &Path, credentials: Arc<dyn Credentials>) -> State {
+    let mut session = credentials.get(VAULT, data_dir).and_then(|b| {
         let s = String::from_utf8(b).ok()?;
         let (name, token) = s.split_once('\n')?;
-        Some(Session { name: name.to_owned(), token: token.to_owned() })
+        if name.trim().is_empty() || token.trim().is_empty() {
+            return None;
+        }
+        Some(Arc::new(Session { name: name.to_owned(), token: token.to_owned() }))
     });
-    let queue = std::fs::read(data_dir.join("listenbrainz_queue.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-    *STATE.lock().unwrap() = State { session, data_dir: data_dir.to_owned(), queue };
+    let queue = match QueueFile(data_dir.join("listenbrainz_queue.json")).restore(session.as_ref().map(|s| s.name.as_str())) {
+        Ok(queue) => queue,
+        Err(e) => {
+            // An unread queue must not be overwritten by an empty active state.
+            // Keep credentials and disk data intact for a guarded login or restart.
+            log::warn!("listenbrainz: couldn't restore queued plays; session inactive: {e:#}");
+            session = None;
+            Vec::new()
+        }
+    };
+    State { session, data_dir: data_dir.to_owned(), queue, credentials }
 }
 
 /// The connected ListenBrainz user.
@@ -62,11 +81,32 @@ pub fn user() -> Option<String> {
 }
 
 pub fn sign_out() {
-    let mut st = STATE.lock().unwrap();
-    st.session = None;
+    disconnect(&mut STATE.lock().unwrap());
+}
+
+fn disconnect(st: &mut State) {
     st.queue.clear();
-    save_queue(&st);
-    crate::vault::delete(VAULT, &st.data_dir);
+    persist_queue(st);
+    st.session = None;
+    st.credentials.delete(VAULT, &st.data_dir);
+}
+
+fn keep_session(st: &mut State, session: Session) -> anyhow::Result<()> {
+    anyhow::ensure!(!session.name.trim().is_empty() && !session.token.trim().is_empty(), "listenbrainz: incomplete session");
+    // Bind any legacy backlog before changing the saved credentials. If preserving
+    // an unknown queue fails, leave the current account and credentials unchanged.
+    if st.session.is_some() {
+        save_queue(st)?;
+    }
+    let queue = QueueFile(st.data_dir.join("listenbrainz_queue.json")).prepare(&session.name)?;
+    st.credentials.set(VAULT, &st.data_dir, format!("{}\n{}", session.name, session.token).as_bytes())?;
+    st.queue = queue;
+    st.session = Some(Arc::new(session));
+    Ok(())
+}
+
+fn is_current(st: &State, session: &Arc<Session>) -> bool {
+    st.session.as_ref().is_some_and(|current| Arc::ptr_eq(current, session))
 }
 
 /// Check the user token with ListenBrainz and keep it. Returns the account name.
@@ -78,68 +118,134 @@ pub async fn connect(http: &reqwest::Client, token: &str) -> anyhow::Result<Stri
         anyhow::bail!("ListenBrainz didn't accept that token");
     }
     let name = v["user_name"].as_str().unwrap_or_default().to_owned();
-    let data_dir = STATE.lock().unwrap().data_dir.clone();
-    crate::vault::set(VAULT, &data_dir, format!("{name}\n{token}").as_bytes())?;
-    STATE.lock().unwrap().session = Some(Session { name: name.clone(), token: token.to_owned() });
+    keep_session(&mut STATE.lock().unwrap(), Session { name: name.clone(), token: token.to_owned() })?;
     log::info!("listenbrainz: connected as {name}");
     Ok(name)
 }
 
-pub async fn now_playing(http: &reqwest::Client, l: &Listen) {
-    let Some(token) = token() else { return };
-    let body = json!({ "listen_type": "playing_now", "payload": [{ "track_metadata": metadata(l) }] });
-    match submit(http, &token, &body).await {
-        Ok(()) => log::debug!("listenbrainz: playing now {} - {}", l.artist, l.track),
-        Err(e) => log::warn!("listenbrainz: playing now failed: {e:#}"),
+pub fn now_playing(http: &reqwest::Client, s: &Listen) -> impl Future<Output = ()> + Send + 'static {
+    let (http, s) = (http.clone(), s.clone());
+    now_playing_with(&STATE, move |session| async move { send_now_playing(&http, &s, &session).await })
+}
+
+fn now_playing_with<F: Future<Output = anyhow::Result<()>> + Send>(state: &Mutex<State>, send: impl FnOnce(Arc<Session>) -> F + Send) -> impl Future<Output = ()> + Send {
+    let session = state.lock().unwrap().session.clone();
+    async move {
+        let Some(session) = session else { return };
+        if !is_current(&state.lock().unwrap(), &session) {
+            log::debug!("listenbrainz: skipping now playing from a replaced session");
+            return;
+        }
+        match send(session).await {
+            Ok(()) => log::debug!("listenbrainz: now playing sent"),
+            Err(e) => log::warn!("listenbrainz: now playing failed: {e:#}"),
+        }
     }
+}
+
+async fn send_now_playing(http: &reqwest::Client, s: &Listen, session: &Session) -> anyhow::Result<()> {
+    let body = json!({ "listen_type": "playing_now", "payload": [{ "track_metadata": metadata(s) }] });
+    submit(http, &session.token, &body).await
 }
 
 /// Submit `l`, along with any earlier listens still waiting.
-pub async fn listen(http: &reqwest::Client, l: Listen) {
-    let _sending = SENDING.lock().await;
-    let Some(token) = token() else { return };
-    STATE.lock().unwrap().queue.push(l);
-    loop {
-        let batch: Vec<Listen> = STATE.lock().unwrap().queue.iter().take(BATCH).cloned().collect();
-        if batch.is_empty() {
-            break;
+pub fn listen(http: &reqwest::Client, l: Listen) -> impl Future<Output = ()> + Send + 'static {
+    let http = http.clone();
+    listen_with(&STATE, &SENDING, l, move |batch, session| {
+        let http = http.clone();
+        async move { submit(&http, &session.token, &listens_body(&batch)).await }
+    })
+}
+
+/// Capture the session now, before the returned future is spawned or waits its turn.
+fn listen_with<F: Future<Output = anyhow::Result<()>> + Send>(
+    state: &Mutex<State>,
+    sending: &tokio::sync::Mutex<()>,
+    l: Listen,
+    mut send: impl FnMut(Vec<Listen>, Arc<Session>) -> F + Send,
+) -> impl Future<Output = ()> + Send {
+    let session = state.lock().unwrap().session.clone();
+    async move {
+        let Some(session) = session else { return };
+        {
+            let mut st = state.lock().unwrap();
+            if !is_current(&st, &session) {
+                log::debug!("listenbrainz: ignoring work from a replaced session");
+                return;
+            }
+            st.queue.push(l);
+            if !persist_queue(&st) {
+                return;
+            }
         }
-        match submit(http, &token, &listens_body(&batch)).await {
-            Ok(()) => log::info!("listenbrainz: submitted {} listen(s)", batch.len()),
-            Err(e) => match e.downcast_ref::<ApiError>().map(|e| e.0) {
-                // The token was reset on listenbrainz.org.
-                Some(401) => {
-                    log::warn!("listenbrainz: token no longer valid; disconnecting");
-                    sign_out();
-                    break;
+        // Persist even while another request owns the transport lock.
+        let _sending = sending.lock().await;
+        loop {
+            let batch: Vec<Listen> = {
+                let st = state.lock().unwrap();
+                if !is_current(&st, &session) {
+                    log::debug!("listenbrainz: skipping queued work from a replaced session");
+                    return;
                 }
-                // ListenBrainz will never take these: don't let them hold up the rest.
-                Some(400) => log::warn!("listenbrainz: dropping {} rejected listen(s): {e:#}", batch.len()),
-                // Offline, rate limited or ListenBrainz trouble: keep them for next time.
-                _ => {
-                    log::warn!("listenbrainz: submit failed, keeping {} for later: {e:#}", batch.len());
-                    save_queue(&STATE.lock().unwrap());
-                    break;
+                if !st.queue.is_empty() && !persist_queue(&st) {
+                    return;
                 }
-            },
+                st.queue.iter().take(BATCH).cloned().collect()
+            };
+            if batch.is_empty() {
+                break;
+            }
+            let count = batch.len();
+            let result = send(batch, session.clone()).await;
+            let mut st = state.lock().unwrap();
+            // Check and apply the result under one lock, including revoked tokens.
+            if !is_current(&st, &session) {
+                log::debug!("listenbrainz: ignoring a response from a replaced session");
+                return;
+            }
+            match result {
+                Ok(()) => log::info!("listenbrainz: submitted {count} listen(s)"),
+                Err(e) => match e.downcast_ref::<ApiError>().map(|e| e.0) {
+                    // The token was reset on listenbrainz.org.
+                    Some(401) => {
+                        log::warn!("listenbrainz: token no longer valid; disconnecting");
+                        disconnect(&mut st);
+                        break;
+                    }
+                    // ListenBrainz will never take these: don't let them hold up the rest.
+                    Some(400) => log::warn!("listenbrainz: dropping {count} rejected listen(s): {e:#}"),
+                    // Offline, rate limited or ListenBrainz trouble: keep them for next time.
+                    _ => {
+                        log::warn!("listenbrainz: submit failed, keeping {count} for later: {e:#}");
+                        persist_queue(&st);
+                        break;
+                    }
+                },
+            }
+            st.queue.drain(..count);
+            if !persist_queue(&st) {
+                return;
+            }
         }
-        let mut st = STATE.lock().unwrap();
-        st.queue.drain(..batch.len());
-        save_queue(&st);
     }
 }
 
-fn token() -> Option<String> {
-    STATE.lock().unwrap().session.as_ref().map(|s| s.token.clone())
+fn save_queue(st: &State) -> anyhow::Result<()> {
+    match &st.session {
+        Some(session) => QueueFile(st.data_dir.join("listenbrainz_queue.json")).save(&session.name, &st.queue),
+        None => {
+            anyhow::ensure!(st.queue.is_empty(), "listenbrainz: queue has no owner");
+            Ok(())
+        }
+    }
 }
 
-fn save_queue(st: &State) {
-    let path = st.data_dir.join("listenbrainz_queue.json");
-    if st.queue.is_empty() {
-        let _ = std::fs::remove_file(path);
-    } else if let Ok(json) = serde_json::to_vec(&st.queue) {
-        let _ = std::fs::write(path, json);
+fn persist_queue(st: &State) -> bool {
+    if let Err(e) = save_queue(st) {
+        log::warn!("listenbrainz: couldn't save queued plays: {e:#}");
+        return false;
     }
+    true
 }
 
 fn metadata(l: &Listen) -> Value {
@@ -187,6 +293,9 @@ async fn submit(http: &reqwest::Client, token: &str, body: &Value) -> anyhow::Re
     let v: Value = resp.json().await.unwrap_or_default();
     Err(ApiError(status.as_u16(), v["error"].as_str().unwrap_or(status.canonical_reason().unwrap_or_default()).to_owned()).into())
 }
+
+#[cfg(test)]
+mod race_tests;
 
 #[cfg(test)]
 mod tests {

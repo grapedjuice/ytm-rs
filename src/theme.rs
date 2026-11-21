@@ -217,7 +217,7 @@ impl FileTheme {
 /// the background left for whoever wants flat pages. Nothing looks different until it's
 /// edited.
 pub fn theme_template(accent: Color32) -> String {
-    let hex = |c: Color32| format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b());
+    let hex = |c: Color32| egui::ecolor::HexColor::Hex6(c).to_string();
     format!(
         "# ytm-rs colours. One \"name = #rrggbb\" on each line.\n\
          # Save the file and the app follows within a couple of seconds: no restart.\n\

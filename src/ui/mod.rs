@@ -203,7 +203,7 @@ impl AccentSource {
             Self::Theme => String::new(),
             Self::System => "system".into(),
             Self::File => "file".into(),
-            Self::Custom(c) => format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()),
+            Self::Custom(c) => egui::ecolor::HexColor::Hex6(c).to_string(),
         }
     }
 

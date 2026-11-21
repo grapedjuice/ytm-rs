@@ -48,7 +48,7 @@ fn picker(ui: &mut Ui, id: Id, c: &mut Color32) {
     let (field, _) = ui.allocate_exact_size(vec2(WIDTH, 36.0), Sense::hover());
     ui.painter().rect_filled(field, theme::menu_item_radius(), theme::glass(0.08));
     let edit_id = id.with("hex");
-    let mut text = if ui.memory(|m| m.has_focus(edit_id)) { ui.data(|d| d.get_temp::<String>(edit_id)).unwrap_or_default() } else { hex(*c) };
+    let mut text = if ui.memory(|m| m.has_focus(edit_id)) { ui.data(|d| d.get_temp::<String>(edit_id)).unwrap_or_default() } else { egui::ecolor::HexColor::Hex6(*c).to_string() };
     let inner = field.shrink2(vec2(12.0, 4.0));
     let edit = ui.put(
         inner,
@@ -103,10 +103,6 @@ fn gradient(ui: &Ui, key: Id, tag: f32, size: [usize; 2], at: impl Fn(f32, f32) 
     let tex = ui.ctx().load_texture("color-picker", ColorImage::new(size, pixels), TextureOptions::LINEAR);
     ui.data_mut(|d| d.insert_temp(key, (tag, tex.clone())));
     tex
-}
-
-fn hex(c: Color32) -> String {
-    format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b())
 }
 
 /// Hue, saturation and value, each 0–1, from an sRGB colour.

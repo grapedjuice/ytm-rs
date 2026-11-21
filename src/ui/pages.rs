@@ -2886,22 +2886,25 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
             ui.add_enabled_ui(installed, |ui| toggle(ui, &mut app.auto_update, tr!("settings-automatic-updates")));
         });
         divider(ui);
-        let desc = tr!("extra-channel-release-desc");
-        setting_row(ui, tr!("settings-update-channel"), Some(desc), |ui| {
-            ui.add_enabled_ui(installed, |ui| {
-                let btn = dropdown_button(ui, if app.update_nightly { tr!("settings-nightly") } else { tr!("settings-stable") }, 140.0, tr!("settings-update-channel"));
-                widgets::menu_popup(&btn).show(|ui| {
-                    widgets::menu_body(ui, 140.0);
-                    for (label, nightly) in [(tr!("settings-stable"), false), (tr!("settings-nightly"), true)] {
-                        if option_row(ui, label, nightly == app.update_nightly).clicked() {
-                            channel = Some(nightly);
-                            ui.close();
+        // A Flatpak gets whichever version Flatpak gives it: there's no channel to pick.
+        if !crate::update::flatpak() {
+            let desc = tr!("extra-channel-release-desc");
+            setting_row(ui, tr!("settings-update-channel"), Some(desc), |ui| {
+                ui.add_enabled_ui(installed, |ui| {
+                    let btn = dropdown_button(ui, if app.update_nightly { tr!("settings-nightly") } else { tr!("settings-stable") }, 140.0, tr!("settings-update-channel"));
+                    widgets::menu_popup(&btn).show(|ui| {
+                        widgets::menu_body(ui, 140.0);
+                        for (label, nightly) in [(tr!("settings-stable"), false), (tr!("settings-nightly"), true)] {
+                            if option_row(ui, label, nightly == app.update_nightly).clicked() {
+                                channel = Some(nightly);
+                                ui.close();
+                            }
                         }
-                    }
+                    });
                 });
             });
-        });
-        divider(ui);
+            divider(ui);
+        }
         setting_row(ui, tr!("settings-status"), Some(&status), |ui| {
             if !installed {
                 return;

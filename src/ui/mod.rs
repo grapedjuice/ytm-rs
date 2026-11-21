@@ -991,8 +991,11 @@ impl App {
             updater: None,
             storage: Default::default(),
             auto_update: get("auto_update").is_none_or(|v| v == "1"),
-            // A nightly build stays on nightlies until told otherwise.
-            update_nightly: get("update_channel").map_or_else(|| crate::update::is_nightly(&crate::update::build_version()), |v| v == "nightly"),
+            // A nightly build stays on nightlies until told otherwise. In a Flatpak,
+            // Flatpak picks the version, so it's whichever this build is.
+            update_nightly: get("update_channel")
+                .filter(|_| !crate::update::flatpak())
+                .map_or_else(|| crate::update::is_nightly(&crate::update::build_version()), |v| v == "nightly"),
             close_to_tray: get("close_to_tray").is_some_and(|v| v == "1"),
             wgpu_renderer,
             app_icon,

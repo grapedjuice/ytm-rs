@@ -17,8 +17,6 @@ use tao::platform::run_return::EventLoopExtRunReturn;
 use tao::window::WindowBuilder;
 use wry::{PageLoadEvent, WebContext, WebViewBuilder};
 
-use crate::login::BuildIn;
-
 pub const FLAG: &str = "--turnstile";
 const CHALLENGE: &str = "https://lyrics.api.dacubeking.com/challenge";
 /// The widget says when it needs an interaction; this is only a fallback in case that
@@ -99,18 +97,20 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
     let proxy = event_loop.create_proxy();
     let loaded_proxy = proxy.clone();
     let mut context = WebContext::new(Some(profile_dir));
-    let webview = crate::proxy::webview(WebViewBuilder::new_with_web_context(&mut context), false)
-        .with_initialization_script(BRIDGE)
-        .with_ipc_handler(move |req| {
-            let _ = proxy.send_event(req.body().clone());
-        })
-        .with_on_page_load_handler(move |ev, _| {
-            if matches!(ev, PageLoadEvent::Finished) {
-                let _ = loaded_proxy.send_event(r#"{"type":"loaded"}"#.to_owned());
-            }
-        })
-        .with_url(CHALLENGE)
-        .build_in(&window)?;
+    let webview = crate::login::build_in(
+        crate::proxy::webview(WebViewBuilder::new_with_web_context(&mut context), false)
+            .with_initialization_script(BRIDGE)
+            .with_ipc_handler(move |req| {
+                let _ = proxy.send_event(req.body().clone());
+            })
+            .with_on_page_load_handler(move |ev, _| {
+                if matches!(ev, PageLoadEvent::Finished) {
+                    let _ = loaded_proxy.send_event(r#"{"type":"loaded"}"#.to_owned());
+                }
+            })
+            .with_url(CHALLENGE),
+        &window,
+    )?;
 
     let started = Instant::now();
     let mut loaded: Option<Instant> = None;

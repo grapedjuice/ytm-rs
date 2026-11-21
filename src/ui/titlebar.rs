@@ -12,11 +12,27 @@ use egui::{Color32, CursorIcon, Id, Pos2, Rect, ResizeDirection, Sense, Stroke, 
 
 use crate::theme;
 
-/// The top of the window, the search box's row included: the window buttons are this
-/// tall, and its middle is the line they, the search box and the logo share.
+/// The top of the window, the search box's row included: its middle is the line the
+/// search box and the logo share.
 pub const HEIGHT: f32 = 56.0;
-/// The window buttons' width, as Windows draws them.
-const BUTTON_W: f32 = 46.0;
+/// The notch at the window's top right that holds the window buttons, hanging from its
+/// top edge, and what a page puts beside them: this tall.
+const NOTCH_H: f32 = 32.0;
+/// A button in the notch, and how far its highlight stays from the window's top: clear
+/// of the notch's bottom edge too.
+pub const NOTCH_BUTTON: egui::Vec2 = vec2(30.0, 24.0);
+const NOTCH_TOP: f32 = 3.0;
+const NOTCH_GAP: f32 = 2.0;
+/// From the window's edge to the outermost button, and from the notch's curved side to
+/// its innermost one, which clears the curve.
+const NOTCH_PAD_EDGE: f32 = 3.0;
+const NOTCH_PAD_IN: f32 = 8.0;
+/// The curve where the notch meets the window's top edge, and its rounded bottom corner.
+const NOTCH_FLARE: f32 = 8.0;
+const NOTCH_CURVE: f32 = 14.0;
+/// Between the window buttons and what a page puts in the notch: a thin line.
+const NOTCH_SEP: f32 = 7.0;
+const BUTTONS_W: f32 = 3.0 * NOTCH_BUTTON.x + 2.0 * NOTCH_GAP;
 /// How far in from the window's edge resizing starts, and along a corner.
 const EDGE: f32 = 5.0;
 const CORNER: f32 = 14.0;
@@ -134,12 +150,184 @@ fn maximized(ctx: &egui::Context) -> bool {
     ctx.input(|i| i.viewport().maximized.unwrap_or(false))
 }
 
-/// The window buttons' corner, which what's drawn at the top right stays clear of.
+/// Which top corner a page's buttons go in: the window buttons' notch at the right, or
+/// one of their own at the left.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Side {
+    Start,
+    End,
+}
+
+/// How much room pages have taken in each notch, this pass and the last: a row drawn
+/// before the page that fills the notch keeps clear of it all the same.
+#[derive(Clone, Copy, Default)]
+struct Taken {
+    pass: u64,
+    end: f32,
+    start: f32,
+    last_end: f32,
+}
+
+fn taken(ctx: &egui::Context) -> Taken {
+    let pass = ctx.cumulative_pass_nr();
+    let t = ctx.data(|d| d.get_temp::<Taken>(Id::unique("notch-taken"))).unwrap_or_default();
+    if t.pass == pass { t } else { Taken { pass, end: 0.0, start: 0.0, last_end: t.end } }
+}
+
+/// The width of what pages put in a notch, the gaps between them included.
+fn items_w(taken: f32) -> f32 {
+    (taken - NOTCH_GAP).max(0.0)
+}
+
+/// The notch's own part, not its curve into the window's top edge: the window buttons
+/// and what's beside them at the right, or a page's at the left. None while there's no
+/// title bar (full screen), or nothing in the left one.
+fn notch_body(ctx: &egui::Context, side: Side, end: f32, start: f32) -> Option<Rect> {
+    if !(custom() && shown(ctx)) {
+        return None;
+    }
+    let s = ctx.content_rect();
+    let px = 1.0 / ctx.pixels_per_point();
+    // On whole pixels: its straight edges stay sharp, and meet the curve without a seam.
+    let snap = |x: f32| (x / px).round() * px;
+    match side {
+        Side::End => {
+            let items = items_w(end);
+            let w = NOTCH_PAD_EDGE + BUTTONS_W + if items > 0.0 { NOTCH_SEP + items } else { 0.0 } + NOTCH_PAD_IN;
+            Some(Rect::from_min_max(pos2(snap(s.right() - w), s.top()), pos2(s.right(), snap(s.top() + NOTCH_H))))
+        }
+        Side::Start => {
+            let items = items_w(start);
+            (items > 0.0).then(|| Rect::from_min_max(s.min, pos2(snap(s.left() + NOTCH_PAD_EDGE + items + NOTCH_PAD_IN), snap(s.top() + NOTCH_H))))
+        }
+    }
+}
+
+/// The window buttons' notch, its curve included, which what's drawn at the top right
+/// stays clear of.
 pub fn buttons_rect(ctx: &egui::Context) -> Option<Rect> {
-    (custom() && shown(ctx)).then(|| {
-        let screen = ctx.content_rect();
-        Rect::from_min_size(pos2(screen.right() - 3.0 * BUTTON_W, screen.top()), vec2(3.0 * BUTTON_W, HEIGHT))
-    })
+    let t = taken(ctx);
+    notch_body(ctx, Side::End, t.end.max(t.last_end), 0.0).map(|b| b.with_min_x(b.left() - NOTCH_FLARE))
+}
+
+/// The layer the notches are painted on, and the one just above it for what's in them.
+fn notch_layer() -> egui::LayerId {
+    egui::LayerId::new(egui::Order::Foreground, Id::unique("window-buttons"))
+}
+
+fn notch_items_layer() -> egui::LayerId {
+    egui::LayerId::new(egui::Order::Foreground, Id::unique("notch-items"))
+}
+
+/// Room for `w` points of a page's buttons in a notch, laid out from the window's edge
+/// inwards (right to left in the right one), on the notch's layer: none while there's no
+/// title bar. Each call this pass goes further in; the notch grows to hold them.
+pub fn notch_ui(ui: &mut Ui, side: Side, w: f32) -> Option<Ui> {
+    let ctx = ui.ctx();
+    if !notch_shown(ctx) {
+        return None;
+    }
+    let s = ctx.content_rect();
+    let mut t = taken(ctx);
+    let (x0, x1, layout) = match side {
+        Side::End => {
+            let right = s.right() - NOTCH_PAD_EDGE - BUTTONS_W - NOTCH_SEP - t.end;
+            t.end += w + NOTCH_GAP;
+            (right - w, right, egui::Layout::right_to_left(egui::Align::Center))
+        }
+        Side::Start => {
+            let left = s.left() + NOTCH_PAD_EDGE + t.start;
+            t.start += w + NOTCH_GAP;
+            (left, left + w, egui::Layout::left_to_right(egui::Align::Center))
+        }
+    };
+    ctx.data_mut(|d| d.insert_temp(Id::unique("notch-taken"), t));
+    // Over the notch, which is painted at the end of the pass.
+    ctx.set_sublayer(notch_layer(), notch_items_layer());
+    let rect = Rect::from_x_y_ranges(x0..=x1, s.top() + NOTCH_TOP..=s.top() + NOTCH_TOP + NOTCH_BUTTON.y);
+    let mut child = ui.new_child(egui::UiBuilder::new().layer_id(notch_items_layer()).max_rect(rect).layout(layout));
+    child.set_clip_rect(s);
+    // The notch doesn't fade or slide with what put them there (now playing coming up).
+    child.set_opacity(1.0);
+    // Exactly `w` wide: the caller spaces its buttons itself.
+    child.spacing_mut().item_spacing.x = 0.0;
+    Some(child)
+}
+
+/// Whether the notches are up: the app's own title bar, not in full screen. While they
+/// are, what goes in them never goes back to its place in the page.
+pub fn notch_shown(ctx: &egui::Context) -> bool {
+    custom() && shown(ctx)
+}
+
+/// The fill behind a highlighted button in a notch.
+pub fn notch_highlight(ui: &Ui, r: Rect, h: f32, down: bool) {
+    if h > 0.0 {
+        ui.painter().rect_filled(r, 7.0, theme::glass(if down { 0.20 } else { 0.14 } * h));
+    }
+}
+
+/// An icon button the size of the window buttons, for a notch.
+pub fn notch_button(ui: &mut Ui, glyph: char, size: f32, name: &str, on: bool) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(NOTCH_BUTTON, Sense::click());
+    let resp = super::widgets::named(resp, name).on_hover_text(name).on_hover_cursor(CursorIcon::PointingHand);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered() || on, 0.12);
+    notch_highlight(ui, r, h, resp.is_pointer_button_down_on());
+    super::widgets::focus_ring(ui, &resp, r, 7.0);
+    super::widgets::icon_at(ui, r.center(), glyph, size, theme::lerp_color(theme::text_dim(), theme::text(), h));
+    resp
+}
+
+/// A chip that fits a notch: white while `selected`.
+pub fn notch_chip(ui: &mut Ui, label: &str, selected: bool) -> egui::Response {
+    let text = ui.painter().layout_no_wrap(label.to_owned(), theme::semibold(12.5), Color32::PLACEHOLDER);
+    let (r, resp) = ui.allocate_exact_size(vec2(text.size().x + 22.0, NOTCH_BUTTON.y), Sense::click());
+    let resp = super::widgets::named(resp, label).on_hover_cursor(CursorIcon::PointingHand);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
+    let s = theme::anim_bool(ui.ctx(), resp.id.with("s"), selected, 0.2);
+    ui.painter().rect_filled(r, 7.0, theme::lerp_color(theme::glass(0.12 + 0.06 * h), theme::text(), s));
+    super::widgets::focus_ring(ui, &resp, r, 7.0);
+    let fg = theme::lerp_color(theme::text(), Color32::from_gray(15), s);
+    ui.painter().galley(r.center() - text.size() / 2.0, text, fg);
+    resp
+}
+
+/// The notches: darker than what's behind them, in its colour; lighter on light pages.
+fn notch_fill() -> Color32 {
+    if theme::light() { theme::with_alpha(Color32::WHITE, 0.55) } else { theme::with_alpha(Color32::BLACK, 0.42) }
+}
+
+/// A notch: `body` and the curve where it meets the window's top edge, beside it.
+fn paint_notch(painter: &egui::Painter, body: Rect, side: Side, fill: Color32) {
+    let corner = match side {
+        Side::End => egui::CornerRadius { sw: NOTCH_CURVE as u8, ..Default::default() },
+        Side::Start => egui::CornerRadius { se: NOTCH_CURVE as u8, ..Default::default() },
+    };
+    painter.rect_filled(body, corner, fill);
+    // The curve: the corner between the notch's side and the window's top, less a
+    // quarter circle, its arc softened over a pixel.
+    let px = 1.0 / painter.ctx().pixels_per_point();
+    let (k, c, from, to) = match side {
+        Side::End => (body.left_top(), pos2(body.left() - NOTCH_FLARE, body.top() + NOTCH_FLARE), -std::f32::consts::FRAC_PI_2, 0.0),
+        Side::Start => (body.right_top(), pos2(body.right() + NOTCH_FLARE, body.top() + NOTCH_FLARE), -std::f32::consts::FRAC_PI_2, -std::f32::consts::PI),
+    };
+    let clear = theme::with_alpha(fill, 0.0);
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(k, fill);
+    const N: u32 = 12;
+    for i in 0..=N {
+        let a = from + (to - from) * i as f32 / N as f32;
+        let dir = vec2(a.cos(), a.sin());
+        mesh.colored_vertex(c + dir * (NOTCH_FLARE + px / 2.0), fill);
+        mesh.colored_vertex(c + dir * (NOTCH_FLARE - px / 2.0), clear);
+    }
+    for i in 0..N {
+        let (s0, t0, s1, t1) = (1 + 2 * i, 2 + 2 * i, 3 + 2 * i, 4 + 2 * i);
+        mesh.add_triangle(0, s0, s1);
+        mesh.add_triangle(s0, t0, s1);
+        mesh.add_triangle(t0, t1, s1);
+    }
+    painter.add(mesh);
 }
 
 /// The top margin above a row `row` tall at the top of the window: `normal`, or with the
@@ -259,19 +447,39 @@ pub fn edge_inset() -> f32 {
     if custom() { EDGE } else { 0.0 }
 }
 
-/// Minimize, maximize or restore, and close, at the window's top right.
+/// The notches, and in the right one minimize, maximize or restore, and close. Last in
+/// the pass, once pages have put what they will in them.
 pub fn window_buttons(ctx: &egui::Context) {
-    let Some(rect) = buttons_rect(ctx) else { return };
+    let t = taken(ctx);
+    let Some(body) = notch_body(ctx, Side::End, t.end, 0.0) else { return };
+    let start = notch_body(ctx, Side::Start, 0.0, t.start);
     let max = maximized(ctx);
-    egui::Area::new(Id::unique("window-buttons")).order(egui::Order::Foreground).fixed_pos(rect.min).show(ctx, |ui| {
+    let screen = ctx.content_rect();
+    // The layer is this area's, so what pages put in the notch (just above it) moves with it.
+    egui::Area::new(Id::unique("window-buttons")).order(egui::Order::Foreground).fixed_pos(screen.min).show(ctx, |ui| {
+        ui.set_clip_rect(screen);
+        let fill = notch_fill();
+        // The notches move the window too, between their buttons.
+        for (b, side) in [(Some(body), Side::End), (start, Side::Start)] {
+            let Some(b) = b else { continue };
+            paint_notch(ui.painter(), b, side, fill);
+            drag_area(ui, b, if side == Side::End { "notch-end" } else { "notch-start" });
+        }
+        let items = items_w(t.end);
+        if items > 0.0 {
+            let x = screen.right() - NOTCH_PAD_EDGE - BUTTONS_W - NOTCH_SEP / 2.0;
+            let mid = screen.top() + NOTCH_TOP + NOTCH_BUTTON.y / 2.0;
+            ui.painter().vline(x, mid - 7.0..=mid + 7.0, Stroke::new(1.0, theme::glass(0.18)));
+        }
         let kinds = [(Kind::Minimize, crate::tr!("window-minimize")), (if max { Kind::Restore } else { Kind::Maximize }, if max { crate::tr!("window-restore") } else { crate::tr!("window-maximize") }), (Kind::Close, crate::tr!("ui-close"))];
+        let left = screen.right() - NOTCH_PAD_EDGE - BUTTONS_W;
         for (i, (kind, name)) in kinds.into_iter().enumerate() {
-            let r = Rect::from_min_size(rect.min + vec2(i as f32 * BUTTON_W, 0.0), vec2(BUTTON_W, HEIGHT));
+            let r = Rect::from_min_size(pos2(left + i as f32 * (NOTCH_BUTTON.x + NOTCH_GAP), screen.top() + NOTCH_TOP), NOTCH_BUTTON);
             let resp = ui.interact(r, Id::unique(("window-button", i)), Sense::click());
             let resp = super::widgets::named(resp, name);
             paint_button(ui, r, kind, &resp);
             if resp.has_focus() {
-                ui.painter().rect_stroke(r.shrink(3.0), 3.0, Stroke::new(1.5, theme::text()), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(r, 7.0, Stroke::new(1.5, theme::text()), egui::StrokeKind::Inside);
             }
             if resp.clicked() {
                 ctx.send_viewport_cmd(match kind {
@@ -299,15 +507,13 @@ fn paint_button(ui: &Ui, r: Rect, kind: Kind, resp: &egui::Response) {
     let p = ui.painter();
     let fg = if kind == Kind::Close {
         // Windows' own close red, and a darker one while held.
-        let red = if down { Color32::from_rgb(0x94, 0x1F, 0x15) } else { Color32::from_rgb(0xC4, 0x2B, 0x1C) };
+        let red = if down { Color32::from_rgb(0xB8, 0x0F, 0x1D) } else { Color32::from_rgb(0xE8, 0x11, 0x23) };
         if h > 0.0 {
-            p.rect_filled(r, 0.0, red.gamma_multiply(h));
+            p.rect_filled(r, 7.0, red.gamma_multiply(h));
         }
         theme::lerp_color(theme::text_dim(), Color32::WHITE, h)
     } else {
-        if h > 0.0 {
-            p.rect_filled(r, 0.0, theme::glass(if down { 0.16 } else { 0.10 } * h));
-        }
+        notch_highlight(ui, r, h, down);
         theme::lerp_color(theme::text_dim(), theme::text(), h)
     };
     // Thin glyphs, ten points across, on whole pixels so they stay sharp.
@@ -320,10 +526,10 @@ fn paint_button(ui: &Ui, r: Rect, kind: Kind, resp: &egui::Response) {
             p.line_segment([c + vec2(-5.0, 0.0), c + vec2(5.0, 0.0)], s);
         }
         Kind::Maximize => {
-            p.rect_stroke(Rect::from_center_size(c, vec2(10.0, 10.0)), 1.0, s, egui::StrokeKind::Middle);
+            p.rect_stroke(Rect::from_center_size(c, vec2(10.0, 10.0)), 2.0, s, egui::StrokeKind::Middle);
         }
         Kind::Restore => {
-            p.rect_stroke(Rect::from_center_size(c + vec2(-1.0, 1.0), vec2(8.0, 8.0)), 1.0, s, egui::StrokeKind::Middle);
+            p.rect_stroke(Rect::from_center_size(c + vec2(-1.0, 1.0), vec2(8.0, 8.0)), 1.5, s, egui::StrokeKind::Middle);
             // The window behind: its top and right edges, showing past the front one.
             let b = Rect::from_center_size(c + vec2(1.0, -1.0), vec2(8.0, 8.0));
             p.line_segment([pos2(b.left() + 2.0, b.top()), b.right_top()], s);

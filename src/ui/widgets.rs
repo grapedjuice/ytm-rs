@@ -1144,6 +1144,80 @@ pub fn song_actions(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, 
         }
     }
     menu_divider(ui);
+    song_actions_rest(ui, t, acts);
+}
+
+/// [`song_actions`]' first five as a row of icons, each named on hover, for a menu that
+/// has to stay short: like (held to unlike, as the row is), dislike, add to playlist,
+/// copy link, and download or show it in its folder.
+pub fn song_action_icons(ui: &mut Ui, t: &Track, liked: bool, acts: &mut Vec<Action>) {
+    let gap = 2.0;
+    let w = ((ui.available_width() - 4.0 * gap) / 5.0).floor();
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = gap;
+        let cell = |ui: &mut Ui, label: &str| {
+            let (r, resp) = ui.allocate_exact_size(vec2(w, 36.0), Sense::click());
+            let resp = named(resp, label).on_hover_text(label).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let m = crate::preset::active().app.menu_look;
+            if resp.hovered() {
+                ui.painter().rect_filled(r, m.row_radius, theme::glass(m.hover));
+            }
+            let color = if resp.hovered() { theme::text() } else { theme::text_dim() };
+            (r, resp, color)
+        };
+        let label = if liked { crate::tr!("ui-unlike") } else { crate::tr!("ui-like-song") };
+        let (r, resp, color) = cell(ui, label);
+        let like = if liked {
+            let gesture = super::ratings::like_gesture(ui, &resp, super::ratings::rating_id(t), true, None);
+            super::ratings::unlike_heart(ui, r.center(), 16.0, 1.0, color, color, gesture.progress);
+            if gesture.hint {
+                super::ratings::unlike_hint(ui, &resp);
+            }
+            gesture.activate
+        } else {
+            icon_at(ui, r.center(), icon::HEART, 16.0, color);
+            resp.clicked()
+        };
+        if like {
+            acts.push(Action::Like(t.clone(), !liked));
+            ui.close();
+        }
+        // Each closes the menu, as its row does.
+        let icon = |ui: &mut Ui, glyph: char, label: &str| {
+            let (r, resp, color) = cell(ui, label);
+            icon_at(ui, r.center(), glyph, 16.0, color);
+            if resp.clicked() {
+                ui.close();
+            }
+            resp.clicked()
+        };
+        if icon(ui, icon::THUMBS_DOWN, crate::tr!("ui-dislike-song")) {
+            acts.push(Action::Dislike(t.clone()));
+        }
+        if icon(ui, icon::LIST_PLUS, crate::tr!("ui-add-playlist")) {
+            acts.push(Action::AddToPlaylist(vec![t.clone()]));
+        }
+        if icon(ui, icon::LINK, crate::tr!("ui-copy-link")) {
+            acts.push(Action::Share(Target::Song(t.clone())));
+        }
+        match crate::downloads::path(&t.id) {
+            Some(path) => {
+                if icon(ui, icon::FOLDER_OPEN, crate::tr!("widget-show-in-folder")) {
+                    crate::downloads::show_file(&path);
+                }
+            }
+            None => {
+                if icon(ui, icon::DOWNLOAD, crate::tr!("settings-download")) {
+                    acts.push(Action::Download(t.clone()));
+                }
+            }
+        }
+    });
+}
+
+/// The rest of [`song_actions`], past its first five: play next, queue, radio, and to
+/// the album and artist.
+pub fn song_actions_rest(ui: &mut Ui, t: &Track, acts: &mut Vec<Action>) {
     if menu_action(ui, Some(icon::SKIP_FORWARD), crate::tr!("player-play-next")) {
         acts.push(Action::PlayNext(t.clone()));
     }

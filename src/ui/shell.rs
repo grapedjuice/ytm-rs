@@ -656,6 +656,19 @@ fn refresh_button(ui: &mut Ui) -> egui::Response {
 }
 
 pub fn top_bar(app: &mut App, ui: &mut Ui) {
+    // With the app's own title bar the account button sits in the window buttons' notch,
+    // before the row works out its room. While now playing is up, or on its way, the notch
+    // is now playing's: the button doesn't come back to the row meanwhile.
+    let in_notch = super::titlebar::notch_shown(ui.ctx());
+    if in_notch
+        && !app.np_open
+        && let Some(mut n) = super::titlebar::notch_ui(ui, super::titlebar::Side::End, super::titlebar::NOTCH_BUTTON.x)
+    {
+        let (r, resp) = n.allocate_exact_size(super::titlebar::NOTCH_BUTTON, Sense::click());
+        let h = theme::anim_bool(n.ctx(), resp.id.with("h"), resp.hovered(), 0.12);
+        super::titlebar::notch_highlight(&n, r, h, resp.is_pointer_button_down_on());
+        account_button(app, &mut n, Rect::from_center_size(r.center(), Vec2::splat(22.0)), resp, 11.0);
+    }
     let tb = &app.look().app.top_bar;
     let search_h = app.look().app.search_look.height;
     // What the theme puts behind the row, under its widgets.
@@ -723,7 +736,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
 
         // Room for the account button, and the window buttons when they're over this row;
         // in a narrow window the box gives way rather than run under them.
-        let reserve = 50.0 + super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 20.0);
+        let reserve = if in_notch { 0.0 } else { 50.0 } + super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 20.0);
         let narrowest = if super::titlebar::custom() { 120.0 } else { 240.0 };
         let sl = &app.look().app.search_look;
         let width = (ui.available_width() - reserve).clamp(narrowest, sl.max_px.max(narrowest));
@@ -860,23 +873,9 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 20.0));
-            let (r, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
-            let resp = named(resp, crate::tr!("settings-account")).on_hover_cursor(egui::CursorIcon::PointingHand);
-            let initial = app.account_name.as_deref().and_then(|n| n.chars().next()).unwrap_or('?');
-            if app.logged_in {
-                ui.painter().circle_filled(r.center(), 18.0, theme::lerp_color(app.accent_color(), Color32::BLACK, 0.35));
-                if let Some(avatar) = &app.account_avatar {
-                    widgets::paint_remote(ui, avatar, r, 18.0, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
-                } else {
-                    ui.painter().text(r.center(), Align2::CENTER_CENTER, initial, theme::bold(16.0), Color32::WHITE);
-                }
-            } else {
-                ui.painter().circle_filled(r.center(), 18.0, theme::glass(0.12));
-                icon_at(ui, r.center(), icon::USER, 18.0, theme::text_dim());
-            }
-            if resp.clicked() {
-                app.settings_tab = super::pages::SettingsTab::Account;
-                app.actions.push(Action::Go(Page::Settings));
+            if !in_notch {
+                let (r, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
+                account_button(app, ui, r, resp, 18.0);
             }
             if app.loading {
                 ui.add_space(10.0);
@@ -884,6 +883,29 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
             }
         });
     });
+}
+
+/// The account button: the picture, or the name's first letter, or a person when signed
+/// out, `radius` round in `r`; to the account's settings when clicked.
+fn account_button(app: &mut App, ui: &mut Ui, r: Rect, resp: egui::Response, radius: f32) {
+    let resp = named(resp, crate::tr!("settings-account")).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let initial = app.account_name.as_deref().and_then(|n| n.chars().next()).unwrap_or('?');
+    let scale = radius / 18.0;
+    if app.logged_in {
+        ui.painter().circle_filled(r.center(), radius, theme::lerp_color(app.accent_color(), Color32::BLACK, 0.35));
+        if let Some(avatar) = &app.account_avatar {
+            widgets::paint_remote(ui, avatar, r, radius, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+        } else {
+            ui.painter().text(r.center(), Align2::CENTER_CENTER, initial, theme::bold(16.0 * scale), Color32::WHITE);
+        }
+    } else {
+        ui.painter().circle_filled(r.center(), radius, theme::glass(0.12));
+        icon_at(ui, r.center(), icon::USER, 18.0 * scale.max(0.75), theme::text_dim());
+    }
+    if resp.clicked() {
+        app.settings_tab = super::pages::SettingsTab::Account;
+        app.actions.push(Action::Go(Page::Settings));
+    }
 }
 
 /// Search suggestions dropdown under the search box.

@@ -125,7 +125,7 @@ async fn fetch(http: &reqwest::Client, data_dir: &Path) -> anyhow::Result<String
     log::info!("node: downloading {file}");
     // Slow connections included: it's 30-40 MB.
     let bytes = get(format!("{DIST}/{version}/{file}"), 900).await?.bytes().await?;
-    let got = hex(&Sha256::digest(&bytes));
+    let got = format!("{:x}", Sha256::digest(&bytes));
     anyhow::ensure!(got == want, "{file}'s SHA-256 is {got}, not {want}");
     let node = tokio::task::spawn_blocking({
         let (version, build_zip, platform) = (version.clone(), build.zip, build.platform);
@@ -166,10 +166,6 @@ fn sha256_of(sums: &str, file: &str) -> Option<String> {
     sums.lines().find_map(|l| l.split_once("  ").filter(|(_, f)| f.trim() == file).map(|(h, _)| h.trim().to_ascii_lowercase()))
 }
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
 /// The `node` binary out of a release archive whose top folder is `top`.
 fn extract(archive: &[u8], top: &str, zip: bool) -> anyhow::Result<Vec<u8>> {
     let mut out = Vec::new();
@@ -208,6 +204,8 @@ mod tests {
         let sums = "aec2514ea1  node-v26.13.1-darwin-arm64.tar.gz\nAB12  node-v26.13.1-win-x64.zip\nf5109  win-x64/node.exe\n";
         assert_eq!(sha256_of(sums, "node-v26.13.1-win-x64.zip").as_deref(), Some("ab12"));
         assert_eq!(sha256_of(sums, "node-v26.13.1-darwin-arm64.tar.xz"), None);
+        // A digest prints as the lowercase hex these sums are in.
+        assert_eq!(format!("{:x}", Sha256::digest(b"abc")), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     }
 
     #[test]
@@ -278,7 +276,7 @@ mod tests {
                 let file = archive_name(&version, &build);
                 let sums = http.get(format!("{DIST}/{version}/SHASUMS256.txt")).send().await.unwrap().text().await.unwrap();
                 let bytes = http.get(format!("{DIST}/{version}/{file}")).send().await.unwrap().bytes().await.unwrap();
-                assert_eq!(hex(&Sha256::digest(&bytes)), sha256_of(&sums, &file).unwrap(), "{file}");
+                assert_eq!(format!("{:x}", Sha256::digest(&bytes)), sha256_of(&sums, &file).unwrap(), "{file}");
                 let node = extract(&bytes, &format!("node-{version}-{}", build.platform), build.zip).unwrap();
                 println!("{file}: {:.1} MB download, node {:.1} MB", bytes.len() as f64 / 1e6, node.len() as f64 / 1e6);
                 if cfg!(windows) && build.zip {

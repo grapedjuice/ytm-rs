@@ -204,7 +204,7 @@ fn signature(params: &[(&str, &str)]) -> String {
         h.update(v.as_bytes());
     }
     h.update(SECRET.as_bytes());
-    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    format!("{:x}", h.finalize())
 }
 
 async fn call(http: &reqwest::Client, method: &str, params: &[(&str, &str)], sk: Option<&str>, post: bool) -> anyhow::Result<Value> {
@@ -247,7 +247,7 @@ mod tests {
         let sig = signature(&[("method", "auth.getToken"), ("api_key", API_KEY)]);
         let mut h = Md5::new();
         h.update(format!("api_key{API_KEY}methodauth.getToken{SECRET}"));
-        let want: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        let want = format!("{:x}", h.finalize());
         assert_eq!(sig, want);
     }
 }

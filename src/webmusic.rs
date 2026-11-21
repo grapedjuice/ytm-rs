@@ -164,8 +164,7 @@ impl Session {
             .filter_map(|(scheme, cookie)| {
                 let sid = self.get(cookie)?;
                 let hash = Sha1::digest(format!("{ts} {sid} {origin}"));
-                let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
-                Some(format!("{scheme} {ts}_{hex}"))
+                Some(format!("{scheme} {ts}_{hash:x}"))
             })
             .collect();
         anyhow::ensure!(!parts.is_empty(), "signed-in session has no SAPISID cookie");

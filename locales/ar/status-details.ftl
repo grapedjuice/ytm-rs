@@ -1,50 +1,54 @@
 ### App interface.
 
-status-upload-complete = اكتمل الرفع ({ $count }). قد يستغرق YouTube Music دقيقة واحدة لمعالجة المسارات.
-status-upload-failed = فشل التحميل: { $details }
-status-upload-partial = تم الرفع : { $count }. فشل: { $details }
-status-waiting-transfer = في انتظار انتهاء عملية النقل من الإضافة إلى الموسيقى التي أعجبتني...
-status-liking-progress = إضافة الإعجابات: { $done } لـ { $total }…
-status-unliking-progress = إزالة الإعجابات: { $done } من { $total }…
+status-upload-complete = اكتمل الرفع ({ $count }). قد يستغرق YouTube Music دقيقة لمعالجة المقاطع الصوتية.
+status-upload-failed = فشل الرفع: { $details }
+status-upload-partial = تم الرفع: { $count }. فشل: { $details }
+status-waiting-transfer = بانتظار انتهاء النقل للإضافة إلى الموسيقى التي أعجبتك…
+status-liking-progress = جارٍ إضافة الإعجابات: { $done } من { $total }…
+status-unliking-progress = جارٍ إزالة الإعجابات: { $done } من { $total }…
 status-playlist-created = تم إنشاء قائمة التشغيل
-status-new-playlist-tracks = تمت إضافة المسارات إلى قائمة التشغيل الجديدة: { $count }
+status-new-playlist-tracks = المقاطع المضافة إلى قائمة التشغيل الجديدة: { $count }
 status-playlist-added = تمت الإضافة إلى قائمة التشغيل
 status-playlist-updated = تم تحديث قائمة التشغيل
 status-playlist-sorted = تم فرز قائمة التشغيل
-status-playlist-sort-failed = تعذر فرز قائمة التشغيل
-status-playlist-move-failed = YouTube Music لم يتخذ هذه الخطوة
-status-library-saved = محفوظ في المكتبة
+status-playlist-sort-failed = تعذّر فرز قائمة التشغيل
+status-playlist-move-failed = لم يقبل YouTube Music هذا النقل
+status-library-saved = تم الحفظ في المكتبة
 status-library-removed = تمت الإزالة من المكتبة
-status-unsubscribed = غير مشترك
-status-subscribe-failed = تعذر الاشتراك
-status-unsubscribe-failed = تعذر إلغاء الاشتراك
+status-unsubscribed = تم إلغاء الاشتراك
+status-subscribe-failed = تعذّر الاشتراك
+status-unsubscribe-failed = تعذّر إلغاء الاشتراك
 status-like-success = الإعجابات المضافة: { $count }
-status-like-refused = YouTube Music لم يقبل التغيير. حاول مرة أخرى بعد فترة.
+status-like-refused = لم يقبل YouTube Music هذا التغيير. حاول مرة أخرى بعد قليل.
 status-refused-count = رفض YouTube Music: { $count }
-status-removed-liked = تمت الإزالة من الأغاني التي أعجبتني
-status-download-batch = تحميل المقاطع : { $count }
-status-download-collection = التحميل من "{ $title }": { $count }
-status-download-stopped = توقف التنزيل{ $name }: تم حفظ { $songs }
-status-download-already = تم التنزيل بالفعل
-status-download-name-already = تم تنزيل "{ $title }" بالفعل
-status-download-done = تم التحميل{ $name }: { $songs }
-status-download-already-count = { $count } موجود بالفعل
-status-download-fail-count = تعذر تنزيل { $count } ({ $details })
-status-play-premium = "{ $title }" يحتاج إلى YouTube Music Premium
-status-play-sign-in = قم بتسجيل الدخول للعب "{ $title }"
-status-age-restricted = إنه مقيد بالعمر
+status-removed-liked = تمت الإزالة من الأغاني التي أعجبتك
+status-download-batch = جارٍ تنزيل المقاطع الصوتية: { $count }
+status-download-collection = جارٍ التنزيل من “{ $title }”: { $count }
+status-download-stopped = تم إيقاف تنزيل{ $name }: تم حفظ { $songs }
+status-download-already = تم التنزيل مسبقاً
+status-download-name-already = “{ $title }” منزّل مسبقاً
+status-download-done = تم تنزيل{ $name }: { $songs }
+status-download-already-count = { $count } موجودة مسبقاً
+status-download-fail-count = تعذّر تنزيل { $count } ({ $details })
+status-play-premium = يتطلب “{ $title }” اشتراك YouTube Music Premium
+status-play-sign-in = سجّل الدخول لتشغيل “{ $title }”
+status-age-restricted = المحتوى مقيّد بفئة عمرية
 status-songs = { $count ->
+    [zero] { $count } أغنية
     [one] أغنية واحدة
     [two] أغنيتان
     [few] { $count } أغانٍ
+    [many] { $count } أغنية
    *[other] { $count } أغنية
 }
 status-episodes = { $count ->
+    [zero] { $count } حلقة
     [one] حلقة واحدة
     [two] حلقتان
     [few] { $count } حلقات
+    [many] { $count } حلقة
    *[other] { $count } حلقة
 }
 status-download-quoted-title = “{ $title }”
-discord-view-artist = مشاهدة الفنان
-discord-view-album = مشاهدة الألبوم
+discord-view-artist = عرض الفنّان
+discord-view-album = عرض الألبوم

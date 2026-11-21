@@ -2866,7 +2866,8 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
             }
             match &state {
                 Some(State::Ready { .. }) => restart = pill(ui, tr!("settings-restart-to-update"), Some(icon::SPARKLES), true).clicked(),
-                Some(State::Available { url, .. }) => {
+                // A Flatpak has nothing to download: Flatpak updates it.
+                Some(State::Available { url, .. }) if !crate::update::flatpak() => {
                     if pill(ui, tr!("settings-download"), Some(icon::SPARKLES), true).clicked() {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                     }

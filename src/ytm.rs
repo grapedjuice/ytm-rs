@@ -279,16 +279,28 @@ pub async fn suggestions(api: &Api, input: &str, auth: bool) -> anyhow::Result<(
 
 /// The answer's second section: what the typed words most likely mean, as rows.
 fn parse_suggested_hits(v: &Value) -> Vec<Card> {
-    arr(&v["contents"][1]["searchSuggestionsSectionRenderer"]["contents"]).iter().filter_map(|i| suggested_hit(&i["musicResponsiveListItemRenderer"])).collect()
+    parse_suggested_hits_with(v, podcasts())
 }
 
-/// An artist or album opens its page; a song or video plays.
-fn suggested_hit(r: &Value) -> Option<Card> {
+/// [`parse_suggested_hits`], with podcasts shown or not.
+fn parse_suggested_hits_with(v: &Value, podcasts: bool) -> Vec<Card> {
+    arr(&v["contents"][1]["searchSuggestionsSectionRenderer"]["contents"]).iter().filter_map(|i| suggested_hit(&i["musicResponsiveListItemRenderer"], podcasts)).collect()
+}
+
+/// An artist or album opens its page; a song, video or episode plays. Episodes only
+/// with podcasts shown, by their show as search results have them.
+fn suggested_hit(r: &Value, podcasts: bool) -> Option<Card> {
     if let Some(c) = list_card(r) {
         return Some(c);
     }
-    let mut t = list_item(r)?;
     let detail = &r["flexColumns"][1]["musicResponsiveListItemFlexColumnRenderer"]["text"];
+    let subtitle = || runs(detail).filter_map(|r| r["text"].as_str()).collect::<String>();
+    // An episode names its show where a song names its artists.
+    if !show_links(detail).is_empty() {
+        let t = episode_row(r).filter(|_| podcasts)?;
+        return Some(Card { title: t.title.clone(), subtitle: subtitle(), thumbs: t.thumbs.clone(), round: false, links: t.artists.clone(), target: Target::Song(t) });
+    }
+    let mut t = list_item(r)?;
     // These rows lead with their kind ("Song • Daft Punk • 401M plays"), in the language
     // asked for: not an artist, whatever it's called.
     let mut lead = runs(detail);
@@ -301,8 +313,7 @@ fn suggested_hit(r: &Value) -> Option<Card> {
             t.artists.remove(0);
         }
     }
-    let subtitle = runs(detail).filter_map(|r| r["text"].as_str()).collect::<String>();
-    Some(Card { title: t.title.clone(), subtitle, thumbs: t.thumbs.clone(), round: false, links: t.artists.clone(), target: Target::Song(t) })
+    Some(Card { title: t.title.clone(), subtitle: subtitle(), thumbs: t.thumbs.clone(), round: false, links: t.artists.clone(), target: Target::Song(t) })
 }
 
 fn parse_suggestions(v: &Value) -> Vec<Suggestion> {
@@ -2619,6 +2630,19 @@ mod tests {
         let hits = parse_suggested_hits(&answer(vec![song("Canción", "wU26xVT_vBU", "One More Time", "860 M de reproducciones")]));
         let Target::Song(t) = &hits[0].target else { panic!("a song plays") };
         assert_eq!(t.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), ["Daft Punk"]);
+        // An episode plays by its show, and only with podcasts shown.
+        let show = browse("MPSPPL1", "MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE");
+        let watch = json!({"watchEndpoint": {"videoId": "xjZ31IKfu4Q"}});
+        let episode = json!({"musicResponsiveListItemRenderer": {"thumbnail": thumb, "navigationEndpoint": watch, "playlistItemData": {"videoId": "xjZ31IKfu4Q"},
+            "flexColumns": [col(json!([{"text": "The Buried Bodies Case", "navigationEndpoint": watch}])),
+                col(json!([{"text": "Episode"}, {"text": " • "}, {"text": "Dec 28, 2025"}, {"text": " • "}, {"text": "Radiolab", "navigationEndpoint": show}]))]}});
+        let rows = || answer(vec![episode.clone(), song("Song", "JhulBGMA7G4", "Harder, Better, Faster, Stronger", "401M plays")]);
+        let off = parse_suggested_hits_with(&rows(), false);
+        assert_eq!(off.iter().map(|c| c.title.as_str()).collect::<Vec<_>>(), ["Harder, Better, Faster, Stronger"]);
+        let on = parse_suggested_hits_with(&rows(), true);
+        assert_eq!(on.len(), 2);
+        let Target::Song(t) = &on[0].target else { panic!("an episode plays") };
+        assert_eq!((t.id.as_str(), t.artist_line().as_str()), ("xjZ31IKfu4Q", "Radiolab"));
         // Recent searches, with nothing typed, have no second section.
         assert!(parse_suggested_hits(&json!({"contents": [{"searchSuggestionsSectionRenderer": {"contents": []}}]})).is_empty());
     }

@@ -204,13 +204,31 @@ fn build(png: image::RgbaImage) -> anyhow::Result<Icon> {
         &MenuItem::with_id("quit", crate::tr!("window-quit"), true, None),
     ])?;
     let (w, h) = png.dimensions();
-    let icon = TrayIconBuilder::new()
+    #[allow(unused_mut)]
+    let mut builder = TrayIconBuilder::new()
         .with_icon(tray_icon::Icon::from_rgba(png.into_raw(), w, h)?)
         .with_tooltip("YT Music")
         .with_menu(Box::new(menu))
-        .with_menu_on_left_click(false)
-        .build()?;
+        .with_menu_on_left_click(false);
+    #[cfg(target_os = "linux")]
+    if crate::update::flatpak()
+        && let Some(dir) = flatpak_icon_dir(std::env::var_os("XDG_RUNTIME_DIR"), std::env::var_os("FLATPAK_ID"))
+    {
+        builder = builder.with_temp_dir_path(dir);
+    }
+    let icon = builder.build()?;
     Ok(Icon { icon, song, play, next, prev, toggle })
+}
+
+/// Where a Flatpak keeps the icon's picture. The tray, outside the sandbox, reads it from
+/// a file, and by default that's in `$XDG_RUNTIME_DIR/tray-icon`, which the host can't
+/// see unless the Flatpak is given it. The app's own `$XDG_RUNTIME_DIR/app/<its id>` is
+/// shared with the host at the same path, so the icon shows with no extra permission and
+/// doesn't share a folder with other apps' icons.
+#[cfg(target_os = "linux")]
+fn flatpak_icon_dir(runtime: Option<std::ffi::OsString>, id: Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
+    let (runtime, id) = (runtime.filter(|r| !r.is_empty())?, id.filter(|i| !i.is_empty())?);
+    Some(std::path::Path::new(&runtime).join("app").join(id).join("tray-icon"))
 }
 
 #[cfg(target_os = "linux")]
@@ -350,6 +368,16 @@ pub fn take() -> Vec<Cmd> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_flatpak_keeps_its_icon_in_its_own_runtime_folder() {
+        let dir = flatpak_icon_dir(Some("/run/user/1000".into()), Some("io.github.grapedjuice.ytm-rs".into()));
+        assert_eq!(dir.as_deref(), Some(std::path::Path::new("/run/user/1000/app/io.github.grapedjuice.ytm-rs/tray-icon")));
+        // Without either, the library's own default.
+        assert!(flatpak_icon_dir(None, Some("x".into())).is_none());
+        assert!(flatpak_icon_dir(Some("/run/user/1000".into()), Some("".into())).is_none());
+    }
 
     #[test]
     fn tooltip_fits_windows() {

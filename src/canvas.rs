@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -16,10 +16,6 @@ use crate::model::Track;
 
 const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 const DAY: u64 = 86_400;
-
-fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
 
 // ---------------------------------------------------------------------------- matching
 
@@ -93,7 +89,7 @@ fn jwt_expiry(jwt: &str) -> Option<u64> {
 
 /// The token Apple Music's web player sends, from its own script.
 async fn apple_token(http: &reqwest::Client) -> Option<String> {
-    let now = now_secs();
+    let now = crate::unix_secs();
     {
         let t = TOKEN.lock().unwrap();
         if let Some(j) = t.jwt.as_ref().filter(|_| now + 60 < t.expires) {
@@ -223,7 +219,7 @@ pub async fn find(http: &reqwest::Client, data_dir: &Path, track: &Track) -> Opt
     if let Ok(url) = std::env::var("YTM_CANVAS") {
         return Some(url);
     }
-    let now = now_secs();
+    let now = crate::unix_secs();
     if let Some(e) = with_index(data_dir, |i| i.songs.get(&track.id).filter(|e| e.fresh(now)).cloned()) {
         return e.clip;
     }

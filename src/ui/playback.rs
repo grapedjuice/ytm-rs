@@ -195,7 +195,7 @@ impl App {
     /// started on the phone is here to carry on with.
     pub(super) fn sync_server_queue(&mut self, refocused: bool, now: f64) {
         if self.playing() {
-            self.listened_at = unix_now();
+            self.listened_at = crate::unix_secs();
         }
         let idle = !self.playing() && !self.buffering && !self.jam.active() && self.smoke.is_none();
         let due = self.queue_checked.is_none_or(|t| refocused && now - t > 60.0);
@@ -240,7 +240,7 @@ impl App {
             index,
             position_ms: self.audio.status.position().as_millis() as u64,
             duration_ms: self.audio.status.duration_ms.load(Ordering::Relaxed),
-            listened_at: if self.playing() { unix_now() } else { self.listened_at },
+            listened_at: if self.playing() { crate::unix_secs() } else { self.listened_at },
             playing_as: self.playing_as().cloned(),
         })
         .ok()
@@ -684,8 +684,4 @@ impl App {
 /// `at` moved by `ms`, not before the start.
 fn shifted(at: Duration, ms: i64) -> Duration {
     Duration::from_millis((at.as_millis() as i64).saturating_add(ms).max(0) as u64)
-}
-
-fn unix_now() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }

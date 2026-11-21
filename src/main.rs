@@ -362,6 +362,16 @@ pub fn wayland_session() -> bool {
     WAYLAND.get().is_some_and(|w| w.0)
 }
 
+/// Milliseconds since 1970, by the system clock (0 should it be set before then).
+pub fn unix_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
+/// Seconds since 1970, by the system clock.
+pub fn unix_secs() -> u64 {
+    unix_ms() / 1000
+}
+
 /// This run's window is a Wayland one (known before the window exists).
 pub fn wayland_window() -> bool {
     WAYLAND.get().is_some_and(|w| w.1)

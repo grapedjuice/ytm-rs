@@ -26,7 +26,7 @@ impl App {
     /// What's playing, as Discord would get it, paused or not.
     pub(super) fn discord_presence(&self) -> Option<crate::discord::Presence> {
         let t = self.playing_track()?;
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+        let now = crate::unix_ms() as i64;
         // In real time: a song at 2x is over in half its length.
         let speed = self.audio.status.speed() as f64;
         let start_ms = now - (self.audio.status.position().as_millis() as f64 / speed) as i64;
@@ -239,7 +239,7 @@ impl App {
         let Some(t) = self.heard_song().filter(|_| self.playing() && !self.buffering) else { return };
         let pos = self.audio.status.position();
         let dur = Duration::from_millis(self.audio.status.duration_ms.load(Ordering::Relaxed));
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+        let now = crate::unix_secs() as i64;
         let play = crate::lastfm::Scrobble {
             artist: t.artists.first().map(|a| a.name.clone()).unwrap_or_default(),
             track: t.title.clone(),

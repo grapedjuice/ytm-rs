@@ -190,7 +190,7 @@ impl Session {
     /// change anything. Only youtube.com-wide cookies count, and deletions are left out:
     /// a revoked session is noticed by the signed-out answers instead.
     pub fn updated<'a>(&self, set_cookies: impl IntoIterator<Item = &'a str>) -> Option<Self> {
-        let year = 1970 + SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() / 31_556_952);
+        let year = 1970 + crate::unix_secs() / 31_556_952;
         let mut jar: Vec<(String, String)> = self
             .cookie
             .split(';')

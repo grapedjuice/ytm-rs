@@ -412,7 +412,7 @@ fn jwt_seconds_left(jwt: &str) -> i64 {
         return 0;
     };
     let exp = serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| v["exp"].as_i64()).unwrap_or(0);
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+    let now = crate::unix_secs() as i64;
     exp - now
 }
 

@@ -310,10 +310,6 @@ fn yes() -> bool {
     true
 }
 
-fn now_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
-}
-
 /// Why a connection ended.
 enum End {
     /// Left, or the room ended: nothing to show or retry.
@@ -342,7 +338,7 @@ impl Conn {
 
     /// When (locally) the server time `ts` was.
     fn local_instant(&self, ts: i64) -> Instant {
-        let age = (now_ms() + self.offset.load(Ordering::Relaxed) - ts).clamp(0, 60_000);
+        let age = ((crate::unix_ms() as i64) + self.offset.load(Ordering::Relaxed) - ts).clamp(0, 60_000);
         Instant::now() - Duration::from_millis(age as u64)
     }
 
@@ -436,7 +432,7 @@ impl Conn {
                 }
                 _ = sync.tick(), if pings_left > 0 => {
                     pings_left -= 1;
-                    let _ = tx.send(Message::text(format!(r#"{{"t":"ping","c":{}}}"#, now_ms()))).await;
+                    let _ = tx.send(Message::text(format!(r#"{{"t":"ping","c":{}}}"#, crate::unix_ms()))).await;
                 }
                 msg = rx.next() => {
                     last_rx = Instant::now();
@@ -461,7 +457,7 @@ impl Conn {
                     match m {
                         In::Welcome { you, host, control, queue, members, state, tick, now } => {
                             // A first guess until the pings answer.
-                            self.offset.store(now - now_ms(), Ordering::Relaxed);
+                            self.offset.store(now - (crate::unix_ms() as i64), Ordering::Relaxed);
                             pings_left = 5;
                             self.create = false;
                             self.emit(Event::Welcome { you, host, control, queue, members });
@@ -486,7 +482,7 @@ impl Conn {
                         }
                         In::Req { from, name, cmd } => self.emit(Event::Req { from, name, cmd }),
                         In::Pong { c, s } => {
-                            let rtt = now_ms() - c;
+                            let rtt = (crate::unix_ms() as i64) - c;
                             if rtt >= 0 && rtt < best_rtt {
                                 best_rtt = rtt;
                                 self.offset.store(s - (c + rtt / 2), Ordering::Relaxed);

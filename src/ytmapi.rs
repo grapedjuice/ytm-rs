@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -151,7 +151,7 @@ impl Api {
         let Some(account) = self.account() else { return Ok(()) };
         // Not twice within a minute (the session check right after the 10-minute one):
         // Google answers that with 429, as Gemini-API notes, and the cookies are fresh.
-        let now = now_ms();
+        let now = crate::unix_ms();
         if now.saturating_sub(self.rotated_at.load(Relaxed)) < 60_000 {
             return Ok(());
         }
@@ -196,7 +196,7 @@ impl Api {
     async fn wait_if_paused(&self) {
         // Until it's over: a refusal meanwhile makes it longer.
         loop {
-            let (until, now) = (self.paused_until.load(Relaxed), now_ms());
+            let (until, now) = (self.paused_until.load(Relaxed), crate::unix_ms());
             if until <= now {
                 return;
             }
@@ -214,7 +214,7 @@ impl Api {
             return;
         }
         let ms = 5_000 << (n - RUN).min(3);
-        let until = now_ms() + ms;
+        let until = crate::unix_ms() + ms;
         if self.paused_until.fetch_max(until, Relaxed) < until {
             log::info!("{endpoint}: YouTube Music is limiting this account's requests; pausing them for {} s", ms / 1000);
         }
@@ -222,7 +222,7 @@ impl Api {
 
     /// Whether signed-in requests are paused because YouTube is limiting the account.
     pub fn limited(&self) -> bool {
-        self.paused_until.load(Relaxed) > now_ms()
+        self.paused_until.load(Relaxed) > crate::unix_ms()
     }
 
     /// Keep the cookies Google replaced while answering a request made as `used`.
@@ -241,7 +241,7 @@ impl Api {
     /// missing, a day old, or `fresh` (a request was refused with the current ones).
     async fn web(&self, fresh: bool) -> Web {
         let mut slot = self.web.lock().await;
-        let now = now_secs();
+        let now = crate::unix_secs();
         // Tor changes exit every ten minutes or so, so check about as often there.
         let refresh = if crate::proxy::can_switch_exit() { 9 * 60 } else { REFRESH.as_secs() };
         let unchecked = crate::proxy::active().resolve().is_some() && !self.checked.load(Relaxed);
@@ -303,7 +303,7 @@ impl Api {
             .unwrap_or(FALLBACK_VERSION)
             .to_owned();
         log::info!("music.youtube.com client {version}");
-        Ok(Web { version, visitor_data, at: now_secs() })
+        Ok(Web { version, visitor_data, at: crate::unix_secs() })
     }
 
     /// An anonymous visitor ID (the visionOS player needs one too).
@@ -375,7 +375,7 @@ impl Api {
             let stale = last.downcast_ref::<ApiError>().is_some_and(|a| a.status == 400);
             let fresh = stale || i == 2;
             log::debug!("{endpoint}: {last:#}; trying again{}", if fresh { " with a fresh visitor ID" } else { "" });
-            tokio::time::sleep(Duration::from_millis(wait + now_ms() % 300)).await;
+            tokio::time::sleep(Duration::from_millis(wait + crate::unix_ms() % 300)).await;
             match self.call_once(endpoint, body, None, fresh).await {
                 Err(e) if is_retryable(&e) => last = e,
                 r => return r,
@@ -392,7 +392,7 @@ impl Api {
         let mut last = e;
         for wait in [700, 2_000, 4_000] {
             log::debug!("{endpoint}: {last:#}; trying again");
-            tokio::time::sleep(Duration::from_millis(wait + now_ms() % 300)).await;
+            tokio::time::sleep(Duration::from_millis(wait + crate::unix_ms() % 300)).await;
             match self.call_once(endpoint, body, account, false).await {
                 Err(e) if is_refused(&e) => last = e,
                 r => return r,
@@ -541,10 +541,6 @@ impl std::fmt::Display for NotSignedIn {
 
 impl std::error::Error for NotSignedIn {}
 
-fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
-}
-
 /// Whether YouTube answered as signed out.
 pub fn logged_out(v: &Value) -> bool {
     v["responseContext"]["serviceTrackingParams"]
@@ -595,10 +591,6 @@ pub async fn offered_through(http: &reqwest::Client) -> bool {
         }
     }
     resp.status().is_success()
-}
-
-fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 /// The text between `start` and the next `end`.
@@ -694,13 +686,13 @@ mod tests {
         assert!(!api.limited(), "a few refusals only retry the requests refused");
         api.refused("search");
         assert!(api.limited(), "a long run pauses them all");
-        let wait = api.paused_until.load(Relaxed) - now_ms();
+        let wait = api.paused_until.load(Relaxed) - crate::unix_ms();
         assert!((4_000..=5_000).contains(&wait), "{wait}");
         // Nothing past 40 s, however long it goes on.
         for _ in 0..10 {
             api.refused("search");
         }
-        assert!(api.paused_until.load(Relaxed) - now_ms() <= 40_000);
+        assert!(api.paused_until.load(Relaxed) - crate::unix_ms() <= 40_000);
         // Not permission errors.
         assert!(!is_throttled(&ApiError { status: 403, msg: "The caller does not have permission".into() }));
         assert!(is_throttled(&ApiError { status: 403, msg: String::new() }));

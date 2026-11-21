@@ -217,13 +217,9 @@ fn name_field(ui: &mut Ui, name: &mut String) {
     ui.painter().set(bg, egui::Shape::rect_filled(rect, 10.0, theme::glass(0.08 + 0.03 * focus)));
 }
 
-fn now_ms() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64
-}
-
 /// Shown with nothing playing.
 fn example(app_icon: &'static str) -> Presence {
-    let now = now_ms();
+    let now = crate::unix_ms() as i64;
     Presence {
         video_id: String::new(),
         title: crate::tr!("discord-song-title").into(),
@@ -400,7 +396,7 @@ fn profile_card(ui: &mut Ui, c: &Card, width: f32) {
 
 /// "♫ 1:04": how long the song has been playing, left-centred on `at`.
 fn elapsed(ui: &Ui, at: egui::Pos2, start: i64) {
-    let secs = ((now_ms() - start) / 1000).max(0) as u32;
+    let secs = (((crate::unix_ms() as i64) - start) / 1000).max(0) as u32;
     widgets::icon_at(ui, at + vec2(6.0, 0.0), icon::MUSIC, 13.0, GREEN);
     widgets::time_at(ui, at + vec2(17.0, 0.0), Align2::LEFT_CENTER, &super::fmt_time(secs), theme::semibold(12.5), GREEN);
 }

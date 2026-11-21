@@ -292,6 +292,11 @@ settings-change = تغيير
 settings-open = فتح
 settings-folder-per-list = وضع الألبومات وقوائم التشغيل في مجلد خاص بها
 settings-folder-per-list-desc = تنزيل ألبوم أو قائمة تشغيل من صفحتها أو قائمتها يحفظ أغانيها في مجلد يحمل اسمها. تبقى الأغاني المُنزَّلة مسبقاً في مكانها الحالي.
+settings-file-lyrics = الكلمات في الملف
+settings-file-lyrics-desc = تحمل الأغاني المُنزَّلة الكلمات التي تراها لها، لمشغّلات الموسيقى الأخرى. تُحفَظ الكلمات المتزامنة بصيغة LRC.
+settings-file-lyrics-synced = متزامنة
+settings-file-lyrics-plain = النص فقط
+settings-file-lyrics-off = بلا كلمات
 
 ## Network
 

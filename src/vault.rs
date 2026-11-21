@@ -143,29 +143,42 @@ mod file {
 mod either {
     use std::path::Path;
 
+    /// Tests leave the desktop's keyring alone unless asked (`YTM_TEST_KEYRING=1`): a
+    /// locked one doesn't refuse, it waits on its unlock prompt, and the test run with it.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub fn use_store() -> bool {
+        !cfg!(test) || std::env::var_os("YTM_TEST_KEYRING").is_some()
+    }
+
     pub fn get(key: &str, dir: &Path) -> anyhow::Result<Option<Vec<u8>>> {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        match super::store::get(key) {
-            Ok(Some(s)) => return Ok(Some(s)),
-            Ok(None) => {}
-            Err(e) => log::debug!("credential store unavailable: {e:#}"),
+        if use_store() {
+            match super::store::get(key) {
+                Ok(Some(s)) => return Ok(Some(s)),
+                Ok(None) => {}
+                Err(e) => log::debug!("credential store unavailable: {e:#}"),
+            }
         }
         super::file::get(key, dir)
     }
 
     pub fn set(key: &str, dir: &Path, secret: &[u8]) -> anyhow::Result<()> {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        match super::store::set(key, secret) {
-            // Saved in the keyring: drop any copy an earlier run left in a file.
-            Ok(()) => return super::file::delete(key, dir),
-            Err(e) => log::info!("no credential store, keeping {key:?} in a file: {e:#}"),
+        if use_store() {
+            match super::store::set(key, secret) {
+                // Saved in the keyring: drop any copy an earlier run left in a file.
+                Ok(()) => return super::file::delete(key, dir),
+                Err(e) => log::info!("no credential store, keeping {key:?} in a file: {e:#}"),
+            }
         }
         super::file::set(key, dir, secret)
     }
 
     pub fn delete(key: &str, dir: &Path) -> anyhow::Result<()> {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        if let Err(e) = super::store::delete(key) {
+        if use_store()
+            && let Err(e) = super::store::delete(key)
+        {
             log::debug!("credential store unavailable: {e:#}");
         }
         super::file::delete(key, dir)
@@ -263,7 +276,7 @@ mod unix_tests {
             super::set("test", &dir, &secret).unwrap();
             assert_eq!(super::get("test", &dir).unwrap(), secret, "{len} bytes");
         }
-        let in_keyring = super::store::get(&super::key("test", &dir)).ok().flatten().is_some();
+        let in_keyring = super::either::use_store() && super::store::get(&super::key("test", &dir)).ok().flatten().is_some();
         let files: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).collect();
         // Exactly one copy: in the keyring, or in an owner-only file.
         if in_keyring {
@@ -280,9 +293,14 @@ mod unix_tests {
     }
 
     /// A secret an earlier version saved in parts still loads, and the next save puts it
-    /// in one entry and removes the old parts.
+    /// in one entry and removes the old parts. In the desktop's keyring, so only when asked:
+    /// `YTM_TEST_KEYRING=1 cargo test vault`
     #[test]
     fn parts_from_earlier_versions() {
+        if !super::either::use_store() {
+            eprintln!("YTM_TEST_KEYRING not set: skipped");
+            return;
+        }
         let key = &format!("ytm-rs vault parts test {}", std::process::id());
         let old: Vec<u8> = (0..2660).map(|i| (i % 251) as u8).collect();
         let (first, second) = old.split_at(2560);

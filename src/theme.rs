@@ -1546,9 +1546,7 @@ pub fn apply_chrome(ctx: &egui::Context, p: &crate::preset::Preset) {
     TEXT_OVER.store(crate::preset::hex(&p.app.text_color).map_or(0, |c| u32::from_le_bytes(c.to_array())), std::sync::atomic::Ordering::Relaxed);
     FADE.store(p.app.ui_fade_secs.map_or(1.0, |s| (s / 0.18).clamp(0.3, 3.0)).to_bits(), std::sync::atomic::Ordering::Relaxed);
     install_style(ctx);
-    // Romanization and translation look the same in every theme: the app's own fonts.
-    let deco = &crate::preset::get(crate::preset::DEFAULT_ID).lyrics;
-    install_fonts(ctx, &p.app.font, &[&p.lyrics.font, &deco.romanization_font, &deco.translation_font]);
+    install_fonts(ctx, &p.app.font, &[&p.lyrics.font]);
 }
 
 pub fn install_style(ctx: &egui::Context) {

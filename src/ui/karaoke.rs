@@ -119,6 +119,10 @@ const LINE_SYNC_DELAY: f64 = 0.05;
 const LONG_GROUP_CHARS: usize = 20;
 const USER_SCROLL_RESUME: f64 = 25.0;
 const DECO_ENTRY: f64 = 0.35;
+/// Romanization's and translation's size (rem) and alpha (`--blyrics-translated-color`).
+const ROMAN_REM: f32 = 1.6;
+const TRANS_REM: f32 = 2.0;
+const DECO_ALPHA: f32 = 0.6;
 
 /// Resolved look for one frame: the theme's values, at this window's size.
 #[derive(Clone)]
@@ -145,7 +149,6 @@ struct Cfg {
     /// `letter-spacing` in points.
     spacing: f32,
     target_ratio: f32,
-    align: crate::preset::Align,
     agent_align: AgentAlign,
     centered: bool,
     fill: Fill,
@@ -174,11 +177,6 @@ struct Cfg {
     band_width: f32,
     stroke: Option<(f32, Color32)>,
     bg_em: f32,
-    roman_rem: f32,
-    roman_alpha: f32,
-    roman_pill: bool,
-    trans_rem: f32,
-    trans_alpha: f32,
     instrumental: Instrumental,
     aura: Option<[f32; 2]>,
     marker: Option<[f32; 4]>,
@@ -198,7 +196,6 @@ struct Cfg {
     active_op_t: Option<Timing>,
     active_blur_t: Option<Timing>,
     pre_sharp: f64,
-    active_op: f32,
     active_op_lines: f32,
     scroll_scale: Option<f32>,
     hover_op: Option<f32>,
@@ -215,18 +212,12 @@ struct Cfg {
     glow_min: f64,
     bg_alpha: f32,
     bg_weight: Weight,
-    roman_weight: Weight,
-    roman_family: Option<String>,
-    trans_weight: Weight,
-    trans_family: Option<String>,
-    both_rem: Option<[f32; 2]>,
     inst_rem: Option<f32>,
     breathe: Option<[f32; 3]>,
     inst_chip: Option<f32>,
     credits_alpha: [f32; 2],
     edge_fade: [f32; 2],
     balance: bool,
-    deco_tracking: f32,
     exit_fade: (f64, f64),
     agent_glow: Vec<Color32>,
     aura_colors: Vec<Color32>,
@@ -235,10 +226,8 @@ struct Cfg {
     active_glow_colors: Vec<Color32>,
     hover_glow: Option<[f32; 2]>,
     rest_saturate: f32,
-    scroll_sides: [f32; 2],
     scroll_curve: Option<[f32; 5]>,
     line_stagger: f64,
-    deco_enter: [f32; 4],
     sweep_soft: Option<f32>,
     sweep_end: (f32, f32),
     hover_dim: Option<f32>,
@@ -252,18 +241,13 @@ struct Cfg {
     hover_unsung: Option<f32>,
     hover_glow_sung: bool,
     panel_reveal: bool,
-    deco_active: Option<f32>,
-    deco_em: Option<f32>,
-    deco_lh: Option<f32>,
     bg_lit: Option<f32>,
-    trans_delay: f32,
     exit_by_side: bool,
     blur_from: Option<f32>,
     marker_alt: Vec<Color32>,
     saturate_far: Option<f32>,
     shadow_blur: f32,
     shadow_unsung: bool,
-    deco_gap: Option<f32>,
     padding_top: f32,
     credits_center: bool,
     credits_weight: Weight,
@@ -294,8 +278,6 @@ impl Cfg {
     /// `width`: the lyrics panel; `viewport`: the window (the theme's media queries).
     #[allow(clippy::too_many_arguments)]
     fn new(s: &LyricStyle, accent: Color32, width: f32, viewport: f32, viewport_h: f32, centered: bool, own: Own, fullscreen: bool) -> Self {
-        // Romanization and translation look the same in every theme: the app's own values.
-        let deco = &crate::preset::get(crate::preset::DEFAULT_ID).lyrics;
         let mut rem = s.rem;
         let steps = s.font_rem.iter().filter(|st| viewport >= st[0]).map(|st| st[1]).next_back();
         let vw_step = s.font_vw_steps.iter().find(|st| viewport < st[0]).map(|st| [st[1], st[2], st[3]]).or(s.font_vw);
@@ -341,7 +323,6 @@ impl Cfg {
             line_height: s.line_height,
             spacing: s.letter_spacing_em * size,
             target_ratio: s.anchor.clamp(0.1, 0.7),
-            align: s.align,
             agent_align: s.agent_align,
             centered,
             fill: s.fill,
@@ -369,11 +350,6 @@ impl Cfg {
             band_width: s.sweep_band_width,
             stroke: (s.stroke_em > 0.0).then(|| (s.stroke_em * size, crate::preset::paint(&s.stroke_color, accent))),
             bg_em: s.background_em,
-            roman_rem: deco.romanization_rem * if fullscreen { deco.decor_fullscreen_scale } else { 1.0 },
-            roman_alpha: deco.romanization_alpha,
-            roman_pill: deco.romanization_pill,
-            trans_rem: deco.translation_rem * if fullscreen { deco.decor_fullscreen_scale } else { 1.0 },
-            trans_alpha: deco.translation_alpha,
             instrumental: s.instrumental,
             aura: s.aura,
             marker: s.marker_px,
@@ -398,8 +374,7 @@ impl Cfg {
             active_op_t: s.active_opacity_transition,
             active_blur_t: s.active_blur_transition,
             pre_sharp: s.pre_sharp_secs as f64,
-            active_op: s.active_opacity,
-            active_op_lines: s.active_opacity_line_synced.unwrap_or(s.active_opacity),
+            active_op_lines: s.active_opacity_line_synced.unwrap_or(1.0),
             scroll_scale: s.scroll_scale,
             hover_op: s.hover_opacity,
             hover_box: s.hover_box,
@@ -415,18 +390,12 @@ impl Cfg {
             glow_min: s.glow_min_secs as f64,
             bg_alpha: s.background_alpha,
             bg_weight: own.weight.unwrap_or(s.background_weight),
-            roman_weight: deco.romanization_weight,
-            roman_family: (!deco.romanization_font.is_empty()).then(|| theme::effective_font(&deco.romanization_font)),
-            trans_weight: deco.translation_weight,
-            trans_family: (!deco.translation_font.is_empty()).then(|| theme::effective_font(&deco.translation_font)),
-            both_rem: deco.both_rem,
             inst_rem: s.instrumental_rem,
             breathe: s.instrumental_breathe,
             inst_chip: s.instrumental_chip,
             credits_alpha: s.credits_alpha,
             edge_fade: s.edge_fade,
             balance: s.balance,
-            deco_tracking: deco.decor_tracking_em,
             exit_fade: s.exit_fade.map_or((FADE_OUT, 0.0), |[secs, delay]| (secs.max(0.01) as f64, delay as f64)),
             agent_glow: s.agent_glow.iter().map(|c| crate::preset::paint(c, accent)).collect(),
             aura_colors: s.aura_colors.iter().map(|c| crate::preset::paint(c, accent)).collect(),
@@ -435,10 +404,8 @@ impl Cfg {
             active_glow_colors: s.active_glow_colors.iter().map(|c| crate::preset::paint(c, accent)).collect(),
             hover_glow: s.hover_glow,
             rest_saturate: s.rest_saturate,
-            scroll_sides: s.scroll_sides,
             scroll_curve: s.scroll_curve,
             line_stagger: s.line_stagger as f64,
-            deco_enter: deco.deco_enter.unwrap_or([-0.4, 0.0, DECO_ENTRY as f32, 0.0]),
             sweep_soft: s.sweep_soft,
             sweep_end: s.sweep_end.map_or((SWIPE_START.1, SWIPE_END.1), |e| (e[0], e[1])),
             hover_dim: s.hover_dim_alpha,
@@ -452,18 +419,13 @@ impl Cfg {
             hover_unsung: s.hover_unsung_alpha,
             hover_glow_sung: s.hover_glow_sung_only,
             panel_reveal: s.panel_reveal,
-            deco_active: deco.decor_active_alpha,
-            deco_em: deco.decor_em,
-            deco_lh: deco.decor_line_height,
             bg_lit: s.background_lit_alpha,
-            trans_delay: deco.translation_delay,
             exit_by_side: s.line_exit_by_side,
             blur_from: s.active_blur_from,
             marker_alt: s.marker_colors_alt.iter().map(|c| crate::preset::paint(c, accent)).collect(),
             saturate_far: s.rest_saturate_far,
             shadow_blur: s.word_shadow_blur,
             shadow_unsung: s.word_shadow_unsung,
-            deco_gap: deco.decor_gap_em,
             padding_top: s.padding_top,
             credits_center: s.credits_center,
             credits_weight: s.credits_weight,
@@ -507,16 +469,11 @@ impl Cfg {
     fn bg_font(&self, text: &str) -> FontId {
         theme::lyric_font_for(&self.font, self.bg_weight, self.size * self.bg_em, text)
     }
-    /// `both`: the line has a romanization and a translation.
-    fn roman_font(&self, text: &str, both: bool) -> FontId {
-        let rem = self.both_rem.filter(|_| both).map_or(self.roman_rem, |b| b[0]);
-        let px = self.deco_em.map_or(self.deco_rem() * rem, |em| self.size * em * self.deco_scale);
-        theme::lyric_font_for(self.roman_family.as_ref().unwrap_or(&self.font), self.roman_weight, px, text)
+    fn roman_font(&self, text: &str) -> FontId {
+        theme::lyric_font_for(&self.font, Weight::Semibold, self.deco_rem() * ROMAN_REM, text)
     }
-    fn trans_font(&self, text: &str, both: bool) -> FontId {
-        let rem = self.both_rem.filter(|_| both).map_or(self.trans_rem, |b| b[1]);
-        let px = self.deco_em.map_or(self.deco_rem() * rem, |em| self.size * em * self.deco_scale);
-        theme::lyric_font_for(self.trans_family.as_ref().unwrap_or(&self.font), self.trans_weight, px, text)
+    fn trans_font(&self, text: &str) -> FontId {
+        theme::lyric_font_for(&self.font, Weight::Semibold, self.deco_rem() * TRANS_REM, text)
     }
 }
 
@@ -879,34 +836,17 @@ fn balanced(fonts: &mut FontsView<'_>, toks: Vec<Tok>, font: &FontId, max_w: f32
     f
 }
 
-/// Romanization, translation or credits in the theme's letter spacing (em), its rows set
-/// to `align` within the galley's width.
-fn deco_galley(fonts: &mut FontsView<'_>, text: String, font: FontId, wrap: f32, (tracking, line_height): (f32, Option<f32>), align: Align) -> Arc<Galley> {
-    let rtl = crate::bidi::has_rtl(&text);
-    if tracking == 0.0 && line_height.is_none() && !rtl {
-        return align_rows(fonts.layout(text, font, Color32::WHITE, wrap), align);
+/// Romanization, translation or credits, its rows set to `align` within the galley's width.
+fn deco_galley(fonts: &mut FontsView<'_>, text: String, font: FontId, wrap: f32, align: Align) -> Arc<Galley> {
+    let g = fonts.layout(text.clone(), font.clone(), Color32::WHITE, wrap);
+    if !crate::bidi::has_rtl(&text) {
+        return align_rows(g, align);
     }
-    let spacing = tracking * font.size;
-    let height = line_height.map(|h| h * font.size);
-    let styled = |job: &mut egui::text::LayoutJob| {
-        for s in &mut job.sections {
-            s.format.extra_letter_spacing = spacing;
-            s.format.line_height = height;
-        }
-    };
-    let mut job = egui::text::LayoutJob::simple(text.clone(), font.clone(), Color32::WHITE, wrap);
-    styled(&mut job);
-    let mut g = fonts.layout_job(job);
-    if rtl {
-        // As `widgets::galley_wrapped`: wrapped in reading order, then each row put in
-        // display order on its own.
-        let mut chars = text.chars();
-        let rows: Vec<String> = g.rows.iter().map(|row| chars.by_ref().take(row.char_count_including_newline().0).collect::<String>().trim_end().to_owned()).collect();
-        let mut job = crate::bidi::job(&rows.join("\n"), font, Color32::WHITE);
-        styled(&mut job);
-        g = fonts.layout_job(job);
-    }
-    align_rows(g, align)
+    // As `widgets::galley_wrapped`: wrapped in reading order, then each row put in
+    // display order on its own.
+    let mut chars = text.chars();
+    let rows: Vec<String> = g.rows.iter().map(|row| chars.by_ref().take(row.char_count_including_newline().0).collect::<String>().trim_end().to_owned()).collect();
+    align_rows(fonts.layout_job(crate::bidi::job(&rows.join("\n"), font, Color32::WHITE)), align)
 }
 
 /// A wrapped text's shorter rows moved to the right or centre of its widest.
@@ -927,12 +867,7 @@ fn align_rows(mut g: Arc<Galley>, align: Align) -> Arc<Galley> {
 fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, width: f32, roman: Option<Roman>, trans: Option<&str>, agent: Option<&str>) -> Block {
     let em = cfg.size;
     let rtl = crate::bidi::rtl_base(&l.text);
-    let own = match cfg.align {
-        _ if cfg.centered => Align::Center,
-        crate::preset::Align::Left => Align::Left,
-        crate::preset::Align::Center => Align::Center,
-        crate::preset::Align::Right => Align::Right,
-    };
+    let own = if cfg.centered { Align::Center } else { Align::Left };
     let align = match (cfg.agent_align, agent) {
         (AgentAlign::Stock, Some("v2" | "v3")) => Align::Right,
         (AgentAlign::Stock, Some("v1000")) => Align::Center,
@@ -993,8 +928,7 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
         block.groups.extend(f.groups.into_iter().map(|g| Group { first: g.first + base, words: g.words.start + base..g.words.end + base, ..g }));
         y += f.height;
     }
-    let gap = cfg.deco_gap.map_or(em / 6.0, |g| g * em); // margin-top: 8px at 48 px
-    let both = roman.is_some() && trans.is_some();
+    let gap = em / 6.0; // margin-top: 8px at 48 px
     if let Some(r) = roman {
         y += gap;
         let pad = vec2(cfg.deco_rem() * 0.75, cfg.deco_rem() * 0.25);
@@ -1002,14 +936,14 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
         let (body, inner, id) = match r {
             Roman::Timed(parts, text) => {
                 let toks: Vec<Tok> = parts.iter().flat_map(split_part).collect();
-                let font = cfg.roman_font(text, both);
+                let font = cfg.roman_font(text);
                 let lh = fonts.row_height(&font);
                 let f = flow(fonts, toks, &font, inner_w, lh, Align::Left, false, 0.0, 0.0);
                 (DecoBody::Timed { words: f.words, groups: f.groups }, vec2(f.width, f.height), hash(("rt", text)))
             }
             Roman::Text(t) => {
-                let font = cfg.roman_font(t, both);
-                let g = deco_galley(fonts, t.to_owned(), font.clone(), inner_w, (cfg.deco_tracking, cfg.deco_lh), align);
+                let font = cfg.roman_font(t);
+                let g = deco_galley(fonts, t.to_owned(), font.clone(), inner_w, align);
                 (DecoBody::Text(t.to_owned(), font), g.size(), hash(("r", t)))
             }
         };
@@ -1025,13 +959,13 @@ fn build_block(fonts: &mut FontsView<'_>, cfg: &Cfg, l: &Line, index: usize, wid
             DecoBody::Timed { words, groups } => DecoBody::Timed { words: words.into_iter().map(|w| Word { pos: w.pos + rect.min.to_vec2() + pad + vec2(1.0, 1.0), ..w }).collect(), groups },
             b => b,
         };
-        block.decos.push(Deco { body, rect, pill: cfg.roman_pill, roman: true, id, wrap: inner_w });
+        block.decos.push(Deco { body, rect, pill: true, roman: true, id, wrap: inner_w });
         y += size.y;
     }
     if let Some(t) = trans {
         y += gap;
-        let font = cfg.trans_font(t, both);
-        let g = deco_galley(fonts, t.to_owned(), font.clone(), content_w, (cfg.deco_tracking, cfg.deco_lh), align);
+        let font = cfg.trans_font(t);
+        let g = deco_galley(fonts, t.to_owned(), font.clone(), content_w, align);
         let x = match align {
             Align::Left => 0.0,
             Align::Right => content_w - g.size().x,
@@ -1299,7 +1233,7 @@ impl View {
         };
         // What a line's own picture depends on. The view's height isn't in it: that only moves
         // the lines, and a new blurred image per line for every step of a resize piled up.
-        let image_key = hash((f.key, rect.width().round() as i32, (cfg.size.to_bits(), cfg.deco_scale.to_bits()), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, (cfg.weight as u8, cfg.bg_weight as u8), cfg.spacing.to_bits(), cfg.line_height.to_bits(), (cfg.align as u8, cfg.agent_align as u8, cfg.wave.on), theme::fonts_generation()));
+        let image_key = hash((f.key, rect.width().round() as i32, (cfg.size.to_bits(), cfg.deco_scale.to_bits()), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, (cfg.weight as u8, cfg.bg_weight as u8), cfg.spacing.to_bits(), cfg.line_height.to_bits(), (cfg.agent_align as u8, cfg.wave.on), theme::fonts_generation()));
         let layout_key = hash((image_key, rect.height().round() as i32));
         if self.layout.as_ref().is_none_or(|l| l.key != layout_key) {
             self.relayout(ui, &cfg, &f, layout_key, rect);
@@ -1501,7 +1435,7 @@ impl View {
                 let d = match cfg.scroll_curve {
                     _ if f.quick_scroll => scroll_duration(rel, a.delta),
                     Some(curve) => curve_duration(rel, a.delta, curve),
-                    None => (scroll_duration(rel, a.delta) + cfg.scroll_secs - 0.75) * cfg.scroll_sides[usize::from(rel > 0)] as f64,
+                    None => scroll_duration(rel, a.delta) + cfg.scroll_secs - 0.75,
                 };
                 let p = ((f.now - a.start) / d.max(0.01)).clamp(0.0, 1.0) as f32;
                 dy += a.delta * (1.0 - scroll_ease.at(p));
@@ -1526,7 +1460,7 @@ impl View {
                 }
                 let a = theme::anim(&ctx, ("lyr-credits", f.key), a, 0.35);
                 let o = transform_origin(block_rect, b.align, content.x);
-                let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), line_w - cfg.size * 0.5, (cfg.deco_tracking, cfg.deco_lh), b.align));
+                let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), line_w - cfg.size * 0.5, b.align));
                 let xf = Xf { origin: o, scale: cfg.scale, content };
                 let at_x = if b.align == Align::Center { ((line_w - cfg.size * 0.5) - g.size().x).max(0.0) * 0.5 } else { 0.0 };
                 paint_galley(&painter, &g, pos2(at_x, cfg.padding + cfg.credits_margin), &xf, theme::with_alpha(Color32::WHITE, a), atlas);
@@ -1547,7 +1481,7 @@ impl View {
             let line_timed = !richsync;
             let pre = cfg.pre_sharp > 0.0 && !on && t < b.start && t >= b.start - cfg.pre_sharp;
             let target = if on {
-                (if line_timed { cfg.active_op_lines } else { cfg.active_op }, 0.0)
+                (if line_timed { cfg.active_op_lines } else { 1.0 }, 0.0)
             } else if (hovered && cfg.hover_reveal) || pre {
                 (1.0, 0.0)
             } else if user || (cfg.panel_reveal && pointer.is_some_and(|p| rect.contains(p))) {
@@ -1783,9 +1717,9 @@ impl View {
                             .iter()
                             .filter_map(|d| match &d.body {
                                 DecoBody::Text(text, font) => {
-                                    let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), d.wrap, (cfg.deco_tracking, cfg.deco_lh), b.align));
+                                    let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), d.wrap, b.align));
                                     let pad = if d.roman { vec2(cfg.deco_rem() * 0.75 + 1.0, cfg.deco_rem() * 0.25 + 1.0) } else { Vec2::ZERO };
-                                    Some((g, d.rect.min + pad, if d.roman { cfg.roman_alpha } else { cfg.trans_alpha }))
+                                    Some((g, d.rect.min + pad, DECO_ALPHA))
                                 }
                                 DecoBody::Timed { .. } => None,
                             })
@@ -1813,9 +1747,7 @@ impl View {
                     paint_words(&painter, &ctx, &cfg, &b.words, &b.groups, &xf, &lit, dim, opacity, tints, atlas, &mut glow_work, (f.key, i, 0));
                     for (k, d) in b.decos.iter().enumerate() {
                         let born = *self.deco_born.entry(d.id).or_insert(f.now);
-                        let [enter_y, enter_x, enter_secs, enter_delay] = cfg.deco_enter;
-                        let enter_delay = enter_delay + if d.roman { 0.0 } else { cfg.trans_delay };
-                        let enter = ((f.now - born - enter_delay as f64) / enter_secs.max(0.01) as f64).clamp(0.0, 1.0) as f32;
+                        let enter = ((f.now - born) / DECO_ENTRY).clamp(0.0, 1.0) as f32;
                         let e = DECO_EASE.at(enter);
                         if enter < 1.0 {
                             animating = true;
@@ -1825,7 +1757,7 @@ impl View {
                             DecoBody::Text(_, f) => f.size,
                             DecoBody::Timed { words, .. } => words.first().map_or(cfg.deco_rem() * 1.6, |w| w.font.size),
                         };
-                        let dxf = Xf { content: xf.content + vec2(enter_x, enter_y) * font_size * (1.0 - e), ..xf };
+                        let dxf = Xf { content: xf.content + vec2(0.0, -0.4 * font_size * (1.0 - e)), ..xf };
                         // Unsung words' alpha hides a decoration only on lines not being sung.
                         let a = e * opacity * if on { 1.0 } else { (dim / 0.05).min(1.0) };
                         if d.pill {
@@ -1838,13 +1770,11 @@ impl View {
                                 paint_words(&painter, &ctx, &cfg, words, groups, &dxf, &lit, dim, a, tints, atlas, &mut glow_work, (f.key, i, k as u32 + 1));
                             }
                             DecoBody::Text(text, font) => {
-                                let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), d.wrap, (cfg.deco_tracking, cfg.deco_lh), b.align));
+                                let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), d.wrap, b.align));
                                 let pad = if d.roman { vec2(cfg.deco_rem() * 0.75 + 1.0, cfg.deco_rem() * 0.25 + 1.0) } else { Vec2::ZERO };
                                 // `--blyrics-translated-color`. Drawn through the line's transform
                                 // at the one laid-out size.
-                                let alpha = if d.roman { cfg.roman_alpha } else { cfg.trans_alpha };
-                                let alpha = cfg.deco_active.filter(|_| on).unwrap_or(alpha);
-                                paint_galley(&painter, &g, d.rect.min + pad, &dxf, theme::with_alpha(Color32::WHITE, alpha * a), atlas);
+                                paint_galley(&painter, &g, d.rect.min + pad, &dxf, theme::with_alpha(Color32::WHITE, DECO_ALPHA * a), atlas);
                             }
                         }
                     }
@@ -1894,7 +1824,7 @@ impl View {
             let names = &lyrics.songwriters;
             let text = if names.len() > 1 { format!("Written by {} & {}", names[..names.len() - 1].join(", "), names[names.len() - 1]) } else { format!("Written by {}", names[0]) };
             let font = theme::weighted(cfg.credits_weight, (cfg.size * 0.4).max(12.0));
-            let h = ui.ctx().fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), width - cfg.size * 0.5, (cfg.deco_tracking, cfg.deco_lh), Align::Left).size().y) + cfg.credits_margin;
+            let h = ui.ctx().fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), width - cfg.size * 0.5, Align::Left).size().y) + cfg.credits_margin;
             blocks.push(Block {
                 line: None,
                 start: 0.0,

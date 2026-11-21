@@ -536,9 +536,17 @@ fn from_unison(data: &Value, dur_ms: i32) -> Vec<Lyrics> {
 const INSTRUMENTAL_GAP_MS: i32 = 5000;
 
 /// `et`: instrumental lines for long gaps before, between and after the sung lines.
-fn insert_instrumentals(lines: Vec<Line>, song_ms: i32) -> Vec<Line> {
+fn insert_instrumentals(mut lines: Vec<Line>, song_ms: i32) -> Vec<Line> {
     if lines.is_empty() {
         return lines;
+    }
+    // A line that ends before it starts (a TTML line with no `end`, or `end="00:00:00.000"`
+    // as on Unison's "Cinderella", #254) runs to the next line, the last to the song's end.
+    for i in 0..lines.len() {
+        if lines[i].dur < 0 {
+            let until = lines.get(i + 1).map_or(song_ms, |n| n.start);
+            lines[i].dur = (until - lines[i].start).max(0);
+        }
     }
     let gap = |start: i32, dur: i32| Line { start, dur, instrumental: true, ..Default::default() };
     let mut out = Vec::with_capacity(lines.len() + 4);
@@ -546,7 +554,9 @@ fn insert_instrumentals(lines: Vec<Line>, song_ms: i32) -> Vec<Line> {
         out.push(gap(0, lines[0].start));
     }
     let n = lines.len();
-    let last_end = lines[n - 1].end();
+    // The latest end, not the last line's: one with a bad end would otherwise put a
+    // break spanning the whole song at the bottom, which the view follows all along.
+    let last_end = lines.iter().map(Line::end).max().unwrap_or(0);
     for (i, l) in lines.iter().enumerate() {
         out.push(l.clone());
         if i + 1 < n {
@@ -1499,6 +1509,33 @@ Two");
         assert_eq!(t.lines[2].agent.as_deref(), Some("v2"));
         assert!(t.lines[2].parts.is_empty());
         assert!(t.lines.last().unwrap().instrumental);
+    }
+
+    #[test]
+    fn ttml_line_ending_before_it_starts_runs_to_the_next() {
+        // Unison's "Cinderella" (#254) ends on an empty line whose end is 0: the break
+        // after the last line must come after it, not span the whole song from 0.
+        let xml = r#"<tt xmlns="http://www.w3.org/ns/ttml"><body dur="00:08:00.000"><div>
+<p begin="00:07:48.320" end="00:07:54.200"><span begin="00:07:48.320" end="00:07:54.200">rain</span></p>
+<p begin="00:07:54.200"><span begin="00:07:54.200" end="00:07:55.000">la</span></p>
+<p begin="00:07:56.000" end="00:00:00.000"></p></div></body></tt>"#;
+        let lines = parse_ttml(xml, 0).lines;
+        assert!(lines.windows(2).all(|w| w[0].start <= w[1].start), "{lines:?}");
+        assert!(lines.iter().all(|l| l.dur >= 0), "{lines:?}");
+        // (lines[0] is the break before the first line.) A line without an end runs to
+        // the next one, and the empty last line to the song's end.
+        assert_eq!((lines[2].start, lines[2].dur), (474_200, 1800));
+        assert_eq!((lines[3].start, lines[3].dur), (476_000, 4000));
+        assert_eq!(lines.len(), 4);
+    }
+
+    #[test]
+    fn break_after_the_last_line_follows_the_latest_end() {
+        // The last line ends inside the one before it.
+        let line = |start, dur| Line { start, dur, text: "x".into(), ..Default::default() };
+        let out = insert_instrumentals(vec![line(1000, 20_000), line(2000, 1000)], 60_000);
+        let gap = out.last().unwrap();
+        assert!(gap.instrumental && gap.start == 21_000 && gap.dur == 39_000, "{out:?}");
     }
 
     #[test]

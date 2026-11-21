@@ -384,15 +384,15 @@ impl Conn {
 
     async fn session(&mut self, out: &mut mpsc::UnboundedReceiver<Out>) -> End {
         let base = std::env::var("YTM_JAM_SERVER").unwrap_or_else(|_| SERVER.to_owned());
-        let name: String = url_encode(&self.name);
-        let url = format!("{}/jam/{}?create={}&name={name}&v=1", base.trim_end_matches('/'), self.code, self.create as u8);
+        let create = if self.create { "1" } else { "0" };
+        let url = url::Url::parse_with_params(&format!("{}/jam/{}", base.trim_end_matches('/'), self.code), [("create", create), ("name", &self.name), ("v", "1")]);
         // Through the proxy setting, like everything else.
         let connect = async {
-            let u = url::Url::parse(&url)?;
+            let u = url?;
             let host = u.host_str().unwrap_or_default().to_owned();
             let port = u.port_or_known_default().unwrap_or(443);
             let tcp = crate::proxy::connect(&host, port).await?;
-            anyhow::Ok(tokio_tungstenite::client_async_tls(url, tcp).await?)
+            anyhow::Ok(tokio_tungstenite::client_async_tls(u.as_str(), tcp).await?)
         };
         let ws = match tokio::time::timeout(Duration::from_secs(10), connect).await {
             Ok(Ok((ws, _))) => ws,
@@ -509,15 +509,6 @@ impl Conn {
             }
         }
     }
-}
-
-fn url_encode(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
 }
 
 #[cfg(test)]

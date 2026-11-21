@@ -383,8 +383,7 @@ pub struct LyricStyle {
     pub active_blur_transition: Option<Timing>,
     /// The next line goes sharp and full this long before it's sung (`.blyrics--pre-animating`).
     pub pre_sharp_secs: f32,
-    /// The sung line's opacity, word-timed and line-timed.
-    pub active_opacity: f32,
+    /// The sung line's opacity on line-timed lyrics (word-timed ones are fully opaque).
     pub active_opacity_line_synced: Option<f32>,
     /// Line opacity while the reader scrolls.
     pub scroll_opacity: f32,
@@ -450,17 +449,6 @@ pub struct LyricStyle {
     /// Background vocals' opacity against the line, and their weight.
     pub background_alpha: f32,
     pub background_weight: Weight,
-    pub romanization_rem: f32,
-    pub romanization_alpha: f32,
-    pub romanization_pill: bool,
-    pub romanization_weight: Weight,
-    pub romanization_font: String,
-    pub translation_rem: f32,
-    pub translation_alpha: f32,
-    pub translation_weight: Weight,
-    pub translation_font: String,
-    /// Sizes when a line has both, rem: `[romanization, translation]`.
-    pub both_rem: Option<[f32; 2]>,
     pub instrumental: Instrumental,
     /// The break's icon, rem across.
     pub instrumental_rem: Option<f32>,
@@ -484,8 +472,6 @@ pub struct LyricStyle {
     pub marker_px: Option<[f32; 4]>,
     /// Sung lines slide away: `[distance rem (negative: left), secs]`.
     pub line_exit: Option<[f32; 2]>,
-    /// Romanization, translation and credits: letter spacing, em.
-    pub decor_tracking_em: f32,
     /// Lit words fading back when their line ends: `[secs, delay]`.
     pub exit_fade: Option<[f32; 2]>,
     /// A glow colour per singer, v1 first.
@@ -503,19 +489,14 @@ pub struct LyricStyle {
     pub column_overlays: Vec<Overlay>,
     /// Colour in lines not being sung, against full (`filter: saturate`).
     pub rest_saturate: f32,
-    /// How long lines above and below the active one take to scroll, against the usual.
-    pub scroll_sides: [f32; 2],
     /// How long each line takes to scroll by how far it is from the sung one `i`, in ms:
     /// `[above, above log, below, below log, below step]`, as `above + ln(i + 1) * above log`
-    /// and `below + ln(i + 1) * below log + i * below step`. Replaces `scroll_secs` and
-    /// `scroll_sides`.
+    /// and `below + ln(i + 1) * below log + i * below step`. Replaces `scroll_secs`.
     pub scroll_curve: Option<[f32; 5]>,
     /// Line-timed lyrics: each word this much after the last, seconds.
     pub line_stagger: f32,
     /// Songs whose lyrics are nothing but an instrumental break show as having none.
     pub hide_instrumental_only: bool,
-    /// Romanization and translation coming in: `[em down, em across, secs, delay]`.
-    pub deco_enter: Option<[f32; 4]>,
     /// The sweep's soft edge, in words, and where its two ends finish.
     pub sweep_soft: Option<f32>,
     pub sweep_end: Option<[f32; 2]>,
@@ -535,9 +516,6 @@ pub struct LyricStyle {
     /// The word shadow's spread against the usual; none on words already lit.
     pub word_shadow_blur: f32,
     pub word_shadow_unsung: bool,
-    /// Romanization and translation bigger in full screen; em between them and the line.
-    pub decor_fullscreen_scale: f32,
-    pub decor_gap_em: Option<f32>,
     /// `padding-inline: clamp(min px, vw %, max px)`, in place of `padding_inline`.
     pub padding_vw: Option<[f32; 3]>,
     /// `padding-block: clamp(min px, vh %, max px)` on lines, in place of `line_padding_rem`.
@@ -574,16 +552,8 @@ pub struct LyricStyle {
     pub hover_glow_sung_only: bool,
     /// Hovering the panel at all reveals every line, as scrolling does.
     pub panel_reveal: bool,
-    /// Romanization and translation on the sung line, alpha.
-    pub decor_active_alpha: Option<f32>,
-    /// Their size as a share of the line's, in place of rem.
-    pub decor_em: Option<f32>,
-    /// Their line height.
-    pub decor_line_height: Option<f32>,
     /// Background vocals while they're being sung, against the line's: alpha.
     pub background_lit_alpha: Option<f32>,
-    /// A translation comes in this much after a romanization, seconds.
-    pub translation_delay: f32,
     /// A sung line leaving goes toward its own side.
     pub line_exit_by_side: bool,
     /// A line turning active sharpens from this blur, in place of its resting one.
@@ -643,7 +613,6 @@ impl Default for LyricStyle {
             active_opacity_transition: None,
             active_blur_transition: None,
             pre_sharp_secs: 0.0,
-            active_opacity: 1.0,
             active_opacity_line_synced: None,
             scroll_opacity: 1.0,
             scroll_scale: None,
@@ -685,16 +654,6 @@ impl Default for LyricStyle {
             background_em: 0.75,
             background_alpha: 0.78,
             background_weight: Weight::Semibold,
-            romanization_rem: 1.6,
-            romanization_alpha: 0.6,
-            romanization_pill: true,
-            romanization_weight: Weight::Semibold,
-            romanization_font: String::new(),
-            translation_rem: 2.0,
-            translation_alpha: 0.6,
-            translation_weight: Weight::Semibold,
-            translation_font: String::new(),
-            both_rem: None,
             instrumental: Instrumental::Note,
             instrumental_rem: None,
             instrumental_breathe: None,
@@ -707,7 +666,6 @@ impl Default for LyricStyle {
             aura: None,
             marker_px: None,
             line_exit: None,
-            decor_tracking_em: 0.0,
             exit_fade: None,
             agent_glow: Vec::new(),
             aura_colors: Vec::new(),
@@ -717,11 +675,9 @@ impl Default for LyricStyle {
             hover_glow: None,
             column_overlays: Vec::new(),
             rest_saturate: 1.0,
-            scroll_sides: [1.0, 1.0],
             scroll_curve: None,
             line_stagger: 0.05,
             hide_instrumental_only: false,
-            deco_enter: None,
             sweep_soft: None,
             sweep_end: None,
             hover_dim_alpha: None,
@@ -734,8 +690,6 @@ impl Default for LyricStyle {
             background_sung_alpha: None,
             word_shadow_blur: 1.0,
             word_shadow_unsung: false,
-            decor_fullscreen_scale: 1.0,
-            decor_gap_em: None,
             padding_vw: None,
             line_padding_vh: None,
             padding_top: 0.0,
@@ -755,11 +709,7 @@ impl Default for LyricStyle {
             hover_unsung_alpha: None,
             hover_glow_sung_only: false,
             panel_reveal: false,
-            decor_active_alpha: None,
-            decor_em: None,
-            decor_line_height: None,
             background_lit_alpha: None,
-            translation_delay: 0.0,
             line_exit_by_side: false,
             active_blur_from: None,
             marker_colors_alt: Vec::new(),
@@ -2223,24 +2173,6 @@ mod tests {
     fn themes_have_covers() {
         for p in all().iter().filter(|p| p.source != "ytm-rs") {
             assert!(cover(&p.id).is_some(), "{} has no cover", p.id);
-        }
-    }
-
-    /// Romanization and translation are drawn from the app's own theme in every theme, so
-    /// no other theme sets them: nothing would read it.
-    #[test]
-    fn only_the_default_theme_styles_romanization_and_translation() {
-        const KEYS: &[&str] = &[
-            "romanization_rem", "romanization_alpha", "romanization_pill", "romanization_weight", "romanization_font",
-            "translation_rem", "translation_alpha", "translation_weight", "translation_font", "translation_delay",
-            "both_rem", "deco_enter", "decor_tracking_em", "decor_fullscreen_scale", "decor_gap_em",
-            "decor_active_alpha", "decor_em", "decor_line_height",
-        ];
-        for (file, json) in FILES.iter().filter(|(file, _)| *file != DEFAULT_ID) {
-            let v: serde_json::Value = serde_json::from_str(json).unwrap();
-            for key in KEYS {
-                assert!(v["lyrics"].get(key).is_none(), "{file}: lyrics.{key} is only read from {DEFAULT_ID}");
-            }
         }
     }
 

@@ -136,6 +136,8 @@ This installs ytm-rs for your user (no root) in `~/.local/lib/ytm-rs`, with a `y
 
 On Debian, Ubuntu and their derivatives you can instead download `ytm-rs_<version>_amd64.deb` and open it, or run `sudo apt install ./ytm-rs_<version>_amd64.deb`. It doesn't update itself: when a new version is out, the app says so and links to the new `.deb`, which installs over the old one. To uninstall it, run `sudo apt remove ytm-rs`.
 
+On Arch Linux and its derivatives you can instead download `ytm-rs-<version>-1-x86_64.pkg.tar.zst` and run `sudo pacman -U ./ytm-rs-<version>-1-x86_64.pkg.tar.zst`, which also installs the libraries it needs. It doesn't update itself either: when a new version is out, the app says so and links to the new package, which installs over the old one the same way. To uninstall it, run `sudo pacman -R ytm-rs`.
+
 Sign-ins are kept in your keyring (GNOME Keyring or KWallet). To uninstall, run `~/.local/lib/ytm-rs/install.sh --uninstall`.
 
 </details>

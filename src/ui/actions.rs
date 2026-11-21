@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use crate::backend::{Req, UnlikeVersions};
 use crate::model::{Target, Track};
 
-use super::lists::{self, LIKED_MUSIC};
+use super::lists::{self, LIBRARY_SONGS, LIKED_MUSIC};
 use super::queue::QueueFill;
 use super::undo::Undo;
 use super::{Action, App, Dialog, LibTab, NpTab, Page, Unlike, jam, palette, transfer};
@@ -131,6 +131,8 @@ impl App {
                 }
             }
             Action::Open(Target::Album(id)) => self.go(Page::Album(id)),
+            // Library › Songs is a tab, not a playlist page.
+            Action::Open(Target::Playlist(id)) if id == LIBRARY_SONGS => self.go(Page::Library(LibTab::Saved)),
             Action::Open(Target::Playlist(id)) => self.go(Page::Playlist(id)),
             Action::Open(Target::Artist(id)) => self.go(Page::Artist(id)),
             Action::PlayNext(t) | Action::Enqueue(t) | Action::QueueInsert { track: t, .. } if self.explicit_hidden(&t) => {}
@@ -393,6 +395,7 @@ impl App {
             Page::Album(id) => Some(Target::Album(id.clone())),
             Page::Playlist(id) => Some(Target::Playlist(id.clone())),
             Page::Library(LibTab::Songs) => Some(Target::Playlist(LIKED_MUSIC.into())),
+            Page::Library(LibTab::Saved) => Some(Target::Playlist(LIBRARY_SONGS.into())),
             Page::Artist(id) => Some(Target::Artist(id.clone())),
             _ => None,
         }

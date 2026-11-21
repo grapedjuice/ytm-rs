@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use crate::backend::{Collection, Req};
 use crate::model::{Card, ShelfKind, Target, Track};
 
-use super::lists::{Arrival, Done, LIKED_MUSIC, Opened, Start};
+use super::lists::{Arrival, Done, LIBRARY_SONGS, LIKED_MUSIC, Opened, Start};
 use super::pages::thousands;
 use super::queue::QueueFill;
 use super::App;
@@ -24,6 +24,7 @@ impl App {
                 crate::tr!("player-playing-playlist"),
                 crate::tr!("nav-liked-songs").to_owned(),
             ),
+            Target::Playlist(id) if id == LIBRARY_SONGS => (crate::tr!("player-playing-playlist"), crate::tr!("nav-songs").to_owned()),
             Target::Playlist(id) => {
                 // Kept while it plays; the sidebar's list has the name if it went anyway.
                 let sidebar = || {

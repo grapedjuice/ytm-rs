@@ -571,13 +571,15 @@ fn tag_lyrics(audio: &Path, video_id: &str, set: &LyricsSet) {
     if audio.extension().is_none_or(|e| e != "m4a") {
         return;
     }
+    // One write to a file at a time: a new pick and a play can both retag it. What it
+    // should hold is worked out once it's this one's turn, so a write that waited can't
+    // put back a pick or setting that a write before it already replaced.
+    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
     let want = {
         let c = CHOICE.read().unwrap();
         tag_text(set, crate::lyrics::choose(&c.order, &c.pins, video_id, set), file_lyrics())
     };
-    // One write to a file at a time: a new pick and a play can both retag it.
-    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
     let written = mp4ameta::Tag::read_from_path(audio).and_then(|mut tag| {
         if tag.lyrics() == want.as_deref() {
             return Ok(());

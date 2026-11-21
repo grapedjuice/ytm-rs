@@ -148,6 +148,20 @@ pub struct Jam {
 }
 
 impl Jam {
+    /// Channel-backed connection for checking the UI's outbound commands without a relay.
+    #[cfg(test)]
+    pub(crate) fn test_connection() -> (Jam, impl FnMut() -> Vec<serde_json::Value>) {
+        let (out, mut commands) = mpsc::unbounded_channel();
+        let (_, events) = unbounded();
+        let conn = Jam { code: "ABC234".into(), out, events };
+        let read = move || {
+            std::iter::from_fn(|| commands.try_recv().ok())
+                .map(|m| match m { Out::Text(t) => serde_json::from_str(&t).unwrap(), Out::Leave => serde_json::json!({ "t": "bye" }) })
+                .collect()
+        };
+        (conn, read)
+    }
+
     /// Connect to room `code`: `create` starts it (we're the host), otherwise join.
     pub fn start(backend: &crate::backend::Backend, code: String, create: bool, name: String) -> Jam {
         let (out_tx, out_rx) = mpsc::unbounded_channel();

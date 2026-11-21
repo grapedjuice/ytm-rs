@@ -113,9 +113,11 @@ impl Prefs {
         self.share();
     }
 
-    /// Hand the source order and picks to the downloads, whose files' lyrics follow them.
+    /// Hand the source order, picks and per-song timing to the downloads, whose files'
+    /// lyrics follow them. Only the song's own timing: the global offset and trims suit
+    /// this setup's playback (Bluetooth delay and the like), not the lyrics themselves.
     pub fn share(&self) {
-        crate::downloads::set_lyric_choice(self.order.clone(), self.pins.clone());
+        crate::downloads::set_lyric_choice(self.order.clone(), self.pins.clone(), self.song_offsets.clone());
     }
 
     pub fn song_offset(&self, video_id: &str, source: Provider) -> f32 {
@@ -130,6 +132,8 @@ impl Prefs {
         } else {
             self.song_offsets.insert(k, v);
         }
+        self.share();
+        crate::downloads::lyrics_retimed(video_id);
     }
 
     /// Seconds to take off the clock for this song and source, as the extension does

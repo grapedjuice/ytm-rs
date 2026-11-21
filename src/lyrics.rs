@@ -224,12 +224,13 @@ pub fn choose(order: &[(Provider, bool)], pins: &HashMap<String, Provider>, vide
 /// Lyrics as LRC, a `[mm:ss.xx]` line each, for players that read timed lyrics from a
 /// file's lyrics tag. A break nobody sings over is an empty timed line, so the last
 /// line sung doesn't stay up through it. Lyrics without timing are just their words.
-pub fn to_lrc(l: &Lyrics) -> String {
+/// `shift_ms` is added to every stamp: the song's own timing, as set in the app.
+pub fn to_lrc(l: &Lyrics, shift_ms: i32) -> String {
     if l.sync == Sync::None {
         return plain_words(l);
     }
     let stamp = |ms: i32| {
-        let cs = ms.max(0) / 10;
+        let cs = (ms + shift_ms).max(0) / 10;
         format!("[{:02}:{:02}.{:02}]", cs / 6000, cs / 100 % 60, cs % 100)
     };
     let mut out = Vec::with_capacity(l.lines.len());
@@ -1431,18 +1432,21 @@ mod tests {
             &[(1500, 2000, " Hello ", false), (3500, 1000, "world", false), (4500, 8000, "", true), (12500, 1000, "again", false), (61_230, 500, "late", false)],
             Sync::Line,
         );
-        assert_eq!(to_lrc(&l), "[00:01.50]Hello
+        assert_eq!(to_lrc(&l, 0), "[00:01.50]Hello
 [00:03.50]world
 [00:04.50]
 [00:12.50]again
 [00:13.50]
 [01:01.23]late
 [01:01.73]");
+        // Shown 0.5 s later in the app: so in the file; never before the start.
+        assert_eq!(to_lrc(&l, 500).lines().next(), Some("[00:02.00]Hello"));
+        assert_eq!(to_lrc(&l, -2000).lines().next(), Some("[00:00.00]Hello"));
         // Word-timed lyrics go in by line: what every LRC reader takes.
-        assert_eq!(to_lrc(&timed(&[(0, 900, "Hi", false)], Sync::Word)), "[00:00.00]Hi
+        assert_eq!(to_lrc(&timed(&[(0, 900, "Hi", false)], Sync::Word), 0), "[00:00.00]Hi
 [00:00.90]");
         // Without timing, just the words.
-        assert_eq!(to_lrc(&timed(&[(0, 0, "One", false), (0, 0, "Two", false)], Sync::None)), "One
+        assert_eq!(to_lrc(&timed(&[(0, 0, "One", false), (0, 0, "Two", false)], Sync::None), 0), "One
 Two");
     }
 

@@ -237,6 +237,7 @@ fn list_id(page: &Page) -> Option<String> {
     let tab = match page {
         Page::Playlist(id) => return Some(id.clone()),
         Page::Library(LibTab::Songs) => super::LIKED_MUSIC,
+        Page::Library(LibTab::Saved) => "library-songs",
         Page::Library(LibTab::History) => "history",
         Page::Library(LibTab::Uploads) => "uploads",
         Page::Library(LibTab::Downloads) => "downloads",

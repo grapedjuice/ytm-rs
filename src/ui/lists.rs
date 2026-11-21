@@ -10,6 +10,8 @@ use crate::model::Track;
 
 /// Liked Music's playlist id.
 pub const LIKED_MUSIC: &str = "LM";
+/// Library › Songs: every song saved to the library, kept as a list like Liked Music.
+pub const LIBRARY_SONGS: &str = crate::ytm::LIBRARY_SONGS;
 
 /// Going back to a kept album or playlist reloads it when it's older than this. Edits
 /// made here show at once anyway, and a Spotify transfer reloads Liked Music when done.

@@ -768,9 +768,19 @@ pub async fn playlist(api: &Api, id: &str, auth: bool, limit: Option<usize>) -> 
     Ok(pl)
 }
 
+/// The songs saved to the library, as Library › Songs lists them on the website: liked
+/// ones, and the songs of albums and playlists saved there too. Loaded and kept like a
+/// playlist, under this id.
+pub const LIBRARY_SONGS: &str = "FEmusic_liked_videos";
+
 /// A playlist's first page (about 100 songs), the next page's token, and how many
 /// songs to stop at: `limit` (`None`: all), or fewer when a mix's header says so.
 pub async fn playlist_start(api: &Api, id: &str, auth: bool, limit: Option<usize>) -> anyhow::Result<(Collection, Option<String>, usize)> {
+    if id == LIBRARY_SONGS {
+        let v = api.call_signed_in("browse", json!({ "browseId": LIBRARY_SONGS })).await?;
+        let (c, token) = parse_library_songs(&v);
+        return Ok((c, token, limit.unwrap_or(usize::MAX)));
+    }
     // A podcast show's own page lists its episodes; a playlist's is "VL" and its id.
     let browse = if id.starts_with(SHOW_PREFIX) { id.to_owned() } else { format!("VL{id}") };
     let v = api.call("browse", json!({ "browseId": browse }), auth).await?;
@@ -787,6 +797,31 @@ pub async fn playlist_start(api: &Api, id: &str, auth: bool, limit: Option<usize
     pl.tracks.truncate(limit);
     pl.set_ids.truncate(limit);
     Ok((pl, token, limit))
+}
+
+/// Library › Songs' first page (a "Shuffle all" row, then the songs) and the next page's
+/// token; the later pages continue as a playlist's do. None saved yet: no songs.
+fn parse_library_songs(v: &Value) -> (Collection, Option<String>) {
+    let sections = arr(&v["contents"]["singleColumnBrowseResultsRenderer"]["tabs"][0]["tabRenderer"]["content"]["sectionListRenderer"]["contents"]);
+    let shelf = sections.iter().map(|s| &s["musicShelfRenderer"]).find(|s| !s.is_null());
+    let (tracks, set_ids, token) = shelf.map(|s| list_page(arr(&s["contents"]))).unwrap_or_default();
+    let token = token.or_else(|| shelf.and_then(continuation));
+    let c = Collection {
+        id: LIBRARY_SONGS.to_owned(),
+        is_album: false,
+        save_id: None,
+        title: String::new(),
+        subtitle: String::new(),
+        artists: Vec::new(),
+        description: None,
+        thumbs: Vec::new(),
+        tracks,
+        set_ids,
+        count: None,
+        owned: false,
+        sorts: Vec::new(),
+    };
+    (c, token)
 }
 
 /// The playlist page after `token`: its songs, their entry ids, and the next token.
@@ -2590,6 +2625,45 @@ mod tests {
                 Suggestion { text: "love songs".into(), forget: None },
             ]
         );
+    }
+
+    #[test]
+    fn library_songs_list_the_songs_saved_there() {
+        // Shaped like a signed-in FEmusic_liked_videos answer (November 2026): a "Shuffle
+        // all" row before the songs, and the next page's token on the shelf.
+        let col = |runs: Value| json!({"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": runs}}});
+        let browse = |id: &str, kind: &str| json!({"browseEndpoint": {"browseId": id, "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": kind}}}});
+        let watch = json!({"watchEndpoint": {"videoId": "JhulBGMA7G4", "playlistId": "MLCT", "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"}}}});
+        let song = json!({"musicResponsiveListItemRenderer": {
+            "flexColumns": [
+                col(json!([{"text": "Harder, Better, Faster, Stronger", "navigationEndpoint": watch}])),
+                col(json!([{"text": "Daft Punk", "navigationEndpoint": browse("UC_kRDKYrUlrbtrSiyu5Tflg", "MUSIC_PAGE_TYPE_ARTIST")}])),
+                col(json!([{"text": "Discovery", "navigationEndpoint": browse("MPREb_GDfJeO4t1sl", "MUSIC_PAGE_TYPE_ALBUM")}])),
+            ],
+            "fixedColumns": [{"musicResponsiveListItemFixedColumnRenderer": {"text": {"runs": [{"text": "3:45"}]}}}],
+        }});
+        let shuffle = json!({"musicResponsiveListItemRenderer": {
+            "flexColumns": [col(json!([{"text": "Shuffle all"}]))],
+            "navigationEndpoint": {"watchPlaylistEndpoint": {"playlistId": "MLCT", "params": "wAEB8gECKAE%3D"}},
+        }});
+        let page = |shelf: Value| json!({"contents": {"singleColumnBrowseResultsRenderer": {"tabs": [{"tabRenderer": {"content": {"sectionListRenderer": {"contents": [shelf]}}}}]}}});
+        let v = page(json!({"musicShelfRenderer": {"contents": [shuffle, song], "continuations": [{"nextContinuationData": {"continuation": "next-page"}}]}}));
+        let (c, token) = parse_library_songs(&v);
+        assert_eq!(c.id, LIBRARY_SONGS);
+        assert!(!c.owned && !c.is_album);
+        assert_eq!(c.tracks.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(), ["Harder, Better, Faster, Stronger"]);
+        let t = &c.tracks[0];
+        assert_eq!((t.id.as_str(), t.artist_line().as_str(), t.duration), ("JhulBGMA7G4", "Daft Punk", Some(225)));
+        assert_eq!(t.album.as_ref().map(|a| a.name.as_str()), Some("Discovery"));
+        assert_eq!(c.set_ids.len(), c.tracks.len());
+        assert_eq!(token.as_deref(), Some("next-page"));
+        // The later pages continue as a playlist's do.
+        let more = json!({"continuationContents": {"musicShelfContinuation": {"contents": [song]}}});
+        let (tracks, _, next) = playlist_continuation(&more);
+        assert_eq!((tracks.len(), next), (1, None));
+        // Nothing saved yet: a message where the shelf would be, and no songs.
+        let (c, token) = parse_library_songs(&page(json!({"itemSectionRenderer": {"contents": [{"messageRenderer": {}}]}})));
+        assert!(c.tracks.is_empty() && token.is_none());
     }
 
     #[test]

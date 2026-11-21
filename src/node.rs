@@ -56,10 +56,14 @@ fn bin(data_dir: &Path) -> PathBuf {
 }
 
 /// The downloaded Node, if there is one. Past `MAX_AGE`, a newer LTS is looked for in
-/// the background; this one goes on being used meanwhile.
+/// the background; this one goes on being used meanwhile. Its age is the `version`
+/// file's, not the binary's: a running Node can't be opened for writing to mark it fresh.
 pub fn installed(http: &reqwest::Client, data_dir: &Path) -> Option<PathBuf> {
     let bin = bin(data_dir);
-    let age = std::fs::metadata(&bin).and_then(|m| m.modified()).ok()?;
+    if !bin.is_file() {
+        return None;
+    }
+    let age = std::fs::metadata(data_dir.join("node").join("version")).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
     if SystemTime::now().duration_since(age).unwrap_or_default() > MAX_AGE {
         fetch_later(http, data_dir);
     }
@@ -93,7 +97,7 @@ async fn fetch(http: &reqwest::Client, data_dir: &Path) -> anyhow::Result<String
     let bin = bin(data_dir);
     let have = std::fs::read_to_string(dir.join("version")).unwrap_or_default();
     if have.trim() == version && bin.is_file() {
-        std::fs::File::options().write(true).open(&bin)?.set_modified(SystemTime::now())?;
+        std::fs::write(dir.join("version"), &version)?;
         return Ok(version);
     }
     let file = archive_name(&version, build);
@@ -116,6 +120,16 @@ async fn fetch(http: &reqwest::Client, data_dir: &Path) -> anyhow::Result<String
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
+    }
+    // Windows won't replace a running exe (yt-dlp may be running it), but will rename
+    // it: moved aside, it's deleted the next time round, once nothing runs it.
+    #[cfg(windows)]
+    {
+        let old = bin.with_extension("old");
+        let _ = std::fs::remove_file(&old);
+        if bin.exists() {
+            std::fs::rename(&bin, &old)?;
+        }
     }
     std::fs::rename(&tmp, &bin)?;
     std::fs::write(dir.join("version"), &version)?;
@@ -210,11 +224,15 @@ mod tests {
             assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), version);
             // A month on, nothing newer: no download, just marked fresh.
             let old = SystemTime::now() - MAX_AGE - Duration::from_secs(60);
-            std::fs::File::options().write(true).open(&node).unwrap().set_modified(old).unwrap();
+            let stamp = dir.join("node").join("version");
+            std::fs::File::options().write(true).open(&stamp).unwrap().set_modified(old).unwrap();
+            // Running, as yt-dlp would be: marking it fresh mustn't need to write to it.
+            let mut running = std::process::Command::new(&node).args(["-e", "setTimeout(()=>{},5000)"]).spawn().unwrap();
             let t = std::time::Instant::now();
             assert_eq!(fetch(&http, &dir).await.unwrap(), version);
             println!("checked again in {:.1} s", t.elapsed().as_secs_f64());
-            let age = SystemTime::now().duration_since(std::fs::metadata(&node).unwrap().modified().unwrap()).unwrap();
+            let _ = running.kill();
+            let age = SystemTime::now().duration_since(std::fs::metadata(&stamp).unwrap().modified().unwrap()).unwrap();
             assert!(age < Duration::from_secs(60), "not marked fresh");
         });
         let _ = std::fs::remove_dir_all(&dir);

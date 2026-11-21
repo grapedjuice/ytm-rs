@@ -14,7 +14,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, RwLock};
+use std::sync::{Arc, LazyLock, Mutex, RwLock};
 
 use serde::{Deserialize, Serialize};
 
@@ -233,18 +233,34 @@ pub fn lyrics_picked(video_id: &str) {
 /// After the listener retimes a song: its file follows once the clicks stop for 2 s, so a
 /// few ‹ +0.1s › in a row write it once.
 pub fn lyrics_retimed(video_id: &str) {
-    static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     if path(video_id).is_none() {
         return;
     }
-    let me = LAST.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     let id = video_id.to_owned();
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        if LAST.load(std::sync::atomic::Ordering::SeqCst) == me {
+        if retime_settled(&id, || std::thread::sleep(std::time::Duration::from_secs(2))) {
             retag(&id);
         }
     });
+}
+
+/// Counts this song's click, waits (`wait`), and says whether it's still its last click
+/// then. Each song counts its own: retiming another doesn't cancel this one's write.
+fn retime_settled(video_id: &str, wait: impl FnOnce()) -> bool {
+    static CLICKS: LazyLock<Mutex<HashMap<String, u64>>> = LazyLock::new(Default::default);
+    let me = {
+        let mut clicks = CLICKS.lock().unwrap_or_else(|e| e.into_inner());
+        let n = clicks.entry(video_id.to_owned()).or_default();
+        *n += 1;
+        *n
+    };
+    wait();
+    let mut clicks = CLICKS.lock().unwrap_or_else(|e| e.into_inner());
+    let last = clicks.get(video_id) == Some(&me);
+    if last {
+        clicks.remove(video_id);
+    }
+    last
 }
 
 /// Ask for a new folder (the system picker, on its own thread).
@@ -991,6 +1007,14 @@ mod tests {
         assert!(any_listed(&[song("x", "X"), song("c", "C")]) && !all_listed(&[song("x", "X"), song("c", "C")]));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retiming_one_song_doesnt_cancel_anothers_write() {
+        // Song a clicked, then song b while a waits: both get written.
+        assert!(retime_settled("retime-a", || assert!(retime_settled("retime-b", || {}))));
+        // A second click on the same song while the first waits: only the second writes.
+        assert!(!retime_settled("retime-a", || assert!(retime_settled("retime-a", || {}))));
     }
 
     #[test]

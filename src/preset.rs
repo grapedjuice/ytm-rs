@@ -333,7 +333,6 @@ impl Default for LetterWave {
 #[derive(Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct LyricStyle {
-    pub align: Align,
     pub agent_align: AgentAlign,
     pub weight: Weight,
     pub font: String,
@@ -567,7 +566,6 @@ pub struct LyricStyle {
     pub resume_text_px: Option<f32>,
     pub resume_black: bool,
     pub resume_shadow: Option<[f32; 3]>,
-    pub resume_offset: [f32; 2],
     /// In full screen, the Resume Autoscroll button's own spot: `[px from the lyrics' left,
     /// fraction of their height down]`.
     pub resume_fullscreen: Option<[f32; 2]>,
@@ -581,7 +579,6 @@ pub struct LyricStyle {
 impl Default for LyricStyle {
     fn default() -> Self {
         Self {
-            align: Align::Left,
             agent_align: AgentAlign::Stock,
             weight: Weight::Bold,
             font: "inter".into(),
@@ -718,7 +715,6 @@ impl Default for LyricStyle {
             resume_text_px: None,
             resume_black: false,
             resume_shadow: None,
-            resume_offset: [0.0, 0.0],
             resume_fullscreen: None,
             scroll_secs: 0.75,
             scroll_ease: [0.86, 0.0, 0.2, 1.0],
@@ -790,7 +786,6 @@ pub struct CoverStyle {
     pub shadow: f32,
     pub shadow_blur: f32,
     pub shadow_offset: f32,
-    pub glow: f32,
     /// `[px, white alpha]`.
     pub outline: [f32; 2],
     /// The cover's own opacity.
@@ -891,7 +886,6 @@ impl Default for CoverStyle {
             shadow: 0.0,
             shadow_blur: 60.0,
             shadow_offset: 0.0,
-            glow: 0.0,
             outline: [0.0, 0.0],
             opacity: 1.0,
             max_frac: None,
@@ -1052,13 +1046,11 @@ pub struct SwitchLook {
     pub shadow: Option<[f32; 3]>,
     /// In the bottom corner rather than in the header.
     pub at_corner: bool,
-    /// Moved down, px.
-    pub y_offset: f32,
     /// In the corner, the right one.
     pub at_right: bool,
     /// Song and Video as plain words, the selected one over `selected`.
     pub plain: bool,
-    /// Moved down in full screen, in place of `y_offset`.
+    /// Moved down in full screen, px.
     pub y_offset_full: Option<f32>,
 }
 
@@ -1425,8 +1417,6 @@ pub struct AppStyle {
     pub accent_controls: bool,
     /// Pages sit on a layered sheet over the background: its white alpha and top-left radius.
     pub sheet: Option<[f32; 2]>,
-    /// Glass panels frost the background art behind them.
-    pub frost: bool,
     /// Every weight of interface text in bold.
     pub all_bold: bool,
     pub controls: Controls,
@@ -1448,8 +1438,6 @@ pub struct AppStyle {
     /// A wash down from the top of the pages: `[colour alpha, px]`, in `page_wash_color`.
     pub page_wash: Option<[f32; 2]>,
     pub page_wash_color: String,
-    /// The same, up from the bottom of the window: `[black alpha, px]`.
-    pub page_foot: Option<[f32; 2]>,
     /// New pages rise this many px as they fade in.
     pub page_rise_px: f32,
     /// Album and playlist pages open under their art, at this opacity, fading out down the header.
@@ -1487,8 +1475,6 @@ pub struct AppStyle {
     pub page_saturation: Option<f32>,
     pub page_contrast: f32,
     pub page_scale: Option<f32>,
-    /// A wash across the pages from the left: `[colour alpha, px]`, in `page_wash_color`.
-    pub page_side: Option<[f32; 2]>,
     /// New pages slide up from this far on opening now playing... and a plain fade if 0.
     pub np_open_secs: f32,
     /// The main text colour on dark pages.
@@ -1580,8 +1566,6 @@ pub struct Controls {
     /// White alpha of a button, added on hover.
     pub button_fill: f32,
     pub button_hover: f32,
-    /// The colour icons take on hover; empty: the text colour.
-    pub hover_color: String,
     /// The Play pill in the accent.
     pub accent_primary: bool,
     /// White alpha of an outline on hover, and of a fill while pressed.
@@ -1595,7 +1579,6 @@ pub struct Controls {
     pub press_rows: f32,
     /// The bar's play button on hover.
     pub play_hover_scale: f32,
-    pub play_hover_color: String,
     /// How keyboard focus shows.
     pub focus: Option<FocusRing>,
     /// Interface motion overshoots slightly.
@@ -1604,7 +1587,7 @@ pub struct Controls {
 
 impl Default for Controls {
     fn default() -> Self {
-        Self { idle_alpha: 1.0, ghost_outline: 0.0, press_scale: 0.9, hover_scale: 1.0, arrow_hover: None, button_fill: 0.10, button_hover: 0.08, hover_color: String::new(), accent_primary: false, hover_border: 0.0, press_fill: 0.0, shadow: None, press_cards: 1.0, press_chips: 1.0, press_rows: 1.0, play_hover_scale: 1.05, play_hover_color: String::new(), focus: None, spring: false }
+        Self { idle_alpha: 1.0, ghost_outline: 0.0, press_scale: 0.9, hover_scale: 1.0, arrow_hover: None, button_fill: 0.10, button_hover: 0.08, accent_primary: false, hover_border: 0.0, press_fill: 0.0, shadow: None, press_cards: 1.0, press_chips: 1.0, press_rows: 1.0, play_hover_scale: 1.05, focus: None, spring: false }
     }
 }
 
@@ -1623,8 +1606,6 @@ pub struct NavItem {
     pub rail_px: f32,
     /// Labels under the rail's icons.
     pub rail_labels: bool,
-    /// Playlists as one line of text at this height, without art.
-    pub title_rows: Option<f32>,
     /// The sidebar's width, px, in place of the usual.
     pub width: Option<f32>,
     /// White alpha while pressed.
@@ -1633,8 +1614,6 @@ pub struct NavItem {
     pub hide_divider: bool,
     /// The sidebar's fill only once the page has scrolled.
     pub scroll_fill: bool,
-    /// The selected entry's colour in place of white.
-    pub selected_color: String,
     /// `selected` on now playing's bar... and over a page, as it differs.
     pub side_margin: f32,
     /// A heading over the playlists, in place of PLAYLISTS, and whether it has a + for a new one.
@@ -1654,7 +1633,7 @@ pub struct NavItem {
 
 impl Default for NavItem {
     fn default() -> Self {
-        Self { radius: None, height: 42.0, hover: 0.05, selected: 0.10, slide: 0.0, rail: false, rail_px: 76.0, rail_labels: false, title_rows: None, width: None, press: 0.0, hide_divider: false, scroll_fill: false, selected_color: String::new(), side_margin: 0.0, playlists_label: String::new(), playlists_plus: false, cover_tint: None, selected_fill: String::new(), bar_px: 20.0, rail_height: None, hover_zoom: 1.0 }
+        Self { radius: None, height: 42.0, hover: 0.05, selected: 0.10, slide: 0.0, rail: false, rail_px: 76.0, rail_labels: false, width: None, press: 0.0, hide_divider: false, scroll_fill: false, side_margin: 0.0, playlists_label: String::new(), playlists_plus: false, cover_tint: None, selected_fill: String::new(), bar_px: 20.0, rail_height: None, hover_zoom: 1.0 }
     }
 }
 
@@ -1820,8 +1799,6 @@ pub struct MenuLook {
     pub separator: f32,
     /// Narrowest, px.
     pub min_px: f32,
-    /// Hovered rows' icon and text take the accent.
-    pub hover_accent: bool,
     /// Hovered rows' icon and text slide this far, px.
     pub row_slide: f32,
     /// Dialogs' alpha, where it differs from a menu's.
@@ -1830,7 +1807,7 @@ pub struct MenuLook {
 
 impl Default for MenuLook {
     fn default() -> Self {
-        Self { row_px: 36.0, hover: 0.12, alpha: 1.0, icon_right: false, shadow: None, row_radius: 7.0, pop: None, item_slide: 0.0, separator: 0.0, min_px: 260.0, hover_accent: false, row_slide: 0.0, dialog_alpha: None }
+        Self { row_px: 36.0, hover: 0.12, alpha: 1.0, icon_right: false, shadow: None, row_radius: 7.0, pop: None, item_slide: 0.0, separator: 0.0, min_px: 260.0, row_slide: 0.0, dialog_alpha: None }
     }
 }
 
@@ -1850,8 +1827,6 @@ pub struct SearchLook {
     /// Its colour while its suggestions are open, and its bottom corners square then, with them attached.
     pub open_color: String,
     pub attached: bool,
-    /// A second outline around it, `[radius, white alpha]`.
-    pub outer: Option<[f32; 2]>,
     /// Focused: a line along its bottom in `focus_color` rather than an outline.
     pub underline: bool,
     /// The list's outline in white alpha, and its rows' radius.
@@ -1865,7 +1840,7 @@ pub struct SearchLook {
 
 impl Default for SearchLook {
     fn default() -> Self {
-        Self { height: 42.0, max_px: 560.0, color: String::new(), focus_color: String::new(), focus_ring: 0.0, drop_radius: None, accent_icon: false, open_color: String::new(), attached: false, outer: None, underline: false, drop_ring: 0.0, item_radius: 8.0, drop_grow: false, drop_alpha: None }
+        Self { height: 42.0, max_px: 560.0, color: String::new(), focus_color: String::new(), focus_ring: 0.0, drop_radius: None, accent_icon: false, open_color: String::new(), attached: false, underline: false, drop_ring: 0.0, item_radius: 8.0, drop_grow: false, drop_alpha: None }
     }
 }
 
@@ -1952,7 +1927,6 @@ impl Default for AppStyle {
             hide_scrollbars: false,
             accent_controls: false,
             sheet: None,
-            frost: false,
             all_bold: false,
             controls: Controls::default(),
             nav_item: NavItem::default(),
@@ -1970,7 +1944,6 @@ impl Default for AppStyle {
             strap_alpha: 1.0,
             page_wash: None,
             page_wash_color: String::new(),
-            page_foot: None,
             page_rise_px: 0.0,
             immersive_header: None,
             header_title_px: 40.0,
@@ -1992,7 +1965,6 @@ impl Default for AppStyle {
             page_saturation: None,
             page_contrast: 1.0,
             page_scale: None,
-            page_side: None,
             np_open_secs: 0.42,
             text_color: String::new(),
             ui_fade_secs: None,

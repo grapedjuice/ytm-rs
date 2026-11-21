@@ -184,13 +184,6 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64) {
         let c = crate::preset::paint(&look.app.page_wash_color, app.accent_color());
         vgradient(&painter, Rect::from_min_size(screen.min, vec2(screen.width(), px)), theme::with_alpha(c, a), Color32::TRANSPARENT);
     }
-    if let Some([a, px]) = look.app.page_side.filter(|_| !light) {
-        let c = crate::preset::paint(&look.app.page_wash_color, app.accent_color());
-        hgradient(&painter, Rect::from_min_size(screen.min, vec2(px, screen.height())), theme::with_alpha(c, a), Color32::TRANSPARENT);
-    }
-    if let Some([a, px]) = look.app.page_foot.filter(|_| !light) {
-        vgradient(&painter, Rect::from_min_max(pos2(screen.left(), screen.bottom() - px), screen.max), Color32::TRANSPARENT, theme::shade(a));
-    }
 }
 
 /// A theme's soft light: an ellipse of colour fading out. Six triangles' worth of rings,
@@ -422,7 +415,6 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             ui.painter().rect_filled(rect, look.radius, theme::glass(item.press));
         }
         widgets::focus_ring(ui, &resp, rect, look.radius);
-        let icon_fg = if s > 0.0 && !item.selected_color.is_empty() { theme::lerp_color(icon_fg, crate::preset::paint(&item.selected_color, look.accent), s) } else { icon_fg };
         let icon_fg = theme::with_alpha(icon_fg, lerp(idle..=1.0, (h + s).min(1.0)));
         let slid = item.slide * h;
         // On the rail with labels: the icon over a small one-line label.
@@ -533,8 +525,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             let mut dropped = None;
             for i in super::collections::pinned_first(&app.pinned, playlists, 0..playlists.len()) {
                 let c = &playlists[i];
-                let title_row = item.title_rows.filter(|_| t < 0.5);
-                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), title_row.unwrap_or(48.0)), Sense::click());
+                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
                 if !ui.is_rect_visible(rect) {
                     continue;
                 }
@@ -557,16 +548,6 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 }
                 // Right-click: the menu a playlist's card has.
                 resp.context_menu(|ui| widgets::card_menu_contents(ui, c, false, Some(pinned), &mut app.actions));
-                if title_row.is_some() {
-                    text_at(ui, pos2(rect.left() + 12.0, rect.center().y - 8.0), &c.title, theme::regular(13.0), theme::with_alpha(theme::text(), a), full_w - if pinned { 44.0 } else { 24.0 });
-                    if pinned && a > 0.0 {
-                        widgets::icon_turned(ui, pos2(rect.left() + full_w - 22.0, rect.center().y), icon::PIN, 11.0, theme::with_alpha(theme::text_dim(), a), PIN_TILT);
-                    }
-                    if resp.clicked() {
-                        app.actions.push(Action::Open(c.target.clone()));
-                    }
-                    continue;
-                }
                 // Under the nav's icons, which centre on their row on a labelled rail.
                 let img_x = if item.rail_labels && t > 0.5 { rect.shrink2(vec2(item.side_margin, 0.0)).center().x } else { rect.left() + ICON_X };
                 let img = Rect::from_center_size(pos2(img_x, rect.center().y), Vec2::splat(36.0));
@@ -776,9 +757,6 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
             ui.painter().rect_filled(rect, corners, fill);
         } else {
             widgets::fill_rounded(ui, rect, box_r, fill);
-        }
-        if let Some([r, a]) = sl.outer {
-            ui.painter().rect_stroke(rect.expand(2.0), r, egui::Stroke::new(1.0, theme::glass(a)), egui::StrokeKind::Inside);
         }
         let edge = box_look.search_border.max(0.25 * focus);
         if edge > 0.0 {
@@ -1120,7 +1098,6 @@ pub fn floating_bar(app: &mut App, ui: &mut Ui, slot: Rect, now: f64) {
     }
     // With no real blur: the art's colour through it, what a blur of the page would show.
     let fill = if glass.is_some() { bar_fill(look, bar_alpha) } else { bar_fill(look, (bar_alpha + 0.07).min(1.0)) };
-    let fill = if look.app.frost && glass.is_none() && app.current().is_some() { theme::lerp_color(fill, app.accent_color(), 0.1) } else { fill };
     let fill = match look.chrome.bar_np_alpha.filter(|_| app.np_open) {
         Some(a) => theme::shade(a),
         None => fill,
@@ -1664,18 +1641,17 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let ph = theme::anim_bool(ui.ctx(), presp.id.with("h"), presp.hovered(), 0.15);
     let controls = &app.look().app.controls;
     let scale = play_size * if presp.is_pointer_button_down_on() { 0.92 } else { 1.0 + (controls.play_hover_scale - 1.0) * ph };
-    let play_lit = crate::preset::hex(&controls.play_hover_color);
     use crate::preset::PlayButton;
     let kind = if app.look().app.accent_controls || app.accent_controls { PlayButton::Accent } else { app.look().chrome.play_button };
     let glyph = match kind {
         PlayButton::Disc => {
             let rest = if theme::light() { theme::text() } else { Color32::WHITE };
-            ui.painter().circle_filled(center, 23.0 * scale, play_lit.map_or(rest, |c| theme::lerp_color(rest, c, ph)));
+            ui.painter().circle_filled(center, 23.0 * scale, rest);
             theme::on_text()
         }
         PlayButton::Bare => {
             ui.painter().circle_filled(center, 23.0 * scale, theme::glass(0.1 * ph));
-            play_lit.map_or(theme::text(), |c| theme::lerp_color(theme::text(), c, ph))
+            theme::text()
         }
         PlayButton::Ghost => {
             ui.painter().circle_filled(center, 23.0 * scale, theme::glass(0.1 + 0.05 * ph));

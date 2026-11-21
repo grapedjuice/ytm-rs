@@ -994,10 +994,6 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     let radius = if round { side / 2.0 } else { fs.radius.or(fs.radius_pct.map(|p| p * side)).unwrap_or(cs.radius_pct.map_or(cs.radius, |p| p * side)).clamp(0.0, (side / 2.0).max(0.0)) };
     let top_only = cs.top_only || fs.top_only;
     let cr = if top_only && !round { egui::CornerRadius { nw: radius.min(255.0) as u8, ne: radius.min(255.0) as u8, sw: 0, se: 0 } } else { egui::CornerRadius::same(radius.min(255.0) as u8) };
-    if cs.glow > 0.0 {
-        let s = egui::epaint::Shadow { offset: [0, 16], blur: 90, spread: 6, color: theme::with_alpha(app.accent_color(), cs.glow.min(1.0) * 0.7) };
-        ui.painter().add(s.as_shape(art, cr));
-    }
     let shadow_a = fs.shadow.unwrap_or(cs.shadow);
     if shadow_a > 0.0 {
         // Corner radii stop at 255: a bigger disc's rounded-rectangle shadow shows as a square.
@@ -1234,7 +1230,7 @@ fn song_video_switch(app: &mut App, ui: &mut Ui, header: Rect) {
     // In the bottom corner, in some themes, rather than in the middle of the header.
     let corner_x = if look.at_right { ui.max_rect().right() - 170.0 } else { ui.max_rect().left() };
     let header = if look.at_corner { Rect::from_min_size(pos2(corner_x, ui.max_rect().bottom() - header.height()), vec2(170.0, header.height())) } else { header };
-    let header = header.translate(vec2(0.0, look.y_offset_full.filter(|_| app.fullscreen).unwrap_or(look.y_offset)));
+    let header = header.translate(vec2(0.0, look.y_offset_full.filter(|_| app.fullscreen).unwrap_or(0.0)));
     let rect = Rect::from_center_size(header.center(), vec2(170.0, header.height()));
     let mut row = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
     row.spacing_mut().item_spacing.x = 6.0;
@@ -1960,7 +1956,7 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
                 let y = egui::lerp(rect.top() - 3.0 * em..=rect.top() + down * rect.height(), theme::ease_out(shown));
                 Rect::from_min_size(pos2((rect.left() + left).min(rect.right() - size.x), y), size)
             }
-            None => Rect::from_min_size(pos2(rect.center().x - size.x / 2.0, y), size).translate(Vec2::from(style.resume_offset)),
+            None => Rect::from_min_size(pos2(rect.center().x - size.x / 2.0, y), size),
         };
         let resp = ui.interact(r, ui.scope_id().with("lyr-resume-btn"), if out.user_scrolling { Sense::click() } else { Sense::hover() });
         let resp = named(resp, crate::tr!("player-resume-autoscroll")).on_hover_cursor(egui::CursorIcon::PointingHand);

@@ -1948,6 +1948,12 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             });
         }
         divider(ui);
+        setting_row(ui, tr!("settings-skip-silence"), Some(tr!("settings-skip-silence-desc")), |ui| {
+            if toggle(ui, &mut app.skip_silence, tr!("settings-skip-silence")).changed() {
+                app.audio.set_skip_silence(app.skip_silence);
+            }
+        });
+        divider(ui);
         setting_row(ui, tr!("settings-hide-explicit-songs"), Some(tr!("settings-hide-explicit-songs-desc")), |ui| {
             if toggle(ui, &mut app.hide_explicit, tr!("settings-hide-explicit-songs")).changed() {
                 app.set_hide_explicit();

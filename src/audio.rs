@@ -130,6 +130,8 @@ pub struct AudioStatus {
     silenced: AtomicU32,
     /// Pausing and playing again are instant, with no fade (Settings › Sound).
     instant_pause: AtomicBool,
+    /// A song ends where it goes silent for good (Settings › Playback).
+    skip_silence: AtomicBool,
     /// The equalizer's settings, applied to everything on its way to the device.
     eq: Arc<eq::EqParams>,
     /// Crossfeed, mono and balance, after the equalizer.
@@ -473,6 +475,10 @@ impl AudioHandle {
         self.send(AudioCmd::Volume(self.volume()));
     }
 
+    pub fn set_skip_silence(&self, on: bool) {
+        self.status.skip_silence.store(on, Ordering::Relaxed);
+    }
+
     pub fn set_volume(&self, v: f32) {
         self.status.volume.store(v.to_bits(), Ordering::Relaxed);
         self.send(AudioCmd::Volume(v));
@@ -808,6 +814,22 @@ impl Output {
 /// long), nor while a device that's gone still looks open (until `DeviceLost` arrives): a new
 /// player instead, at the same volume and paused, as `clear` leaves it. The old one's song
 /// ends the next time the mixer is pulled.
+/// Quieter than this (about -60 dBFS) is silence, for `silent_tail`.
+const SILENT_LEVEL: f32 = 0.001;
+/// How long silence lasts before the rest of the song is skipped.
+const SILENT_FOR: Duration = Duration::from_secs(3);
+
+/// Whether the song has been silent for `SILENT_FOR` of its own time (so a stalled
+/// download doesn't count), in its second half: a quiet intro or a pause mid-song isn't
+/// an ending. `quiet_from` keeps where the silence began.
+fn silent_tail(quiet_from: &mut Option<Duration>, level: f32, pos: Duration, length: Option<Duration>) -> bool {
+    if level >= SILENT_LEVEL || length.is_none_or(|d| pos * 2 < d) {
+        *quiet_from = None;
+        return false;
+    }
+    pos.saturating_sub(*quiet_from.get_or_insert(pos)) >= SILENT_FOR
+}
+
 fn clear(player: &mut Player, output: &Output) {
     let fresh = Player::connect_new(&output.mixer);
     fresh.set_volume(player.volume());
@@ -1022,6 +1044,8 @@ fn run(
     let mut pause_at: Option<Instant> = None;
     // When the sleep timer pauses.
     let mut sleep_at: Option<Instant> = None;
+    // Where the playing song went silent, for `silent_tail`.
+    let mut quiet_from: Option<Duration> = None;
     loop {
         // Poll while playing so the position stays fresh and the end is noticed; idle otherwise,
         // waking to let go of the device.
@@ -1072,6 +1096,7 @@ fn run(
                     status.duration_ms.store(s.duration_ms, Ordering::Relaxed);
                 }
                 length = status.duration();
+                quiet_from = None;
                 if let Some(old) = shared.replace(s.clone())
                     && !Arc::ptr_eq(&old, &s)
                 {
@@ -1459,6 +1484,14 @@ fn run(
                 let _ = events.send(AudioEvent::PrepareNext { generation: current });
                 wake();
             }
+            // Silence to the end (or before a hidden track): over now, as if it had ended.
+            if status.skip_silence.load(Ordering::Relaxed)
+                && !status.hushed.load(Ordering::Relaxed)
+                && silent_tail(&mut quiet_from, status.level(), pos, length)
+            {
+                log::info!("audio: silent from {:?} on, ending the song there", quiet_from);
+                clear(&mut player, &output);
+            }
             // Paused just before the end, the song's over only once it's played again:
             // the next one mustn't start playing.
             if player.empty() && !status.hushed.load(Ordering::Relaxed) {
@@ -1509,6 +1542,26 @@ mod tests {
         audio.send(AudioCmd::SleepAt(Some(Instant::now() + Duration::from_millis(30))));
         std::thread::sleep(Duration::from_millis(300));
         assert!(audio.status.hushed.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn only_silence_lasting_to_the_end_of_the_second_half_skips() {
+        let s = Duration::from_secs;
+        let len = Some(s(200));
+        let mut from = None;
+        // A quiet first half never counts.
+        assert!(!silent_tail(&mut from, 0.0, s(10), len));
+        assert!(!silent_tail(&mut from, 0.0, s(50), len));
+        // A short pause in the second half, then music again, starts over.
+        assert!(!silent_tail(&mut from, 0.0, s(120), len));
+        assert!(!silent_tail(&mut from, 0.2, s(122), len));
+        assert!(!silent_tail(&mut from, 0.0, s(124), len));
+        assert!(!silent_tail(&mut from, 0.0, s(126), len));
+        assert!(silent_tail(&mut from, 0.0, s(127), len));
+        // No length, no way to tell the second half.
+        let mut from = None;
+        assert!(!silent_tail(&mut from, 0.0, s(190), None));
+        assert!(!silent_tail(&mut from, 0.0, s(195), None));
     }
 
     #[test]

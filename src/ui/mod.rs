@@ -553,6 +553,8 @@ pub struct App {
     log_volume: bool,
     /// Pausing and playing again fade, rather than cut off and start at once.
     pause_fade: bool,
+    /// Songs end where they go silent for good.
+    skip_silence: bool,
     high_quality: bool,
     backup_stream: bool,
     backup_prompt: BackupPrompt,
@@ -989,6 +991,7 @@ impl App {
             normalize: get("normalize").map_or_else(Default::default, |v| crate::audio::Normalize::from_key(&v)),
             log_volume: get("log_volume").is_none_or(|v| v == "1"),
             pause_fade: get("pause_fade").is_none_or(|v| v == "1"),
+            skip_silence: get("skip_silence").is_some_and(|v| v == "1"),
             high_quality: get("high_quality").is_none_or(|v| v == "1"),
             backup_stream,
             backup_prompt: BackupPrompt::default(),
@@ -1260,6 +1263,7 @@ impl App {
         app.set_gapless();
         app.set_crossfade();
         app.audio.set_pause_fade(app.pause_fade);
+        app.audio.set_skip_silence(app.skip_silence);
         app.set_eq();
         app.audio.set_stereo(app.stereo);
         app
@@ -2125,6 +2129,7 @@ impl eframe::App for App {
         storage.set_string("normalize", self.normalize.key().to_owned());
         storage.set_string("log_volume", b(self.log_volume));
         storage.set_string("pause_fade", b(self.pause_fade));
+        storage.set_string("skip_silence", b(self.skip_silence));
         storage.set_string("high_quality", b(self.high_quality));
         storage.set_string("backup_stream", b(self.backup_stream));
         storage.set_string("play_songs", b(self.play_songs));

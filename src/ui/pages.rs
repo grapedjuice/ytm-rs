@@ -1028,8 +1028,12 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                 }
                 if let Some(d) = c.description.as_deref().filter(|d| !d.trim().is_empty()) {
                     ui.add_space(6.0);
-                    let g = widgets::galley_wrapped(ui, d.trim(), theme::regular(13.5), theme::text_dim(), ui.available_width(), 2);
-                    ui.label(g);
+                    let trimmed = d.trim();
+                    let g = widgets::galley_wrapped(ui, trimmed, theme::regular(13.5), theme::text_dim(), ui.available_width(), 2);
+                    let resp = ui.label(g.clone());
+                    if widgets::is_elided(&g, trimmed) {
+                        resp.on_hover_text(trimmed);
+                    }
                 }
             });
             ui.add_space(16.0);
@@ -1305,8 +1309,12 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     card_row(ui, "a-sim", crate::tr!("nav-similar-artists"), &a.similar, acts);
     if let Some(d) = a.description.as_deref().filter(|d| !d.trim().is_empty()) {
         shelf_header(ui, crate::tr!("settings-about"), None, None, false);
-        let g = widgets::galley_wrapped(ui, d.trim(), theme::regular(14.5), theme::text_dim(), ui.available_width().min(820.0), 8);
-        ui.label(g);
+        let trimmed = d.trim();
+        let g = widgets::galley_wrapped(ui, trimmed, theme::regular(14.5), theme::text_dim(), ui.available_width().min(820.0), 8);
+        let resp = ui.label(g.clone());
+        if widgets::is_elided(&g, trimmed) {
+            resp.on_hover_text(trimmed);
+        }
     }
 }
 
@@ -3820,9 +3828,13 @@ pub(super) fn setting_row_wide(ui: &mut Ui, title: &str, desc: Option<&str>, con
     let top = rect.center().y - text_h / 2.0;
     // In a right-to-left language, the text starts at the right of its column.
     let x = |g: &egui::Galley| if base.is_some() { rect.left() + text_w - g.size().x } else { rect.left() };
-    ui.painter().galley(pos2(x(&title_g), top), title_g.clone(), theme::with_alpha(theme::text(), fade));
-    if let Some(g) = desc_g {
-        ui.painter().galley(pos2(x(&g), top + title_g.size().y + 3.0), g, theme::with_alpha(theme::text_dim(), fade));
+    let title_pos = pos2(x(&title_g), top);
+    ui.painter().galley(title_pos, title_g.clone(), theme::with_alpha(theme::text(), fade));
+    widgets::tip_if_elided(ui, Rect::from_min_size(title_pos, title_g.size()), &title_g, title);
+    if let (Some(d), Some(g)) = (desc, desc_g) {
+        let desc_pos = pos2(x(&g), top + title_g.size().y + 3.0);
+        ui.painter().galley(desc_pos, g.clone(), theme::with_alpha(theme::text_dim(), fade));
+        widgets::tip_if_elided(ui, Rect::from_min_size(desc_pos, g.size()), &g, d);
     }
     let ctl = Rect::from_min_max(pos2(rect.left() + text_w + 20.0, rect.top()), rect.max);
     let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(ctl).layout(egui::Layout::right_to_left(egui::Align::Center)));

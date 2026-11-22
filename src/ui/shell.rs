@@ -1099,7 +1099,8 @@ fn suggestion_text(ui: &Ui, pos: Pos2, text: &str, typed: &str, width: f32) {
     job.append(rest, 0.0, egui::TextFormat { font_id: theme::regular(15.0), color: theme::text_dim(), ..Default::default() });
     job.wrap = egui::text::TextWrapping::truncate_at_width(width.max(10.0));
     let g = ui.fonts_mut(|f| f.layout_job(job));
-    ui.painter().galley(pos, g, theme::text());
+    ui.painter().galley(pos, g.clone(), theme::text());
+    widgets::tip_if_elided(ui, Rect::from_min_size(pos, g.size()), &g, text);
 }
 
 // ------------------------------------------------------------------ player bar
@@ -1510,10 +1511,12 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         if ar.clicked() {
             app.actions.push(Action::OpenNowPlaying(!np_open));
         }
-        let tr = widgets::title_at(ui, pos2(x, cy - 19.0), &t.title, t.explicit, theme::weighted(chrome.bar_title_weight, chrome.bar_title_px), theme::text(), w);
+        let (tr, title_elided) = widgets::title_at_elided(ui, pos2(x, cy - 19.0), &t.title, t.explicit, theme::weighted(chrome.bar_title_weight, chrome.bar_title_px), theme::text(), w);
         let tresp = ui.interact(tr, ui.scope_id().with("np-title"), Sense::click());
         menu_on.push(tresp.clone());
-        if named(tresp, &widgets::song_name(&t.title, t.explicit)).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        let tresp = named(tresp, &widgets::song_name(&t.title, t.explicit)).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let tresp = if title_elided { tresp.on_hover_text(&t.title) } else { tresp };
+        if tresp.clicked() {
             app.actions.push(Action::OpenNowPlaying(true));
         }
         let mut ax = x;
@@ -1552,12 +1555,15 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             }
             ax = x + w;
         } else {
+            let full_artists = t.artist_line();
             for (i, a) in t.artists.iter().enumerate() {
                 let s = if i + 1 < t.artists.len() { format!("{}, ", a.name) } else { a.name.clone() };
-                let r = text_at(ui, pos2(ax, cy + 2.0), &s, theme::regular(chrome.bar_byline_px), theme::with_alpha(theme::text_dim(), chrome.bar_byline_alpha), (x + w - ax).max(10.0));
+                let (r, elided) = widgets::text_at_elided(ui, pos2(ax, cy + 2.0), &s, theme::regular(chrome.bar_byline_px), theme::with_alpha(theme::text_dim(), chrome.bar_byline_alpha), (x + w - ax).max(10.0));
+                let clipped = elided || (i + 1 < t.artists.len() && r.right() > x + w);
                 if let Some(id) = &a.id {
                     let resp = ui.interact(r, ui.scope_id().with(("artist", i)), Sense::click());
                     let resp = named(resp, &a.name).on_hover_cursor(egui::CursorIcon::PointingHand);
+                    let resp = if clipped { resp.on_hover_text(&full_artists) } else { resp };
                     menu_on.push(resp.clone());
                     if resp.hovered() {
                         ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, theme::text_dim()));
@@ -1565,6 +1571,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
                     if resp.clicked() {
                         app.actions.push(Action::Open(Target::Artist(id.clone())));
                     }
+                } else if clipped {
+                    ui.interact(r, ui.scope_id().with(("artist-tip", i)), Sense::hover()).on_hover_text(&full_artists);
                 }
                 ax = r.right();
                 if ax > x + w {
@@ -1969,8 +1977,9 @@ fn playing_from(app: &mut App, ui: &mut Ui) {
     ui.label(egui::RichText::new(label).font(theme::regular(12.5)).color(theme::text_dim()));
     let w = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(vec2(w, 22.0), Sense::hover());
-    let r = text_at(ui, pos2(rect.left(), rect.top() + 1.0), &name, theme::semibold(15.0), theme::text(), w);
+    let (r, elided) = widgets::text_at_elided(ui, pos2(rect.left(), rect.top() + 1.0), &name, theme::semibold(15.0), theme::text(), w);
     let resp = named(ui.interact(r, ui.scope_id().with("playing-from"), Sense::click()), &name).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let resp = if elided { resp.on_hover_text(&name) } else { resp };
     if resp.hovered() {
         ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, theme::text()));
     }

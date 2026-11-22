@@ -2271,7 +2271,9 @@ fn submenu_row(ui: &mut Ui, label: &str, value: &str, dot: Option<Color32>, open
     if let Some(c) = dot {
         ui.painter().circle_filled(pos2(value_x - 9.0, row.center().y), 3.0, c);
     }
-    ui.painter().galley(pos2(value_x, row.center().y - value_g.size().y / 2.0), value_g, theme::text_dim());
+    let value_pos = pos2(value_x, row.center().y - value_g.size().y / 2.0);
+    ui.painter().galley(value_pos, value_g.clone(), theme::text_dim());
+    widgets::tip_if_elided(ui, Rect::from_min_size(value_pos, value_g.size()), &value_g, value);
     if opens {
         widgets::icon_at(ui, pos2(row.right() - 18.0, row.center().y), icon::CHEVRON_RIGHT, 14.0, theme::text_dim());
         egui::containers::menu::SubMenu::new().show(ui, &resp, contents);

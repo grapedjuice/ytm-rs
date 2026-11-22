@@ -606,7 +606,8 @@ fn comment_row(ui: &mut Ui, st: &mut State, c: &Comment, thread: &str, depth: u8
         let g = widgets::galley(ui, &c.author, name_font.clone(), theme::on_fill(theme::text_dim()), tw);
         let pill = Rect::from_min_size(pos2(x, y - 1.0), vec2(g.size().x + 12.0, 20.0));
         ui.painter().rect_filled(pill, 10.0, theme::text_dim());
-        ui.painter().galley(pill.min + vec2(6.0, (20.0 - g.size().y) / 2.0), g, Color32::BLACK);
+        ui.painter().galley(pill.min + vec2(6.0, (20.0 - g.size().y) / 2.0), g.clone(), Color32::BLACK);
+        widgets::tip_if_elided(ui, pill, &g, &c.author);
         pill
     } else {
         text_at(ui, pos2(x, y), &c.author, name_font, theme::text(), tw * 0.7)

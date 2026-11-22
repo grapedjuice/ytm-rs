@@ -459,12 +459,12 @@ impl Queue {
         }
     }
 
-    /// Smart shuffle's songs still to come go (shuffle went off, or Smart shuffle did).
     /// Whether Smart shuffle mixed this song in.
     pub fn is_mixed(&self, id: &str) -> bool {
         self.mixed.contains(id)
     }
 
+    /// Smart shuffle's songs still to come go (shuffle went off, or Smart shuffle did).
     pub fn drop_mixed(&mut self) {
         let Some(cur) = self.index else { return };
         let mixed = std::mem::take(&mut self.mixed);

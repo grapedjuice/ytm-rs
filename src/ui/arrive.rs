@@ -16,6 +16,14 @@ const FADE: f64 = 0.86;
 const STEP: f64 = 0.07;
 /// Past this many, items come in with the last: a long list doesn't keep arriving.
 const MAX_SEQ: usize = 14;
+/// A theme's slow fades slow the cascade, up to this much: a shelf still settles in
+/// under two seconds.
+const SLOWEST: f64 = 1.5;
+
+/// [`theme::motion`], as far as the cascade follows it.
+fn speed() -> f64 {
+    f64::from(theme::motion()).min(SLOWEST)
+}
 
 /// When each group first showed, since the page was last navigated to.
 #[derive(Clone, Default)]
@@ -42,9 +50,6 @@ pub fn page(ctx: &egui::Context, changed: f64) {
 /// A group of items about to be laid out where `ui`'s cursor is: when it first came into
 /// view, None while it hasn't (what's laid out off screen isn't seen arriving).
 pub fn group(ui: &Ui, key: impl Hash + std::fmt::Debug) -> Option<f64> {
-    if theme::motion() <= 0.0 {
-        return None;
-    }
     let id = Id::unique("arrive").with(key);
     let at = ui.ctx().data(|d| d.get_temp::<Shown>(shown_id()).and_then(|s| s.groups.get(&id).copied()));
     if at.is_some() {
@@ -61,10 +66,7 @@ pub fn group(ui: &Ui, key: impl Hash + std::fmt::Debug) -> Option<f64> {
 
 /// How far along item `seq` of a group shown at `since` is, 0 to 1.
 fn progress(since: f64, seq: usize, now: f64) -> f32 {
-    let k = f64::from(theme::motion());
-    if k <= 0.0 {
-        return 1.0;
-    }
+    let k = speed();
     let delay = seq.min(MAX_SEQ) as f64 * STEP * k;
     ((now - since - delay) / (FADE * k)).clamp(0.0, 1.0) as f32
 }
@@ -91,11 +93,14 @@ pub fn item<R>(ui: &mut Ui, since: Option<f64>, seq: usize, rise: f32, add: impl
     ui.ctx().request_repaint();
     let layer = ui.layer_id();
     let start = ui.painter().add(Shape::Noop);
+    let dy = rise * (1.0 - ease_out_quint(p));
     let out = ui.scope(|ui| {
+        // Moving the shapes down moves their clip with them: clipped as far up as they're
+        // drawn down, the clip ends up where it was, and nothing shows past the page.
+        ui.set_clip_rect(ui.clip_rect().translate(vec2(0.0, -dy)));
         ui.multiply_opacity(smoothstep(0.0, 0.85, p));
         add(ui)
     });
-    let dy = rise * (1.0 - ease_out_quint(p));
     if dy > 0.0 {
         ui.ctx().graphics_mut(|g| {
             let list = g.entry(layer);
@@ -112,7 +117,7 @@ mod tests {
 
     #[test]
     fn items_start_one_after_another_and_stop_at_the_cap() {
-        let k = f64::from(theme::motion());
+        let k = speed();
         assert_eq!(progress(0.0, 0, 0.0), 0.0);
         assert!(progress(0.0, 0, STEP * k) > 0.0);
         assert_eq!(progress(0.0, 1, STEP * k), 0.0);

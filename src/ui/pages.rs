@@ -805,7 +805,7 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
                 ui.push_id(i, |ui| {
                     row_drag::grip(ui, drag, ids("songs"), i, t);
                     let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, false) };
-                    if arrive::item(ui, g, 1 + i, 10.0, |ui| track_row(ui, t, &o, acts)).clicked() {
+                    if arrive::item(ui, g, i, 10.0, |ui| track_row(ui, t, &o, acts)).clicked() {
                         acts.push(play(t));
                     }
                 });

@@ -62,8 +62,8 @@ fn fade() -> f32 {
     f32::from_bits(FADE.load(std::sync::atomic::Ordering::Relaxed))
 }
 
-/// How long a UI transition written as 1 second runs: [`SPEED`] and the theme's fades.
-/// 0 when the theme turns transitions off.
+/// How long a UI transition written as 1 second runs: [`SPEED`] and the theme's fades
+/// (never 0: a theme's fades go down to 0.3 of the usual).
 pub fn motion() -> f32 {
     SPEED * fade()
 }

@@ -809,11 +809,6 @@ impl Output {
     }
 }
 
-/// Empties the player without waiting on the device. rodio's `clear` waits for the device
-/// to skip what's in it, which never happens while the device is let go (a song paused that
-/// long), nor while a device that's gone still looks open (until `DeviceLost` arrives): a new
-/// player instead, at the same volume and paused, as `clear` leaves it. The old one's song
-/// ends the next time the mixer is pulled.
 /// Quieter than this (about -60 dBFS) is silence, for `silent_tail`.
 const SILENT_LEVEL: f32 = 0.001;
 /// How long silence lasts before the rest of the song is skipped.
@@ -830,6 +825,11 @@ fn silent_tail(quiet_from: &mut Option<Duration>, level: f32, pos: Duration, len
     pos.saturating_sub(*quiet_from.get_or_insert(pos)) >= SILENT_FOR
 }
 
+/// Empties the player without waiting on the device. rodio's `clear` waits for the device
+/// to skip what's in it, which never happens while the device is let go (a song paused that
+/// long), nor while a device that's gone still looks open (until `DeviceLost` arrives): a new
+/// player instead, at the same volume and paused, as `clear` leaves it. The old one's song
+/// ends the next time the mixer is pulled.
 fn clear(player: &mut Player, output: &Output) {
     let fresh = Player::connect_new(&output.mixer);
     fresh.set_volume(player.volume());
@@ -1168,6 +1168,7 @@ fn run(
                 norm = q.norm;
                 seekable = false;
                 prepared_seek = start_prepared_seek(&q.shared, false);
+                quiet_from = None;
                 ending_sent = false;
                 prepare_sent = false;
                 let dur_ms = if q.shared.duration_ms > 0 { q.shared.duration_ms } else { q.fallback_duration_ms };
@@ -1297,6 +1298,8 @@ fn run(
                 if current == 0 {
                     continue;
                 }
+                // Silence before the seek isn't silence after it (a hidden track's start).
+                quiet_from = None;
                 clear_queued(&mut queued, &mut prepare_sent, shared.as_ref(), false);
                 // Seeking ends a crossfade: the new song alone from here.
                 for f in &fading {
@@ -1485,12 +1488,26 @@ fn run(
                 wake();
             }
             // Silence to the end (or before a hidden track): over now, as if it had ended.
+            // Not once the next song chained behind it has started (the level and position
+            // are still catching up to it), nor while a seek is on its way.
+            let next_started = queued.as_ref().is_some_and(|q| q.started.load(Ordering::Acquire));
             if status.skip_silence.load(Ordering::Relaxed)
                 && !status.hushed.load(Ordering::Relaxed)
+                && !next_started
+                && !seek_busy.load(Ordering::Acquire)
                 && silent_tail(&mut quiet_from, status.level(), pos, length)
             {
-                log::info!("audio: silent from {:?} on, ending the song there", quiet_from);
-                clear(&mut player, &output);
+                if queued.is_some() {
+                    // The next song is chained behind for gapless: end only this one, and the
+                    // next goes on from it without a gap, as at its real end.
+                    if fade_out.load(Ordering::Relaxed) != QUICK_FADE_MS {
+                        log::info!("audio: silent from {:?} on, going on to the next song", quiet_from);
+                        fade_out.store(QUICK_FADE_MS, Ordering::Relaxed);
+                    }
+                } else {
+                    log::info!("audio: silent from {:?} on, ending the song there", quiet_from);
+                    clear(&mut player, &output);
+                }
             }
             // Paused just before the end, the song's over only once it's played again:
             // the next one mustn't start playing.

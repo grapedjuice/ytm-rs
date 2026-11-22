@@ -700,6 +700,19 @@ impl App {
         self.queue.repeat == Repeat::One && !self.current().is_some_and(|t| self.hide_explicit && t.explicit)
     }
 
+    /// Applies Settings › Network › Allow local network scan: on, AirPlay speakers are
+    /// looked for; off, they're forgotten, and one playing hands the music back to the
+    /// system's default device.
+    pub(super) fn set_local_network(&mut self) {
+        crate::airplay::set_allowed(self.local_network);
+        if self.local_network {
+            crate::airplay::discover();
+        } else if self.output_device.as_ref().is_some_and(|(id, _)| id.starts_with(crate::airplay::PREFIX)) {
+            self.output_device = None;
+            self.audio.send(crate::audio::AudioCmd::SetDevice(None));
+        }
+    }
+
     /// Explicit songs hidden or shown again: queued ones go (all but the one playing; a
     /// jam guest's queue is the host's), and YouTube's Restricted Mode applies to what
     /// loads from now on.

@@ -65,6 +65,17 @@ sys-locale = "0.3.2"
 zip = { version = "9.8.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 tar = { version = "0.4.46", default-features = false }
 liblzma = { version = "0.4.9", features = ["static"] }
+# AirPlay speakers (airplay.rs): finding them on the network (only with Settings ›
+# Network › Allow local network scan on).
+mdns-sd = "0.22.0"
+# AirPlay 2's transient pairing (SRP over RFC 5054's 3072-bit group) and its
+# encryption (airplay/pair.rs).
+num-bigint = "0.4.8"
+hkdf = "0.12.4"
+chacha20poly1305 = "0.10.1"
+getrandom = "0.3.4"
+# AirPlay 2's requests and answers are binary plists (airplay/ap2.rs).
+plist = "1.10.4"
 
 [target.'cfg(windows)'.dependencies]
 # Windows Credential Manager, for the Google and Spotify sign-ins.

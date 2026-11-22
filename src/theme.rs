@@ -902,6 +902,9 @@ pub mod icon {
     pub const HEART: char = '\u{e0f2}';
     pub const THUMBS_DOWN: char = '\u{e189}';
     pub const LIST_MUSIC: char = '\u{e2e0}';
+    /// Lucide 0.460's, added to the subset with `airplay` (the font's own codepoints).
+    pub const MONITOR_SPEAKER: char = '\u{e210}';
+    pub const AIRPLAY: char = '\u{e039}';
     pub const MIC_VOCAL: char = '\u{e349}';
     pub const X: char = '\u{e1b2}';
     pub const HISTORY: char = '\u{e1f5}';

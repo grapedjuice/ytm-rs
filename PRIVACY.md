@@ -12,5 +12,6 @@ ytm-rs has no accounts of its own and collects nothing about you. It only talks 
 - **Listen together** relay (`ytm-rs-jam.grapedjuice.workers.dev`, run on Cloudflare), only while you're in a room, receives the room code, the name you show in the room, the queue and the play state. No audio and no account details go through it. Room data is deleted when the room ends. The relay counts rooms and how many people are in each, with no names.
 - **GitHub** (`github.com`, `api.github.com`) to check for and download app updates (you can turn this off in **Settings › About › Updates**), and to download `yt-dlp` when an age-restricted song is played on an account without Premium.
 - **Discord**, through the Discord app on your PC, when **Show what I'm playing on Discord** is on.
+- **AirPlay speakers on your local network**, only when **Settings › Network › Allow local network scan** is on: the app looks for them (mDNS), and the one you pick as the output device receives the music you play, the app's name and your PC's network address. Nothing leaves your local network.
 
 The app itself sends no analytics, telemetry or crash reports.

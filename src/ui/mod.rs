@@ -5,6 +5,7 @@
 
 mod account;
 mod actions;
+mod arrive;
 mod bar_swipe;
 mod collections;
 mod colorpick;

@@ -117,6 +117,9 @@ impl App {
     /// reload asked for just before can still come back without them.)
     pub(super) fn set_liked(&mut self, tracks: &[Track], like: bool) {
         log::debug!("like={like}: {} songs, e.g. {:?}", tracks.len(), tracks.iter().take(3).map(|t| &t.id).collect::<Vec<_>>());
+        if like {
+            self.download_liked(tracks);
+        }
         for t in tracks {
             if like {
                 self.liked.insert(t.id.clone());
@@ -206,6 +209,7 @@ impl App {
     /// failed before anything came leaves its page with the retry.
     fn load_done(&mut self, id: &str, done: Done) {
         match done {
+            Done::Kept if id == LIKED_MUSIC => self.download_all_liked(),
             Done::Kept => {}
             Done::Reload(s) => self.start_load(s),
             Done::NotKept => {
@@ -218,6 +222,34 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Settings › Downloads › Download liked songs: Liked Music's songs not downloaded yet,
+    /// once all of it is in (it loads at launch and sign-in; otherwise it's asked for).
+    pub(super) fn download_all_liked(&mut self) {
+        match self.lists.get(LIKED_MUSIC).filter(|_| !self.receiving(LIKED_MUSIC)) {
+            Some(o) => {
+                let tracks = o.c.tracks.clone();
+                self.download_liked(&tracks);
+            }
+            None => self.request_liked(false),
+        }
+    }
+
+    /// Download `tracks`, just liked or all of Liked Music, as Liked Music's run: those not
+    /// downloaded yet and not queued for this since launch.
+    fn download_liked(&mut self, tracks: &[Track]) {
+        if !self.download_liked || !self.logged_in {
+            return;
+        }
+        let todo: Vec<Track> = crate::downloads::not_listed(tracks).into_iter().filter(|t| self.liked_queued.insert(t.id.clone())).collect();
+        if todo.is_empty() {
+            return;
+        }
+        // Its own title, as when it's downloaded from its page: the same folder, with that setting on.
+        let title = self.lists.get(LIKED_MUSIC).map_or_else(|| crate::tr!("nav-liked-songs").to_owned(), |o| o.c.title.clone());
+        log::info!("download liked songs: {} to download", todo.len());
+        self.backend.request(Req::DownloadMany { target: Some(Target::Playlist(LIKED_MUSIC.to_owned())), title, tracks: Some(todo), confirmed: true });
     }
 
     /// The kept albums and playlists not to drop for room: the page on screen and what's playing.

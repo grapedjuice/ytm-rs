@@ -1712,7 +1712,7 @@ fn settings_tab(app: &mut App, ui: &mut Ui, tab: SettingsTab) {
             settings_language(app, ui);
             settings_song_info(app, ui);
             settings_window(app, ui);
-            settings_downloads(ui);
+            settings_downloads(app, ui);
             super::transfer::settings_section(app, ui);
             settings_section(ui, tr!("settings-network"), None, None, |ui| network(app, ui));
             // Last, as most apps keep it.
@@ -2075,7 +2075,7 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
 }
 
 /// Settings › Downloads.
-fn settings_downloads(ui: &mut Ui) {
+fn settings_downloads(app: &mut App, ui: &mut Ui) {
     settings_section(ui, tr!("settings-downloads"), None, Some(tr!("settings-downloads-note")), |ui| {
         let folder = crate::downloads::folder().display().to_string();
         setting_row(ui, tr!("settings-download-folder"), Some(&folder), |ui| {
@@ -2085,6 +2085,12 @@ fn settings_downloads(ui: &mut Ui) {
             ui.add_space(6.0);
             if pill(ui, tr!("settings-open"), Some(icon::FOLDER_OPEN), false).clicked() {
                 crate::downloads::open_folder();
+            }
+        });
+        divider(ui);
+        setting_row(ui, tr!("settings-download-liked"), Some(tr!("settings-download-liked-desc")), |ui| {
+            if toggle(ui, &mut app.download_liked, tr!("settings-download-liked")).changed() && app.download_liked {
+                app.download_all_liked();
             }
         });
         divider(ui);

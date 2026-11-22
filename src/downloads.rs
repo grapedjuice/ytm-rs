@@ -384,6 +384,13 @@ pub fn all_listed(tracks: &[Track]) -> bool {
     tracks.iter().all(|t| listed_now(&st, &videos, t))
 }
 
+/// The songs not downloaded, as last looked (see `all_listed`).
+pub fn not_listed(tracks: &[Track]) -> Vec<Track> {
+    let st = STATE.read().unwrap();
+    let videos = song_versions(&st, tracks);
+    tracks.iter().filter(|t| !listed_now(&st, &videos, t)).cloned().collect()
+}
+
 /// Whether any of these songs are downloaded, as last looked (see `all_listed`).
 pub fn any_listed(tracks: &[Track]) -> bool {
     let st = STATE.read().unwrap();
@@ -1005,6 +1012,7 @@ mod tests {
         let written: HashMap<String, Entry> = serde_json::from_slice(&std::fs::read(dir.join("downloads.json")).unwrap()).unwrap();
         assert_eq!((written["c"].list.as_deref(), written["a"].list.as_deref()), (Some("PL1"), None));
         assert!(any_listed(&[song("x", "X"), song("c", "C")]) && !all_listed(&[song("x", "X"), song("c", "C")]));
+        assert_eq!(not_listed(&[song("x", "X"), song("c", "C")]).iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["x"]);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

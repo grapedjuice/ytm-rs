@@ -97,6 +97,10 @@ pub struct AudioStatus {
     latency_ms: AtomicU32,
     /// Crossfade length in ms; 0 = off.
     crossfade_ms: AtomicU32,
+    /// The sleep timer waits for the song's end: nothing runs into the next song (no
+    /// crossfade's `Ending`), so it plays out and ends with `Finished`. Anything that would
+    /// start the next song early has to check this.
+    pub stop_at_end: AtomicBool,
     /// Paused, or on the way there: songs fade to silence, and back up when it's cleared
     /// (see `Meter`).
     hushed: AtomicBool,
@@ -1204,6 +1208,7 @@ fn run(
             if !ending_sent
                 && !crossfade.is_zero()
                 && !status.hushed.load(Ordering::Relaxed)
+                && !status.stop_at_end.load(Ordering::Relaxed)
                 && let Some(d) = length
                 && d > crossfade * 2
                 && pos + crossfade >= d

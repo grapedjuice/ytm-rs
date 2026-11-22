@@ -242,6 +242,7 @@ impl App {
     /// Set the sleep timer, or call it off with `None`.
     pub(super) fn set_sleep(&mut self, sleep: Option<Sleep>) {
         self.sleep = sleep;
+        self.audio.status.stop_at_end.store(sleep == Some(Sleep::SongEnd), Ordering::Relaxed);
         self.audio.send(AudioCmd::SleepAt(match sleep {
             Some(Sleep::At(at)) => Some(at),
             _ => None,
@@ -261,7 +262,7 @@ impl App {
     /// The song ran out with the sleep timer set to its end: the next song waits at its
     /// start, paused (on Repeat one, or at the end of the queue, this one does).
     pub(super) fn sleep_at_song_end(&mut self) {
-        self.sleep = None;
+        self.set_sleep(None);
         if !self.repeats_one() {
             self.queue.advance();
         }

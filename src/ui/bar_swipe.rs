@@ -1,5 +1,5 @@
-//! A finger swiping up the player bar opens Now playing, and swiping down it closes it, as
-//! on phones. Only touches count: a mouse or trackpad never sends them, so dragging with
+//! A finger swiping up the player bar opens Now playing, and swiping down it (or Now
+//! playing itself) closes it, as on phones. Only touches count: a mouse or trackpad never sends them, so dragging with
 //! one does what it always did. A swipe that something on the bar took for itself (the
 //! seek line, the volume) is that thing's, not a swipe.
 
@@ -55,17 +55,19 @@ impl Swipe {
     }
 }
 
-/// The player bar at `bar` this frame: a swipe up opens Now playing, one down closes it.
-pub(super) fn player_bar(app: &mut App, ctx: &egui::Context, bar: Rect) {
-    let id = egui::Id::unique("bar-swipe");
+/// Swipes over `area` this frame: one up opens Now playing, one down closes it. `key`
+/// keeps each area's finger apart. A drag something there took for itself isn't a swipe,
+/// except one taken by `under`, what only swallows input beneath (Now playing's sheet).
+pub(super) fn swipe(app: &mut App, ctx: &egui::Context, area: Rect, key: &str, under: Option<egui::Id>) {
+    let id = egui::Id::unique(("swipe", key));
     let (events, now) = ctx.input(|i| (i.events.clone(), i.time));
-    let dragging = ctx.dragged_id().is_some();
+    let dragging = ctx.dragged_id().is_some_and(|d| Some(d) != under);
     if !events.iter().any(|e| matches!(e, Event::Touch { .. })) && ctx.data(|d| d.get_temp::<Swipe>(id)).is_none_or(|s| s.start.is_none()) {
         // No finger on the bar: nothing to do (and nothing for a mouse, ever).
         return;
     }
     let mut swipe: Swipe = ctx.data(|d| d.get_temp(id)).unwrap_or_default();
-    let swiped = swipe.feed(&events, bar, now, dragging);
+    let swiped = swipe.feed(&events, area, now, dragging);
     ctx.data_mut(|d| d.insert_temp(id, swipe));
     match swiped {
         Some(true) if !app.np_open && app.current().is_some() => app.actions.push(Action::OpenNowPlaying(true)),

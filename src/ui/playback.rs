@@ -705,6 +705,19 @@ impl App {
     /// loads from now on.
     /// Settings › Playback › Show podcasts: Home and the library are asked for again, with
     /// or without them.
+    /// Applies Settings › Network › Allow local network scan: on, AirPlay speakers are
+    /// looked for; off, they're forgotten, and one playing hands the music back to the
+    /// system's default device.
+    pub(super) fn set_local_network(&mut self) {
+        crate::airplay::set_allowed(self.local_network);
+        if self.local_network {
+            crate::airplay::discover();
+        } else if self.output_device.as_ref().is_some_and(|(id, _)| id.starts_with(crate::airplay::PREFIX)) {
+            self.output_device = None;
+            self.audio.send(crate::audio::AudioCmd::SetDevice(None));
+        }
+    }
+
     pub(super) fn set_show_podcasts(&mut self) {
         crate::ytm::set_podcasts(self.show_podcasts);
         if !self.show_podcasts && self.page == super::Page::Library(super::LibTab::Podcasts) {

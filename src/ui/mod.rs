@@ -557,6 +557,8 @@ pub struct App {
     skip_silence: bool,
     high_quality: bool,
     backup_stream: bool,
+    /// Settings › Network › Allow local network scan, which AirPlay speakers need.
+    local_network: bool,
     backup_prompt: BackupPrompt,
     reveal_backup_setting: bool,
     backup_setting_highlight_until: f64,
@@ -996,6 +998,7 @@ impl App {
             skip_silence: get("skip_silence").is_some_and(|v| v == "1"),
             high_quality: get("high_quality").is_none_or(|v| v == "1"),
             backup_stream,
+            local_network: get("local_network").is_some_and(|v| v == "1"),
             backup_prompt: BackupPrompt::default(),
             reveal_backup_setting: false,
             backup_setting_highlight_until: 0.0,
@@ -2136,6 +2139,7 @@ impl eframe::App for App {
         storage.set_string("skip_silence", b(self.skip_silence));
         storage.set_string("high_quality", b(self.high_quality));
         storage.set_string("backup_stream", b(self.backup_stream));
+        storage.set_string("local_network", b(self.local_network));
         storage.set_string("play_songs", b(self.play_songs));
         storage.set_string("show_video", b(self.show_video));
         storage.set_string("video_quality", self.video_quality.to_string());

@@ -1429,11 +1429,11 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     // The speed button, when shown, takes 44 px.
     let speed_w = if app.tempo_on { 44.0 } else { 0.0 };
     // Leave room for the right-hand controls even when volume has folded into its icon.
-    let middle_room = row.right() - 200.0 - speed_w - song_tail - song_x;
+    let middle_room = row.right() - 240.0 - speed_w - song_tail - song_x;
     let song_end = song_x + if track.is_some() { song_text.min(title_w(middle_room)) + song_tail } else { 0.0 };
-    // Room between the repeat button's edge (plus a gap) and the speed/lyrics/queue/expand/
+    // Room between the repeat button's edge (plus a gap) and the speed/output/lyrics/queue/expand/
     // mini player buttons. The volume with its slider takes 140 px plus the time; the icon alone, 36.
-    let free = |half: f32| row.right() - 160.0 - speed_w - if song_middle { song_end } else { row.center().x + half + 12.0 };
+    let free = |half: f32| row.right() - 200.0 - speed_w - if song_middle { song_end } else { row.center().x + half + 12.0 };
     let tight = free(141.0) < 140.0 + time_w;
     let half = if tight { 125.0 } else { 141.0 };
     let compact_vol = free(half) < 140.0 + time_w;
@@ -1728,7 +1728,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
 
     // Right: time, volume, lyrics, queue, expand
     let mut rx = row.right();
-    let mut right_btn = |ui: &mut Ui, glyph: char, name: &str, active: bool| -> bool {
+    let mut right_btn = |ui: &mut Ui, glyph: char, name: &str, active: bool| -> egui::Response {
         // The button is the icon's size plus 16: centred, whatever the theme scales it to.
         let size = 18.0 * bar_scale;
         let r = Rect::from_center_size(pos2(rx - 18.0, cy), Vec2::splat(size + 16.0));
@@ -1739,21 +1739,21 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         if active {
             ui.painter().circle_filled(pos2(r.center().x, (cy + size / 2.0 + 11.0).min(dot_floor)), 2.0, accent);
         }
-        resp.clicked()
+        resp
     };
     // Right to left: now playing keeps the corner (as in YouTube Music), the mini player next to it.
-    if right_btn(ui, if app.np_open { icon::CHEVRON_DOWN } else { icon::CHEVRON_UP }, crate::tr!("ui-now-playing"), app.np_open) {
+    if right_btn(ui, if app.np_open { icon::CHEVRON_DOWN } else { icon::CHEVRON_UP }, crate::tr!("ui-now-playing"), app.np_open).clicked() {
         app.actions.push(Action::OpenNowPlaying(!app.np_open));
     }
-    if right_btn(ui, icon::PICTURE_IN_PICTURE, crate::tr!("ui-mini-shortcut"), false) {
+    if right_btn(ui, icon::PICTURE_IN_PICTURE, crate::tr!("ui-mini-shortcut"), false).clicked() {
         app.actions.push(Action::Mini(true));
     }
-    if right_btn(ui, icon::LIST_MUSIC, crate::tr!("ui-queue"), app.queue_shown()) {
+    if right_btn(ui, icon::LIST_MUSIC, crate::tr!("ui-queue"), app.queue_shown()).clicked() {
         app.toggle_queue();
     }
     // Not lit for a song without lyrics: now playing shows its artwork instead.
     let lyrics_on = app.np_open && app.np_tab == NpTab::Lyrics && !app.no_lyrics();
-    if right_btn(ui, icon::MIC_VOCAL, crate::tr!("settings-lyrics"), lyrics_on) {
+    if right_btn(ui, icon::MIC_VOCAL, crate::tr!("settings-lyrics"), lyrics_on).clicked() {
         if lyrics_on {
             app.np_tab = NpTab::Art;
         } else {
@@ -1761,6 +1761,11 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             app.actions.push(Action::OpenNowPlaying(true));
         }
     }
+    // Where the music plays: lit while that's an AirPlay speaker.
+    let on_airplay = app.output_device.as_ref().is_some_and(|(id, _)| id.starts_with(crate::airplay::PREFIX));
+    let out = right_btn(ui, icon::MONITOR_SPEAKER, crate::tr!("settings-output-device"), on_airplay);
+    let popup = widgets::menu_popup(&out).align(egui::RectAlign::TOP_END).align_alternatives(&[egui::RectAlign::BOTTOM_END]);
+    super::pages::output_device_menu(app, &out, popup, 300.0);
     if app.tempo_on {
         tempo_button(app, ui, Rect::from_center_size(pos2(rx - 20.0, cy), vec2(40.0, 18.0 * bar_scale + 16.0)), bar_rest, accent, dot_floor);
         rx -= 44.0;

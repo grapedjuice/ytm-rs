@@ -8,6 +8,7 @@ mod fullscreen;
 mod hls;
 mod proxy;
 mod renderer;
+mod airplay;
 mod art;
 mod audio;
 mod awake;
@@ -224,6 +225,8 @@ fn main() -> eframe::Result {
             let volume = if std::env::var_os("YTM_MUTE").is_some() { 0.0 } else { volume };
 
             let device = cc.storage.and_then(|s| s.get_string("output_device")).filter(|d| !d.is_empty());
+            // Before the audio engine, which looks for a picked AirPlay speaker if it may.
+            airplay::set_allowed(cc.storage.and_then(|s| s.get_string("local_network")).is_some_and(|v| v == "1"));
 
             let (audio_tx, audio_rx) = unbounded();
             let audio = audio::spawn(volume, log_volume, device, audio_tx, wake);

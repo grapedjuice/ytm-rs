@@ -254,7 +254,20 @@ impl App {
     pub(super) fn sync_sleep(&mut self) {
         match self.sleep {
             Some(_) if self.jam.active() => self.set_sleep(None),
-            Some(Sleep::At(at)) if at <= std::time::Instant::now() => self.sleep = None,
+            Some(Sleep::At(at)) if at <= std::time::Instant::now() => {
+                self.sleep = None;
+                // The audio thread's pause doesn't hold back a song still loading: it would
+                // start once it came. Call it off, to wait where it was for Play.
+                if self.buffering {
+                    let at = self.audio.status.position();
+                    self.generation += 1;
+                    self.audio.status.wanted_gen.store(self.generation, Ordering::Relaxed);
+                    self.audio.send(AudioCmd::Stop);
+                    self.seek_drag = None;
+                    self.resume_counts = at.is_zero();
+                    self.hold_interrupted_track(at);
+                }
+            }
             _ => {}
         }
     }
@@ -263,8 +276,10 @@ impl App {
     /// start, paused (on Repeat one, or at the end of the queue, this one does).
     pub(super) fn sleep_at_song_end(&mut self) {
         self.set_sleep(None);
-        if !self.repeats_one() {
-            self.queue.advance();
+        // At the end of what has come of a playlist still loading, `advance` marks the queue
+        // to play on when the rest arrives: not while asleep, so this song waits instead.
+        if !self.repeats_one() && !self.queue.advance() {
+            self.queue.started();
         }
         self.playing_as = None;
         let Some(track) = self.current().cloned() else { return };

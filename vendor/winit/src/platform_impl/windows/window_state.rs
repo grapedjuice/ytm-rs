@@ -64,10 +64,11 @@ pub(crate) struct WindowState {
 }
 
 // ytm-rs: state for Windows' modal size/move loop (WM_ENTERSIZEMOVE..WM_EXITSIZEMOVE).
-// While moving (not resizing), `Moved` and raw `MouseMotion` are deferred until the move
-// ends and `WM_PAINT` is throttled to ~30 fps so DWM drags at the monitor's refresh rate
-// without freezing picture-in-picture video, lyrics, or the progress bar.
+// While moving (not resizing), `Moved` is deferred until the move ends and `WM_PAINT` is
+// throttled to ~30 fps so DWM drags at the monitor's refresh rate without freezing
+// picture-in-picture video, lyrics, or the progress bar.
 // While resizing, the immediate duplicate `WM_PAINT` after `WM_SIZE` is skipped.
+// Raw `MouseMotion` is dropped for the whole loop (see `IN_SIZE_MOVE` in event_loop.rs).
 #[derive(Default)]
 pub(crate) struct SizeMoveState {
     pub resizing: bool,
@@ -125,7 +126,10 @@ impl SizeMoveState {
     }
 
     pub fn should_fire_timer_paint(&mut self, in_size_move: bool, control_flow: ControlFlow) -> bool {
-        if !in_size_move || self.skip_next_resize_paint {
+        // Windows hands out a pending `WM_PAINT` before any `WM_TIMER`, so a skip still set
+        // here had no duplicate behind it: clear it so it can't eat the next real paint.
+        self.skip_next_resize_paint = false;
+        if !in_size_move {
             return false;
         }
         if self.last_paint.is_some_and(|t| t.elapsed() < Self::TIMER_RECENT_PAINT_GUARD) {

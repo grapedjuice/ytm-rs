@@ -1469,7 +1469,9 @@ unsafe fn public_window_callback_inner(
                     unsafe { PhysicalPosition::new((*windowpos).x, (*windowpos).y) };
                 let defer = {
                     let mut state = userdata.window_state_lock();
-                    if state.window_flags().contains(WindowFlags::MARKER_IN_SIZE_MOVE) {
+                    if state.window_flags().contains(WindowFlags::MARKER_IN_SIZE_MOVE)
+                        && !state.size_move.resizing
+                    {
                         state.size_move.deferred_moved = Some(physical_position);
                         true
                     } else {

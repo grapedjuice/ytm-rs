@@ -50,7 +50,7 @@ pub(super) fn frame(ctx: &egui::Context) {
     if let Some(next) = p.gap.map(|g| p.last + g)
         && next > now
     {
-        sleep(next - now);
+        std::thread::sleep(next - now);
     }
     let start = Instant::now();
     p.worst = p.worst.max(start - p.last);
@@ -73,54 +73,4 @@ pub(super) fn frame(ctx: &egui::Context) {
 pub(super) fn repaint_after(ctx: &egui::Context, gap: Duration) {
     let began = STATE.lock().unwrap().as_ref().map_or_else(Instant::now, |p| p.last);
     ctx.request_repaint_after(gap.saturating_sub(began.elapsed()));
-}
-
-/// Sleeps for `dur` without Windows' default 15.6 ms timer quantization, which would
-/// otherwise turn a 1–3 ms frame-pacing wait on a high-refresh monitor into a ~60 fps cap.
-#[cfg(windows)]
-fn sleep(dur: Duration) {
-    use windows::Win32::Foundation::{CloseHandle, HANDLE};
-    use windows::Win32::System::Threading::{
-        CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, CreateWaitableTimerExW, INFINITE, SetWaitableTimer,
-        TIMER_ALL_ACCESS, WaitForSingleObject,
-    };
-    use windows::core::PCWSTR;
-
-    struct Timer(HANDLE);
-    impl Drop for Timer {
-        fn drop(&mut self) {
-            // SAFETY: handle owned by this thread-local timer.
-            let _ = unsafe { CloseHandle(self.0) };
-        }
-    }
-
-    thread_local! {
-        static TIMER: Option<Timer> = unsafe {
-            CreateWaitableTimerExW(None, PCWSTR::null(), CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS.0)
-                .ok()
-                .map(Timer)
-        };
-    }
-
-    let waited = TIMER.with(|t| {
-        let Some(timer) = t else { return false };
-        let intervals = (dur.as_nanos() / 100).clamp(1, i64::MAX as u128) as i64;
-        let due = -intervals;
-        // SAFETY: `timer.0` is a valid waitable timer handle owned by this thread; `due` is valid for the call.
-        unsafe {
-            if SetWaitableTimer(timer.0, &due, 0, None, None, false).is_err() {
-                return false;
-            }
-            WaitForSingleObject(timer.0, INFINITE);
-        }
-        true
-    });
-    if !waited {
-        std::thread::sleep(dur);
-    }
-}
-
-#[cfg(not(windows))]
-fn sleep(dur: Duration) {
-    std::thread::sleep(dur);
 }

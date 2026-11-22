@@ -2238,16 +2238,12 @@ fn frame_pace(raw: &egui::RawInput, full_rate: bool) {
     use egui::Event as E;
     struct State {
         last: Option<std::time::Instant>,
-        screen_rect: Option<egui::Rect>,
-        outer_rect: Option<egui::Rect>,
+        geometry: Option<(Option<egui::Rect>, Option<egui::Rect>)>,
     }
-    static STATE: std::sync::Mutex<State> = std::sync::Mutex::new(State { last: None, screen_rect: None, outer_rect: None });
+    static STATE: std::sync::Mutex<State> = std::sync::Mutex::new(State { last: None, geometry: None });
     let mut state = STATE.lock().unwrap();
-    let outer_rect = raw.viewport().outer_rect;
-    let geometry_changed = (state.screen_rect.is_some() && state.screen_rect != raw.screen_rect)
-        || (state.outer_rect.is_some() && state.outer_rect != outer_rect);
-    state.screen_rect = raw.screen_rect;
-    state.outer_rect = outer_rect;
+    let geometry = (raw.screen_rect, raw.viewport().outer_rect);
+    let geometry_changed = state.geometry.replace(geometry).is_some_and(|g| g != geometry);
     let acting = full_rate
         || geometry_changed
         || mini::moving()

@@ -2016,9 +2016,12 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
                 row_drag::grip(ui, drag, list, i, t);
             }
             let queue_remove = (!current && drag.is_none()).then_some(i);
-            // Smart shuffle's songs say so, as a jam's say who added them.
-            let added_by = by.get(&t.id).cloned().or_else(|| queue_state.is_mixed(&t.id).then(|| crate::tr!("settings-smart-shuffle").to_owned()));
-            let o = widgets::RowOpts { current, added_by, queue_remove, ..rows.opts(liked, t, None, false) };
+            // A jam's songs say who added them, and Smart shuffle's say so.
+            let added = match by.get(&t.id) {
+                Some(name) => Some(crate::tr!("player-added-by", name = name)),
+                None => queue_state.is_mixed(&t.id).then(|| crate::tr!("settings-smart-shuffle").to_owned()),
+            };
+            let o = widgets::RowOpts { current, added, queue_remove, ..rows.opts(liked, t, None, false) };
             if widgets::track_row(ui, t, &o, acts).clicked() {
                 // The playing row pauses/resumes instead of doing nothing.
                 acts.push(if current { Action::TogglePlay } else { Action::QueueJump(i) });

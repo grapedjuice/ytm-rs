@@ -661,7 +661,7 @@ mod tests {
         use SongRating::*;
 
         let track = Track { id: "audio".into(), title: "Song".into(), stands_for: Some("video".into()), ..Default::default() };
-        let opts = widgets::RowOpts { number: None, show_album: false, plays_col: false, current: false, playing: false, accent: Color32::RED, time: 0.0, liked: false, added_by: None, pick: false, selected: None, remove: None, queue_remove: None };
+        let opts = widgets::RowOpts { number: None, show_album: false, plays_col: false, current: false, playing: false, accent: Color32::RED, time: 0.0, liked: false, added: None, pick: false, selected: None, remove: None, queue_remove: None };
         let look = &crate::preset::active().app.row_look;
         // The neutral rating is only known after the account's reply.
         for (rating, icons) in [(None, true), (Some(Indifferent), true), (Some(Like), true), (Some(Dislike), true), (Some(Indifferent), false)] {

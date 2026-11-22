@@ -119,7 +119,7 @@ impl Rows {
             accent: self.accent,
             time: self.now,
             liked: liked.contains(&t.id),
-            added_by: None,
+            added: None,
             pick: false,
             selected: None,
             remove: None,

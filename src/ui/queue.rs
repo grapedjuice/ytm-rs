@@ -787,7 +787,7 @@ mod tests {
     }
 
     #[test]
-    fn songs_added_by_hand() {
+    fn songs_added_hand() {
         let mut q = Queue::new(Repeat::Off);
         // Into an empty queue: it starts.
         assert!(q.enqueue(track("a")));

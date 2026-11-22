@@ -460,6 +460,13 @@ pub fn edge_inset() -> f32 {
     if custom() { EDGE } else { 0.0 }
 }
 
+/// Interactive hit area for a window button inside the top-right notch: reaches the
+/// window's top edge, the notch's bottom, and for Close the window's right edge so throwing
+/// the pointer into the corner while maximized still highlights and clicks Close.
+fn window_button_hit(r: Rect, screen: Rect, notch_bottom: f32, close: bool) -> Rect {
+    Rect::from_min_max(pos2(r.left(), screen.top()), pos2(if close { screen.right() } else { r.right() }, notch_bottom))
+}
+
 /// The notches, and in the right one minimize, maximize or restore, and close. Last in
 /// the pass, once pages have put what they will in them.
 pub fn window_buttons(ctx: &egui::Context) {
@@ -488,7 +495,8 @@ pub fn window_buttons(ctx: &egui::Context) {
         let left = screen.right() - NOTCH_PAD_EDGE - BUTTONS_W;
         for (i, (kind, name)) in kinds.into_iter().enumerate() {
             let r = Rect::from_min_size(pos2(left + i as f32 * (NOTCH_BUTTON.x + NOTCH_GAP), screen.top() + NOTCH_TOP), NOTCH_BUTTON);
-            let resp = ui.interact(r, Id::unique(("window-button", i)), Sense::click());
+            let hit = window_button_hit(r, screen, body.bottom(), kind == Kind::Close);
+            let resp = ui.interact(hit, Id::unique(("window-button", i)), Sense::click());
             let resp = super::widgets::named(resp, name);
             paint_button(ui, r, kind, &resp);
             if resp.has_focus() {
@@ -587,23 +595,31 @@ fn edges(ctx: &egui::Context, sides_only: bool) {
         (Rect::from_min_max(pos2(r - CORNER, b - EDGE), pos2(r, b)), ResizeDirection::SouthEast, CursorIcon::ResizeSouthEast),
         (Rect::from_min_max(pos2(r - EDGE, b - CORNER), pos2(r, b)), ResizeDirection::SouthEast, CursorIcon::ResizeSouthEast),
     ];
-    egui::Area::new(Id::unique("resize-edges")).order(egui::Order::Foreground).fixed_pos(s.min).show(ctx, |ui| {
-        ui.set_clip_rect(s);
-        for (i, (rect, dir, cursor)) in edges.into_iter().enumerate() {
-            let side = matches!(dir, ResizeDirection::East | ResizeDirection::West);
-            if sides_only && !side {
-                continue;
+    // Above `window-buttons` and `notch-items` (both `Order::Foreground`, which move to top
+    // on click), with `Sense::hover()` on the area itself so only the thin perimeter rects
+    // capture input. Each strip senses both clicks and drags (without focus) so buttons and
+    // notch drag strips underneath don't also hover or trigger on the outer resize edge.
+    egui::Area::new(Id::unique("resize-edges"))
+        .order(egui::Order::Tooltip)
+        .sense(Sense::hover())
+        .fixed_pos(s.min)
+        .show(ctx, |ui| {
+            ui.set_clip_rect(s);
+            for (i, (rect, dir, cursor)) in edges.into_iter().enumerate() {
+                let side = matches!(dir, ResizeDirection::East | ResizeDirection::West);
+                if sides_only && !side {
+                    continue;
+                }
+                // The sides run the full height when they're all there is.
+                let rect = if sides_only { Rect::from_x_y_ranges(rect.x_range(), s.y_range()) } else { rect };
+                // Not focusable: twelve unnamed stops for Tab otherwise.
+                let resp = ui.interact(rect, Id::unique(("resize-edge", i)), Sense::CLICK | Sense::DRAG).on_hover_cursor(cursor);
+                // On the press itself, so the edge doesn't lag behind the pointer.
+                if resp.is_pointer_button_down_on() && ui.input(|i| i.pointer.primary_pressed()) {
+                    ctx.send_viewport_cmd(ViewportCommand::BeginResize(dir));
+                }
             }
-            // The sides run the full height when they're all there is.
-            let rect = if sides_only { Rect::from_x_y_ranges(rect.x_range(), s.y_range()) } else { rect };
-            // Not focusable: twelve unnamed stops for Tab otherwise.
-            let resp = ui.interact(rect, Id::unique(("resize-edge", i)), Sense::DRAG).on_hover_cursor(cursor);
-            // On the press itself, so the edge doesn't lag behind the pointer.
-            if resp.is_pointer_button_down_on() && ui.input(|i| i.pointer.primary_pressed()) {
-                ctx.send_viewport_cmd(ViewportCommand::BeginResize(dir));
-            }
-        }
-    });
+        });
 }
 
 /// The main window, from `main`: its whole area is the app's to draw on.
@@ -913,7 +929,22 @@ mod frame {
 
 #[cfg(test)]
 mod tests {
-    use super::Choice;
+    use egui::{Rect, pos2, vec2};
+
+    use super::{Choice, NOTCH_BUTTON, NOTCH_H, NOTCH_PAD_EDGE, NOTCH_TOP, window_button_hit};
+
+    #[test]
+    fn close_button_hit_reaches_top_right_corner() {
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(1280.0, 720.0));
+        let close_r = Rect::from_min_size(pos2(screen.right() - NOTCH_PAD_EDGE - NOTCH_BUTTON.x, NOTCH_TOP), NOTCH_BUTTON);
+        let close_hit = window_button_hit(close_r, screen, NOTCH_H, true);
+        assert!(close_hit.contains(pos2(screen.right(), screen.top())));
+        assert!(close_hit.contains(pos2(close_r.center().x, NOTCH_H)));
+        let max_r = close_r.translate(vec2(-(NOTCH_BUTTON.x + 2.0), 0.0));
+        let max_hit = window_button_hit(max_r, screen, NOTCH_H, false);
+        assert!(max_hit.contains(pos2(max_r.center().x, screen.top())));
+        assert!(!max_hit.contains(pos2(screen.right(), screen.top())));
+    }
 
     #[test]
     fn only_intel_opengl_drops_the_caption_style_unless_forced() {

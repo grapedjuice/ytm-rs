@@ -392,8 +392,8 @@ impl<S: rodio::Source> Iterator for Meter<S> {
         s *= self.pause;
         // A song fading out is no longer the one the visuals follow.
         if self.seen_out == 0 && self.status.spectrum_on.load(Ordering::Relaxed) {
-            let (rate, channels) = (self.inner.sample_rate().get(), self.inner.channels().get());
-            self.spectrum.get_or_insert_with(|| spectrum::Spectrum::new(rate, channels)).push(s, &self.status.spectrum);
+            let inner = &self.inner;
+            self.spectrum.get_or_insert_with(|| spectrum::Spectrum::new(inner.sample_rate().get(), inner.channels().get())).push(s, &self.status.spectrum);
         }
         self.acc += s * s;
         self.n += 1;

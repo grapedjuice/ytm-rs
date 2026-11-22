@@ -225,7 +225,9 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
     }
     if app.visualizer && app.playing() && app.shown_video().is_none() {
         visualizer(app, &painter, rect);
-        ctx.request_repaint();
+        // The bars change every ~21 ms: 30 fps, like the animated layer, without drawing
+        // Now playing at the screen's full rate.
+        ctx.request_repaint_after(std::time::Duration::from_millis(33));
     }
 }
 

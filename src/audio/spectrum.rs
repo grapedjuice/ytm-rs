@@ -39,7 +39,11 @@ impl BandPass {
 
     /// b1 is 0 and b2 is -b0 for this filter.
     fn run(&mut self, x: f32) -> f32 {
-        let y = self.b0 * (x - self.x2) - self.a1 * self.y1 - self.a2 * self.y2;
+        let mut y = self.b0 * (x - self.x2) - self.a1 * self.y1 - self.a2 * self.y2;
+        // Silence (pause) would otherwise ring it down into denormals, which are slow on x86.
+        if y.abs() < 1e-20 {
+            y = 0.0;
+        }
         (self.x2, self.x1, self.y2, self.y1) = (self.x1, x, self.y1, y);
         y
     }
@@ -128,5 +132,14 @@ mod tests {
     #[test]
     fn silence_is_empty_bars() {
         assert!(bars_for(0.0).iter().all(|&v| v == 0.0));
+    }
+
+    #[test]
+    fn silence_after_a_sound_doesnt_ring_down_into_denormals() {
+        let out: Bars = std::array::from_fn(|_| AtomicU32::new(0));
+        let mut s = Spectrum::new(48_000, 1);
+        s.push(1.0, &out);
+        (0..48_000).for_each(|_| s.push(0.0, &out));
+        assert!(s.bands.iter().all(|b| [b.y1, b.y2].iter().all(|v| *v == 0.0 || v.is_normal())));
     }
 }

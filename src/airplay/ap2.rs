@@ -25,7 +25,11 @@ use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use crossbeam_channel::Receiver;
 use plist::{Dictionary, Value};
 
-use super::{FRAMES, Failure, LATENCY, RATE, Rtsp, Speaker, TIMEOUT, Worker, pair, random};
+use super::{Ctl, FRAMES, Failure, LATENCY, RATE, Rtsp, Speaker, TIMEOUT, Worker, pair, random};
+
+/// How soon after an anchor its first frame plays: the rest of `LATENCY` is sent at once,
+/// so starting, seeking or playing again is heard in this long rather than in `LATENCY`.
+const LEAD: f64 = 0.5;
 
 /// How long the speaker gets to start sending its clock after SETPEERS.
 pub const CLOCK_WAIT: Duration = Duration::from_secs(12);
@@ -46,6 +50,8 @@ pub struct Buffered {
     /// The RTP time and the speaker's clock time the last anchor tied together.
     anchor: (u32, f64),
     identity: u64,
+    /// The speaker's own volume when connected to, 0 to 1.
+    pub(super) volume: Option<f32>,
 }
 
 impl Buffered {
@@ -98,18 +104,26 @@ impl Buffered {
         let _ = data.set_nodelay(true);
         data.set_write_timeout(Some(Duration::from_secs(5)))?;
 
-        let mut session = Self { rtsp, events, clock, data, key, stream_id, anchor: (0, 0.0), identity };
+        let volume = rtsp.volume();
+        let mut session = Self { rtsp, events, clock, data, key, stream_id, anchor: (0, 0.0), identity, volume };
         session.set_anchor(0)?;
         Ok(session)
     }
 
-    /// Ties RTP time `rtp` to `LATENCY` from now on the speaker's clock.
+    /// Where the speaker is, on its clock: the RTP time it's playing.
+    fn playing(&self) -> Option<u32> {
+        let (_, now) = self.clock.now()?;
+        let (rtp, at) = self.anchor;
+        Some(rtp.wrapping_add(((now - at).max(0.0) * f64::from(RATE)) as u32))
+    }
+
+    /// Ties RTP time `rtp` to `LEAD` from now on the speaker's clock, playing.
     fn set_anchor(&mut self, rtp: u32) -> anyhow::Result<()> {
         let (identity, now) = self.clock.now().ok_or_else(|| anyhow!("lost the speaker's clock"))?;
         if identity != self.identity {
             bail!("the speaker's clock changed");
         }
-        let at = now + LATENCY.as_secs_f64();
+        let at = now + LEAD;
         let secs = at.floor();
         // The fraction as a 64-bit binary fraction; over a half, the sign bit, as it should.
         let frac = ((at - secs) * 2f64.powi(64)) as u64;
@@ -127,11 +141,13 @@ impl Buffered {
         Ok(())
     }
 
-    pub(super) fn run(mut self, mut frames: impl Iterator<Item = Vec<u8>>, stop: &AtomicBool, flush: &Receiver<()>, lost: impl Fn()) {
+    pub(super) fn run(mut self, mut frames: impl Iterator<Item = Vec<u8>>, stop: &AtomicBool, ctl: &Receiver<Ctl>, lost: impl Fn()) {
         let cipher = ChaCha20Poly1305::new(&self.key.into());
         let mut seq: u32 = 0;
         let mut rtp: u32 = 0;
         let mut nonce: u64 = 0;
+        // Paused, where the speaker had got to: nothing's sent till it plays again.
+        let mut paused: Option<u32> = None;
         let gone = loop {
             if stop.load(Ordering::Relaxed) {
                 break false;
@@ -140,17 +156,48 @@ impl Buffered {
                 log::info!("airplay: the speaker hung up");
                 break true;
             }
-            if flush.try_recv().is_ok() {
-                while flush.try_recv().is_ok() {}
-                // Drops what it holds up to here. That ends its timeline too (it stays at
-                // where it had got to, playing nothing, whatever it's sent), so the next
-                // block gets a fresh anchor: `LATENCY` from now, as the pacing has it anyway.
-                let body = Dictionary::from_iter([("flushUntilSeq", i64::from(seq)), ("flushUntilTS", i64::from(rtp))]);
-                let sent = binary(&Value::Dictionary(body)).and_then(|b| self.rtsp.request("FLUSHBUFFERED", None, &[], Some((PLIST, &b)))).and_then(|_| self.set_anchor(rtp));
-                if let Err(e) = sent {
+            let mut failed = false;
+            for c in ctl.try_iter() {
+                let done = match c {
+                    // Drops what it holds up to here. That ends its timeline too (it stays
+                    // where it had got to, playing nothing, whatever it's sent), so the next
+                    // block gets a fresh anchor; paused, when it plays again.
+                    Ctl::Flush => {
+                        let body = Dictionary::from_iter([("flushUntilSeq", i64::from(seq)), ("flushUntilTS", i64::from(rtp))]);
+                        let flushed = binary(&Value::Dictionary(body)).and_then(|b| self.rtsp.request("FLUSHBUFFERED", None, &[], Some((PLIST, &b))));
+                        match paused {
+                            Some(_) => {
+                                paused = Some(rtp);
+                                flushed.map(drop)
+                            }
+                            None => flushed.and_then(|_| self.set_anchor(rtp)),
+                        }
+                    }
+                    // Rate 0: it stops where it is, keeping what it holds.
+                    Ctl::Pause if paused.is_none() => {
+                        paused = self.playing();
+                        let body = Dictionary::from_iter([("rate", 0i64)]);
+                        binary(&Value::Dictionary(body)).and_then(|b| self.rtsp.request("SETRATEANCHORTIME", None, &[], Some((PLIST, &b)))).map(drop)
+                    }
+                    Ctl::Resume => match paused.take() {
+                        Some(at) => self.set_anchor(at),
+                        None => Ok(()),
+                    },
+                    Ctl::Pause => Ok(()),
+                    Ctl::Volume(v) => self.rtsp.set_volume(v),
+                };
+                if let Err(e) = done {
                     log::warn!("airplay: {e:#}");
-                    break true;
+                    failed = true;
+                    break;
                 }
+            }
+            if failed {
+                break true;
+            }
+            if paused.is_some() {
+                std::thread::sleep(Duration::from_millis(10));
+                continue;
             }
             let block = block(&cipher, seq, rtp, nonce, &frames.next().unwrap_or_default());
             if let Err(e) = self.data.write_all(&block) {

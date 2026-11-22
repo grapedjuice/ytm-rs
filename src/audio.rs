@@ -654,6 +654,12 @@ fn pause_due(pause_at: Option<Instant>, instant: bool, now: Instant) -> Option<I
 /// fades out anyway.
 const HANDOFF_WAIT: Duration = Duration::from_secs(3);
 
+/// The players' share of the volume: the slider's, or nothing (full) while an AirPlay
+/// speaker plays, the slider then setting the speaker's own volume, which it changes at once.
+fn bar_gain(status: &AudioStatus, output: &Output, v: f32) -> f32 {
+    if output.airplay.is_some() { 1.0 } else { slider_gain(status, v) }
+}
+
 /// Gain for a volume slider position. Ears hear amplitude roughly logarithmically,
 /// so on a linear slider nearly all the change is in its bottom few pixels; the cubic
 /// curve (PulseAudio's) spreads it out: half way is -18 dB.
@@ -808,6 +814,11 @@ impl Output {
         self.connecting = None;
     }
 
+    /// Whether the speaker in use pauses itself (AirPlay 2's): see `airplay::Stream::pauses`.
+    fn pauses(&self) -> bool {
+        self.airplay.as_ref().is_some_and(airplay::Stream::pauses)
+    }
+
     /// Drops what the speaker has buffered, so a pause, seek or new song is heard now
     /// rather than `airplay::LATENCY` later. A sound card's buffer is too short to matter.
     fn flush(&self) {
@@ -862,8 +873,14 @@ impl Output {
         };
         let Some(source) = self.take_source() else { return false };
         let bridge = Bridge::new(source, self.slot.clone(), status, true);
+        let volume = session.volume();
         match (*session).play(bridge, self.reporter(tx)) {
             Ok(stream) => {
+                // The slider becomes the speaker's own volume, so it starts where the
+                // speaker is rather than turning it up or down.
+                if let Some(v) = volume {
+                    status.volume.store(v.to_bits(), Ordering::Relaxed);
+                }
                 status.latency_ms.store(airplay::LATENCY.as_millis() as u32 + limiter::LOOKAHEAD_MS, Ordering::Relaxed);
                 log::info!("audio: playing on AirPlay speaker {name:?}");
                 self.airplay = Some(stream);
@@ -1202,6 +1219,10 @@ fn run(
     let mut quiet_from: Option<Duration> = None;
     // Where to carry on from after a pause dropped an AirPlay speaker's buffer.
     let mut rewind: Option<Duration> = None;
+    // Paused by an AirPlay 2 speaker pausing itself, which holds what it was sent.
+    let mut held = false;
+    // Whether the volume was the speaker's, last time round: it changes hands with the output.
+    let mut on_speaker = false;
     loop {
         // Poll while playing so the position stays fresh and the end is noticed; idle otherwise,
         // waking to let go of the device.
@@ -1232,6 +1253,9 @@ fn run(
                 // A song asked for while paused plays. What was fading out under the paused
                 // one goes, rather than come back up.
                 pause_at = None;
+                if std::mem::take(&mut held) {
+                    output.airplay.as_ref().inspect(|a| a.resume());
+                }
                 rewind = None;
                 if status.hushed.swap(false, Ordering::Relaxed) {
                     fading.clear();
@@ -1239,7 +1263,7 @@ fn run(
                 let gain = norm_gain(&status, Some(&s));
                 show_norm(&status, Some(&s));
                 log::info!("audio: loudness {:?} dB, normalization gain {gain:.3}", s.loudness_db);
-                player.set_volume(slider_gain(&status, f32::from_bits(status.volume.load(Ordering::Relaxed))));
+                player.set_volume(bar_gain(&status, &output, f32::from_bits(status.volume.load(Ordering::Relaxed))));
                 // Fade in only over a song still playing, both over the same length.
                 fading.retain(|f| !f.player.empty());
                 let crossfade = status.crossfade_ms.load(Ordering::Relaxed);
@@ -1366,6 +1390,19 @@ fn run(
                 wake();
             }
             Ok(AudioCmd::SleepAt(at)) => sleep_at = at,
+            Ok(AudioCmd::Pause) if output.pauses() && !player.is_paused() => {
+                // It stops at once, at what it was playing, and keeps the rest; playing
+                // again picks up there. No fade: what it holds was sent before this.
+                log::debug!("audio: pause at {:?}, the speaker pausing itself", song_pos(&song_ms));
+                output.airplay.as_ref().inspect(|a| a.pause());
+                held = true;
+                pause_at = None;
+                player.pause();
+                fading.iter().for_each(|f| f.player.pause());
+                status.set_position(song_pos(&song_ms).saturating_sub(status.latency()).as_millis() as u64);
+                status.playing.store(false, Ordering::Relaxed);
+                wake();
+            }
             Ok(AudioCmd::Pause) => {
                 log::debug!("audio: pause at {:?}", song_pos(&song_ms));
                 // Cancel any unstarted or in-flight gapless track so pausing near the end
@@ -1390,6 +1427,9 @@ fn run(
                     // Headphones may have come back (or gone) while paused.
                     if !output.is_open() || output.default_changed() {
                         output.open(tx.clone(), &status);
+                    }
+                    if std::mem::take(&mut held) {
+                        output.airplay.as_ref().inspect(|a| a.resume());
                     }
                     // The speaker never played what it dropped at the pause: back to there.
                     if let Some(pos) = rewind.take() {
@@ -1583,7 +1623,10 @@ fn run(
                 }
             }
             Ok(AudioCmd::Volume(v)) => {
-                let v = slider_gain(&status, v);
+                if let Some(a) = &output.airplay {
+                    a.set_volume(v);
+                }
+                let v = bar_gain(&status, &output, v);
                 player.set_volume(v);
                 norm.store(norm_gain(&status, shared.as_deref()).to_bits(), Ordering::Relaxed);
                 // The level may be what changed.
@@ -1624,7 +1667,7 @@ fn run(
             fading.iter().for_each(|f| f.player.pause());
             // A speaker would otherwise play on for its buffer's length: it stops now, and
             // playing again goes back to what it last played.
-            if output.airplay.is_some() && current != 0 {
+            if output.airplay.is_some() && !output.pauses() && current != 0 {
                 output.flush();
                 let heard = song_pos(&song_ms).saturating_sub(status.latency());
                 status.set_position(heard.as_millis() as u64);
@@ -1644,6 +1687,27 @@ fn run(
             && (!output.is_open() || output.default_changed())
         {
             output.open(tx.clone(), &status);
+        }
+        // A speaker that held a pause gone (let go after a while, or another device picked):
+        // what it held is lost, so playing again goes back to what it last played.
+        if held && !output.pauses() {
+            held = false;
+            if current != 0 {
+                let heard = song_pos(&song_ms).saturating_sub(status.latency());
+                status.set_position(heard.as_millis() as u64);
+                rewind = Some(heard);
+            }
+        }
+        // The volume's the speaker's while one plays, and the players' otherwise.
+        if output.airplay.is_some() != on_speaker {
+            on_speaker = !on_speaker;
+            let v = bar_gain(&status, &output, f32::from_bits(status.volume.load(Ordering::Relaxed)));
+            player.set_volume(v * norm_gain(&status, shared.as_deref()));
+            for f in &fading {
+                f.player.set_volume(v * norm_gain(&status, f.shared.as_deref()));
+            }
+            // The slider may have just become the speaker's own level.
+            wake();
         }
         // Let go of the device once nothing has played for a while; playing opens it again.
         if (current != 0 || !fading.is_empty()) && !player.is_paused() {

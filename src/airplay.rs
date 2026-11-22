@@ -383,6 +383,20 @@ impl Rtsp {
         Ok(())
     }
 
+    /// The speaker's own volume, 0 to 1 (its -30 to 0 dB), if it says.
+    fn volume(&mut self) -> Option<f32> {
+        let res = self.request("GET_PARAMETER", None, &[], Some(("text/parameters", b"volume\r\n"))).ok()?;
+        let db: f32 = String::from_utf8_lossy(&res.body).trim().strip_prefix("volume:")?.trim().parse().ok()?;
+        Some(level(db))
+    }
+
+    /// Sets the speaker's own volume, 0 to 1.
+    fn set_volume(&mut self, v: f32) -> anyhow::Result<()> {
+        let body = format!("volume: {:.6}\r\n", decibels(v));
+        self.request("SET_PARAMETER", None, &[], Some(("text/parameters", body.as_bytes())))?;
+        Ok(())
+    }
+
     /// Sends a request and waits for the answer, which has to be 200 OK.
     fn request(&mut self, method: &str, uri: Option<&str>, headers: &[(&str, String)], body: Option<(&str, &[u8])>) -> anyhow::Result<Response> {
         self.cseq += 1;
@@ -462,6 +476,7 @@ pub struct Classic {
     seq: u16,
     rtptime: u32,
     ssrc: u32,
+    volume: Option<f32>,
     /// Answers the speaker's clock; stopped with the session (or a handshake that didn't
     /// get that far).
     _timing: Worker,
@@ -513,12 +528,13 @@ impl Classic {
 
         let seq = random() as u16;
         let rtptime = random() as u32;
-        let mut session = Self { rtsp, data, control, data_to, control_to, seq, rtptime, ssrc: random() as u32, _timing: timing };
+        let mut session = Self { rtsp, data, control, data_to, control_to, seq, rtptime, ssrc: random() as u32, volume: None, _timing: timing };
         session.rtsp.request("RECORD", None, &[("Range", "npt=0-".into()), ("RTP-Info", format!("seq={seq};rtptime={rtptime}"))], None)?;
+        session.volume = session.rtsp.volume();
         Ok(session)
     }
 
-    fn run(mut self, mut frames: impl Iterator<Item = Vec<u8>>, stop: &AtomicBool, flush: &Receiver<()>, lost: impl Fn()) {
+    fn run(mut self, mut frames: impl Iterator<Item = Vec<u8>>, stop: &AtomicBool, ctl: &Receiver<Ctl>, lost: impl Fn()) {
         let _ = self.control.set_nonblocking(true);
         let _ = self.rtsp.tcp.set_nonblocking(true);
         let mut history: Vec<(u16, Vec<u8>)> = vec![(0, Vec::new()); HISTORY];
@@ -533,17 +549,29 @@ impl Classic {
             if stop.load(Ordering::Relaxed) {
                 break false;
             }
-            if flush.try_recv().is_ok() {
-                while flush.try_recv().is_ok() {}
+            let mut failed = false;
+            for c in ctl.try_iter() {
                 let _ = self.rtsp.tcp.set_nonblocking(false);
-                let info = format!("seq={};rtptime={}", self.seq, self.rtptime);
-                if let Err(e) = self.rtsp.request("FLUSH", None, &[("RTP-Info", info)], None) {
-                    log::warn!("airplay: {e:#}");
-                    break true;
-                }
+                let done = match c {
+                    Ctl::Flush => {
+                        let info = format!("seq={};rtptime={}", self.seq, self.rtptime);
+                        first = true;
+                        since_sync = u32::MAX;
+                        self.rtsp.request("FLUSH", None, &[("RTP-Info", info)], None).map(drop)
+                    }
+                    Ctl::Volume(v) => self.rtsp.set_volume(v),
+                    // Classic AirPlay can't: the engine flushes instead.
+                    Ctl::Pause | Ctl::Resume => Ok(()),
+                };
                 let _ = self.rtsp.tcp.set_nonblocking(true);
-                first = true;
-                since_sync = u32::MAX;
+                if let Err(e) = done {
+                    log::warn!("airplay: {e:#}");
+                    failed = true;
+                    break;
+                }
+            }
+            if failed {
+                break true;
             }
             // Packets the speaker missed.
             while let Ok((n, from)) = self.control.recv_from(&mut buf) {
@@ -633,21 +661,30 @@ impl Session {
         Ok(Self::Classic(Classic::connect(speaker)?))
     }
 
+    /// The speaker's own volume when it was connected to, 0 to 1, if it said.
+    pub fn volume(&self) -> Option<f32> {
+        match self {
+            Self::Classic(c) => c.volume,
+            Self::Buffered(b) => b.volume,
+        }
+    }
+
     /// Streams `source` (any rate and channels: it's made 44.1 kHz stereo) until the
     /// returned `Stream` is dropped. `lost` is called once if the speaker goes away.
     pub fn play<S>(self, source: S, lost: impl Fn() + Send + 'static) -> anyhow::Result<Stream>
     where
         S: rodio::Source + Send + 'static,
     {
-        let (flush, flushes) = unbounded();
+        let (ctl, ctls) = unbounded();
+        let pauses = matches!(self, Self::Buffered(_));
         let worker = Worker::spawn("airplay", move |stop| {
             let frames = frames(source);
             match self {
-                Self::Classic(c) => c.run(frames, stop, &flushes, lost),
-                Self::Buffered(b) => b.run(frames, stop, &flushes, lost),
+                Self::Classic(c) => c.run(frames, stop, &ctls, lost),
+                Self::Buffered(b) => b.run(frames, stop, &ctls, lost),
             }
         })?;
-        Ok(Stream { flush, _worker: worker })
+        Ok(Stream { ctl, pauses, _worker: worker })
     }
 }
 
@@ -663,9 +700,27 @@ fn frames<S: rodio::Source>(source: S) -> impl Iterator<Item = Vec<u8>> {
     })
 }
 
+/// What the engine asks of a speaker playing, carried out between packets.
+enum Ctl {
+    Flush,
+    Pause,
+    Resume,
+    Volume(f32),
+}
+
+/// The speaker's volume, 0 to 1, from its -30 to 0 dB (-144 muted).
+fn level(db: f32) -> f32 {
+    ((db + 30.0) / 30.0).clamp(0.0, 1.0)
+}
+
+fn decibels(v: f32) -> f32 {
+    if v <= 0.0 { -144.0 } else { v.min(1.0) * 30.0 - 30.0 }
+}
+
 /// A speaker playing. Dropping it stops the music there and lets the speaker go.
 pub struct Stream {
-    flush: Sender<()>,
+    ctl: Sender<Ctl>,
+    pauses: bool,
     _worker: Worker,
 }
 
@@ -673,7 +728,26 @@ impl Stream {
     /// Drops what the speaker has yet to play (up to `LATENCY` of it), so a pause, a seek
     /// or a new song is heard without waiting that out.
     pub fn flush(&self) {
-        let _ = self.flush.send(());
+        let _ = self.ctl.send(Ctl::Flush);
+    }
+
+    /// Whether it pauses itself (AirPlay 2): stopping at once and keeping what it has, so
+    /// a pause needs no flush, and playing again picks up where it stopped.
+    pub fn pauses(&self) -> bool {
+        self.pauses
+    }
+
+    pub fn pause(&self) {
+        let _ = self.ctl.send(Ctl::Pause);
+    }
+
+    pub fn resume(&self) {
+        let _ = self.ctl.send(Ctl::Resume);
+    }
+
+    /// Sets the speaker's own volume, 0 to 1, which it changes at once.
+    pub fn set_volume(&self, v: f32) {
+        let _ = self.ctl.send(Ctl::Volume(v));
     }
 }
 
@@ -801,6 +875,16 @@ mod tests {
     }
 
     #[test]
+    fn the_slider_is_the_speakers_own_volume() {
+        // Sonos shows -20 dB as 33 of 100: the scale is linear in dB, -30 to 0.
+        assert_eq!(decibels(1.0), 0.0);
+        assert!((decibels(1.0 / 3.0) + 20.0).abs() < 1e-4);
+        assert_eq!(decibels(0.0), -144.0);
+        assert_eq!(level(-144.0), 0.0);
+        assert!((level(decibels(0.6)) - 0.6).abs() < 1e-6);
+    }
+
+    #[test]
     fn a_speakers_name_is_after_its_address() {
         assert_eq!(speaker_name("A1B2C3D4E5F6@Living Room"), "Living Room");
         assert_eq!(speaker_name("Kitchen"), "Kitchen");
@@ -912,7 +996,7 @@ mod tests {
         let (speaker, methods, audio) = fake_speaker();
         let session = Session::connect(&speaker).unwrap();
         let said: Vec<String> = methods.try_iter().collect();
-        assert_eq!(said, ["OPTIONS", "ANNOUNCE", "SETUP", "RECORD"]);
+        assert_eq!(said, ["OPTIONS", "ANNOUNCE", "SETUP", "RECORD", "GET_PARAMETER"]);
 
         // A 48 kHz mono source, made 44.1 kHz stereo on the way.
         let source = rodio::buffer::SamplesBuffer::new(std::num::NonZero::new(1).unwrap(), std::num::NonZero::new(48_000).unwrap(), vec![0.5; 48_000]);
@@ -985,7 +1069,12 @@ mod tests {
         let session = Session::connect(&speaker).unwrap_or_else(|e| panic!("{e:#}"));
         let tone = rodio::source::SineWave::new(440.0);
         let stream = session.play(rodio::Source::amplify(tone, 0.3), || panic!("speaker lost")).unwrap();
-        std::thread::sleep(LATENCY + Duration::from_secs(5));
+        std::thread::sleep(Duration::from_secs(3));
+        // An AirPlay 2 speaker pauses itself: a gap of 1.5 s, heard at once.
+        stream.pause();
+        std::thread::sleep(Duration::from_millis(1500));
+        stream.resume();
+        std::thread::sleep(Duration::from_secs(3));
         drop(stream);
     }
 }

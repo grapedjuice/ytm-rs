@@ -82,6 +82,10 @@ fn height_led(from: Vec2, to: Vec2) -> bool {
 /// to change its size. Only Windows says.
 static MOVING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+pub(super) fn moving() -> bool {
+    MOVING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Picture in picture's shape for Windows, which keeps it while the edges are dragged:
 /// the video's width over height, and the size limits, in physical pixels.
 #[cfg(windows)]

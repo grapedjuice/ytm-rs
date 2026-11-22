@@ -1909,6 +1909,17 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             toggle(ui, &mut app.autoplay, tr!("settings-autoplay"));
         });
         divider(ui);
+        // Off (and shown off) while crossfade is on: songs overlap rather than chaining end to end.
+        ui.add_enabled_ui(!app.crossfade, |ui| {
+            setting_row(ui, tr!("settings-gapless-playback"), Some(tr!("settings-gapless-playback-desc")), |ui| {
+                let mut on = !app.crossfade && app.gapless;
+                if toggle(ui, &mut on, tr!("settings-gapless-playback")).changed() {
+                    app.gapless = on;
+                    app.set_gapless();
+                }
+            });
+        });
+        divider(ui);
         setting_row(ui, tr!("settings-crossfade-songs"), Some(tr!("settings-crossfade-songs-desc")), |ui| {
             if toggle(ui, &mut app.crossfade, tr!("settings-crossfade-songs")).changed() {
                 app.set_crossfade();

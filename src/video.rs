@@ -26,16 +26,16 @@ const SEEK_BACK: f64 = 0.5;
 
 // ---------------------------------------------------------------------------- MP4
 
-fn be32(b: &[u8], at: usize) -> Option<u32> {
+pub(crate) fn be32(b: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_be_bytes(b.get(at..at + 4)?.try_into().ok()?))
 }
 
-fn be64(b: &[u8], at: usize) -> Option<u64> {
+pub(crate) fn be64(b: &[u8], at: usize) -> Option<u64> {
     Some(u64::from_be_bytes(b.get(at..at + 8)?.try_into().ok()?))
 }
 
 /// The complete boxes in `b`: type, contents.
-fn boxes(b: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
+pub(crate) fn boxes(b: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
     let mut at = 0;
     std::iter::from_fn(move || {
         let size = be32(b, at)? as usize;
@@ -47,7 +47,7 @@ fn boxes(b: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
 }
 
 /// The first box along `path`.
-fn find<'a>(b: &'a [u8], path: &[&str]) -> Option<&'a [u8]> {
+pub(crate) fn find<'a>(b: &'a [u8], path: &[&str]) -> Option<&'a [u8]> {
     let (head, rest) = path.split_first()?;
     let body = boxes(b).find(|(kind, _)| *kind == head.as_bytes())?.1;
     if rest.is_empty() { Some(body) } else { find(body, rest) }

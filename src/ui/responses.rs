@@ -57,6 +57,8 @@ impl App {
                     self.handoff = false;
                 }
                 AudioEvent::Ending { .. } => {}
+                AudioEvent::PrepareNext { generation } => self.stage_next(generation),
+                AudioEvent::GaplessAdvanced { generation } => self.on_gapless_advanced(generation),
                 AudioEvent::Interrupted { generation, at, failure } if generation == self.generation => self.recover(at, failure),
                 AudioEvent::Interrupted { .. } => {}
                 AudioEvent::Error(e) => self.toast(e),
@@ -592,6 +594,14 @@ impl App {
                     if self.jam.active() {
                         self.play_listed_upload();
                     }
+                }
+            }
+            Resp::StagedSong { generation, listed, song } => {
+                if let Some(staged) = &mut self.staged
+                    && staged.generation == generation
+                    && staged.track.id == listed
+                {
+                    staged.song = Some(song);
                 }
             }
             Resp::MusicVideo { song, video } => {

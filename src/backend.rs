@@ -109,6 +109,10 @@ pub enum Req {
     Canvas(Track),
     /// Resolve and download a track ahead of time so skipping to it is instant.
     Prefetch { video_id: String, song_of: Option<Track> },
+    /// Open and queue the next track's decoder ahead of the current song's end for gapless playback.
+    StageNext { video_id: String, after: u64, generation: u64, song_of: Option<Track>, fallback_duration_ms: u64 },
+    /// A staged gapless track began playing: promote its buffer to `current` and report the play.
+    GaplessStarted { video_id: String, generation: u64 },
     Like { video_id: String, like: bool },
     /// Take away the likes of a music video and the song version standing in for it.
     UnlikeBoth { song: String, video: String },
@@ -169,7 +173,7 @@ impl Req {
             Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. } => crate::tr!("player-comments"),
             Req::PlayCollection { .. } => crate::tr!("settings-playback"),
             Req::Play { .. } => crate::tr!("settings-playback"),
-            Req::Prefetch { .. } => crate::tr!("settings-playback"),
+            Req::Prefetch { .. } | Req::StageNext { .. } | Req::GaplessStarted { .. } => crate::tr!("settings-playback"),
             Req::VideoStream { .. } | Req::MusicVideo(_) => crate::tr!("ui-video"),
             Req::Canvas(_) => crate::tr!("settings-animated-covers"),
             Req::Like { .. } | Req::LikeMany { .. } | Req::UnlikeBoth { .. } => crate::tr!("ui-like"),
@@ -194,7 +198,7 @@ impl Req {
 
     /// Background requests fail quietly (logged, no toast).
     fn quiet(&self) -> bool {
-        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::SongRating { .. } | Req::Art { .. } | Req::Prefetch { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::ArtistPicture { .. } | Req::MusicVideo(_) | Req::LyricsExtras { .. } | Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. })
+        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::SongRating { .. } | Req::Art { .. } | Req::Prefetch { .. } | Req::StageNext { .. } | Req::GaplessStarted { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::ArtistPicture { .. } | Req::MusicVideo(_) | Req::LyricsExtras { .. } | Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. })
     }
 }
 
@@ -448,6 +452,8 @@ pub enum Resp {
     /// Play `generation` is the song version of the music video that was asked for
     /// (`None`: that song wouldn't start, and the music video plays after all).
     PlayingAs { generation: u64, listed: String, song: Option<Track> },
+    /// A staged gapless track resolved to its song version before transitioning.
+    StagedSong { generation: u64, listed: String, song: Track },
     /// The song `song`'s music video (`None`: it has none, or none was sure).
     MusicVideo { song: String, video: Option<ytm::MusicVideo> },
     LoggedIn(bool),
@@ -839,6 +845,8 @@ pub fn is_downloaded(t: &Track) -> bool {
 
 /// A video id and its stream buffer.
 type StreamSlot = Arc<std::sync::Mutex<Option<(String, Arc<Shared>)>>>;
+/// A staged gapless track: generation, video id, and stream buffer.
+type StagedSlot = Arc<std::sync::Mutex<Option<(u64, String, Arc<Shared>)>>>;
 type SongCell = Arc<tokio::sync::OnceCell<Option<Track>>>;
 
 /// A music video's stream opened while its song was looked up. Left unused, it stops.
@@ -878,6 +886,8 @@ pub struct Backend {
     translate: Arc<crate::translate::Client>,
     /// The upcoming track, resolved and downloading ahead of time.
     prefetched: StreamSlot,
+    /// A track staged into the audio engine for gapless handoff.
+    staged: StagedSlot,
     /// The stream most recently started, kept so a replay of a fully downloaded song
     /// (repeat one, restart) doesn't download it again.
     current: StreamSlot,
@@ -927,7 +937,7 @@ impl Backend {
         {
             log::warn!("proxy relay: {e:#}");
         }
-        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), backup_stream: Default::default(), clean: Default::default(), visionos_hls: Default::default(), songs: Default::default(), batch: Default::default() };
+        let backend = Self { rt: Arc::new(rt), api, tx, audio, wake, prefetched: Default::default(), staged: Default::default(), current: Default::default(), data_dir, lyrics, translate, jsc, premium: Arc::new(tokio::sync::Mutex::new(Err(None))), hq: Default::default(), backup_stream: Default::default(), clean: Default::default(), visionos_hls: Default::default(), songs: Default::default(), batch: Default::default() };
         backend.keep_signed_in();
         Ok(backend)
     }
@@ -1280,6 +1290,14 @@ impl Backend {
                 Req::Canvas(track) => Resp::Canvas { clip: crate::canvas::find(&self.http(), &self.data_dir, &track).await, video_id: track.id },
                 Req::Prefetch { video_id, song_of } => {
                     self.prefetch(video_id, song_of).await?;
+                    return Ok(None);
+                }
+                Req::StageNext { video_id, after, generation, song_of, fallback_duration_ms } => {
+                    self.stage_next(&video_id, after, generation, song_of.as_ref(), fallback_duration_ms).await?;
+                    return Ok(None);
+                }
+                Req::GaplessStarted { video_id, generation } => {
+                    self.gapless_started(video_id, generation);
                     return Ok(None);
                 }
                 Req::Like { video_id, like } => {
@@ -1714,12 +1732,13 @@ impl Backend {
             return Ok(());
         }
         let mut video_id = song.as_ref().map_or(listed, |s| s.id.as_str()).to_owned();
+        self.clear_staged();
         let prefetched = self.prefetched.lock().unwrap().take();
         let replay = self.current.lock().unwrap().take().filter(|(id, s)| *id == video_id && s.is_complete()).map(|(_, s)| s);
         let ready = match prefetched {
             // Not one whose download failed (refused, say): that opens afresh.
             // Nor a file stream fetched before file streams turned out to be cut off.
-            Some((id, s)) if id == video_id && s.error().is_none() && !(self.visionos_hls.load(Ordering::Relaxed) && s.segments.is_none() && !s.is_complete()) => Some(s),
+            Some((id, s)) if id == video_id && self.stream_usable(&s) => Some(s),
             // Replaying the current song keeps the next one's prefetch.
             other if replay.is_some() => {
                 *self.prefetched.lock().unwrap() = other;
@@ -1813,25 +1832,7 @@ impl Backend {
                 audio.send(AudioCmd::Start { generation, decoder, shared: shared2, at });
                 // Skipped past before it started: that one doesn't count.
                 if let Some((this, id)) = report.filter(|_| audio.status.wanted_gen.load(Ordering::Relaxed) == generation) {
-                    let rt = this.rt.clone();
-                    rt.spawn(async move {
-                        // The player request needs the current signatureTimestamp, or YouTube
-                        // leaves out the stats URL. Without a solver, try anyway as before.
-                        let sts = match this.jsc.player(&this.http()).await {
-                            Ok(p) => Some(p.sts),
-                            Err(e) => {
-                                log::debug!("report play of {id} without signatureTimestamp: {e:#}");
-                                None
-                            }
-                        };
-                        match ytm::report_play(&this.api, &id, sts).await {
-                            Ok(w) => {
-                                log::debug!("reported play of {id}");
-                                this.report_watchtime(&id, generation, w).await;
-                            }
-                            Err(e) => log::warn!("couldn't report play of {id}: {e:#}"),
-                        }
-                    });
+                    this.spawn_report_play(id, generation);
                 }
             }
             Err(e) => match fallback {
@@ -1852,6 +1853,145 @@ impl Backend {
             },
         });
         Ok(())
+    }
+
+    fn stream_usable(&self, s: &Arc<Shared>) -> bool {
+        s.error().is_none() && !(self.visionos_hls.load(Ordering::Relaxed) && s.segments.is_none() && !s.is_complete())
+    }
+
+    fn cancel_if_not_current(&self, s: &Arc<Shared>) {
+        if self.current.lock().unwrap().as_ref().is_none_or(|(_, c)| !Arc::ptr_eq(c, s)) {
+            s.cancel();
+        }
+    }
+
+    /// Open the next song's decoder ahead of the current track's end and queue it for
+    /// gapless handoff. Errors fail quietly so normal end-of-track advance still runs.
+    async fn stage_next(&self, listed: &str, after: u64, generation: u64, song_of: Option<&Track>, fallback_duration_ms: u64) -> anyhow::Result<()> {
+        let still_staged = || {
+            self.audio.status.wanted_gen.load(Ordering::Relaxed) == after
+                && self.audio.status.staged_gen.load(Ordering::Acquire) == generation
+        };
+        if !still_staged() {
+            return Ok(());
+        }
+        let mut song = self.song_version(listed, song_of, PREFETCH_SONG_WAIT).await;
+        if !still_staged() {
+            return Ok(());
+        }
+        let mut video_id = song.as_ref().map_or(listed, |s| s.id.as_str()).to_owned();
+        let buffered = {
+            let mut slot = self.prefetched.lock().unwrap();
+            slot.as_ref().is_some_and(|(id, s)| *id == video_id && self.stream_usable(s)).then(|| slot.take().unwrap().1)
+        }
+        .or_else(|| self.current.lock().unwrap().as_ref().filter(|(id, s)| *id == video_id && s.is_complete()).map(|(_, s)| s.clone()));
+        let shared = match buffered {
+            Some(s) => s,
+            None => match self.open_stream(&video_id, false).await {
+                Ok(s) => s,
+                Err(e) if song.is_some() => {
+                    log::warn!("stage: {listed}'s song {video_id} failed ({e:#}); falling back to music video");
+                    (song, video_id) = (None, listed.to_owned());
+                    self.open_stream(listed, false).await?
+                }
+                Err(e) => return Err(e),
+            },
+        };
+        if !still_staged() {
+            self.cancel_if_not_current(&shared);
+            return Ok(());
+        }
+        if let Some(song) = song {
+            let _ = self.tx.send(Resp::StagedSong { generation, listed: listed.to_owned(), song });
+            (self.wake)();
+        }
+        if let Some((_, _, old)) = self.staged.lock().unwrap().replace((generation, video_id, shared.clone()))
+            && !Arc::ptr_eq(&old, &shared)
+        {
+            self.cancel_if_not_current(&old);
+        }
+        let (this, shared2) = (self.clone(), shared.clone());
+        tokio::task::spawn_blocking(move || {
+            let valid = || {
+                this.audio.status.wanted_gen.load(Ordering::Relaxed) == after
+                    && this.audio.status.staged_gen.load(Ordering::Acquire) == generation
+            };
+            let drop_if_stale = || {
+                let mut slot = this.staged.lock().unwrap();
+                if slot.as_ref().is_some_and(|(g, _, _)| *g == generation) {
+                    slot.take();
+                }
+                drop(slot);
+                this.cancel_if_not_current(&shared2);
+            };
+            match stream::decoder(shared, false) {
+                Ok(decoder) => {
+                    if !valid() {
+                        drop_if_stale();
+                        return;
+                    }
+                    // Pre-decode the first Tempo block and warm head blocks off the audio thread
+                    // so the real-time callback never stalls on the network at handoff.
+                    let song_ms = Arc::new(std::sync::atomic::AtomicU64::new(0));
+                    let tempo = Box::new(crate::audio::tempo::Tempo::new(decoder, this.audio.status.speed_arc(), std::time::Duration::ZERO, song_ms.clone()));
+                    shared2.warm_head(std::time::Duration::from_secs(1));
+                    if valid() {
+                        this.audio.send(AudioCmd::QueueNext { after, generation, tempo, song_ms, shared: shared2, fallback_duration_ms });
+                    } else {
+                        drop_if_stale();
+                    }
+                }
+                Err(e) => {
+                    log::debug!("stage gen {generation}: decoder failed ({e:#}); will fall back at end");
+                    drop_if_stale();
+                }
+            }
+        });
+        Ok(())
+    }
+
+    fn gapless_started(&self, video_id: String, generation: u64) {
+        let promoted = {
+            let mut slot = self.staged.lock().unwrap();
+            slot.as_ref().is_some_and(|(g, _, _)| *g == generation).then(|| {
+                let (_, id, s) = slot.take().unwrap();
+                (id, s)
+            })
+        };
+        if let Some(cur) = promoted {
+            *self.current.lock().unwrap() = Some(cur);
+        }
+        if self.is_logged_in() && reports_plays() {
+            self.spawn_report_play(video_id, generation);
+        }
+    }
+
+    fn clear_staged(&self) {
+        if let Some((_, _, old)) = self.staged.lock().unwrap().take() {
+            self.cancel_if_not_current(&old);
+        }
+    }
+
+    fn spawn_report_play(&self, id: String, generation: u64) {
+        let this = self.clone();
+        self.rt.spawn(async move {
+            // The player request needs the current signatureTimestamp, or YouTube
+            // leaves out the stats URL. Without a solver, try anyway as before.
+            let sts = match this.jsc.player(&this.http()).await {
+                Ok(p) => Some(p.sts),
+                Err(e) => {
+                    log::debug!("report play of {id} without signatureTimestamp: {e:#}");
+                    None
+                }
+            };
+            match ytm::report_play(&this.api, &id, sts).await {
+                Ok(w) => {
+                    log::debug!("reported play of {id}");
+                    this.report_watchtime(&id, generation, w).await;
+                }
+                Err(e) => log::warn!("couldn't report play of {id}: {e:#}"),
+            }
+        });
     }
 
     /// Report how much of play `generation` is heard, on the web player's schedule
@@ -2495,10 +2635,14 @@ impl Backend {
 
     pub fn set_backup_stream(&self, on: bool) {
         let mut prefetched = self.prefetched.lock().unwrap();
-        if self.backup_stream.swap(on, Ordering::Relaxed) != on
-            && let Some((_, stream)) = prefetched.take()
-        {
-            stream.cancel();
+        if self.backup_stream.swap(on, Ordering::Relaxed) != on {
+            if let Some((_, stream)) = prefetched.take() {
+                stream.cancel();
+            }
+            drop(prefetched);
+            self.audio.status.staged_gen.store(0, Ordering::Release);
+            self.audio.send(AudioCmd::ClearNext);
+            self.clear_staged();
         }
     }
 

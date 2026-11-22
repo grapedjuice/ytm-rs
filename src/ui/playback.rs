@@ -547,16 +547,27 @@ impl App {
         self.gen_counter
     }
 
+    /// What track gapless handoff should stage after the current song. Returns `None` at
+    /// the end of a playlist still loading (`queue.fill.is_some()`), where `Queue::advance`
+    /// waits for more tracks instead of wrapping on Repeat All.
+    fn gapless_next(&self, repeat_one: bool) -> Option<&Track> {
+        let track = if repeat_one {
+            self.current()
+        } else if self.queue.fill.is_some() && self.queue.at_end() {
+            None
+        } else {
+            self.queue.upcoming()
+        }?;
+        (!(self.hide_explicit && track.explicit)).then_some(track)
+    }
+
     /// Stage the next track's decoder ahead of the current song's end for gapless handoff.
     pub(super) fn stage_next(&mut self, after: u64) {
         if after != self.generation || !self.gapless || self.crossfade || self.jam.guest() || !self.audio.status.started(after) {
             return;
         }
         let repeat_one = self.repeats_one();
-        let Some(track) = (if repeat_one { self.current() } else { self.queue.upcoming() }).cloned() else { return };
-        if self.hide_explicit && track.explicit {
-            return;
-        }
+        let Some(track) = self.gapless_next(repeat_one).cloned() else { return };
         let song_of = self.song_of(&track);
         let generation = self.alloc_generation();
         let fallback_duration_ms = track.duration.map_or(0, |d| d as u64 * 1000);
@@ -578,8 +589,9 @@ impl App {
     pub(super) fn sync_staged(&mut self) {
         let Some(staged) = &self.staged else { return };
         let repeat_one = self.repeats_one();
-        let expected = if repeat_one { self.current() } else { self.queue.upcoming() };
+        let expected = self.gapless_next(repeat_one);
         let matches = self.gapless
+            && !self.crossfade
             && !self.jam.guest()
             && staged.after == self.generation
             && staged.repeat_one == repeat_one
@@ -589,14 +601,45 @@ impl App {
         }
     }
 
+    /// Stop an already-started gapless track that has no queue slot to advance into.
+    fn stop_untracked_gapless(&mut self) {
+        self.generation = self.alloc_generation();
+        self.audio.status.wanted_gen.store(self.generation, Ordering::Relaxed);
+        self.audio.send(AudioCmd::Stop);
+        if !self.jam.guest() {
+            self.ended = self.queue.at_end();
+            if self.ended {
+                self.top_up();
+            }
+        }
+    }
+
     /// The staged gapless track `generation` began playing seamlessly after the previous song:
     /// advance the queue and refresh UI/media/lyrics without touching the audio player.
     pub(super) fn on_gapless_advanced(&mut self, generation: u64) {
+        self.sync_staged();
         let Some(staged) = self.staged.take().filter(|s| s.generation == generation) else {
+            // `clear_staged` raced with the audio thread's gate: the engine already switched
+            // to `generation` by itself (`wanted_gen == generation`). Catch up as if the
+            // previous song had finished so UI and engine stay on the same generation.
+            if self.audio.status.wanted_gen.load(Ordering::Relaxed) == generation {
+                let before = self.generation;
+                if !self.jam.guest() {
+                    if self.repeats_one() {
+                        self.play_current();
+                    } else {
+                        self.next();
+                    }
+                }
+                if self.generation == before {
+                    self.stop_untracked_gapless();
+                }
+            }
             return;
         };
-        if !staged.repeat_one {
-            self.queue.advance();
+        if !staged.repeat_one && !self.queue.advance() {
+            self.stop_untracked_gapless();
+            return;
         }
         self.queue.started();
         self.generation = generation;

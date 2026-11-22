@@ -39,6 +39,8 @@ settings-switching = Wird gewechselt…
 
 settings-autoplay = Automatische Wiedergabe
 settings-autoplay-desc = Spielt ähnliche Titel weiter, wenn die Warteschlange zu Ende ist.
+settings-smart-shuffle = Smart Shuffle
+settings-smart-shuffle-desc = Beim Zufallsmodus werden ähnliche Songs wie der laufende eingemischt, einer nach jeweils drei. Sie verschwinden wieder, wenn der Zufallsmodus ausgeschaltet wird.
 settings-crossfade-songs = Titel überblenden
 settings-crossfade-songs-desc = Der nächste Titel setzt ein, während der aktuelle ausklingt.
 settings-crossfade-length = Überblenddauer

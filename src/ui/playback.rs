@@ -161,6 +161,18 @@ impl App {
             self.toast(crate::tr!("status-no-clean-tracks"));
         }
         self.start_queue(played);
+        self.smart_mix();
+    }
+
+    /// Smart shuffle: with shuffle on, a radio from the song playing, to mix into the
+    /// queue (see `Queue::mix_in`) when it comes.
+    pub(super) fn smart_mix(&mut self) {
+        if !self.smart_shuffle || !self.queue.shuffled() || self.jam.guest() {
+            return;
+        }
+        let Some(t) = self.current().cloned() else { return };
+        self.smart_seed = Some(t.id.clone());
+        self.backend.request(Req::Radio { song_of: self.song_of(&t), seed: t.id });
     }
 
     /// The queue was replaced (`played`): its song starts.
@@ -873,6 +885,7 @@ impl App {
             return self.toast(crate::tr!("jam-host-only-shuffle"));
         }
         self.queue.toggle_shuffle();
+        self.smart_mix();
         // Waiting at the end for a playlist's next page, with songs after this one now.
         if !self.queue.at_end() && self.queue.fill.as_mut().is_some_and(|f| std::mem::take(&mut f.ran_out)) {
             return self.next();

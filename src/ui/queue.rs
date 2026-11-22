@@ -56,7 +56,12 @@ pub struct Queue {
     pub fill: Option<QueueFill>,
     /// Explicit songs are hidden: none join, and a queue started with some leaves them out.
     pub hide_explicit: bool,
+    /// Smart shuffle's songs mixed in since shuffle went on (see `mix_in`).
+    mixed: std::collections::HashSet<String>,
 }
+
+/// Smart shuffle mixes one song in after every this many.
+const MIX_EVERY: usize = 3;
 
 /// The queue as it was before a removal or a clear, for Undo: it comes back only onto
 /// the queue that change left, untouched since.
@@ -81,7 +86,7 @@ const SAVED_AFTER: usize = 150;
 
 impl Queue {
     pub fn new(repeat: Repeat) -> Self {
-        Self { tracks: Vec::new(), elsewhere: Default::default(), index: None, repeat, unshuffled: None, fill: None, hide_explicit: false }
+        Self { tracks: Vec::new(), elsewhere: Default::default(), index: None, repeat, unshuffled: None, fill: None, hide_explicit: false, mixed: Default::default() }
     }
 
     pub fn shuffled(&self) -> bool {
@@ -152,6 +157,7 @@ impl Queue {
         let played = self.replace(tracks, 0, fill);
         if played {
             self.unshuffled = Some(order);
+            self.mixed.clear();
         }
         played
     }
@@ -239,6 +245,7 @@ impl Queue {
     /// back in the order they had, going on from the song playing (see `unshuffle`).
     pub fn toggle_shuffle(&mut self) {
         if let Some(order) = self.unshuffled.take() {
+            self.drop_mixed();
             return self.unshuffle(&order);
         }
         // Nothing to shuffle: the next queue would turn it off anyway.
@@ -246,6 +253,7 @@ impl Queue {
             return;
         }
         self.unshuffled = Some(self.tracks.iter().map(|t| t.id.clone()).collect());
+        self.mixed.clear();
         let cur = self.index.filter(|&i| i < self.tracks.len());
         if let Some(c) = cur {
             self.tracks[..=c].rotate_right(1);
@@ -427,6 +435,36 @@ impl Queue {
         }
     }
 
+    /// Smart shuffle: `tracks` (a radio's) mixed into what's still to come while shuffled,
+    /// one after every `MIX_EVERY` songs past the next one (it may be loading already),
+    /// without songs already queued. They go again with shuffle (see `drop_mixed`).
+    pub fn mix_in(&mut self, tracks: Vec<Track>) {
+        let Some(i) = self.index.filter(|_| self.unshuffled.is_some()) else { return };
+        let mut have: std::collections::HashSet<String> = self.tracks.iter().map(|t| t.id.clone()).collect();
+        let mut at = i + 1;
+        for t in tracks.into_iter().filter(|t| !(self.hide_explicit && t.explicit) && have.insert(t.id.clone())) {
+            at += MIX_EVERY;
+            if at > self.tracks.len() {
+                break;
+            }
+            self.mixed.insert(t.id.clone());
+            self.elsewhere.insert(t.id.clone());
+            self.tracks.insert(at, t);
+            at += 1;
+        }
+    }
+
+    /// Smart shuffle's songs still to come go (shuffle went off, or Smart shuffle did).
+    pub fn drop_mixed(&mut self) {
+        let Some(cur) = self.index else { return };
+        let mixed = std::mem::take(&mut self.mixed);
+        let mut i = 0;
+        self.tracks.retain(|t| {
+            i += 1;
+            i - 1 <= cur || !mixed.contains(&t.id)
+        });
+    }
+
     /// Radio songs for `seed` join the end, without the seed or songs already queued.
     /// Returns whether the song playing was the last one.
     pub fn add_radio(&mut self, seed: &str, tracks: Vec<Track>) -> bool {
@@ -498,6 +536,29 @@ mod tests {
         assert!(!q.plays_elsewhere());
         q.replace(vec![track("radio")], 0, None);
         assert!(!q.plays_elsewhere());
+    }
+
+    #[test]
+    fn smart_shuffle_mixes_one_in_every_three_and_takes_them_out_with_shuffle() {
+        let mut q = Queue::new(Repeat::Off);
+        let songs: Vec<Track> = ["a", "b", "c", "d", "e", "f", "g", "h"].map(track).into();
+        // Not shuffled: nothing joins.
+        q.replace(songs.clone(), 0, None);
+        q.mix_in(vec![track("r1")]);
+        assert_eq!(q.tracks.len(), 8);
+        q.replace_shuffled(songs, None);
+        let before: Vec<String> = q.tracks.iter().map(|t| t.id.clone()).collect();
+        // Songs already queued don't come again, and none goes past the end.
+        q.mix_in(vec![track("r1"), track(&before[3]), track("r1"), track("r2"), track("r3")]);
+        let mixed: Vec<usize> = q.tracks.iter().enumerate().filter(|(_, t)| t.id.starts_with('r')).map(|(i, _)| i).collect();
+        assert_eq!(mixed, [4, 8], "{:?}", ids(&q));
+        assert!(q.advance() && q.advance());
+        let playing = q.current().unwrap().id.clone();
+        q.toggle_shuffle();
+        // Off: the ones still to come go, the song playing stays playing.
+        assert_eq!(q.current().unwrap().id, playing);
+        assert!(!q.tracks.iter().any(|t| t.id.starts_with('r')), "{:?}", ids(&q));
+        assert_eq!(q.tracks.len(), 8);
     }
 
     #[test]

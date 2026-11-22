@@ -1909,6 +1909,16 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             toggle(ui, &mut app.autoplay, tr!("settings-autoplay"));
         });
         divider(ui);
+        setting_row(ui, tr!("settings-smart-shuffle"), Some(tr!("settings-smart-shuffle-desc")), |ui| {
+            if toggle(ui, &mut app.smart_shuffle, tr!("settings-smart-shuffle")).changed() {
+                if app.smart_shuffle {
+                    app.smart_mix();
+                } else {
+                    app.queue.drop_mixed();
+                }
+            }
+        });
+        divider(ui);
         // Off (and shown off) while crossfade is on: songs overlap rather than chaining end to end.
         ui.add_enabled_ui(!app.crossfade, |ui| {
             setting_row(ui, tr!("settings-gapless-playback"), Some(tr!("settings-gapless-playback-desc")), |ui| {

@@ -608,6 +608,10 @@ pub struct App {
     /// [`crate::i18n::current`] until the next start.
     language: Option<String>,
     radio_pending: bool,
+    /// Smart shuffle (Settings › Playback): songs from a radio mixed in while shuffled; and
+    /// the song whose radio is on its way for it.
+    smart_shuffle: bool,
+    smart_seed: Option<String>,
     /// The last song ended with nothing after it: radio carries on from there.
     ended: bool,
     seek_drag: Option<f32>,
@@ -1061,6 +1065,8 @@ impl App {
             restart_app: false,
             media_cover: Default::default(),
             radio_pending: false,
+            smart_shuffle: get("smart_shuffle").is_some_and(|v| v == "1"),
+            smart_seed: None,
             ended: false,
             seek_drag: None,
             seek_wheel: seek_wheel::SeekWheel::default(),
@@ -2108,6 +2114,7 @@ impl eframe::App for App {
         storage.set_string("repeat", repeat.into());
         let b = |v: bool| if v { "1" } else { "0" }.to_owned();
         storage.set_string("autoplay", b(self.autoplay));
+        storage.set_string("smart_shuffle", b(self.smart_shuffle));
         storage.set_string("jam_name", self.jam.name.clone());
         let cache = self.logged_in.then(|| AccountCache {
             name: self.account_name.clone(),

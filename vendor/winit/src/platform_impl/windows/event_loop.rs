@@ -8,7 +8,7 @@ use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle, RawHandle};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -46,9 +46,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetCursorPos,
     GetMenu, LoadCursorW, MsgWaitForMultipleObjectsEx, PeekMessageW, PostMessageW,
     RegisterClassExW, RegisterWindowMessageA, SetCursor, SetWindowPos, TranslateMessage,
-    CREATESTRUCTW, GIDC_ARRIVAL, GIDC_REMOVAL, GWL_STYLE, GWL_USERDATA, HTCAPTION, HTCLIENT,
+    CREATESTRUCTW, GIDC_ARRIVAL, GIDC_REMOVAL, GWL_STYLE, GWL_USERDATA, HTBOTTOM, HTBOTTOMLEFT,
+    HTBOTTOMRIGHT, HTCAPTION, HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT,
     MINMAXINFO, MNC_CLOSE, MSG, MWMO_INPUTAVAILABLE, NCCALCSIZE_PARAMS, PM_REMOVE, PT_PEN,
-    PT_TOUCH, QS_ALLINPUT, RI_MOUSE_HWHEEL, RI_MOUSE_WHEEL, SC_MINIMIZE, SC_RESTORE,
+    PT_TOUCH, QS_ALLINPUT, RI_MOUSE_HWHEEL, RI_MOUSE_WHEEL, SC_MINIMIZE, SC_MOVE, SC_RESTORE,
+    SC_SIZE,
     SIZE_MAXIMIZED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WHEEL_DELTA, WINDOWPOS,
     WMSZ_BOTTOM, WMSZ_BOTTOMLEFT, WMSZ_BOTTOMRIGHT, WMSZ_LEFT, WMSZ_RIGHT, WMSZ_TOP, WMSZ_TOPLEFT,
     WMSZ_TOPRIGHT, WM_CAPTURECHANGED, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED,
@@ -907,6 +909,11 @@ static THREAD_EVENT_TARGET_WINDOW_CLASS: Lazy<Vec<u16>> =
 /// broadcasts this message to all top-level windows <https://docs.microsoft.com/en-us/windows/win32/shell/taskbar#taskbar-creation-notification>
 pub(crate) static TASKBAR_CREATED: LazyMessageId = LazyMessageId::new("TaskbarCreated\0");
 
+// ytm-rs: true while a window on the UI thread is inside Windows' modal size/move loop
+// (WM_ENTERSIZEMOVE..WM_EXITSIZEMOVE). Suppresses raw mouse motion events that would
+// otherwise ask egui/eframe to repaint on every mouse poll during a move or resize.
+static IN_SIZE_MOVE: AtomicBool = AtomicBool::new(false);
+
 fn create_event_target_window() -> HWND {
     use windows_sys::Win32::UI::WindowsAndMessaging::{CS_HREDRAW, CS_VREDRAW};
     unsafe {
@@ -1199,25 +1206,50 @@ unsafe fn public_window_callback_inner(
         },
 
         WM_ENTERSIZEMOVE => {
-            userdata
-                .window_state_lock()
-                .set_window_flags_in_place(|f| f.insert(WindowFlags::MARKER_IN_SIZE_MOVE));
+            let mut state = userdata.window_state_lock();
+            state.set_window_flags_in_place(|f| f.insert(WindowFlags::MARKER_IN_SIZE_MOVE));
+            // ytm-rs: while dragging to move (not resize), defer `Moved` and `WM_PAINT`
+            // until the drag ends (or a size/DPI change) so GPU swaps cannot throttle DWM's
+            // modal move loop below the monitor's refresh rate.
+            state.deferred_moved = None;
+            state.deferred_redraw = false;
+            state.allow_paint_during_move = false;
+            state.skip_next_resize_paint = false;
+            IN_SIZE_MOVE.store(true, Ordering::Relaxed);
             result = ProcResult::Value(0);
         },
 
         WM_EXITSIZEMOVE => {
-            let mut state = userdata.window_state_lock();
-            if state.dragging {
-                state.dragging = false;
-                unsafe { PostMessageW(window, WM_LBUTTONUP, 0, lparam) };
-            }
+            let (deferred_moved, deferred_redraw) = {
+                let mut state = userdata.window_state_lock();
+                if state.dragging {
+                    state.dragging = false;
+                    unsafe { PostMessageW(window, WM_LBUTTONUP, 0, lparam) };
+                }
 
-            state.set_window_flags_in_place(|f| f.remove(WindowFlags::MARKER_IN_SIZE_MOVE));
+                state.set_window_flags_in_place(|f| f.remove(WindowFlags::MARKER_IN_SIZE_MOVE));
+                state.is_resizing = false;
+                state.allow_paint_during_move = false;
+                state.skip_next_resize_paint = false;
+                IN_SIZE_MOVE.store(false, Ordering::Relaxed);
+                (state.deferred_moved.take(), std::mem::take(&mut state.deferred_redraw))
+            };
+
+            if let Some(physical_position) = deferred_moved {
+                userdata.send_event(Event::WindowEvent {
+                    window_id: RootWindowId(WindowId(window)),
+                    event: WindowEvent::Moved(physical_position),
+                });
+            }
+            if deferred_redraw {
+                unsafe { RedrawWindow(window, ptr::null(), 0, RDW_INTERNALPAINT) };
+            }
             result = ProcResult::Value(0);
         },
 
         WM_NCLBUTTONDOWN => {
             if wparam == HTCAPTION as _ {
+                userdata.window_state_lock().is_resizing = false;
                 // Prevent the user event loop from pausing when left clicking the title bar.
                 //
                 // When the user interacts with the title bar, Windows enters the modal event
@@ -1244,6 +1276,18 @@ unsafe fn public_window_callback_inner(
                 // in the main event loop caused by that popup menu.
                 let lparam = 0;
                 unsafe { PostMessageW(window, WM_MOUSEMOVE, 0, lparam) };
+            } else if matches!(
+                wparam as u32,
+                HTLEFT
+                    | HTRIGHT
+                    | HTTOP
+                    | HTTOPLEFT
+                    | HTTOPRIGHT
+                    | HTBOTTOM
+                    | HTBOTTOMLEFT
+                    | HTBOTTOMRIGHT
+            ) {
+                userdata.window_state_lock().is_resizing = true;
             }
             result = ProcResult::DefWindowProc(wparam);
         },
@@ -1259,6 +1303,10 @@ unsafe fn public_window_callback_inner(
 
         WM_DESTROY => {
             use crate::event::WindowEvent::Destroyed;
+            if userdata.window_state_lock().window_flags().contains(WindowFlags::MARKER_IN_SIZE_MOVE)
+            {
+                IN_SIZE_MOVE.store(false, Ordering::Relaxed);
+            }
             unsafe { RevokeDragDrop(window) };
             userdata.send_event(Event::WindowEvent {
                 window_id: RootWindowId(WindowId(window)),
@@ -1274,13 +1322,30 @@ unsafe fn public_window_callback_inner(
         },
 
         WM_PAINT => {
-            userdata.window_state_lock().redraw_requested =
-                userdata.event_loop_runner.should_buffer();
+            let defer_paint = {
+                let mut state = userdata.window_state_lock();
+                if state.skip_next_resize_paint {
+                    // ytm-rs: eframe already painted synchronously inside `WM_SIZE`
+                    // (`RepaintNow`), so skip the immediate duplicate `WM_PAINT` that
+                    // Windows (`CS_HREDRAW | CS_VREDRAW`) and eframe's repaint queue emit
+                    // for the same size.
+                    state.skip_next_resize_paint = false;
+                    state.redraw_requested = false;
+                    true
+                } else if state.should_defer_paint() {
+                    state.deferred_redraw = true;
+                    state.redraw_requested = false;
+                    true
+                } else {
+                    state.redraw_requested = userdata.event_loop_runner.should_buffer();
+                    false
+                }
+            };
 
             // We'll buffer only in response to `UpdateWindow`, if win32 decides to redraw the
             // window outside the normal flow of the event loop. This way mark event as handled
             // and request a normal redraw with `RedrawWindow`.
-            if !userdata.event_loop_runner.should_buffer() {
+            if !defer_paint && !userdata.event_loop_runner.should_buffer() {
                 userdata.send_event(Event::WindowEvent {
                     window_id: RootWindowId(WindowId(window)),
                     event: WindowEvent::RedrawRequested,
@@ -1292,7 +1357,7 @@ unsafe fn public_window_callback_inner(
             // user asked for redraw during `RedrawRequested` event handling and request it again
             // after marking `WM_PAINT` as handled.
             result = ProcResult::Value(unsafe { DefWindowProcW(window, msg, wparam, lparam) });
-            if std::mem::take(&mut userdata.window_state_lock().redraw_requested) {
+            if !defer_paint && std::mem::take(&mut userdata.window_state_lock().redraw_requested) {
                 unsafe { RedrawWindow(window, ptr::null(), 0, RDW_INTERNALPAINT) };
             }
         },
@@ -1384,10 +1449,21 @@ unsafe fn public_window_callback_inner(
             if unsafe { (*windowpos).flags & SWP_NOMOVE != SWP_NOMOVE } {
                 let physical_position =
                     unsafe { PhysicalPosition::new((*windowpos).x, (*windowpos).y) };
-                userdata.send_event(Event::WindowEvent {
-                    window_id: RootWindowId(WindowId(window)),
-                    event: Moved(physical_position),
-                });
+                let defer = {
+                    let mut state = userdata.window_state_lock();
+                    if state.window_flags().contains(WindowFlags::MARKER_IN_SIZE_MOVE) {
+                        state.deferred_moved = Some(physical_position);
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if !defer {
+                    userdata.send_event(Event::WindowEvent {
+                        window_id: RootWindowId(WindowId(window)),
+                        event: Moved(physical_position),
+                    });
+                }
             }
 
             // This is necessary for us to still get sent WM_SIZE.
@@ -1407,6 +1483,9 @@ unsafe fn public_window_callback_inner(
 
             {
                 let mut w = userdata.window_state_lock();
+                if w.is_moving_not_resizing() {
+                    w.allow_paint_during_move = true;
+                }
                 // See WindowFlags::MARKER_RETAIN_STATE_ON_SIZE docs for info on why this `if` check
                 // exists.
                 if !w.window_flags().contains(WindowFlags::MARKER_RETAIN_STATE_ON_SIZE) {
@@ -1415,10 +1494,28 @@ unsafe fn public_window_callback_inner(
                 }
             }
             userdata.send_event(event);
+            {
+                let mut w = userdata.window_state_lock();
+                if w.window_flags().contains(WindowFlags::MARKER_IN_SIZE_MOVE)
+                    && physical_size.width > 0
+                    && physical_size.height > 0
+                {
+                    w.skip_next_resize_paint = true;
+                }
+            }
             result = ProcResult::Value(0);
         },
 
         WM_SIZING => {
+            let flush_redraw = {
+                let mut state = userdata.window_state_lock();
+                state.is_resizing = true;
+                std::mem::take(&mut state.deferred_redraw)
+            };
+            if flush_redraw {
+                unsafe { RedrawWindow(window, ptr::null(), 0, RDW_INTERNALPAINT) };
+            }
+
             /// Calculate the amount to add to round `value` to the nearest multiple of `increment`.
             fn snap_to_nearest_increment_delta(value: i32, increment: i32) -> i32 {
                 let half_one = increment / 2;
@@ -1619,6 +1716,11 @@ unsafe fn public_window_callback_inner(
 
         // this is necessary for us to maintain minimize/restore state
         WM_SYSCOMMAND => {
+            match (wparam as u32) & 0xFFF0 {
+                SC_MOVE => userdata.window_state_lock().is_resizing = false,
+                SC_SIZE => userdata.window_state_lock().is_resizing = true,
+                _ => {},
+            }
             if wparam == SC_RESTORE as usize {
                 let mut w = userdata.window_state_lock();
                 w.set_window_flags_in_place(|f| f.set(WindowFlags::MINIMIZED, false));
@@ -2234,6 +2336,10 @@ unsafe fn public_window_callback_inner(
                     return;
                 }
 
+                if window_state.is_moving_not_resizing() {
+                    window_state.allow_paint_during_move = true;
+                }
+
                 let allow_resize = window_state.fullscreen.is_none()
                     && !window_state.window_flags().contains(WindowFlags::MAXIMIZED);
 
@@ -2566,7 +2672,9 @@ unsafe fn handle_raw_input(userdata: &ThreadMsgTargetData, data: RAWINPUT) {
     if data.header.dwType == RIM_TYPEMOUSE {
         let mouse = unsafe { data.data.mouse };
 
-        if util::has_flag(mouse.usFlags as u32, MOUSE_MOVE_RELATIVE) {
+        if util::has_flag(mouse.usFlags as u32, MOUSE_MOVE_RELATIVE)
+            && !IN_SIZE_MOVE.load(Ordering::Relaxed)
+        {
             let x = mouse.lLastX as f64;
             let y = mouse.lLastY as f64;
 

@@ -55,6 +55,16 @@ pub(crate) struct WindowState {
 
     pub dragging: bool,
 
+    // ytm-rs: while moving (not resizing) a window in Windows' modal loop, defer
+    // `Moved` and `RedrawRequested` until `WM_EXITSIZEMOVE` (or a size/DPI change)
+    // so DWM moves the window at the monitor's full refresh rate instead of stalling
+    // on GPU buffer swaps.
+    pub is_resizing: bool,
+    pub allow_paint_during_move: bool,
+    pub skip_next_resize_paint: bool,
+    pub deferred_moved: Option<PhysicalPosition<i32>>,
+    pub deferred_redraw: bool,
+
     pub skip_taskbar: bool,
 }
 
@@ -176,8 +186,31 @@ impl WindowState {
 
             dragging: false,
 
+            is_resizing: false,
+            allow_paint_during_move: false,
+            skip_next_resize_paint: false,
+            deferred_moved: None,
+            deferred_redraw: false,
+
             skip_taskbar: false,
         }
+    }
+
+    #[inline]
+    pub fn is_moving_not_resizing(&self) -> bool {
+        self.window_flags.contains(WindowFlags::MARKER_IN_SIZE_MOVE) && !self.is_resizing
+    }
+
+    #[inline]
+    pub fn should_defer_paint(&mut self) -> bool {
+        if !self.is_moving_not_resizing() {
+            return false;
+        }
+        if self.allow_paint_during_move {
+            self.allow_paint_during_move = false;
+            return false;
+        }
+        true
     }
 
     pub fn window_flags(&self) -> WindowFlags {

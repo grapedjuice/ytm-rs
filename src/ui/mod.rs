@@ -2232,17 +2232,30 @@ const VIDEO_QUALITIES: [u32; 4] = [1080, 720, 480, 360];
 
 /// The pointer moving wakes a frame per event, up to the monitor's rate, and each of those
 /// asks for more: frames wait for 60 fps unless the listener is doing something that wants
-/// every frame (clicking, typing, scrolling), or the lyrics run at the screen's rate.
+/// every frame (clicking, typing, scrolling, moving or resizing the window), or the lyrics
+/// run at the screen's rate.
 fn frame_pace(raw: &egui::RawInput, full_rate: bool) {
     use egui::Event as E;
-    static LAST: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
-    let mut last = LAST.lock().unwrap();
+    struct State {
+        last: Option<std::time::Instant>,
+        screen_rect: Option<egui::Rect>,
+        outer_rect: Option<egui::Rect>,
+    }
+    static STATE: std::sync::Mutex<State> = std::sync::Mutex::new(State { last: None, screen_rect: None, outer_rect: None });
+    let mut state = STATE.lock().unwrap();
+    let outer_rect = raw.viewport().outer_rect;
+    let geometry_changed = (state.screen_rect.is_some() && state.screen_rect != raw.screen_rect)
+        || (state.outer_rect.is_some() && state.outer_rect != outer_rect);
+    state.screen_rect = raw.screen_rect;
+    state.outer_rect = outer_rect;
     let acting = full_rate
+        || geometry_changed
+        || mini::moving()
         || raw.events.iter().any(|e| matches!(e, E::PointerButton { .. } | E::MouseWheel { .. } | E::Key { .. } | E::Text(_) | E::Ime(_) | E::Zoom(_) | E::Touch { .. }));
-    if !acting && let Some(wait) = last.and_then(|l| Duration::from_millis(16).checked_sub(l.elapsed())) {
+    if !acting && let Some(wait) = state.last.and_then(|l| Duration::from_millis(16).checked_sub(l.elapsed())) {
         std::thread::sleep(wait);
     }
-    *last = Some(std::time::Instant::now());
+    state.last = Some(std::time::Instant::now());
 }
 
 /// Start this exe again once this process has saved and exited.

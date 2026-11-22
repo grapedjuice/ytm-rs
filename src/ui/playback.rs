@@ -193,7 +193,7 @@ impl App {
         if self.hide_explicit && track.explicit {
             return;
         }
-        self.queue.adopt(s.queue, s.index);
+        self.queue.adopt(s.queue, s.index, s.unshuffled);
         let shown = s.playing_as.clone().unwrap_or_else(|| track.clone());
         self.playing_as = s.playing_as.map(|song| PlayingAs { generation: self.generation, listed: track.id.clone(), song });
         let dur = shown.duration.map_or(s.duration_ms, |d| d as u64 * 1000);
@@ -232,7 +232,7 @@ impl App {
             return;
         }
         log::info!("picking up {} from another device ({} in its queue)", track.id, q.tracks.len());
-        self.queue.adopt(q.tracks, q.index);
+        self.queue.adopt(q.tracks, q.index, None);
         self.ended = false;
         // Not a new play: an old song version mustn't come back with its video.
         self.playing_as = None;
@@ -307,6 +307,7 @@ impl App {
         serde_json::to_string(&Session {
             queue: queue.to_vec(),
             index,
+            unshuffled: self.queue.saved_order(),
             position_ms: self.audio.status.position().as_millis() as u64,
             duration_ms: self.audio.status.duration_ms.load(Ordering::Relaxed),
             listened_at: if self.playing() { crate::unix_secs() } else { self.listened_at },

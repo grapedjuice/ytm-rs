@@ -167,12 +167,13 @@ impl Queue {
 
     /// Take up a queue from elsewhere (last session, another device), at `index`, which
     /// the caller has checked is one of `tracks`.
-    pub fn adopt(&mut self, tracks: Vec<Track>, index: usize) {
+    /// `unshuffled`: shuffled, the order to go back to (see `saved_order`).
+    pub fn adopt(&mut self, tracks: Vec<Track>, index: usize, unshuffled: Option<Vec<String>>) {
         self.tracks = tracks;
         self.elsewhere.clear();
         self.index = Some(index);
         self.fill = None;
-        self.unshuffled = None;
+        self.unshuffled = unshuffled;
         self.mixed.clear();
         self.drop_explicit();
     }
@@ -531,6 +532,13 @@ impl Queue {
         let from = i.saturating_sub(SAVED_BEFORE);
         let to = (i + SAVED_AFTER).min(self.tracks.len());
         Some((&self.tracks[from..to], i - from))
+    }
+
+    /// Shuffled, the order to go back to of the songs a saved session keeps (`saved`).
+    pub fn saved_order(&self) -> Option<Vec<String>> {
+        let (kept, _) = self.saved()?;
+        let ids: std::collections::HashSet<&str> = kept.iter().map(|t| t.id.as_str()).collect();
+        Some(self.unshuffled.as_ref()?.iter().filter(|id| ids.contains(id.as_str())).cloned().collect())
     }
 }
 
@@ -1110,5 +1118,26 @@ mod tests {
         let (saved, i) = q.saved().unwrap();
         assert_eq!((saved.len(), i), (10, 3));
         assert!(Queue::new(Repeat::Off).saved().is_none());
+    }
+
+    #[test]
+    fn a_saved_session_stays_shuffled() {
+        let songs: Vec<String> = (0..300).map(|i| i.to_string()).collect();
+        let refs: Vec<&str> = songs.iter().map(String::as_str).collect();
+        let mut q = queue(&refs, 0, Repeat::Off);
+        q.toggle_shuffle();
+        let (saved, i) = q.saved().unwrap();
+        let order = q.saved_order().unwrap();
+        // Only the songs it keeps, in the order they had.
+        let mut kept: Vec<&str> = saved.iter().map(|t| t.id.as_str()).collect();
+        kept.sort_by_key(|s| s.parse::<u32>().unwrap());
+        assert_eq!(order, kept);
+
+        let mut back = Queue::new(Repeat::Off);
+        back.adopt(saved.to_vec(), i, Some(order));
+        assert!(back.shuffled());
+        back.toggle_shuffle();
+        assert_eq!(ids(&back), kept);
+        assert!(queue(&refs, 0, Repeat::Off).saved_order().is_none());
     }
 }

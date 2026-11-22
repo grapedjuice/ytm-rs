@@ -359,8 +359,9 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     // Content width when expanded: text keeps its truncation while the panel narrows.
     let full_w = ui.available_width() + (sidebar_w(app) - rail_w) * t;
     // The icons sit `ICON_X` in, which centres them on the theme's rail; a rail made wider
-    // (to clear macOS's window buttons) moves them over to its middle as it collapses.
-    let shift = ((ui.available_width() / 2.0 - ICON_X) * t).max(0.0);
+    // (to clear macOS's window buttons) moves them over by half what it added, as it
+    // collapses. Only that: elsewhere, and in a theme's own wide rail, they stay put.
+    let shift = (rail_w - item.rail_px.max(60.0)).max(0.0) / 2.0 * t;
     let icon_x = ICON_X + shift;
 
     // Menu button, logo. Laid out on its own, with only its height taken here: on the rail

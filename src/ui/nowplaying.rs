@@ -64,7 +64,7 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
                 super::shell::vgradient(&ui.ctx().layer_painter(ui.layer_id()).with_clip_rect(screen), band, Color32::TRANSPARENT, theme::shade(0.3));
             }
             // Swallow input so the page underneath doesn't react.
-            ui.allocate_rect(shown, Sense::click_and_drag());
+            let sheet_id = ui.allocate_rect(shown, Sense::click_and_drag()).id;
             if let Some(video) = &video_only {
                 video_fullscreen(app, ui, rect, video, now);
                 return;
@@ -91,6 +91,11 @@ pub fn overlay(app: &mut App, ctx: &egui::Context, now: f64) {
             backdrop(app, ui, sheet, shown, now, behind);
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area));
             body(app, &mut child, now);
+            // A finger swiping down it closes it, as on the bar; not one dragging the
+            // lyrics, the seek line or the window. After `body`, so those drags are known.
+            if t >= 1.0 {
+                super::bar_swipe::swipe(app, ctx, rect, "now-playing", Some(sheet_id));
+            }
         });
 }
 

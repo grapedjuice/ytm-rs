@@ -21,6 +21,9 @@
 //! to exit, runs the installer, and starts the app again. A relaunch is passed this
 //! process's id ([`start_after_exit`]) and waits for it to exit before going on.
 //!
+//! A download is checked against the SHA-256 GitHub's API gives for it before it's
+//! unpacked or run, as is one kept from an earlier check.
+//!
 //! Release notes (the release's Markdown body) are kept per version: the one a check
 //! finds, and any other on request ([`Updater::notes`]), for the update dialog, the
 //! card shown after updating and Settings.
@@ -43,6 +46,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
+
+use sha2::{Digest, Sha256};
 
 const LATEST: &str = "https://api.github.com/repos/grapedjuice/ytm-rs/releases/latest";
 const ALL_RELEASES: &str = "https://api.github.com/repos/grapedjuice/ytm-rs/releases";
@@ -629,6 +634,18 @@ impl Updater {
             }
             std::fs::rename(&part, &path)?;
         }
+        // Against the hash GitHub's API gives for the asset, a download kept from an
+        // earlier check too: the right size doesn't say the file is the release's.
+        match asset_sha256(asset) {
+            Some(sum) => {
+                let got = file_sha256(&path)?;
+                if got != sum {
+                    let _ = std::fs::remove_file(&path);
+                    anyhow::bail!("{want}'s SHA-256 is {got}, not {sum}");
+                }
+            }
+            None => log::warn!("update: release {tag} gives no SHA-256 for {want}, so it isn't checked"),
+        }
         // Old downloads are no longer needed.
         if let Ok(rd) = std::fs::read_dir(&self.dir) {
             for e in rd.flatten() {
@@ -872,14 +889,39 @@ fn unzip_exe(zip: &Path, dir: &Path) -> anyhow::Result<PathBuf> {
     Ok(exe)
 }
 
+/// A release asset's SHA-256 as GitHub's API gives it (`"digest": "sha256:<hex>"`), in
+/// lowercase hex.
+pub(crate) fn asset_sha256(asset: &serde_json::Value) -> Option<String> {
+    asset["digest"].as_str()?.strip_prefix("sha256:").map(str::to_ascii_lowercase)
+}
+
+fn file_sha256(path: &Path) -> std::io::Result<String> {
+    let mut hash = Sha256::new();
+    std::io::copy(&mut std::fs::File::open(path)?, &mut hash)?;
+    Ok(format!("{:x}", hash.finalize()))
+}
+
 fn client() -> anyhow::Result<reqwest::Client> {
     Ok(crate::proxy::apply(reqwest::Client::builder()).user_agent(concat!("ytm-rs/", env!("CARGO_PKG_VERSION"))).connect_timeout(std::time::Duration::from_secs(10)).read_timeout(std::time::Duration::from_secs(30)).build()?)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{deb_version, in_flatpak, newer, pacman_package, pick_release, wanted};
+    use super::{asset_sha256, deb_version, file_sha256, in_flatpak, newer, pacman_package, pick_release, wanted};
     use serde_json::json;
+
+    #[test]
+    fn a_download_is_checked_against_the_assets_hash() {
+        let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        assert_eq!(asset_sha256(&json!({ "digest": format!("sha256:{}", abc.to_uppercase()) })).as_deref(), Some(abc));
+        // Releases from before GitHub hashed assets, and another kind of hash.
+        assert_eq!(asset_sha256(&json!({ "digest": null })), None);
+        assert_eq!(asset_sha256(&json!({ "digest": "sha512:00" })), None);
+        let file = std::env::temp_dir().join(format!("ytm-update-sum-{}", std::process::id()));
+        std::fs::write(&file, "abc").unwrap();
+        assert_eq!(file_sha256(&file).unwrap(), abc);
+        let _ = std::fs::remove_file(&file);
+    }
 
     #[test]
     fn a_flatpak_is_known_by_its_info_file() {

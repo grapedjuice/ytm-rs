@@ -460,6 +460,11 @@ impl Queue {
     }
 
     /// Smart shuffle's songs still to come go (shuffle went off, or Smart shuffle did).
+    /// Whether Smart shuffle mixed this song in.
+    pub fn is_mixed(&self, id: &str) -> bool {
+        self.mixed.contains(id)
+    }
+
     pub fn drop_mixed(&mut self) {
         let Some(cur) = self.index else { return };
         let mixed = std::mem::take(&mut self.mixed);
@@ -568,6 +573,7 @@ mod tests {
         q.mix_in(vec![track("r1"), track(&before[3]), track("r1"), track("r2"), track("r3")]);
         let mixed: Vec<usize> = q.tracks.iter().enumerate().filter(|(_, t)| t.id.starts_with('r')).map(|(i, _)| i).collect();
         assert_eq!(mixed, [4, 8], "{:?}", ids(&q));
+        assert!(q.is_mixed(&q.tracks[4].id) && !q.is_mixed(&q.tracks[3].id));
         assert!(q.advance() && q.advance());
         let playing = q.current().unwrap().id.clone();
         q.toggle_shuffle();

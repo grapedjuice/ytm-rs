@@ -540,6 +540,20 @@ impl Queue {
         let ids: std::collections::HashSet<&str> = kept.iter().map(|t| t.id.as_str()).collect();
         Some(self.unshuffled.as_ref()?.iter().filter(|id| ids.contains(id.as_str())).cloned().collect())
     }
+
+    /// Of the songs a saved session keeps, those Smart shuffle mixed in, so they're still
+    /// its after a restart: shuffle going off takes them out again.
+    pub fn saved_mixed(&self) -> Vec<String> {
+        let Some((kept, _)) = self.saved() else { return Vec::new() };
+        kept.iter().filter(|t| self.mixed.contains(&t.id)).map(|t| t.id.clone()).collect()
+    }
+
+    /// A restored session's Smart shuffle songs (`saved_mixed`), while it's still shuffled.
+    pub fn restore_mixed(&mut self, ids: Vec<String>) {
+        if self.shuffled() {
+            self.mixed = ids.into_iter().filter(|id| self.tracks.iter().any(|t| t.id == *id)).collect();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1139,5 +1153,25 @@ mod tests {
         back.toggle_shuffle();
         assert_eq!(ids(&back), kept);
         assert!(queue(&refs, 0, Repeat::Off).saved_order().is_none());
+    }
+
+    #[test]
+    fn smart_shuffles_songs_are_still_its_after_a_restart() {
+        let songs: Vec<Track> = ["a", "b", "c", "d", "e", "f", "g", "h"].map(track).into();
+        let mut q = Queue::new(Repeat::Off);
+        q.replace_shuffled(songs, None);
+        q.mix_in(vec![track("r1"), track("r2")]);
+        let (saved, i) = q.saved().unwrap();
+        let (order, mixed) = (q.saved_order(), q.saved_mixed());
+        assert_eq!(mixed, ["r1", "r2"]);
+
+        let mut back = Queue::new(Repeat::Off);
+        back.adopt(saved.to_vec(), i, order);
+        back.restore_mixed(mixed);
+        assert!(back.is_mixed("r1"));
+        // Shuffle off: they go, rather than all landing after the song playing.
+        back.toggle_shuffle();
+        assert!(!back.tracks.iter().any(|t| t.id.starts_with('r')), "{:?}", ids(&back));
+        assert_eq!(back.tracks.len(), 8);
     }
 }

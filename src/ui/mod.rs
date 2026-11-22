@@ -2375,6 +2375,9 @@ struct Session {
     /// Shuffled: the order to go back to, so shuffle is still on after a restart.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     unshuffled: Option<Vec<String>>,
+    /// Shuffled: the songs Smart shuffle mixed in, which shuffle going off takes out.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    mixed: Vec<String>,
 }
 
 /// When the sleep timer pauses: at a moment (the audio thread pauses then, see

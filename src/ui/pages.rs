@@ -2437,6 +2437,12 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
             toggle(ui, &mut app.reactive_bg, tr!("settings-pulse-with-the-music"));
         });
         divider(ui);
+        setting_row(ui, tr!("settings-visualizer"), Some(tr!("settings-visualizer-desc")), |ui| {
+            if toggle(ui, &mut app.visualizer, tr!("settings-visualizer")).changed() {
+                app.audio.set_spectrum(app.visualizer);
+            }
+        });
+        divider(ui);
         setting_row(ui, tr!("settings-dim-bright-covers"), Some(tr!("settings-dim-bright-covers-desc")), |ui| {
             toggle(ui, &mut app.dim_bright, tr!("settings-dim-bright-covers"));
         });

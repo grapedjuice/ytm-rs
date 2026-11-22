@@ -228,6 +228,28 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
     if app.ambient_light && app.shown_video().is_some() {
         paint_glow(app, ui, rect, clip);
     }
+    if app.visualizer && app.playing() && app.shown_video().is_none() {
+        visualizer(app, &painter, rect);
+        // The bars change every ~21 ms: 30 fps, like the animated layer, without drawing
+        // Now playing at the screen's full rate.
+        ctx.request_repaint_after(std::time::Duration::from_millis(33));
+    }
+}
+
+/// Settings › Appearance › Visualizer: a bar per band along the bottom, in the accent
+/// colour, faint enough for the lyrics and art over it.
+fn visualizer(app: &App, painter: &egui::Painter, rect: Rect) {
+    let bars = app.audio.status.spectrum();
+    // On the content's bottom edge: the player bar covers the backdrop below it.
+    let bottom = if app.fullscreen { rect.bottom() } else { rect.bottom() - app.bar_height() };
+    let (gap, max_h) = (4.0, rect.height() * 0.22);
+    let w = (rect.width() - gap * (bars.len() + 1) as f32) / bars.len() as f32;
+    let color = theme::with_alpha(app.accent_color(), 0.35);
+    for (i, v) in bars.iter().enumerate() {
+        let h = (v * max_h).max(2.0);
+        let x = rect.left() + gap + i as f32 * (w + gap);
+        painter.rect_filled(Rect::from_min_max(pos2(x, bottom - h), pos2(x + w, bottom)), w.min(6.0) / 2.0, color);
+    }
 }
 
 /// About how much of the art's own brightness now playing's background shows, after the

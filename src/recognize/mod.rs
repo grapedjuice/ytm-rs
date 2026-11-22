@@ -45,6 +45,10 @@ pub enum Phase {
 pub enum Problem {
     /// This system can't record what it plays.
     Unsupported,
+    /// macOS: the output is a headset, with a microphone of its own, and only an output
+    /// without one can be recorded.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    HeadsetOutput,
     NoDevice,
     NothingPlaying,
     DeviceChanged,
@@ -302,7 +306,7 @@ impl Drop for StopOnDrop {
     }
 }
 
-/// Mono samples at any rate, at 16 kHz. Through rodio, as SongRec does.
+/// Mono samples at any rate, at 16 kHz, through rodio.
 fn to_16k(samples: Vec<f32>, rate: u32) -> Vec<f32> {
     let Some(r) = std::num::NonZero::new(rate).filter(|r| r.get() != SAMPLE_RATE) else { return samples };
     let src = rodio::buffer::SamplesBuffer::new(std::num::NonZero::<u16>::MIN, r, samples);

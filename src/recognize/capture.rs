@@ -37,8 +37,12 @@ fn run(stop: &AtomicBool, tx: &Tx) -> Result<(), Problem> {
     // microphone), and its loopback needs macOS 14.6 (CoreAudio's tap, from 14.2, is linked
     // weakly for before).
     #[cfg(target_os = "macos")]
-    if device.supports_input() || !macos_at_least(14, 6) {
+    if !macos_at_least(14, 6) {
         return Err(Problem::Unsupported);
+    }
+    #[cfg(target_os = "macos")]
+    if device.supports_input() {
+        return Err(Problem::HeadsetOutput);
     }
     let config = device.default_output_config().map_err(|e| failed(e, Problem::NoDevice))?;
     // Canceled while the device took its time to answer.

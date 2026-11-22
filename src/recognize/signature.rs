@@ -32,7 +32,7 @@ impl Signature {
     /// From 16 kHz mono samples in -1..1.
     pub fn from_samples(samples: &[f32]) -> Self {
         let mut g = Generator::new();
-        // As SongRec converts (through rodio): × 32768, saturating.
+        // To 16-bit as rodio converts: × 32768, saturating.
         let s16: Vec<i16> = samples.iter().map(|s| (s * 32768.0) as i16).collect();
         for chunk in s16.as_chunks::<128>().0 {
             g.do_fft(chunk);
@@ -196,7 +196,7 @@ impl Generator {
             }
             let (m, before, after) = (mag(v), mag(fft_46[bin - 1]), mag(fft_46[bin + 1]));
             let variation1 = m * 2.0 - before - after;
-            // SongRec asserts it's at least 0; it isn't always, as the peak was tested
+            // It should be at least 0, but isn't always, as the peak was tested
             // against the spread spectrum. 0 would divide by zero.
             if variation1 <= 0.0 || !variation1.is_finite() {
                 continue;
@@ -221,8 +221,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_window_is_songrecs_table() {
-        // SongRec's hanning.rs, its first, middle and last entries.
+    fn the_window_matches_the_original_table() {
+        // The ported code's Hanning table: its first, middle and last entries.
         for (i, table) in [(0, 0.000_002_350_8), (1, 0.000_009_403_2), (1024, 1.0), (2047, 0.000_002_350_8)] {
             assert!((WINDOW[i] - table).abs() <= table * 5e-5, "{i}: {} against {table}", WINDOW[i]);
         }

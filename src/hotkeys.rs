@@ -60,7 +60,8 @@ impl Default for Bindings {
             prev: combo("KeyB"),
             volume_up: combo("Equal"),
             volume_down: combo("Minus"),
-            recognize: combo("KeyS"),
+            // None until it's set: a combination taken from every app on upgrade isn't asked for.
+            recognize: String::new(),
         }
     }
 }
@@ -126,6 +127,9 @@ pub fn safe_to_grab(mods: Modifiers) -> bool {
 /// The keycaps for a saved combination (`["Alt", "Shift", "P"]`). One that doesn't
 /// parse shows as it's written, so the file's mistake can be found.
 pub fn keycaps(combo: &str) -> Vec<String> {
+    if combo.is_empty() {
+        return Vec::new();
+    }
     let Ok(hotkey) = combo.parse::<HotKey>() else {
         return vec![combo.to_owned()];
     };
@@ -193,6 +197,10 @@ impl GlobalHotkeys {
         self.unregister_all();
         for cmd in Cmd::ALL {
             let combo = bindings.get(cmd);
+            // Not set: nothing to take.
+            if combo.is_empty() {
+                continue;
+            }
             let result = combo.parse::<HotKey>().map_err(|e| e.to_string()).and_then(|hotkey| {
                 self.manager.register(hotkey).map(|()| hotkey).map_err(|e| e.to_string())
             });
@@ -260,7 +268,10 @@ mod tests {
     #[test]
     fn every_default_is_a_distinct_valid_combination() {
         let d = Bindings::default();
-        for cmd in Cmd::ALL {
+        // Recognize song starts unset.
+        assert_eq!(d.get(Cmd::Recognize), "");
+        assert!(keycaps(d.get(Cmd::Recognize)).is_empty());
+        for cmd in Cmd::ALL.into_iter().filter(|c| *c != Cmd::Recognize) {
             let hotkey: HotKey = d.get(cmd).parse().unwrap();
             assert!(safe_to_grab(hotkey.mods));
             assert_eq!(d.used_by(hotkey, cmd), None);

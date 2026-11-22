@@ -77,7 +77,7 @@ getrandom = "0.3.4"
 # AirPlay 2's requests and answers are binary plists (airplay/ap2.rs).
 plist = "1.10.4"
 
-# Recognize song (recognize/): Shazam's signature (ported from SongRec), and its request's IDs.
+# Recognize song (recognize/): Shazam's signature, and its request's IDs.
 realfft = "3.5"
 crc32fast = "1.5.2"
 uuid = { version = "1.27", features = ["v4"] }

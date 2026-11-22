@@ -428,6 +428,7 @@ fn place(app: &App, ctx: &egui::Context) -> Option<Pos2> {
 fn problem(p: &Problem) -> String {
     match p {
         Problem::Unsupported => tr!("recognize-unsupported").into(),
+        Problem::HeadsetOutput => tr!("recognize-headset-output").into(),
         Problem::NoDevice => tr!("recognize-no-device").into(),
         Problem::NothingPlaying => tr!("recognize-nothing-playing").into(),
         Problem::DeviceChanged => tr!("recognize-device-changed").into(),

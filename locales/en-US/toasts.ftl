@@ -39,6 +39,7 @@ recognize-no-match = No match
 recognize-no-match-line = Shazam doesn't know this one
 recognize-failed = Couldn't recognize it
 recognize-unsupported = This computer can't record what it plays
+recognize-headset-output = It can't listen to a headset. Switch the sound output to your speakers and try again.
 recognize-no-device = There's no sound output to listen to
 recognize-nothing-playing = Nothing is playing
 recognize-device-changed = The sound output changed. Try again.

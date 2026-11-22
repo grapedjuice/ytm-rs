@@ -12,7 +12,7 @@ use crate::ytm::HomePage;
 
 use crate::remote::{Cmd, RepeatMode};
 
-use super::{Action, App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, dev_var};
+use super::{Action, App, Dialog, HomeState, LibTab, Page, PlayingAs, Repeat, Sleep, dev_var};
 
 impl App {
     pub(super) fn pump(&mut self, ctx: &egui::Context, now: f64) {
@@ -30,6 +30,7 @@ impl App {
         while let Ok(ev) = self.ch.audio_rx.try_recv() {
             match ev {
                 AudioEvent::Finished { generation } if generation == self.generation && self.jam.guest() => {}
+                AudioEvent::Finished { generation } if generation == self.generation && self.sleep == Some(Sleep::SongEnd) => self.sleep_at_song_end(),
                 AudioEvent::Finished { generation } if generation == self.generation => {
                     if self.repeats_one() {
                         self.play_current();
@@ -45,7 +46,8 @@ impl App {
                 AudioEvent::Finished { .. } => {}
                 // Crossfade into the next song, or into the song again on Repeat one; the
                 // end of the queue waits for the end.
-                AudioEvent::Ending { generation } if generation == self.generation && !self.jam.guest() => {
+                // With the sleep timer set to the song's end, it plays out instead (`Finished`).
+                AudioEvent::Ending { generation } if generation == self.generation && !self.jam.guest() && self.sleep != Some(Sleep::SongEnd) => {
                     self.handoff = true;
                     if self.repeats_one() {
                         self.play_current();

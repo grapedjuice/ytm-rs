@@ -659,6 +659,8 @@ pub struct App {
     keep_pitch: bool,
     /// The next song starts because this one is ending: crossfade into it.
     handoff: bool,
+    /// The sleep timer, when it's set (not saved).
+    sleep: Option<Sleep>,
     /// SponsorBlock segments for a video, and when one was last skipped.
     segments: Option<(String, Vec<crate::sponsorblock::Segment>)>,
     segment_skipped: f64,
@@ -1077,6 +1079,7 @@ impl App {
             sponsorblock: get("sponsorblock").is_some_and(|v| v == "1"),
             crossfade: get("crossfade").is_some_and(|v| v == "1"),
             handoff: false,
+            sleep: None,
             crossfade_skips: get("crossfade_skips").is_some_and(|v| v == "1"),
             crossfade_secs: get("crossfade_secs").and_then(|v| v.parse().ok()).unwrap_or(5).clamp(1, CROSSFADE_MAX),
             eq_on: get("eq").is_some_and(|v| v == "1"),
@@ -1577,6 +1580,7 @@ impl eframe::App for App {
         }
         self.sync_look();
         self.pump(ctx, now);
+        self.sync_sleep();
         // A sorted playlist that loads again in a while, for its new order.
         if let Some(t) = self.sorting.values().filter_map(lists::SortWait::due).reduce(f64::min) {
             ctx.request_repaint_after(Duration::from_secs_f64((t - now).max(0.0)));
@@ -2339,6 +2343,14 @@ struct Session {
     /// for the current song): the position is its.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     playing_as: Option<Track>,
+}
+
+/// When the sleep timer pauses: at a moment (the audio thread pauses then, see
+/// `AudioCmd::SleepAt`), or once the song playing ends, holding the next one at its start.
+#[derive(Clone, Copy, PartialEq)]
+enum Sleep {
+    At(std::time::Instant),
+    SongEnd,
 }
 
 /// The song version playing in place of the music video `listed`, in play `generation`;

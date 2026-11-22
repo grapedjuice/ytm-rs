@@ -55,3 +55,7 @@ player-play-next = Play next
 player-start-radio = Start radio
 player-go-to-album = Go to album
 player-go-to-artist = Go to artist
+player-sleep-timer = Sleep timer
+player-sleep-off = Off
+player-sleep-minutes = { $minutes } min
+player-sleep-song-end = End of song

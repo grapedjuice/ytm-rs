@@ -44,8 +44,8 @@ use windows_sys::Win32::UI::Input::Touch::{
 use windows_sys::Win32::UI::Input::{RAWINPUT, RIM_TYPEKEYBOARD, RIM_TYPEMOUSE};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetCursorPos,
-    GetMenu, LoadCursorW, MsgWaitForMultipleObjectsEx, PeekMessageW, PostMessageW,
-    RegisterClassExW, RegisterWindowMessageA, SetCursor, SetWindowPos, TranslateMessage,
+    GetMenu, KillTimer, LoadCursorW, MsgWaitForMultipleObjectsEx, PeekMessageW, PostMessageW,
+    RegisterClassExW, RegisterWindowMessageA, SetCursor, SetTimer, SetWindowPos, TranslateMessage,
     CREATESTRUCTW, GIDC_ARRIVAL, GIDC_REMOVAL, GWL_STYLE, GWL_USERDATA, HTBOTTOM, HTBOTTOMLEFT,
     HTBOTTOMRIGHT, HTCAPTION, HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT,
     MINMAXINFO, MNC_CLOSE, MSG, MWMO_INPUTAVAILABLE, NCCALCSIZE_PARAMS, PM_REMOVE, PT_PEN,
@@ -60,9 +60,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_MENUCHAR, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCACTIVATE, WM_NCCALCSIZE,
     WM_NCCREATE, WM_NCDESTROY, WM_NCLBUTTONDOWN, WM_PAINT, WM_POINTERDOWN, WM_POINTERUP,
     WM_POINTERUPDATE, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SETTINGCHANGE,
-    WM_SIZE, WM_SIZING, WM_SYSCOMMAND, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TOUCH, WM_WINDOWPOSCHANGED,
-    WM_WINDOWPOSCHANGING, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSEXW, WS_EX_LAYERED,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP, WS_VISIBLE,
+    WM_SIZE, WM_SIZING, WM_SYSCOMMAND, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_TOUCH,
+    WM_WINDOWPOSCHANGED, WM_WINDOWPOSCHANGING, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSEXW,
+    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP,
+    WS_VISIBLE,
 };
 
 use crate::dpi::{PhysicalPosition, PhysicalSize};
@@ -909,10 +910,15 @@ static THREAD_EVENT_TARGET_WINDOW_CLASS: Lazy<Vec<u16>> =
 /// broadcasts this message to all top-level windows <https://docs.microsoft.com/en-us/windows/win32/shell/taskbar#taskbar-creation-notification>
 pub(crate) static TASKBAR_CREATED: LazyMessageId = LazyMessageId::new("TaskbarCreated\0");
 
-// ytm-rs: true while a window on the UI thread is inside Windows' modal size/move loop
-// (WM_ENTERSIZEMOVE..WM_EXITSIZEMOVE). Suppresses raw mouse motion events that would
+// ytm-rs: true while inside Windows' modal size/move loop (WM_ENTERSIZEMOVE..WM_EXITSIZEMOVE).
+// Assumes one winit window per process. Suppresses raw mouse motion events that would
 // otherwise ask egui/eframe to repaint on every mouse poll during a move or resize.
 static IN_SIZE_MOVE: AtomicBool = AtomicBool::new(false);
+
+// ytm-rs: Win32 timer ID driving periodic ~30 fps repaints while inside the modal size/move
+// loop when the app has animations/video pending, so picture-in-picture video, lyrics and
+// the progress bar don't freeze during a drag.
+const MOVE_PAINT_TIMER_ID: usize = 0x7974_6D31;
 
 fn create_event_target_window() -> HWND {
     use windows_sys::Win32::UI::WindowsAndMessaging::{CS_HREDRAW, CS_VREDRAW};
@@ -1206,20 +1212,28 @@ unsafe fn public_window_callback_inner(
         },
 
         WM_ENTERSIZEMOVE => {
-            let mut state = userdata.window_state_lock();
-            state.set_window_flags_in_place(|f| f.insert(WindowFlags::MARKER_IN_SIZE_MOVE));
-            // ytm-rs: while dragging to move (not resize), defer `Moved` and `WM_PAINT`
-            // until the drag ends (or a size/DPI change) so GPU swaps cannot throttle DWM's
-            // modal move loop below the monitor's refresh rate.
-            state.deferred_moved = None;
-            state.deferred_redraw = false;
-            state.allow_paint_during_move = false;
-            state.skip_next_resize_paint = false;
-            IN_SIZE_MOVE.store(true, Ordering::Relaxed);
+            {
+                let mut state = userdata.window_state_lock();
+                state.set_window_flags_in_place(|f| f.insert(WindowFlags::MARKER_IN_SIZE_MOVE));
+                // ytm-rs: while dragging to move (not resize), defer `Moved` and throttle
+                // `WM_PAINT` to ~30 fps so GPU swaps don't throttle DWM's modal move loop
+                // while video, lyrics and the progress bar keep updating.
+                state.size_move.enter();
+                IN_SIZE_MOVE.store(true, Ordering::Relaxed);
+            }
+            unsafe {
+                SetTimer(
+                    window,
+                    MOVE_PAINT_TIMER_ID,
+                    super::window_state::SizeMoveState::MOVE_PAINT_INTERVAL.as_millis() as u32,
+                    None,
+                );
+            }
             result = ProcResult::Value(0);
         },
 
         WM_EXITSIZEMOVE => {
+            unsafe { KillTimer(window, MOVE_PAINT_TIMER_ID) };
             let (deferred_moved, deferred_redraw) = {
                 let mut state = userdata.window_state_lock();
                 if state.dragging {
@@ -1228,11 +1242,8 @@ unsafe fn public_window_callback_inner(
                 }
 
                 state.set_window_flags_in_place(|f| f.remove(WindowFlags::MARKER_IN_SIZE_MOVE));
-                state.is_resizing = false;
-                state.allow_paint_during_move = false;
-                state.skip_next_resize_paint = false;
                 IN_SIZE_MOVE.store(false, Ordering::Relaxed);
-                (state.deferred_moved.take(), std::mem::take(&mut state.deferred_redraw))
+                state.size_move.exit()
             };
 
             if let Some(physical_position) = deferred_moved {
@@ -1247,9 +1258,23 @@ unsafe fn public_window_callback_inner(
             result = ProcResult::Value(0);
         },
 
+        WM_TIMER if wparam == MOVE_PAINT_TIMER_ID => {
+            let fire = {
+                let mut state = userdata.window_state_lock();
+                let in_size_move = state.window_flags().contains(WindowFlags::MARKER_IN_SIZE_MOVE);
+                state
+                    .size_move
+                    .should_fire_timer_paint(in_size_move, userdata.event_loop_runner.control_flow())
+            };
+            if fire {
+                unsafe { RedrawWindow(window, ptr::null(), 0, RDW_INTERNALPAINT) };
+            }
+            result = ProcResult::Value(0);
+        },
+
         WM_NCLBUTTONDOWN => {
             if wparam == HTCAPTION as _ {
-                userdata.window_state_lock().is_resizing = false;
+                userdata.window_state_lock().size_move.resizing = false;
                 // Prevent the user event loop from pausing when left clicking the title bar.
                 //
                 // When the user interacts with the title bar, Windows enters the modal event
@@ -1287,7 +1312,7 @@ unsafe fn public_window_callback_inner(
                     | HTBOTTOMLEFT
                     | HTBOTTOMRIGHT
             ) {
-                userdata.window_state_lock().is_resizing = true;
+                userdata.window_state_lock().size_move.resizing = true;
             }
             result = ProcResult::DefWindowProc(wparam);
         },
@@ -1305,6 +1330,7 @@ unsafe fn public_window_callback_inner(
             use crate::event::WindowEvent::Destroyed;
             if userdata.window_state_lock().window_flags().contains(WindowFlags::MARKER_IN_SIZE_MOVE)
             {
+                unsafe { KillTimer(window, MOVE_PAINT_TIMER_ID) };
                 IN_SIZE_MOVE.store(false, Ordering::Relaxed);
             }
             unsafe { RevokeDragDrop(window) };
@@ -1324,16 +1350,8 @@ unsafe fn public_window_callback_inner(
         WM_PAINT => {
             let defer_paint = {
                 let mut state = userdata.window_state_lock();
-                if state.skip_next_resize_paint {
-                    // ytm-rs: eframe already painted synchronously inside `WM_SIZE`
-                    // (`RepaintNow`), so skip the immediate duplicate `WM_PAINT` that
-                    // Windows (`CS_HREDRAW | CS_VREDRAW`) and eframe's repaint queue emit
-                    // for the same size.
-                    state.skip_next_resize_paint = false;
-                    state.redraw_requested = false;
-                    true
-                } else if state.should_defer_paint() {
-                    state.deferred_redraw = true;
+                let in_size_move = state.window_flags().contains(WindowFlags::MARKER_IN_SIZE_MOVE);
+                if state.size_move.should_defer_paint(in_size_move) {
                     state.redraw_requested = false;
                     true
                 } else {
@@ -1452,7 +1470,7 @@ unsafe fn public_window_callback_inner(
                 let defer = {
                     let mut state = userdata.window_state_lock();
                     if state.window_flags().contains(WindowFlags::MARKER_IN_SIZE_MOVE) {
-                        state.deferred_moved = Some(physical_position);
+                        state.size_move.deferred_moved = Some(physical_position);
                         true
                     } else {
                         false
@@ -1483,8 +1501,10 @@ unsafe fn public_window_callback_inner(
 
             {
                 let mut w = userdata.window_state_lock();
-                if w.is_moving_not_resizing() {
-                    w.allow_paint_during_move = true;
+                if w.window_flags().contains(WindowFlags::MARKER_IN_SIZE_MOVE)
+                    && !w.size_move.resizing
+                {
+                    w.size_move.allow_next_paint();
                 }
                 // See WindowFlags::MARKER_RETAIN_STATE_ON_SIZE docs for info on why this `if` check
                 // exists.
@@ -1496,12 +1516,16 @@ unsafe fn public_window_callback_inner(
             userdata.send_event(event);
             {
                 let mut w = userdata.window_state_lock();
-                if w.window_flags().contains(WindowFlags::MARKER_IN_SIZE_MOVE)
-                    && physical_size.width > 0
-                    && physical_size.height > 0
-                {
-                    w.skip_next_resize_paint = true;
-                }
+                let in_size_move = w.window_flags().contains(WindowFlags::MARKER_IN_SIZE_MOVE);
+                // ytm-rs: relies on eframe painting synchronously inside `WindowEvent::Resized`
+                // (`eframe::native::run::WinitAppWrapper::handle_event_result` on `EventResult::RepaintNow`
+                // on Windows). Skip the immediate duplicate `WM_PAINT` that Windows
+                // (`CS_HREDRAW | CS_VREDRAW`) and eframe's repaint queue emit for the same size;
+                // if eframe ever stops painting synchronously on `Resized`, remove this skip.
+                w.size_move.note_size_paint(
+                    in_size_move,
+                    physical_size.width > 0 && physical_size.height > 0,
+                );
             }
             result = ProcResult::Value(0);
         },
@@ -1509,8 +1533,8 @@ unsafe fn public_window_callback_inner(
         WM_SIZING => {
             let flush_redraw = {
                 let mut state = userdata.window_state_lock();
-                state.is_resizing = true;
-                std::mem::take(&mut state.deferred_redraw)
+                state.size_move.resizing = true;
+                std::mem::take(&mut state.size_move.deferred_redraw)
             };
             if flush_redraw {
                 unsafe { RedrawWindow(window, ptr::null(), 0, RDW_INTERNALPAINT) };
@@ -1717,8 +1741,8 @@ unsafe fn public_window_callback_inner(
         // this is necessary for us to maintain minimize/restore state
         WM_SYSCOMMAND => {
             match (wparam as u32) & 0xFFF0 {
-                SC_MOVE => userdata.window_state_lock().is_resizing = false,
-                SC_SIZE => userdata.window_state_lock().is_resizing = true,
+                SC_MOVE => userdata.window_state_lock().size_move.resizing = false,
+                SC_SIZE => userdata.window_state_lock().size_move.resizing = true,
                 _ => {},
             }
             if wparam == SC_RESTORE as usize {
@@ -2336,8 +2360,10 @@ unsafe fn public_window_callback_inner(
                     return;
                 }
 
-                if window_state.is_moving_not_resizing() {
-                    window_state.allow_paint_during_move = true;
+                if window_state.window_flags().contains(WindowFlags::MARKER_IN_SIZE_MOVE)
+                    && !window_state.size_move.resizing
+                {
+                    window_state.size_move.allow_next_paint();
                 }
 
                 let allow_resize = window_state.fullscreen.is_none()

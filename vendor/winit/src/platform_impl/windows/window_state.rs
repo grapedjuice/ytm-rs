@@ -1,4 +1,5 @@
 use crate::dpi::{PhysicalPosition, PhysicalSize, Size};
+use crate::event_loop::ControlFlow;
 use crate::icon::Icon;
 use crate::keyboard::ModifiersState;
 use crate::platform_impl::platform::{event_loop, util, Fullscreen, SelectedCursor};
@@ -6,6 +7,7 @@ use crate::window::{Theme, WindowAttributes};
 use bitflags::bitflags;
 use std::io;
 use std::sync::MutexGuard;
+use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{HWND, RECT};
 use windows_sys::Win32::Graphics::Gdi::InvalidateRgn;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -55,17 +57,92 @@ pub(crate) struct WindowState {
 
     pub dragging: bool,
 
-    // ytm-rs: while moving (not resizing) a window in Windows' modal loop, defer
-    // `Moved` and `RedrawRequested` until `WM_EXITSIZEMOVE` (or a size/DPI change)
-    // so DWM moves the window at the monitor's full refresh rate instead of stalling
-    // on GPU buffer swaps.
-    pub is_resizing: bool,
-    pub allow_paint_during_move: bool,
+    // ytm-rs: modal size/move loop state, grouped into one field to keep vendored winit diffs small.
+    pub size_move: SizeMoveState,
+
+    pub skip_taskbar: bool,
+}
+
+// ytm-rs: state for Windows' modal size/move loop (WM_ENTERSIZEMOVE..WM_EXITSIZEMOVE).
+// While moving (not resizing), `Moved` and raw `MouseMotion` are deferred until the move
+// ends and `WM_PAINT` is throttled to ~30 fps so DWM drags at the monitor's refresh rate
+// without freezing picture-in-picture video, lyrics, or the progress bar.
+// While resizing, the immediate duplicate `WM_PAINT` after `WM_SIZE` is skipped.
+#[derive(Default)]
+pub(crate) struct SizeMoveState {
+    pub resizing: bool,
     pub skip_next_resize_paint: bool,
     pub deferred_moved: Option<PhysicalPosition<i32>>,
     pub deferred_redraw: bool,
+    pub last_paint: Option<Instant>,
+}
 
-    pub skip_taskbar: bool,
+impl SizeMoveState {
+    /// Minimum interval between repaints while dragging to move (~30 fps).
+    pub const MOVE_PAINT_INTERVAL: Duration = Duration::from_millis(33);
+    /// Slightly shorter guard for `WM_TIMER` ticks (which fire on Windows' ~15.6 ms tick).
+    const TIMER_RECENT_PAINT_GUARD: Duration = Duration::from_millis(25);
+
+    pub fn enter(&mut self) {
+        self.deferred_moved = None;
+        self.deferred_redraw = false;
+        self.skip_next_resize_paint = false;
+        self.last_paint = Some(Instant::now());
+    }
+
+    pub fn exit(&mut self) -> (Option<PhysicalPosition<i32>>, bool) {
+        self.resizing = false;
+        self.skip_next_resize_paint = false;
+        self.last_paint = None;
+        (self.deferred_moved.take(), std::mem::take(&mut self.deferred_redraw))
+    }
+
+    pub fn allow_next_paint(&mut self) {
+        self.last_paint = None;
+    }
+
+    pub fn note_size_paint(&mut self, in_size_move: bool, non_zero: bool) {
+        if in_size_move && non_zero {
+            self.skip_next_resize_paint = true;
+            self.last_paint = Some(Instant::now());
+        }
+    }
+
+    pub fn should_defer_paint(&mut self, in_size_move: bool) -> bool {
+        if self.skip_next_resize_paint {
+            self.skip_next_resize_paint = false;
+            return true;
+        }
+        if in_size_move && !self.resizing {
+            if self.last_paint.is_some_and(|t| t.elapsed() < Self::MOVE_PAINT_INTERVAL) {
+                self.deferred_redraw = true;
+                return true;
+            }
+            self.last_paint = Some(Instant::now());
+            self.deferred_redraw = false;
+        }
+        false
+    }
+
+    pub fn should_fire_timer_paint(&mut self, in_size_move: bool, control_flow: ControlFlow) -> bool {
+        if !in_size_move || self.skip_next_resize_paint {
+            return false;
+        }
+        if self.last_paint.is_some_and(|t| t.elapsed() < Self::TIMER_RECENT_PAINT_GUARD) {
+            return false;
+        }
+        let due = self.deferred_redraw
+            || match control_flow {
+                ControlFlow::Poll => true,
+                ControlFlow::WaitUntil(at) => Instant::now() >= at,
+                ControlFlow::Wait => false,
+            };
+        if due {
+            self.last_paint = None;
+            self.deferred_redraw = false;
+        }
+        due
+    }
 }
 
 #[derive(Clone)]
@@ -186,31 +263,10 @@ impl WindowState {
 
             dragging: false,
 
-            is_resizing: false,
-            allow_paint_during_move: false,
-            skip_next_resize_paint: false,
-            deferred_moved: None,
-            deferred_redraw: false,
+            size_move: SizeMoveState::default(),
 
             skip_taskbar: false,
         }
-    }
-
-    #[inline]
-    pub fn is_moving_not_resizing(&self) -> bool {
-        self.window_flags.contains(WindowFlags::MARKER_IN_SIZE_MOVE) && !self.is_resizing
-    }
-
-    #[inline]
-    pub fn should_defer_paint(&mut self) -> bool {
-        if !self.is_moving_not_resizing() {
-            return false;
-        }
-        if self.allow_paint_during_move {
-            self.allow_paint_during_move = false;
-            return false;
-        }
-        true
     }
 
     pub fn window_flags(&self) -> WindowFlags {

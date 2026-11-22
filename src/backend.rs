@@ -83,7 +83,7 @@ pub enum Req {
     Art { key: String, url: String },
     /// Radio seeded from a track (`seed`, its id); appended to the queue. `song_of`: the
     /// track, when it's a music video to play as its song: the song's radio is asked for.
-    Radio { seed: String, song_of: Option<Track> },
+    Radio { seed: String, song_of: Option<Track>, smart: bool },
     /// A song's first page of comments (now playing's Comments panel).
     Comments { video_id: String },
     /// The next page of a comments list (more comments, a comment's replies, another
@@ -198,7 +198,7 @@ impl Req {
 
     /// Background requests fail quietly (logged, no toast).
     fn quiet(&self) -> bool {
-        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::SongRating { .. } | Req::Art { .. } | Req::Prefetch { .. } | Req::StageNext { .. } | Req::GaplessStarted { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::ArtistPicture { .. } | Req::MusicVideo(_) | Req::LyricsExtras { .. } | Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. })
+        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::SongRating { .. } | Req::Art { .. } | Req::Radio { smart: true, .. } | Req::Prefetch { .. } | Req::StageNext { .. } | Req::GaplessStarted { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::ArtistPicture { .. } | Req::MusicVideo(_) | Req::LyricsExtras { .. } | Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. })
     }
 }
 
@@ -420,7 +420,7 @@ pub enum Resp {
     /// Romanization/translation for one source's lines, arriving after them.
     LyricsExtras { video_id: String, source: String, target: String, extras: crate::translate::Extras },
     Art { key: String, art: Art },
-    Radio { seed: String, tracks: Vec<Track> },
+    Radio { seed: String, tracks: Vec<Track>, smart: bool },
     /// A comments response (`Req::Comments`, `CommentsPage` or `CommentAction`) by its tag;
     /// `None`: it failed.
     CommentsPage { token: String, page: Option<serde_json::Value> },
@@ -1225,7 +1225,7 @@ impl Backend {
                     let art = tokio::task::spawn_blocking(move || crate::art::process(&bytes)).await??;
                     Resp::Art { key, art }
                 }
-                Req::Radio { seed, song_of } => {
+                Req::Radio { seed, song_of, smart } => {
                     // A music video's radio is music videos; its song's is songs, as from the
                     // song itself. The lookup is shared with its play's (one per video).
                     let song = self.song_version(&seed, song_of.as_ref(), PREFETCH_SONG_WAIT).await;
@@ -1247,7 +1247,7 @@ impl Backend {
                         tracks.retain(|t| t.id != *from);
                     }
                     log::info!("radio for {from}: {} songs", tracks.len());
-                    Resp::Radio { seed, tracks }
+                    Resp::Radio { seed, tracks, smart }
                 }
                 Req::PlayCollection { target } => {
                     let (title, tracks) = match &target {

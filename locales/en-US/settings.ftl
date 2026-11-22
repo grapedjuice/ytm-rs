@@ -39,6 +39,8 @@ settings-switching = Switching…
 
 settings-autoplay = Autoplay
 settings-autoplay-desc = Keep playing similar songs when the queue ends.
+settings-smart-shuffle = Smart shuffle
+settings-smart-shuffle-desc = While shuffling, songs like the one playing are mixed in, one after every three. They go again when shuffle is switched off.
 settings-gapless-playback = Gapless playback
 settings-gapless-playback-desc = Play consecutive songs without a pause between them, for albums and live sets that run together.
 settings-crossfade-songs = Crossfade songs

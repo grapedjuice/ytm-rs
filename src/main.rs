@@ -348,6 +348,41 @@ fn init_logging() {
         log::error!("thread '{}' {info}", std::thread::current().name().unwrap_or("<unnamed>"));
         default(info);
     }));
+    #[cfg(windows)]
+    log_native_crashes();
+}
+
+/// A crash in native code (a graphics or audio driver, a C library) isn't a panic: Windows
+/// ends the app, and only Event Viewer says why (#219). This puts the error and the DLL
+/// it was in into the log first, then lets Windows carry on as before.
+#[cfg(windows)]
+fn log_native_crashes() {
+    use windows::Win32::Foundation::HMODULE;
+    use windows::Win32::System::Diagnostics::Debug::{EXCEPTION_POINTERS, SetUnhandledExceptionFilter};
+    use windows::Win32::System::LibraryLoader::{GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, GetModuleFileNameW, GetModuleHandleExW};
+    unsafe extern "system" fn crashed(info: *const EXCEPTION_POINTERS) -> i32 {
+        // SAFETY: Windows hands over valid pointers (or null); the module lookup only reads.
+        unsafe {
+            if let Some(rec) = info.as_ref().and_then(|i| i.ExceptionRecord.as_ref()) {
+                let at = rec.ExceptionAddress as usize;
+                let mut module = HMODULE::default();
+                let flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
+                let (dll, offset) = if GetModuleHandleExW(flags, windows::core::PCWSTR(at as *const u16), &mut module).is_ok() {
+                    let mut name = [0u16; 260];
+                    let n = GetModuleFileNameW(Some(module), &mut name) as usize;
+                    (String::from_utf16_lossy(&name[..n]), at - module.0 as usize)
+                } else {
+                    ("unknown module".to_owned(), at)
+                };
+                log::error!("crash: exception {:#010x} in {dll} at +{offset:#x}", rec.ExceptionCode.0 as u32);
+                log::logger().flush();
+            }
+        }
+        // EXCEPTION_CONTINUE_SEARCH: Windows ends the app and records it, as without this.
+        0
+    }
+    // SAFETY: a plain function pointer, set once at startup.
+    unsafe { SetUnhandledExceptionFilter(Some(crashed)) };
 }
 
 /// Settings, caches and the sign-in: `data` beside the portable build's exe, else the

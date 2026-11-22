@@ -463,9 +463,6 @@ impl AudioHandle {
         self.status.gapless.store(on, Ordering::Relaxed);
         if !on {
             self.send(AudioCmd::ClearNext);
-        } else {
-            // Wakes the audio thread so a song already near its end stages the next one right away.
-            self.send(AudioCmd::Volume(self.volume()));
         }
     }
 
@@ -580,23 +577,6 @@ struct Queued {
     norm: Arc<AtomicU32>,
     cancelled: Arc<AtomicBool>,
     started: Arc<AtomicBool>,
-}
-
-impl Queued {
-    /// Cancel this queued track if it hasn't started yet. Leaves `cur_shared` untouched
-    /// when both point to the same buffer (Repeat One).
-    fn cancel_if_unstarted(slot: &mut Option<Self>, cur_shared: Option<&Arc<Shared>>) -> bool {
-        let Some(q) = slot.as_ref() else { return false };
-        if q.started.load(Ordering::Acquire) {
-            return false;
-        }
-        q.cancelled.store(true, Ordering::Release);
-        let q = slot.take().unwrap();
-        if cur_shared.is_none_or(|c| !Arc::ptr_eq(c, &q.shared)) {
-            q.shared.cancel();
-        }
-        true
-    }
 }
 
 /// How far before a song ends to open and queue the next song's decoder for gapless playback.
@@ -994,6 +974,24 @@ fn run(
     let mut song_ms = Arc::new(AtomicU64::new(0));
     let song_pos = |ms: &AtomicU64| Duration::from_millis(ms.load(Ordering::Relaxed));
     let tempo = |decoder, from, ms: &Arc<AtomicU64>| tempo::Tempo::new(decoder, status.speed.clone(), from, ms.clone());
+    // Cancels any staged or queued gapless track and resets staging state. With `discard`
+    // true (the player itself is being cleared, replaced, or ran out), drops a queued entry
+    // even if it just started; with `discard` false (ClearNext, Pause, Seek, DeviceLost),
+    // keeps an already-started entry so its pending `GaplessStarted` message still promotes it.
+    let clear_queued = |queued: &mut Option<Queued>, prepare_sent: &mut bool, cur_shared: Option<&Arc<Shared>>, discard: bool| -> bool {
+        status.staged_gen.store(0, Ordering::Release);
+        *prepare_sent = false;
+        let Some(q) = queued.as_ref() else { return false };
+        if !discard && q.started.load(Ordering::Acquire) {
+            return false;
+        }
+        q.cancelled.store(true, Ordering::Release);
+        let q = queued.take().unwrap();
+        if cur_shared.is_none_or(|c| !Arc::ptr_eq(c, &q.shared)) {
+            q.shared.cancel();
+        }
+        true
+    };
     let start_prepared_seek = |s: &Arc<Shared>, is_seekable: bool| -> Prepared {
         let prepared = Prepared::default();
         // (HLS segments need no index: their decoder seeks as it is.)
@@ -1044,8 +1042,7 @@ fn run(
                     let _ = events.send(AudioEvent::Error("No audio output device".into()));
                     wake();
                 }
-                Queued::cancel_if_unstarted(&mut queued, shared.as_ref());
-                queued = None;
+                clear_queued(&mut queued, &mut prepare_sent, shared.as_ref(), true);
                 clear(&mut player, &output);
                 // A song asked for while paused plays. What was fading out under the paused
                 // one goes, rather than come back up.
@@ -1085,7 +1082,6 @@ fn run(
                 // A new slot: a seek still being built for the last song keeps the old one.
                 prepared_seek = start_prepared_seek(&s, seekable);
                 ending_sent = false;
-                prepare_sent = false;
                 status.stream_ms.store(s.duration_ms, Ordering::Relaxed);
                 status.started_gen.store(generation, Ordering::Release);
                 status.playing.store(true, Ordering::Relaxed);
@@ -1115,10 +1111,9 @@ fn run(
                 queued = Some(Queued { generation, shared: s, fallback_duration_ms, fade_out: next_fade_out, song_ms: next_song_ms, norm: next_norm, cancelled, started });
             }
             Ok(AudioCmd::ClearNext) => {
-                if Queued::cancel_if_unstarted(&mut queued, shared.as_ref()) {
+                if clear_queued(&mut queued, &mut prepare_sent, shared.as_ref(), false) {
                     log::debug!("audio: cleared queued gapless track");
                 }
-                prepare_sent = false;
             }
             Ok(AudioCmd::GaplessStarted(generation)) => {
                 if !queued.as_ref().is_some_and(|q| q.generation == generation) {
@@ -1168,9 +1163,7 @@ fn run(
                 log::debug!("audio: seek to {at:?} via new decoder (seekable: {s})");
                 seekable = s;
                 let paused = player.is_paused();
-                Queued::cancel_if_unstarted(&mut queued, shared.as_ref());
-                queued = None;
-                prepare_sent = false;
+                clear_queued(&mut queued, &mut prepare_sent, shared.as_ref(), true);
                 clear(&mut player, &output);
                 fade_out = Arc::new(AtomicU32::new(0));
                 song_ms = Arc::new(AtomicU64::new(0));
@@ -1187,9 +1180,7 @@ fn run(
                 log::debug!("audio: pause at {:?}", song_pos(&song_ms));
                 // Cancel any unstarted or in-flight gapless track so pausing near the end
                 // can't start the next song; resuming re-stages it if still near the end.
-                status.staged_gen.store(0, Ordering::Release);
-                Queued::cancel_if_unstarted(&mut queued, shared.as_ref());
-                prepare_sent = false;
+                clear_queued(&mut queued, &mut prepare_sent, shared.as_ref(), false);
                 // Fade out first; the players pause once it's done (below). Another pause
                 // meanwhile (the media controls' and the window's) doesn't put that off.
                 // With the fade off, it's over in a few ms.
@@ -1228,9 +1219,7 @@ fn run(
                     && fading.iter().all(|f| f.player.empty()) =>
             {
                 // Cancel any staged gapless track before handing the old player over to fade out.
-                Queued::cancel_if_unstarted(&mut queued, shared.as_ref());
-                queued = None;
-                prepare_sent = false;
+                clear_queued(&mut queued, &mut prepare_sent, shared.as_ref(), true);
                 // Keeps playing at full volume until the next song starts (see `Start`).
                 // In real time, at the speed it's playing.
                 let left = length.map(|d| d.saturating_sub(song_pos(&song_ms)).div_f32(status.speed()));
@@ -1243,9 +1232,7 @@ fn run(
                 status.set_position(0);
             }
             Ok(cmd @ (AudioCmd::Stop | AudioCmd::Handoff)) => {
-                Queued::cancel_if_unstarted(&mut queued, shared.as_ref());
-                queued = None;
-                prepare_sent = false;
+                clear_queued(&mut queued, &mut prepare_sent, shared.as_ref(), true);
                 if matches!(cmd, AudioCmd::Handoff) {
                     // Skipping again mid-crossfade: everything playing goes, quickly enough
                     // to sound like a cut but without a click, and the next song comes in
@@ -1285,9 +1272,7 @@ fn run(
                 if current == 0 {
                     continue;
                 }
-                status.staged_gen.store(0, Ordering::Release);
-                Queued::cancel_if_unstarted(&mut queued, shared.as_ref());
-                prepare_sent = false;
+                clear_queued(&mut queued, &mut prepare_sent, shared.as_ref(), false);
                 // Seeking ends a crossfade: the new song alone from here.
                 for f in &fading {
                     f.out.store(QUICK_FADE_MS, Ordering::Relaxed);
@@ -1349,9 +1334,7 @@ fn run(
                 // unplugging headphones does, rather than carry on out of the speakers.
                 if output.device != was && !player.is_paused() && (current != 0 || !fading.is_empty()) {
                     log::info!("audio: output device gone, pausing");
-                    status.staged_gen.store(0, Ordering::Release);
-                    Queued::cancel_if_unstarted(&mut queued, shared.as_ref());
-                    prepare_sent = false;
+                    clear_queued(&mut queued, &mut prepare_sent, shared.as_ref(), false);
                     status.hushed.store(true, Ordering::Relaxed);
                     status.silence();
                     pause_at = None;
@@ -1478,8 +1461,7 @@ fn run(
             // Paused just before the end, the song's over only once it's played again:
             // the next one mustn't start playing.
             if player.empty() && !status.hushed.load(Ordering::Relaxed) {
-                Queued::cancel_if_unstarted(&mut queued, shared.as_ref());
-                queued = None;
+                clear_queued(&mut queued, &mut prepare_sent, shared.as_ref(), true);
                 // A failed download ends the decoder early: that's not the song ending.
                 let event = match shared.as_ref().and_then(|s| s.failure()) {
                     Some(failure) => AudioEvent::Interrupted { generation: current, at: song_pos(&song_ms), failure },

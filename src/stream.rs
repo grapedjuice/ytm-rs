@@ -747,12 +747,12 @@ pub fn decoder(shared: Arc<Shared>, seekable: bool) -> anyhow::Result<TrackDecod
     // follow the audio (only a seekable reader gets to it). Without a VBR header, an
     // MP3's length is guessed from its first frames, and gapless trimming would cut
     // whatever runs past the guess.
-    let mut reader = StreamReader::new(shared.clone());
+    let mut reader = StreamReader::new(shared);
     // Symphonia's ISO-MP4 demuxer ignores the `elst` edit list, leaving ~36 ms of leading
     // AAC priming silence and ~5-20 ms of trailing padding on YouTube's fragmented MP4s
     // (itag 140/141, including uploads and downloads). Read `elst` from `moov` so `Mp4Trim`
     // trims both ends to exact sample boundaries.
-    let elst = if feed { None } else { read_mp4_elst(&mut reader, shared.is_complete()) };
+    let elst = if feed { None } else { reader.block_at(0).ok().and_then(|b| parse_mp4_elst(&b)) };
     let builder = rodio::Decoder::builder().with_data(reader).with_byte_len(size).with_seekable(seekable || feed);
     let builder = if feed { builder.with_coarse_seek(true).with_gapless(false) } else { builder.with_mime_type("audio/mp4").with_hint("m4a") };
     let dec = builder.build()?;
@@ -854,112 +854,54 @@ impl<S: rodio::Source> rodio::Source for Mp4Trim<S> {
     }
 }
 
-/// Parses an ISO-BMFF box header from `buf` (`(fourcc, header_len, total_size)`).
-fn mp4_box_hdr(buf: &[u8], limit: u64) -> Option<([u8; 4], usize, u64)> {
-    let raw = u32::from_be_bytes(*buf.get(..4)?.first_chunk::<4>()?) as u64;
-    let kind = *buf.get(4..8)?.first_chunk::<4>()?;
-    let (hdr, size) = match raw {
-        0 => (8, limit),
-        1 => (16, u64::from_be_bytes(*buf.get(8..16)?.first_chunk::<8>()?)),
-        n => (8, n),
-    };
-    (size >= hdr as u64).then_some((kind, hdr, size))
-}
-
-/// Iterates complete ISO-BMFF boxes inside `buf`, yielding `(fourcc, body)`.
-fn mp4_boxes(mut buf: &[u8]) -> impl Iterator<Item = ([u8; 4], &[u8])> {
-    std::iter::from_fn(move || {
-        let (kind, hdr, size) = mp4_box_hdr(buf, buf.len() as u64)?;
-        let size = usize::try_from(size).ok()?;
-        let body = buf.get(hdr..size)?;
-        buf = &buf[size..];
-        Some((kind, body))
-    })
-}
-
-fn mp4_child<'a>(buf: &'a [u8], kind: &[u8; 4]) -> Option<&'a [u8]> {
-    mp4_boxes(buf).find(|(k, _)| k == kind).map(|(_, b)| b)
-}
-
 /// Reads the timescale from an `mvhd` or `mdhd` fullbox body (version 0 or 1).
 fn mp4_timescale(body: &[u8]) -> Option<u32> {
-    let off = match *body.first()? {
-        0 => 12,
-        1 => 20,
-        _ => return None,
-    };
-    Some(u32::from_be_bytes(*body.get(off..off + 4)?.first_chunk::<4>()?))
+    match *body.first()? {
+        0 => crate::video::be32(body, 12),
+        1 => crate::video::be32(body, 20),
+        _ => None,
+    }
 }
 
 /// Parses a single-entry normal-rate `elst` fullbox body: `(segment_duration, media_time)`.
 fn mp4_elst_entry(body: &[u8]) -> Option<(u64, u64)> {
-    if u32::from_be_bytes(*body.get(4..8)?.first_chunk::<4>()?) != 1 {
+    if crate::video::be32(body, 4)? != 1 {
         return None;
     }
     let (dur, mt, rate_off) = match *body.first()? {
-        0 => (u32::from_be_bytes(*body.get(8..12)?.first_chunk::<4>()?) as u64, i32::from_be_bytes(*body.get(12..16)?.first_chunk::<4>()?) as i64, 16),
-        1 => (u64::from_be_bytes(*body.get(8..16)?.first_chunk::<8>()?), i64::from_be_bytes(*body.get(16..24)?.first_chunk::<8>()?), 24),
+        0 => (crate::video::be32(body, 8)? as u64, crate::video::be32(body, 12)? as i32 as i64, 16),
+        1 => (crate::video::be64(body, 8)?, crate::video::be64(body, 16)? as i64, 24),
         _ => return None,
     };
-    let rate = i32::from_be_bytes(*body.get(rate_off..rate_off + 4)?.first_chunk::<4>()?);
-    (rate == 0x0001_0000 && mt >= 0).then_some((dur, mt as u64))
+    (crate::video::be32(body, rate_off)? == 0x0001_0000 && mt >= 0).then_some((dur, mt as u64))
 }
 
-/// Extracts `elst` from a `moov` body (tolerating truncation after `trak`, e.g. large `udta` cover art).
-fn parse_moov_elst(moov: &[u8]) -> Option<Mp4Elst> {
-    let movie_timescale = mp4_timescale(mp4_child(moov, b"mvhd")?)?;
-    mp4_boxes(moov).filter(|(k, _)| k == b"trak").find_map(|(_, trak)| {
-        let (segment_duration, media_time) = mp4_elst_entry(mp4_child(mp4_child(trak, b"edts")?, b"elst")?)?;
-        let media_timescale = mp4_timescale(mp4_child(mp4_child(trak, b"mdia")?, b"mdhd")?)?;
-        Some(Mp4Elst { movie_timescale, media_timescale, segment_duration, media_time })
-    })
-}
-
-/// Extracts `elst` from an MP4 header slice, allowing `moov` to extend past `head.len()`.
+/// Extracts `elst` from block 0's MP4 header, tolerating `moov` cut off after `trak`
+/// (e.g. when embedded cover art in `udta` runs past the first 64 KB).
 fn parse_mp4_elst(mut head: &[u8]) -> Option<Mp4Elst> {
-    while let Some((kind, hdr, size)) = mp4_box_hdr(head, head.len() as u64) {
-        if &kind == b"moov" {
-            return parse_moov_elst(&head[hdr..(size as usize).min(head.len())]);
+    let moov = loop {
+        let raw = crate::video::be32(head, 0)? as u64;
+        let kind = head.get(4..8)?;
+        let (hdr, size) = match raw {
+            0 => (8, head.len() as u64),
+            1 => (16, crate::video::be64(head, 8)?),
+            n => (8, n),
+        };
+        if size < hdr as u64 {
+            return None;
+        }
+        if kind == b"moov" {
+            let end = usize::try_from(size).unwrap_or(head.len()).min(head.len());
+            break &head[hdr..end];
         }
         head = head.get(usize::try_from(size).ok()?..)?;
-    }
-    None
-}
-
-/// Reads `elst` from block 0 (streaming YouTube MP4s), or by walking top-level boxes when
-/// `complete` (downloaded `.m4a` files whose tagger moved `moov` after `mdat`).
-fn read_mp4_elst(reader: &mut StreamReader, complete: bool) -> Option<Mp4Elst> {
-    if let Ok(head) = reader.block_at(0)
-        && let Some(e) = parse_mp4_elst(&head)
-    {
-        return Some(e);
-    }
-    if !complete {
-        return None;
-    }
-    let total = reader.shared.total;
-    let (mut pos, mut found) = (0u64, None);
-    while pos + 8 <= total {
-        let mut hdr_buf = [0u8; 16];
-        let want = (total - pos).min(16) as usize;
-        if reader.seek(SeekFrom::Start(pos)).is_err() || reader.read_exact(&mut hdr_buf[..want]).is_err() {
-            break;
-        }
-        let Some((kind, hdr, size)) = mp4_box_hdr(&hdr_buf[..want], total - pos) else { break };
-        if pos.saturating_add(size) > total {
-            break;
-        }
-        if &kind == b"moov" {
-            let mut buf = vec![0u8; (size - hdr as u64).min(64 * 1024) as usize];
-            if reader.seek(SeekFrom::Start(pos + hdr as u64)).is_ok() && reader.read_exact(&mut buf).is_ok() {
-                found = parse_moov_elst(&buf);
-            }
-            break;
-        }
-        pos += size;
-    }
-    let _ = reader.seek(SeekFrom::Start(0));
-    found
+    };
+    let movie_timescale = mp4_timescale(crate::video::find(moov, &["mvhd"])?)?;
+    crate::video::boxes(moov).filter(|(k, _)| *k == b"trak").find_map(|(_, trak)| {
+        let (segment_duration, media_time) = mp4_elst_entry(crate::video::find(trak, &["edts", "elst"])?)?;
+        let media_timescale = mp4_timescale(crate::video::find(trak, &["mdia", "mdhd"])?)?;
+        Some(Mp4Elst { movie_timescale, media_timescale, segment_duration, media_time })
+    })
 }
 
 /// A song's decoder: rodio's own (AAC, or a podcast feed's MP3) or Opus.
@@ -1254,20 +1196,11 @@ mod tests {
         assert_eq!(parsed, super::Mp4Elst { movie_timescale: 44_100, media_timescale: 44_100, segment_duration: 100, media_time: 16 });
 
         // Large embedded cover art in `udta` pushing `moov` past the 64 KB first block still parses.
-        let mut big_moov_body = moov_body.clone();
+        let mut big_moov_body = moov_body;
         big_moov_body.extend_from_slice(&box_bytes(b"udta", &vec![0u8; 80_000]));
         let mut big_mp4 = box_bytes(b"ftyp", b"dash\0\0\0\0");
         big_mp4.extend_from_slice(&box_bytes(b"moov", &big_moov_body));
         assert_eq!(super::parse_mp4_elst(&big_mp4[..65_536]), Some(parsed));
-
-        // Downloaded `.m4a` with `moov` placed after `mdat` still parses and rewinds reader to 0.
-        let mut tail_mp4 = box_bytes(b"ftyp", b"M4A \0\0\0\0");
-        tail_mp4.extend_from_slice(&box_bytes(b"mdat", &vec![0u8; 80_000]));
-        tail_mp4.extend_from_slice(&box_bytes(b"moov", &moov_body));
-        let shared = super::Shared::from_bytes(tail_mp4, 0, None);
-        let mut reader = super::StreamReader::new(shared);
-        assert_eq!(super::read_mp4_elst(&mut reader, true), Some(parsed));
-        assert_eq!(reader.pos, 0);
 
         // Stereo stream of 140 frames: 16 leading zeros, 100 ones, 24 trailing zeros.
         let mut samples = vec![0.0f32; 16 * 2];

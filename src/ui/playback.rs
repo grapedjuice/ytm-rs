@@ -112,10 +112,14 @@ impl App {
         }
     }
 
+    fn wants_song_version(&self, t: &Track) -> bool {
+        self.play_songs && !self.show_video && t.music_video && !self.jam.active()
+    }
+
     /// `t`, when it's a music video to play as its song version. Not in a jam: everyone
     /// there plays the host's exact upload at the host's position.
     pub(super) fn song_of(&self, t: &Track) -> Option<Track> {
-        (self.play_songs && !self.show_video && t.music_video && !self.jam.active()).then(|| t.clone())
+        self.wants_song_version(t).then(|| t.clone())
     }
 
     pub(super) fn playing(&self) -> bool {
@@ -579,7 +583,7 @@ impl App {
             && !self.jam.guest()
             && staged.after == self.generation
             && staged.repeat_one == repeat_one
-            && expected.is_some_and(|t| t.id == staged.track.id && self.song_of(t).is_some() == staged.want_song);
+            && expected.is_some_and(|t| t.id == staged.track.id && self.wants_song_version(t) == staged.want_song);
         if !matches {
             self.clear_staged();
         }

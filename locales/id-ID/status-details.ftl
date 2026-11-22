@@ -1,40 +1,44 @@
 ### App interface.
 
-status-upload-complete = Pengunggahan selesai ({ $count }). YouTube Music mungkin memerlukan waktu beberapa menit untuk memproses trek.
-status-upload-failed = Pengunggahan gagal: { $details }
-status-upload-partial = Diunggah: { $count }. Gagal: { $details }
-status-waiting-transfer = Menunggu transfer selesai menambahkan ke Musik yang Disukai…
+status-upload-complete = Unggahan selesai ({ $count }). YouTube Music mungkin butuh semenit buat memproses lagunya.
+status-upload-failed = Gagal mengunggah: { $details }
+status-upload-partial = Berhasil diunggah: { $count }. Gagal: { $details }
+status-waiting-transfer = Nunggu transfer selesai menambahkan ke Musik yang Disukai…
 status-liking-progress = Menambahkan suka: { $done } dari { $total }…
 status-unliking-progress = Menghapus suka: { $done } dari { $total }…
-status-playlist-created = Daftar putar dibuat
+status-playlist-created = Playlist dibuat
 status-new-playlist-tracks = Lagu ditambahkan ke playlist baru: { $count }
-status-playlist-added = Ditambahkan ke daftar putar
-status-playlist-updated = Daftar putar diperbarui
-status-playlist-sorted = Daftar putar diurutkan
-status-playlist-sort-failed = Tidak dapat mengurutkan playlist
-status-playlist-move-failed = YouTube Music tidak mengambil langkah itu
-status-library-saved = Disimpan ke perpustakaan
-status-library-removed = Dihapus dari perpustakaan
+status-playlist-added = Ditambahkan ke playlist
+status-playlist-updated = Playlist diperbarui
+status-playlist-sorted = Playlist diurutkan
+status-playlist-sort-failed = Gagal mengurutkan playlist
+status-playlist-move-failed = YouTube Music nggak nerima pemindahan itu
+status-library-saved = Disimpan ke koleksi
+status-library-removed = Dihapus dari koleksi
 status-unsubscribed = Berhenti berlangganan
-status-subscribe-failed = Tidak dapat berlangganan
-status-unsubscribe-failed = Tidak dapat berhenti berlangganan
+status-subscribe-failed = Gagal berlangganan
+status-unsubscribe-failed = Gagal berhenti berlangganan
 status-like-success = Suka ditambahkan: { $count }
-status-like-refused = YouTube Music tidak menerima perubahan tersebut. Coba lagi sebentar lagi.
-status-refused-count = YouTube Music ditolak: { $count }
+status-like-refused = YouTube Music nggak nerima perubahannya. Coba lagi nanti.
+status-refused-count = Ditolak YouTube Music: { $count }
 status-removed-liked = Dihapus dari lagu yang disukai
-status-download-batch = Mengunduh trek: { $count }
+status-download-batch = Mengunduh lagu: { $count }
 status-download-collection = Mengunduh dari “{ $title }”: { $count }
-status-download-stopped = Berhenti mengunduh{ $name }: { $songs } disimpan
-status-download-already = Sudah diunduh
-status-download-name-already = “{ $title }” sudah diunduh
-status-download-done = Diunduh{ $name }: { $songs }
-status-download-already-count = { $count } sudah ada
-status-download-fail-count = { $count } tidak dapat diunduh ({ $details })
-status-play-premium = “{ $title }” membutuhkan YouTube Music Premium
-status-play-sign-in = Masuk untuk memainkan “{ $title }”
-status-age-restricted = itu dibatasi usia
-status-songs = { $count } lagu
-status-episodes = { $count } episode
+status-download-stopped = Unduhan{ $name } dihentikan: { $songs } tersimpan
+status-download-already = Udah diunduh
+status-download-name-already = “{ $title }” udah diunduh
+status-download-done = Unduhan{ $name } selesai: { $songs }
+status-download-already-count = { $count } udah ada
+status-download-fail-count = { $count } gagal diunduh ({ $details })
+status-play-premium = “{ $title }” butuh YouTube Music Premium
+status-play-sign-in = Masuk dulu buat memutar “{ $title }”
+status-age-restricted = dibatasi usia
+status-songs = { $count ->
+   *[other] { $count } lagu
+}
+status-episodes = { $count ->
+   *[other] { $count } episode
+}
 status-download-quoted-title = “{ $title }”
 discord-view-artist = Lihat artis
 discord-view-album = Lihat album

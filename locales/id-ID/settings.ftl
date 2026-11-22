@@ -259,7 +259,7 @@ settings-song-info = Info lagu
 settings-song-info-language = Bahasa info lagu
 settings-song-info-language-desc = Bahasa yang dipakai buat judul lagu, nama artis dan album, serta rak YouTube Music, selama YouTube Music menyediakannya.
 settings-song-info-country = Negara info lagu
-settings-song-info-country-desc = Negara yang jadi acuan diagram dan rekomendasi.
+settings-song-info-country-desc = Negara yang jadi acuan tangga lagu dan rekomendasi.
 
 ## Window
 

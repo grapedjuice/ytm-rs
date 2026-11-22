@@ -2,5 +2,5 @@
 
 # After unliking several songs at once; Undo sits beside it.
 likes-removed = { $count ->
-   *[other] { $count } suka dihapus
+   *[other] Suka dihapus dari { $count } lagu
 }

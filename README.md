@@ -237,7 +237,7 @@ The relay in `server/` is a separate Cloudflare Worker, also in Rust ([workers-r
 
 ## Contributing
 
-Found a bug or have an idea? [Open an issue](https://github.com/grapedjuice/ytm-rs/issues). Questions, or a setup to show off? Head to [Discussions](https://github.com/grapedjuice/ytm-rs/discussions). Pull requests are welcome, and so are translations: see [Translating ytm-rs](TRANSLATING.md).
+Found a bug or have an idea? [Open an issue](https://github.com/grapedjuice/ytm-rs/issues). Questions, or a setup to show off? Head to [Discussions](https://github.com/grapedjuice/ytm-rs/discussions). Pull requests are welcome: see [Contributing to ytm-rs](CONTRIBUTING.md) for how. So are translations: see [Translating ytm-rs](TRANSLATING.md).
 
 ## License
 
@@ -266,6 +266,26 @@ ytm-rs is licensed under [GPL-3.0](LICENSE).
 
 Thanks to everyone who has sent code, features and fixes to ytm-rs.
 
-<a href="https://github.com/grapedjuice/ytm-rs/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=grapedjuice/ytm-rs" alt="Contributors" />
-</a>
+<p>
+  <a href="https://github.com/grapedjuice"><img src="https://github.com/grapedjuice.png?size=96" width="48" height="48" alt="grapedjuice" title="grapedjuice" /></a>
+  <a href="https://github.com/Sukooo"><img src="https://github.com/Sukooo.png?size=96" width="48" height="48" alt="Sukooo" title="Sukooo" /></a>
+  <a href="https://github.com/Pelotrio"><img src="https://github.com/Pelotrio.png?size=96" width="48" height="48" alt="Pelotrio" title="Pelotrio" /></a>
+  <a href="https://github.com/Ninso112"><img src="https://github.com/Ninso112.png?size=96" width="48" height="48" alt="Ninso112" title="Ninso112" /></a>
+  <a href="https://github.com/vaultboee"><img src="https://github.com/vaultboee.png?size=96" width="48" height="48" alt="vaultboee" title="vaultboee" /></a>
+  <a href="https://github.com/PTKDrake"><img src="https://github.com/PTKDrake.png?size=96" width="48" height="48" alt="PTKDrake" title="PTKDrake" /></a>
+  <a href="https://github.com/jasdeep-dhillon"><img src="https://github.com/jasdeep-dhillon.png?size=96" width="48" height="48" alt="jasdeep-dhillon" title="jasdeep-dhillon" /></a>
+  <a href="https://github.com/eldezaki"><img src="https://github.com/eldezaki.png?size=96" width="48" height="48" alt="eldezaki" title="eldezaki" /></a>
+  <a href="https://github.com/DaJokni"><img src="https://github.com/DaJokni.png?size=96" width="48" height="48" alt="DaJokni" title="DaJokni" /></a>
+  <a href="https://github.com/munitkala"><img src="https://github.com/munitkala.png?size=96" width="48" height="48" alt="munitkala" title="munitkala" /></a>
+  <a href="https://github.com/akrameh"><img src="https://github.com/akrameh.png?size=96" width="48" height="48" alt="akrameh" title="akrameh" /></a>
+  <a href="https://github.com/badwatt"><img src="https://github.com/badwatt.png?size=96" width="48" height="48" alt="badwatt" title="badwatt" /></a>
+  <a href="https://github.com/faruktinaz"><img src="https://github.com/faruktinaz.png?size=96" width="48" height="48" alt="faruktinaz" title="faruktinaz" /></a>
+  <a href="https://github.com/JoaoMarcosSampaio"><img src="https://github.com/JoaoMarcosSampaio.png?size=96" width="48" height="48" alt="JoaoMarcosSampaio" title="JoaoMarcosSampaio" /></a>
+  <a href="https://github.com/LoserDenji"><img src="https://github.com/LoserDenji.png?size=96" width="48" height="48" alt="LoserDenji" title="LoserDenji" /></a>
+  <a href="https://github.com/mkasjanowicz"><img src="https://github.com/mkasjanowicz.png?size=96" width="48" height="48" alt="mkasjanowicz" title="mkasjanowicz" /></a>
+  <a href="https://github.com/vshlapakov"><img src="https://github.com/vshlapakov.png?size=96" width="48" height="48" alt="vshlapakov" title="vshlapakov" /></a>
+  <a href="https://github.com/vipu18"><img src="https://github.com/vipu18.png?size=96" width="48" height="48" alt="vipu18" title="vipu18" /></a>
+  <a href="https://github.com/kevdevrev"><img src="https://github.com/kevdevrev.png?size=96" width="48" height="48" alt="kevdevrev" title="kevdevrev" /></a>
+</p>
+
+See everyone on the [contributors page](https://github.com/grapedjuice/ytm-rs/graphs/contributors).

@@ -1,7 +1,7 @@
 //! A finger swiping up the player bar opens Now playing, and swiping down it (or Now
-//! playing itself) closes it, as on phones. Only touches count: a mouse or trackpad never sends them, so dragging with
-//! one does what it always did. A swipe that something on the bar took for itself (the
-//! seek line, the volume) is that thing's, not a swipe.
+//! playing itself) closes it, as on phones. Only touches count: a mouse or trackpad never
+//! sends them, so dragging with one does what it always did. A swipe that something there
+//! took for itself (the seek line, the volume, the lyrics) is that thing's, not a swipe.
 
 use egui::{Event, Pos2, Rect, TouchPhase};
 
@@ -51,6 +51,11 @@ impl Swipe {
                 TouchPhase::Cancel => self.start = None,
             }
         }
+        // Something takes a drag on the frame the finger lands (the lyrics' scroll does),
+        // and a quick flick has let go by the next.
+        if self.start.is_some() && dragging {
+            self.taken = true;
+        }
         swiped
     }
 }
@@ -63,7 +68,7 @@ pub(super) fn swipe(app: &mut App, ctx: &egui::Context, area: Rect, key: &str, u
     let (events, now) = ctx.input(|i| (i.events.clone(), i.time));
     let dragging = ctx.dragged_id().is_some_and(|d| Some(d) != under);
     if !events.iter().any(|e| matches!(e, Event::Touch { .. })) && ctx.data(|d| d.get_temp::<Swipe>(id)).is_none_or(|s| s.start.is_none()) {
-        // No finger on the bar: nothing to do (and nothing for a mouse, ever).
+        // No finger on the area: nothing to do (and nothing for a mouse, ever).
         return;
     }
     let mut swipe: Swipe = ctx.data(|d| d.get_temp(id)).unwrap_or_default();
@@ -126,6 +131,16 @@ mod tests {
         assert_eq!(s.feed(&[touch(TouchPhase::End, 300.0, 420.0)], BAR, 0.2, false), None);
         // The next one is a swipe again.
         assert_eq!(swipe(&mut s, (300.0, 540.0), (0.0, -80.0), 0.2), Some(true));
+    }
+
+    #[test]
+    fn a_flick_something_took_as_the_finger_landed_is_theirs() {
+        let mut s = Swipe::default();
+        // The lyrics' scroll takes the drag on the frame the finger lands; it's let go
+        // by the next, when the finger already has.
+        s.feed(&[touch(TouchPhase::Start, 300.0, 520.0)], BAR, 0.0, true);
+        assert_eq!(s.feed(&[touch(TouchPhase::End, 300.0, 600.0)], BAR, 0.05, false), None);
+        assert_eq!(swipe(&mut s, (300.0, 520.0), (0.0, 80.0), 0.2), Some(false));
     }
 
     #[test]

@@ -2000,7 +2000,8 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
     ui.data_mut(|d| d.insert_temp(egui::Id::unique("in-queue"), differs));
     area.show(ui, |ui| {
         let accent = app.accent_color();
-        let (queue, liked, acts, has_current, by, drag) = (&app.queue.tracks, &app.liked, &mut app.actions, app.queue.index.is_some(), &app.jam.by, &mut app.row_drag);
+        let (queue_state, liked, acts, has_current, by, drag) = (&app.queue, &app.liked, &mut app.actions, app.queue.index.is_some(), &app.jam.by, &mut app.row_drag);
+        let queue = &queue_state.tracks;
         // Songs can be dragged into another order, those played too, as in YouTube Music's
         // queue, and songs dragged in from other lists land where they're let go; in a jam,
         // by the host.
@@ -2015,7 +2016,12 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
                 row_drag::grip(ui, drag, list, i, t);
             }
             let queue_remove = (!current && drag.is_none()).then_some(i);
-            let o = widgets::RowOpts { current, added_by: by.get(&t.id).cloned(), queue_remove, ..rows.opts(liked, t, None, false) };
+            // A jam's songs say who added them, and Smart shuffle's say so.
+            let added = match by.get(&t.id) {
+                Some(name) => Some(crate::tr!("player-added-by", name = name)),
+                None => queue_state.is_mixed(&t.id).then(|| crate::tr!("settings-smart-shuffle").to_owned()),
+            };
+            let o = widgets::RowOpts { current, added, queue_remove, ..rows.opts(liked, t, None, false) };
             if widgets::track_row(ui, t, &o, acts).clicked() {
                 // The playing row pauses/resumes instead of doing nothing.
                 acts.push(if current { Action::TogglePlay } else { Action::QueueJump(i) });

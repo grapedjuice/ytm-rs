@@ -344,7 +344,7 @@ mod tests {
                     let (songs, drag, clicked) = (&self.songs, &mut self.drag, &mut self.clicked);
                     visible_rows(ui, songs.len(), |ui, i| {
                         grip(ui, drag, id, i, &songs[i]);
-                        let o = RowOpts { number: None, show_album: false, plays_col: false, current: false, playing: false, accent: egui::Color32::RED, time: 0.0, liked: false, added_by: None, pick: false, selected: None, remove: None, queue_remove: None };
+                        let o = RowOpts { number: None, show_album: false, plays_col: false, current: false, playing: false, accent: egui::Color32::RED, time: 0.0, liked: false, added: None, pick: false, selected: None, remove: None, queue_remove: None };
                         if track_row(ui, &songs[i], &o, &mut acts).clicked() {
                             clicked.push(i);
                         }

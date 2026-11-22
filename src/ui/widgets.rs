@@ -1393,8 +1393,8 @@ pub struct RowOpts {
     pub accent: Color32,
     pub time: f64,
     pub liked: bool,
-    /// In a jam: who added the song.
-    pub added_by: Option<String>,
+    /// In the queue: who or what added the song, as shown ("Added by Sam").
+    pub added: Option<String>,
     /// Choosing a match for the Spotify transfer: a click picks the song and its cover plays it.
     pub pick: bool,
     /// Selecting songs: a checkbox leads the row; `Some(true)` when this one is picked.
@@ -1559,9 +1559,10 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         (false, Some(p), None) => Some(format!("{} \u{2022} {p}", t.artist_line())),
         (false, _, _) => Some(t.artist_line()),
     };
-    let sub = match (sub, &o.added_by) {
-        (Some(s), Some(by)) if !s.is_empty() => Some(format!("{s} • {}", crate::tr!("player-added-by", name = by))),
-        (_, Some(by)) => Some(crate::tr!("player-added-by", name = by)),
+    // Who added it first: in a narrow queue the end of the line is cut off.
+    let sub = match (sub, &o.added) {
+        (Some(s), Some(by)) if !s.is_empty() => Some(format!("{by} • {s}")),
+        (_, Some(by)) => Some(by.clone()),
         (sub, _) => sub,
     };
     let title_y = if sub.is_some() { cy - 18.0 } else { cy - 9.0 };

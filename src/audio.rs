@@ -315,7 +315,7 @@ impl<S: rodio::Source> Iterator for Meter<S> {
     type Item = rodio::Sample;
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(gate) = self.gate.take() {
-            if gate.cancelled.load(Ordering::Acquire) || gate.prev_failed.load(Ordering::Acquire) || self.status.hushed.load(Ordering::Acquire) {
+            if gate.cancelled.load(Ordering::Acquire) || gate.prev_failed.load(Ordering::Acquire) || self.status.hushed.load(Ordering::Acquire) || self.status.stop_at_end.load(Ordering::Relaxed) {
                 self.aborted = true;
                 return None;
             }
@@ -1449,6 +1449,7 @@ fn run(
                 && queued.is_none()
                 && crossfade.is_zero()
                 && status.gapless.load(Ordering::Relaxed)
+                && !status.stop_at_end.load(Ordering::Relaxed)
                 && !status.hushed.load(Ordering::Relaxed)
                 && let Some(d) = length
                 && pos + stage_before >= d

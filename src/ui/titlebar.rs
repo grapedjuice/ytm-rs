@@ -107,6 +107,12 @@ pub fn init(data_dir: &std::path::Path) {
 const LIGHTS_X: f32 = 20.0;
 const LIGHTS_W: f32 = 84.0;
 
+/// The narrowest the sidebar's icon rail can be: on macOS the window buttons sit over its
+/// top, and a rail narrower than them ends halfway across the last one.
+pub fn rail_min() -> f32 {
+    if inset() { LIGHTS_W + 8.0 } else { 0.0 }
+}
+
 /// macOS: the system's window buttons over the app's top row, the system's title strip
 /// gone. `YTM_NATIVE_TITLEBAR` keeps the strip.
 pub fn inset() -> bool {

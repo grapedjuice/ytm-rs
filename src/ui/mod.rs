@@ -640,6 +640,8 @@ pub struct App {
     /// Panels frost what's behind them, in themes that have them do so.
     glass_on: bool,
     reactive_bg: bool,
+    /// Bars along the bottom of now playing that move with the music (off unless switched on).
+    visualizer: bool,
     /// Bright album art is darkened behind now playing and the pages, for the text over it.
     dim_bright: bool,
     /// The progress line's knob shown all the time, not only on hover.
@@ -1087,6 +1089,7 @@ impl App {
             bg_brightness: shell::load_factor(get("bg_brightness"), shell::BG_BRIGHTNESS),
             glass_on: get("glass_on").is_none_or(|v| v == "1"),
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
+            visualizer: get("visualizer").is_some_and(|v| v == "1"),
             dim_bright: get("dim_bright").is_none_or(|v| v == "1"),
             seek_knob_always: get("seek_knob_always").is_some_and(|v| v == "1"),
             time_left: get("time_left").is_some_and(|v| v == "1"),
@@ -1258,6 +1261,7 @@ impl App {
         jam::dev_hooks(&mut app);
         app.audio.set_normalize(app.normalize);
         app.set_gapless();
+        app.audio.set_spectrum(app.visualizer);
         app.set_crossfade();
         app.audio.set_pause_fade(app.pause_fade);
         app.set_eq();
@@ -2201,6 +2205,7 @@ impl eframe::App for App {
         storage.set_string("bg_brightness", format!("{:.2}", self.bg_brightness));
         storage.set_string("glass_on", b(self.glass_on));
         storage.set_string("reactive_bg", b(self.reactive_bg));
+        storage.set_string("visualizer", b(self.visualizer));
         storage.set_string("dim_bright", b(self.dim_bright));
         storage.set_string("seek_knob_always", b(self.seek_knob_always));
         storage.set_string("time_left", b(self.time_left));

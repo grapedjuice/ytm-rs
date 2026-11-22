@@ -18,6 +18,7 @@ pub use crate::stream::TrackDecoder;
 
 pub mod eq;
 pub mod limiter;
+pub mod spectrum;
 pub mod stereo;
 pub mod tempo;
 
@@ -108,6 +109,9 @@ pub struct AudioStatus {
     log_volume: AtomicBool,
     /// Smoothed output loudness 0..1 (f32 bits), for audio-reactive visuals.
     level: AtomicU32,
+    /// The visualizer's bars (see `spectrum`), measured only while it's on.
+    spectrum: spectrum::Bars,
+    spectrum_on: AtomicBool,
     /// How far the output device runs behind the position (its buffer), in ms.
     latency_ms: AtomicU32,
     /// Crossfade length in ms; 0 = off.
@@ -193,6 +197,11 @@ impl AudioStatus {
         f32::from_bits(self.level.load(Ordering::Relaxed))
     }
 
+    /// The visualizer's bars, 0..1 each, low to high.
+    pub fn spectrum(&self) -> [f32; spectrum::BARS] {
+        std::array::from_fn(|i| f32::from_bits(self.spectrum[i].load(Ordering::Relaxed)))
+    }
+
     fn set_position(&self, ms: u64) {
         self.position_ms.store(ms, Ordering::Relaxed);
         self.sampled_at.store(now_ms(), Ordering::Relaxed);
@@ -273,6 +282,8 @@ struct Meter<S> {
     acc: f32,
     n: u32,
     smooth: f32,
+    /// Set up the first time the visualizer is on for this song.
+    spectrum: Option<spectrum::Spectrum>,
 }
 
 impl<S: rodio::Source> Meter<S> {
@@ -283,7 +294,7 @@ impl<S: rodio::Source> Meter<S> {
         let mut m = Self {
             inner, status, norm: Arc::new(AtomicU32::new(1f32.to_bits())), cur_norm: 1.0, norm_alpha: 1.0,
             fade_out, seen_out: 0, ramp: None, gate: None, aborted: false,
-            pause, pause_step: 0.0, instant_step: 0.0, seen_silenced, acc: 0.0, n: 0, smooth: 0.0,
+            pause, pause_step: 0.0, instant_step: 0.0, seen_silenced, acc: 0.0, n: 0, smooth: 0.0, spectrum: None,
         };
         m.pause_step = 1.0 / m.samples(PAUSE_FADE_MS) as f32;
         m.instant_step = 1.0 / m.samples(INSTANT_FADE_MS) as f32;
@@ -379,6 +390,11 @@ impl<S: rodio::Source> Iterator for Meter<S> {
             }
         }
         s *= self.pause;
+        // A song fading out is no longer the one the visuals follow.
+        if self.seen_out == 0 && self.status.spectrum_on.load(Ordering::Relaxed) {
+            let (rate, channels) = (self.inner.sample_rate().get(), self.inner.channels().get());
+            self.spectrum.get_or_insert_with(|| spectrum::Spectrum::new(rate, channels)).push(s, &self.status.spectrum);
+        }
         self.acc += s * s;
         self.n += 1;
         if self.n == 2048 {
@@ -464,6 +480,11 @@ impl AudioHandle {
         if !on {
             self.send(AudioCmd::ClearNext);
         }
+    }
+
+    /// Whether the visualizer's bars are measured (Settings › Appearance › Visualizer).
+    pub fn set_spectrum(&self, on: bool) {
+        self.status.spectrum_on.store(on, Ordering::Relaxed);
     }
 
     /// Whether pausing fades out and playing again fades back in; off, both are instant.

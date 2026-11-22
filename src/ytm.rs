@@ -1059,6 +1059,31 @@ pub async fn comments(api: &Api, video_id: &str, auth: bool) -> anyhow::Result<O
     api.call("next", json!({ "continuation": token }), auth).await.map(Some)
 }
 
+/// The lyrics YouTube Music shows on a song's Lyrics tab (licensed from Musixmatch or
+/// LyricFind), as plain text: a signed-out client gets them without timing. `None`: the
+/// song has no lyrics there. Signed out, so looking them up leaves no trace on the account.
+pub async fn lyrics(api: &Api, video_id: &str) -> anyhow::Result<Option<String>> {
+    let watch = api.call("next", json!({ "videoId": video_id }), false).await?;
+    let tabs = &watch["contents"]["singleColumnMusicWatchNextResultsRenderer"]["tabbedRenderer"]["watchNextTabbedResultsRenderer"]["tabs"];
+    // The Lyrics tab by its page (`MPLY…`), whatever language the tab's title is in.
+    let Some(id) = arr(tabs).iter().filter_map(|t| t["tabRenderer"]["endpoint"]["browseEndpoint"]["browseId"].as_str()).find(|id| id.starts_with("MPLY")) else { return Ok(None) };
+    let page = api.call("browse", json!({ "browseId": id }), false).await?;
+    let text: String = arr(&page["contents"]["sectionListRenderer"]["contents"])
+        .iter()
+        .flat_map(|s| arr(&s["musicDescriptionShelfRenderer"]["description"]["runs"]))
+        .filter_map(|r| r["text"].as_str())
+        .collect();
+    Ok(Some(text).filter(|t| !t.trim().is_empty()))
+}
+
+/// What to look a song's lyrics up by where only names match (LRCLib): its title without
+/// what marks a music video, a leading "Artist - " or a closing "(feat. …)", and its first
+/// artist.
+pub fn lyrics_names(t: &Track) -> (String, String) {
+    let title = without_artist(&song_title(&t.title), t);
+    (without_guests(&title).to_owned(), t.artists.first().map(|a| a.name.clone()).unwrap_or_default())
+}
+
 /// How many songs a playlist header's second subtitle says it has: "[views •] 39 songs
 /// [• duration]". In English by the word, in another language by where it stands.
 fn song_count(subtitle: &Value) -> Option<u64> {
@@ -3146,6 +3171,16 @@ mod tests {
         }
     }
 
+    /// A song's Lyrics tab, signed out. Run alone:
+    /// `cargo test --bin ytm-rs -- --ignored ytm::tests::lyrics_live --exact`
+    #[tokio::test]
+    #[ignore]
+    async fn lyrics_live() {
+        let api = crate::ytmapi::Api::new(&std::env::temp_dir().join("ytm-rs-lyrics-test"));
+        let text = lyrics(&api, "fJ9rUzIMcZQ").await.unwrap().expect("Bohemian Rhapsody has lyrics");
+        assert!(text.starts_with("Is this the real life?"), "{text}");
+    }
+
     /// Asks the Android VR client for a real album (no sign-in). Run alone:
     /// `cargo test --bin ytm-rs -- --ignored ytm::tests::album_songs_live --exact`
     #[tokio::test]
@@ -3425,6 +3460,14 @@ mod tests {
 
     fn video(title: &str, artists: &[&str], secs: u32) -> Track {
         Track { music_video: true, ..song(title, artists, secs) }
+    }
+
+    #[test]
+    fn lyrics_are_looked_up_by_the_bare_title_and_first_artist() {
+        let v = video("Dua Lipa - Levitating (feat. DaBaby) (Official Music Video)", &["Dua Lipa", "DaBaby"], 203);
+        assert_eq!(lyrics_names(&v), ("Levitating".to_owned(), "Dua Lipa".to_owned()));
+        // A song's own qualifiers stay: they're part of its name on LRCLib too.
+        assert_eq!(lyrics_names(&song("Together Forever (2022 Remaster)", &["Rick Astley"], 200)).0, "Together Forever (2022 Remaster)");
     }
 
     #[test]

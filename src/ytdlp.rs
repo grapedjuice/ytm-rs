@@ -5,7 +5,8 @@
 //! Node fetched for it (`node`), and with QuickJS while that's on its way.
 //!
 //! yt-dlp is downloaded into the app's data folder on first use and refreshed
-//! weekly; QuickJS likewise, only where there's no Node or Deno, and monthly. The signed-in session is passed as a Netscape cookies file that exists
+//! weekly; QuickJS likewise, only where there's no Node or Deno, and monthly. Both come
+//! from their latest GitHub release and must match the SHA-256 its API gives. The signed-in session is passed as a Netscape cookies file that exists
 //! only for the duration of the call.
 
 use std::path::{Path, PathBuf};
@@ -13,19 +14,22 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 #[cfg(windows)]
 const BIN: &str = "yt-dlp.exe";
 #[cfg(not(windows))]
 const BIN: &str = "yt-dlp";
 #[cfg(all(windows, not(target_arch = "aarch64")))]
-const URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+const ASSET: &str = "yt-dlp.exe";
 #[cfg(all(windows, target_arch = "aarch64"))]
-const URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_arm64.exe";
+const ASSET: &str = "yt-dlp_arm64.exe";
 #[cfg(target_os = "macos")]
-const URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos";
+const ASSET: &str = "yt-dlp_macos";
 #[cfg(all(unix, not(target_os = "macos")))]
-const URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux";
+const ASSET: &str = "yt-dlp_linux";
+
+const REPO: &str = "yt-dlp/yt-dlp";
 
 const MAX_AGE: Duration = Duration::from_secs(7 * 24 * 3600);
 
@@ -36,17 +40,19 @@ const QJS: &str = "qjs.exe";
 #[cfg(not(windows))]
 const QJS: &str = "qjs";
 #[cfg(all(windows, target_arch = "x86"))]
-const QJS_URL: &str = "https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-windows-x86.exe";
+const QJS_ASSET: &str = "qjs-windows-x86.exe";
 #[cfg(all(windows, not(target_arch = "x86")))]
-const QJS_URL: &str = "https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-windows-x86_64.exe";
+const QJS_ASSET: &str = "qjs-windows-x86_64.exe";
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-const QJS_URL: &str = "https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-darwin-arm64";
+const QJS_ASSET: &str = "qjs-darwin-arm64";
 #[cfg(all(target_os = "macos", not(target_arch = "aarch64")))]
-const QJS_URL: &str = "https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-darwin-x86_64";
+const QJS_ASSET: &str = "qjs-darwin-x86_64";
 #[cfg(all(unix, not(target_os = "macos"), target_arch = "aarch64"))]
-const QJS_URL: &str = "https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-linux-aarch64";
+const QJS_ASSET: &str = "qjs-linux-aarch64";
 #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "aarch64")))]
-const QJS_URL: &str = "https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-linux-x86_64";
+const QJS_ASSET: &str = "qjs-linux-x86_64";
+
+const QJS_REPO: &str = "quickjs-ng/quickjs";
 
 const QJS_MAX_AGE: Duration = Duration::from_secs(30 * 24 * 3600);
 
@@ -65,9 +71,10 @@ pub struct Stream {
     pub replaced: Vec<String>,
 }
 
-/// Path to an up-to-date `name` in the data folder, downloading it from `url` if missing
-/// or older than `max_age`.
-async fn ensure(http: &reqwest::Client, data_dir: &Path, name: &str, url: &str, max_age: Duration) -> anyhow::Result<PathBuf> {
+/// Path to an up-to-date `name` in the data folder, downloading `asset` from the latest
+/// release of GitHub's `repo` if it's missing or older than `max_age`. When a newer one
+/// can't be fetched, the one there goes on being used, and the next song tries again.
+async fn ensure(http: &reqwest::Client, data_dir: &Path, name: &str, repo: &str, asset: &str, max_age: Duration) -> anyhow::Result<PathBuf> {
     let bin = data_dir.join(name);
     let fresh = std::fs::metadata(&bin)
         .and_then(|m| m.modified())
@@ -75,9 +82,23 @@ async fn ensure(http: &reqwest::Client, data_dir: &Path, name: &str, url: &str, 
     if fresh {
         return Ok(bin);
     }
-    log::info!("downloading {name}");
-    let bytes = http.get(url).timeout(Duration::from_secs(120)).send().await?.error_for_status()?.bytes().await?;
-    anyhow::ensure!(bytes.len() > 1_000_000, "{name} download looks truncated ({} bytes)", bytes.len());
+    match fetch(http, &bin, repo, asset).await {
+        Err(e) if bin.is_file() => log::warn!("couldn't fetch a newer {name}, using the one here: {e:#}"),
+        r => r?,
+    }
+    Ok(bin)
+}
+
+/// Downloads `asset` from `repo`'s latest release to `bin`, checked against the SHA-256
+/// GitHub's API gives for it: it's a program this app runs, with the session's cookies.
+async fn fetch(http: &reqwest::Client, bin: &Path, repo: &str, asset: &str) -> anyhow::Result<()> {
+    let get = |url: String, secs: u64| async move { http.get(url).timeout(Duration::from_secs(secs)).send().await?.error_for_status() };
+    let release: Value = get(format!("https://api.github.com/repos/{repo}/releases/latest"), 30).await?.json().await?;
+    let (url, want) = download_of(&release, asset).ok_or_else(|| anyhow::anyhow!("{repo}'s latest release has no {asset} with a SHA-256"))?;
+    log::info!("downloading {asset}");
+    let bytes = get(url, 120).await?.bytes().await?;
+    let got = format!("{:x}", Sha256::digest(&bytes));
+    anyhow::ensure!(got == want, "{asset}'s SHA-256 is {got}, not {want}");
     let tmp = bin.with_extension("part");
     std::fs::write(&tmp, &bytes)?;
     #[cfg(unix)]
@@ -85,8 +106,14 @@ async fn ensure(http: &reqwest::Client, data_dir: &Path, name: &str, url: &str, 
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
     }
-    std::fs::rename(&tmp, &bin)?;
-    Ok(bin)
+    std::fs::rename(&tmp, bin)?;
+    Ok(())
+}
+
+/// Where a release has `asset`, and its SHA-256.
+fn download_of(release: &Value, asset: &str) -> Option<(String, String)> {
+    let a = release["assets"].as_array()?.iter().find(|a| a["name"] == asset)?;
+    Some((a["browser_download_url"].as_str()?.to_owned(), crate::update::asset_sha256(a)?))
 }
 
 /// Cookie files a crash left behind, with the session in them: nothing's using them at launch.
@@ -109,7 +136,7 @@ fn has_runtime() -> bool {
 }
 
 pub async fn resolve(http: &reqwest::Client, data_dir: &Path, cookie: &str, video_id: &str, format: Format) -> anyhow::Result<Stream> {
-    let bin = ensure(http, data_dir, BIN, URL, MAX_AGE).await?;
+    let bin = ensure(http, data_dir, BIN, REPO, ASSET, MAX_AGE).await?;
     // Signed in, yt-dlp can't get at the audio without solving YouTube's challenges: with
     // Node or Deno installed, or the Node fetched for it. Until that's here, QuickJS, at
     // about twice the time a song.
@@ -119,7 +146,7 @@ pub async fn resolve(http: &reqwest::Client, data_dir: &Path, cookie: &str, vide
         Some(format!("node:{}", node.display()))
     } else {
         crate::node::fetch_later(http, data_dir);
-        match ensure(http, data_dir, QJS, QJS_URL, QJS_MAX_AGE).await {
+        match ensure(http, data_dir, QJS, QJS_REPO, QJS_ASSET, QJS_MAX_AGE).await {
             Ok(p) => Some(format!("quickjs:{}", p.display())),
             Err(e) => {
                 log::warn!("no Node or Deno, and QuickJS couldn't be fetched: {e:#}");
@@ -249,4 +276,43 @@ fn run(bin: &Path, runtime: Option<&str>, data_dir: &Path, video_id: &str, cooki
         duration_ms: v["duration"].as_f64().map_or(0, |d| (d * 1000.0) as u64),
         user_agent: v["http_headers"]["User-Agent"].as_str().unwrap_or_default().to_owned(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_release_says_where_its_asset_is_and_its_hash() {
+        let release = serde_json::json!({ "assets": [
+            { "name": "yt-dlp", "browser_download_url": "https://example.com/yt-dlp", "digest": "sha256:11" },
+            { "name": "yt-dlp_linux", "browser_download_url": "https://example.com/yt-dlp_linux", "digest": "sha256:AB12" },
+            { "name": "yt-dlp_macos", "browser_download_url": "https://example.com/yt-dlp_macos", "digest": null },
+        ] });
+        assert_eq!(download_of(&release, "yt-dlp_linux"), Some(("https://example.com/yt-dlp_linux".to_owned(), "ab12".to_owned())));
+        // Without a hash to check it against, it isn't downloaded.
+        assert_eq!(download_of(&release, "yt-dlp_macos"), None);
+        assert_eq!(download_of(&release, "yt-dlp.exe"), None);
+    }
+
+    /// The real downloads, into an empty folder: both land there, checked, and run.
+    /// `cargo test -- --ignored ytdlp_and_quickjs_fetch --nocapture`
+    #[test]
+    #[ignore]
+    fn ytdlp_and_quickjs_fetch() {
+        let dir = std::env::temp_dir().join("ytm-rs-ytdlp-fetch-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let http = reqwest::Client::builder().user_agent("ytm-rs").build().unwrap();
+            for (name, repo, asset, flag) in [(BIN, REPO, ASSET, "--version"), (QJS, QJS_REPO, QJS_ASSET, "--help")] {
+                let bin = ensure(&http, &dir, name, repo, asset, MAX_AGE).await.unwrap();
+                let out = std::process::Command::new(&bin).arg(flag).output().unwrap();
+                println!("{name}: {}", String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or_default());
+                assert!(!out.stdout.is_empty(), "{name} didn't run");
+            }
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

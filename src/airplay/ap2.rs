@@ -157,6 +157,7 @@ impl Buffered {
                 break true;
             }
             let mut failed = false;
+            let mut volume = None;
             for c in ctl.try_iter() {
                 let done = match c {
                     // Drops what it holds up to here. That ends its timeline too (it stays
@@ -184,7 +185,11 @@ impl Buffered {
                         None => Ok(()),
                     },
                     Ctl::Pause => Ok(()),
-                    Ctl::Volume(v) => self.rtsp.set_volume(v),
+                    // A drag sends one a frame: only the last is passed on.
+                    Ctl::Volume(v) => {
+                        volume = Some(v);
+                        Ok(())
+                    }
                 };
                 if let Err(e) = done {
                     log::warn!("airplay: {e:#}");
@@ -195,9 +200,37 @@ impl Buffered {
             if failed {
                 break true;
             }
+            // A speaker with its volume fixed plays on all the same.
+            if let Some(v) = volume
+                && let Err(e) = self.rtsp.set_volume(v)
+            {
+                log::warn!("airplay: the speaker didn't take the volume: {e:#}");
+            }
             if paused.is_some() {
                 std::thread::sleep(Duration::from_millis(10));
                 continue;
+            }
+
+            // Paced by the speaker's clock, each block going `LATENCY` before it plays, in
+            // short sleeps so stopping (and the engine waiting on its mixer) isn't held up.
+            let Some((_, now)) = self.clock.now() else {
+                log::warn!("airplay: lost the speaker's clock");
+                break true;
+            };
+            let plays = self.anchor.1 + f64::from(rtp.wrapping_sub(self.anchor.0)) / f64::from(RATE);
+            let wait = plays - LATENCY.as_secs_f64() - now;
+            if wait > 0.0 {
+                std::thread::sleep(Duration::from_secs_f64(wait.min(0.02)));
+                continue;
+            }
+            if -wait > LATENCY.as_secs_f64() {
+                // Behind by more than the lead (the computer slept): everything from here
+                // would arrive late and be dropped, so it's timed afresh.
+                log::info!("airplay: fell {:.1} s behind, anchoring again", -wait);
+                if let Err(e) = self.set_anchor(rtp) {
+                    log::warn!("airplay: {e:#}");
+                    break true;
+                }
             }
             let block = block(&cipher, seq, rtp, nonce, &frames.next().unwrap_or_default());
             if let Err(e) = self.data.write_all(&block) {
@@ -207,26 +240,10 @@ impl Buffered {
             seq = (seq + 1) & 0x7f_ffff;
             rtp = rtp.wrapping_add(FRAMES as u32);
             nonce += 1;
-
-            // Paced by the speaker's clock, the next block going `LATENCY` before it plays.
-            let Some((_, now)) = self.clock.now() else {
-                log::warn!("airplay: lost the speaker's clock");
-                break true;
-            };
-            let plays = self.anchor.1 + f64::from(rtp.wrapping_sub(self.anchor.0)) / f64::from(RATE);
-            let wait = plays - LATENCY.as_secs_f64() - now;
-            if wait > 0.0 {
-                std::thread::sleep(Duration::from_secs_f64(wait.min(1.0)));
-            } else if -wait > LATENCY.as_secs_f64() {
-                // Behind by more than the lead (the computer slept): everything from here
-                // would arrive late and be dropped, so it's timed afresh.
-                log::info!("airplay: fell {:.1} s behind, anchoring again", -wait);
-                if let Err(e) = self.set_anchor(rtp) {
-                    log::warn!("airplay: {e:#}");
-                    break true;
-                }
-            }
         };
+        // Hands the mixer back (its bridge is in `frames`) before the goodbye, which the
+        // engine doesn't wait for.
+        drop(frames);
         if gone {
             lost();
         } else {

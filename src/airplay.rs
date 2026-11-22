@@ -238,7 +238,8 @@ impl std::error::Error for Failure {}
 
 /// What to tell the listener about `e`, from the `Failure` in it if any.
 pub fn describe(e: &anyhow::Error) -> String {
-    e.chain().find_map(|c| c.downcast_ref::<Failure>()).map_or_else(|| tr!("airplay-failed").to_owned(), Failure::message)
+    // Through `.context(Failure::…)` too, which `chain()` holds wrapped.
+    e.downcast_ref::<Failure>().map_or_else(|| tr!("airplay-failed").to_owned(), Failure::message)
 }
 
 /// A thread with a stop flag, which dropping it raises and then waits for the thread.
@@ -550,28 +551,38 @@ impl Classic {
                 break false;
             }
             let mut failed = false;
+            let mut volume = None;
             for c in ctl.try_iter() {
-                let _ = self.rtsp.tcp.set_nonblocking(false);
-                let done = match c {
+                match c {
                     Ctl::Flush => {
                         let info = format!("seq={};rtptime={}", self.seq, self.rtptime);
                         first = true;
                         since_sync = u32::MAX;
-                        self.rtsp.request("FLUSH", None, &[("RTP-Info", info)], None).map(drop)
+                        let _ = self.rtsp.tcp.set_nonblocking(false);
+                        let flushed = self.rtsp.request("FLUSH", None, &[("RTP-Info", info)], None);
+                        let _ = self.rtsp.tcp.set_nonblocking(true);
+                        if let Err(e) = flushed {
+                            log::warn!("airplay: {e:#}");
+                            failed = true;
+                            break;
+                        }
                     }
-                    Ctl::Volume(v) => self.rtsp.set_volume(v),
+                    // A drag sends one a frame: only the last is passed on.
+                    Ctl::Volume(v) => volume = Some(v),
                     // Classic AirPlay can't: the engine flushes instead.
-                    Ctl::Pause | Ctl::Resume => Ok(()),
-                };
-                let _ = self.rtsp.tcp.set_nonblocking(true);
-                if let Err(e) = done {
-                    log::warn!("airplay: {e:#}");
-                    failed = true;
-                    break;
+                    Ctl::Pause | Ctl::Resume => {}
                 }
             }
             if failed {
                 break true;
+            }
+            if let Some(v) = volume {
+                let _ = self.rtsp.tcp.set_nonblocking(false);
+                // A speaker with its volume fixed plays on all the same.
+                if let Err(e) = self.rtsp.set_volume(v) {
+                    log::warn!("airplay: the speaker didn't take the volume: {e:#}");
+                }
+                let _ = self.rtsp.tcp.set_nonblocking(true);
             }
             // Packets the speaker missed.
             while let Ok((n, from)) = self.control.recv_from(&mut buf) {
@@ -633,6 +644,9 @@ impl Classic {
                 std::thread::sleep(due - now);
             }
         };
+        // Hands the mixer back (its bridge is in `frames`) before the goodbye, which the
+        // engine doesn't wait for.
+        drop(frames);
         if gone {
             lost();
         } else {
@@ -684,7 +698,7 @@ impl Session {
                 Self::Buffered(b) => b.run(frames, stop, &ctls, lost),
             }
         })?;
-        Ok(Stream { ctl, pauses, _worker: worker })
+        Ok(Stream { ctl, pauses, worker })
     }
 }
 
@@ -721,7 +735,7 @@ fn decibels(v: f32) -> f32 {
 pub struct Stream {
     ctl: Sender<Ctl>,
     pauses: bool,
-    _worker: Worker,
+    worker: Worker,
 }
 
 impl Stream {
@@ -748,6 +762,15 @@ impl Stream {
     /// Sets the speaker's own volume, 0 to 1, which it changes at once.
     pub fn set_volume(&self, v: f32) {
         let _ = self.ctl.send(Ctl::Volume(v));
+    }
+}
+
+impl Drop for Stream {
+    /// Stops the music, without waiting for the goodbye to the speaker (seconds, if it's
+    /// slow to answer): the engine has its mixer back as soon as the next packet's due.
+    fn drop(&mut self) {
+        self.worker.stop.store(true, Ordering::Relaxed);
+        self.worker.thread.take();
     }
 }
 
@@ -1049,6 +1072,16 @@ mod tests {
         assert_eq!(describe(&e), Failure::NeedsPairing.message());
     }
 
+    #[test]
+    fn a_speaker_nobody_listens_on_is_unreachable() {
+        // Attached as context (to the connection's error), unlike a bail!: found all the same.
+        let addr = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        let gone = Speaker { id: String::new(), name: "Gone".into(), addr, pair: false, buffered: false, auth_setup: false };
+        let e = Session::connect(&gone).err().unwrap();
+        assert!(matches!(e.downcast_ref::<Failure>(), Some(Failure::Unreachable)), "{e:#}");
+        assert_eq!(describe(&e), Failure::Unreachable.message());
+    }
+
     /// Dev check against a real speaker: YTM_AIRPLAY=<name> cargo test airplay_tone -- --ignored
     /// plays two seconds of a 440 Hz tone there.
     #[test]
@@ -1076,5 +1109,7 @@ mod tests {
         stream.resume();
         std::thread::sleep(Duration::from_secs(3));
         drop(stream);
+        // The goodbye goes on after the drop, on the stream's own thread.
+        std::thread::sleep(Duration::from_secs(2));
     }
 }

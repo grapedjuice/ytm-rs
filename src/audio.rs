@@ -57,6 +57,10 @@ pub enum AudioCmd {
     /// Pause at this moment (the sleep timer); None calls it off. Kept here rather than
     /// in the UI, which may not draw a frame while the window is in the tray.
     SleepAt(Option<Instant>),
+    /// A setting the players' gain depends on changed (normalization, the slider's curve),
+    /// or something's just to be looked at again (the pause fade): sets it afresh, leaving
+    /// a speaker's own volume alone.
+    Refresh,
     /// An AirPlay speaker's handshake (`id`, called `name`) is done, on a thread of its own
     /// so the engine stays responsive meanwhile.
     AirPlay { id: String, name: String, session: anyhow::Result<Box<airplay::Session>> },
@@ -99,6 +103,9 @@ pub struct AudioStatus {
     stream_ms: AtomicU64,
     /// f32 bits
     volume: AtomicU32,
+    /// The app's own volume, kept aside while an AirPlay speaker's is on the slider: its
+    /// f32 bits with bit 32 set, 0 when there's none (see `kept`).
+    kept_volume: AtomicU64,
     /// The `Normalize` level songs are brought to.
     normalize: AtomicU8,
     /// The limiter's on, for songs normalization turns up.
@@ -197,6 +204,16 @@ impl AudioStatus {
     /// clock: more of the song at a faster speed.
     pub fn latency(&self) -> Duration {
         Duration::from_millis(self.latency_ms.load(Ordering::Relaxed) as u64).mul_f32(self.speed())
+    }
+
+    /// The app's own volume while a speaker's is on the slider.
+    fn kept(&self) -> Option<f32> {
+        let v = self.kept_volume.load(Ordering::Relaxed);
+        (v != 0).then(|| f32::from_bits(v as u32))
+    }
+
+    fn keep(&self, v: Option<f32>) {
+        self.kept_volume.store(v.map_or(0, |v| 1 << 32 | u64::from(v.to_bits())), Ordering::Relaxed);
     }
 
     pub fn level(&self) -> f32 {
@@ -452,10 +469,15 @@ impl AudioHandle {
         f32::from_bits(self.status.volume.load(Ordering::Relaxed))
     }
 
+    /// The app's own volume, to save: not a speaker's, while one's is on the slider.
+    pub fn own_volume(&self) -> f32 {
+        self.status.kept().unwrap_or_else(|| self.volume())
+    }
+
     pub fn set_normalize(&self, level: Normalize) {
         self.status.normalize.store(level as u8, Ordering::Relaxed);
         self.status.limit.store(level != Normalize::Off, Ordering::Relaxed);
-        self.send(AudioCmd::Volume(self.volume()));
+        self.send(AudioCmd::Refresh);
     }
 
     /// How far normalization turns the playing song up (positive) or down, in dB; None
@@ -467,10 +489,14 @@ impl AudioHandle {
     /// Switches the slider's curve, moving it so the music stays as loud as it was.
     pub fn set_log_volume(&self, on: bool) {
         if self.status.log_volume.swap(on, Ordering::Relaxed) != on {
-            let v = self.volume();
-            self.status.volume.store(if on { v.cbrt() } else { v.powi(3) }.to_bits(), Ordering::Relaxed);
+            // The app's own level; a speaker's, on the slider meanwhile, isn't on this curve.
+            let moved = |v: f32| if on { v.cbrt() } else { v.powi(3) };
+            match self.status.kept() {
+                Some(v) => self.status.keep(Some(moved(v))),
+                None => self.status.volume.store(moved(self.volume()).to_bits(), Ordering::Relaxed),
+            }
         }
-        self.send(AudioCmd::Volume(self.volume()));
+        self.send(AudioCmd::Refresh);
     }
 
     pub fn set_crossfade(&self, secs: u32) {
@@ -497,7 +523,7 @@ impl AudioHandle {
     pub fn set_pause_fade(&self, on: bool) {
         self.status.instant_pause.store(!on, Ordering::Relaxed);
         // Wakes the audio thread: a pause fading out now finishes quickly.
-        self.send(AudioCmd::Volume(self.volume()));
+        self.send(AudioCmd::Refresh);
     }
 
     pub fn set_skip_silence(&self, on: bool) {
@@ -757,6 +783,8 @@ struct Output {
     airplay_retry: bool,
     /// What went wrong with the AirPlay speaker, for the UI to show.
     notice: Option<String>,
+    /// The level the speaker playing said it was at, for the slider to take on.
+    speaker_level: Option<f32>,
     /// The device in use (cpal's id, or the AirPlay speaker's), to notice the default changing.
     device: Option<String>,
     /// The device the user picked; the default stands in while it's not connected.
@@ -788,6 +816,7 @@ impl Output {
             connecting: None,
             airplay_retry: true,
             notice: None,
+            speaker_level: None,
             device: None,
             preferred,
             lost,
@@ -871,16 +900,14 @@ impl Output {
                 return false;
             }
         };
+        // The sound card that played meanwhile gives the mixer back.
+        self.sink = None;
         let Some(source) = self.take_source() else { return false };
         let bridge = Bridge::new(source, self.slot.clone(), status, true);
         let volume = session.volume();
         match (*session).play(bridge, self.reporter(tx)) {
             Ok(stream) => {
-                // The slider becomes the speaker's own volume, so it starts where the
-                // speaker is rather than turning it up or down.
-                if let Some(v) = volume {
-                    status.volume.store(v.to_bits(), Ordering::Relaxed);
-                }
+                self.speaker_level = volume;
                 status.latency_ms.store(airplay::LATENCY.as_millis() as u32 + limiter::LOOKAHEAD_MS, Ordering::Relaxed);
                 log::info!("audio: playing on AirPlay speaker {name:?}");
                 self.airplay = Some(stream);
@@ -904,7 +931,8 @@ impl Output {
             if self.connecting.as_ref() == Some(&speaker.id) {
                 return true;
             }
-            self.close();
+            // A sound card playing goes on till the speaker's ready (`connected`).
+            self.airplay = None;
             self.device = Some(speaker.id.clone());
             self.connecting = Some(speaker.id.clone());
             let back = tx.clone();
@@ -1622,8 +1650,9 @@ fn run(
                     wake();
                 }
             }
-            Ok(AudioCmd::Volume(v)) => {
-                if let Some(a) = &output.airplay {
+            Ok(cmd @ (AudioCmd::Volume(_) | AudioCmd::Refresh)) => {
+                let v = f32::from_bits(status.volume.load(Ordering::Relaxed));
+                if let (AudioCmd::Volume(v), Some(a)) = (cmd, &output.airplay) {
                     a.set_volume(v);
                 }
                 let v = bar_gain(&status, &output, v);
@@ -1698,9 +1727,19 @@ fn run(
                 rewind = Some(heard);
             }
         }
-        // The volume's the speaker's while one plays, and the players' otherwise.
+        // The volume's the speaker's while one plays, and the players' otherwise. The slider
+        // shows the speaker's own level meanwhile, the app's kept aside, and back after.
         if output.airplay.is_some() != on_speaker {
             on_speaker = !on_speaker;
+            if let Some(level) = output.speaker_level.take().filter(|_| on_speaker) {
+                if status.kept().is_none() {
+                    status.keep(Some(f32::from_bits(status.volume.load(Ordering::Relaxed))));
+                }
+                status.volume.store(level.to_bits(), Ordering::Relaxed);
+            } else if let Some(kept) = status.kept().filter(|_| !on_speaker) {
+                status.volume.store(kept.to_bits(), Ordering::Relaxed);
+                status.keep(None);
+            }
             let v = bar_gain(&status, &output, f32::from_bits(status.volume.load(Ordering::Relaxed)));
             player.set_volume(v * norm_gain(&status, shared.as_deref()));
             for f in &fading {
@@ -2018,7 +2057,7 @@ mod tests {
         use std::num::NonZero;
         let (mixer, source) = rodio::mixer::mixer(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap());
         // Let go of while paused: nothing pulls the mixer.
-        let output = Output { mixer, slot: Arc::new(std::sync::Mutex::new(Some(source))), sink: None, airplay: None, connecting: None, airplay_retry: true, notice: None, device: None, preferred: None, lost: Default::default(), checked: Instant::now() };
+        let output = Output { mixer, slot: Arc::new(std::sync::Mutex::new(Some(source))), sink: None, airplay: None, connecting: None, airplay_retry: true, notice: None, speaker_level: None, device: None, preferred: None, lost: Default::default(), checked: Instant::now() };
         let mut player = Player::connect_new(&output.mixer);
         player.set_volume(0.5);
         player.append(rodio::buffer::SamplesBuffer::new(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap(), vec![0.0; 96_000]));
@@ -2036,7 +2075,7 @@ mod tests {
         use std::num::NonZero;
         let (mixer, source) = rodio::mixer::mixer(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap());
         // Playing, through a device that stopped pulling before it reported itself gone.
-        let output = Output { mixer, slot: Arc::new(std::sync::Mutex::new(None)), sink: None, airplay: None, connecting: None, airplay_retry: true, notice: None, device: None, preferred: None, lost: Default::default(), checked: Instant::now() };
+        let output = Output { mixer, slot: Arc::new(std::sync::Mutex::new(None)), sink: None, airplay: None, connecting: None, airplay_retry: true, notice: None, speaker_level: None, device: None, preferred: None, lost: Default::default(), checked: Instant::now() };
         let mut player = Player::connect_new(&output.mixer);
         player.set_volume(0.25);
         player.append(rodio::buffer::SamplesBuffer::new(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap(), vec![0.5; 96_000]));
@@ -2110,6 +2149,25 @@ mod tests {
         for l in Normalize::ALL {
             assert_eq!(Normalize::from_u8(l as u8), l);
         }
+    }
+
+    #[test]
+    fn the_apps_volume_is_kept_while_a_speakers_is_on_the_slider() {
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let audio = AudioHandle { tx, status: Arc::new(AudioStatus::default()) };
+        audio.set_volume(0.125);
+        assert_eq!(audio.own_volume(), 0.125);
+        // A speaker at 0.9 takes the slider.
+        audio.status.keep(Some(audio.volume()));
+        audio.set_volume(0.9);
+        assert_eq!(audio.own_volume(), 0.125);
+        // The curve changes the app's level, not the speaker's.
+        audio.set_log_volume(true);
+        assert!((audio.own_volume() - 0.5).abs() < 1e-6);
+        assert_eq!(audio.volume(), 0.9);
+        // Muted is a level too.
+        audio.status.keep(Some(0.0));
+        assert_eq!(audio.own_volume(), 0.0);
     }
 
     #[test]

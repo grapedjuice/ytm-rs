@@ -2115,7 +2115,7 @@ impl eframe::App for App {
         // in points at this zoom. Everything else in egui's memory starts fresh.
         storage.set_string("egui", format!("(options:(zoom_factor:{:?}))", self.zoom));
         if std::env::var_os("YTM_MUTE").is_none() {
-            storage.set_string("volume", self.audio.volume().to_string());
+            storage.set_string("volume", self.audio.own_volume().to_string());
         }
         let repeat = match self.queue.repeat {
             Repeat::Off => "off",

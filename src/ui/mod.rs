@@ -537,6 +537,10 @@ pub struct App {
     // playback
     queue: Queue,
     generation: u64,
+    /// Monotonic counter for assigning play and staged-gapless generation numbers without collisions.
+    gen_counter: u64,
+    /// Next song staged into the audio engine ahead of the current track's end for gapless playback.
+    staged: Option<StagedNext>,
     buffering: bool,
     /// Unplayable songs skipped in a row; a run of them stops playback instead of
     /// racing through the queue.
@@ -640,6 +644,8 @@ pub struct App {
     time_left: bool,
     /// Skip the parts of music videos SponsorBlock marks as not music.
     sponsorblock: bool,
+    /// Play consecutive songs without a pause between them (Settings › Playback).
+    gapless: bool,
     /// Crossfade between songs, and over how many seconds.
     crossfade: bool,
     crossfade_secs: u32,
@@ -970,6 +976,8 @@ impl App {
                 _ => Repeat::Off,
             }),
             generation: 0,
+            gen_counter: 0,
+            staged: None,
             buffering: false,
             skip_streak: 0,
             recoveries: 0,
@@ -1077,6 +1085,7 @@ impl App {
             seek_knob_always: get("seek_knob_always").is_some_and(|v| v == "1"),
             time_left: get("time_left").is_some_and(|v| v == "1"),
             sponsorblock: get("sponsorblock").is_some_and(|v| v == "1"),
+            gapless: get("gapless").is_none_or(|v| v == "1"),
             crossfade: get("crossfade").is_some_and(|v| v == "1"),
             handoff: false,
             sleep: None,
@@ -1242,6 +1251,7 @@ impl App {
         }
         jam::dev_hooks(&mut app);
         app.audio.set_normalize(app.normalize);
+        app.set_gapless();
         app.set_crossfade();
         app.audio.set_pause_fade(app.pause_fade);
         app.set_eq();
@@ -1581,6 +1591,7 @@ impl eframe::App for App {
         self.sync_look();
         self.pump(ctx, now);
         self.sync_sleep();
+        self.sync_staged();
         // A sorted playlist that loads again in a while, for its new order.
         if let Some(t) = self.sorting.values().filter_map(lists::SortWait::due).reduce(f64::min) {
             ctx.request_repaint_after(Duration::from_secs_f64((t - now).max(0.0)));
@@ -2188,6 +2199,7 @@ impl eframe::App for App {
         storage.set_string("time_left", b(self.time_left));
         storage.set_string("sponsorblock", b(self.sponsorblock));
         storage.set_string("download_liked", b(self.download_liked));
+        storage.set_string("gapless", b(self.gapless));
         storage.set_string("crossfade", b(self.crossfade));
         storage.set_string("crossfade_secs", self.crossfade_secs.to_string());
         storage.set_string("crossfade_skips", b(self.crossfade_skips));
@@ -2361,6 +2373,15 @@ struct PlayingAs {
     song: Track,
 }
 
+/// The next track staged into the audio engine for gapless handoff behind `after`.
+struct StagedNext {
+    after: u64,
+    generation: u64,
+    repeat_one: bool,
+    want_song: bool,
+    track: Track,
+    song: Option<Track>,
+}
 
 /// A restored window size can exceed the monitor (e.g. saved after maximizing),
 /// leaving the player bar partly off-screen. Once at startup, maximize instead.

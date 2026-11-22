@@ -11,7 +11,7 @@ use crate::lyrics::Lyrics;
 use crate::model::Track;
 
 use super::queue::QueueFill;
-use super::{App, PlayingAs, Repeat, Session, Sleep, jam, lyric_prefs};
+use super::{App, PlayingAs, Repeat, Session, Sleep, StagedNext, jam, lyric_prefs};
 
 impl App {
     pub fn current(&self) -> Option<&Track> {
@@ -440,11 +440,12 @@ impl App {
         // Likewise a song's music video.
         let carried = if (at.is_zero() && !swap) || self.jam.active() { None } else { self.playing_as().cloned() };
         self.queue.started();
+        self.clear_staged();
         self.resume_at = None;
         self.resume_counts = false;
         self.ended = false;
         let before = self.generation;
-        self.generation += 1;
+        self.generation = self.alloc_generation();
         // The same play going on (a download that broke off, a video swapped for its song):
         // Last.fm and ListenBrainz have heard of it, and it may have been scrobbled.
         if !report
@@ -523,8 +524,106 @@ impl App {
         self.audio.set_keep_pitch(self.keep_pitch);
     }
 
-    pub(crate) fn set_crossfade(&self) {
+    pub(crate) fn set_crossfade(&mut self) {
+        if self.crossfade {
+            self.clear_staged();
+        }
         self.audio.set_crossfade(if self.crossfade { self.crossfade_secs } else { 0 });
+    }
+
+    pub(crate) fn set_gapless(&mut self) {
+        if !self.gapless {
+            self.clear_staged();
+        }
+        self.audio.set_gapless(self.gapless);
+    }
+
+    fn alloc_generation(&mut self) -> u64 {
+        self.gen_counter += 1;
+        self.gen_counter
+    }
+
+    /// Stage the next track's decoder ahead of the current song's end for gapless handoff.
+    pub(super) fn stage_next(&mut self, after: u64) {
+        if after != self.generation || !self.gapless || self.crossfade || self.jam.guest() || !self.audio.status.started(after) {
+            return;
+        }
+        let repeat_one = self.repeats_one();
+        let Some(track) = (if repeat_one { self.current() } else { self.queue.upcoming() }).cloned() else { return };
+        if self.hide_explicit && track.explicit {
+            return;
+        }
+        let song_of = self.song_of(&track);
+        let generation = self.alloc_generation();
+        let fallback_duration_ms = track.duration.map_or(0, |d| d as u64 * 1000);
+        self.audio.status.staged_gen.store(generation, Ordering::Release);
+        self.staged = Some(StagedNext { after, generation, repeat_one, want_song: song_of.is_some(), track: track.clone(), song: None });
+        self.backend.request(Req::StageNext { video_id: track.id, after, generation, song_of, fallback_duration_ms });
+    }
+
+    /// Drop any staged gapless next track (when the queue, repeat/shuffle, or settings change).
+    pub(super) fn clear_staged(&mut self) {
+        if self.staged.take().is_some() {
+            self.audio.status.staged_gen.store(0, Ordering::Release);
+            self.audio.send(AudioCmd::ClearNext);
+        }
+    }
+
+    /// Every frame: if what plays next no longer matches the staged gapless track, drop it so
+    /// the audio engine won't play the wrong one.
+    pub(super) fn sync_staged(&mut self) {
+        let Some(staged) = &self.staged else { return };
+        let repeat_one = self.repeats_one();
+        let expected = if repeat_one { self.current() } else { self.queue.upcoming() };
+        let matches = self.gapless
+            && !self.jam.guest()
+            && staged.after == self.generation
+            && staged.repeat_one == repeat_one
+            && expected.is_some_and(|t| t.id == staged.track.id && self.song_of(t).is_some() == staged.want_song);
+        if !matches {
+            self.clear_staged();
+        }
+    }
+
+    /// The staged gapless track `generation` began playing seamlessly after the previous song:
+    /// advance the queue and refresh UI/media/lyrics without touching the audio player.
+    pub(super) fn on_gapless_advanced(&mut self, generation: u64) {
+        let Some(staged) = self.staged.take().filter(|s| s.generation == generation) else {
+            return;
+        };
+        if !staged.repeat_one {
+            self.queue.advance();
+        }
+        self.queue.started();
+        self.generation = generation;
+        self.recoveries = 0;
+        self.skip_streak = 0;
+        self.resume_at = None;
+        self.resume_counts = false;
+        self.ended = false;
+        self.buffering = false;
+        self.seek_drag = None;
+        let track = self.current().cloned().unwrap_or(staged.track);
+        let shown = match staged.song {
+            Some(song) => {
+                let song = Track { album: song.album.or(track.album.clone()), thumbs: if song.thumbs.is_empty() { track.thumbs.clone() } else { song.thumbs }, ..song };
+                self.playing_as = Some(PlayingAs { generation, listed: track.id.clone(), song: song.clone() });
+                song
+            }
+            None => {
+                self.playing_as = None;
+                track
+            }
+        };
+        self.backend.request(Req::GaplessStarted { video_id: shown.id.clone(), generation });
+        self.show_in_media(&shown);
+        if let Some(m) = &mut self.media {
+            m.start(Duration::ZERO);
+        }
+        self.request_art();
+        self.refresh_lyrics(shown);
+        self.top_up();
+        self.prefetch_next();
     }
 
     /// `t` is explicit while those are hidden: it won't play, and the toast says why.
@@ -633,7 +732,9 @@ impl App {
 
     /// Fetch whatever plays after the current track so skipping is instant.
     pub(super) fn prefetch_next(&self) {
-        if let Some(t) = self.queue.upcoming() {
+        if let Some(t) = self.queue.upcoming()
+            && self.staged.as_ref().is_none_or(|s| s.track.id != t.id)
+        {
             self.backend.request(Req::Prefetch { video_id: t.id.clone(), song_of: self.song_of(t) });
         }
     }
@@ -663,7 +764,8 @@ impl App {
         if self.generation == generation {
             // Nothing to advance to yet. Cancel a buffered play too, and carry on
             // if more of the playlist or an autoplay queue arrives.
-            self.generation += 1;
+            self.clear_staged();
+            self.generation = self.alloc_generation();
             self.audio.status.wanted_gen.store(self.generation, Ordering::Relaxed);
             self.audio.send(AudioCmd::Stop);
             self.buffering = false;

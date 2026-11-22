@@ -39,6 +39,8 @@ settings-switching = Switching…
 
 settings-autoplay = Autoplay
 settings-autoplay-desc = Keep playing similar songs when the queue ends.
+settings-gapless-playback = Gapless playback
+settings-gapless-playback-desc = Play consecutive songs without a pause between them, for albums and live sets that run together.
 settings-crossfade-songs = Crossfade songs
 settings-crossfade-songs-desc = Blend the end of each song into the start of the next.
 settings-crossfade-length = Crossfade length

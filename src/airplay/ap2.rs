@@ -25,7 +25,7 @@ use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use crossbeam_channel::Receiver;
 use plist::{Dictionary, Value};
 
-use super::{Ctl, FRAMES, Failure, LATENCY, RATE, Rtsp, Speaker, TIMEOUT, Worker, pair, random};
+use super::{Ctl, FRAMES, Failure, LATENCY, MAX_MESSAGE, RATE, Rtsp, Speaker, TIMEOUT, Worker, pair, random};
 
 /// How soon after an anchor its first frame plays: the rest of `LATENCY` is sent at once,
 /// so starting, seeking or playing again is heard in this long rather than in `LATENCY`.
@@ -412,6 +412,11 @@ impl Events {
                     if failed {
                         break;
                     }
+                    // A request that never ends (or a huge one) isn't held on to.
+                    if raw.len() + plain.len() > MAX_MESSAGE {
+                        log::warn!("airplay: an event is too long");
+                        break;
+                    }
                 }
                 if !stop.load(Ordering::Relaxed) {
                     lost.store(true, Ordering::Relaxed);
@@ -427,7 +432,8 @@ fn request(plain: &[u8]) -> Option<(String, usize)> {
     let end = plain.windows(4).position(|w| w == b"\r\n\r\n")? + 4;
     let head = String::from_utf8_lossy(&plain[..end]).into_owned();
     let body: usize = head.lines().find_map(|l| l.split_once(':').filter(|(k, _)| k.eq_ignore_ascii_case("content-length")).and_then(|(_, v)| v.trim().parse().ok())).unwrap_or(0);
-    (plain.len() >= end + body).then_some((head, end + body))
+    let len = end.checked_add(body)?;
+    (plain.len() >= len).then_some((head, len))
 }
 
 /// The speaker's PTP clock, as it announces it to us (UDP 319 and 320): its identity, and
@@ -522,6 +528,17 @@ fn heard(state: &mut ClockState, msg: &[u8], at: Instant) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_event_is_whole_once_its_body_is_in() {
+        let event = b"POST /command RTSP/1.0\r\nCSeq: 2\r\nContent-Length: 3\r\n\r\nabc";
+        assert_eq!(request(&event[..event.len() - 1]), None);
+        assert_eq!(request(event).map(|(_, len)| len), Some(event.len()));
+        // A length past anything that could come is never whole (and the reader's cap
+        // lets it go), rather than overflowing.
+        let huge = format!("POST /command RTSP/1.0\r\nContent-Length: {}\r\n\r\n", usize::MAX);
+        assert_eq!(request(huge.as_bytes()), None);
+    }
 
     #[test]
     fn a_block_opens_with_the_speakers_view_of_it() {

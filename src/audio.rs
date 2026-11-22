@@ -1422,6 +1422,10 @@ fn run(
                 // It stops at once, at what it was playing, and keeps the rest; playing
                 // again picks up there. No fade: what it holds was sent before this.
                 log::debug!("audio: pause at {:?}, the speaker pausing itself", song_pos(&song_ms));
+                // As any pause: the next song chained behind for gapless doesn't start, nor
+                // is it staged again until playing resumes (`hushed`).
+                clear_queued(&mut queued, &mut prepare_sent, shared.as_ref(), false);
+                status.hushed.store(true, Ordering::Relaxed);
                 output.airplay.as_ref().inspect(|a| a.pause());
                 held = true;
                 pause_at = None;
@@ -1740,10 +1744,11 @@ fn run(
                 status.volume.store(kept.to_bits(), Ordering::Relaxed);
                 status.keep(None);
             }
+            // Normalization is each song's `Meter`'s, not the players'.
             let v = bar_gain(&status, &output, f32::from_bits(status.volume.load(Ordering::Relaxed)));
-            player.set_volume(v * norm_gain(&status, shared.as_deref()));
+            player.set_volume(v);
             for f in &fading {
-                f.player.set_volume(v * norm_gain(&status, f.shared.as_deref()));
+                f.player.set_volume(v);
             }
             // The slider may have just become the speaker's own level.
             wake();

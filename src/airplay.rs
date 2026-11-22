@@ -37,6 +37,9 @@ pub const LATENCY: Duration = Duration::from_secs(2);
 const HISTORY: usize = 1024;
 /// Waiting on the speaker's answers, and on connecting to it.
 const TIMEOUT: Duration = Duration::from_secs(3);
+/// The most a message from the speaker (head and body) may be: its answers and events are
+/// a few KB, so anything past this is a speaker gone wrong, not one to wait on.
+const MAX_MESSAGE: usize = 1 << 20;
 
 const SERVICE: &str = "_raop._tcp.local.";
 
@@ -442,6 +445,9 @@ impl Rtsp {
             if let Some(i) = self.buf.windows(4).position(|w| w == b"\r\n\r\n") {
                 break i + 4;
             }
+            if self.buf.len() > MAX_MESSAGE {
+                bail!("the speaker's answer is too long");
+            }
             if self.fill()? == 0 {
                 bail!("the speaker hung up");
             }
@@ -456,6 +462,9 @@ impl Rtsp {
         let headers: Vec<(String, String)> = lines.filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned())).collect();
         let mut res = Response { status, headers, body: Vec::new() };
         let len: usize = res.header("Content-Length").and_then(|l| l.parse().ok()).unwrap_or(0);
+        if head_end.saturating_add(len) > MAX_MESSAGE {
+            bail!("the speaker's answer is too long");
+        }
         while self.buf.len() < head_end + len {
             if self.fill()? == 0 {
                 bail!("the speaker hung up");
@@ -587,7 +596,9 @@ impl Classic {
             // Packets the speaker missed.
             while let Ok((n, from)) = self.control.recv_from(&mut buf) {
                 log::trace!("airplay: control packet {:02x?}", &buf[..n.min(8)]);
-                if n >= 8 && buf[1] & 0x7f == 0x55 {
+                // The socket takes packets from anyone on the network: only the speaker's
+                // are answered.
+                if from.ip() == self.control_to.ip() && n >= 8 && buf[1] & 0x7f == 0x55 {
                     let seq = u16::from_be_bytes([buf[4], buf[5]]);
                     let count = u16::from_be_bytes([buf[6], buf[7]]);
                     for s in (0..count.min(HISTORY as u16)).map(|i| seq.wrapping_add(i)) {
@@ -1070,6 +1081,20 @@ mod tests {
         let e = Session::connect(&Speaker { id: String::new(), name: "HomePod".into(), addr, pair: false, buffered: false, auth_setup: false }).err().unwrap();
         assert!(matches!(e.downcast_ref::<Failure>(), Some(Failure::NeedsPairing)), "{e:#}");
         assert_eq!(describe(&e), Failure::NeedsPairing.message());
+    }
+
+    #[test]
+    fn an_answer_too_long_to_hold_is_an_error() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut tcp, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = tcp.read(&mut buf);
+            let _ = tcp.write_all(format!("RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: {}\r\n\r\n", usize::MAX).as_bytes());
+        });
+        let e = Session::connect(&Speaker { id: String::new(), name: "Odd".into(), addr, pair: false, buffered: false, auth_setup: false }).err().unwrap();
+        assert!(format!("{e:#}").contains("too long"), "{e:#}");
     }
 
     #[test]

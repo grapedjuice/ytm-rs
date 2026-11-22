@@ -11,7 +11,7 @@ Thanks for helping out! Bug reports, ideas, fixes, features and translations are
 ## Before you start on code
 
 - For anything small (a bug, a typo, a missing translation), go ahead and open a pull request.
-- For anything large (a new feature, a new dependency, a change to how something works), open an issue or comment on the existing one first, and wait for a reply. That saves you work on something that might not fit.
+- For anything large (a new feature, a new dependency, a change to how something works), it's worth opening an issue or commenting on the existing one first. That can save you work on something that might not fit.
 - If you'd like to take an issue, say so on it, so two people don't build the same thing.
 
 ## Building and checking
@@ -19,8 +19,8 @@ Thanks for helping out! Bug reports, ideas, fixes, features and translations are
 See [Building from source](README.md#building-from-source) for what each platform needs. Before you open a pull request, both of these have to pass, as they do in CI:
 
 ```sh
-cargo clippy --all-targets -- -D warnings
-cargo test
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
 ```
 
 Then run the app and try what you changed. Mention what you tried in the pull request.
@@ -28,15 +28,16 @@ Then run the app and try what you changed. Mention what you tried in the pull re
 ## Writing the change
 
 - **One pull request, one change.** A fix and an unrelated cleanup are two pull requests.
-- **Keep it small.** Reuse what's already in the code before adding something new, and only add a dependency when a few lines can't do the job.
+- **Keep it small.** Reuse what's already in the code before adding something new, and say in the pull request why a new dependency is needed.
 - **Text people see goes through translations.** Use `tr!` with an id in `locales/en-US/`, rather than an English string in the code. Other languages fall back to English until they're translated.
-- **Logic gets a test.** A new branch, parser or calculation comes with a small test next to it that fails if it breaks.
+- **Tests help.** A new parser or calculation is easier to review with a small test next to it that fails if it breaks.
 - **Comments say why**, not what the next line does.
+- **Commits and comments are about this app.** Say what it does and why, without naming other apps or clients.
 
 ## Pull requests
 
 - **Title:** what changes for someone using the app, with the area first, for example "Song lists: a click no longer starts a drag". The same goes for commit messages.
-- **Description:** fill in the [pull request template](.github/pull_request_template.md): what was wrong or missing, what changed and where, and what you checked. Link the issue ("Fixes #13").
+- **Description:** fill in the [pull request template](.github/pull_request_template.md): what was wrong or missing, what changed and where, and what you checked. Link the issue ("Refs #13"), not with "Fixes" or "Closes": the maintainer closes issues.
 - Reviews may ask for changes. Push them to the same branch, and reply on the comment when it's done.
 
 ## Translations

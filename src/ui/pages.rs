@@ -6,6 +6,7 @@ use std::sync::atomic::Ordering;
 
 use egui::{Align2, Color32, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
 
+use super::arrive;
 use super::widgets::{self, RowOpts, card, chip, h_scroll, named, paint_cover, pill, shelf_header, track_row};
 use super::find::{ListFind, Sort};
 use super::row_drag::{self, RowDrag};
@@ -18,6 +19,7 @@ use crate::ytm::Scope;
 const CARD: f32 = 180.0;
 
 pub fn page(app: &mut App, ui: &mut Ui, now: f64) {
+    arrive::page(ui.ctx(), app.page_changed);
     let t = theme::ease_out(((now - app.page_changed) / 0.32) as f32);
     let rise = app.look().app.page_rise_px * (1.0 - t);
     if rise > 0.0 {
@@ -177,12 +179,13 @@ fn card_row(ui: &mut Ui, id: &str, title: &str, cards: &[Card], acts: &mut Vec<A
     if cards.is_empty() {
         return;
     }
-    let (l, r) = shelf_header(ui, title, None, None, true);
+    let g = arrive::group(ui, id);
+    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, None, None, true));
     let nudge = r as i32 - l as i32;
     h_scroll(ui, id, nudge, cards.len(), CARD, 18.0, |ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
-        for c in cards {
-            card(ui, c, CARD, false, None, acts);
+        for (i, c) in cards.iter().enumerate() {
+            arrive::item(ui, g, 1 + i, 16.0, |ui| card(ui, c, CARD, false, None, acts));
         }
     });
 }
@@ -191,7 +194,8 @@ fn card_row(ui: &mut Ui, id: &str, title: &str, cards: &[Card], acts: &mut Vec<A
 /// song starts its radio. Returns whether the arrows reached the end.
 #[allow(clippy::too_many_arguments)]
 fn song_grid(ui: &mut Ui, rows_ctx: &Rows, liked: &HashSet<String>, acts: &mut Vec<Action>, id: &str, title: &str, strap: Option<&str>, tracks: &[Track], rows: usize) -> bool {
-    let (l, r) = shelf_header(ui, title, strap, None, true);
+    let g = arrive::group(ui, id);
+    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, strap, None, true));
     let nudge = r as i32 - l as i32;
     let col_w = (ui.available_width() / 2.6).clamp(300.0, 420.0);
     let tracks: Vec<&Track> = tracks.iter().filter(|t| rows_ctx.shows(t)).collect();
@@ -204,7 +208,7 @@ fn song_grid(ui: &mut Ui, rows_ctx: &Rows, liked: &HashSet<String>, acts: &mut V
                 ui.vertical(|ui| {
                     for (i, t) in col.iter().enumerate() {
                         let o = rows_ctx.opts(liked, t, None, false);
-                        if track_row(ui, t, &o, acts).clicked() {
+                        if arrive::item(ui, g, 1 + c + i, 10.0, |ui| track_row(ui, t, &o, acts)).clicked() {
                             picked = Some(c * rows + i);
                         }
                     }
@@ -246,6 +250,7 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
     let n = shown.as_ref().map_or(tracks.len(), Vec::len);
     // Rows on show changing mid-drag (find typed into) make it another list: the drag ends.
     let (drag_list, top) = (egui::Id::unique(("list", page)).with(&shown), ui.cursor().top());
+    let g = arrive::group(ui, ("list", page));
     widgets::visible_rows(ui, n, |ui, k| {
         let i = shown.as_ref().map_or(k, |s| s[k]);
         let t = &tracks[i];
@@ -260,7 +265,7 @@ fn list(ui: &mut Ui, rows: &Rows, liked: &HashSet<String>, tracks: &[Track], sho
                 plays_col,
                 ..rows.opts(liked, t, number(i, t), show_album)
             };
-            if track_row(ui, t, &o, acts).clicked() {
+            if arrive::item(ui, g, k, 10.0, |ui| track_row(ui, t, &o, acts)).clicked() {
                 if selecting || mods.command || mods.shift {
                     // A run of picks is of the rows on show, in their order on screen.
                     sel.pick(page, i, mods.shift, shown.as_deref());
@@ -508,10 +513,11 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
         && !h.chips.is_empty()
     {
         ui.add_space(6.0);
+        let g = arrive::group(ui, "home-chips");
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
-            for c in &h.chips {
-                if chip(ui, browse_label(&c.title), c.selected).clicked() {
+            for (i, c) in h.chips.iter().enumerate() {
+                if arrive::item(ui, g, i, 6.0, |ui| chip(ui, browse_label(&c.title), c.selected)).clicked() {
                     let params = if c.selected { None } else { c.params.clone() };
                     app.actions.push(Action::HomeChip(params));
                 }
@@ -571,13 +577,14 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
 /// Cards scrolling sideways under a shelf's title.
 #[allow(clippy::too_many_arguments)]
 fn cards_shelf(ui: &mut Ui, liked: &HashSet<String>, acts: &mut Vec<Action>, id: &str, title: &str, strap: Option<&str>, thumb: Option<&str>, cards: &[&Card]) {
-    let (l, r) = shelf_header(ui, title, strap, thumb, true);
+    let g = arrive::group(ui, id);
+    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, strap, thumb, true));
     let nudge = r as i32 - l as i32;
     h_scroll(ui, id, nudge, cards.len(), CARD, 18.0, |ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
-        for c in cards {
+        for (i, c) in cards.iter().enumerate() {
             let is_liked = matches!(&c.target, Target::Song(t) if liked.contains(&t.id));
-            card(ui, c, CARD, is_liked, None, acts);
+            arrive::item(ui, g, 1 + i, 16.0, |ui| card(ui, c, CARD, is_liked, None, acts));
         }
     });
 }
@@ -658,7 +665,8 @@ fn browse_label(title: &str) -> &str {
 
 /// A group of Moods & genres: its categories in as many columns as fit, each opening its page.
 fn mood_grid(ui: &mut Ui, g: &crate::ytm::MoodGroup, acts: &mut Vec<Action>) {
-    shelf_header(ui, browse_label(&g.title), None, None, false);
+    let arr = arrive::group(ui, ("moods", &g.title));
+    arrive::item(ui, arr, 0, 10.0, |ui| shelf_header(ui, browse_label(&g.title), None, None, false));
     let gap = 14.0;
     let w = ui.available_width();
     let cols = ((w + gap) / (190.0 + gap)).floor().max(1.0);
@@ -666,8 +674,8 @@ fn mood_grid(ui: &mut Ui, g: &crate::ytm::MoodGroup, acts: &mut Vec<Action>) {
     let bw = ((w - gap * (cols - 1.0)) / cols - 0.5).max(60.0);
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(gap, gap);
-        for m in &g.moods {
-            if mood_button(ui, m, bw).clicked() {
+        for (i, m) in g.moods.iter().enumerate() {
+            if arrive::item(ui, arr, 1 + i / 2, 10.0, |ui| mood_button(ui, m, bw)).clicked() {
                 acts.push(Action::Go(Page::Mood(m.params.clone())));
             }
         }
@@ -791,12 +799,13 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
             ui.label(RichText::new(crate::tr!("nav-songs")).font(theme::bold(24.0)));
             ui.add_space(8.0);
             let plays_col = tracks.iter().take(4).any(|t| t.plays.is_some());
+            let g = arrive::group(ui, "search-songs");
             for (i, t) in tracks.iter().copied().take(4).enumerate() {
                 // Its own scope, so a picked-up row dims alone.
                 ui.push_id(i, |ui| {
                     row_drag::grip(ui, drag, ids("songs"), i, t);
                     let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, false) };
-                    if track_row(ui, t, &o, acts).clicked() {
+                    if arrive::item(ui, g, 1 + i, 10.0, |ui| track_row(ui, t, &o, acts)).clicked() {
                         acts.push(play(t));
                     }
                 });
@@ -841,11 +850,12 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
         ui.label(RichText::new(crate::tr!("nav-more-songs")).font(theme::bold(24.0)));
         ui.add_space(10.0);
         let plays_col = tracks.iter().skip(4).any(|t| t.plays.is_some());
+        let g = arrive::group(ui, "search-more");
         for (i, t) in tracks.iter().copied().skip(4).enumerate() {
             ui.push_id(("more", i), |ui| {
                 row_drag::grip(ui, drag, ids("more"), i, t);
                 let o = RowOpts { pick, plays_col, ..rows.opts(liked, t, None, true) };
-                if track_row(ui, t, &o, acts).clicked() {
+                if arrive::item(ui, g, i, 10.0, |ui| track_row(ui, t, &o, acts)).clicked() {
                     acts.push(play(t));
                 }
             });
@@ -1333,11 +1343,12 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
     }
     // `pinned`: on Library › Playlists, where playlists are pinned.
     let grid = |ui: &mut Ui, cards: &[Card], order: &[usize], pinned: Option<&[String]>, acts: &mut Vec<Action>| {
+        let g = arrive::group(ui, "library-grid");
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(20.0, 22.0);
-            for &i in order {
+            for (k, &i) in order.iter().enumerate() {
                 let pin = pinned.map(|p| matches!(&cards[i].target, Target::Playlist(id) if p.contains(id)));
-                card(ui, &cards[i], CARD, false, pin, acts);
+                arrive::item(ui, g, k, 16.0, |ui| card(ui, &cards[i], CARD, false, pin, acts));
             }
         });
     };

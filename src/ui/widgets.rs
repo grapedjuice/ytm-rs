@@ -1920,7 +1920,7 @@ pub fn shimmer_band(ui: &Ui, r: Rect, radius: f32, time: f64) {
 /// Paint a remote image into `rect`: the skeleton's shimmer while it downloads (not
 /// egui's spinner), then a quick fade-in. One already loaded just shows.
 pub fn paint_remote(ui: &Ui, url: &str, rect: Rect, radius: f32, uv: Rect, tint: Color32) {
-    const FADE: f64 = 0.22;
+    const FADE: f64 = 0.45;
     let ctx = ui.ctx();
     let now = ctx.input(|i| i.time);
     let id = egui::Id::unique(("img-fade", url));
@@ -1938,7 +1938,14 @@ pub fn paint_remote(ui: &Ui, url: &str, rect: Rect, radius: f32, uv: Rect, tint:
             if a < 1.0 {
                 ctx.request_repaint();
             }
-            let tint = tint.gamma_multiply(theme::ease_out(a));
+            let tint = tint.gamma_multiply(theme::ease_out((a / 0.5).min(1.0)));
+            // It comes into focus: a little closer at first, settling back as it fades in.
+            let uv = if a < 1.0 {
+                let z = 1.0 + 0.06 * (1.0 - a).powi(5);
+                Rect::from_center_size(uv.center(), uv.size() / z)
+            } else {
+                uv
+            };
             if crate::preset::active().app.squircle && radius >= 6.0 {
                 paint_squircle_image(ui, texture.id, rect, radius, uv, tint);
             } else {

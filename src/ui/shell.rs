@@ -311,7 +311,7 @@ pub fn sidebar_w(app: &App) -> f32 {
 
 /// The rail's width in this theme.
 pub fn rail_w(app: &App) -> f32 {
-    app.look().app.nav_item.rail_px.max(60.0)
+    app.look().app.nav_item.rail_px.max(60.0).max(super::titlebar::rail_min())
 }
 
 /// Whether the sidebar shows as a rail: the listener's choice, turned around in a theme
@@ -358,6 +358,11 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     let a = ((1.0 - t) * 1.5 - 0.5).clamp(0.0, 1.0);
     // Content width when expanded: text keeps its truncation while the panel narrows.
     let full_w = ui.available_width() + (sidebar_w(app) - rail_w) * t;
+    // The icons sit `ICON_X` in, which centres them on the theme's rail; a rail made wider
+    // (to clear macOS's window buttons) moves them over by half what it added, as it
+    // collapses. Only that: elsewhere, and in a theme's own wide rail, they stay put.
+    let shift = (rail_w - item.rail_px.max(60.0)).max(0.0) / 2.0 * t;
+    let icon_x = ICON_X + shift;
 
     // Menu button, logo. Laid out on its own, with only its height taken here: on the rail
     // it's wider than the rail, and would widen every row under it past what's seen, their
@@ -368,7 +373,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     {
         let ui = &mut head;
         ui.spacing_mut().item_spacing.x = 0.0;
-        ui.add_space(4.0);
+        ui.add_space(4.0 + shift);
         menu_button(app, ui);
         ui.add_space(8.0);
         ui.multiply_opacity(a);
@@ -420,7 +425,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         // On the rail with labels: the icon over a small one-line label.
         let under = item.rail_labels && t > 0.5;
         let icon_y = if under { rect.center().y - 9.0 } else { rect.center().y };
-        icon_at(ui, pos2(if under { rect.center().x } else { rect.left() + ICON_X + slid }, icon_y), glyph, 19.0, icon_fg);
+        icon_at(ui, pos2(if under { rect.center().x } else { rect.left() + icon_x + slid }, icon_y), glyph, 19.0, icon_fg);
         if under {
             let short = label.split_whitespace().next().unwrap_or(label);
             ui.painter().text(pos2(rect.center().x, rect.center().y + 14.0), Align2::CENTER_CENTER, short, theme::regular(10.5), icon_fg);
@@ -506,7 +511,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 // The spinner animates every frame: give up on a request that never answered.
                 if app.library_requested.elapsed() < std::time::Duration::from_secs(20) {
                     ui.horizontal(|ui| {
-                        ui.add_space(ICON_X - 8.0);
+                        ui.add_space(icon_x - 8.0);
                         widgets::loader(ui);
                     });
                 } else if t < 0.5 {
@@ -549,7 +554,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 // Right-click: the menu a playlist's card has.
                 resp.context_menu(|ui| widgets::card_menu_contents(ui, c, false, Some(pinned), &mut app.actions));
                 // Under the nav's icons, which centre on their row on a labelled rail.
-                let img_x = if item.rail_labels && t > 0.5 { rect.shrink2(vec2(item.side_margin, 0.0)).center().x } else { rect.left() + ICON_X };
+                let img_x = if item.rail_labels && t > 0.5 { rect.shrink2(vec2(item.side_margin, 0.0)).center().x } else { rect.left() + icon_x };
                 let img = Rect::from_center_size(pos2(img_x, rect.center().y), Vec2::splat(36.0));
                 paint_cover(ui, img, &c.thumbs, theme::thumb_radius(), 1.0);
                 if let Target::Album(id) | Target::Playlist(id) = &c.target {
@@ -590,7 +595,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
         nav(ui, icon::SETTINGS, crate::tr!("settings-title"), Page::Settings, p == Page::Settings, &mut go_to);
         if transferring {
-            super::transfer::sidebar_card(app, ui, collapsed, a, ICON_X);
+            super::transfer::sidebar_card(app, ui, collapsed, a, icon_x);
         }
         if let Some(v) = &ready {
             ui.add_space(6.0);
@@ -602,7 +607,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             }
             let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
             ui.painter().rect_filled(rect, 12.0, theme::with_alpha(look.accent, 0.22 + 0.12 * h));
-            icon_at(ui, pos2(rect.left() + ICON_X, rect.center().y), icon::SPARKLES, 18.0, theme::text());
+            icon_at(ui, pos2(rect.left() + icon_x, rect.center().y), icon::SPARKLES, 18.0, theme::text());
             if a > 0.0 {
                 ui.painter().text(pos2(rect.left() + 46.0, rect.top() + 17.0), Align2::LEFT_CENTER, title, theme::semibold(13.5), theme::with_alpha(theme::text(), a));
                 ui.painter().text(pos2(rect.left() + 46.0, rect.top() + 35.0), Align2::LEFT_CENTER, format!("ytm-rs {v}"), theme::regular(12.0), theme::with_alpha(theme::text(), 0.75 * a));

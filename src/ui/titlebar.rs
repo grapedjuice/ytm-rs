@@ -107,6 +107,19 @@ pub fn init(data_dir: &std::path::Path) {
 const LIGHTS_X: f32 = 20.0;
 const LIGHTS_W: f32 = 84.0;
 
+/// The three window buttons, from the left edge of the first to the right edge of the
+/// last (macOS 26's; earlier ones are a little narrower). `LIGHTS_W` is the room kept
+/// for them at the top left; this is the buttons alone.
+const LIGHTS_SPAN: f32 = 60.0;
+
+/// The narrowest the sidebar's icon rail can be: on macOS the window buttons sit over its
+/// top, with as much room after them as before, so its edge doesn't run up against them.
+/// It stays this wide in fullscreen, where they're hidden, so the rail doesn't jump going
+/// in and out.
+pub fn rail_min() -> f32 {
+    if inset() { LIGHTS_X + LIGHTS_SPAN + LIGHTS_X } else { 0.0 }
+}
+
 /// macOS: the system's window buttons over the app's top row, the system's title strip
 /// gone. `YTM_NATIVE_TITLEBAR` keeps the strip.
 pub fn inset() -> bool {

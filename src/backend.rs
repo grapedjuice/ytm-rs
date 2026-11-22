@@ -1628,6 +1628,7 @@ impl Backend {
 
     async fn fetch_lyrics(&self, t: &Track) -> LyricsSet {
         let artist = t.artist_line();
+        let (bare_song, main_artist) = ytm::lyrics_names(t);
         let query = lyrics::Query {
             video_id: &t.id,
             song: &t.title,
@@ -1637,8 +1638,10 @@ impl Backend {
                 Some(d) => Some(d),
                 None => self.stream_duration(&t.id).await,
             },
+            bare_song: &bare_song,
+            main_artist: &main_artist,
         };
-        let mut set = self.lyrics.fetch(&query).await.unwrap_or_else(|e| {
+        let mut set = self.lyrics.fetch(&query, ytm::lyrics(&self.api, &t.id)).await.unwrap_or_else(|e| {
             log::warn!("lyrics failed: {e:#}");
             LyricsSet::default()
         });

@@ -6,6 +6,8 @@
 //!   (Apple-style TTML), BiniLyrics (TTML), Musixmatch (word-by-word and line LRC), LRCLib
 //!   (LRC and plain), Legato (KuGou LRC) and Portato (QQ QRC).
 //! - Unison, the community lyrics service, answers a plain GET.
+//! - YouTube Music's own Lyrics tab, plain text (see `ytm::lyrics`).
+//! - LRCLib directly, by the song's bare title, when the stream brought nothing from it.
 //!
 //! The API needs a JWT, obtained by exchanging a Cloudflare Turnstile token (see
 //! turnstile.rs). JWTs last 24 h and are cached on disk.
@@ -19,9 +21,11 @@ use serde_json::Value;
 
 const API: &str = "https://lyrics.api.dacubeking.com/";
 const UNISON_API: &str = "https://unison.betterlyrics.org/lyrics";
+const LRCLIB_SEARCH: &str = "https://lrclib.net/api/search";
 
 /// One source of lyrics, in the extension's default priority order (its
-/// `PROVIDER_CONFIGS`, without the two YouTube sources).
+/// `PROVIDER_CONFIGS`, with YouTube Music's own plain lyrics last instead of its two
+/// YouTube sources).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub enum Provider {
     BLyricsRich,
@@ -38,6 +42,7 @@ pub enum Provider {
     MusixmatchSynced,
     UnisonPlain,
     LrclibPlain,
+    YoutubePlain,
 }
 
 /// How finely a provider's lyrics are timed.
@@ -50,7 +55,7 @@ pub enum SyncKind {
 }
 
 impl Provider {
-    pub const ALL: [Provider; 14] = [
+    pub const ALL: [Provider; 15] = [
         Provider::BLyricsRich,
         Provider::UnisonRich,
         Provider::BinimumRich,
@@ -65,6 +70,7 @@ impl Provider {
         Provider::MusixmatchSynced,
         Provider::UnisonPlain,
         Provider::LrclibPlain,
+        Provider::YoutubePlain,
     ];
 
     /// The extension's key for it (also how the order is stored).
@@ -84,6 +90,7 @@ impl Provider {
             Provider::MusixmatchSynced => "musixmatch-synced",
             Provider::UnisonPlain => "unison-plain",
             Provider::LrclibPlain => "lrclib-plain",
+            Provider::YoutubePlain => "yt-lyrics",
         }
     }
 
@@ -100,6 +107,7 @@ impl Provider {
             Provider::MusixmatchRich | Provider::MusixmatchSynced => "Musixmatch",
             Provider::LrclibSynced | Provider::LrclibPlain => "LRCLib",
             Provider::LegatoSynced => "Better Lyrics Legato",
+            Provider::YoutubePlain => "YouTube Music",
         }
     }
 
@@ -113,7 +121,7 @@ impl Provider {
             | Provider::LrclibSynced
             | Provider::LegatoSynced
             | Provider::MusixmatchSynced => SyncKind::Line,
-            Provider::UnisonPlain | Provider::LrclibPlain => SyncKind::Unsynced,
+            Provider::UnisonPlain | Provider::LrclibPlain | Provider::YoutubePlain => SyncKind::Unsynced,
         }
     }
 }
@@ -283,6 +291,9 @@ pub struct Query<'a> {
     pub artist: &'a str,
     pub album: Option<&'a str>,
     pub duration: Option<u32>,
+    /// The title and artist to match by name alone (LRCLib): see `ytm::lyrics_names`.
+    pub bare_song: &'a str,
+    pub main_artist: &'a str,
 }
 
 impl Client {
@@ -299,12 +310,14 @@ impl Client {
         }
     }
 
-    /// Every source's lyrics for a song: the Better Lyrics stream and Unison, together.
-    pub async fn fetch(&self, q: &Query<'_>) -> anyhow::Result<LyricsSet> {
+    /// Every source's lyrics for a song: the Better Lyrics stream, Unison and `youtube`
+    /// (YouTube Music's own, from `ytm::lyrics`) together, then LRCLib directly if the
+    /// stream brought nothing from it.
+    pub async fn fetch(&self, q: &Query<'_>, youtube: impl Future<Output = anyhow::Result<Option<String>>>) -> anyhow::Result<LyricsSet> {
         if let Some((_, l)) = self.recent.lock().unwrap().iter().find(|(id, _)| id == q.video_id) {
             return Ok(l.clone());
         }
-        let (stream, unison) = tokio::join!(self.fetch_stream(q), self.fetch_unison(q));
+        let (stream, unison, youtube) = tokio::join!(self.fetch_stream(q), self.fetch_unison(q), youtube);
         let mut sources = Vec::new();
         match stream {
             Ok(s) => sources.extend(s),
@@ -313,6 +326,18 @@ impl Client {
         match unison {
             Ok(s) => sources.extend(s),
             Err(e) => log::info!("unison: {e:#}"),
+        }
+        match youtube {
+            Ok(text) => sources.extend(text.and_then(|t| Lyrics::new(Provider::YoutubePlain, parse_plain(&t), None, vec![]))),
+            Err(e) => log::info!("youtube lyrics: {e:#}"),
+        }
+        // The stream asks LRCLib by YouTube's own title, which misses "Song (Official
+        // Video)" and "Artist - Song"; and when the stream fails, LRCLib still answers.
+        if !sources.iter().any(|l| matches!(l.provider, Provider::LrclibSynced | Provider::LrclibPlain)) {
+            match self.fetch_lrclib(q).await {
+                Ok(s) => sources.extend(s),
+                Err(e) => log::info!("lrclib: {e:#}"),
+            }
         }
         if sources.is_empty() {
             return Ok(LyricsSet::default());
@@ -368,6 +393,27 @@ impl Client {
         }
         let v: Value = resp.error_for_status()?.json().await?;
         Ok(from_unison(&v["data"], q.duration.unwrap_or(0) as i32 * 1000))
+    }
+
+    /// LRCLib's best match by bare title and first artist: within 3 s of the song's length
+    /// (names alone could be a cover's), synced lyrics over plain, then the closest.
+    async fn fetch_lrclib(&self, q: &Query<'_>) -> anyhow::Result<Vec<Lyrics>> {
+        if q.bare_song.is_empty() || q.main_artist.is_empty() || q.duration.is_none_or(|d| d == 0) {
+            return Ok(vec![]);
+        }
+        let hits: Vec<Value> = self
+            .http
+            .get(LRCLIB_SEARCH)
+            .query(&[("track_name", q.bare_song), ("artist_name", q.main_artist)])
+            // LRCLib asks clients to say who they are.
+            .header(reqwest::header::USER_AGENT, concat!("ytm-rs/", env!("CARGO_PKG_VERSION"), " (https://github.com/grapedjuice/ytm-rs)"))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        Ok(from_lrclib(&hits, q.duration.unwrap_or(0) as i32 * 1000))
     }
 
     /// A valid JWT, from cache or by running the Turnstile challenge.
@@ -508,6 +554,27 @@ pub fn from_stream(body: &str, q: &Query) -> Vec<Lyrics> {
             }
             _ => {}
         }
+    }
+    out
+}
+
+/// The best of LRCLib's search hits for a song `dur_ms` long.
+fn from_lrclib(hits: &[Value], dur_ms: i32) -> Vec<Lyrics> {
+    let off = |h: &Value| h["duration"].as_f64().map_or(i32::MAX, |d| ((d * 1000.0) as i32 - dur_ms).abs());
+    let text = |h: &Value, k: &str| h[k].as_str().filter(|t| !t.trim().is_empty()).map(str::to_owned);
+    let Some(best) = hits
+        .iter()
+        .filter(|h| h["instrumental"] != true && off(h) <= 3000)
+        .min_by_key(|h| (text(h, "syncedLyrics").is_none(), off(h)))
+    else {
+        return vec![];
+    };
+    let mut out = Vec::new();
+    if let Some(t) = text(best, "syncedLyrics") {
+        out.extend(Lyrics::new(Provider::LrclibSynced, parse_lrc(&t, dur_ms), None, lrc_songwriters(&t)));
+    }
+    if let Some(t) = text(best, "plainLyrics") {
+        out.extend(Lyrics::new(Provider::LrclibPlain, parse_plain(&t), None, vec![]));
     }
     out
 }
@@ -1543,6 +1610,22 @@ Two");
     }
 
     #[test]
+    fn lrclib_picks_the_closest_synced_hit() {
+        let hits: Vec<Value> = serde_json::from_value(serde_json::json!([
+            { "duration": 200.0, "plainLyrics": "far off" },
+            { "duration": 181.0, "plainLyrics": "plain only" },
+            { "duration": 182.5, "syncedLyrics": "[00:01.00]synced", "plainLyrics": "synced" },
+            { "duration": 180.0, "instrumental": true },
+        ]))
+        .unwrap();
+        let got = from_lrclib(&hits, 180_000);
+        assert_eq!(got.iter().map(|l| l.provider).collect::<Vec<_>>(), [Provider::LrclibSynced, Provider::LrclibPlain]);
+        assert_eq!(got[0].lines.iter().find(|l| !l.instrumental).unwrap().text, "synced");
+        // Nothing within 3 s: nothing, rather than another song's lyrics.
+        assert!(from_lrclib(&hits, 120_000).is_empty());
+    }
+
+    #[test]
     fn ttml_times() {
         assert_eq!(ttml_time("1:02.345"), 62345);
         assert_eq!(ttml_time("12.5s"), 12500);
@@ -1553,7 +1636,7 @@ Two");
     #[test]
     fn real_stream_parses_every_provider() {
         let Ok(body) = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/research/nandemonaiya.sse")) else { return };
-        let q = Query { video_id: "n89SKAymNfA", song: "Nandemonaiya - movie ver.", artist: "RADWIMPS", album: None, duration: Some(343) };
+        let q = Query { video_id: "n89SKAymNfA", song: "Nandemonaiya - movie ver.", artist: "RADWIMPS", album: None, duration: Some(343), bare_song: "", main_artist: "" };
         let got = from_stream(&body, &q);
         let keys: Vec<&str> = got.iter().map(|l| l.provider.key()).collect();
         assert!(keys.contains(&"bLyrics-richsynced"), "{keys:?}");

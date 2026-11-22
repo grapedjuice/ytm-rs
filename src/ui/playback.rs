@@ -700,11 +700,6 @@ impl App {
         self.queue.repeat == Repeat::One && !self.current().is_some_and(|t| self.hide_explicit && t.explicit)
     }
 
-    /// Explicit songs hidden or shown again: queued ones go (all but the one playing; a
-    /// jam guest's queue is the host's), and YouTube's Restricted Mode applies to what
-    /// loads from now on.
-    /// Settings › Playback › Show podcasts: Home and the library are asked for again, with
-    /// or without them.
     /// Applies Settings › Network › Allow local network scan: on, AirPlay speakers are
     /// looked for; off, they're forgotten, and one playing hands the music back to the
     /// system's default device.
@@ -718,6 +713,11 @@ impl App {
         }
     }
 
+    /// Explicit songs hidden or shown again: queued ones go (all but the one playing; a
+    /// jam guest's queue is the host's), and YouTube's Restricted Mode applies to what
+    /// loads from now on.
+    /// Settings › Playback › Show podcasts: Home and the library are asked for again, with
+    /// or without them.
     pub(super) fn set_show_podcasts(&mut self) {
         crate::ytm::set_podcasts(self.show_podcasts);
         if !self.show_podcasts && self.page == super::Page::Library(super::LibTab::Podcasts) {

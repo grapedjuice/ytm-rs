@@ -57,6 +57,9 @@ pub enum AudioCmd {
     /// Pause at this moment (the sleep timer); None calls it off. Kept here rather than
     /// in the UI, which may not draw a frame while the window is in the tray.
     SleepAt(Option<Instant>),
+    /// An AirPlay speaker's handshake (`id`, called `name`) is done, on a thread of its own
+    /// so the engine stays responsive meanwhile.
+    AirPlay { id: String, name: String, session: anyhow::Result<Box<airplay::Session>> },
 }
 
 pub enum AudioEvent {
@@ -739,9 +742,12 @@ struct Output {
     sink: Option<MixerDeviceSink>,
     /// The AirPlay speaker playing, in place of `sink`.
     airplay: Option<airplay::Stream>,
+    /// The AirPlay speaker being connected to (its id): nothing takes the mixer's samples
+    /// meanwhile, so the music waits for it.
+    connecting: Option<String>,
     /// Whether to try the picked AirPlay speaker. Off once it failed or hung up, so the
     /// check for a new device doesn't keep taking it back (from another device playing on
-    /// it); on again when the music's asked for (`retry_airplay`).
+    /// it); on again when the music's asked for.
     airplay_retry: bool,
     /// What went wrong with the AirPlay speaker, for the UI to show.
     notice: Option<String>,
@@ -773,6 +779,7 @@ impl Output {
             slot: Arc::new(std::sync::Mutex::new(Some(source))),
             sink: None,
             airplay: None,
+            connecting: None,
             airplay_retry: true,
             notice: None,
             device: None,
@@ -783,15 +790,22 @@ impl Output {
         (output, found)
     }
 
-    /// Whether a device (or speaker) has the mixer.
+    /// Whether a device (or speaker) has the mixer, or a speaker's about to.
     fn is_open(&self) -> bool {
+        self.pulled() || self.connecting.is_some()
+    }
+
+    /// Whether something's taking the mixer's samples, so what's done to a player happens.
+    fn pulled(&self) -> bool {
         self.sink.is_some() || self.airplay.is_some()
     }
 
-    /// Lets go of the device or speaker.
+    /// Lets go of the device or speaker. A handshake still going is forgotten: its session
+    /// is dropped when it comes.
     fn close(&mut self) {
         self.sink = None;
         self.airplay = None;
+        self.connecting = None;
     }
 
     /// Drops what the speaker has buffered, so a pause, seek or new song is heard now
@@ -800,11 +814,6 @@ impl Output {
         if let Some(a) = &self.airplay {
             a.flush();
         }
-    }
-
-    /// The music was asked for: a picked AirPlay speaker that failed gets another go.
-    fn retry_airplay(&mut self) {
-        self.airplay_retry = true;
     }
 
     /// The picked AirPlay speaker, if it's on the network and worth trying.
@@ -828,25 +837,36 @@ impl Output {
         }
     }
 
-    /// Plays through the AirPlay speaker. False if it wouldn't (the reason's in `notice`).
-    fn open_airplay(&mut self, speaker: airplay::Speaker, lost: impl Fn() + Send + 'static, status: &AudioStatus) -> bool {
-        let session = match airplay::Session::connect(&speaker) {
+    /// Sends `DeviceLost` once, when the device (or speaker) in use goes.
+    fn reporter(&self, tx: Sender<AudioCmd>) -> impl Fn() + Clone + Send + 'static {
+        let lost = self.lost.clone();
+        lost.store(false, Ordering::Relaxed);
+        move || {
+            if !lost.swap(true, Ordering::Relaxed) {
+                let _ = tx.send(AudioCmd::DeviceLost);
+            }
+        }
+    }
+
+    /// The speaker's handshake came back (`AudioCmd::AirPlay`): plays through it, or says
+    /// why not (in `notice`) and returns false, for the sound card to stand in.
+    fn connected(&mut self, name: &str, session: anyhow::Result<Box<airplay::Session>>, tx: Sender<AudioCmd>, status: &AudioStatus) -> bool {
+        let session = match session {
             Ok(s) => s,
             Err(e) => {
-                log::warn!("audio: AirPlay speaker {:?}: {e:#}", speaker.name);
+                log::warn!("audio: AirPlay speaker {name:?}: {e:#}");
                 self.airplay_retry = false;
-                self.notice = Some(format!("Couldn't play on {}: {e}", speaker.name));
+                self.notice = Some(crate::tr!("airplay-couldnt-play", name = name, reason = airplay::describe(&e)));
                 return false;
             }
         };
         let Some(source) = self.take_source() else { return false };
         let bridge = Bridge::new(source, self.slot.clone(), status, true);
-        match session.play(bridge, lost) {
+        match (*session).play(bridge, self.reporter(tx)) {
             Ok(stream) => {
                 status.latency_ms.store(airplay::LATENCY.as_millis() as u32 + limiter::LOOKAHEAD_MS, Ordering::Relaxed);
-                log::info!("audio: playing on AirPlay speaker {:?}", speaker.name);
+                log::info!("audio: playing on AirPlay speaker {name:?}");
                 self.airplay = Some(stream);
-                self.device = Some(speaker.id);
                 true
             }
             // The bridge, dropped, gave the mixer back.
@@ -859,23 +879,31 @@ impl Output {
 
     /// Opens the picked device, or the default one. False if there's none to open.
     fn open(&mut self, tx: Sender<AudioCmd>, status: &AudioStatus) -> bool {
+        self.checked = Instant::now();
+        // A speaker's handshake takes a while (seconds, for an AirPlay 2 one's clock), so
+        // it goes on elsewhere and comes back as `AudioCmd::AirPlay`. Failing, the sound
+        // card stands in, as for one unplugged.
+        if let Some(speaker) = self.airplay_target() {
+            if self.connecting.as_ref() == Some(&speaker.id) {
+                return true;
+            }
+            self.close();
+            self.device = Some(speaker.id.clone());
+            self.connecting = Some(speaker.id.clone());
+            let back = tx.clone();
+            let spawned = std::thread::Builder::new().name("airplay-connect".into()).spawn(move || {
+                let session = airplay::Session::connect(&speaker).map(Box::new);
+                let _ = back.send(AudioCmd::AirPlay { id: speaker.id, name: speaker.name, session });
+            });
+            if spawned.is_ok() {
+                return true;
+            }
+            self.connecting = None;
+        }
         // The old device's stream gives our mixer back when it's dropped.
         self.close();
         self.device = None;
-        self.checked = Instant::now();
-        let lost = self.lost.clone();
-        lost.store(false, Ordering::Relaxed);
-        let report = move || {
-            if !lost.swap(true, Ordering::Relaxed) {
-                let _ = tx.send(AudioCmd::DeviceLost);
-            }
-        };
-        // Not there, or it wouldn't play: the sound card stands in, as for one unplugged.
-        if let Some(speaker) = self.airplay_target()
-            && self.open_airplay(speaker, report.clone(), status)
-        {
-            return true;
-        }
+        let report = self.reporter(tx);
         let Some(device) = target(self.preferred.as_deref()) else {
             return false;
         };
@@ -1193,7 +1221,7 @@ fn run(
                 // Starting up again after being let go is the listener's doing, not the next
                 // song coming along: a speaker that failed gets another go.
                 if !output.is_open() {
-                    output.retry_airplay();
+                    output.airplay_retry = true;
                 }
                 if (!output.is_open() || output.default_changed()) && !output.open(tx.clone(), &status) {
                     let _ = events.send(AudioEvent::Error("No audio output device".into()));
@@ -1358,7 +1386,7 @@ fn run(
             Ok(AudioCmd::Resume) => {
                 log::debug!("audio: resume (generation {current})");
                 if current != 0 {
-                    output.retry_airplay();
+                    output.airplay_retry = true;
                     // Headphones may have come back (or gone) while paused.
                     if !output.is_open() || output.default_changed() {
                         output.open(tx.clone(), &status);
@@ -1464,7 +1492,7 @@ fn run(
                 // podcast feed's file not all in memory: its seek reads at the new spot,
                 // which would wait on the download inside the device's callback.
                 let in_place = seekable && shared.as_ref().is_none_or(|s| !s.feed || s.is_complete());
-                if in_place && output.is_open() && player.try_seek(pos).is_ok() {
+                if in_place && output.pulled() && player.try_seek(pos).is_ok() {
                     log::debug!("audio: seek to {pos:?} in place");
                     status.set_position(pos.as_millis() as u64);
                     wake();
@@ -1502,7 +1530,7 @@ fn run(
             // full `IDLE_CLOSE` again, in case the song never comes.
             Ok(AudioCmd::Warm) => {
                 if !output.is_open() {
-                    output.retry_airplay();
+                    output.airplay_retry = true;
                 }
                 if !output.is_open() && output.open(tx.clone(), &status) {
                     idle_since = idle_since.map(|_| Instant::now());
@@ -1514,7 +1542,7 @@ fn run(
                 // straight back: playing again tries it.
                 if output.airplay.is_some() {
                     output.airplay_retry = false;
-                    output.notice = Some("Lost the AirPlay speaker".into());
+                    output.notice = Some(crate::tr!("airplay-lost").to_owned());
                 }
                 output.open(tx.clone(), &status);
                 // The device itself went away, not a hiccup on the same one: pause, as
@@ -1537,10 +1565,21 @@ fn run(
                     airplay::discover();
                 }
                 output.preferred = id;
-                output.retry_airplay();
+                output.airplay_retry = true;
                 // A device let go while idle opens again with the next song.
                 if (output.is_open() || idle_since.is_none()) && (!output.is_open() || output.default_changed()) {
                     output.open(tx.clone(), &status);
+                }
+            }
+            Ok(AudioCmd::AirPlay { id, name, session }) => {
+                // Let go of (or another picked) meanwhile: its session goes.
+                if output.connecting.as_ref() != Some(&id) {
+                    continue;
+                }
+                output.connecting = None;
+                if !output.connected(&name, session, tx.clone(), &status) && !output.open(tx.clone(), &status) {
+                    let _ = events.send(AudioEvent::Error("No audio output device".into()));
+                    wake();
                 }
             }
             Ok(AudioCmd::Volume(v)) => {
@@ -1915,7 +1954,7 @@ mod tests {
         use std::num::NonZero;
         let (mixer, source) = rodio::mixer::mixer(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap());
         // Let go of while paused: nothing pulls the mixer.
-        let output = Output { mixer, slot: Arc::new(std::sync::Mutex::new(Some(source))), sink: None, airplay: None, airplay_retry: true, notice: None, device: None, preferred: None, lost: Default::default(), checked: Instant::now() };
+        let output = Output { mixer, slot: Arc::new(std::sync::Mutex::new(Some(source))), sink: None, airplay: None, connecting: None, airplay_retry: true, notice: None, device: None, preferred: None, lost: Default::default(), checked: Instant::now() };
         let mut player = Player::connect_new(&output.mixer);
         player.set_volume(0.5);
         player.append(rodio::buffer::SamplesBuffer::new(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap(), vec![0.0; 96_000]));
@@ -1933,7 +1972,7 @@ mod tests {
         use std::num::NonZero;
         let (mixer, source) = rodio::mixer::mixer(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap());
         // Playing, through a device that stopped pulling before it reported itself gone.
-        let output = Output { mixer, slot: Arc::new(std::sync::Mutex::new(None)), sink: None, airplay: None, airplay_retry: true, notice: None, device: None, preferred: None, lost: Default::default(), checked: Instant::now() };
+        let output = Output { mixer, slot: Arc::new(std::sync::Mutex::new(None)), sink: None, airplay: None, connecting: None, airplay_retry: true, notice: None, device: None, preferred: None, lost: Default::default(), checked: Instant::now() };
         let mut player = Player::connect_new(&output.mixer);
         player.set_volume(0.25);
         player.append(rodio::buffer::SamplesBuffer::new(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap(), vec![0.5; 96_000]));

@@ -17,16 +17,15 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow, bail};
 use chacha20poly1305::ChaCha20Poly1305;
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
-use crossbeam_channel::{Receiver, unbounded};
+use crossbeam_channel::Receiver;
 use plist::{Dictionary, Value};
 
-use super::{FRAMES, LATENCY, RATE, Rtsp, Speaker, Stream, TIMEOUT, alac_frame, pair, random};
+use super::{FRAMES, Failure, LATENCY, RATE, Rtsp, Speaker, TIMEOUT, Worker, pair, random};
 
 /// How long the speaker gets to start sending its clock after SETPEERS.
 pub const CLOCK_WAIT: Duration = Duration::from_secs(12);
@@ -104,10 +103,6 @@ impl Buffered {
         Ok(session)
     }
 
-    pub(super) fn rtsp(&mut self) -> &mut Rtsp {
-        &mut self.rtsp
-    }
-
     /// Ties RTP time `rtp` to `LATENCY` from now on the speaker's clock.
     fn set_anchor(&mut self, rtp: u32) -> anyhow::Result<()> {
         let (identity, now) = self.clock.now().ok_or_else(|| anyhow!("lost the speaker's clock"))?;
@@ -118,7 +113,7 @@ impl Buffered {
         let secs = at.floor();
         // The fraction as a 64-bit binary fraction; over a half, the sign bit, as it should.
         let frac = ((at - secs) * 2f64.powi(64)) as u64;
-        let body = dict([
+        let body = Dictionary::from_iter([
             ("networkTimeFlags", Value::from(0i64)),
             ("networkTimeFrac", Value::from(frac as i64)),
             ("networkTimeSecs", Value::from(secs as i64)),
@@ -132,28 +127,11 @@ impl Buffered {
         Ok(())
     }
 
-    pub fn play<S>(self, source: S, lost: impl Fn() + Send + 'static) -> anyhow::Result<Stream>
-    where
-        S: rodio::Source + Send + 'static,
-    {
-        let (flush_tx, flush_rx) = unbounded();
-        let stop = Arc::new(AtomicBool::new(false));
-        let thread = std::thread::Builder::new().name("airplay".into()).spawn({
-            let stop = stop.clone();
-            move || {
-                let source = rodio::source::UniformSourceIterator::new(source, std::num::NonZero::new(2).unwrap(), std::num::NonZero::new(RATE).unwrap());
-                self.run(source, &stop, flush_rx, lost);
-            }
-        })?;
-        Ok(Stream { stop, flush: flush_tx, thread: Some(thread) })
-    }
-
-    fn run(mut self, mut source: impl Iterator<Item = f32>, stop: &AtomicBool, flush: Receiver<()>, lost: impl Fn()) {
+    pub(super) fn run(mut self, mut frames: impl Iterator<Item = Vec<u8>>, stop: &AtomicBool, flush: &Receiver<()>, lost: impl Fn()) {
         let cipher = ChaCha20Poly1305::new(&self.key.into());
         let mut seq: u32 = 0;
         let mut rtp: u32 = 0;
         let mut nonce: u64 = 0;
-        let mut pcm = vec![0i16; FRAMES * 2];
         let gone = loop {
             if stop.load(Ordering::Relaxed) {
                 break false;
@@ -167,17 +145,14 @@ impl Buffered {
                 // Drops what it holds up to here. That ends its timeline too (it stays at
                 // where it had got to, playing nothing, whatever it's sent), so the next
                 // block gets a fresh anchor: `LATENCY` from now, as the pacing has it anyway.
-                let body = dict([("flushUntilSeq", Value::from(i64::from(seq))), ("flushUntilTS", Value::from(i64::from(rtp)))]);
+                let body = Dictionary::from_iter([("flushUntilSeq", i64::from(seq)), ("flushUntilTS", i64::from(rtp))]);
                 let sent = binary(&Value::Dictionary(body)).and_then(|b| self.rtsp.request("FLUSHBUFFERED", None, &[], Some((PLIST, &b)))).and_then(|_| self.set_anchor(rtp));
                 if let Err(e) = sent {
                     log::warn!("airplay: {e:#}");
                     break true;
                 }
             }
-            for s in pcm.iter_mut() {
-                *s = (source.next().unwrap_or(0.0).clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-            }
-            let block = block(&cipher, seq, rtp, nonce, &alac_frame(&pcm));
+            let block = block(&cipher, seq, rtp, nonce, &frames.next().unwrap_or_default());
             if let Err(e) = self.data.write_all(&block) {
                 log::warn!("airplay: sending failed: {e}");
                 break true;
@@ -210,7 +185,8 @@ impl Buffered {
         } else {
             let _ = self.rtsp.tcp.set_read_timeout(Some(Duration::from_secs(1)));
             if let Some(id) = self.stream_id {
-                let streams = dict([("streams", Value::Array(vec![Value::Dictionary(dict([("streamID", Value::from(id)), ("type", Value::from(BUFFERED))]))]))]);
+                let stream = Dictionary::from_iter([("streamID", id), ("type", BUFFERED)]);
+                let streams = Dictionary::from_iter([("streams", Value::Array(vec![stream.into()]))]);
                 if let Ok(b) = binary(&Value::Dictionary(streams)) {
                     let _ = self.rtsp.request("TEARDOWN", None, &[], Some((PLIST, &b)));
                 }
@@ -245,7 +221,7 @@ fn block(cipher: &ChaCha20Poly1305, seq: u32, rtp: u32, nonce: u64, frame: &[u8]
 /// Who we are, and that the speaker's PTP clock is the one to go by.
 fn session_setup(local: IpAddr, uuid: &str, clock_id: i64) -> Dictionary {
     let peer = || {
-        Value::Dictionary(dict([
+        Value::Dictionary(Dictionary::from_iter([
             ("Addresses", Value::Array(vec![Value::String(local.to_string())])),
             ("ID", Value::String(uuid.to_owned())),
             ("ClockID", Value::from(clock_id)),
@@ -255,7 +231,7 @@ fn session_setup(local: IpAddr, uuid: &str, clock_id: i64) -> Dictionary {
     };
     // A made-up, locally administered address: nothing checks it.
     let mac = format!("02:00:{:02X}:{:02X}:{:02X}:{:02X}", clock_id >> 24 & 0xff, clock_id >> 16 & 0xff, clock_id >> 8 & 0xff, clock_id & 0xff);
-    dict([
+    Dictionary::from_iter([
         ("deviceID", Value::String(mac.clone())),
         ("macAddress", Value::String(mac)),
         ("sessionUUID", Value::String(uuid.to_owned())),
@@ -280,7 +256,7 @@ fn session_setup(local: IpAddr, uuid: &str, clock_id: i64) -> Dictionary {
 /// One stream of buffered ALAC, keyed with `key`, tied to the session by its id: a Sonos
 /// refuses the stream (400) without `streamConnectionID`.
 fn stream_setup(key: &[u8; 32], sid: u32) -> Value {
-    let stream = dict([
+    let stream = Dictionary::from_iter([
         ("type", Value::from(BUFFERED)),
         ("ct", Value::from(2i64)),
         ("audioFormat", Value::from(i64::from(ALAC))),
@@ -294,15 +270,7 @@ fn stream_setup(key: &[u8; 32], sid: u32) -> Value {
         ("supportsDynamicStreamID", Value::Boolean(false)),
         ("streamConnectionID", Value::from(i64::from(sid))),
     ]);
-    Value::Dictionary(dict([("streams", Value::Array(vec![Value::Dictionary(stream)]))]))
-}
-
-fn dict<const N: usize>(items: [(&str, Value); N]) -> Dictionary {
-    let mut d = Dictionary::new();
-    for (k, v) in items {
-        d.insert(k.to_owned(), v);
-    }
-    d
+    Value::Dictionary(Dictionary::from_iter([("streams", Value::Array(vec![stream.into()]))]))
 }
 
 fn binary(value: &Value) -> anyhow::Result<Vec<u8>> {
@@ -324,10 +292,8 @@ fn port(d: &Dictionary, key: &str) -> Option<u16> {
 
 fn uuid() -> String {
     let mut b = [0u8; 16];
-    if getrandom::fill(&mut b).is_err() {
-        b[..8].copy_from_slice(&random().to_le_bytes());
-        b[8..].copy_from_slice(&random().to_le_bytes());
-    }
+    b[..8].copy_from_slice(&random().to_le_bytes());
+    b[8..].copy_from_slice(&random().to_le_bytes());
     b[6] = b[6] & 0x0f | 0x40;
     b[8] = b[8] & 0x3f | 0x80;
     let h: String = b.iter().map(|x| format!("{x:02X}")).collect();
@@ -337,9 +303,8 @@ fn uuid() -> String {
 /// The connection the speaker sends us requests on, answered as briefly as can be: more
 /// in the answer (even `Content-Length: 0`) and it plays silence.
 struct Events {
-    stop: Arc<AtomicBool>,
     lost: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
+    _worker: Worker,
 }
 
 impl Events {
@@ -348,11 +313,10 @@ impl Events {
         tcp.set_read_timeout(Some(Duration::from_millis(250)))?;
         tcp.set_write_timeout(Some(TIMEOUT))?;
         let mut cipher = pair::Cipher::events(shared);
-        let stop = Arc::new(AtomicBool::new(false));
         let lost = Arc::new(AtomicBool::new(false));
-        let thread = std::thread::Builder::new().name("airplay-events".into()).spawn({
-            let (stop, lost) = (stop.clone(), lost.clone());
-            move || {
+        let worker = Worker::spawn("airplay-events", {
+            let lost = lost.clone();
+            move |stop| {
                 let (mut raw, mut plain) = (Vec::new(), Vec::new());
                 let mut chunk = [0u8; 4096];
                 while !stop.load(Ordering::Relaxed) {
@@ -390,7 +354,7 @@ impl Events {
                 }
             }
         })?;
-        Ok(Self { stop, lost, thread: Some(thread) })
+        Ok(Self { lost, _worker: worker })
     }
 }
 
@@ -402,22 +366,12 @@ fn request(plain: &[u8]) -> Option<(String, usize)> {
     (plain.len() >= end + body).then_some((head, end + body))
 }
 
-impl Drop for Events {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
-    }
-}
-
 /// The speaker's PTP clock, as it announces it to us (UDP 319 and 320): its identity, and
 /// what it read when we last heard. Followed for as long as the session lasts, so the
 /// audio keeps pace with the speaker rather than drifting off this computer's clock.
 struct Clock {
     state: Arc<Mutex<ClockState>>,
-    stop: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
+    _worker: Worker,
 }
 
 #[derive(Default)]
@@ -430,16 +384,15 @@ struct ClockState {
 impl Clock {
     fn listen(from: IpAddr) -> anyhow::Result<Self> {
         let bind = |port| {
-            let s = UdpSocket::bind(("0.0.0.0", port)).with_context(|| format!("couldn't listen for the speaker's clock on port {port} (is another AirPlay app open?)"))?;
+            let s = UdpSocket::bind(("0.0.0.0", port)).map_err(|e| anyhow::Error::new(e).context(format!("port {port}")).context(Failure::ClockPorts))?;
             s.set_read_timeout(Some(Duration::from_millis(20)))?;
             anyhow::Ok(s)
         };
         let sockets = [bind(319)?, bind(320)?];
         let state = Arc::new(Mutex::new(ClockState::default()));
-        let stop = Arc::new(AtomicBool::new(false));
-        let thread = std::thread::Builder::new().name("airplay-clock".into()).spawn({
-            let (state, stop) = (state.clone(), stop.clone());
-            move || {
+        let worker = Worker::spawn("airplay-clock", {
+            let state = state.clone();
+            move |stop| {
                 let mut buf = [0u8; 512];
                 while !stop.load(Ordering::Relaxed) {
                     for s in &sockets {
@@ -452,7 +405,7 @@ impl Clock {
                 }
             }
         })?;
-        Ok(Self { state, stop, thread: Some(thread) })
+        Ok(Self { state, _worker: worker })
     }
 
     /// Waits for the speaker to say who its clock is and what it reads.
@@ -463,7 +416,7 @@ impl Clock {
                 return Ok(identity);
             }
             if Instant::now() > deadline {
-                bail!("it didn't send its clock (the firewall may be blocking UDP ports 319 and 320)");
+                bail!(Failure::NoClock);
             }
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -474,15 +427,6 @@ impl Clock {
         let state = self.state.lock().unwrap();
         let (time, at) = state.reading?;
         Some((state.identity?, time + at.elapsed().as_secs_f64()))
-    }
-}
-
-impl Drop for Clock {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
     }
 }
 

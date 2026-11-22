@@ -68,9 +68,8 @@ liblzma = { version = "0.4.9", features = ["static"] }
 # AirPlay speakers (airplay.rs): finding them on the network (only with Settings ›
 # Network › Allow local network scan on).
 mdns-sd = "0.22.0"
-# AirPlay 2's transient pairing and its encryption (airplay/pair.rs). srp only for
-# RFC 5054's 3072-bit group: its client hashes the proof differently from HomeKit.
-srp = "0.6.0"
+# AirPlay 2's transient pairing (SRP over RFC 5054's 3072-bit group) and its
+# encryption (airplay/pair.rs).
 num-bigint = "0.4.8"
 hkdf = "0.12.4"
 chacha20poly1305 = "0.10.1"

@@ -1765,7 +1765,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let on_airplay = app.output_device.as_ref().is_some_and(|(id, _)| id.starts_with(crate::airplay::PREFIX));
     let out = right_btn(ui, icon::MONITOR_SPEAKER, crate::tr!("settings-output-device"), on_airplay);
     let popup = widgets::menu_popup(&out).align(egui::RectAlign::TOP_END).align_alternatives(&[egui::RectAlign::BOTTOM_END]);
-    super::pages::output_device_menu(app, &out, popup, 300.0);
+    // Found on the network in the background, so read afresh each frame.
+    super::pages::output_device_menu(app, &out, popup, 300.0, &crate::airplay::speakers());
     if app.tempo_on {
         tempo_button(app, ui, Rect::from_center_size(pos2(rx - 20.0, cy), vec2(40.0, 18.0 * bar_scale + 16.0)), bar_rest, accent, dot_floor);
         rx -= 44.0;

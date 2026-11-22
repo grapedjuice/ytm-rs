@@ -3384,12 +3384,12 @@ fn output_device_picker(app: &mut App, ui: &mut Ui) {
         },
     };
     let btn = dropdown_button(ui, &current, 210.0, tr!("settings-output-device"));
-    output_device_menu(app, &btn, widgets::menu_popup(&btn), 340.0);
+    output_device_menu(app, &btn, widgets::menu_popup(&btn), 340.0, &speakers);
 }
 
 /// The output devices to pick from, in `popup` (opened by `btn`): sound cards, then AirPlay
 /// speakers with its mark. For Settings › Output device and the player bar's button.
-pub(super) fn output_device_menu(app: &mut App, btn: &egui::Response, popup: egui::Popup, width: f32) {
+pub(super) fn output_device_menu(app: &mut App, btn: &egui::Response, popup: egui::Popup, width: f32, speakers: &[crate::airplay::Speaker]) {
     // Listed when opened, so a device that just connected shows up.
     if btn.clicked() || app.output_devices.is_empty() {
         app.output_devices = crate::audio::output_devices();
@@ -3397,8 +3397,6 @@ pub(super) fn output_device_menu(app: &mut App, btn: &egui::Response, popup: egu
     if btn.clicked() {
         crate::airplay::discover();
     }
-    // Found on the network in the background, so read afresh each frame.
-    let speakers = crate::airplay::speakers();
     let mut pick: Option<Option<(String, String)>> = None;
     popup.show(|ui| {
         // Speakers turn up as they answer.

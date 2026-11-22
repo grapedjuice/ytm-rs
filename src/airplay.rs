@@ -10,7 +10,6 @@
 //! sent, which `AudioStatus::latency` accounts for.
 
 use std::collections::HashMap;
-use std::hash::BuildHasher;
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -103,7 +102,7 @@ pub fn discover() {
         while let Ok(event) = events.recv() {
             match event {
                 mdns_sd::ServiceEvent::ServiceResolved(s) => {
-                    let instance = instance(&s.fullname);
+                    let instance = mdns_sd::instance_name_unescaped(&s.fullname);
                     let props = &s.txt_properties;
                     let txt = |k| props.get_property_val_str(k);
                     let found = usable(txt("et"), txt("cn"), txt("pw"), txt("sf"))
@@ -162,11 +161,6 @@ pub fn find(id: &str) -> Option<Speaker> {
     SPEAKERS.lock().unwrap().get(id.strip_prefix(PREFIX)?).cloned()
 }
 
-/// "AABBCCDDEEFF@Kitchen._raop._tcp.local." → "AABBCCDDEEFF@Kitchen".
-fn instance(fullname: &str) -> String {
-    mdns_sd::instance_name_unescaped(fullname)
-}
-
 /// "AABBCCDDEEFF@Kitchen" → "Kitchen".
 fn speaker_name(instance: &str) -> &str {
     instance.split_once('@').map_or(instance, |(_, name)| name)
@@ -178,22 +172,99 @@ fn speaker_name(instance: &str) -> &str {
 /// as an Apple TV that lets only its home's people AirPlay to it does.
 fn usable(et: Option<&str>, cn: Option<&str>, pw: Option<&str>, sf: Option<&str>) -> bool {
     let has = |list: Option<&str>, want: &str| list.is_none_or(|l| l.split(',').any(|v| v.trim() == want));
-    let flags = sf.and_then(|f| u32::from_str_radix(f.trim().trim_start_matches("0x").trim_start_matches("0X"), 16).ok()).unwrap_or(0);
+    let flags = sf.and_then(hex).unwrap_or(0);
     has(et, "0") && has(cn, "1") && pw.is_none_or(|p| !p.eq_ignore_ascii_case("true")) && flags & (1 << 3 | 1 << 9) == 0
 }
 
 /// A speaker's feature bits, from "0xLOW,0xHIGH" (or one number).
 fn features(ft: Option<&str>) -> u64 {
-    let hex = |s: &str| u64::from_str_radix(s.trim().trim_start_matches("0x").trim_start_matches("0X"), 16).unwrap_or(0);
-    match ft.map(|f| f.split_once(',')) {
-        Some(Some((low, high))) => hex(low) | hex(high) << 32,
-        Some(None) => hex(ft.unwrap_or_default()),
-        None => 0,
+    let Some(ft) = ft else { return 0 };
+    match ft.split_once(',') {
+        Some((low, high)) => hex(low).unwrap_or(0) | hex(high).unwrap_or(0) << 32,
+        None => hex(ft).unwrap_or(0),
     }
 }
 
+/// A TXT record's hex number, "0x" or not.
+fn hex(s: &str) -> Option<u64> {
+    let s = s.trim();
+    u64::from_str_radix(s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s), 16).ok()
+}
+
+/// For ids and sequence numbers, nothing that has to be secret.
 fn random() -> u64 {
-    std::collections::hash_map::RandomState::new().hash_one(Instant::now())
+    getrandom::u64().unwrap_or_default()
+}
+
+/// Why a speaker wouldn't play: told to the listener, in their language.
+#[derive(Debug)]
+pub enum Failure {
+    Unreachable,
+    Busy,
+    /// Wants a password, or a pairing other than the transient kind.
+    NeedsPairing,
+    /// Turned down the transient pairing (an Apple TV for its home's people only).
+    PairingRefused,
+    /// Didn't send its PTP clock, which AirPlay 2's audio is timed by.
+    NoClock,
+    /// Couldn't listen on the PTP ports (319 and 320) for that clock.
+    ClockPorts,
+}
+
+impl Failure {
+    pub fn message(&self) -> String {
+        match self {
+            Self::Unreachable => tr!("airplay-unreachable"),
+            Self::Busy => tr!("airplay-busy"),
+            Self::NeedsPairing => tr!("airplay-needs-pairing"),
+            Self::PairingRefused => tr!("airplay-pairing-refused"),
+            Self::NoClock => tr!("airplay-no-clock"),
+            // Below 1024, so Linux keeps them for root (or a process with
+            // CAP_NET_BIND_SERVICE). Elsewhere, something else has them.
+            Self::ClockPorts if cfg!(target_os = "linux") => tr!("airplay-clock-ports-linux"),
+            Self::ClockPorts => tr!("airplay-clock-ports"),
+        }
+        .to_owned()
+    }
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl std::error::Error for Failure {}
+
+/// What to tell the listener about `e`, from the `Failure` in it if any.
+pub fn describe(e: &anyhow::Error) -> String {
+    e.chain().find_map(|c| c.downcast_ref::<Failure>()).map_or_else(|| tr!("airplay-failed").to_owned(), Failure::message)
+}
+
+/// A thread with a stop flag, which dropping it raises and then waits for the thread.
+struct Worker {
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Worker {
+    fn spawn(name: &str, f: impl FnOnce(&AtomicBool) + Send + 'static) -> std::io::Result<Self> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread = std::thread::Builder::new().name(name.into()).spawn({
+            let stop = stop.clone();
+            move || f(&stop)
+        })?;
+        Ok(Self { stop, thread: Some(thread) })
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
 }
 
 /// Seconds since 1900, as a 32.32 fixed-point number.
@@ -238,7 +309,7 @@ struct Rtsp {
 impl Rtsp {
     /// Connects to the speaker; requests go to `rtsp://<us>/<sid>`.
     fn open(speaker: &Speaker, sid: u32) -> anyhow::Result<Self> {
-        let tcp = TcpStream::connect_timeout(&speaker.addr, TIMEOUT).context("couldn't reach it")?;
+        let tcp = TcpStream::connect_timeout(&speaker.addr, TIMEOUT).map_err(|e| anyhow::Error::new(e).context(Failure::Unreachable))?;
         tcp.set_read_timeout(Some(TIMEOUT))?;
         tcp.set_write_timeout(Some(TIMEOUT))?;
         let _ = tcp.set_nodelay(true);
@@ -291,7 +362,7 @@ impl Rtsp {
         let res = self.request("POST", Some("/pair-setup"), &hkp, Some(("application/octet-stream", &m1)))?;
         let items = tlv_decode(&res.body);
         if let Some(e) = items.get(&ERROR) {
-            bail!("it turned pairing down ({e:?})");
+            return Err(anyhow!("pairing error {e:?}").context(Failure::PairingRefused));
         }
         let (Some(salt), Some(b_pub)) = (items.get(&SALT), items.get(&PUBLIC_KEY)) else {
             bail!("its pairing answer was missing a part");
@@ -304,7 +375,7 @@ impl Rtsp {
         let items = tlv_decode(&res.body);
         log::debug!("airplay: pairing M4: error {:?}, proof matches {}", items.get(&ERROR), items.get(&PROOF) == Some(&proofs.m2));
         if items.contains_key(&ERROR) || items.get(&PROOF) != Some(&proofs.m2) {
-            bail!("it wouldn't pair (an Apple TV needs Settings › AirPlay and HomeKit › Allow Access set to anyone on the same network)");
+            bail!(Failure::PairingRefused);
         }
         self.cipher = Some(Cipher::new(&proofs.key));
         self.shared = Some(proofs.key);
@@ -344,11 +415,9 @@ impl Rtsp {
         log::debug!("airplay: {method} {} → {} {:?}", uri.unwrap_or(""), res.status, res.headers);
         match res.status {
             200 => Ok(res),
-            401 | 403 | 470 if self.cipher.is_some() || method == "POST" => {
-                bail!("it wouldn't pair (an Apple TV needs Settings › AirPlay and HomeKit › Allow Access set to anyone on the same network)")
-            }
-            401 | 403 | 470 => bail!("it needs AirPlay 2 pairing or a password, which aren't supported yet"),
-            453 => bail!("it's busy playing from another device"),
+            401 | 403 | 470 if self.cipher.is_some() || method == "POST" => bail!(Failure::PairingRefused),
+            401 | 403 | 470 => bail!(Failure::NeedsPairing),
+            453 => bail!(Failure::Busy),
             s => bail!("{method} failed ({s})"),
         }
     }
@@ -393,24 +462,9 @@ pub struct Classic {
     seq: u16,
     rtptime: u32,
     ssrc: u32,
-    stop: Arc<AtomicBool>,
-    _timing: Timing,
-}
-
-/// The thread answering the speaker's clock: stopped with the session (or a handshake
-/// that didn't get that far).
-struct Timing {
-    stop: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
-}
-
-impl Drop for Timing {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
-    }
+    /// Answers the speaker's clock; stopped with the session (or a handshake that didn't
+    /// get that far).
+    _timing: Worker,
 }
 
 impl Classic {
@@ -449,14 +503,7 @@ impl Classic {
         );
         // The speaker sets its clock by ours from here on, and some (Sonos) do before
         // they answer SETUP.
-        let stop = Arc::new(AtomicBool::new(false));
-        let timing = Timing {
-            stop: stop.clone(),
-            thread: Some(std::thread::Builder::new().name("airplay-timing".into()).spawn({
-                let stop = stop.clone();
-                move || answer_timing(timing, &stop)
-            })?),
-        };
+        let timing = Worker::spawn("airplay-timing", move |stop| answer_timing(timing, stop))?;
         let res = rtsp.request("SETUP", None, &[("Transport", transport)], None)?;
         let theirs = res.header("Transport").ok_or_else(|| anyhow!("SETUP gave no transport"))?;
         let port = |key: &str| transport_port(theirs, key);
@@ -466,37 +513,12 @@ impl Classic {
 
         let seq = random() as u16;
         let rtptime = random() as u32;
-        let session = Self {
-            rtsp,
-            data,
-            control,
-            data_to,
-            control_to,
-            seq,
-            rtptime,
-            ssrc: random() as u32,
-            stop,
-            _timing: timing,
-        };
-        let mut session = session;
+        let mut session = Self { rtsp, data, control, data_to, control_to, seq, rtptime, ssrc: random() as u32, _timing: timing };
         session.rtsp.request("RECORD", None, &[("Range", "npt=0-".into()), ("RTP-Info", format!("seq={seq};rtptime={rtptime}"))], None)?;
         Ok(session)
     }
 
-    fn play<S>(self, source: S, lost: impl Fn() + Send + 'static) -> anyhow::Result<Stream>
-    where
-        S: rodio::Source + Send + 'static,
-    {
-        let (flush_tx, flush_rx) = unbounded();
-        let stop = self.stop.clone();
-        let thread = std::thread::Builder::new().name("airplay".into()).spawn(move || {
-            let source = rodio::source::UniformSourceIterator::new(source, std::num::NonZero::new(2).unwrap(), std::num::NonZero::new(RATE).unwrap());
-            self.run(source, flush_rx, lost);
-        })?;
-        Ok(Stream { stop, flush: flush_tx, thread: Some(thread) })
-    }
-
-    fn run(mut self, mut source: impl Iterator<Item = f32>, flush: Receiver<()>, lost: impl Fn()) {
+    fn run(mut self, mut frames: impl Iterator<Item = Vec<u8>>, stop: &AtomicBool, flush: &Receiver<()>, lost: impl Fn()) {
         let _ = self.control.set_nonblocking(true);
         let _ = self.rtsp.tcp.set_nonblocking(true);
         let mut history: Vec<(u16, Vec<u8>)> = vec![(0, Vec::new()); HISTORY];
@@ -506,10 +528,9 @@ impl Classic {
         let mut start = Instant::now();
         let mut sent: u64 = 0;
         let mut checked = Instant::now();
-        let mut pcm = vec![0i16; FRAMES * 2];
         let mut buf = [0u8; 2048];
         let gone = loop {
-            if self.stop.load(Ordering::Relaxed) {
+            if stop.load(Ordering::Relaxed) {
                 break false;
             }
             if flush.try_recv().is_ok() {
@@ -544,10 +565,7 @@ impl Classic {
                 let _ = self.control.send_to(&sync_packet(first, self.rtptime, ntp_now()), self.control_to);
                 since_sync = 0;
             }
-            for s in pcm.iter_mut() {
-                *s = (source.next().unwrap_or(0.0).clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-            }
-            let packet = rtp_packet(first, self.seq, self.rtptime, self.ssrc, &alac_frame(&pcm));
+            let packet = rtp_packet(first, self.seq, self.rtptime, self.ssrc, &frames.next().unwrap_or_default());
             if let Err(e) = self.data.send_to(&packet, self.data_to) {
                 log::warn!("airplay: sending failed: {e}");
                 break true;
@@ -615,36 +633,40 @@ impl Session {
         Ok(Self::Classic(Classic::connect(speaker)?))
     }
 
-    /// Sets the speaker's own volume: 0 dB is full, -30 the quietest, -144 muted.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn set_volume(&mut self, db: f32) -> anyhow::Result<()> {
-        let rtsp = match self {
-            Self::Classic(c) => &mut c.rtsp,
-            Self::Buffered(b) => b.rtsp(),
-        };
-        let body = format!("volume: {db:.6}\r\n");
-        rtsp.request("SET_PARAMETER", None, &[], Some(("text/parameters", body.as_bytes())))?;
-        Ok(())
-    }
-
     /// Streams `source` (any rate and channels: it's made 44.1 kHz stereo) until the
     /// returned `Stream` is dropped. `lost` is called once if the speaker goes away.
     pub fn play<S>(self, source: S, lost: impl Fn() + Send + 'static) -> anyhow::Result<Stream>
     where
         S: rodio::Source + Send + 'static,
     {
-        match self {
-            Self::Classic(c) => c.play(source, lost),
-            Self::Buffered(b) => b.play(source, lost),
-        }
+        let (flush, flushes) = unbounded();
+        let worker = Worker::spawn("airplay", move |stop| {
+            let frames = frames(source);
+            match self {
+                Self::Classic(c) => c.run(frames, stop, &flushes, lost),
+                Self::Buffered(b) => b.run(frames, stop, &flushes, lost),
+            }
+        })?;
+        Ok(Stream { flush, _worker: worker })
     }
+}
+
+/// `source` made 44.1 kHz stereo, a packet's worth of ALAC at a time.
+fn frames<S: rodio::Source>(source: S) -> impl Iterator<Item = Vec<u8>> {
+    let mut source = rodio::source::UniformSourceIterator::new(source, std::num::NonZero::new(2).unwrap(), std::num::NonZero::new(RATE).unwrap());
+    let mut pcm = vec![0i16; FRAMES * 2];
+    std::iter::repeat_with(move || {
+        for s in pcm.iter_mut() {
+            *s = (source.next().unwrap_or(0.0).clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        }
+        alac_frame(&pcm)
+    })
 }
 
 /// A speaker playing. Dropping it stops the music there and lets the speaker go.
 pub struct Stream {
-    stop: Arc<AtomicBool>,
     flush: Sender<()>,
-    thread: Option<JoinHandle<()>>,
+    _worker: Worker,
 }
 
 impl Stream {
@@ -652,15 +674,6 @@ impl Stream {
     /// or a new song is heard without waiting that out.
     pub fn flush(&self) {
         let _ = self.flush.send(());
-    }
-}
-
-impl Drop for Stream {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
     }
 }
 
@@ -948,7 +961,8 @@ mod tests {
             tcp.write_all(b"RTSP/1.0 403 Forbidden\r\nCSeq: 1\r\n\r\n").unwrap();
         });
         let e = Session::connect(&Speaker { id: String::new(), name: "HomePod".into(), addr, pair: false, buffered: false, auth_setup: false }).err().unwrap();
-        assert!(e.to_string().contains("pairing"), "{e}");
+        assert!(matches!(e.downcast_ref::<Failure>(), Some(Failure::NeedsPairing)), "{e:#}");
+        assert_eq!(describe(&e), Failure::NeedsPairing.message());
     }
 
     /// Dev check against a real speaker: YTM_AIRPLAY=<name> cargo test airplay_tone -- --ignored
@@ -961,28 +975,17 @@ mod tests {
         set_allowed(true);
         discover();
         let deadline = Instant::now() + Duration::from_secs(10);
-        let mut speaker = loop {
+        let speaker = loop {
             if let Some(s) = speakers().into_iter().find(|s| s.name.eq_ignore_ascii_case(&want)) {
                 break s;
             }
             assert!(Instant::now() < deadline, "no speaker named {want:?}; found {:?}", speakers());
             std::thread::sleep(Duration::from_millis(200));
         };
-        // YTM_AIRPLAY_ROUTE=pair or auth: one handshake only, to compare them.
-        match std::env::var("YTM_AIRPLAY_ROUTE").as_deref() {
-            Ok("pair") => speaker.auth_setup = false,
-            Ok("auth") => speaker.pair = false,
-            _ => {}
-        }
-        log::info!("airplay: {speaker:?}");
-        let mut session = Session::connect(&speaker).unwrap_or_else(|e| panic!("{e:#}"));
-        if let Some(db) = std::env::var("YTM_AIRPLAY_VOLUME").ok().and_then(|v| v.parse().ok()) {
-            session.set_volume(db).unwrap();
-        }
+        let session = Session::connect(&speaker).unwrap_or_else(|e| panic!("{e:#}"));
         let tone = rodio::source::SineWave::new(440.0);
         let stream = session.play(rodio::Source::amplify(tone, 0.3), || panic!("speaker lost")).unwrap();
-        let secs: u64 = std::env::var("YTM_AIRPLAY_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(2);
-        std::thread::sleep(LATENCY + Duration::from_secs(secs));
+        std::thread::sleep(LATENCY + Duration::from_secs(5));
         drop(stream);
     }
 }

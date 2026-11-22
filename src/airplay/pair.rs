@@ -62,6 +62,23 @@ pub fn tlv_decode(mut data: &[u8]) -> HashMap<u8, Vec<u8>> {
     out
 }
 
+/// RFC 5054's 3072-bit group, HomeKit's: the prime (generator 5).
+const N_3072: &str = concat!(
+    "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DD",
+    "EF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7ED",
+    "EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F",
+    "83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA18217C32905E462E36CE3B",
+    "E39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF6955817183995497CEA956AE515D2261898FA0510",
+    "15728E5A8AAAC42DAD33170D04507A33A85521ABDF1CBA64ECFB850458DBEF0A8AEA71575D060C7DB3970F85A6E1E4C7",
+    "ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6BF12FFA06D98A0864D87602733EC86A64521F2B18177B200C",
+    "BBE117577A615D6C770988C0BAD946E208E24FA074E5AB3143DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF",
+);
+
+fn group() -> &'static (BigUint, BigUint) {
+    static GROUP: std::sync::LazyLock<(BigUint, BigUint)> = std::sync::LazyLock::new(|| (BigUint::parse_bytes(N_3072.as_bytes(), 16).expect("a valid prime"), BigUint::from(5u32)));
+    &GROUP
+}
+
 fn h(parts: &[&[u8]]) -> Vec<u8> {
     let mut d = Sha512::new();
     for p in parts {
@@ -90,8 +107,7 @@ pub struct Proofs {
 /// SRP-6a over RFC 5054's 3072-bit group with SHA-512, as HomeKit does it, given the
 /// speaker's salt and public key (M2) and our secret.
 pub fn srp_client(salt: &[u8], b_pub: &[u8], secret: &[u8]) -> Option<Proofs> {
-    let group = &*srp::groups::G_3072;
-    let (n, g) = (&group.n, &group.g);
+    let (n, g) = group();
     let len = n.to_bytes_be().len();
     let b = BigUint::from_bytes_be(b_pub);
     if (&b % n) == BigUint::ZERO {
@@ -214,8 +230,7 @@ mod tests {
 
     /// The speaker's side of SRP, as RFC 5054 has it, to check ours against.
     fn srp_server(salt: &[u8], secret_b: &[u8], a_pub: &[u8]) -> (Vec<u8>, Vec<u8>) {
-        let group = &*srp::groups::G_3072;
-        let (n, g) = (&group.n, &group.g);
+        let (n, g) = group();
         let len = n.to_bytes_be().len();
         let x = BigUint::from_bytes_be(&h(&[salt, &h(&[USER, b":", PIN])]));
         let v = g.modpow(&x, n);
@@ -234,8 +249,8 @@ mod tests {
         let secret_a = [0x42u8; 32];
         let secret_b = [0x17u8; 32];
         let a_pub = BigUint::from_bytes_be(&secret_a);
-        let group = &*srp::groups::G_3072;
-        let a_pub = group.g.modpow(&a_pub, &group.n).to_bytes_be();
+        let (n, g) = group();
+        let a_pub = g.modpow(&a_pub, n).to_bytes_be();
         let (b_pub, server_key) = srp_server(&salt, &secret_b, &a_pub);
         let ours = srp_client(&salt, &b_pub, &secret_a).unwrap();
         assert_eq!(ours.a_pub, a_pub);
@@ -244,8 +259,19 @@ mod tests {
     }
 
     #[test]
+    fn the_group_is_rfc_5054s_3072_bit_one() {
+        let (n, g) = group();
+        assert_eq!(n.bits(), 3072);
+        assert_eq!(*g, BigUint::from(5u32));
+        // Like all of RFC 3526's and 5054's primes: 64 ones, then π's digits, ending in 64 ones.
+        let hex = n.to_str_radix(16).to_uppercase();
+        assert!(hex.starts_with("FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1"));
+        assert!(hex.ends_with("FFFFFFFFFFFFFFFF"));
+    }
+
+    #[test]
     fn a_public_key_of_zero_is_refused() {
-        let n = srp::groups::G_3072.n.to_bytes_be();
+        let n = group().0.to_bytes_be();
         assert!(srp_client(&[0; 16], &n, &[1; 32]).is_none());
     }
 

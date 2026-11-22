@@ -506,46 +506,94 @@ struct PanelMotion {
     art_vis: f32,
 }
 
-/// The side panel (lyrics / up next) slides in and out when its chip is toggled.
-/// A song without lyrics shows just the artwork, with no transition. Called again in
-/// the same frame it gives the same answer.
+/// Whether the lyrics panel should be shown given the track's lyric state:
+/// `loaded_lyrics` is `None` while lyrics are still fetching for the new track, in which
+/// case we hold `prev_open` so switching between songs without lyrics stays centered
+/// without flashing the loading spinner.
+fn lyrics_panel_wanted(loaded_lyrics: Option<bool>, wait_done: bool, prev_open: bool) -> bool {
+    match loaded_lyrics {
+        Some(true) => true,
+        Some(false) => !wait_done,
+        None => prev_open,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PanelState {
+    pass: u64,
+    tab: NpTab,
+    last_panel: NpTab,
+    lyrics_open: bool,
+    want: bool,
+}
+
+/// The side panel (lyrics / up next / comments) slides in and out when toggled or when
+/// switching between songs with and without lyrics. Called again in the same pass it gives
+/// the same answer.
 fn panel_motion(app: &App, ctx: &egui::Context, track_id: &str, no_lyrics: bool, now: f64) -> PanelMotion {
-    let last_id = egui::Id::unique("np-last-panel");
-    let tab = if app.np_tab == NpTab::Art {
-        ctx.data(|d| d.get_temp(last_id)).unwrap_or(NpTab::Lyrics)
-    } else {
-        ctx.data_mut(|d| d.insert_temp(last_id, app.np_tab));
-        app.np_tab
+    let state_id = egui::Id::unique("np-panel-state");
+    let pass = ctx.cumulative_pass_nr();
+    let prev = ctx.data(|d| d.get_temp::<PanelState>(state_id));
+    let state = match prev {
+        Some(s) if s.pass == pass => s,
+        prev => {
+            let mut last_panel = prev.map_or(NpTab::Lyrics, |s| s.last_panel);
+            if app.np_tab != NpTab::Art {
+                last_panel = app.np_tab;
+            }
+            // Manually switching into Lyrics opens the panel even while lyrics are loading.
+            let mut lyrics_open = prev.is_none_or(|s| s.lyrics_open);
+            if app.np_tab == NpTab::Lyrics && prev.is_some_and(|s| s.tab != NpTab::Lyrics) {
+                lyrics_open = true;
+            }
+            let want = match app.np_tab {
+                NpTab::Art => false,
+                NpTab::UpNext | NpTab::Comments => true,
+                NpTab::Lyrics => {
+                    let loaded_lyrics = if no_lyrics {
+                        Some(false)
+                    } else if app.lyrics.is_some() {
+                        Some(true)
+                    } else {
+                        None
+                    };
+                    let wait = app.look().now_playing.no_lyrics.center_after;
+                    let wait_done = if loaded_lyrics == Some(false) && wait > 0.0 && lyrics_open {
+                        // A while in its usual place, then smoothly over to the middle.
+                        let since = ctx.memory_mut(|m| *m.data.get_temp_mut_or_insert_with(egui::Id::unique(("no-lyrics-wait", track_id)), || now));
+                        if now - since < wait as f64 {
+                            ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait as f64 - (now - since) + 0.01));
+                            false
+                        } else {
+                            true
+                        }
+                    } else {
+                        true
+                    };
+                    let open = lyrics_panel_wanted(loaded_lyrics, wait_done, lyrics_open);
+                    lyrics_open = open;
+                    open
+                }
+            };
+            let next = PanelState { pass, tab: app.np_tab, last_panel, lyrics_open, want };
+            ctx.data_mut(|d| d.insert_temp(state_id, next));
+            next
+        }
     };
-    let shown = ctx.animate_bool_with_time(egui::Id::unique("np-panel"), app.np_tab != NpTab::Art, 0.6 * theme::SPEED);
-    if shown > 0.0 && shown < 1.0 {
+    let p = ctx.animate_bool_with_time(egui::Id::unique("np-panel"), state.want, 0.6 * theme::SPEED);
+    if p > 0.0 && p < 1.0 {
         // Every frame while sliding, not the now-playing view's usual 30 fps.
         ctx.request_repaint();
     }
-    let wait = app.look().now_playing.no_lyrics.center_after;
-    let p = if tab == NpTab::Lyrics && no_lyrics {
-        if wait > 0.0 {
-            // A while in its usual place, then over to the middle.
-            let since = ctx.memory_mut(|m| *m.data.get_temp_mut_or_insert_with(egui::Id::unique(("no-lyrics-wait", track_id)), || now));
-            if now - since < wait as f64 {
-                ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait as f64 - (now - since) + 0.01));
-            }
-            1.0 - ctx.animate_bool_with_time(egui::Id::unique(("no-lyrics-move", track_id)), now - since >= wait as f64, 0.6)
-        } else {
-            0.0
-        }
-    } else {
-        shown
-    };
     // Whichever is leaving slides and fades out over the first 45%, then the other
     // comes in over the last 70%, both easing out, in either direction.
-    let (panel_vis, art_vis) = if app.np_tab != NpTab::Art {
+    let (panel_vis, art_vis) = if state.want {
         (theme::ease_out((p - 0.3) / 0.7), 1.0 - theme::ease_out(p / 0.45))
     } else {
         let q = 1.0 - p;
         (1.0 - theme::ease_out(q / 0.45), theme::ease_out((q - 0.3) / 0.7))
     };
-    PanelMotion { tab, p, panel_vis, art_vis }
+    PanelMotion { tab: state.last_panel, p, panel_vis, art_vis }
 }
 
 /// What's under the header: the video, or the cover and the panel beside it.
@@ -2356,4 +2404,22 @@ fn mini_text(ui: &mut Ui, text: &str, on: bool, tip: &str) -> egui::Response {
     let color = if on { gold } else { theme::with_alpha(Color32::WHITE, 0.6 + 0.35 * h) };
     ui.painter().galley_with_override_text_color(rect.center() - g.size() / 2.0, g, color);
     resp
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lyrics_panel_wanted;
+
+    #[test]
+    fn lyrics_panel_holds_state_while_loading_and_tracks_lyrics_availability() {
+        // Switching between two songs without lyrics stays centered while loading.
+        assert!(!lyrics_panel_wanted(None, true, false));
+        assert!(!lyrics_panel_wanted(Some(false), true, false));
+        // Once lyrics arrive, the panel opens.
+        assert!(lyrics_panel_wanted(Some(true), true, false));
+        // Switching away from a song with lyrics keeps the panel open while loading, then closes.
+        assert!(lyrics_panel_wanted(None, true, true));
+        assert!(lyrics_panel_wanted(Some(false), false, true));
+        assert!(!lyrics_panel_wanted(Some(false), true, true));
+    }
 }

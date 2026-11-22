@@ -2,10 +2,12 @@
 //! animated background. The lyrics themselves are drawn by `karaoke` (a port of the
 //! better-lyrics renderer); this adds their toolbar and the plain-text fallback.
 
+use std::time::{Duration, Instant};
+
 use egui::{Color32, Rect, Sense, Ui, Vec2, pos2, vec2};
 
 use super::widgets::{self, icon_button, menu_divider, named, text_at};
-use super::{Action, App, NpTab, karaoke};
+use super::{Action, App, NpTab, Sleep, karaoke};
 use crate::lyrics::{Lyrics, Sync, SyncKind};
 use crate::shader::Params;
 use crate::theme::{self, icon};
@@ -2141,9 +2143,42 @@ fn options_menu(app: &mut App, ui: &mut Ui, track: &crate::model::Track, lyrics:
             quality_rows(app, ui);
             menu_divider(ui);
         }
+        // Not in a jam: pausing would pause everyone in it.
+        if !app.jam.active() {
+            sleep_row(app, ui);
+            menu_divider(ui);
+        }
         widgets::song_actions_rest(ui, track, &mut app.actions);
     });
     open
+}
+
+/// The sleep timer on one row, with what's left on it; the choices open beside the menu.
+fn sleep_row(app: &mut App, ui: &mut Ui) {
+    let minutes = |m: u64| crate::tr!("player-sleep-minutes", minutes = m);
+    let left = match app.sleep {
+        None => crate::tr!("player-sleep-off").to_owned(),
+        Some(Sleep::SongEnd) => crate::tr!("player-sleep-song-end").to_owned(),
+        Some(Sleep::At(at)) => minutes(at.saturating_duration_since(Instant::now()).as_secs().div_ceil(60)),
+    };
+    let mut pick = None;
+    submenu_row(ui, crate::tr!("player-sleep-timer"), &left, None, true, |ui| {
+        widgets::menu_body(ui, 200.0);
+        if widgets::menu_choice(ui, crate::tr!("player-sleep-off"), app.sleep.is_none()) {
+            pick = Some(None);
+        }
+        for m in [15, 30, 45, 60] {
+            if widgets::menu_choice(ui, &minutes(m), false) {
+                pick = Some(Some(Sleep::At(Instant::now() + Duration::from_secs(m * 60))));
+            }
+        }
+        if widgets::menu_choice(ui, crate::tr!("player-sleep-song-end"), app.sleep == Some(Sleep::SongEnd)) {
+            pick = Some(Some(Sleep::SongEnd));
+        }
+    });
+    if let Some(sleep) = pick {
+        app.set_sleep(sleep);
+    }
 }
 
 fn lyric_options(app: &mut App, ui: &mut Ui) {
@@ -2155,31 +2190,15 @@ fn lyric_options(app: &mut App, ui: &mut Ui) {
     let mut pick = None;
     // One row, the source shown on it; the others open beside the menu.
     let label = if n > 1 { crate::tr!("player-lyrics-source") } else { crate::tr!("player-only-lyrics-source") };
-    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), if n > 1 { Sense::click() } else { Sense::hover() });
-    let resp = named(resp, label);
-    let open = egui::Popup::is_id_open(ui.ctx(), egui::containers::menu::SubMenu::id_from_widget_id(resp.id));
-    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), n > 1 && (resp.hovered() || open), 0.12);
-    if h > 0.0 {
-        ui.painter().rect_filled(row, theme::menu_item_radius(), theme::glass(0.08 * h));
-    }
-    ui.painter().text(pos2(row.left() + 12.0, row.center().y), egui::Align2::LEFT_CENTER, label, theme::regular(14.0), theme::text());
-    let arrow = if n > 1 { 22.0 } else { 0.0 };
-    let name_g = widgets::galley(ui, shown.name(), theme::regular(13.0), theme::text_dim(), row.width() * 0.5);
-    let name_x = row.right() - 12.0 - arrow - name_g.size().x;
-    ui.painter().circle_filled(pos2(name_x - 9.0, row.center().y), 3.0, sync_color(shown.sync()));
-    ui.painter().galley(pos2(name_x, row.center().y - name_g.size().y / 2.0), name_g, theme::text_dim());
-    if n > 1 {
-        widgets::icon_at(ui, pos2(row.right() - 18.0, row.center().y), icon::CHEVRON_RIGHT, 14.0, theme::text_dim());
-        egui::containers::menu::SubMenu::new().show(ui, &resp, |ui| {
-            widgets::menu_body(ui, 300.0);
-            for p in &available {
-                if source_row(ui, p.name(), p.sync(), *p == shown) {
-                    pick = Some(*p);
-                    ui.close();
-                }
+    submenu_row(ui, label, shown.name(), Some(sync_color(shown.sync())), n > 1, |ui| {
+        widgets::menu_body(ui, 300.0);
+        for p in &available {
+            if source_row(ui, p.name(), p.sync(), *p == shown) {
+                pick = Some(*p);
+                ui.close();
             }
-        });
-    }
+        }
+    });
     let name = crate::i18n::lyrics_name(&app.lyric_prefs.target);
     let tip = crate::tr!("player-translation-language", language = name.as_ref());
     switch_row(ui, &tip, &mut app.show_trans);
@@ -2205,6 +2224,30 @@ fn lyric_options(app: &mut App, ui: &mut Ui) {
         crate::downloads::lyrics_picked(&id);
         log::info!("lyrics: showing {} ({}/{}) by choice", p.key(), available.iter().position(|x| *x == p).map_or(0, |i| i + 1), n);
         app.lyric_view.reset();
+    }
+}
+
+/// A row naming something and what it's at (`value`, after `dot` when there is one); when
+/// `opens`, an arrow, and `contents` beside the menu on hover or click.
+fn submenu_row(ui: &mut Ui, label: &str, value: &str, dot: Option<Color32>, opens: bool, contents: impl FnOnce(&mut Ui)) {
+    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), if opens { Sense::click() } else { Sense::hover() });
+    let resp = named(resp, label);
+    let open = egui::Popup::is_id_open(ui.ctx(), egui::containers::menu::SubMenu::id_from_widget_id(resp.id));
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), opens && (resp.hovered() || open), 0.12);
+    if h > 0.0 {
+        ui.painter().rect_filled(row, theme::menu_item_radius(), theme::glass(0.08 * h));
+    }
+    ui.painter().text(pos2(row.left() + 12.0, row.center().y), egui::Align2::LEFT_CENTER, label, theme::regular(14.0), theme::text());
+    let arrow = if opens { 22.0 } else { 0.0 };
+    let value_g = widgets::galley(ui, value, theme::regular(13.0), theme::text_dim(), row.width() * 0.5);
+    let value_x = row.right() - 12.0 - arrow - value_g.size().x;
+    if let Some(c) = dot {
+        ui.painter().circle_filled(pos2(value_x - 9.0, row.center().y), 3.0, c);
+    }
+    ui.painter().galley(pos2(value_x, row.center().y - value_g.size().y / 2.0), value_g, theme::text_dim());
+    if opens {
+        widgets::icon_at(ui, pos2(row.right() - 18.0, row.center().y), icon::CHEVRON_RIGHT, 14.0, theme::text_dim());
+        egui::containers::menu::SubMenu::new().show(ui, &resp, contents);
     }
 }
 

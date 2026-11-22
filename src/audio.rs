@@ -46,6 +46,9 @@ pub enum AudioCmd {
     /// Play through this device (cpal's id) whenever it's connected; None follows the
     /// system default.
     SetDevice(Option<String>),
+    /// Pause at this moment (the sleep timer); None calls it off. Kept here rather than
+    /// in the UI, which may not draw a frame while the window is in the tray.
+    SleepAt(Option<Instant>),
 }
 
 pub enum AudioEvent {
@@ -867,6 +870,8 @@ fn run(
     let mut idle_since: Option<Instant> = Some(Instant::now());
     // When a pause fading out really pauses the players.
     let mut pause_at: Option<Instant> = None;
+    // When the sleep timer pauses.
+    let mut sleep_at: Option<Instant> = None;
     loop {
         // Poll while playing so the position stays fresh and the end is noticed; idle otherwise,
         // waking to let go of the device.
@@ -875,7 +880,7 @@ fn run(
             Some(since) if output.sink.is_some() => IDLE_CLOSE.saturating_sub(since.elapsed()).max(Duration::from_millis(10)),
             Some(_) => Duration::from_secs(3600),
         };
-        let timeout = pause_at.map_or(timeout, |at| timeout.min(at.saturating_duration_since(Instant::now())));
+        let timeout = [pause_at, sleep_at].into_iter().flatten().fold(timeout, |t, at| t.min(at.saturating_duration_since(Instant::now())));
         match rx.recv_timeout(timeout) {
             Ok(AudioCmd::Start { generation, decoder, shared: s, at }) => {
                 if generation != status.wanted_gen.load(Ordering::Relaxed) {
@@ -956,6 +961,7 @@ fn run(
                 status.set_position(at.as_millis() as u64);
                 wake();
             }
+            Ok(AudioCmd::SleepAt(at)) => sleep_at = at,
             Ok(AudioCmd::Pause) => {
                 log::debug!("audio: pause at {:?}", song_pos(&song_ms));
                 // Fade out first; the players pause once it's done (below). Another pause
@@ -1139,6 +1145,11 @@ fn run(
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
         }
 
+        if sleep_at.is_some_and(|at| at <= Instant::now()) {
+            sleep_at = None;
+            log::info!("audio: sleep timer, pausing");
+            let _ = tx.send(AudioCmd::Pause);
+        }
         if current != 0 && dev_lost.is_some_and(|lost| song_pos(&song_ms) >= lost) {
             dev_lost = None;
             log::info!("audio: dev hook: output device lost");
@@ -1237,6 +1248,21 @@ mod tests {
         assert!(status.started(2));
         status.playing.store(false, Ordering::Relaxed);
         assert!(!status.started(2));
+    }
+
+    #[test]
+    fn the_sleep_timer_pauses_when_it_runs_out_and_not_once_called_off() {
+        let (events, _rx) = unbounded();
+        let audio = spawn(1.0, false, None, events, || {});
+        // Called off: nothing happens at the time it was set for.
+        audio.send(AudioCmd::SleepAt(Some(Instant::now() + Duration::from_millis(30))));
+        audio.send(AudioCmd::SleepAt(None));
+        std::thread::sleep(Duration::from_millis(150));
+        assert!(!audio.status.hushed.load(Ordering::Relaxed));
+        // Idle, the engine still wakes for it.
+        audio.send(AudioCmd::SleepAt(Some(Instant::now() + Duration::from_millis(30))));
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(audio.status.hushed.load(Ordering::Relaxed));
     }
 
     #[test]

@@ -11,7 +11,7 @@ use crate::lyrics::Lyrics;
 use crate::model::Track;
 
 use super::queue::QueueFill;
-use super::{App, PlayingAs, Repeat, Session, jam, lyric_prefs};
+use super::{App, PlayingAs, Repeat, Session, Sleep, jam, lyric_prefs};
 
 impl App {
     pub fn current(&self) -> Option<&Track> {
@@ -223,14 +223,51 @@ impl App {
         self.queue_source = None;
         self.listened_at = q.watched_at;
         self.audio.send(AudioCmd::Stop);
+        self.hold_at_start(&track);
+        self.toast(crate::tr!("status-track-from-device", title = track.title.as_str()));
+    }
+
+    /// `track` (the current one) waits at its start, paused, without loading audio: Play
+    /// starts it as a new play.
+    fn hold_at_start(&mut self, track: &Track) {
         self.audio.status.duration_ms.store(track.duration.map_or(0, |d| d as u64 * 1000), Ordering::Relaxed);
         self.audio.status.position_ms.store(0, Ordering::Relaxed);
         self.resume_at = Some(Duration::ZERO);
         self.resume_counts = true;
         self.request_art();
-        self.show_in_media(&track);
+        self.show_in_media(track);
         self.backend.request(Req::Lyrics(track.clone()));
-        self.toast(crate::tr!("status-track-from-device", title = track.title.as_str()));
+    }
+
+    /// Set the sleep timer, or call it off with `None`.
+    pub(super) fn set_sleep(&mut self, sleep: Option<Sleep>) {
+        self.sleep = sleep;
+        self.audio.send(AudioCmd::SleepAt(match sleep {
+            Some(Sleep::At(at)) => Some(at),
+            _ => None,
+        }));
+    }
+
+    /// Every frame: a timer that has gone off is over (the audio thread paused), and a jam
+    /// calls it off, since pausing would pause everyone in it.
+    pub(super) fn sync_sleep(&mut self) {
+        match self.sleep {
+            Some(_) if self.jam.active() => self.set_sleep(None),
+            Some(Sleep::At(at)) if at <= std::time::Instant::now() => self.sleep = None,
+            _ => {}
+        }
+    }
+
+    /// The song ran out with the sleep timer set to its end: the next song waits at its
+    /// start, paused (on Repeat one, or at the end of the queue, this one does).
+    pub(super) fn sleep_at_song_end(&mut self) {
+        self.sleep = None;
+        if !self.repeats_one() {
+            self.queue.advance();
+        }
+        self.playing_as = None;
+        let Some(track) = self.current().cloned() else { return };
+        self.hold_at_start(&track);
     }
 
     pub(super) fn session_json(&self) -> Option<String> {

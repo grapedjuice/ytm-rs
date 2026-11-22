@@ -119,7 +119,7 @@ impl App {
                 self.queue_source = None;
                 if !self.radio_pending {
                     self.radio_pending = true;
-                    self.backend.request(Req::Radio { song_of: self.song_of(&cur), seed: cur.id });
+                    self.backend.request(Req::Radio { song_of: self.song_of(&cur), seed: cur.id, smart: false });
                 }
             }
             Action::Open(Target::Song(t)) | Action::Radio(t) => {
@@ -127,7 +127,7 @@ impl App {
                 self.play_list(vec![t.clone()], 0);
                 if !self.radio_pending {
                     self.radio_pending = true;
-                    self.backend.request(Req::Radio { song_of: self.song_of(&t), seed: t.id });
+                    self.backend.request(Req::Radio { song_of: self.song_of(&t), seed: t.id, smart: false });
                 }
             }
             Action::Open(Target::Album(id)) => self.go(Page::Album(id)),

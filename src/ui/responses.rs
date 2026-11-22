@@ -375,14 +375,17 @@ impl App {
                     self.show_cover_colours(now);
                 }
             }
-            // Smart shuffle's, while the queue is still shuffled with that song playing.
-            Resp::Radio { seed, tracks } if self.smart_seed.as_ref() == Some(&seed) => {
-                self.smart_seed = None;
-                if self.current_id() == Some(seed.as_str()) {
-                    self.queue.mix_in(tracks);
+            // Smart shuffle's: only the latest one asked for, while the queue is still
+            // shuffled with that song playing. Never autoplay's, which adds to the end.
+            Resp::Radio { seed, tracks, smart: true } => {
+                if self.smart_seed.as_ref() == Some(&seed) {
+                    self.smart_seed = None;
+                    if self.smart_shuffle && self.current_id() == Some(seed.as_str()) {
+                        self.queue.mix_in(tracks);
+                    }
                 }
             }
-            Resp::Radio { seed, tracks } => {
+            Resp::Radio { seed, tracks, smart: false } => {
                 self.radio_pending = false;
                 // For a queue since replaced: the one playing now gets its own.
                 if !self.queue.tracks.iter().any(|t| t.id == seed) {

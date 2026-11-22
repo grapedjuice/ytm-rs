@@ -172,7 +172,7 @@ impl App {
         }
         let Some(t) = self.current().cloned() else { return };
         self.smart_seed = Some(t.id.clone());
-        self.backend.request(Req::Radio { song_of: self.song_of(&t), seed: t.id });
+        self.backend.request(Req::Radio { song_of: self.song_of(&t), seed: t.id, smart: true });
     }
 
     /// The queue was replaced (`played`): its song starts.
@@ -525,7 +525,7 @@ impl App {
             && let Some(t) = self.current().cloned()
         {
             self.radio_pending = true;
-            self.backend.request(Req::Radio { song_of: self.song_of(&t), seed: t.id });
+            self.backend.request(Req::Radio { song_of: self.song_of(&t), seed: t.id, smart: false });
         }
     }
 

@@ -36,6 +36,7 @@ mod node;
 mod notify;
 mod opus;
 mod preset;
+mod recognize;
 mod remote;
 mod shader;
 mod sponsorblock;

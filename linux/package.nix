@@ -20,6 +20,7 @@
   libxi,
   libxrandr,
   openssl,
+  pulseaudio,
   vulkan-loader,
   wayland,
   webkitgtk_4_1,
@@ -81,6 +82,8 @@ rustPlatform.buildRustPackage {
           wayland
         ]
       }"
+      # Recognize song records with parec: the system's first, if it has one.
+      --suffix PATH : "${lib.makeBinPath [ pulseaudio ]}"
     )
   '';
 

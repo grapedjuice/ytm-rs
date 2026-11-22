@@ -21,10 +21,11 @@ pub enum Cmd {
     Prev,
     VolumeUp,
     VolumeDown,
+    Recognize,
 }
 
 impl Cmd {
-    pub const ALL: [Cmd; 5] = [Self::TogglePlay, Self::Next, Self::Prev, Self::VolumeUp, Self::VolumeDown];
+    pub const ALL: [Cmd; 6] = [Self::TogglePlay, Self::Next, Self::Prev, Self::VolumeUp, Self::VolumeDown, Self::Recognize];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -33,6 +34,7 @@ impl Cmd {
             Self::Prev => crate::tr!("player-previous-song"),
             Self::VolumeUp => crate::tr!("window-keyboard-volume-up"),
             Self::VolumeDown => crate::tr!("window-keyboard-volume-down"),
+            Self::Recognize => crate::tr!("recognize-song"),
         }
     }
 }
@@ -46,6 +48,7 @@ pub struct Bindings {
     prev: String,
     volume_up: String,
     volume_down: String,
+    recognize: String,
 }
 
 impl Default for Bindings {
@@ -57,6 +60,7 @@ impl Default for Bindings {
             prev: combo("KeyB"),
             volume_up: combo("Equal"),
             volume_down: combo("Minus"),
+            recognize: combo("KeyS"),
         }
     }
 }
@@ -69,6 +73,7 @@ impl Bindings {
             Cmd::Prev => &self.prev,
             Cmd::VolumeUp => &self.volume_up,
             Cmd::VolumeDown => &self.volume_down,
+            Cmd::Recognize => &self.recognize,
         }
     }
 
@@ -79,6 +84,7 @@ impl Bindings {
             Cmd::Prev => &mut self.prev,
             Cmd::VolumeUp => &mut self.volume_up,
             Cmd::VolumeDown => &mut self.volume_down,
+            Cmd::Recognize => &mut self.recognize,
         };
         *slot = combo;
     }

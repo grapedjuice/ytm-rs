@@ -68,6 +68,7 @@ pub(super) fn poll(app: &mut App, ctx: &egui::Context, frame: &eframe::Frame) {
             Cmd::Prev => app.prev(),
             Cmd::VolumeUp => app.nudge_volume(true),
             Cmd::VolumeDown => app.nudge_volume(false),
+            Cmd::Recognize => super::recognize::toggle(app),
         }
     }
 }

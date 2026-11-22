@@ -26,6 +26,8 @@
 	<string>public.app-category.music</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>11.0</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Recognize song listens to what your Mac plays to find out which song it is.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>

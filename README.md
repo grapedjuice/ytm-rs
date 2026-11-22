@@ -84,7 +84,7 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 - **Your language:** the interface comes in 20 languages, and song titles, shelves and charts can follow your language and country.
 - **Touch screens:** swipe to scroll pages and lyrics, and swipe the player bar up to open Now playing.
 - **Mini player:** shrink the window to a small strip with the song and controls (Ctrl+M), or try the experimental pill that sits in a corner and opens on hover.
-- **System-wide media shortcuts:** play/pause, next, previous and volume work while another app is in front or the window is in the tray. Change them in Settings › Keyboard shortcuts.
+- **System-wide media shortcuts:** play/pause, next, previous, volume and Recognize song work while another app is in front or the window is in the tray. Change them in Settings › Keyboard shortcuts.
 - Automatic updates in the background for both the installed and portable versions, with release notes when an update is ready. Pick the Nightly channel for builds of the newest changes.
 
 ## Screenshots
@@ -250,6 +250,7 @@ ytm-rs is licensed under [GPL-3.0](LICENSE).
 - Signed-in stream URLs are decoded with yt-dlp's [EJS](https://github.com/yt-dlp/ejs) solver running in QuickJS.
 - Listen together runs on a small relay built with [workers-rs](https://github.com/cloudflare/workers-rs) on Cloudflare Durable Objects.
 - The animated background is based on Kawarp from [Better Lyrics](https://github.com/better-lyrics), and the theme presets are adapted from the Better Lyrics theme store, with credit to each theme's creators.
+- Recognize song fingerprints audio with code from [SongRec](https://github.com/marin-m/SongRec) (GPL-3.0).
 - Fonts: Inter, DM Sans, Google Sans Flex, Figtree and Instrument Sans (SIL OFL 1.1). Icons: Lucide.
 
 ## Star History

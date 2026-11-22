@@ -478,6 +478,7 @@ impl App {
                 crate::tray::Cmd::PlayPause => self.toggle(),
                 crate::tray::Cmd::Next => self.next(),
                 crate::tray::Cmd::Prev => self.prev(),
+                crate::tray::Cmd::Recognize => super::recognize::toggle(self),
                 crate::tray::Cmd::Quit => self.quit(ctx),
             }
         }

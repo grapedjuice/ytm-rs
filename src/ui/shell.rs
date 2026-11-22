@@ -794,7 +794,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         let search_icon = if sl.accent_icon { app.accent_color() } else { theme::text_dim() };
         icon_at(ui, pos2(rect.left() + 22.0, rect.center().y), icon::SEARCH, 17.0, search_icon);
         let clearable = !app.search_text.is_empty();
-        let inner = Rect::from_min_max(pos2(rect.left() + 42.0, rect.top() + 4.0), pos2(rect.right() - if clearable { 46.0 } else { 16.0 }, rect.bottom() - 4.0));
+        let inner = Rect::from_min_max(pos2(rect.left() + 42.0, rect.top() + 4.0), pos2(rect.right() - if clearable { 78.0 } else { 46.0 }, rect.bottom() - 4.0));
         // Up and Down walk the suggestions (past either end back to what was typed). Taken
         // before the box sees them, where they'd move the caret. Only bare arrows (Shift
         // selects text), and only suggestions for what's typed now, not ones still being replaced.
@@ -835,8 +835,22 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         if edit.gained_focus() && app.search_text.trim().is_empty() && app.logged_in {
             app.suggest_due = Some(ui.input(|i| i.time));
         }
+        // Recognize song, at the box's end: in the accent while it listens, and a click stops it.
+        let busy = app.recognize.busy();
+        let b = Rect::from_center_size(pos2(rect.right() - 25.0, rect.center().y), Vec2::splat(30.0));
+        let name = if busy { crate::tr!("recognize-cancel") } else { crate::tr!("recognize-overline") };
+        let resp = named(ui.interact(b, ui.scope_id().with("search-recognize"), Sense::click()), name).on_hover_text(name).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
+        if h > 0.0 {
+            ui.painter().circle_filled(b.center(), 15.0, theme::glass(0.10 * h));
+        }
+        let fg = if busy { app.accent_color() } else { theme::lerp_color(theme::text_dim(), theme::text(), h) };
+        icon_at(ui, b.center(), icon::HEADPHONES, 16.0, fg);
+        if resp.clicked() {
+            super::recognize::toggle(app);
+        }
         if clearable {
-            let x = Rect::from_center_size(pos2(rect.right() - 25.0, rect.center().y), Vec2::splat(30.0));
+            let x = Rect::from_center_size(pos2(rect.right() - 57.0, rect.center().y), Vec2::splat(30.0));
             let resp = named(ui.interact(x, ui.scope_id().with("search-clear"), Sense::click()), crate::tr!("nav-clear-search")).on_hover_cursor(egui::CursorIcon::PointingHand);
             let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
             if h > 0.0 {

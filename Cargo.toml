@@ -77,6 +77,11 @@ getrandom = "0.3.4"
 # AirPlay 2's requests and answers are binary plists (airplay/ap2.rs).
 plist = "1.10.4"
 
+# Recognize song (recognize/): Shazam's signature (ported from SongRec), and its request's IDs.
+realfft = "3.5"
+crc32fast = "1.5.2"
+uuid = { version = "1.27", features = ["v4"] }
+
 [target.'cfg(windows)'.dependencies]
 # Windows Credential Manager, for the Google and Spotify sign-ins.
 keyring = { version = "3.6.3", features = ["windows-native"] }
@@ -97,6 +102,11 @@ keyring = { version = "3.6.3", features = ["apple-native"] }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSButton", "NSControl", "NSResponder", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSGeometry", "NSString", "NSUserDefaults"] }
+
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+# Recognize song: recording what plays (capture.rs). Newer than rodio's own cpal, for its
+# fixed macOS tap (cpal#1123).
+cpal = "0.18.2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

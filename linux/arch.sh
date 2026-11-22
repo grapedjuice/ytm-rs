@@ -42,6 +42,7 @@ license=('GPL-3.0-only')
 # The libraries it links. The tray's appindicator is loaded at run time.
 # desktop-file-utils builds the MIME cache that `ytm-rs://` links are found through.
 depends=('alsa-lib' 'gtk3' 'webkit2gtk-4.1' 'libayatana-appindicator' 'dbus' 'openssl' 'desktop-file-utils')
+optdepends=('libpulse: Recognize song, through its parec')
 options=('!debug')
 
 package() {

@@ -1242,6 +1242,38 @@ impl UnownedWindow {
     #[inline]
     pub fn set_outer_position(&self, position: Position) {
         let (x, y) = position.to_physical::<i32>(self.scale_factor()).into();
+        let move_request = self.xconn.atoms()[_NET_MOVERESIZE_WINDOW];
+        // ytm-rs: KWin keeps a client's own move (ConfigureWindow) inside the work area at
+        // the window's current size, so a mini player spot near an edge, out of reach for
+        // the full window it shrinks from, got pulled in. KWin takes _NET_MOVERESIZE_WINDOW
+        // as a pager's request and applies it as is, but only for windows it manages:
+        // before the first map the ordinary move has to do.
+        if self.shared_state_lock().visibility == Visibility::Yes
+            && util::wm_name_is_one_of(&["KWin"])
+            && util::hint_is_supported(move_request)
+            && self.xconn.available_monitors().is_ok_and(|monitors| {
+                monitors.iter().any(|monitor| monitor.rect.contains_point(x as i64, y as i64))
+            })
+        {
+            // North-west gravity: x, y are the frame's corner, under the frame KWin has when
+            // it handles this (a decoration change sent just before is already applied).
+            // Bits: x and y given, the application as the request source.
+            let flags = u32::from(xproto::Gravity::NORTH_WEST) | (1 << 8) | (1 << 9) | (1 << 12);
+            self.xconn
+                .send_client_msg(
+                    self.xwindow,
+                    self.root,
+                    move_request,
+                    Some(
+                        xproto::EventMask::SUBSTRUCTURE_REDIRECT
+                            | xproto::EventMask::SUBSTRUCTURE_NOTIFY,
+                    ),
+                    [flags, x as u32, y as u32, 0, 0],
+                )
+                .expect_then_ignore_error("Failed to move window");
+            self.xconn.flush_requests().expect("Failed to move window");
+            return;
+        }
         self.set_position_physical(x, y);
     }
 

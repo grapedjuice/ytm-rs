@@ -45,6 +45,7 @@ atom_manager! {
     // Assorted ICCCM Atoms
     _NET_WM_ICON,
     _NET_WM_MOVERESIZE,
+    _NET_MOVERESIZE_WINDOW,
     _NET_WM_NAME,
     _NET_WM_PID,
     _NET_WM_PING,

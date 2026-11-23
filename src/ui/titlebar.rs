@@ -596,9 +596,9 @@ fn edges(ctx: &egui::Context, sides_only: bool) {
         (Rect::from_min_max(pos2(r - EDGE, b - CORNER), pos2(r, b)), ResizeDirection::SouthEast, CursorIcon::ResizeSouthEast),
     ];
     // Above `window-buttons` and `notch-items` (both `Order::Foreground`, which move to top
-    // on click), with `Sense::hover()` on the area itself so only the thin perimeter rects
-    // capture input. Each strip senses both clicks and drags (without focus) so buttons and
-    // notch drag strips underneath don't also hover or trigger on the outer resize edge.
+    // on click). Only the thin strips below take input. Each senses both clicks and drags
+    // (without focus) so buttons and notch drag strips underneath don't also hover or
+    // trigger on the outer resize edge.
     egui::Area::new(Id::unique("resize-edges"))
         .order(egui::Order::Tooltip)
         .sense(Sense::hover())

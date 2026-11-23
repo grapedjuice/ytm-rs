@@ -2100,9 +2100,10 @@ impl Tessellator {
             // Feathering is usually used to make the edges of a shape softer for anti-aliasing.
 
             // The tessellator can't handle blurring/feathering larger than the smallest side of the rect.
-            let eps = 0.1; // avoid numerical problems
+            // At the full side the inner edge collapses and the shadow draws as streaks
+            // (a big popup shadow on a one-line tooltip), so stop at three quarters of it.
             blur_width = blur_width
-                .at_most(rect.size().min_elem() - eps - 2.0 * stroke.width)
+                .at_most(0.75 * rect.size().min_elem() - 2.0 * stroke.width)
                 .at_least(0.0);
 
             corner_radius += 0.5 * blur_width;

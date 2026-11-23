@@ -62,21 +62,21 @@ settings-use-youtubes-restricted-mode-desc = Mais rigoroso: o YouTube também de
 ## Song ratings
 
 settings-song-ratings = Avaliações de músicas
-settings-ratings-player-button = Botão de não gostar no leitor
+settings-ratings-player-button = Botão «Não gosto» no leitor
 settings-ratings-player-button-desc = Mostra o botão de polegar para baixo ao lado do coração.
 settings-ratings-list-icons = Ícones de avaliação nas listas
 settings-ratings-list-icons-desc = Mostra as avaliações ao lado da duração. Passe o rato sobre uma música sem avaliação para revelar o botão Gosto.
-settings-ratings-dim-disliked = Atenuar músicas de que não gosta
-settings-ratings-dim-disliked-desc = Mostra músicas com “não gostar” em cores suaves nas listas.
-settings-ratings-skip-disliked = Não gostar salta para a seguinte
-settings-ratings-skip-disliked-desc = Avança depois que o YouTube Music confirma o “não gostar”. Convidados em Ouvir juntos seguem a reprodução do anfitrião.
-settings-ratings-dislike-notices = Notificações de não gostar
-settings-ratings-dislike-notices-desc = Mostra uma mensagem quando um “não gostar” é guardado ou removido.
-settings-ratings-unlike-notices = Notificações de remoção de gosto
+settings-ratings-dim-disliked = Atenuar músicas com «Não gosto»
+settings-ratings-dim-disliked-desc = Mostra as músicas com «Não gosto» em cores suaves nas listas.
+settings-ratings-skip-disliked = «Não gosto» salta para a seguinte
+settings-ratings-skip-disliked-desc = Avança depois que o YouTube Music confirma o «Não gosto». Convidados em Ouvir juntos seguem a reprodução do anfitrião.
+settings-ratings-dislike-notices = Notificações de «Não gosto»
+settings-ratings-dislike-notices-desc = Mostra uma mensagem quando um «Não gosto» é guardado ou removido.
+settings-ratings-unlike-notices = Notificações ao remover «Gosto»
 settings-ratings-unlike-notices-desc = Mostra um botão Desfazer antes de enviar a remoção ao YouTube Music.
-settings-ratings-safe-likes = Gostos protegidas
-settings-ratings-safe-likes-desc = Segure o botão de gostar para remover uma gosto.
-settings-ratings-hold-to-remove = Segure para remover gosto
+settings-ratings-safe-likes = «Gosto» protegido
+settings-ratings-safe-likes-desc = Segure o botão Gosto para remover um «Gosto».
+settings-ratings-hold-to-remove = Segure para remover o «Gosto»
 
 ## Sound
 

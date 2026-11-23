@@ -1242,6 +1242,34 @@ impl UnownedWindow {
     #[inline]
     pub fn set_outer_position(&self, position: Position) {
         let (x, y) = position.to_physical::<i32>(self.scale_factor()).into();
+        let move_request = self.xconn.atoms()[_NET_MOVERESIZE_WINDOW];
+        if util::wm_name_is_one_of(&["KWin"])
+            && util::hint_is_supported(move_request)
+            && self.xconn.available_monitors().is_ok_and(|monitors| {
+                monitors.iter().any(|monitor| monitor.rect.contains_point(x as i64, y as i64))
+            })
+        {
+            // KWin constrains XConfigureWindow to the work area using the old size.
+            // An EWMH move with static gravity takes the desired client position.
+            let (outer_x, outer_y) = self.outer_position_physical();
+            let (inner_x, inner_y) = self.inner_position_physical();
+            // Specify x and y, with the application as the request source.
+            let flags = u32::from(xproto::Gravity::STATIC) | (1 << 8) | (1 << 9) | (1 << 12);
+            self.xconn
+                .send_client_msg(
+                    self.xwindow,
+                    self.root,
+                    move_request,
+                    Some(
+                        xproto::EventMask::SUBSTRUCTURE_REDIRECT
+                            | xproto::EventMask::SUBSTRUCTURE_NOTIFY,
+                    ),
+                    [flags, (x + (inner_x - outer_x)) as u32, (y + (inner_y - outer_y)) as u32, 0, 0],
+                )
+                .expect_then_ignore_error("Failed to move window");
+            self.xconn.flush_requests().expect("Failed to move window");
+            return;
+        }
         self.set_position_physical(x, y);
     }
 

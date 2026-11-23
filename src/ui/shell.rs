@@ -328,19 +328,18 @@ pub fn sidebar_collapse(app: &App, ctx: &egui::Context) -> f32 {
 }
 
 /// The theme's name for the app, its last word perhaps in a second colour.
-fn logo_name(ui: &mut Ui, logo: &crate::preset::TopBarLook, accent: Color32) {
+fn logo_name(ui: &mut Ui, logo: &crate::preset::TopBarLook, accent: Color32) -> Rect {
     let c = if logo.logo_color.is_empty() { theme::text() } else { crate::preset::paint(&logo.logo_color, accent) };
     ui.spacing_mut().item_spacing.x = 0.0;
     match logo.logo_text.rsplit_once(' ').filter(|_| !logo.logo_color2.is_empty()) {
         Some((first, last)) => {
-            ui.label(egui::RichText::new(format!("{first} ")).font(theme::bold(17.0)).color(c));
+            let r1 = ui.label(egui::RichText::new(format!("{first} ")).font(theme::bold(17.0)).color(c)).rect;
             // The second colour is for dark pages.
             let last_color = if theme::light() { theme::text() } else { crate::preset::paint(&logo.logo_color2, accent) };
-            ui.label(egui::RichText::new(last).font(theme::bold(17.0)).color(last_color));
+            let r2 = ui.label(egui::RichText::new(last).font(theme::bold(17.0)).color(last_color)).rect;
+            r1.union(r2)
         }
-        None => {
-            ui.label(egui::RichText::new(&logo.logo_text).font(theme::bold(17.0)).color(c));
-        }
+        None => ui.label(egui::RichText::new(&logo.logo_text).font(theme::bold(17.0)).color(c)).rect,
     }
 }
 
@@ -377,21 +376,22 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         menu_button(app, ui);
         ui.add_space(8.0);
         ui.multiply_opacity(a);
-        let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
+        let (r, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
         ui.painter().circle_filled(r.center(), 16.0, theme::RED);
         ui.painter().circle_stroke(r.center(), 9.5, egui::Stroke::new(1.6, Color32::WHITE));
         widgets::play_triangle(ui, r.center() + vec2(0.8, 0.0), 4.6, Color32::WHITE);
+        ui.add_space(8.0);
+        let logo = app.look().app.top_bar.clone();
+        let text_r = if logo.logo_text.is_empty() {
+            ui.label(egui::RichText::new("Music").font(theme::bold(22.0)).color(theme::text())).rect
+        } else {
+            logo_name(ui, &logo, app.accent_color())
+        };
+        let resp = ui.interact(r.union(text_r), ui.scope_id().with("logo-home"), if collapsed { Sense::hover() } else { Sense::click() });
         let resp = named(resp, crate::tr!("settings-home"));
         let resp = if collapsed { resp } else { resp.on_hover_cursor(egui::CursorIcon::PointingHand) };
         if resp.clicked() && !collapsed {
             app.actions.push(Action::Go(Page::Home));
-        }
-        ui.add_space(8.0);
-        let logo = app.look().app.top_bar.clone();
-        if logo.logo_text.is_empty() {
-            ui.label(egui::RichText::new("Music").font(theme::bold(22.0)).color(theme::text()));
-        } else {
-            logo_name(ui, &logo, app.accent_color());
         }
     }
     ui.allocate_space(vec2(row_w, head.min_rect().height()));
@@ -725,7 +725,12 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         // A narrow row needs the logo's room for the search box and the account button.
         if tb.logo_in_bar && !tb.logo_text.is_empty() && ui.available_width() >= 620.0 {
             ui.add_space(6.0);
-            ui.allocate_ui_with_layout(vec2(136.0, app.look().app.search_look.height.max(30.0)), egui::Layout::left_to_right(egui::Align::Center), |ui| logo_name(ui, tb, app.accent_color()));
+            let accent = app.accent_color();
+            let text_r = ui.allocate_ui_with_layout(vec2(136.0, app.look().app.search_look.height.max(30.0)), egui::Layout::left_to_right(egui::Align::Center), |ui| logo_name(ui, tb, accent)).inner;
+            let resp = named(ui.interact(text_r, ui.scope_id().with("bar-logo-home"), Sense::click()), crate::tr!("settings-home")).on_hover_cursor(egui::CursorIcon::PointingHand);
+            if resp.clicked() {
+                app.actions.push(Action::Go(Page::Home));
+            }
             ui.add_space(10.0);
         }
         if icon_button(ui, icon::CHEVRON_LEFT, 20.0, crate::tr!("nav-back"), false).clicked() {

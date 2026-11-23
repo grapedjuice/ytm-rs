@@ -1870,8 +1870,15 @@ mod tests {
     fn the_sleep_timer_pauses_when_it_runs_out_and_not_once_called_off() {
         let (events, _rx) = unbounded();
         let audio = spawn(1.0, false, None, events, || {});
-        // Called off: nothing happens at the time it was set for. (Far enough out that
-        // the engine, slow to start on CI, doesn't find it already run out.)
+        // The engine finds the output device before it reads a command, which can take
+        // longer than the timer on a slow machine: wait until it has taken one.
+        audio.send(AudioCmd::SleepAt(None));
+        let up = Instant::now();
+        while !audio.tx.is_empty() {
+            assert!(up.elapsed() < Duration::from_secs(30), "the engine never started");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        // Called off: nothing happens at the time it was set for.
         audio.send(AudioCmd::SleepAt(Some(Instant::now() + Duration::from_millis(500))));
         audio.send(AudioCmd::SleepAt(None));
         std::thread::sleep(Duration::from_millis(800));

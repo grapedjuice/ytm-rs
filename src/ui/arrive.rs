@@ -87,8 +87,10 @@ fn ease_out_quint(t: f32) -> f32 {
 pub fn item<R>(ui: &mut Ui, since: Option<f64>, seq: usize, rise: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
     let Some(since) = since else { return add(ui) };
     let p = progress(since, seq, ui.input(|i| i.time));
+    // In a scope arrived too, as while arriving: its widgets keep their ids, so a press
+    // that began as it came in still clicks, and a menu opened on it stays open.
     if p >= 1.0 {
-        return add(ui);
+        return ui.scope(add).inner;
     }
     ui.ctx().request_repaint();
     let layer = ui.layer_id();
@@ -124,5 +126,33 @@ mod tests {
         assert_eq!(progress(0.0, 0, FADE * k), 1.0);
         // The 20th starts with the 14th.
         assert_eq!(progress(0.0, 20, 1.0), progress(0.0, MAX_SEQ, 1.0));
+    }
+
+    #[test]
+    fn a_press_as_it_arrives_clicks_once_it_has() {
+        use egui::{Event, Modifiers, PointerButton, RawInput, pos2};
+        let ctx = egui::Context::default();
+        let button = std::cell::Cell::new(Rect::NOTHING);
+        let clicked = std::cell::Cell::new(false);
+        let frame = |time: f64, events: Vec<Event>| {
+            let raw = RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 300.0))), time: Some(time), events, ..Default::default() };
+            ctx.run_ui(raw, |ui| {
+                let r = item(ui, Some(0.0), 0, 20.0, |ui| ui.button("Open"));
+                button.set(r.rect);
+                clicked.set(clicked.get() || r.clicked());
+            })
+            .textures_delta
+            .clear();
+        };
+        let k = speed();
+        frame(0.0, vec![]);
+        let at = button.get().center();
+        let press = |pressed| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+        // Pressed halfway in, let go just after it's all there.
+        frame(FADE * k * 0.6, vec![Event::PointerMoved(at), press(true)]);
+        frame(FADE * k * 0.6 + 0.1, vec![Event::PointerMoved(at)]);
+        frame(FADE * k + 0.05, vec![press(false)]);
+        frame(FADE * k + 0.1, vec![]);
+        assert!(clicked.get(), "the press at {:?} was lost (button at {:?})", pos2(at.x, at.y), button.get());
     }
 }

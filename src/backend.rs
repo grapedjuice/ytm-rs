@@ -1732,6 +1732,8 @@ impl Backend {
             return Ok(());
         }
         let mut video_id = song.as_ref().map_or(listed, |s| s.id.as_str()).to_owned();
+        // Skipped to while lined up for gapless (its prefetch went into that): play from it.
+        let staged = self.staged.lock().unwrap().take_if(|(_, id, s)| *id == video_id && self.stream_usable(s)).map(|(_, _, s)| s);
         self.clear_staged();
         let prefetched = self.prefetched.lock().unwrap().take();
         let replay = self.current.lock().unwrap().take().filter(|(id, s)| *id == video_id && s.is_complete()).map(|(_, s)| s);
@@ -1751,6 +1753,15 @@ impl Backend {
                 }
                 None
             }
+        };
+        let ready = match (ready, staged) {
+            (Some(r), Some(st)) => {
+                if !Arc::ptr_eq(&r, &st) {
+                    self.cancel_if_not_current(&st);
+                }
+                Some(r)
+            }
+            (r, st) => r.or(st),
         };
         let shared = match ready {
             Some(s) => {
@@ -1884,7 +1895,9 @@ impl Backend {
             let mut slot = self.prefetched.lock().unwrap();
             slot.as_ref().is_some_and(|(id, s)| *id == video_id && self.stream_usable(s)).then(|| slot.take().unwrap().1)
         }
-        .or_else(|| self.current.lock().unwrap().as_ref().filter(|(id, s)| *id == video_id && s.is_complete()).map(|(_, s)| s.clone()));
+        .or_else(|| self.current.lock().unwrap().as_ref().filter(|(id, s)| *id == video_id && s.is_complete()).map(|(_, s)| s.clone()))
+        // Staged before a pause or seek near the end let it go: the same stream again.
+        .or_else(|| self.staged.lock().unwrap().as_ref().filter(|(_, id, s)| *id == video_id && self.stream_usable(s)).map(|(_, _, s)| s.clone()));
         let shared = match buffered {
             Some(s) => s,
             None => match self.open_stream(&video_id, false).await {

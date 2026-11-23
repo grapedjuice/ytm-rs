@@ -48,12 +48,31 @@ pub fn parse(md: &str) -> Vec<Block> {
     out
 }
 
-/// Inline spans: (text, bold). Links keep their text; code loses its backticks.
-fn spans(s: &str) -> Vec<(String, bool)> {
-    let mut out: Vec<(String, bool)> = Vec::new();
-    let mut push = |t: &str, bold: bool| match out.last_mut() {
-        Some((prev, b)) if *b == bold => prev.push_str(t),
-        _ => out.push((t.to_owned(), bold)),
+/// An inline run of text: bold or not, and the address it opens when it's a link.
+#[derive(Debug, PartialEq)]
+struct Span {
+    text: String,
+    bold: bool,
+    link: Option<String>,
+}
+
+/// A bare address in the text: `http(s)://` up to the next space, without the
+/// sentence's closing punctuation.
+fn bare_url(s: &str) -> Option<usize> {
+    if !(s.starts_with("https://") || s.starts_with("http://")) {
+        return None;
+    }
+    let end = s.find(char::is_whitespace).unwrap_or(s.len());
+    let url = s[..end].trim_end_matches(['.', ',', ';', ':', '!', '?', ')', '\'', '"']);
+    (url.len() > "https://".len()).then_some(url.len())
+}
+
+/// Inline spans. Links keep their text and their address; code loses its backticks.
+fn spans(s: &str) -> Vec<Span> {
+    let mut out: Vec<Span> = Vec::new();
+    let mut push = |t: &str, bold: bool, link: Option<&str>| match out.last_mut() {
+        Some(prev) if prev.bold == bold && prev.link.is_none() && link.is_none() => prev.text.push_str(t),
+        _ => out.push(Span { text: t.to_owned(), bold, link: link.map(str::to_owned) }),
     };
     let mut rest = s;
     let mut bold = false;
@@ -63,17 +82,26 @@ fn spans(s: &str) -> Vec<(String, bool)> {
             rest = r;
         } else if let Some(r) = rest.strip_prefix('`') {
             let end = r.find('`').unwrap_or(r.len());
-            push(&r[..end], bold);
+            push(&r[..end], bold, None);
             rest = r.get(end + 1..).unwrap_or("");
         } else if let Some(r) = rest.strip_prefix('[')
             && let Some(close) = r.find("](")
             && let Some(end) = r[close..].find(')')
         {
-            push(&r[..close], bold);
+            let url = r[close + 2..close + end].trim();
+            let link = (url.starts_with("https://") || url.starts_with("http://")).then_some(url);
+            push(&r[..close], bold, link);
             rest = &r[close + end + 1..];
+        } else if let Some(n) = bare_url(rest) {
+            push(&rest[..n], bold, Some(&rest[..n]));
+            rest = &rest[n..];
         } else {
-            let next = rest.char_indices().skip(1).find(|(_, c)| matches!(c, '*' | '`' | '[')).map_or(rest.len(), |(i, _)| i);
-            push(&rest[..next], bold);
+            let next = rest
+                .char_indices()
+                .skip(1)
+                .find(|&(i, c)| matches!(c, '*' | '`' | '[') || (c == 'h' && bare_url(&rest[i..]).is_some()))
+                .map_or(rest.len(), |(i, _)| i);
+            push(&rest[..next], bold, None);
             rest = &rest[next..];
         }
     }
@@ -81,18 +109,69 @@ fn spans(s: &str) -> Vec<(String, bool)> {
 }
 
 fn plain(s: &str) -> String {
-    spans(s).into_iter().map(|(t, _)| t).collect()
+    spans(s).into_iter().map(|s| s.text).collect()
 }
 
-fn job(text: &str, size: f32, color: Color32, width: f32) -> LayoutJob {
+fn link_color() -> Color32 {
+    if theme::light() { Color32::from_rgb(0, 102, 204) } else { Color32::from_rgb(62, 166, 255) }
+}
+
+/// The laid-out text and its links, as char ranges into it.
+fn job(text: &str, size: f32, color: Color32, width: f32) -> (LayoutJob, Vec<(std::ops::Range<usize>, String)>) {
     let mut job = LayoutJob::default();
     job.wrap.max_width = width;
-    for (t, bold) in spans(text) {
-        let font = if bold { theme::semibold(size) } else { theme::regular(size) };
-        let color = if bold { theme::text() } else { color };
-        job.append(&t, 0.0, TextFormat { font_id: font, color, line_height: Some(size * 1.5), ..Default::default() });
+    let mut links = Vec::new();
+    let mut at = 0;
+    for s in spans(text) {
+        let font = if s.bold { theme::semibold(size) } else { theme::regular(size) };
+        let color = if s.link.is_some() { link_color() } else if s.bold { theme::text() } else { color };
+        let n = s.text.chars().count();
+        if let Some(url) = s.link {
+            links.push((at..at + n, url));
+        }
+        at += n;
+        job.append(&s.text, 0.0, TextFormat { font_id: font, color, line_height: Some(size * 1.5), ..Default::default() });
     }
-    job
+    (job, links)
+}
+
+/// Lays out and paints the text at `pos` inside `rect`, and makes its links
+/// clickable: a hand over one, an underline while hovered, and a click opens it.
+fn rich_text(ui: &mut Ui, text: &str, size: f32, color: Color32, width: f32, rect: egui::Rect, pos: egui::Pos2) {
+    let (job, links) = job(text, size, color, width);
+    let g = ui.fonts_mut(|f| f.layout_job(job));
+    ui.painter().galley(pos, g.clone(), color);
+    if links.is_empty() {
+        return;
+    }
+    // Each link's boxes, one per row it covers.
+    let mut boxes: Vec<(usize, egui::Rect)> = Vec::new();
+    let mut idx = 0;
+    for row in &g.rows {
+        for glyph in &row.row.glyphs {
+            if let Some(l) = links.iter().position(|(r, _)| r.contains(&idx)) {
+                let r = glyph.logical_rect().translate(row.pos.to_vec2() + pos.to_vec2());
+                match boxes.last_mut() {
+                    Some((pl, b)) if *pl == l && (b.center().y - r.center().y).abs() < 1.0 => *b = b.union(r),
+                    _ => boxes.push((l, r)),
+                }
+            }
+            idx += 1;
+        }
+        idx += usize::from(row.ends_with_newline);
+    }
+    let id = ui.scope_id().with(("notes-links", rect.min.x as i32, rect.min.y as i32));
+    let resp = ui.interact(rect, id, egui::Sense::click());
+    let Some(p) = resp.hover_pos() else { return };
+    let Some(&(l, _)) = boxes.iter().find(|(_, b)| b.contains(p)) else { return };
+    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    for (_, b) in boxes.iter().filter(|(bl, _)| *bl == l) {
+        let y = b.center().y + size * 0.55;
+        ui.painter().line_segment([egui::pos2(b.left(), y), egui::pos2(b.right(), y)], Stroke::new(1.0, link_color()));
+    }
+    if resp.clicked() {
+        ui.ctx().open_url(egui::OpenUrl::new_tab(&links[l].1));
+    }
 }
 
 /// The notes laid out like the release page: section headings, paragraphs, bullets.
@@ -110,16 +189,17 @@ pub fn show(ui: &mut Ui, blocks: &[Block], size: f32) {
                 ui.add_space(4.0);
             }
             Block::Para(t) => {
-                let g = ui.fonts_mut(|f| f.layout_job(job(t, size, body, width)));
-                ui.label(g);
+                let h = ui.fonts_mut(|f| f.layout_job(job(t, size, body, width).0)).size().y;
+                let (rect, _) = ui.allocate_exact_size(vec2(width, h), egui::Sense::hover());
+                rich_text(ui, t, size, body, width, rect, rect.min);
                 ui.add_space(6.0);
             }
             Block::Bullet(t) => {
-                let g = ui.fonts_mut(|f| f.layout_job(job(t, size, body, width - 18.0)));
-                let (rect, _) = ui.allocate_exact_size(vec2(width, g.size().y), egui::Sense::hover());
+                let h = ui.fonts_mut(|f| f.layout_job(job(t, size, body, width - 18.0).0)).size().y;
+                let (rect, _) = ui.allocate_exact_size(vec2(width, h), egui::Sense::hover());
                 let dot = egui::pos2(rect.left() + 6.0, rect.top() + size * 0.75);
                 ui.painter().circle_filled(dot, 2.2, body);
-                ui.painter().galley(rect.min + vec2(18.0, 0.0), g, body);
+                rich_text(ui, t, size, body, width - 18.0, rect, rect.min + vec2(18.0, 0.0));
                 ui.add_space(4.0);
             }
         }
@@ -175,7 +255,7 @@ fn hline(ui: &mut Ui) {
 }
 
 pub fn github_link(ui: &mut Ui) {
-    ui.hyperlink_to(egui::RichText::new(crate::tr!("window-release-notes-github")).font(theme::regular(13.0)).color(if theme::light() { Color32::from_rgb(0, 102, 204) } else { Color32::from_rgb(62, 166, 255) }), crate::update::RELEASES);
+    ui.hyperlink_to(egui::RichText::new(crate::tr!("window-release-notes-github")).font(theme::regular(13.0)).color(link_color()), crate::update::RELEASES);
 }
 
 /// What the notes dialog shows: a downloaded update (with Restart), or a version's notes.
@@ -359,8 +439,49 @@ mod tests {
         assert!(matches!(&b[0], Block::Heading(t) if t == "Uploads"));
         assert!(matches!(&b[1], Block::Para(t) if t == "Pick **files** or drop them."));
         assert!(matches!(&b[4], Block::Bullet(t) if t == "Icons are `centred` in their buttons."));
-        assert_eq!(spans("Pick **files** now"), vec![("Pick ".into(), false), ("files".into(), true), (" now".into(), false)]);
+        let sp = |t: &str, bold, link: Option<&str>| Span { text: t.into(), bold, link: link.map(Into::into) };
+        assert_eq!(spans("Pick **files** now"), vec![sp("Pick ", false, None), sp("files", true, None), sp(" now", false, None)]);
         assert_eq!(plain("See [the notes](https://example.com)."), "See the notes.");
+        assert_eq!(spans("See [the notes](https://example.com)."), vec![sp("See ", false, None), sp("the notes", false, Some("https://example.com")), sp(".", false, None)]);
+        assert_eq!(
+            spans("Join https://discord.gg/abc. Or http://x.io"),
+            vec![sp("Join ", false, None), sp("https://discord.gg/abc", false, Some("https://discord.gg/abc")), sp(". Or ", false, None), sp("http://x.io", false, Some("http://x.io"))]
+        );
+        assert_eq!(spans("happy hours"), vec![sp("happy hours", false, None)]);
+    }
+
+    /// A click on a link in the notes, a written one or a bare address, opens it;
+    /// a click on the text beside it doesn't.
+    #[test]
+    fn links_in_the_notes_open_when_clicked() {
+        use egui::{Event, Modifiers, PointerButton, RawInput, Rect};
+        let opened = |md: &str, dx: f32| {
+            let ctx = egui::Context::default();
+            let blocks = parse(md);
+            let top = std::cell::Cell::new(egui::Pos2::ZERO);
+            let frame = |events: Vec<Event>| {
+                let raw = RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(500.0, 300.0))), events, ..Default::default() };
+                let mut out = ctx.run_ui(raw, |ui| {
+                    top.set(ui.next_widget_position());
+                    show(ui, &blocks, 14.0);
+                });
+                out.textures_delta.clear();
+                out.platform_output.commands.into_iter().find_map(|c| match c {
+                    egui::OutputCommand::OpenUrl(u) => Some(u.url),
+                    _ => None,
+                })
+            };
+            frame(vec![]);
+            let at = top.get() + vec2(dx, 10.0);
+            let press = |pressed| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+            frame(vec![Event::PointerMoved(at)]);
+            frame(vec![press(true)]);
+            frame(vec![press(false)])
+        };
+        assert_eq!(opened("[Discord server](https://discord.gg/abc) is open", 10.0).as_deref(), Some("https://discord.gg/abc"));
+        assert_eq!(opened("https://discord.gg/abc", 10.0).as_deref(), Some("https://discord.gg/abc"));
+        assert_eq!(opened("- [Installer](https://example.com/a.exe) for Windows", 28.0).as_deref(), Some("https://example.com/a.exe"));
+        assert_eq!(opened("Some words first, then [a link](https://example.com)", 10.0), None);
     }
 
     #[test]

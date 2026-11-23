@@ -3414,8 +3414,9 @@ fn output_device_picker(app: &mut App, ui: &mut Ui) {
 /// The output devices to pick from, in `popup` (opened by `btn`): sound cards, then AirPlay
 /// speakers with its mark. For Settings › Output device and the player bar's button.
 pub(super) fn output_device_menu(app: &mut App, btn: &egui::Response, popup: egui::Popup, width: f32, speakers: &[crate::airplay::Speaker]) {
-    // Listed when opened, so a device that just connected shows up.
-    if btn.clicked() || app.output_devices.is_empty() {
+    // Listed when opened, so a device that just connected shows up. Only then: the player
+    // bar draws this every frame, and listing asks the system each time.
+    if btn.clicked() {
         app.output_devices = crate::audio::output_devices();
     }
     if btn.clicked() {

@@ -215,8 +215,13 @@ settings-background-brightness = Arka plan parlaklığı
 settings-background-brightness-desc = Şimdi oynatılıyor ekranının ve sayfaların arkasındaki kapağı açar veya koyulaştırır. %100 temanın kendi parlaklığıdır.
 settings-brighter = Daha parlak
 settings-darker = Daha koyu
+settings-flat-background = Düz arka plan
+settings-flat-background-desc = Sayfaların ve Şimdi çalıyor'un arkasında tek renk. Kapak ve geçiş yok.
+settings-flat-background-colour = Arka plan rengi
 settings-frosted-glass = Buzlu cam
 settings-frosted-glass-desc = Menüler ve kayan çubuklar, onları kullanan temalarda arkalarında olanı bulanıklaştırıyor. Kapalı, biraz daha sağlamlar.
+settings-classic-title-bar = Klasik başlık çubuğu
+settings-classic-title-bar-desc = Pencere düğmeleri 2.0.2 öncesindeki gibi: sağ üstte kare, bir çentik içinde değil. Şimdi oynatılıyor düğmeleri ve hesap düğmesi yine yanlarına döner.
 settings-pulse-with-the-music = Müzikle nabız atın
 settings-pulse-with-the-music-desc = Arka planı hareket eden temalarda arka plan ritimle birlikte şişer.
 settings-visualizer = Görselleştirici
@@ -246,6 +251,9 @@ settings-pill-mini-player = Hap mini oynatıcısı
 settings-keep-on-top = Zirvede kalın
 settings-keep-on-top-desc = Mini oynatıcı diğer pencerelerin üzerinde kalır.
 settings-pill-mini-player-restart-desc = Mini oynatıcı bir sonraki başlangıçtan itibaren stili değiştirir.
+settings-keep-on-top-wayland = Wayland'de üstte tut
+settings-keep-on-top-wayland-desc = Wayland uygulamaların pencerelerini diğerlerinin üzerinde tutmasına izin vermez, bu yüzden uygulama XWayland üzerinden açılır. Dokunmatik yüzey kaydırması orada süzülmez ve kesirli ölçeklemede metin daha yumuşak görünebilir.
+settings-keep-on-top-wayland-restart-desc = Pencere bir sonraki başlangıçtan itibaren değişir.
 
 ## App icon
 
@@ -406,6 +414,7 @@ settings-update-downloading = { $version } indiriliyor… { $percent }%
 settings-update-ready = { $version } Sürümü hazır. ytm-rs'yi kapattığınızda yüklenir.
 settings-update-available = { $version } Sürümü çıktı. { $step }
 settings-update-failed = Güncellemeler kontrol edilemedi: { $error }
+settings-update-rate-limited = GitHub ağınızdaki güncelleme denetimlerini sınırlıyor. { $minutes } dakika sonra yeniden deneyin.
 settings-version = Sürüm { $version }.
 settings-automatic-updates-desc-packaged = Yeni sürümleri kontrol edin ve çıktığında size haber verin.
 settings-automatic-updates-desc = Arka planda yeni sürümleri indirin ve uygulamayı kapattığınızda yükleyin.

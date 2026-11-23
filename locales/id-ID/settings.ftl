@@ -215,8 +215,13 @@ settings-background-brightness = Kecerahan latar
 settings-background-brightness-desc = Membuat sampul di belakang Sedang diputar dan halaman lebih terang atau lebih gelap. 100% adalah bawaan tema.
 settings-brighter = Lebih terang
 settings-darker = Lebih gelap
+settings-flat-background = Latar datar
+settings-flat-background-desc = Satu warna di belakang halaman dan Sedang diputar, tanpa sampul dan tanpa gradien.
+settings-flat-background-colour = Warna latar
 settings-frosted-glass = Frosted glass
 settings-frosted-glass-desc = Menu dan bilah melayang mengaburkan apa yang ada di belakangnya, di tema yang memakainya. Kalau mati, tampilannya sedikit lebih solid.
+settings-classic-title-bar = Bilah judul klasik
+settings-classic-title-bar-desc = Tombol jendela seperti sebelum 2.0.2: kotak di kanan atas, bukan di lekukan. Tombol Sedang diputar dan tombol akun kembali di sampingnya.
 settings-pulse-with-the-music = Berdenyut ikut musik
 settings-pulse-with-the-music-desc = Latar belakang membesar mengikuti beat, di tema yang latarnya bergerak.
 settings-visualizer = Visualisasi
@@ -246,6 +251,9 @@ settings-pill-mini-player = Mini player model pil
 settings-keep-on-top = Selalu di atas
 settings-keep-on-top-desc = Mini player tetap di atas jendela lain.
 settings-pill-mini-player-restart-desc = Gaya mini player berubah mulai dari peluncuran berikutnya.
+settings-keep-on-top-wayland = Selalu di atas di Wayland
+settings-keep-on-top-wayland-desc = Wayland tidak mengizinkan aplikasi menahan jendelanya di atas yang lain, jadi aplikasi terbuka lewat XWayland. Guliran touchpad di sana tidak meluncur terus, dan teks bisa terlihat lebih lembut dengan skala pecahan.
+settings-keep-on-top-wayland-restart-desc = Jendelanya berubah mulai peluncuran berikutnya.
 
 ## App icon
 
@@ -406,6 +414,7 @@ settings-update-downloading = Mengunduh { $version }… { $percent }%
 settings-update-ready = Versi { $version } udah siap. Terpasang pas kamu menutup ytm-rs.
 settings-update-available = Versi { $version } udah rilis. { $step }
 settings-update-failed = Gagal ngecek pembaruan: { $error }
+settings-update-rate-limited = GitHub lagi ngebatas pengecekan pembaruan dari jaringanmu. Coba lagi dalam { $minutes } menit.
 settings-version = Versi { $version }.
 settings-automatic-updates-desc-packaged = Cek versi baru dan kasih tahu kamu kalau udah rilis.
 settings-automatic-updates-desc = Unduh versi baru di latar belakang dan pasang pas kamu menutup aplikasi.

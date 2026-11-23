@@ -215,8 +215,13 @@ settings-background-brightness = Luminosité du fond
 settings-background-brightness-desc = Éclaircit ou assombrit la pochette derrière Lecture en cours et les pages. 100 % est celle du thème.
 settings-brighter = Plus clair
 settings-darker = Plus sombre
+settings-flat-background = Fond uni
+settings-flat-background-desc = Une seule couleur derrière les pages et Lecture en cours, sans pochette ni dégradé.
+settings-flat-background-colour = Couleur de fond
 settings-frosted-glass = Verre dépoli
 settings-frosted-glass-desc = Dans les thèmes compatibles, les menus et barres flottantes floutent l’arrière-plan. Une fois l’effet désactivé, ils sont un peu plus opaques.
+settings-classic-title-bar = Barre de titre classique
+settings-classic-title-bar-desc = Les boutons de la fenêtre comme avant la 2.0.2 : carrés en haut à droite, au lieu d'un décrochement. Les boutons de Lecture en cours et le bouton du compte reviennent à côté.
 settings-pulse-with-the-music = Pulsation au rythme de la musique
 settings-pulse-with-the-music-desc = Dans les thèmes à fond animé, le décor s’agrandit au rythme de la musique.
 settings-visualizer = Visualiseur
@@ -246,6 +251,9 @@ settings-pill-mini-player = Mini-lecteur en pilule
 settings-keep-on-top = Garder au premier plan
 settings-keep-on-top-desc = Le mini-lecteur reste au-dessus des autres fenêtres.
 settings-pill-mini-player-restart-desc = Le style du mini-lecteur changera au prochain démarrage.
+settings-keep-on-top-wayland = Garder au premier plan sous Wayland
+settings-keep-on-top-wayland-desc = Wayland n'autorise pas les applications à garder leur fenêtre au-dessus des autres, donc l'application s'ouvre via XWayland. Le défilement du pavé tactile n'y a pas d'inertie, et le texte peut paraître plus flou avec une mise à l'échelle fractionnaire.
+settings-keep-on-top-wayland-restart-desc = La fenêtre change au prochain démarrage.
 
 ## App icon
 
@@ -406,6 +414,10 @@ settings-update-downloading = Téléchargement de { $version }… { $percent } %
 settings-update-ready = La version { $version } est prête. Elle s’installera à la fermeture de ytm-rs.
 settings-update-available = La version { $version } est disponible. { $step }
 settings-update-failed = Impossible de rechercher les mises à jour : { $error }
+settings-update-rate-limited = { $minutes ->
+    [one] GitHub limite les recherches de mises à jour depuis votre réseau. Réessayez dans { $minutes } minute.
+   *[other] GitHub limite les recherches de mises à jour depuis votre réseau. Réessayez dans { $minutes } minutes.
+}
 settings-version = Version { $version }.
 settings-automatic-updates-desc-packaged = Recherche les nouvelles versions et vous avertit lorsqu’elles paraissent.
 settings-automatic-updates-desc = Télécharge les nouvelles versions en arrière-plan et les installe à la fermeture de l’application.

@@ -643,8 +643,14 @@ pub struct App {
     /// The animated background's speed and brightness, as multiples of the theme's.
     bg_speed: f32,
     bg_brightness: f32,
+    /// One colour behind the pages and Now playing, instead of the album art or gradient.
+    flat_bg: bool,
+    /// The colour, once picked. None uses the theme's own flat colour.
+    flat_color: Option<egui::Color32>,
     /// Panels frost what's behind them, in themes that have them do so.
     glass_on: bool,
+    /// The app's own title bar: the window buttons square along the top right, not in a notch.
+    classic_titlebar: bool,
     reactive_bg: bool,
     /// Bars along the bottom of now playing that move with the music (off unless switched on).
     visualizer: bool,
@@ -793,6 +799,9 @@ pub struct App {
     // window
     /// Clicking × hides the window to the tray instead of quitting.
     close_to_tray: bool,
+    /// Linux, Wayland session: an X11 window from the next start, so the mini player can
+    /// stay above other windows.
+    mini_x11: bool,
     /// Settings › Window: draw with wgpu (Vulkan) from the next start (renderer.rs).
     pub(super) wgpu_renderer: bool,
     /// Settings › App icon (`appicon::ALL` id).
@@ -1041,6 +1050,7 @@ impl App {
                 .filter(|_| !crate::update::flatpak())
                 .map_or_else(|| crate::update::is_nightly(&crate::update::build_version()), |v| v == "nightly"),
             close_to_tray: get("close_to_tray").is_some_and(|v| v == "1"),
+            mini_x11: get("mini_x11").is_some_and(|v| v == "1"),
             wgpu_renderer,
             app_icon,
             tray: None,
@@ -1099,7 +1109,10 @@ impl App {
             anim_bg: get("anim_bg").is_none_or(|v| v == "1"),
             bg_speed: shell::load_factor(get("bg_speed"), shell::BG_SPEED),
             bg_brightness: shell::load_factor(get("bg_brightness"), shell::BG_BRIGHTNESS),
+            flat_bg: get("flat_bg").is_some_and(|v| v == "1"),
+            flat_color: get("flat_color").as_deref().and_then(crate::preset::hex),
             glass_on: get("glass_on").is_none_or(|v| v == "1"),
+            classic_titlebar: get("classic_titlebar").is_some_and(|v| v == "1"),
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
             visualizer: get("visualizer").is_some_and(|v| v == "1"),
             dim_bright: get("dim_bright").is_none_or(|v| v == "1"),
@@ -1776,7 +1789,7 @@ impl eframe::App for App {
         } else if playing && widgets::equalizer_shown(ctx) {
             // The playing row's bars need a steady, full rate to read as smooth.
             pace::repaint_after(ctx, Duration::from_millis(16));
-        } else if playing && self.anim_bg && shell::pages_bg_moves(self.look()) {
+        } else if playing && self.anim_bg && !self.flat_bg && shell::pages_bg_moves(self.look()) {
             pace::repaint_after(ctx, Duration::from_millis(66));
         } else if playing || self.buffering {
             ctx.request_repaint_after(Duration::from_millis(250));
@@ -1846,6 +1859,7 @@ impl eframe::App for App {
         // bar, so the pages and the full-screen background under it aren't drawn.
         let covered = !self.fullscreen && np >= 1.0;
         titlebar::set_fullscreen(&ctx, self.fullscreen);
+        titlebar::set_classic(&ctx, self.classic_titlebar);
         // Mid-switch to or from the mini player, the frame stays as it is.
         titlebar::sync(&ctx, (layout != mini::Layout::Blank).then_some(layout == mini::Layout::Full));
         dev::dev_memory(&ctx, now);
@@ -1970,7 +1984,7 @@ impl eframe::App for App {
                 .frame(side_frame)
                 .show_separator_line(false)
                 .show(ui, |ui| {
-                    if let (Some([a, px]), Some(bg)) = (app_style.nav_item.cover_tint.filter(|_| !light), self.bg.as_ref()) {
+                    if let (Some([a, px]), Some(bg)) = (app_style.nav_item.cover_tint.filter(|_| !light && !self.flat_bg), self.bg.as_ref()) {
                         // The cover's blur showing through the top of the sidebar, fading out.
                         let r = ui.max_rect().expand2(egui::vec2(14.0, 0.0));
                         let band = egui::Rect::from_min_size(egui::pos2(r.left(), screen.top()), egui::vec2(r.width(), px));
@@ -2193,6 +2207,7 @@ impl eframe::App for App {
             self.good_window = Some(w);
         }
         storage.set_string("close_to_tray", b(self.close_to_tray));
+        storage.set_string("mini_x11", b(self.mini_x11));
         storage.set_string("song_notifications", b(self.song_notifications));
         let start = START_PAGES.iter().find(|(.., p)| *p == self.start_page).map_or("home", |(k, ..)| k);
         storage.set_string("start_page", start.to_owned());
@@ -2223,7 +2238,12 @@ impl eframe::App for App {
         storage.set_string("queue_width", format!("{:.0}", self.queue_w));
         storage.set_string("bg_speed", format!("{:.2}", self.bg_speed));
         storage.set_string("bg_brightness", format!("{:.2}", self.bg_brightness));
+        storage.set_string("flat_bg", b(self.flat_bg));
+        if let Some(c) = self.flat_color {
+            storage.set_string("flat_color", format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()));
+        }
         storage.set_string("glass_on", b(self.glass_on));
+        storage.set_string("classic_titlebar", b(self.classic_titlebar));
         storage.set_string("reactive_bg", b(self.reactive_bg));
         storage.set_string("visualizer", b(self.visualizer));
         storage.set_string("dim_bright", b(self.dim_bright));

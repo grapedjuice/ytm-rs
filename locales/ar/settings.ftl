@@ -215,8 +215,13 @@ settings-background-brightness = سطوع الخلفية
 settings-background-brightness-desc = يجعل غلاف الألبوم خلف قيد التشغيل الآن والصفحات أكثر سطوعًا أو عتمة. ‎100% هي قيمة السمة.
 settings-brighter = أكثر سطوعًا
 settings-darker = أكثر عتمة
+settings-flat-background = خلفية سادة
+settings-flat-background-desc = لون واحد خلف الصفحات وشاشة التشغيل، بلا غلاف ألبوم وبلا تدرج.
+settings-flat-background-colour = لون الخلفية
 settings-frosted-glass = الزجاج المصنفر
 settings-frosted-glass-desc = تقوم القوائم والأشرطة العائمة بتمويه ما خلفها في السمات التي تستخدم هذه الميزة. وعند إيقافها تصبح أكثر كثافةً.
+settings-classic-title-bar = شريط العنوان الكلاسيكي
+settings-classic-title-bar-desc = أزرار النافذة كما كانت قبل 2.0.2: مربعة في أعلى اليمين، بدل التجويف. تعود أزرار قيد التشغيل الآن وزر الحساب إلى جانبها.
 settings-pulse-with-the-music = النبض مع الموسيقى
 settings-pulse-with-the-music-desc = تتمدد الخلفية مع الإيقاع, في السمات ذات الخلفية المتحركة.
 settings-visualizer = العارض البصري
@@ -246,6 +251,9 @@ settings-pill-mini-player = المشغّل المصغّر الكبسولي
 settings-keep-on-top = الإبقاء في المقدمة
 settings-keep-on-top-desc = يبقى المشغّل المصغّر فوق النوافذ الأخرى.
 settings-pill-mini-player-restart-desc = يتغيّر شكل المشغّل المصغّر بدءًا من التشغيل التالي.
+settings-keep-on-top-wayland = الإبقاء في المقدمة على Wayland
+settings-keep-on-top-wayland-desc = لا يسمح Wayland للتطبيقات بإبقاء نافذتها فوق النوافذ الأخرى، لذلك يفتح التطبيق عبر XWayland. لا يتابع تمرير لوحة اللمس هناك من تلقاء نفسه، وقد يبدو النص أنعم مع التحجيم الكسري.
+settings-keep-on-top-wayland-restart-desc = تتغيّر النافذة بدءًا من التشغيل التالي.
 
 ## App icon
 
@@ -406,6 +414,14 @@ settings-update-downloading = جارٍ تنزيل { $version }… { $percent }%
 settings-update-ready = الإصدار { $version } جاهز. سيتم تثبيته عند إغلاق ytm-rs.
 settings-update-available = متوفر الإصدار { $version }. { $step }
 settings-update-failed = يعذّر التحقق من وجود تحديثات: { $error }
+settings-update-rate-limited = { $minutes ->
+    [zero] يحد GitHub من التحقق من التحديثات على شبكتك. أعد المحاولة بعد { $minutes } دقيقة.
+    [one] يحد GitHub من التحقق من التحديثات على شبكتك. أعد المحاولة بعد { $minutes } دقيقة.
+    [two] يحد GitHub من التحقق من التحديثات على شبكتك. أعد المحاولة بعد { $minutes } دقيقتين.
+    [few] يحد GitHub من التحقق من التحديثات على شبكتك. أعد المحاولة بعد { $minutes } دقائق.
+    [many] يحد GitHub من التحقق من التحديثات على شبكتك. أعد المحاولة بعد { $minutes } دقيقة.
+   *[other] يحد GitHub من التحقق من التحديثات على شبكتك. أعد المحاولة بعد { $minutes } دقيقة.
+}
 settings-version = الإصدار { $version }.
 settings-automatic-updates-desc-packaged = التحقق من وجود إصدارات جديدة وإعلامك عند توفر أحدها.
 settings-automatic-updates-desc = تنزيل الإصدارات الجديدة في الخلفية وتثبيتها عند إغلاق التطبيق.

@@ -215,8 +215,13 @@ settings-background-brightness = 背景の明るさ
 settings-background-brightness-desc = 再生中の画面と各ページのうしろのジャケットを明るく、または暗くします。100% はテーマの明るさです。
 settings-brighter = 明るく
 settings-darker = 暗く
+settings-flat-background = 単色の背景
+settings-flat-background-desc = ページと再生画面の背後を一色にする。ジャケットもグラデーションも出さない。
+settings-flat-background-colour = 背景色
 settings-frosted-glass = すりガラス効果
 settings-frosted-glass-desc = 対応テーマでは、メニューやフローティング バーの背後をぼかします。オフにすると少し不透明になります。
+settings-classic-title-bar = クラシックなタイトルバー
+settings-classic-title-bar-desc = 2.0.2より前のウィンドウボタンです。右上に四角く並び、切り欠きの中には入りません。再生中のボタンとアカウントボタンもその横に戻ります。
 settings-pulse-with-the-music = 音楽に合わせて脈動
 settings-pulse-with-the-music-desc = 背景が動くテーマでは、音楽のビートに合わせて背景が広がります。
 settings-visualizer = ビジュアライザー
@@ -246,6 +251,9 @@ settings-pill-mini-player = カプセル型ミニプレーヤー
 settings-keep-on-top = 常に手前に表示
 settings-keep-on-top-desc = ミニプレーヤーをほかのウィンドウより手前に表示します。
 settings-pill-mini-player-restart-desc = ミニプレーヤーのスタイルは次回の起動時に変わります。
+settings-keep-on-top-wayland = Waylandで常に手前に表示
+settings-keep-on-top-wayland-desc = Waylandではアプリがウィンドウを他より手前に保てないため、アプリはXWayland経由で開きます。そこではタッチパッドのスクロールがなめらかに流れず、分数スケールでは文字がぼやけて見えることがあります。
+settings-keep-on-top-wayland-restart-desc = ウィンドウは次回の起動時に変わります。
 
 ## App icon
 
@@ -406,6 +414,7 @@ settings-update-downloading = { $version } をダウンロード中… { $percen
 settings-update-ready = バージョン { $version } の準備ができました。ytm-rs を終了するとインストールされます。
 settings-update-available = バージョン { $version } が公開されました。{ $step }
 settings-update-failed = アップデートを確認できませんでした：{ $error }
+settings-update-rate-limited = GitHubがこのネットワークからのアップデート確認を制限しています。{ $minutes } 分後にもう一度試してください。
 settings-version = バージョン { $version }。
 settings-automatic-updates-desc-packaged = 新しいバージョンを確認し、公開されたら知らせます。
 settings-automatic-updates-desc = 新しいバージョンをバックグラウンドでダウンロードし、アプリの終了時にインストールします。

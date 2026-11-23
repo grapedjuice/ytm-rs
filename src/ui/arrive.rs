@@ -87,22 +87,24 @@ fn ease_out_quint(t: f32) -> f32 {
 pub fn item<R>(ui: &mut Ui, since: Option<f64>, seq: usize, rise: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
     let Some(since) = since else { return add(ui) };
     let p = progress(since, seq, ui.input(|i| i.time));
-    // In a scope arrived too, as while arriving: its widgets keep their ids, so a press
-    // that began as it came in still clicks, and a menu opened on it stays open.
+    // Laid out in `ui` itself, arriving or not: its widgets keep their ids, so a press that
+    // began as it came in still clicks and a menu opened on it stays open, and a wrapped
+    // row still wraps (a child ui would leave the whole row on one line).
     if p >= 1.0 {
-        return ui.scope(add).inner;
+        return add(ui);
     }
     ui.ctx().request_repaint();
     let layer = ui.layer_id();
     let start = ui.painter().add(Shape::Noop);
     let dy = rise * (1.0 - ease_out_quint(p));
-    let out = ui.scope(|ui| {
-        // Moving the shapes down moves their clip with them: clipped as far up as they're
-        // drawn down, the clip ends up where it was, and nothing shows past the page.
-        ui.set_clip_rect(ui.clip_rect().translate(vec2(0.0, -dy)));
-        ui.multiply_opacity(smoothstep(0.0, 0.85, p));
-        add(ui)
-    });
+    // Moving the shapes down moves their clip with them: clipped as far up as they're
+    // drawn down, the clip ends up where it was, and nothing shows past the page.
+    let (clip, opacity) = (ui.clip_rect(), ui.opacity());
+    ui.set_clip_rect(clip.translate(vec2(0.0, -dy)));
+    ui.multiply_opacity(smoothstep(0.0, 0.85, p));
+    let out = add(ui);
+    ui.set_clip_rect(clip);
+    ui.set_opacity(opacity);
     if dy > 0.0 {
         ui.ctx().graphics_mut(|g| {
             let list = g.entry(layer);
@@ -110,7 +112,7 @@ pub fn item<R>(ui: &mut Ui, since: Option<f64>, seq: usize, rise: f32, add: impl
             list.transform_range(start, end, TSTransform::from_translation(vec2(0.0, dy)));
         });
     }
-    out.inner
+    out
 }
 
 #[cfg(test)]
@@ -126,6 +128,29 @@ mod tests {
         assert_eq!(progress(0.0, 0, FADE * k), 1.0);
         // The 20th starts with the 14th.
         assert_eq!(progress(0.0, 20, 1.0), progress(0.0, MAX_SEQ, 1.0));
+    }
+
+    #[test]
+    fn a_wrapped_row_of_items_wraps_as_they_arrive_and_once_they_have() {
+        let k = speed();
+        for time in [0.1, FADE * k * 0.5, 10.0] {
+            let ctx = egui::Context::default();
+            let mut rects = Vec::new();
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(600.0, 2000.0))), time: Some(time), ..Default::default() };
+            ctx.run_ui(raw, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = vec2(20.0, 22.0);
+                    for i in 0..12 {
+                        rects.push(item(ui, Some(0.0), i, 16.0, |ui| ui.allocate_exact_size(vec2(180.0, 238.0), egui::Sense::click()).0));
+                    }
+                });
+            })
+            .textures_delta
+            .clear();
+            assert!(rects.iter().all(|r| r.right() <= 600.0), "at {time}: past the edge: {rects:?}");
+            let rows = rects.iter().map(|r| r.top() as i32).collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(rows.len(), 4, "at {time}: three to a row, four rows: {rects:?}");
+        }
     }
 
     #[test]

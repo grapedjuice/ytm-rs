@@ -215,8 +215,13 @@ settings-background-brightness = Яскравість тла
 settings-background-brightness-desc = Робить обкладинку за «Зараз грає» і сторінками світлішою чи темнішою. 100 % — як у темі.
 settings-brighter = Світліше
 settings-darker = Темніше
+settings-flat-background = Плаский фон
+settings-flat-background-desc = Один колір за сторінками й екраном «Зараз грає», без обкладинки і без градієнта.
+settings-flat-background-colour = Колір фону
 settings-frosted-glass = Матове скло
 settings-frosted-glass-desc = У відповідних темах меню й плавучі панелі розмивають тло під собою. Без ефекту вони трохи менш прозорі.
+settings-classic-title-bar = Класичний рядок заголовка
+settings-classic-title-bar-desc = Кнопки вікна, як до 2.0.2: квадратні у правому верхньому куті, а не у вирізі. Кнопки «Зараз грає» і кнопка облікового запису знову поруч.
 settings-pulse-with-the-music = Пульсація в такт музиці
 settings-pulse-with-the-music-desc = У темах з анімованим тлом воно збільшується в такт музиці.
 settings-visualizer = Візуалізатор
@@ -246,6 +251,9 @@ settings-pill-mini-player = Мініпрогравач у формі капсу�
 settings-keep-on-top = Поверх інших вікон
 settings-keep-on-top-desc = Мініпрогравач лишається поверх інших вікон.
 settings-pill-mini-player-restart-desc = Вигляд мініпрогравача зміниться під час наступного запуску.
+settings-keep-on-top-wayland = Поверх інших вікон у Wayland
+settings-keep-on-top-wayland-desc = Wayland не дозволяє застосункам тримати вікно поверх інших, тож застосунок відкривається через XWayland. Прокручування тачпада там не котиться далі, а текст може виглядати м’якше за дробового масштабу.
+settings-keep-on-top-wayland-restart-desc = Вікно зміниться під час наступного запуску.
 
 ## App icon
 
@@ -406,6 +414,12 @@ settings-update-downloading = Завантаження { $version }… { $percen
 settings-update-ready = Версія { $version } готова. Вона встановиться після закриття ytm-rs.
 settings-update-available = Доступна версія { $version }. { $step }
 settings-update-failed = Не вдалося перевірити оновлення: { $error }
+settings-update-rate-limited = { $minutes ->
+    [one] GitHub обмежує перевірку оновлень із вашої мережі. Спробуйте знову за { $minutes } хвилину.
+    [few] GitHub обмежує перевірку оновлень із вашої мережі. Спробуйте знову за { $minutes } хвилини.
+    [many] GitHub обмежує перевірку оновлень із вашої мережі. Спробуйте знову за { $minutes } хвилин.
+   *[other] GitHub обмежує перевірку оновлень із вашої мережі. Спробуйте знову за { $minutes } хвилини.
+}
 settings-version = Версія { $version }.
 settings-automatic-updates-desc-packaged = Перевіряє наявність нових версій і повідомляє про їхній вихід.
 settings-automatic-updates-desc = Завантажує нові версії у фоновому режимі й установлює їх після закриття застосунку.

@@ -2459,9 +2459,30 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
             percent_stepper(ui, &mut app.bg_brightness, super::shell::BG_BRIGHTNESS, tr!("settings-brighter"), tr!("settings-darker"));
         });
         divider(ui);
+        setting_row(ui, tr!("settings-flat-background"), Some(tr!("settings-flat-background-desc")), |ui| {
+            toggle(ui, &mut app.flat_bg, tr!("settings-flat-background"));
+            // Next to the toggle. Only a pick is kept, so the theme's colour follows light and dark.
+            if app.flat_bg {
+                ui.add_space(8.0);
+                let was = super::shell::base_color(app);
+                let mut c = was;
+                super::colorpick::button(ui, &mut c, tr!("settings-flat-background-colour"));
+                if c != was {
+                    app.flat_color = Some(c);
+                }
+            }
+        });
+        divider(ui);
         setting_row(ui, tr!("settings-frosted-glass"), Some(tr!("settings-frosted-glass-desc")), |ui| {
             toggle(ui, &mut app.glass_on, tr!("settings-frosted-glass"));
         });
+        // Where the app draws the title bar itself: Windows, and Linux where it's asked to.
+        if super::titlebar::custom() {
+            divider(ui);
+            setting_row(ui, tr!("settings-classic-title-bar"), Some(tr!("settings-classic-title-bar-desc")), |ui| {
+                toggle(ui, &mut app.classic_titlebar, tr!("settings-classic-title-bar"));
+            });
+        }
         divider(ui);
         setting_row(ui, tr!("settings-pulse-with-the-music"), Some(tr!("settings-pulse-with-the-music-desc")), |ui| {
             toggle(ui, &mut app.reactive_bg, tr!("settings-pulse-with-the-music"));
@@ -2790,6 +2811,24 @@ fn settings_mini(app: &mut App, ui: &mut Ui) {
                 app.mini.set_pinned(ui.ctx(), on);
             }
         });
+        // winit can't keep a Wayland window above others; an X11 one (XWayland) can.
+        if crate::wayland_session() {
+            divider(ui);
+            setting_row(ui, tr!("settings-keep-on-top-wayland"), Some(tr!("settings-keep-on-top-wayland-desc")), |ui| {
+                toggle(ui, &mut app.mini_x11, tr!("settings-keep-on-top-wayland"));
+            });
+            // The window type follows from the next start (Close to tray's row covers it on).
+            if app.mini_x11 == crate::wayland_window() && !app.close_to_tray {
+                divider(ui);
+                let mut restart = false;
+                setting_row(ui, tr!("settings-restart-to-apply"), Some(tr!("settings-keep-on-top-wayland-restart-desc")), |ui| {
+                    restart = pill(ui, tr!("settings-restart-now"), None, true).clicked();
+                });
+                if restart {
+                    app.restart(ui.ctx());
+                }
+            }
+        }
         if opengl && mini::pill_saved(&dir) != mini::pill_active() {
             divider(ui);
             let mut restart = false;
@@ -2943,6 +2982,10 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
                 Some(State::Downloading { version, percent }) => tr!("settings-update-downloading", version = version.as_str(), percent = *percent),
                 Some(State::Ready { version, .. }) => tr!("settings-update-ready", version = version.as_str()),
                 Some(State::Available { version, .. }) => tr!("settings-update-available", version = version.as_str(), step = crate::update::package_step()),
+                Some(State::RateLimited { until }) => {
+                    let secs = until.saturating_duration_since(std::time::Instant::now()).as_secs();
+                    tr!("settings-update-rate-limited", minutes = secs.div_ceil(60).max(1))
+                }
                 Some(State::Failed(e)) => tr!("settings-update-failed", error = e.to_string()),
                 _ => tr!("settings-version", version = crate::update::current_version()),
             }

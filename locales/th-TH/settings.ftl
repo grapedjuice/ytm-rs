@@ -215,8 +215,13 @@ settings-background-brightness = ความสว่างพื้นหล�
 settings-background-brightness-desc = ทำให้ปกหลังกำลังเล่นและหน้าต่าง ๆ สว่างขึ้นหรือมืดลง 100% คือค่าของธีม
 settings-brighter = สว่างขึ้น
 settings-darker = มืดลง
+settings-flat-background = พื้นหลังสีเรียบ
+settings-flat-background-desc = สีเดียวหลังหน้าและกำลังเล่น โดยไม่มีปกอัลบั้มและไม่มีไล่สี
+settings-flat-background-colour = สีพื้นหลัง
 settings-frosted-glass = กระจกฝ้า
 settings-frosted-glass-desc = เมนูและแถบลอยทำให้สิ่งที่อยู่ด้านหลังเบลอในธีมที่ใช้ ปิดแล้ว พวกมันแข็งแกร่งขึ้นอีกหน่อย
+settings-classic-title-bar = แถบชื่อแบบคลาสสิก
+settings-classic-title-bar-desc = ปุ่มหน้าต่างแบบก่อน 2.0.2: สี่เหลี่ยมมุมขวาบน แทนที่จะอยู่ในร่อง ปุ่มของกำลังเล่นอยู่และปุ่มบัญชีกลับไปอยู่ข้างกัน
 settings-pulse-with-the-music = ชีพจรไปกับเสียงเพลง
 settings-pulse-with-the-music-desc = พื้นหลังจะขยายตามจังหวะ ในธีมที่พื้นหลังมีการเคลื่อนไหว
 settings-visualizer = วิชวลไลเซอร์
@@ -246,6 +251,9 @@ settings-pill-mini-player = เครื่องเล่นพิลมิน�
 settings-keep-on-top = อยู่ด้านบนต่อไป
 settings-keep-on-top-desc = เครื่องเล่นขนาดเล็กอยู่เหนือหน้าต่างอื่นๆ
 settings-pill-mini-player-restart-desc = มินิเพลเยอร์เปลี่ยนสไตล์ตั้งแต่เริ่มครั้งถัดไป
+settings-keep-on-top-wayland = อยู่ด้านบนต่อไปบน Wayland
+settings-keep-on-top-wayland-desc = Wayland ไม่ให้แอปค้างหน้าต่างไว้เหนือหน้าต่างอื่น ดังนั้นแอปจึงเปิดผ่าน XWayland การเลื่อนทัชแพดที่นั่นไม่ไหลต่อ และข้อความอาจดูนุ่มกว่าเมื่อใช้สเกลแบบเศษส่วน
+settings-keep-on-top-wayland-restart-desc = หน้าต่างจะเปลี่ยนตั้งแต่เริ่มครั้งถัดไป
 
 ## App icon
 
@@ -406,6 +414,7 @@ settings-update-downloading = กำลังดาวน์โหลด { $vers
 settings-update-ready = เวอร์ชัน { $version } พร้อมใช้งานแล้ว จะติดตั้งเมื่อคุณปิด ytm-rs
 settings-update-available = เวอร์ชัน { $version } ออกแล้ว { $step }
 settings-update-failed = ไม่สามารถตรวจสอบการอัปเดต: { $error }
+settings-update-rate-limited = GitHub กำลังจำกัดการตรวจอัปเดตจากเครือข่ายของคุณ ลองอีกครั้งใน { $minutes } นาที
 settings-version = เวอร์ชัน { $version }.
 settings-automatic-updates-desc-packaged = ตรวจสอบเวอร์ชันใหม่และแจ้งให้คุณทราบเมื่อมีการออก
 settings-automatic-updates-desc = ดาวน์โหลดเวอร์ชันใหม่ในเบื้องหลังและติดตั้งเมื่อคุณปิดแอป

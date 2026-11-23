@@ -215,8 +215,13 @@ settings-background-brightness = Helderheid van de achtergrond
 settings-background-brightness-desc = Maakt de hoes achter Speelt nu en de pagina’s lichter of donkerder. 100% is die van het thema.
 settings-brighter = Lichter
 settings-darker = Donkerder
+settings-flat-background = Egale achtergrond
+settings-flat-background-desc = Eén kleur achter de pagina's en Nu aan het afspelen, zonder albumhoes en zonder verloop.
+settings-flat-background-colour = Achtergrondkleur
 settings-frosted-glass = Matglas
 settings-frosted-glass-desc = Menu’s en zwevende balken vervagen hun achtergrond in thema’s die dat ondersteunen. Met het effect uit zijn ze wat minder doorzichtig.
+settings-classic-title-bar = Klassieke titelbalk
+settings-classic-title-bar-desc = De vensterknoppen zoals vóór 2.0.2: vierkant rechtsboven, in plaats van in een inkeping. De knoppen van Speelt nu en de accountknop komen weer ernaast.
 settings-pulse-with-the-music = Meebewegen op de muziek
 settings-pulse-with-the-music-desc = In thema’s met bewegende achtergronden zet de achtergrond uit op de maat.
 settings-visualizer = Visualizer
@@ -246,6 +251,9 @@ settings-pill-mini-player = Pilvormige minispeler
 settings-keep-on-top = Altijd op de voorgrond
 settings-keep-on-top-desc = De minispeler blijft boven andere vensters.
 settings-pill-mini-player-restart-desc = De stijl van de minispeler verandert bij de volgende start.
+settings-keep-on-top-wayland = Altijd op de voorgrond op Wayland
+settings-keep-on-top-wayland-desc = Wayland laat apps hun venster niet boven andere houden, dus de app opent via XWayland. Scrollen met de touchpad loopt daar niet door, en tekst kan zachter ogen bij fractionele schaling.
+settings-keep-on-top-wayland-restart-desc = Het venster verandert bij de volgende start.
 
 ## App icon
 
@@ -406,6 +414,10 @@ settings-update-downloading = { $version } downloaden… { $percent }%
 settings-update-ready = Versie { $version } is klaar. De installatie begint als je ytm-rs sluit.
 settings-update-available = Versie { $version } is beschikbaar. { $step }
 settings-update-failed = Controleren op updates is mislukt: { $error }
+settings-update-rate-limited = { $minutes ->
+    [one] GitHub beperkt het zoeken naar updates vanaf je netwerk. Probeer het opnieuw over { $minutes } minuut.
+   *[other] GitHub beperkt het zoeken naar updates vanaf je netwerk. Probeer het opnieuw over { $minutes } minuten.
+}
 settings-version = Versie { $version }.
 settings-automatic-updates-desc-packaged = Zoekt naar nieuwe versies en meldt wanneer er een verschijnt.
 settings-automatic-updates-desc = Downloadt nieuwe versies op de achtergrond en installeert ze als je de app sluit.

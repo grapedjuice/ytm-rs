@@ -215,8 +215,13 @@ settings-background-brightness = Độ sáng nền
 settings-background-brightness-desc = Làm ảnh bìa phía sau Đang phát và các trang sáng hơn hoặc tối hơn. 100% là độ sáng của chủ đề.
 settings-brighter = Sáng hơn
 settings-darker = Tối hơn
+settings-flat-background = Nền phẳng
+settings-flat-background-desc = Một màu phía sau các trang và Đang phát, không có bìa album và không có dải màu.
+settings-flat-background-colour = Màu nền
 settings-frosted-glass = Kính mờ
 settings-frosted-glass-desc = Các menu và thanh nổi làm mờ những gì đằng sau chúng, trong các chủ đề sử dụng chúng. Tắt đi, chúng chắc chắn hơn một chút.
+settings-classic-title-bar = Thanh tiêu đề cổ điển
+settings-classic-title-bar-desc = Các nút cửa sổ như trước 2.0.2: hình vuông ở góc trên bên phải, thay vì trong một khuyết. Nút của Đang phát và nút tài khoản trở lại bên cạnh.
 settings-pulse-with-the-music = Rung động theo âm nhạc
 settings-pulse-with-the-music-desc = Nền tăng dần theo nhịp, trong các chủ đề có nền chuyển động.
 settings-visualizer = Trình hiển thị
@@ -246,6 +251,9 @@ settings-pill-mini-player = Máy nghe nhạc mini
 settings-keep-on-top = Luôn dẫn đầu
 settings-keep-on-top-desc = Trình phát mini nằm phía trên các cửa sổ khác.
 settings-pill-mini-player-restart-desc = Trình phát mini thay đổi phong cách từ lần khởi động tiếp theo.
+settings-keep-on-top-wayland = Luôn ở trên cùng trên Wayland
+settings-keep-on-top-wayland-desc = Wayland không cho ứng dụng giữ cửa sổ phía trên các cửa sổ khác, nên ứng dụng mở qua XWayland. Cuộn touchpad ở đó không trượt tiếp, và chữ có thể trông mềm hơn khi dùng tỷ lệ phân số.
+settings-keep-on-top-wayland-restart-desc = Cửa sổ thay đổi từ lần khởi động tiếp theo.
 
 ## App icon
 
@@ -406,6 +414,7 @@ settings-update-downloading = Đang tải xuống { $version }… { $percent }%
 settings-update-ready = Phiên bản { $version } đã sẵn sàng. Nó cài đặt khi bạn đóng ytm-rs.
 settings-update-available = Phiên bản { $version } đã ra mắt. { $step }
 settings-update-failed = Không thể kiểm tra các bản cập nhật: { $error }
+settings-update-rate-limited = GitHub đang giới hạn việc kiểm tra bản cập nhật từ mạng của bạn. Hãy thử lại sau { $minutes } phút.
 settings-version = Phiên bản { $version }.
 settings-automatic-updates-desc-packaged = Kiểm tra các phiên bản mới và cho bạn biết khi nào có phiên bản mới.
 settings-automatic-updates-desc = Tải xuống các phiên bản mới ở chế độ nền và cài đặt chúng khi bạn đóng ứng dụng.

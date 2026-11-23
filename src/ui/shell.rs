@@ -55,7 +55,7 @@ fn gradient(painter: &egui::Painter, rect: Rect, c: [Color32; 4]) {
 /// playing uses.
 fn page_mode(look: &crate::preset::Preset) -> crate::preset::BgMode {
     use crate::preset::{BgMode, PageBg};
-    // A theme file's background is the page.
+    // A theme file's background is the page. A flat colour returns before this.
     if theme::file_background().is_some() {
         return BgMode::Solid;
     }
@@ -106,8 +106,14 @@ pub fn background_clock(app: &mut App, now: f64) {
 
 /// The background's flat colour, under its art and gradients.
 pub fn base_color(app: &App) -> Color32 {
-    // A theme file's background is the page's flat colour.
-    if theme::file_background().is_some() { theme::bg() } else { app.look().solid() }
+    // The listener's colour, else a theme file's background, else the theme's own.
+    if app.flat_bg {
+        app.flat_color.unwrap_or_else(|| app.look().solid())
+    } else if theme::file_background().is_some() {
+        theme::bg()
+    } else {
+        app.look().solid()
+    }
 }
 
 /// The docked or floating player bar's fill at `alpha`.
@@ -123,6 +129,12 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64) {
     background_clock(app, now);
     let look = app.look();
     let b = &look.background;
+    let painter = ui.painter().clone();
+    // One colour, even where Windows' material would otherwise show through.
+    if app.flat_bg {
+        painter.rect_filled(screen, 0.0, base_color(app));
+        return;
+    }
     let mode = page_mode(look);
     // Light pages are the art at full strength under a white wash, a pale tint of the cover.
     let light = theme::light();
@@ -130,7 +142,6 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64) {
     // Darker still where bright art would show through too bright for white text (the
     // shade drawn over it below takes about a third off).
     let dim = if light || !app.dim_bright { dim } else { dim * crate::art::readable_dim(app.art_brightness * dim * (1.0 - 0.335)) };
-    let painter = ui.painter().clone();
     // Windows' material shows through instead of the theme's colour, lightly tinted.
     if crate::backdrop::shows() {
         painter.rect_filled(screen, 0.0, if light { Color32::from_white_alpha(40) } else { Color32::from_black_alpha(40) });

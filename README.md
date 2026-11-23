@@ -86,6 +86,7 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 - **Your language:** the interface comes in 21 languages, and song titles, shelves and charts can follow your language and country.
 - **Touch screens:** swipe to scroll pages and lyrics, and swipe the player bar up to open Now playing.
 - **Mini player:** shrink the window to a small strip with the song and controls (Ctrl+M), or try the experimental pill that sits in a corner and opens on hover.
+  On Wayland, turn on Settings › Mini player › Keep on top on Wayland for the pin to keep the window above others (it opens through XWayland).
 - **System-wide media shortcuts:** play/pause, next, previous, volume and Recognize song work while another app is in front or the window is in the tray. Change them in Settings › Keyboard shortcuts.
 - Automatic updates in the background for both the installed and portable versions, with release notes when an update is ready. Pick the Nightly channel for builds of the newest changes.
 
@@ -102,6 +103,8 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 ## Installation
 
 Downloads for every platform are on the [latest release](https://github.com/grapedjuice/ytm-rs/releases/latest). Once installed, ytm-rs keeps itself up to date; you can turn this off, or switch to nightly builds, in **Settings › About › Updates**.
+
+Update checks use GitHub's API, which allows 60 requests an hour without a token, shared by everyone on your IP address. Behind a busy VPN, proxy or shared network, that can run out. If Settings says GitHub is limiting update checks, create a [personal access token](https://github.com/settings/personal-access-tokens/new) (it needs no permissions; public repositories only) and set it as the `YTM_GITHUB_TOKEN` environment variable. ytm-rs sends it only to `api.github.com`.
 
 ytm-rs collects nothing about you; see [Privacy](PRIVACY.md) for every service it talks to and why.
 

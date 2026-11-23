@@ -215,8 +215,13 @@ settings-background-brightness = 背景亮度
 settings-background-brightness-desc = 让正在播放和各页面后面的封面更亮或更暗。100% 是主题自己的亮度。
 settings-brighter = 更亮
 settings-darker = 更暗
+settings-flat-background = 纯色背景
+settings-flat-background-desc = 页面和正在播放后面只用一种颜色，没有专辑封面，也没有渐变。
+settings-flat-background-colour = 背景颜色
 settings-frosted-glass = 磨砂玻璃
 settings-frosted-glass-desc = 在使用菜单和浮动栏的主题中，菜单和浮动栏会模糊其后面的内容。关闭，它们更坚固一些。
+settings-classic-title-bar = 经典标题栏
+settings-classic-title-bar-desc = 窗口按钮恢复成 2.0.2 之前的样子：方块排在右上角，而不是嵌在凹槽里。正在播放的按钮和账号按钮回到它们旁边。
 settings-pulse-with-the-music = 与音乐一起脉动
 settings-pulse-with-the-music-desc = 在背景移动的主题中，背景随着节拍而膨胀。
 settings-visualizer = 可视化
@@ -246,6 +251,9 @@ settings-pill-mini-player = 药丸迷你播放器
 settings-keep-on-top = 保持领先
 settings-keep-on-top-desc = 迷你播放器位于其他窗口之上。
 settings-pill-mini-player-restart-desc = 迷你玩家从下一次开始就会改变风格。
+settings-keep-on-top-wayland = 在 Wayland 上保持在最前
+settings-keep-on-top-wayland-desc = Wayland 不允许应用把窗口保持在其他窗口之上，所以应用会通过 XWayland 打开。那里的触控板滚动不会惯性滑动，分数缩放时文字可能更糊。
+settings-keep-on-top-wayland-restart-desc = 窗口从下次启动起改变。
 
 ## App icon
 
@@ -406,6 +414,7 @@ settings-update-downloading = 正在下载{ $version }…{ $percent }%
 settings-update-ready = { $version } 版本已准备就绪。它会在您关闭 ytm-rs 时安装。
 settings-update-available = 版本 { $version } 已发布。 { $step }
 settings-update-failed = 无法检查更新：{ $error }
+settings-update-rate-limited = GitHub 正在限制你所在网络的更新检查。请在 { $minutes } 分钟后再试。
 settings-version = 版本 { $version }。
 settings-automatic-updates-desc-packaged = 检查新版本并在新版本发布时通知您。
 settings-automatic-updates-desc = 在后台下载新版本，并在关闭应用程序时安装它们。

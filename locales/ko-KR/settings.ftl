@@ -215,8 +215,13 @@ settings-background-brightness = 배경 밝기
 settings-background-brightness-desc = 지금 재생 중 화면과 페이지 뒤의 표지를 더 밝거나 어둡게 합니다. 100%는 테마 기본 밝기입니다.
 settings-brighter = 더 밝게
 settings-darker = 더 어둡게
+settings-flat-background = 단색 배경
+settings-flat-background-desc = 페이지와 지금 재생 뒤를 한 색으로 채웁니다. 앨범 표지와 그라데이션은 나오지 않습니다.
+settings-flat-background-colour = 배경색
 settings-frosted-glass = 젖빛 유리
 settings-frosted-glass-desc = 메뉴와 플로팅 바는 이를 사용하는 테마에서 뒤에 있는 내용을 흐리게 만듭니다. 꺼져, 좀 더 단단해졌어.
+settings-classic-title-bar = 클래식 제목 표시줄
+settings-classic-title-bar-desc = 2.0.2 이전의 창 단추입니다. 오른쪽 위에 네모로 놓이고, 파인 자리에는 들어가지 않습니다. 지금 재생 중 단추와 계정 단추가 다시 그 옆으로 돌아갑니다.
 settings-pulse-with-the-music = 음악과 함께 펄스
 settings-pulse-with-the-music-desc = 배경이 움직이는 테마에서 배경은 비트에 따라 부풀어 오른다.
 settings-visualizer = 비주얼라이저
@@ -246,6 +251,9 @@ settings-pill-mini-player = 알약 미니 플레이어
 settings-keep-on-top = 상단에 유지
 settings-keep-on-top-desc = 미니 플레이어는 다른 창 위에 위치합니다.
 settings-pill-mini-player-restart-desc = 미니 플레이어는 다음 시작부터 스타일을 변경합니다.
+settings-keep-on-top-wayland = Wayland에서 상단에 유지
+settings-keep-on-top-wayland-desc = Wayland는 앱이 창을 다른 창 위에 두지 못하게 해서, 앱이 XWayland로 열립니다. 그곳에서는 터치패드 스크롤이 미끄러지지 않고, 분수 배율에서 글자가 더 부드럽게 보일 수 있습니다.
+settings-keep-on-top-wayland-restart-desc = 창은 다음 시작부터 바뀝니다.
 
 ## App icon
 
@@ -406,6 +414,7 @@ settings-update-downloading = { $version } 다운로드 중… { $percent }%
 settings-update-ready = 버전 { $version }가 준비되었습니다. ytm-rs를 닫으면 설치됩니다.
 settings-update-available = 버전 { $version }가 나왔습니다. { $step }
 settings-update-failed = 업데이트를 확인할 수 없습니다: { $error }
+settings-update-rate-limited = GitHub이 이 네트워크의 업데이트 확인을 제한하고 있습니다. { $minutes }분 후에 다시 시도하세요.
 settings-version = 버전 { $version }.
 settings-automatic-updates-desc-packaged = 새 버전을 확인하고 버전이 나오면 알려주세요.
 settings-automatic-updates-desc = 백그라운드에서 새 버전을 다운로드하고 앱을 닫을 때 설치하세요.

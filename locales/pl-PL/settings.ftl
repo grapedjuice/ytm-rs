@@ -215,8 +215,13 @@ settings-background-brightness = Jasność tła
 settings-background-brightness-desc = Rozjaśnia lub przyciemnia okładkę za Teraz odtwarzane i stronami. 100% to wartość motywu.
 settings-brighter = Jaśniej
 settings-darker = Ciemniej
+settings-flat-background = Płaskie tło
+settings-flat-background-desc = Jeden kolor za stronami i Teraz odtwarzane, bez okładki i bez gradientu.
+settings-flat-background-colour = Kolor tła
 settings-frosted-glass = Matowe szkło
 settings-frosted-glass-desc = W obsługiwanych motywach menu i pływające paski rozmywają tło. Po wyłączeniu efektu są nieco mniej przezroczyste.
+settings-classic-title-bar = Klasyczny pasek tytułu
+settings-classic-title-bar-desc = Przyciski okna jak przed 2.0.2: kwadratowe w prawym górnym rogu, zamiast we wcięciu. Przyciski Teraz odtwarzane i przycisk konta wracają obok.
 settings-pulse-with-the-music = Pulsuj w rytm muzyki
 settings-pulse-with-the-music-desc = W motywach z animowanym tłem tło powiększa się w rytm muzyki.
 settings-visualizer = Wizualizer
@@ -246,6 +251,9 @@ settings-pill-mini-player = Miniplayer w kształcie kapsuły
 settings-keep-on-top = Zawsze na wierzchu
 settings-keep-on-top-desc = Miniplayer pozostaje nad innymi oknami.
 settings-pill-mini-player-restart-desc = Styl miniplayera zmieni się przy następnym uruchomieniu.
+settings-keep-on-top-wayland = Zawsze na wierzchu na Waylandzie
+settings-keep-on-top-wayland-desc = Wayland nie pozwala aplikacjom trzymać okna nad innymi, więc aplikacja otwiera się przez XWayland. Przewijanie touchpadem nie toczy się tam dalej, a tekst może wyglądać miękcej przy skalowaniu ułamkowym.
+settings-keep-on-top-wayland-restart-desc = Okno zmieni się przy następnym uruchomieniu.
 
 ## App icon
 
@@ -406,6 +414,12 @@ settings-update-downloading = Pobieranie wersji { $version }… { $percent }%
 settings-update-ready = Wersja { $version } jest gotowa. Zainstaluje się po zamknięciu ytm-rs.
 settings-update-available = Wersja { $version } jest dostępna. { $step }
 settings-update-failed = Nie udało się sprawdzić aktualizacji: { $error }
+settings-update-rate-limited = { $minutes ->
+    [one] GitHub ogranicza sprawdzanie aktualizacji z twojej sieci. Spróbuj ponownie za { $minutes } minutę.
+    [few] GitHub ogranicza sprawdzanie aktualizacji z twojej sieci. Spróbuj ponownie za { $minutes } minuty.
+    [many] GitHub ogranicza sprawdzanie aktualizacji z twojej sieci. Spróbuj ponownie za { $minutes } minut.
+   *[other] GitHub ogranicza sprawdzanie aktualizacji z twojej sieci. Spróbuj ponownie za { $minutes } minuty.
+}
 settings-version = Wersja { $version }.
 settings-automatic-updates-desc-packaged = Sprawdza dostępność nowych wersji i informuje o ich wydaniu.
 settings-automatic-updates-desc = Pobiera nowe wersje w tle i instaluje je po zamknięciu aplikacji.

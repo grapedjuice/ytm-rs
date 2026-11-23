@@ -215,8 +215,13 @@ settings-background-brightness = Brilho do fundo
 settings-background-brightness-desc = Deixa a capa atrás de A reproduzir e das páginas mais clara ou mais escura. 100% é a do tema.
 settings-brighter = Mais claro
 settings-darker = Mais escuro
+settings-flat-background = Fundo liso
+settings-flat-background-desc = Uma cor só atrás das páginas e de A reproduzir, sem a capa e sem gradiente.
+settings-flat-background-colour = Cor de fundo
 settings-frosted-glass = Vidro fosco
 settings-frosted-glass-desc = Menus e barras flutuantes desfocam o que está atrás, em temas que usam isso. Desligado, ficam um pouco mais sólidos.
+settings-classic-title-bar = Barra de título clássica
+settings-classic-title-bar-desc = Os botões da janela como eram antes da 2.0.2: quadrados no canto superior direito, em vez de um recorte. Os botões de A reproduzir e o botão da conta voltam para o lado deles.
 settings-pulse-with-the-music = Pulsar com a música
 settings-pulse-with-the-music-desc = O fundo incha com a batida, em temas cujo fundo se move.
 settings-visualizer = Visualizador
@@ -246,6 +251,9 @@ settings-pill-mini-player = Mini leitor em pílula
 settings-keep-on-top = Manter no topo
 settings-keep-on-top-desc = O mini leitor fica acima das outras janelas.
 settings-pill-mini-player-restart-desc = O mini leitor muda de estilo no seguinte início.
+settings-keep-on-top-wayland = Manter no topo no Wayland
+settings-keep-on-top-wayland-desc = O Wayland não deixa as aplicações manter a janela por cima das outras, por isso a aplicação abre pelo XWayland. O deslocamento do touchpad não continua sozinho aí, e o texto pode ficar mais suave com escala fracionária.
+settings-keep-on-top-wayland-restart-desc = A janela muda no seguinte início.
 
 ## App icon
 
@@ -406,6 +414,10 @@ settings-update-downloading = A transferir { $version }… { $percent }%
 settings-update-ready = A versão { $version } está pronta. Instala quando fechar o ytm-rs.
 settings-update-available = A versão { $version } saiu. { $step }
 settings-update-failed = Não foi possível verificar atualizações: { $error }
+settings-update-rate-limited = { $minutes ->
+    [one] O GitHub está a limitar as verificações de atualização da sua rede. Tente outra vez em { $minutes } minuto.
+   *[other] O GitHub está a limitar as verificações de atualização da sua rede. Tente outra vez em { $minutes } minutos.
+}
 settings-version = Versão { $version }.
 settings-automatic-updates-desc-packaged = Verificar novas versões e avisar quando uma sair.
 settings-automatic-updates-desc = Transferir novas versões em segundo plano e instalá-las ao fechar a aplicação.

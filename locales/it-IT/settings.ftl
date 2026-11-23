@@ -215,8 +215,13 @@ settings-background-brightness = Luminosità dello sfondo
 settings-background-brightness-desc = Rende la copertina dietro In riproduzione e le pagine più chiara o più scura. 100% è quella del tema.
 settings-brighter = Più chiaro
 settings-darker = Più scuro
+settings-flat-background = Sfondo piatto
+settings-flat-background-desc = Un solo colore dietro le pagine e In riproduzione, senza copertina e senza sfumatura.
+settings-flat-background-colour = Colore di sfondo
 settings-frosted-glass = Vetro satinato
 settings-frosted-glass-desc = Nei temi compatibili, menu e barre mobili sfocano ciò che sta dietro. Senza l’effetto sono un po’ più opachi.
+settings-classic-title-bar = Barra del titolo classica
+settings-classic-title-bar-desc = I pulsanti della finestra come prima della 2.0.2: quadrati in alto a destra, invece che in una tacca. I pulsanti di In riproduzione e il pulsante dell'account tornano accanto.
 settings-pulse-with-the-music = Pulsa a ritmo di musica
 settings-pulse-with-the-music-desc = Nei temi con sfondo animato, lo sfondo si espande a ritmo di musica.
 settings-visualizer = Visualizzatore
@@ -246,6 +251,9 @@ settings-pill-mini-player = Mini lettore a capsula
 settings-keep-on-top = Sempre in primo piano
 settings-keep-on-top-desc = Il mini lettore resta in primo piano sulle altre finestre.
 settings-pill-mini-player-restart-desc = Lo stile del mini lettore cambierà al prossimo avvio.
+settings-keep-on-top-wayland = Sempre in primo piano su Wayland
+settings-keep-on-top-wayland-desc = Wayland non consente alle app di tenere la finestra sopra le altre, quindi l'app si apre tramite XWayland. Lo scorrimento del touchpad non prosegue da solo, e il testo può risultare più morbido con il ridimensionamento frazionario.
+settings-keep-on-top-wayland-restart-desc = La finestra cambia al prossimo avvio.
 
 ## App icon
 
@@ -406,6 +414,10 @@ settings-update-downloading = Download di { $version }… { $percent }%
 settings-update-ready = La versione { $version } è pronta. Verrà installata alla chiusura di ytm-rs.
 settings-update-available = È disponibile la versione { $version }. { $step }
 settings-update-failed = Impossibile verificare la disponibilità di aggiornamenti: { $error }
+settings-update-rate-limited = { $minutes ->
+    [one] GitHub sta limitando i controlli degli aggiornamenti dalla tua rete. Riprova tra { $minutes } minuto.
+   *[other] GitHub sta limitando i controlli degli aggiornamenti dalla tua rete. Riprova tra { $minutes } minuti.
+}
 settings-version = Versione { $version }.
 settings-automatic-updates-desc-packaged = Cerca nuove versioni e ti avvisa quando ne viene pubblicata una.
 settings-automatic-updates-desc = Scarica le nuove versioni in background e le installa alla chiusura dell’app.

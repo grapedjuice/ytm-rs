@@ -215,8 +215,13 @@ settings-background-brightness = पृष्ठभूमि की चमक
 settings-background-brightness-desc = अभी चल रहा है और पन्नों के पीछे कवर को हल्का या गहरा करता है। 100% थीम की अपनी चमक है।
 settings-brighter = अधिक चमकीला
 settings-darker = अधिक गहरा
+settings-flat-background = सपाट पृष्ठभूमि
+settings-flat-background-desc = पृष्ठों और अभी चल रहा है के पीछे एक ही रंग, बिना कवर और बिना ग्रेडिएंट.
+settings-flat-background-colour = पृष्ठभूमि का रंग
 settings-frosted-glass = फ्रॉस्टेड ग्लास
 settings-frosted-glass-desc = मेनू और फ़्लोटिंग बार इसका उपयोग करने वाले विषयों में, उनके पीछे क्या है, इसे धुंधला कर देते हैं। बंद, वे थोड़े अधिक ठोस हैं।
+settings-classic-title-bar = क्लासिक शीर्षक पट्टी
+settings-classic-title-bar-desc = विंडो बटन जैसे 2.0.2 से पहले थे: ऊपर दाएँ चौकोर, खाँच में नहीं। अभी खेल रहा हूँ के बटन और खाता बटन फिर उनके बगल में आ जाते हैं।
 settings-pulse-with-the-music = संगीत के साथ धड़कन
 settings-pulse-with-the-music-desc = जिन विषयों की पृष्ठभूमि चलती है, उनमें पृष्ठभूमि बीट के साथ फूल जाती है।
 settings-visualizer = विज़ुअलाइज़र
@@ -246,6 +251,9 @@ settings-pill-mini-player = पिल मिनी प्लेयर
 settings-keep-on-top = शीर्ष पर बने रहें
 settings-keep-on-top-desc = मिनी प्लेयर अन्य विंडो के ऊपर रहता है।
 settings-pill-mini-player-restart-desc = मिनी प्लेयर अगली शुरुआत से शैली बदलता है।
+settings-keep-on-top-wayland = Wayland पर शीर्ष पर बने रहें
+settings-keep-on-top-wayland-desc = Wayland ऐप्स को अपनी विंडो दूसरों के ऊपर रखने नहीं देता, इसलिए ऐप XWayland से खुलता है। वहाँ टचपैड स्क्रॉल अपने आप नहीं चलता, और भिन्नात्मक स्केलिंग पर पाठ नरम दिख सकता है।
+settings-keep-on-top-wayland-restart-desc = विंडो अगली शुरुआत से बदलती है।
 
 ## App icon
 
@@ -406,6 +414,10 @@ settings-update-downloading = डाउनलोड हो रहा है { $v
 settings-update-ready = संस्करण { $version } तैयार है। जब आप ytm-rs बंद करते हैं तो यह इंस्टॉल हो जाता है।
 settings-update-available = संस्करण { $version } आ गया है। { $step }
 settings-update-failed = अपडेट की जांच नहीं की जा सकी: { $error }
+settings-update-rate-limited = { $minutes ->
+    [one] GitHub आपके नेटवर्क से अपडेट जाँच सीमित कर रहा है। { $minutes } मिनट में फिर कोशिश करें।
+   *[other] GitHub आपके नेटवर्क से अपडेट जाँच सीमित कर रहा है। { $minutes } मिनट में फिर कोशिश करें।
+}
 settings-version = संस्करण { $version }।
 settings-automatic-updates-desc-packaged = नए संस्करणों की जांच करें और जब कोई संस्करण आ जाए तो आपको बताएं।
 settings-automatic-updates-desc = पृष्ठभूमि में नए संस्करण डाउनलोड करें और ऐप बंद करने पर उन्हें इंस्टॉल करें।

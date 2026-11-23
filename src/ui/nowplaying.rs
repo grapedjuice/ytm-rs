@@ -127,6 +127,11 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
     let ctx = ui.ctx().clone();
     let painter = ui.painter_at(clip);
     let art = matches!(b.mode, BgMode::Kawarp | BgMode::CoverStatic);
+    // One colour: no cover, no gradient, no scrim. The visualizer still draws below.
+    if app.flat_bg {
+        painter.rect_filled(rect, 0.0, super::shell::base_color(app));
+    }
+    let themed = !app.flat_bg;
     // A video has the background.
     let on_video = (b.video_backdrop && app.video.as_ref().is_some_and(|(_, player)| player.is_some())).then_some(());
     let over = ((app.art_brightness - b.auto_dim_from) / (1.0 - b.auto_dim_from).max(0.01)).max(0.0);
@@ -137,7 +142,7 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
     // Then darker still where the art would show too bright for the white text over it,
     // unless the theme sets how bright its full-screen cover is (reCover: at full).
     let readable = if app.dim_bright && theme_fullscreen.is_none() { crate::art::readable_dim(app.art_brightness * shown_level(b, art, fullbleed_level, app.fullscreen, auto_dim)) } else { 1.0 };
-    if let (Some(layer), Some(bg)) = (b.layer, app.bg.as_ref()) {
+    if themed && let (Some(layer), Some(bg)) = (b.layer, app.bg.as_ref()) {
         // The theme's still cover under everything, pulsing if it does.
         // On the background's clock, so Settings › Appearance › Background speed moves it too.
         let t = app.layer_time;
@@ -150,9 +155,9 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
             ctx.request_repaint_after(std::time::Duration::from_millis(33));
         }
     }
-    if b.mode == BgMode::CoverFullbleed {
+    if themed && b.mode == BgMode::CoverFullbleed {
         painter.rect_filled(rect, 0.0, look.solid());
-    } else if let Some(bg) = app.bg.as_ref().filter(|_| art) {
+    } else if themed && let Some(bg) = app.bg.as_ref().filter(|_| art) {
         let blend = theme::ease_in_out(((now - app.art_changed - b.crossfade_delay as f64) / b.crossfade_secs.max(0.05) as f64) as f32);
         let level = if app.reactive_bg && app.playing() && b.mode != BgMode::CoverStatic { (app.audio.status.level() - b.beat_threshold).max(0.0) * b.reactive } else { 0.0 };
         // Over a layer the dim is the canvas's opacity (the theme's `opacity`): the
@@ -174,13 +179,13 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
                 alpha,
             },
         );
-    } else if b.mode == BgMode::Solid {
+    } else if themed && b.mode == BgMode::Solid {
         painter.rect_filled(rect, 0.0, crate::preset::hex(&look.app.np_solid).unwrap_or(look.solid()));
-    } else {
+    } else if themed {
         painter.rect_filled(rect, 0.0, theme::lerp_color(theme::bg(), app.accent_color(), 0.25));
     }
     let shows = behind.map_or(1.0, |p| p.vis);
-    if b.fullbleed(app.fullscreen) {
+    if themed && b.fullbleed(app.fullscreen) {
         // The cover itself fills the screen behind a scrim. With the lyrics-only
         // layout on a wide window it fills the height on the left instead and
         // fades out toward the lyrics (reCover).
@@ -213,7 +218,7 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
         }
     }
     let k = b.scrim / 0.3;
-    if let Some([from, to]) = b.scrim_gradient {
+    if themed && let Some([from, to]) = b.scrim_gradient {
         if b.scrim_across {
             super::shell::hgradient(&painter, rect, theme::shade(from), theme::shade(to));
         } else {
@@ -222,8 +227,10 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
     } else if k > 0.0 {
         super::shell::vgradient(&painter, rect, theme::shade((0.18 * k).min(0.95)), theme::shade((0.42 * k).min(0.95)));
     }
-    for o in &b.overlays {
-        super::shell::overlay_light(&painter, rect, o, app.accent_color());
+    if themed {
+        for o in &b.overlays {
+            super::shell::overlay_light(&painter, rect, o, app.accent_color());
+        }
     }
     if app.ambient_light && app.shown_video().is_some() {
         paint_glow(app, ui, rect, clip);

@@ -1991,6 +1991,7 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
             if app.queue.tracks.len() > usize::from(app.queue.index.is_some()) && icon_button(ui, icon::TRASH_2, 15.0, crate::tr!("ui-clear-queue"), false).clicked() {
                 app.actions.push(Action::QueueClear);
             }
+            // The heading last, in what's left: a long translation is cut short, not drawn under the buttons.
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 let label = crate::tr!("ui-up-next");
                 let (label, size) = if q.queue_upper { (label.to_uppercase(), 13.0) } else { (label.to_owned(), 20.0) };

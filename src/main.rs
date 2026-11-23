@@ -391,8 +391,8 @@ fn log_native_crashes() {
 
 /// Settings, caches and the sign-in: `data` beside the portable build's exe, else the
 /// user's app data. Dev hook: YTM_DATA_DIR runs on a separate profile.
-/// Whether the desktop session is Wayland, and whether this run's window is a Wayland
-/// one. Not the same thing: with Close to tray on, the window is an X11 one there.
+/// Whether the desktop session and this run's window use Wayland. The window can use
+/// XWayland for desktop features that need X11 window controls.
 static WAYLAND: OnceLock<(bool, bool)> = OnceLock::new();
 
 /// The desktop session is Wayland, whatever kind of window the app has: apps can't
@@ -416,11 +416,10 @@ pub fn wayland_window() -> bool {
     WAYLAND.get().is_some_and(|w| w.1)
 }
 
-/// Whether to open an X11 window in a Wayland session: with Close to tray on. A Wayland
-/// window can't hide itself or come back when asked, so there the tray's "Show" could
-/// only ask for attention; an X11 window (through XWayland) does both.
-fn x11_for_tray(wayland: bool, x11: bool, close_to_tray: bool, keep_wayland: bool) -> bool {
-    wayland && x11 && close_to_tray && !keep_wayland
+/// Close to tray needs X11 to restore the window. On Plasma, XWayland also lets
+/// the mini player's pin work, since winit can't set the window level on Wayland.
+fn use_xwayland(wayland: bool, x11: bool, close_to_tray: bool, keep_wayland: bool, desktop: &str) -> bool {
+    wayland && x11 && !keep_wayland && (close_to_tray || desktop.split(':').any(|name| name.eq_ignore_ascii_case("KDE")))
 }
 
 /// "Close to tray" as last saved: read from the settings file itself, since this is
@@ -454,9 +453,10 @@ fn settle_window_system() {
     let set = |k: &str| std::env::var_os(k).is_some_and(|v| !v.is_empty());
     let wayland = set("WAYLAND_DISPLAY") || std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v == "wayland");
     let tray = close_to_tray_saved(&std::fs::read_to_string(data_dir().join("app.ron")).unwrap_or_default());
-    let x11 = x11_for_tray(wayland, set("DISPLAY"), tray, set("YTM_WAYLAND"));
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
+    let x11 = use_xwayland(wayland, set("DISPLAY"), tray, set("YTM_WAYLAND"), &desktop);
     if x11 {
-        log::info!("window: X11 (XWayland), so Close to tray can hide the window and bring it back");
+        log::info!("window: X11 (XWayland) for desktop window controls");
         // SAFETY: nothing else is running yet (no thread has been started), so nothing
         // reads the environment while it changes. winit goes by XDG_SESSION_TYPE first;
         // GTK (the tray, the sign-in window) by GDK_BACKEND.
@@ -482,16 +482,25 @@ fn data_dir() -> std::path::PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{close_to_tray_saved, x11_for_tray};
+    use super::{close_to_tray_saved, use_xwayland};
 
     #[test]
     fn close_to_tray_opens_an_x11_window_on_wayland() {
-        assert!(x11_for_tray(true, true, true, false));
-        // Not without the setting, without XWayland, off Wayland, or when asked not to.
-        assert!(!x11_for_tray(true, true, false, false));
-        assert!(!x11_for_tray(true, false, true, false));
-        assert!(!x11_for_tray(false, true, true, false));
-        assert!(!x11_for_tray(true, true, true, true));
+        assert!(use_xwayland(true, true, true, false, "GNOME"));
+        assert!(!use_xwayland(true, true, false, false, "GNOME"));
+        assert!(!use_xwayland(true, false, true, false, "GNOME"));
+        assert!(!use_xwayland(false, true, true, false, "GNOME"));
+        assert!(!use_xwayland(true, true, true, true, "GNOME"));
+    }
+
+    #[test]
+    fn plasma_uses_xwayland_for_the_mini_player_pin() {
+        assert!(use_xwayland(true, true, false, false, "KDE"));
+        assert!(use_xwayland(true, true, false, false, "example:kde"));
+        assert!(!use_xwayland(true, true, false, false, "example-KDE"));
+        assert!(!use_xwayland(true, false, false, false, "KDE"));
+        assert!(!use_xwayland(false, true, false, false, "KDE"));
+        assert!(!use_xwayland(true, true, false, true, "KDE"));
     }
 
     #[test]

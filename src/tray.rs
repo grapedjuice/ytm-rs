@@ -10,7 +10,7 @@
 //! life of the process (it can't be started twice); the icon is made and dropped there.
 //!
 //! The menu shows the song and has play/pause, next and previous, which do what the
-//! media keys do.
+//! media keys do, and Recognize song.
 
 use std::sync::{Mutex, Once};
 
@@ -25,6 +25,7 @@ pub enum Cmd {
     PlayPause,
     Next,
     Prev,
+    Recognize,
     Quit,
 }
 
@@ -86,6 +87,7 @@ impl Tray {
                 "play" => push(Cmd::PlayPause, &wake),
                 "next" => push(Cmd::Next, &wake),
                 "prev" => push(Cmd::Prev, &wake),
+                "recognize" => push(Cmd::Recognize, &wake),
                 "toggle" => push(Cmd::Toggle, &wake),
                 "quit" => push(Cmd::Quit, &wake),
                 _ => {}
@@ -200,6 +202,7 @@ fn build(png: image::RgbaImage) -> anyhow::Result<Icon> {
         &next,
         &prev,
         &PredefinedMenuItem::separator(),
+        &MenuItem::with_id("recognize", crate::tr!("recognize-song"), true, None),
         &toggle,
         &MenuItem::with_id("quit", crate::tr!("window-quit"), true, None),
     ])?;

@@ -3,6 +3,11 @@ fn main() {
     println!("cargo:rerun-if-changed=assets/icon/icon.ico");
     theme_covers();
     theme_presets();
+    // Recognize song's Core Audio tap is macOS 14.2 on: weakly, so the app still starts on
+    // older macOS, which it checks before tapping.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rustc-link-arg=-Wl,-weak_framework,CoreAudio");
+    }
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         winresource::WindowsResource::new()
             .set_icon("assets/icon/icon.ico")

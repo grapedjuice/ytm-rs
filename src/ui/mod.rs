@@ -39,6 +39,7 @@ pub use titlebar::{custom as custom_titlebar, init as init_titlebar, inset as ti
 #[cfg(target_os = "macos")]
 pub use titlebar::set_view as set_titlebar_view;
 mod transfer;
+mod recognize;
 mod undo;
 mod vector;
 mod wheel;
@@ -745,6 +746,10 @@ pub struct App {
     /// The Spotify transfer, running on the network runtime.
     transfer: Arc<crate::transfer::Transfer>,
     xfer: transfer::Setup,
+    /// Recognize song (Shazam): what it's doing or found.
+    recognize: Arc<crate::recognize::Recognizer>,
+    /// It paused our playback to listen; play again once it has.
+    recognizing: recognize::Recognizing,
     /// Listen together: the room we're in, if any.
     jam: jam::Session,
     signing_in: Arc<AtomicBool>,
@@ -1164,6 +1169,8 @@ impl App {
             signing_in: Default::default(),
             transfer: transfer_handle,
             xfer: Default::default(),
+            recognize: crate::recognize::Recognizer::new(),
+            recognizing: Default::default(),
             jam: Default::default(),
             toast: None,
             toast_after_unlike: None,
@@ -1752,6 +1759,7 @@ impl eframe::App for App {
             // Its time runs out even with the window hidden, when nothing else draws.
             ctx.request_repaint_after(Duration::from_secs(1));
         }
+        recognize::tick(self, ctx);
         // Frame pacing: idle costs nothing. The background drifts slowly, so ~15 fps
         // reads as smooth on pages; the now-playing view and a page showing the playing
         // row's bars run at 30 fps, and the synced lyrics ask for 60 while they animate
@@ -1788,6 +1796,7 @@ impl eframe::App for App {
         crate::shader::set_glass_on(self.glass_on);
         let now = ctx.input(|i| i.time);
         self.sync_ratings(&ctx, now);
+        recognize::popout(self, &ctx);
         // In the tray, or minimized: nothing would be seen, so nothing is drawn. eframe skips
         // a minimized window itself, but not one hidden in the tray (it can't tell on Windows
         // or X11), and would otherwise draw the whole window, background and glass included,
@@ -2071,6 +2080,7 @@ impl eframe::App for App {
         notes::dialog(self, &ctx);
         if let Some(url) = self.share_pending.take() { ctx.copy_text(url); }
         shell::suggestions(self, &ctx);
+        recognize::inline(self, &ctx);
         shell::toast(self, &ctx, now);
 
         titlebar::window_buttons(&ctx);

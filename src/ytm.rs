@@ -441,6 +441,32 @@ pub async fn searched_song(api: &Api, video: &Track, clean: bool) -> anyhow::Res
     Ok(hits.into_iter().take(5).find(|h| same_song(video, h) && !(clean && h.explicit)))
 }
 
+/// The song Shazam heard (its title, and its artists in one line), by a signed-out search in
+/// English: Shazam's titles aren't translated. A sure match ([`heard_as`]) if there is one,
+/// else the top hit (`Err`), if any.
+pub async fn recognized_song(api: &Api, title: &str, artist: &str) -> anyhow::Result<Result<Track, Option<Track>>> {
+    let mut hits = search_songs_in_english(api, &format!("{title} {artist}"), false).await?;
+    Ok(match hits.iter().take(5).position(|h| heard_as(title, artist, h)) {
+        Some(i) => Ok(hits.swap_remove(i)),
+        None => Err(hits.into_iter().next()),
+    })
+}
+
+/// Whether `hit` is the song Shazam calls `title` by `artist`: [`same_song`]'s checks on the
+/// title, and the song's lead artist credited in Shazam's line ("Calvin Harris feat.
+/// Rihanna"): a guest alone could be on another song of that name. Not its length check:
+/// Shazam doesn't say how long the song is.
+fn heard_as(title: &str, artist: &str, hit: &Track) -> bool {
+    let base = base_title(title);
+    let credit = Link { name: artist.to_owned(), id: None };
+    !hit.music_video
+        && !base.is_empty()
+        && base == base_title(&hit.title)
+        && variants(title) == variants(&hit.title)
+        && qualifiers_agree(title, &hit.title)
+        && hit.artists.first().is_some_and(|a| same_artist(a, &credit))
+}
+
 /// The music video of a song, by a signed-out videos search (signed in, it would land in
 /// the account's search history). Only an official music video that's a sure match
 /// counts: [`same_song`], the other way round.
@@ -534,7 +560,9 @@ fn same_artist(a: &Link, b: &Link) -> bool {
     }
     let name = words(&a.name);
     let lower = b.name.to_lowercase();
-    !name.is_empty() && [" | ", " & ", ", ", " x ", " feat. ", " ft. ", " and ", " with "].iter().fold(vec![lower.as_str()], |parts, sep| parts.iter().flat_map(|p| p.split(sep)).collect()).into_iter().any(|p| words(p) == name)
+    let parts = [" | ", " & ", ", ", " x ", " feat. ", " ft. ", " and ", " with "].iter().fold(vec![lower.as_str()], |parts, sep| parts.iter().flat_map(|p| p.split(sep)).collect());
+    // The whole credit too: "Simon & Garfunkel" is one artist.
+    !name.is_empty() && std::iter::once(lower.as_str()).chain(parts).any(|p| words(p) == name)
 }
 
 /// A music video's title without what marks it as a video: "(Official Video)", "[4K]",
@@ -3468,6 +3496,27 @@ mod tests {
         assert_eq!(lyrics_names(&v), ("Levitating".to_owned(), "Dua Lipa".to_owned()));
         // A song's own qualifiers stay: they're part of its name on LRCLib too.
         assert_eq!(lyrics_names(&song("Together Forever (2022 Remaster)", &["Rick Astley"], 200)).0, "Together Forever (2022 Remaster)");
+    }
+
+    #[test]
+    fn a_recognized_song_is_found_by_a_sure_match_only() {
+        // What Shazam answered for downloaded songs (November 2026).
+        assert!(heard_as("Glue Song", "beabadoobee", &song("Glue Song", &["beabadoobee"], 135)));
+        assert!(heard_as("Hit #2", "125 Rue Montmartre", &song("Hit #2", &["125 Rue Montmartre"], 200)));
+        assert!(heard_as("This Is What You Came For (feat. Rihanna)", "Calvin Harris", &song("This Is What You Came For", &["Calvin Harris", "Rihanna"], 222)));
+        assert!(heard_as("We Found Love", "Rihanna Feat. Calvin Harris", &song("We Found Love (feat. Calvin Harris)", &["Rihanna"], 215)));
+        // An artist named with a separator, credited alone.
+        assert!(heard_as("The Boxer", "Simon & Garfunkel", &song("The Boxer", &["Simon & Garfunkel"], 308)));
+        for (hit, why) in [
+            (song("Take On Me (Live)", &["a-ha"], 240), "a live recording"),
+            (song("Take On Me", &["Weezer"], 244), "a cover"),
+            (song("Take On Me (Acoustic Version)", &["a-ha"], 244), "an acoustic version"),
+            (video("Take On Me", &["a-ha"], 244), "a music video"),
+            (song("Take", &["a-ha"], 244), "a shorter title"),
+            (song("Take On Me", &["Weezer", "a-ha"], 244), "another lead artist's"),
+        ] {
+            assert!(!heard_as("Take On Me", "a-ha", &hit), "{why} isn't the song");
+        }
     }
 
     #[test]

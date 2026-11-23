@@ -38,7 +38,8 @@ chmod 644 "$pkg/usr/lib/ytm-rs/deb.txt"
 
 # The libraries it links, at the versions it was built against. The tray's
 # appindicator is loaded at run time, so it's added by hand. desktop-file-utils
-# builds the MIME cache that `ytm-rs://` links are found through.
+# builds the MIME cache that `ytm-rs://` links are found through. Recognize song
+# records with pulseaudio-utils' parec (no library linked: it's only recommended).
 mkdir -p "$work/debian"
 printf 'Source: ytm-rs\n\nPackage: ytm-rs\nArchitecture: any\n' > "$work/debian/control"
 shlibs=$(cd "$work" && dpkg-shlibdeps -O "$pkg/usr/lib/ytm-rs/ytm-rs" 2>/dev/null | sed -n 's/^shlibs:Depends=//p')
@@ -53,6 +54,7 @@ Architecture: $arch
 Maintainer: grapedjuice <82706397+grapedjuice@users.noreply.github.com>
 Installed-Size: $(du -sk "$pkg/usr" | cut -f1)
 Depends: $depends
+Recommends: pulseaudio-utils
 Section: sound
 Priority: optional
 Homepage: https://github.com/grapedjuice/ytm-rs

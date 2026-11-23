@@ -54,6 +54,7 @@ enum Act {
     FullScreen,
     Jam,
     NewPlaylist,
+    Recognize,
 }
 
 /// Listed in this order when nothing ranks one above another.
@@ -211,6 +212,7 @@ fn entries(app: &App) -> Vec<Entry> {
         (true, false) => crate::tr!("jam-leave"),
     };
     add(Group::Actions, act(Act::Jam), jam, "", icon::USERS);
+    add(Group::Actions, act(Act::Recognize), crate::tr!("recognize-song"), crate::tr!("recognize-experimental"), icon::HEADPHONES);
     if app.logged_in {
         add(Group::Actions, act(Act::NewPlaylist), crate::tr!("ui-new-playlist"), "", icon::LIST_PLUS);
     }
@@ -491,6 +493,7 @@ fn run_command(app: &mut App, ctx: &egui::Context, cmd: Command) {
                 app.actions.push(Action::Go(Page::Jam));
             }
             Act::NewPlaylist => app.actions.push(Action::NewPlaylist(Vec::new())),
+            Act::Recognize => super::recognize::start(app),
         },
     }
 }

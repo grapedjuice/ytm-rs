@@ -546,7 +546,8 @@ fn classic_buttons(ctx: &egui::Context) {
             // Close reaches the window's right edge, so the pointer thrown into the corner
             // while maximized still clicks it.
             let hit = if kind == Kind::Close { r.with_max_x(ctx.content_rect().right()) } else { r };
-            let resp = super::widgets::named(ui.interact(hit, Id::unique(("window-button", i)), Sense::click()), name);
+            // Not the notch's ids: a click held through the switch mustn't land on what's under it now.
+            let resp = super::widgets::named(ui.interact(hit, Id::unique(("classic-window-button", i)), Sense::click()), name);
             paint_button(ui, r, kind, &resp, true);
             if resp.has_focus() {
                 ui.painter().rect_stroke(r.shrink(3.0), 3.0, Stroke::new(1.5, theme::text()), egui::StrokeKind::Inside);

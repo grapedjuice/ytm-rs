@@ -781,7 +781,7 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     // Top result: the first artist when the query names one, otherwise the first song.
     let top_card = |ui: &mut Ui, acts: &mut Vec<Action>| {
         if let Some(top) = r.artists.first().filter(|a| a.title.eq_ignore_ascii_case(q.trim())) {
-            top_result(ui, top, false, acts);
+            top_result(ui, top, false, false, acts);
         } else if let Some(t) = tracks.first().copied() {
             let c = Card {
                 title: t.title.clone(),
@@ -791,7 +791,7 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
                 round: false,
                 links: t.artists.clone(),
             };
-            top_result(ui, &c, pick, acts);
+            top_result(ui, &c, liked.contains(&t.id), pick, acts);
         }
     };
     let mut songs = |ui: &mut Ui, acts: &mut Vec<Action>| {
@@ -926,7 +926,7 @@ const TOP_RESULT_GAP: f32 = 24.0;
 const SONGS_MIN_W: f32 = 320.0;
 
 /// `pick`: choosing a transfer match, so clicking a song picks it.
-fn top_result(ui: &mut Ui, c: &Card, pick: bool, acts: &mut Vec<Action>) {
+fn top_result(ui: &mut Ui, c: &Card, liked: bool, pick: bool, acts: &mut Vec<Action>) {
     ui.vertical(|ui| {
         ui.label(RichText::new(crate::tr!("nav-top-result")).font(theme::bold(24.0)));
         ui.add_space(8.0);
@@ -951,6 +951,11 @@ fn top_result(ui: &mut Ui, c: &Card, pick: bool, acts: &mut Vec<Action>) {
         ui.painter().circle_filled(pc, 26.0, theme::with_alpha(Color32::WHITE, 0.4 + 0.6 * h));
         let nudge = if playing { 0.0 } else { 1.5 };
         widgets::play_pause_glyph(ui, pc + vec2(nudge, 0.0), 10.0, Color32::from_gray(15), playing);
+        let behavior = if matches!(c.target, Target::Song(_)) { egui::PopupCloseBehavior::CloseOnClickOutside } else { egui::PopupCloseBehavior::CloseOnClick };
+        // Right-click anywhere on the card opens its menu, even over the play button or a linked name.
+        widgets::right_click_menu(&resp)
+            .close_behavior(behavior)
+            .show(|ui| widgets::card_menu_contents(ui, c, liked, None, acts));
         if p.clicked() {
             acts.push(match &c.target {
                 _ if active.is_some() => Action::TogglePlay,

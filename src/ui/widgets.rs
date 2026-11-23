@@ -861,17 +861,7 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, pin: Option<bool>, a
     menu_popup(&more).close_behavior(behavior).show(|ui| card_menu_contents(ui, c, liked, pin, acts));
     // Right-click anywhere on the card opens the same menu, even on the play button,
     // a linked name or ⋮, which take the click themselves.
-    egui::Popup::menu(&resp)
-        .open_memory(if resp.container_secondary_clicked() {
-            Some(egui::SetOpenCommand::Bool(true))
-        } else if resp.container_clicked() {
-            Some(egui::SetOpenCommand::Bool(false))
-        } else {
-            None
-        })
-        .at_pointer_fixed()
-        .close_behavior(behavior)
-        .show(|ui| card_menu_contents(ui, c, liked, pin, acts));
+    right_click_menu(&resp).close_behavior(behavior).show(|ui| card_menu_contents(ui, c, liked, pin, acts));
 
     if play_hit {
         match &c.target {
@@ -1035,6 +1025,21 @@ pub fn modal_extras(ctx: &egui::Context, id: egui::Id) {
 pub fn menu_popup<'a>(resp: &Response) -> egui::Popup<'a> {
     popup_extras(&resp.ctx, egui::Popup::default_response_id(resp));
     egui::Popup::menu(resp).frame(theme::menu_frame(&resp.ctx.global_style()))
+}
+
+/// A menu that a right-click anywhere on `resp` opens at the pointer, even over the
+/// buttons and links inside it, which take the click themselves. Any other click on
+/// it closes the menu.
+pub fn right_click_menu<'a>(resp: &Response) -> egui::Popup<'a> {
+    menu_popup(resp)
+        .open_memory(if resp.container_secondary_clicked() {
+            Some(egui::SetOpenCommand::Bool(true))
+        } else if resp.container_clicked() {
+            Some(egui::SetOpenCommand::Bool(false))
+        } else {
+            None
+        })
+        .at_pointer_fixed()
 }
 
 /// A right-click menu, in the theme's look.

@@ -90,9 +90,9 @@ fn main() -> eframe::Result {
     // Child-process modes for the webview windows (see login.rs / turnstile.rs).
     let mut args = std::env::args_os().skip(1);
     if let (Some(flag), Some(dir)) = (args.next(), args.next()) {
-        // The parent hands its proxy setting down through the environment.
-        proxy::init(std::path::Path::new(""));
         if flag == login::FLAG || flag == login::SPOTIFY_FLAG || flag == turnstile::FLAG {
+            // The parent hands its proxy setting down through the environment.
+            proxy::init(std::path::Path::new(""));
             let language = args.next().and_then(|arg| arg.into_string().ok());
             i18n::init(language.as_deref());
         }
@@ -300,11 +300,32 @@ fn main() -> eframe::Result {
             )))
         }),
     );
-    // A wgpu window that won't open would fail the same way at every launch: go back
-    // to OpenGL for the next one.
-    if run.is_err() && renderer == renderer::Renderer::Wgpu {
-        log::error!("renderer: {} failed to start; switching back to OpenGL", renderer::api_name());
-        let _ = renderer::save(&data_dir(), renderer::Renderer::OpenGl);
+    if let Err(error) = &run {
+        match renderer {
+            renderer::Renderer::Wgpu if renderer::retrying() => {
+                log::error!("renderer: {} fallback failed: {error}", renderer::api_name());
+            }
+            // A wgpu window that won't open would fail the same way at every launch: go
+            // back to OpenGL for the next one.
+            renderer::Renderer::Wgpu => {
+                log::error!("renderer: {} failed to start; switching back to OpenGL", renderer::api_name());
+                let _ = renderer::save(&data_dir(), renderer::Renderer::OpenGl);
+            }
+            // Start a fresh process: eframe's event loop and GPU state cannot be reset
+            // after a failed OpenGL startup. Keep the user's saved renderer choice.
+            renderer::Renderer::OpenGl if !renderer::retrying()
+                && matches!(error, eframe::Error::Glutin(_) | eframe::Error::NoGlutinConfigs(..) | eframe::Error::OpenGL(_))
+                && renderer::available() =>
+            {
+                log::warn!("renderer: OpenGL failed to start ({error}); trying {}", renderer::api_name());
+                if let Ok(exe) = std::env::current_exe()
+                    && update::start_after_exit_with_args(&exe, &[renderer::RETRY_FLAG])
+                {
+                    return Ok(());
+                }
+            }
+            _ => {}
+        }
     }
     run
 }

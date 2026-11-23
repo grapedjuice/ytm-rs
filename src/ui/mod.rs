@@ -797,6 +797,9 @@ pub struct App {
     // window
     /// Clicking × hides the window to the tray instead of quitting.
     close_to_tray: bool,
+    /// Linux, Wayland session: an X11 window from the next start, so the mini player can
+    /// stay above other windows.
+    mini_x11: bool,
     /// Settings › Window: draw with wgpu (Vulkan) from the next start (renderer.rs).
     pub(super) wgpu_renderer: bool,
     /// Settings › App icon (`appicon::ALL` id).
@@ -1045,6 +1048,7 @@ impl App {
                 .filter(|_| !crate::update::flatpak())
                 .map_or_else(|| crate::update::is_nightly(&crate::update::build_version()), |v| v == "nightly"),
             close_to_tray: get("close_to_tray").is_some_and(|v| v == "1"),
+            mini_x11: get("mini_x11").is_some_and(|v| v == "1"),
             wgpu_renderer,
             app_icon,
             tray: None,
@@ -2199,6 +2203,7 @@ impl eframe::App for App {
             self.good_window = Some(w);
         }
         storage.set_string("close_to_tray", b(self.close_to_tray));
+        storage.set_string("mini_x11", b(self.mini_x11));
         storage.set_string("song_notifications", b(self.song_notifications));
         let start = START_PAGES.iter().find(|(.., p)| *p == self.start_page).map_or("home", |(k, ..)| k);
         storage.set_string("start_page", start.to_owned());

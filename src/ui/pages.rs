@@ -2804,6 +2804,24 @@ fn settings_mini(app: &mut App, ui: &mut Ui) {
                 app.mini.set_pinned(ui.ctx(), on);
             }
         });
+        // winit can't keep a Wayland window above others; an X11 one (XWayland) can.
+        if crate::wayland_session() {
+            divider(ui);
+            setting_row(ui, tr!("settings-keep-on-top-wayland"), Some(tr!("settings-keep-on-top-wayland-desc")), |ui| {
+                toggle(ui, &mut app.mini_x11, tr!("settings-keep-on-top-wayland"));
+            });
+            // The window type follows from the next start (Close to tray's row covers it on).
+            if app.mini_x11 == crate::wayland_window() && !app.close_to_tray {
+                divider(ui);
+                let mut restart = false;
+                setting_row(ui, tr!("settings-restart-to-apply"), Some(tr!("settings-keep-on-top-wayland-restart-desc")), |ui| {
+                    restart = pill(ui, tr!("settings-restart-now"), None, true).clicked();
+                });
+                if restart {
+                    app.restart(ui.ctx());
+                }
+            }
+        }
         if opengl && mini::pill_saved(&dir) != mini::pill_active() {
             divider(ui);
             let mut restart = false;

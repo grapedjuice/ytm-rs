@@ -10,6 +10,7 @@
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-333?style=flat-square" alt="Platforms">
     <a href="LICENSE"><img src="https://img.shields.io/github/license/grapedjuice/ytm-rs?style=flat-square&color=333" alt="License: GPL-3.0"></a>
     <a href="https://ko-fi.com/grapedjuice"><img src="https://img.shields.io/badge/Ko--fi-support-ff4e45?style=flat-square&logo=kofi&logoColor=white" alt="Support on Ko-fi"></a>
+    <a href="https://discord.gg/wj9ycNgHV6"><img src="https://img.shields.io/badge/Discord-join-5865f2?style=flat-square&logo=discord&logoColor=white" alt="Join the Discord"></a>
   </p>
 
   <p>
@@ -18,7 +19,8 @@
     <a href="#features">Features</a> ·
     <a href="#installation">Installation</a> ·
     <a href="#building-from-source">Build from source</a> ·
-    <a href="https://github.com/grapedjuice/ytm-rs/discussions">Discussions</a>
+    <a href="https://github.com/grapedjuice/ytm-rs/discussions">Discussions</a> ·
+    <a href="https://discord.gg/wj9ycNgHV6">Discord</a>
   </p>
 </div>
 
@@ -237,7 +239,7 @@ The relay in `server/` is a separate Cloudflare Worker, also in Rust ([workers-r
 
 ## Contributing
 
-Found a bug or have an idea? [Open an issue](https://github.com/grapedjuice/ytm-rs/issues). Questions, or a setup to show off? Head to [Discussions](https://github.com/grapedjuice/ytm-rs/discussions). Pull requests are welcome: see [Contributing to ytm-rs](CONTRIBUTING.md) for how. So are translations: see [Translating ytm-rs](TRANSLATING.md).
+Found a bug or have an idea? [Open an issue](https://github.com/grapedjuice/ytm-rs/issues). Questions, or a setup to show off? Head to [Discussions](https://github.com/grapedjuice/ytm-rs/discussions), or chat with us on [Discord](https://discord.gg/wj9ycNgHV6). Pull requests are welcome: see [Contributing to ytm-rs](CONTRIBUTING.md) for how. So are translations: see [Translating ytm-rs](TRANSLATING.md).
 
 ## License
 

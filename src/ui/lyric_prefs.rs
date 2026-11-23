@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use crate::lyrics::{Line, LyricsSet, Provider};
-use crate::preset::Weight;
+use crate::preset::{LyricStyle, Preset, Weight};
 
 /// Offsets are seconds taken off the lyrics clock: positive shows lyrics later.
 pub struct Prefs {
@@ -24,6 +24,9 @@ pub struct Prefs {
     pub weight: Option<Weight>,
     /// Translations' and romanizations' size, as a multiple of their own against the line.
     pub deco_scale: f32,
+    /// The theme whose lyrics look the lyrics take (its fonts, sweep, glow, blur and
+    /// breaks), the rest of the app keeping its own. `None`: the theme in use.
+    pub look: Option<String>,
 }
 
 /// The range and step of the lyrics text size setting.
@@ -68,6 +71,8 @@ impl Prefs {
             text_scale: get("lyric_scale").and_then(|v| v.parse::<f32>().ok()).unwrap_or(1.0).clamp(TEXT_SCALE.0, TEXT_SCALE.1),
             weight: get("lyric_weight").and_then(|v| Weight::from_key(&v)),
             deco_scale: super::shell::load_factor(get("lyric_deco_scale"), DECO_SCALE),
+            // A theme since removed: the one in use.
+            look: get("lyric_look").filter(|id| crate::preset::all().iter().any(|p| p.id == *id)),
             song_offsets: get("lyric_song_offsets").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
             pins: get("lyric_pins")
                 .and_then(|s| serde_json::from_str::<HashMap<String, String>>(&s).ok())
@@ -86,9 +91,15 @@ impl Prefs {
         storage.set_string("lyric_scale", format!("{:.2}", self.text_scale));
         storage.set_string("lyric_weight", self.weight.map_or("", Weight::key).to_owned());
         storage.set_string("lyric_deco_scale", format!("{:.2}", self.deco_scale));
+        storage.set_string("lyric_look", self.look.clone().unwrap_or_default());
         storage.set_string("lyric_song_offsets", serde_json::to_string(&self.song_offsets).unwrap_or_default());
         let pins: HashMap<&String, &str> = self.pins.iter().map(|(k, p)| (k, p.key())).collect();
         storage.set_string("lyric_pins", serde_json::to_string(&pins).unwrap_or_default());
+    }
+
+    /// The lyrics look: the picked theme's, else `theme`'s own.
+    pub fn style(&self, theme: &'static Preset) -> &'static LyricStyle {
+        self.look.as_deref().map_or(&theme.lyrics, |id| &crate::preset::get(id).lyrics)
     }
 
     /// Sources that have lyrics for this song, in the listener's order (switched-off ones
@@ -187,6 +198,21 @@ impl Clock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The lyrics look follows the theme until another theme's is picked, and one that's
+    /// no longer there is the theme's again.
+    #[test]
+    fn the_lyrics_look_is_the_themes_unless_another_is_picked() {
+        let theme = crate::preset::get("classic");
+        let spicy = crate::preset::get("spicy-for-ytm");
+        assert_eq!(spicy.id, "spicy-for-ytm");
+        let p = Prefs::load(&|_| None);
+        assert!(p.look.is_none() && std::ptr::eq(p.style(theme), &theme.lyrics));
+        let p = Prefs::load(&|k| (k == "lyric_look").then(|| "spicy-for-ytm".to_owned()));
+        assert!(std::ptr::eq(p.style(theme), &spicy.lyrics));
+        let p = Prefs::load(&|k| (k == "lyric_look").then(|| "gone".to_owned()));
+        assert!(p.look.is_none());
+    }
 
     /// Unsaved, or saved as anything unreadable, the weight and translation size are the theme's own.
     #[test]

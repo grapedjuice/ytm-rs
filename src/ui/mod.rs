@@ -1838,12 +1838,14 @@ impl eframe::App for App {
         if self.chrome_applied.is_some() && theme::fonts_became_ready() {
             self.chrome_applied = Some(String::new());
         }
-        if self.chrome_applied.as_deref() != Some(look.id.as_str()) {
+        // With the lyrics look picked from another theme, whose font may be another too.
+        let chrome = format!("{}|{}", look.id, self.lyric_prefs.look.as_deref().unwrap_or_default());
+        if self.chrome_applied.as_deref() != Some(chrome.as_str()) {
             if self.chrome_applied.is_none() {
                 ctx.add_texture_loader(Arc::new(crate::images::Textures::default()));
             }
-            theme::apply_chrome(&ctx, look);
-            self.chrome_applied = Some(look.id.clone());
+            theme::apply_chrome(&ctx, look, self.lyric_prefs.style(look));
+            self.chrome_applied = Some(chrome);
         }
         let accent = self.accent_color();
         ctx.data_mut(|d| d.insert_temp(egui::Id::unique("accent"), accent));

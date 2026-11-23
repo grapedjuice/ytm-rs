@@ -1981,7 +1981,7 @@ fn lyrics_panel(app: &mut App, ui: &mut Ui, rect: Rect, now: f64, centered: bool
         });
         return;
     };
-    let hide_break_only = app.look().lyrics.hide_instrumental_only;
+    let hide_break_only = app.lyric_prefs.style(app.look()).hide_instrumental_only;
     if let Some(lyrics) = app.lyric_prefs.choose(&id, &set).and_then(|p| set.get(p)).filter(|l| !hide_break_only || !l.lines.iter().all(|x| x.instrumental)) {
         let panel = Rect::from_min_max(rect.min, pos2(rect.right(), rect.bottom() - 4.0));
         if lyrics.sync == Sync::None {
@@ -2041,7 +2041,7 @@ fn decorations<'a>(
 }
 
 fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now: f64, narrow: bool) {
-    let style = &app.look().lyrics;
+    let style = app.lyric_prefs.style(app.look());
     let accent = app.accent_color();
     let centered = narrow;
     let playing = app.playing();
@@ -2056,6 +2056,7 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
         id.hash(&mut h);
         lyrics.provider.key().hash(&mut h);
         app.theme_id.hash(&mut h);
+        app.lyric_prefs.look.hash(&mut h);
                 for r in &roman {
             match r {
                 Some(karaoke::Roman::Timed(_, s)) | Some(karaoke::Roman::Text(s)) => s.hash(&mut h),
@@ -2145,7 +2146,7 @@ fn plain_lyrics(app: &mut App, ui: &mut Ui, rect: Rect, lyrics: &Lyrics) {
     egui::ScrollArea::vertical().id_salt("plain-lyrics").auto_shrink(false).show(&mut child, |ui| {
         ui.label(egui::RichText::new(crate::tr!("player-lyrics-unsynced")).font(theme::regular(13.0)).color(theme::text_faint()));
         ui.add_space(14.0);
-        let style = &app.look().lyrics;
+        let style = app.lyric_prefs.style(app.look());
         let size = style.plain_size().min(rect.width() / 14.0).max(18.0);
         for l in &lyrics.lines {
             let font = theme::lyric_font_for(&style.font, app.lyric_prefs.weight.unwrap_or(style.weight), size, &l.text);

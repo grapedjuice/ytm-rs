@@ -953,15 +953,7 @@ fn top_result(ui: &mut Ui, c: &Card, liked: bool, pick: bool, acts: &mut Vec<Act
         widgets::play_pause_glyph(ui, pc + vec2(nudge, 0.0), 10.0, Color32::from_gray(15), playing);
         let behavior = if matches!(c.target, Target::Song(_)) { egui::PopupCloseBehavior::CloseOnClickOutside } else { egui::PopupCloseBehavior::CloseOnClick };
         // Right-click anywhere on the card opens its menu, even over the play button or a linked name.
-        widgets::menu_popup(&resp)
-            .open_memory(if resp.container_secondary_clicked() {
-                Some(egui::SetOpenCommand::Bool(true))
-            } else if resp.container_clicked() {
-                Some(egui::SetOpenCommand::Bool(false))
-            } else {
-                None
-            })
-            .at_pointer_fixed()
+        widgets::right_click_menu(&resp)
             .close_behavior(behavior)
             .show(|ui| widgets::card_menu_contents(ui, c, liked, None, acts));
         if p.clicked() {

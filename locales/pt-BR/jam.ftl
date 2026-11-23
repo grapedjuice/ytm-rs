@@ -49,5 +49,5 @@ jam-host-only-queue = Só o anfitrião pode alterar a fila da sessão
 jam-host-only-shuffle = Só o anfitrião pode embaralhar a fila
 jam-queue-limit = Sua fila está cheia ({ $count }). Adicione outra faixa quando uma começar a tocar.
 jam-explicit-skipped = Uma faixa explícita adicionada por { $name } foi pulada
-jam-guest-added = { $name } adicionou “{ $title }”
-jam-guest-queued-next = { $name } colocou “{ $title }” a seguir
+jam-guest-added = { $name } adicionou ““{ $title }””
+jam-guest-queued-next = { $name } colocou ““{ $title }”” a seguir

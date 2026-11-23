@@ -49,5 +49,5 @@ jam-host-only-queue = Solo chi ospita può modificare la coda
 jam-host-only-shuffle = Solo chi ospita può mescolare la coda
 jam-queue-limit = La tua coda è piena ({ $count }). Aggiungi un brano quando ne parte uno.
 jam-explicit-skipped = Saltato un brano esplicito aggiunto da { $name }
-jam-guest-added = { $name } ha aggiunto «{ $title }»
-jam-guest-queued-next = { $name } ha messo «{ $title }» come prossimo
+jam-guest-added = { $name } ha aggiunto “{ $title }”
+jam-guest-queued-next = { $name } ha messo “{ $title }” come prossimo

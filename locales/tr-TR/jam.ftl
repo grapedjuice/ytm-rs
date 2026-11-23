@@ -49,5 +49,5 @@ jam-host-only-queue = Yalnızca ana bilgisayar, sıkışma sırasını değişti
 jam-host-only-shuffle = Yalnızca toplantı sahibi sıkışmayı karıştırabilir
 jam-queue-limit = Sıranız dolu ({ $count }). Bir şarkı çalınca başka bir şarkı ekleyin.
 jam-explicit-skipped = Müstehcen bir şarkı atlandı { $name } eklendi
-jam-guest-added = { $name }, “{ $title }”yi ekledi
-jam-guest-queued-next = { $name } sonraki “{ $title }”yi sıraya koydu
+jam-guest-added = { $name }, ““{ $title }””yi ekledi
+jam-guest-queued-next = { $name } sonraki ““{ $title }””yi sıraya koydu

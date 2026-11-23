@@ -49,5 +49,5 @@ jam-host-only-queue = Solo el anfitrión puede cambiar la cola
 jam-host-only-shuffle = Solo el anfitrión puede mezclar la cola
 jam-queue-limit = Tu cola está llena ({ $count }). Añade otra canción cuando se reproduzca una.
 jam-explicit-skipped = Se omitió una canción explícita añadida por { $name }
-jam-guest-added = { $name } añadió «{ $title }»
-jam-guest-queued-next = { $name } puso «{ $title }» a continuación
+jam-guest-added = { $name } añadió “{ $title }”
+jam-guest-queued-next = { $name } puso “{ $title }” a continuación

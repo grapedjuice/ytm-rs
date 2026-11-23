@@ -49,5 +49,5 @@ jam-host-only-queue = キューを変更できるのはホストだけです
 jam-host-only-shuffle = キューをシャッフルできるのはホストだけです
 jam-queue-limit = キューは上限の { $count } 曲です。1 曲再生されたら追加できます。
 jam-explicit-skipped = { $name } が追加した E マーク付きの曲をスキップしました
-jam-guest-added = { $name } が「{ $title }」を追加しました
-jam-guest-queued-next = { $name } が「{ $title }」を次の曲に追加しました
+jam-guest-added = { $name } が「“{ $title }”」を追加しました
+jam-guest-queued-next = { $name } が「“{ $title }”」を次の曲に追加しました

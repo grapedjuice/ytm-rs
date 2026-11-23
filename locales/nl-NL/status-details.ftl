@@ -23,15 +23,15 @@ status-like-refused = YouTube Music heeft de wijziging geweigerd. Probeer het la
 status-refused-count = Geweigerd door YouTube Music: { $count }
 status-removed-liked = Uit gelikete nummers verwijderd
 status-download-batch = Nummers downloaden: { $count }
-status-download-collection = Downloaden uit ‘{ $title }’: { $count }
+status-download-collection = Downloaden uit ‘“{ $title }”’: { $count }
 status-download-stopped = Downloaden{ $name } gestopt. Opgeslagen: { $songs }
 status-download-already = Al gedownload
-status-download-name-already = ‘{ $title }’ is al gedownload
+status-download-name-already = ‘“{ $title }”’ is al gedownload
 status-download-done = Gedownload{ $name }: { $songs }
 status-download-already-count = { $count } al aanwezig
 status-download-fail-count = { $count } konden niet worden gedownload ({ $details })
-status-play-premium = ‘{ $title }’ vereist YouTube Music Premium
-status-play-sign-in = Log in om ‘{ $title }’ af te spelen
+status-play-premium = ‘“{ $title }”’ vereist YouTube Music Premium
+status-play-sign-in = Log in om ‘“{ $title }”’ af te spelen
 status-age-restricted = heeft een leeftijdsbeperking
 status-songs = { $count ->
     [one] { $count } nummer
@@ -41,6 +41,6 @@ status-episodes = { $count ->
     [one] { $count } aflevering
    *[other] { $count } afleveringen
 }
-status-download-quoted-title = ‘{ $title }’
+status-download-quoted-title = ‘“{ $title }”’
 discord-view-artist = Naar artiest
 discord-view-album = Naar album

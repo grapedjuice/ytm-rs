@@ -15,19 +15,19 @@ settings-account = Compte
 settings-general = Général
 settings-keyboard-shortcuts = Raccourcis clavier
 settings-about = À propos
-settings-no-match = Aucun réglage ne correspond à « { $query } »
+settings-no-match = Aucun réglage ne correspond à "{ $query }"
 settings-title = Paramètres
 settings-search-box = Rechercher
 settings-clear = Effacer
 
 ## Account
 
-settings-signed-in-desc = Connecté avec Google. L’accueil, la bibliothèque et les « J’aime » proviennent de ce compte. Les identifiants sont chiffrés dans le Gestionnaire d’identification Windows.
+settings-signed-in-desc = Connecté avec Google. L’accueil, la bibliothèque et les J’aime proviennent de ce compte. Les identifiants sont chiffrés dans le Gestionnaire d’identification Windows.
 settings-sign-out = Se déconnecter
 settings-channel = Chaîne
-settings-channel-desc = Votre compte Google et chaque chaîne YouTube qu’il gère ont leur propre bibliothèque, leurs « J’aime », leur historique et leurs recommandations.
+settings-channel-desc = Votre compte Google et chaque chaîne YouTube qu’il gère ont leur propre bibliothèque, leurs J’aime, leur historique et leurs recommandations.
 settings-not-signed-in = Non connecté
-settings-not-signed-in-desc = Connectez-vous pour retrouver votre accueil, votre bibliothèque et vos « J’aime ».
+settings-not-signed-in-desc = Connectez-vous pour retrouver votre accueil, votre bibliothèque et vos J’aime.
 settings-sign-in-with-google = Se connecter avec Google
 settings-sign-in-finish = Terminez la connexion dans la fenêtre qui s’est ouverte.
 settings-no-channel = { $name } (aucune chaîne)
@@ -62,21 +62,21 @@ settings-use-youtubes-restricted-mode-desc = YouTube masque aussi les autres con
 ## Song ratings
 
 settings-song-ratings = Évaluations des titres
-settings-ratings-player-button = Bouton « Je n’aime pas » dans le lecteur
+settings-ratings-player-button = Bouton Je n’aime pas dans le lecteur
 settings-ratings-player-button-desc = Affiche le pouce vers le bas à côté du cœur.
 settings-ratings-list-icons = Icônes d’évaluation dans les listes
-settings-ratings-list-icons-desc = Affiche les évaluations à côté de la durée. Survolez un titre sans évaluation pour afficher « J’aime ».
+settings-ratings-list-icons-desc = Affiche les évaluations à côté de la durée. Survolez un titre sans évaluation pour afficher J’aime.
 settings-ratings-dim-disliked = Estomper les titres non aimés
 settings-ratings-dim-disliked-desc = Affiche les titres non aimés dans des couleurs atténuées dans les listes.
 settings-ratings-skip-disliked = Passer au titre suivant après un avis négatif
 settings-ratings-skip-disliked-desc = Passe au titre suivant après confirmation par YouTube Music. En écoute collective, les invités suivent la lecture de l’hôte.
 settings-ratings-dislike-notices = Notifications d’avis négatif
 settings-ratings-dislike-notices-desc = Affiche un message lorsqu’un avis négatif est enregistré ou retiré.
-settings-ratings-unlike-notices = Notifications de retrait d’un « J’aime »
+settings-ratings-unlike-notices = Notifications de retrait d’un J’aime
 settings-ratings-unlike-notices-desc = Propose d’annuler avant d’envoyer le retrait à YouTube Music.
-settings-ratings-safe-likes = Protéger les « J’aime »
-settings-ratings-safe-likes-desc = Maintenez le bouton « J’aime » enfoncé pour retirer l’évaluation.
-settings-ratings-hold-to-remove = Maintenir pour retirer le « J’aime »
+settings-ratings-safe-likes = Protéger les J’aime
+settings-ratings-safe-likes-desc = Maintenez le bouton J’aime enfoncé pour retirer l’évaluation.
+settings-ratings-hold-to-remove = Maintenir pour retirer le J’aime
 
 ## Sound
 
@@ -415,8 +415,8 @@ settings-update-ready = La version { $version } est prête. Elle s’installera 
 settings-update-available = La version { $version } est disponible. { $step }
 settings-update-failed = Impossible de rechercher les mises à jour : { $error }
 settings-update-rate-limited = { $minutes ->
-    [one] GitHub limite les recherches de mises à jour depuis votre réseau. Réessayez dans { $minutes } minute.
-   *[other] GitHub limite les recherches de mises à jour depuis votre réseau. Réessayez dans { $minutes } minutes.
+ [one] GitHub limite les recherches de mises à jour depuis votre réseau. Réessayez dans { $minutes } minute.
+ *[other] GitHub limite les recherches de mises à jour depuis votre réseau. Réessayez dans { $minutes } minutes.
 }
 settings-version = Version { $version }.
 settings-automatic-updates-desc-packaged = Recherche les nouvelles versions et vous avertit lorsqu’elles paraissent.
@@ -445,7 +445,7 @@ settings-fonts-and-icons = Polices et icônes
 settings-about-fonts-credit = Inter, DM Sans, Google Sans Flex, Figtree, Instrument Sans (SIL OFL 1.1) • Lucide (ISC)
 # { $shown } is { $count } written with its thousands separators.
 settings-downloads-and-counting = { $count ->
-    [one] Déjà { $shown } téléchargement
-   *[other] Déjà { $shown } téléchargements
+ [one] Déjà { $shown } téléchargement
+ *[other] Déjà { $shown } téléchargements
 }
 settings-counting-downloads = Comptage des téléchargements…

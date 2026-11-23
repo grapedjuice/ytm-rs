@@ -49,5 +49,5 @@ jam-host-only-queue = Только ведущий может менять оче
 jam-host-only-shuffle = Только ведущий может перемешивать очередь
 jam-queue-limit = В вашей очереди уже { $count }. Добавьте новый трек, когда один из них заиграет.
 jam-explicit-skipped = Трек с пометкой E от { $name } пропущен
-jam-guest-added = { $name } добавил(а) «{ $title }»
-jam-guest-queued-next = { $name } поставил(а) «{ $title }» следующим
+jam-guest-added = { $name } добавил(а) “{ $title }”
+jam-guest-queued-next = { $name } поставил(а) “{ $title }” следующим

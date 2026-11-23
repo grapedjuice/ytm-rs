@@ -49,4 +49,4 @@ palette-pages = Halaman
 palette-actions = Aksi
 palette-title = Command palette
 palette-search = Cari halaman, pengaturan, playlist, dan aksi
-palette-search-for = Cari “{ $query }”
+palette-search-for = Cari ““{ $query }””

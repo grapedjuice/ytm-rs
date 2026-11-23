@@ -49,4 +49,4 @@ palette-pages = 页数
 palette-actions = 行动
 palette-title = 命令面板
 palette-search = 搜索页面、设置、播放列表和操作
-palette-search-for = 搜索“{ $query }”
+palette-search-for = 搜索““{ $query }””

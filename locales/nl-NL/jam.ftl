@@ -49,5 +49,5 @@ jam-host-only-queue = Alleen de host kan de wachtrij wijzigen
 jam-host-only-shuffle = Alleen de host kan de wachtrij schudden
 jam-queue-limit = Je wachtrij is vol ({ $count }). Voeg een nummer toe zodra er een afspeelt.
 jam-explicit-skipped = Een expliciet nummer van { $name } is overgeslagen
-jam-guest-added = { $name } voegde ‘{ $title }’ toe
-jam-guest-queued-next = { $name } zette ‘{ $title }’ als volgende in de rij
+jam-guest-added = { $name } voegde ‘“{ $title }”’ toe
+jam-guest-queued-next = { $name } zette ‘“{ $title }”’ als volgende in de rij

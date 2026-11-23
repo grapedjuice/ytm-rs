@@ -23,15 +23,15 @@ status-like-refused = YouTube Music nie przyjął zmiany. Spróbuj ponownie pó�
 status-refused-count = YouTube Music odrzucił: { $count }
 status-removed-liked = Usunięto z polubionych utworów
 status-download-batch = Pobieranie utworów: { $count }
-status-download-collection = Pobieranie z „{ $title }”: { $count }
+status-download-collection = Pobieranie z „“{ $title }””: { $count }
 status-download-stopped = Zatrzymano pobieranie{ $name }. Zapisano: { $songs }
 status-download-already = Już pobrano
-status-download-name-already = „{ $title }” już pobrano
+status-download-name-already = „“{ $title }”” już pobrano
 status-download-done = Pobrano{ $name }: { $songs }
 status-download-already-count = Już pobrane: { $count }
 status-download-fail-count = Nie udało się pobrać: { $count } ({ $details })
-status-play-premium = „{ $title }” wymaga YouTube Music Premium
-status-play-sign-in = Zaloguj się, aby odtworzyć „{ $title }”
+status-play-premium = „“{ $title }”” wymaga YouTube Music Premium
+status-play-sign-in = Zaloguj się, aby odtworzyć „“{ $title }””
 status-age-restricted = obowiązuje ograniczenie wiekowe
 status-songs = { $count ->
     [one] { $count } utwór
@@ -45,6 +45,6 @@ status-episodes = { $count ->
     [many] { $count } odcinków
    *[other] { $count } odcinka
 }
-status-download-quoted-title = „{ $title }”
+status-download-quoted-title = „“{ $title }””
 discord-view-artist = Przejdź do wykonawcy
 discord-view-album = Przejdź do albumu

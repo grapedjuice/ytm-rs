@@ -49,5 +49,5 @@ jam-host-only-queue = Chỉ chủ nhà mới có thể thay đổi hàng đợi 
 jam-host-only-shuffle = Chỉ chủ nhà mới có thể xáo trộn mứt
 jam-queue-limit = Hàng đợi của bạn đã đầy ({ $count }). Thêm một bài hát khác khi một bài hát được phát.
 jam-explicit-skipped = Đã thêm bài hát tục tĩu { $name }
-jam-guest-added = { $name } đã thêm “{ $title }”
-jam-guest-queued-next = { $name } xếp hàng tiếp theo “{ $title }”
+jam-guest-added = { $name } đã thêm ““{ $title }””
+jam-guest-queued-next = { $name } xếp hàng tiếp theo ““{ $title }””

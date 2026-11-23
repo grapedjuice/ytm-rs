@@ -49,4 +49,4 @@ palette-pages = पेज
 palette-actions = क्रियाएँ
 palette-title = कमांड पैलेट
 palette-search = पेज, सेटिंग्स, प्लेलिस्ट और क्रियाएं खोजें
-palette-search-for = "{ $query }" खोजें
+palette-search-for = "“{ $query }”" खोजें

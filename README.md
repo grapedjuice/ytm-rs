@@ -104,6 +104,8 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 
 Downloads for every platform are on the [latest release](https://github.com/grapedjuice/ytm-rs/releases/latest). Once installed, ytm-rs keeps itself up to date; you can turn this off, or switch to nightly builds, in **Settings › About › Updates**.
 
+Update checks use GitHub's API, which allows 60 requests an hour without a token, shared by everyone on your IP address. Behind a busy VPN, proxy or shared network, that can run out. If Settings says GitHub is limiting update checks, create a [personal access token](https://github.com/settings/personal-access-tokens/new) (it needs no permissions; public repositories only) and set it as the `YTM_GITHUB_TOKEN` environment variable. ytm-rs sends it only to `api.github.com`.
+
 ytm-rs collects nothing about you; see [Privacy](PRIVACY.md) for every service it talks to and why.
 
 <details open>

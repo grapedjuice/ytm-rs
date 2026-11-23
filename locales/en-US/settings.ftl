@@ -414,6 +414,10 @@ settings-update-downloading = Downloading { $version }… { $percent }%
 settings-update-ready = Version { $version } is ready. It installs when you close ytm-rs.
 settings-update-available = Version { $version } is out. { $step }
 settings-update-failed = Couldn't check for updates: { $error }
+settings-update-rate-limited = { $minutes ->
+    [one] GitHub is limiting update checks from your network. Try again in { $minutes } minute.
+   *[other] GitHub is limiting update checks from your network. Try again in { $minutes } minutes.
+}
 settings-version = Version { $version }.
 settings-automatic-updates-desc-packaged = Check for new versions and tell you when one is out.
 settings-automatic-updates-desc = Download new versions in the background and install them when you close the app.

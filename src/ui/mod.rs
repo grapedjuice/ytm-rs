@@ -649,6 +649,8 @@ pub struct App {
     flat_color: Option<egui::Color32>,
     /// Panels frost what's behind them, in themes that have them do so.
     glass_on: bool,
+    /// The app's own title bar: the window buttons square along the top right, not in a notch.
+    classic_titlebar: bool,
     reactive_bg: bool,
     /// Bars along the bottom of now playing that move with the music (off unless switched on).
     visualizer: bool,
@@ -1110,6 +1112,7 @@ impl App {
             flat_bg: get("flat_bg").is_some_and(|v| v == "1"),
             flat_color: get("flat_color").as_deref().and_then(crate::preset::hex),
             glass_on: get("glass_on").is_none_or(|v| v == "1"),
+            classic_titlebar: get("classic_titlebar").is_some_and(|v| v == "1"),
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
             visualizer: get("visualizer").is_some_and(|v| v == "1"),
             dim_bright: get("dim_bright").is_none_or(|v| v == "1"),
@@ -1856,6 +1859,7 @@ impl eframe::App for App {
         // bar, so the pages and the full-screen background under it aren't drawn.
         let covered = !self.fullscreen && np >= 1.0;
         titlebar::set_fullscreen(&ctx, self.fullscreen);
+        titlebar::set_classic(&ctx, self.classic_titlebar);
         // Mid-switch to or from the mini player, the frame stays as it is.
         titlebar::sync(&ctx, (layout != mini::Layout::Blank).then_some(layout == mini::Layout::Full));
         dev::dev_memory(&ctx, now);
@@ -2239,6 +2243,7 @@ impl eframe::App for App {
             storage.set_string("flat_color", format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()));
         }
         storage.set_string("glass_on", b(self.glass_on));
+        storage.set_string("classic_titlebar", b(self.classic_titlebar));
         storage.set_string("reactive_bg", b(self.reactive_bg));
         storage.set_string("visualizer", b(self.visualizer));
         storage.set_string("dim_bright", b(self.dim_bright));

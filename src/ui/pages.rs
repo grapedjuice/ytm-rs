@@ -2476,6 +2476,13 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         setting_row(ui, tr!("settings-frosted-glass"), Some(tr!("settings-frosted-glass-desc")), |ui| {
             toggle(ui, &mut app.glass_on, tr!("settings-frosted-glass"));
         });
+        // Where the app draws the title bar itself: Windows, and Linux where it's asked to.
+        if super::titlebar::custom() {
+            divider(ui);
+            setting_row(ui, tr!("settings-classic-title-bar"), Some(tr!("settings-classic-title-bar-desc")), |ui| {
+                toggle(ui, &mut app.classic_titlebar, tr!("settings-classic-title-bar"));
+            });
+        }
         divider(ui);
         setting_row(ui, tr!("settings-pulse-with-the-music"), Some(tr!("settings-pulse-with-the-music-desc")), |ui| {
             toggle(ui, &mut app.reactive_bg, tr!("settings-pulse-with-the-music"));

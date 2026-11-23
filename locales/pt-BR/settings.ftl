@@ -62,21 +62,21 @@ settings-use-youtubes-restricted-mode-desc = Mais rigoroso: o YouTube também de
 ## Song ratings
 
 settings-song-ratings = Avaliações de músicas
-settings-ratings-player-button = Botão Não gostei no player
+settings-ratings-player-button = Botão de não curtir no player
 settings-ratings-player-button-desc = Mostra o botão de polegar para baixo ao lado do coração.
 settings-ratings-list-icons = Ícones de avaliação nas listas
-settings-ratings-list-icons-desc = Mostra as avaliações ao lado da duração. Passe o mouse sobre uma música sem avaliação para revelar o botão Gostei.
-settings-ratings-dim-disliked = Atenuar músicas com Não gostei
-settings-ratings-dim-disliked-desc = Mostra as músicas com Não gostei em cores suaves nas listas.
-settings-ratings-skip-disliked = Não gostei pula para a próxima
-settings-ratings-skip-disliked-desc = Avança depois que o YouTube Music confirma o Não gostei. Convidados em Ouvir juntos seguem a reprodução do anfitrião.
-settings-ratings-dislike-notices = Notificações de Não gostei
-settings-ratings-dislike-notices-desc = Mostra uma mensagem quando um Não gostei é salvo ou removido.
-settings-ratings-unlike-notices = Notificações ao remover Gostei
+settings-ratings-list-icons-desc = Mostra as avaliações ao lado da duração. Passe o mouse sobre uma música sem avaliação para revelar o botão Curtir.
+settings-ratings-dim-disliked = Atenuar músicas não curtidas
+settings-ratings-dim-disliked-desc = Mostra as músicas não curtidas em cores suaves nas listas.
+settings-ratings-skip-disliked = Não curtir pula para a próxima
+settings-ratings-skip-disliked-desc = Avança depois que o YouTube Music confirma o não curtir. Convidados em Ouvir juntos seguem a reprodução do anfitrião.
+settings-ratings-dislike-notices = Notificações de não curtir
+settings-ratings-dislike-notices-desc = Mostra uma mensagem quando o não curtir é salvo ou removido.
+settings-ratings-unlike-notices = Notificações ao remover curtida
 settings-ratings-unlike-notices-desc = Mostra um botão Desfazer antes de enviar a remoção ao YouTube Music.
-settings-ratings-safe-likes = Gostei protegido
-settings-ratings-safe-likes-desc = Segure o botão Gostei para remover um Gostei.
-settings-ratings-hold-to-remove = Segure para remover o Gostei
+settings-ratings-safe-likes = Curtidas protegidas
+settings-ratings-safe-likes-desc = Segure o botão de curtir para remover uma curtida.
+settings-ratings-hold-to-remove = Segure para remover a curtida
 
 ## Sound
 

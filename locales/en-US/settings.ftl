@@ -353,6 +353,7 @@ settings-local-network-desc = Look for AirPlay speakers on your network, so the 
 settings-local-network-hint = Asks Windows for local network access
 settings-airplay-searching = Looking for speakers…
 settings-speakers-searching-more = Looking for more…
+settings-speakers-none = No speakers found
 settings-backup-stream-prompt-title = Playback stopped
 settings-backup-stream-prompt-body = YouTube stopped this song with a bot check, which can happen on a VPN. A backup stream can play it instead. It comes with the video, so it uses more data.
 settings-backup-stream-prompt-enable = Turn on and retry

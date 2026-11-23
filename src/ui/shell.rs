@@ -1872,15 +1872,18 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             app.actions.push(Action::OpenNowPlaying(true));
         }
     }
-    // Where the music plays: network speakers' kind, lit, with a pill above saying which.
+    // Where the music plays: network speakers' kind, lit, its name saying which.
     let kind = app.destination.kind();
-    let out = right_btn(ui, kind.map_or(icon::MONITOR_SPEAKER, crate::destination::Kind::icon), crate::tr!("settings-output-device"), kind.is_some());
-    let pill = playing_on(app, ui, full, out.rect.right());
-    let opened = out.clicked() || pill;
-    let popup = widgets::menu_popup(&out)
-        .open_memory(opened.then_some(egui::SetOpenCommand::Toggle))
-        .align(egui::RectAlign::TOP_END)
-        .align_alternatives(&[egui::RectAlign::BOTTOM_END]);
+    let name = match kind {
+        None => crate::tr!("settings-output-device").to_owned(),
+        Some(_) => {
+            let to = super::pages::destination_label(app);
+            if app.audio.remote_state() == crate::audio::RemoteState::Connecting { crate::tr!("settings-connecting-to", name = to.as_str()) } else { crate::tr!("settings-playing-on", name = to.as_str()) }.to_owned()
+        }
+    };
+    let out = right_btn(ui, kind.map_or(icon::MONITOR_SPEAKER, crate::destination::Kind::icon), &name, kind.is_some());
+    let opened = out.clicked();
+    let popup = widgets::menu_popup(&out).align(egui::RectAlign::TOP_END).align_alternatives(&[egui::RectAlign::BOTTOM_END]);
     super::pages::play_on_menu(app, opened, popup, 320.0);
     if app.tempo_on {
         tempo_button(app, ui, Rect::from_center_size(pos2(rx - 20.0, cy), vec2(40.0, 18.0 * bar_scale + 16.0)), bar_rest, accent, dot_floor);
@@ -1942,35 +1945,6 @@ pub fn unmute_id() -> egui::Id {
 }
 
 /// What volume normalization does to the song playing, for its setting. None while it's off.
-/// Over the bar's right end, ending at `right`, while network speakers are picked: "Playing
-/// on Living Room" (or connecting to it), which opens "Play on". Nothing while they can't
-/// play, the sound card standing in. Whether it was clicked.
-fn playing_on(app: &App, ui: &Ui, bar: Rect, right: f32) -> bool {
-    use crate::audio::RemoteState;
-    let Some(kind) = app.destination.kind() else { return false };
-    let state = app.audio.remote_state();
-    if matches!(state, RemoteState::Failed(_)) {
-        return false;
-    }
-    let name = super::pages::destination_label(app);
-    let text = if state == RemoteState::Connecting { crate::tr!("settings-connecting-to", name = name.as_str()) } else { crate::tr!("settings-playing-on", name = name.as_str()) };
-    let accent = app.accent_color();
-    let fg = theme::on_fill(accent);
-    let font = theme::semibold(12.0);
-    let width = (ui.painter().layout_no_wrap(text.to_string(), font.clone(), fg).size().x + 40.0).min(280.0);
-    let rect = Rect::from_min_size(pos2(right - width, bar.top() - 30.0), vec2(width, 24.0));
-    let shown = egui::Area::new(egui::Id::unique("playing-on")).order(egui::Order::Middle).fixed_pos(rect.min).show(ui.ctx(), |ui| {
-        let resp = ui.allocate_rect(rect, Sense::click());
-        let resp = named(resp, &text).on_hover_cursor(egui::CursorIcon::PointingHand);
-        let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.12);
-        ui.painter().rect_filled(rect, rect.height() / 2.0, theme::with_alpha(accent, 0.9 + 0.1 * h));
-        widgets::icon_at(ui, pos2(rect.left() + 16.0, rect.center().y), kind.icon(), 13.0, fg);
-        widgets::text_at_elided(ui, pos2(rect.left() + 28.0, rect.center().y - 8.0), &text, font, fg, rect.width() - 40.0);
-        resp.clicked()
-    });
-    shown.inner
-}
-
 pub(super) fn normalization_note(app: &App) -> Option<String> {
     if app.normalize == crate::audio::Normalize::Off {
         return None;

@@ -3536,6 +3536,8 @@ pub(super) fn play_on_menu(app: &mut App, opened: bool, popup: egui::Popup, widt
     use crate::destination::{self, Destination};
     // Listed when opened, so a device that just connected shows up. Only then: the player
     // bar draws this every frame, and listing asks the system each time.
+    // When speakers began to be looked for, to say so for a while: they answer in seconds.
+    let since = egui::Id::unique("play-on-looking");
     if opened {
         let card = match &app.destination {
             Destination::Local(id) => id.as_deref(),
@@ -3543,9 +3545,13 @@ pub(super) fn play_on_menu(app: &mut App, opened: bool, popup: egui::Popup, widt
         };
         app.output_devices = crate::audio::output_devices(card);
         destination::discover();
+        // The time first: reading it inside `data_mut` would wait on the lock it holds.
+        let now = popup.ctx().input(|i| i.time);
+        popup.ctx().data_mut(|d| d.insert_temp(since, now));
     }
     let mut pick: Option<(Destination, String)> = None;
-    popup.show(|ui| {
+    // It stays open on a pick, to watch the speaker connect or pick again.
+    popup.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         // Speakers turn up as they answer, and connect a while after they're picked.
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
         widgets::menu_body(ui, width);
@@ -3556,12 +3562,10 @@ pub(super) fn play_on_menu(app: &mut App, opened: bool, popup: egui::Popup, widt
             let speaker = Some(theme::icon::MONITOR_SPEAKER);
             if option_row_marked(ui, system_default(), speaker, app.destination == Destination::Local(None)).clicked() {
                 pick = Some((Destination::Local(None), String::new()));
-                ui.close();
             }
             for d in &app.output_devices {
                 if option_row_marked(ui, &d.name, speaker, app.destination == Destination::Local(Some(d.id.clone()))).clicked() {
                     pick = Some((Destination::Local(Some(d.id.clone())), d.name.clone()));
-                    ui.close();
                 }
             }
             widgets::menu_divider(ui);
@@ -3572,6 +3576,8 @@ pub(super) fn play_on_menu(app: &mut App, opened: bool, popup: egui::Popup, widt
                 if hint_row(ui, theme::icon::AIRPLAY, tr!("settings-local-network"), tr!("settings-local-network-hint")).clicked() {
                     app.local_network = true;
                     app.set_local_network();
+                    let now = ui.input(|i| i.time);
+                    ui.data_mut(|d| d.insert_temp(since, now));
                 }
                 return;
             }
@@ -3580,13 +3586,25 @@ pub(super) fn play_on_menu(app: &mut App, opened: bool, popup: egui::Popup, widt
             for r in &found {
                 if speaker_row(ui, r, app.destination.has(&r.id), &state).clicked() {
                     pick = Some((Destination::speaker(r), r.name.clone()));
-                    ui.close();
                 }
             }
-            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
-            spinner(ui, pos2(r.left() + 20.0, r.center().y), 5.0, theme::text_faint());
-            let looking = if found.is_empty() { tr!("settings-airplay-searching") } else { tr!("settings-speakers-searching-more") };
-            widgets::text_at(ui, pos2(r.left() + 38.0, r.center().y - 8.0), looking, theme::regular(13.0), theme::text_faint(), r.width() - 50.0);
+            // Looking, for `LOOKING` after it's opened; then nothing, or that there's none.
+            const LOOKING: f64 = 8.0;
+            let now = ui.input(|i| i.time);
+            let looking = ui.data(|d| d.get_temp::<f64>(since)).is_some_and(|t| now - t < LOOKING);
+            let note = match (looking, found.is_empty()) {
+                (true, true) => Some(tr!("settings-airplay-searching")),
+                (true, false) => Some(tr!("settings-speakers-searching-more")),
+                (false, true) => Some(tr!("settings-speakers-none")),
+                (false, false) => None,
+            };
+            if let Some(note) = note {
+                let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
+                if looking {
+                    spinner(ui, pos2(r.left() + 20.0, r.center().y), 5.0, theme::text_faint());
+                }
+                widgets::text_at(ui, pos2(r.left() + 38.0, r.center().y - 8.0), note, theme::regular(13.0), theme::text_faint(), r.width() - 50.0);
+            }
         });
     });
     if let Some((to, name)) = pick {

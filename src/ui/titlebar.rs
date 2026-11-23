@@ -33,6 +33,8 @@ const NOTCH_CURVE: f32 = 14.0;
 /// Between the window buttons and what a page puts in the notch: a thin line.
 const NOTCH_SEP: f32 = 7.0;
 const BUTTONS_W: f32 = 3.0 * NOTCH_BUTTON.x + 2.0 * NOTCH_GAP;
+/// A classic window button's width, as Windows draws them: the title bar's full height.
+const CLASSIC_BUTTON_W: f32 = 46.0;
 /// How far in from the window's edge resizing starts, and along a corner.
 const EDGE: f32 = 5.0;
 const CORNER: f32 = 14.0;
@@ -159,6 +161,17 @@ fn shown(ctx: &egui::Context) -> bool {
     own_row() && !ctx.data(|d| d.get_temp::<bool>(Id::unique("titlebar-fullscreen")).unwrap_or(false)) && !ctx.input(|i| i.viewport().fullscreen.unwrap_or(false))
 }
 
+/// Settings › Appearance › Classic title bar: the window buttons square along the top
+/// right, as before the notch, and what went in the notch back in its page. Once a
+/// frame before drawing.
+pub fn set_classic(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(Id::unique("titlebar-classic"), on));
+}
+
+fn classic(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(Id::unique("titlebar-classic")).unwrap_or(false))
+}
+
 fn maximized(ctx: &egui::Context) -> bool {
     ctx.input(|i| i.viewport().maximized.unwrap_or(false))
 }
@@ -196,7 +209,7 @@ fn items_w(taken: f32) -> f32 {
 /// and what's beside them at the right, or a page's at the left. None while there's no
 /// title bar (full screen), or nothing in the left one.
 fn notch_body(ctx: &egui::Context, side: Side, end: f32, start: f32) -> Option<Rect> {
-    if !(custom() && shown(ctx)) {
+    if !notch_shown(ctx) {
         return None;
     }
     let s = ctx.content_rect();
@@ -216,9 +229,12 @@ fn notch_body(ctx: &egui::Context, side: Side, end: f32, start: f32) -> Option<R
     }
 }
 
-/// The window buttons' notch, its curve included, which what's drawn at the top right
-/// stays clear of.
+/// The window buttons' notch, its curve included, or the classic buttons' corner: what's
+/// drawn at the top right stays clear of it.
 pub fn buttons_rect(ctx: &egui::Context) -> Option<Rect> {
+    if classic(ctx) {
+        return classic_rect(ctx);
+    }
     let t = taken(ctx);
     notch_body(ctx, Side::End, t.end.max(t.last_end), 0.0).map(|b| b.with_min_x(b.left() - NOTCH_FLARE))
 }
@@ -267,10 +283,18 @@ pub fn notch_ui(ui: &mut Ui, side: Side, w: f32) -> Option<Ui> {
     Some(child)
 }
 
-/// Whether the notches are up: the app's own title bar, not in full screen. While they
-/// are, what goes in them never goes back to its place in the page.
+/// Whether the notches are up: the app's own title bar, not classic, not in full screen.
+/// While they are, what goes in them never goes back to its place in the page.
 pub fn notch_shown(ctx: &egui::Context) -> bool {
-    custom() && shown(ctx)
+    custom() && shown(ctx) && !classic(ctx)
+}
+
+/// The classic window buttons' corner, the title bar's full height.
+fn classic_rect(ctx: &egui::Context) -> Option<Rect> {
+    (custom() && shown(ctx)).then(|| {
+        let screen = ctx.content_rect();
+        Rect::from_min_size(pos2(screen.right() - 3.0 * CLASSIC_BUTTON_W, screen.top()), vec2(3.0 * CLASSIC_BUTTON_W, HEIGHT))
+    })
 }
 
 /// The fill behind a highlighted button in a notch.
@@ -470,6 +494,9 @@ fn window_button_hit(r: Rect, screen: Rect, notch_bottom: f32, close: bool) -> R
 /// The notches, and in the right one minimize, maximize or restore, and close. Last in
 /// the pass, once pages have put what they will in them.
 pub fn window_buttons(ctx: &egui::Context) {
+    if classic(ctx) {
+        return classic_buttons(ctx);
+    }
     let t = taken(ctx);
     let Some(body) = notch_body(ctx, Side::End, t.end, 0.0) else { return };
     let start = notch_body(ctx, Side::Start, 0.0, t.start);
@@ -491,27 +518,54 @@ pub fn window_buttons(ctx: &egui::Context) {
             let mid = screen.top() + NOTCH_TOP + NOTCH_BUTTON.y / 2.0;
             ui.painter().vline(x, mid - 7.0..=mid + 7.0, Stroke::new(1.0, theme::glass(0.18)));
         }
-        let kinds = [(Kind::Minimize, crate::tr!("window-minimize")), (if max { Kind::Restore } else { Kind::Maximize }, if max { crate::tr!("window-restore") } else { crate::tr!("window-maximize") }), (Kind::Close, crate::tr!("ui-close"))];
         let left = screen.right() - NOTCH_PAD_EDGE - BUTTONS_W;
-        for (i, (kind, name)) in kinds.into_iter().enumerate() {
+        for (i, (kind, name)) in kinds(max).into_iter().enumerate() {
             let r = Rect::from_min_size(pos2(left + i as f32 * (NOTCH_BUTTON.x + NOTCH_GAP), screen.top() + NOTCH_TOP), NOTCH_BUTTON);
             let hit = window_button_hit(r, screen, body.bottom(), kind == Kind::Close);
             let resp = ui.interact(hit, Id::unique(("window-button", i)), Sense::click());
             let resp = super::widgets::named(resp, name);
-            paint_button(ui, r, kind, &resp);
+            paint_button(ui, r, kind, &resp, false);
             if resp.has_focus() {
                 ui.painter().rect_stroke(r, 7.0, Stroke::new(1.5, theme::text()), egui::StrokeKind::Inside);
             }
             if resp.clicked() {
-                ctx.send_viewport_cmd(match kind {
-                    Kind::Minimize => ViewportCommand::Minimized(true),
-                    Kind::Maximize => ViewportCommand::Maximized(true),
-                    Kind::Restore => ViewportCommand::Maximized(false),
-                    Kind::Close => ViewportCommand::Close,
-                });
+                ctx.send_viewport_cmd(kind.command());
             }
         }
     });
+}
+
+/// The classic window buttons: square, side by side at the top right, the title bar's
+/// full height, as Windows draws them.
+fn classic_buttons(ctx: &egui::Context) {
+    let Some(rect) = classic_rect(ctx) else { return };
+    let max = maximized(ctx);
+    egui::Area::new(Id::unique("window-buttons")).order(egui::Order::Foreground).fixed_pos(rect.min).show(ctx, |ui| {
+        for (i, (kind, name)) in kinds(max).into_iter().enumerate() {
+            let r = Rect::from_min_size(rect.min + vec2(i as f32 * CLASSIC_BUTTON_W, 0.0), vec2(CLASSIC_BUTTON_W, HEIGHT));
+            // Close reaches the window's right edge, so the pointer thrown into the corner
+            // while maximized still clicks it.
+            let hit = if kind == Kind::Close { r.with_max_x(ctx.content_rect().right()) } else { r };
+            // Not the notch's ids: a click held through the switch mustn't land on what's under it now.
+            let resp = super::widgets::named(ui.interact(hit, Id::unique(("classic-window-button", i)), Sense::click()), name);
+            paint_button(ui, r, kind, &resp, true);
+            if resp.has_focus() {
+                ui.painter().rect_stroke(r.shrink(3.0), 3.0, Stroke::new(1.5, theme::text()), egui::StrokeKind::Inside);
+            }
+            if resp.clicked() {
+                ctx.send_viewport_cmd(kind.command());
+            }
+        }
+    });
+}
+
+/// Minimize, maximize or restore (`max`: the window is maximized), and close, with their names.
+fn kinds(max: bool) -> [(Kind, &'static str); 3] {
+    [
+        (Kind::Minimize, crate::tr!("window-minimize")),
+        if max { (Kind::Restore, crate::tr!("window-restore")) } else { (Kind::Maximize, crate::tr!("window-maximize")) },
+        (Kind::Close, crate::tr!("ui-close")),
+    ]
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -522,19 +576,41 @@ enum Kind {
     Close,
 }
 
-fn paint_button(ui: &Ui, r: Rect, kind: Kind, resp: &egui::Response) {
+impl Kind {
+    fn command(self) -> ViewportCommand {
+        match self {
+            Self::Minimize => ViewportCommand::Minimized(true),
+            Self::Maximize => ViewportCommand::Maximized(true),
+            Self::Restore => ViewportCommand::Maximized(false),
+            Self::Close => ViewportCommand::Close,
+        }
+    }
+}
+
+/// A window button in `r`: rounded in the notch, or square and `classic`.
+fn paint_button(ui: &Ui, r: Rect, kind: Kind, resp: &egui::Response, classic: bool) {
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.1);
     let down = resp.is_pointer_button_down_on();
     let p = ui.painter();
+    let radius = if classic { 0.0 } else { 7.0 };
     let fg = if kind == Kind::Close {
         // Windows' own close red, and a darker one while held.
-        let red = if down { Color32::from_rgb(0xB8, 0x0F, 0x1D) } else { Color32::from_rgb(0xE8, 0x11, 0x23) };
+        let red = match (classic, down) {
+            (true, true) => Color32::from_rgb(0x94, 0x1F, 0x15),
+            (true, false) => Color32::from_rgb(0xC4, 0x2B, 0x1C),
+            (false, true) => Color32::from_rgb(0xB8, 0x0F, 0x1D),
+            (false, false) => Color32::from_rgb(0xE8, 0x11, 0x23),
+        };
         if h > 0.0 {
-            p.rect_filled(r, 7.0, red.gamma_multiply(h));
+            p.rect_filled(r, radius, red.gamma_multiply(h));
         }
         theme::lerp_color(theme::text_dim(), Color32::WHITE, h)
     } else {
-        notch_highlight(ui, r, h, down);
+        if !classic {
+            notch_highlight(ui, r, h, down);
+        } else if h > 0.0 {
+            p.rect_filled(r, 0.0, theme::glass(if down { 0.16 } else { 0.10 } * h));
+        }
         theme::lerp_color(theme::text_dim(), theme::text(), h)
     };
     // Thin glyphs, ten points across, on whole pixels so they stay sharp.
@@ -547,10 +623,10 @@ fn paint_button(ui: &Ui, r: Rect, kind: Kind, resp: &egui::Response) {
             p.line_segment([c + vec2(-5.0, 0.0), c + vec2(5.0, 0.0)], s);
         }
         Kind::Maximize => {
-            p.rect_stroke(Rect::from_center_size(c, vec2(10.0, 10.0)), 2.0, s, egui::StrokeKind::Middle);
+            p.rect_stroke(Rect::from_center_size(c, vec2(10.0, 10.0)), if classic { 1.0 } else { 2.0 }, s, egui::StrokeKind::Middle);
         }
         Kind::Restore => {
-            p.rect_stroke(Rect::from_center_size(c + vec2(-1.0, 1.0), vec2(8.0, 8.0)), 1.5, s, egui::StrokeKind::Middle);
+            p.rect_stroke(Rect::from_center_size(c + vec2(-1.0, 1.0), vec2(8.0, 8.0)), if classic { 1.0 } else { 1.5 }, s, egui::StrokeKind::Middle);
             // The window behind: its top and right edges, showing past the front one.
             let b = Rect::from_center_size(c + vec2(1.0, -1.0), vec2(8.0, 8.0));
             p.line_segment([pos2(b.left() + 2.0, b.top()), b.right_top()], s);

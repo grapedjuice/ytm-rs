@@ -39,6 +39,7 @@ window-installed-when-closed = Phiên bản { $version } đã sẵn sàng. Nó c
 window-notes-status = Bạn đang sử dụng { $version }. { $step }
 window-package-instructions = Tải xuống gói mới và cài đặt nó với sudo pacman -U.
 window-package-download = Tải xuống .deb mới và mở nó để cài đặt nó qua cái này.
+window-package-flatpak = Bản này cập nhật qua Flatpak: chạy flatpak update hoặc xem trong kho phần mềm.
 window-keyboard-volume-up = Tăng âm lượng
 window-keyboard-volume-down = Giảm âm lượng
 widget-pin-playlist = Ghim danh sách phát

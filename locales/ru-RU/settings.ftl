@@ -39,11 +39,17 @@ settings-switching = Переключение…
 
 settings-autoplay = Автовоспроизведение
 settings-autoplay-desc = Продолжает играть похожие треки, когда очередь заканчивается.
+settings-smart-shuffle = Умное перемешивание
+settings-smart-shuffle-desc = В режиме перемешивания к очереди добавляются похожие треки, один после каждых трёх. Они пропадают, когда перемешивание выключают.
+settings-gapless-playback = Воспроизведение без пауз
+settings-gapless-playback-desc = Воспроизводит треки подряд без паузы — для альбомов и концертных записей, которые идут слитно.
 settings-crossfade-songs = Плавный переход между треками
 settings-crossfade-songs-desc = Плавно смешивает конец трека с началом следующего.
 settings-crossfade-length = Длительность перехода
 settings-crossfade-when-skipping = Плавный переход при пропуске
 settings-crossfade-when-skipping-desc = Включает плавный переход и при пропуске вперёд. При переходе назад или выборе другого трека переключение происходит сразу.
+settings-skip-silence = Пропускать тишину в конце
+settings-skip-silence-desc = Если во второй половине трек замолкает на несколько секунд, начинается следующий. Пропускает длинные тихие концовки и скрытые треки после них.
 settings-hide-explicit-songs = Скрывать треки с пометкой E
 settings-hide-explicit-songs-desc = Убирает треки с пометкой E из списков, поиска, очереди и автовоспроизведения. Текущий трек доиграет до конца.
 settings-show-podcasts = Показывать подкасты
@@ -78,12 +84,15 @@ settings-sound = Звук
 settings-volume-normalization = Нормализация громкости
 settings-logarithmic-volume = Логарифмическая шкала громкости
 settings-logarithmic-volume-desc = Настраивает шкалу по восприятию слуха, выделяя больше места для регулировки тихого звука.
+settings-fade-when-pausing = Плавное затухание при паузе
+settings-fade-when-pausing-desc = За пятую долю секунды плавно уменьшает громкость при паузе и повышает её при возобновлении. Если выключить, воспроизведение останавливается и возобновляется сразу.
 settings-high-quality-audio = Высокое качество звука
 settings-high-quality-audio-desc = 256 кбит/с вместо 128 кбит/с для аккаунтов с YouTube Premium. Применяется со следующего трека.
 settings-output-device = Устройство вывода
 settings-output-device-desc = Устройство для воспроизведения музыки. Если оно отключено, используется устройство Windows по умолчанию до его повторного подключения.
 settings-windows-default = По умолчанию в Windows
 settings-not-connected = { $name } (не подключено)
+settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Треки играют с исходной громкостью. Обычный режим выравнивает громкость, а тихий выравнивает её на более низком уровне.
 settings-normalization-normal-desc = Треки звучат на одном уровне. Как в YouTube Music, громкие треки приглушаются, а тихие усиливаются до 6 дБ.
 settings-normalization-quiet-desc = Треки звучат на одном пониженном уровне. Громкие приглушаются сильнее, поэтому тихие почти не нужно усиливать.
@@ -113,6 +122,8 @@ settings-0-db = 0 дБ
 settings-playback-speed = Скорость воспроизведения
 settings-playback-speed-desc = Ускоряет или замедляет треки. Настройка доступна и на панели плеера. Как на пластинке, при ускорении тон повышается, при замедлении понижается. Текст остаётся синхронным. При запуске ytm-rs скорость возвращается к 1×.
 settings-speed = Скорость
+settings-keep-pitch = Сохранять высоту тона
+settings-keep-pitch-desc = Быстрее или медленнее, без повышения и понижения тона. Выключено — высота меняется вместе со скоростью, как у пластинки.
 settings-playback-speed-jam-note = При совместном прослушивании скорость возвращается к обычной, чтобы все слышали одну и ту же песню.
 
 ## Music videos
@@ -144,6 +155,17 @@ settings-text-size = Размер текста
 settings-text-size-desc = Увеличивает или уменьшает текст относительно размера, заданного темой.
 settings-larger = Крупнее
 settings-smaller = Мельче
+settings-line-weight = Насыщенность
+settings-line-weight-desc = Насколько жирный текст, вместо значения темы.
+settings-theme-default = Как в теме
+settings-weight-light = Тонкий
+settings-weight-regular = Обычный
+settings-weight-medium = Средний
+settings-weight-semibold = Полужирный
+settings-weight-bold = Жирный
+settings-weight-extra-bold = Сверхжирный
+settings-translation-size = Размер перевода
+settings-translation-size-desc = Делает перевод и латиницу крупнее или мельче рядом с текстом. 100 % — как в теме.
 settings-quick-line-changes = Быстрая смена строк
 settings-quick-line-changes-desc = Следующая строка быстро встаёт на место, как в Better Lyrics. Если выключить, скорость смены определяет тема.
 settings-lyrics-full-frame-rate = Тексты с частотой обновления экрана
@@ -185,10 +207,20 @@ settings-always-show-seek-knob = Всегда показывать бегуно�
 settings-always-show-seek-knob-desc = В темах с бегунком он остаётся виден, даже если курсор находится вне полосы прогресса.
 settings-animated-background = Анимированный фон
 settings-animated-background-desc = В темах с анимированным фоном обложка альбома медленно движется на заднем плане.
+settings-background-speed = Скорость фона
+settings-background-speed-desc = Как быстро плывёт фон в темах, где он движется. 100 % — как в теме.
+settings-faster = Быстрее
+settings-slower = Медленнее
+settings-background-brightness = Яркость фона
+settings-background-brightness-desc = Делает обложку за «Сейчас играет» и страницами светлее или темнее. 100 % — как в теме.
+settings-brighter = Светлее
+settings-darker = Темнее
 settings-frosted-glass = Матовое стекло
 settings-frosted-glass-desc = В подходящих темах меню и плавающие панели размывают фон под собой. Без эффекта они чуть менее прозрачны.
 settings-pulse-with-the-music = Пульсация в такт музыке
 settings-pulse-with-the-music-desc = В темах с анимированным фоном он увеличивается в такт музыке.
+settings-visualizer = Визуализатор
+settings-visualizer-desc = Полоски внизу экрана «Сейчас играет» двигаются в такт, цветом акцента.
 settings-dim-bright-covers = Затемнять светлые обложки
 settings-dim-bright-covers-desc = Затемняет фон светлых обложек, чтобы тексты и названия хорошо читались. Яркость тёмных обложек сохраняется.
 settings-font = Шрифт
@@ -249,6 +281,14 @@ settings-restart-to-apply = Нужен перезапуск
 settings-language-restart-desc = Язык изменится при следующем запуске приложения.
 settings-restart-now = Перезапустить сейчас
 
+## Song info: the language and country YouTube Music answers in. Separate from Language above.
+
+settings-song-info = Данные о песнях
+settings-song-info-language = Язык данных о песнях
+settings-song-info-language-desc = Язык названий песен, исполнителей, альбомов и разделов YouTube Music, если для них доступен перевод.
+settings-song-info-country = Страна для чартов и рекомендаций
+settings-song-info-country-desc = Страна, для которой YouTube Music подбирает чарты и рекомендации.
+
 ## Window
 
 settings-window = Окно
@@ -277,10 +317,29 @@ settings-downloads-note = Загружайте треки через их мен
 settings-download-folder = Папка загрузок
 settings-change = Изменить
 settings-open = Открыть
+settings-download-liked = Скачивать понравившиеся треки
+settings-download-liked-desc = Понравившиеся треки скачиваются сразу. При включении и при каждом запуске приложения — и те, что ещё не скачаны. Только после входа; около 4 МБ на трек.
+settings-folder-per-list = Отдельная папка для каждого альбома и плейлиста
+settings-folder-per-list-desc = При скачивании альбома или плейлиста с его страницы или из меню песни сохраняются в папку с его названием. Ранее скачанные песни остаются на своих местах.
+settings-file-lyrics = Текст в файле
+settings-file-lyrics-desc = Скачанные треки содержат текст, который вы видите, для других плееров. Текст с таймингом сохраняется как LRC.
+settings-file-lyrics-synced = С таймингом
+settings-file-lyrics-plain = Только текст
+settings-file-lyrics-off = Нет
 
 ## Network
 
 settings-network = Сеть
+settings-backup-stream = Резервный поток при остановке песни
+settings-backup-stream-desc = Если вы вошли в аккаунт, а YouTube остановил песню для проверки на бота (такое бывает при использовании VPN), воспроизвести её из потока с видео. Расходует больше трафика.
+settings-local-network = Разрешить поиск в локальной сети
+settings-local-network-desc = Ищет колонки AirPlay в сети, чтобы музыка играла на них. Брандмауэр может один раз спросить, пускать ли приложение.
+settings-airplay-searching = Поиск колонок AirPlay…
+settings-backup-stream-prompt-title = Воспроизведение остановлено
+settings-backup-stream-prompt-body = YouTube остановил эту песню для проверки на бота. Такое бывает при использовании VPN. Резервный поток позволит продолжить воспроизведение. Он содержит видео, поэтому расходует больше трафика.
+settings-backup-stream-prompt-enable = Включить и повторить
+settings-backup-stream-prompt-settings = Настройки
+settings-backup-stream-prompt-dismiss = Не сейчас
 settings-proxy = Прокси
 settings-proxy-desc = Направляет весь трафик ytm-rs через прокси, включая треки, тексты, вход и совместное прослушивание.
 settings-proxy-windows-uses = В Windows настроен прокси { $proxy }.
@@ -380,19 +439,3 @@ settings-downloads-and-counting = { $count ->
    *[other] Уже { $shown } скачивания
 }
 settings-counting-downloads = Подсчёт загрузок…
-settings-fade-when-pausing = Плавное затухание при паузе
-settings-fade-when-pausing-desc = За пятую долю секунды плавно уменьшает громкость при паузе и повышает её при возобновлении. Если выключить, воспроизведение останавливается и возобновляется сразу.
-settings-song-info = Данные о песнях
-settings-song-info-language = Язык данных о песнях
-settings-song-info-language-desc = Язык названий песен, исполнителей, альбомов и разделов YouTube Music, если для них доступен перевод.
-settings-song-info-country = Страна для чартов и рекомендаций
-settings-song-info-country-desc = Страна, для которой YouTube Music подбирает чарты и рекомендации.
-settings-folder-per-list = Отдельная папка для каждого альбома и плейлиста
-settings-folder-per-list-desc = При скачивании альбома или плейлиста с его страницы или из меню песни сохраняются в папку с его названием. Ранее скачанные песни остаются на своих местах.
-settings-backup-stream = Резервный поток при остановке песни
-settings-backup-stream-desc = Если вы вошли в аккаунт, а YouTube остановил песню для проверки на бота (такое бывает при использовании VPN), воспроизвести её из потока с видео. Расходует больше трафика.
-settings-backup-stream-prompt-title = Воспроизведение остановлено
-settings-backup-stream-prompt-body = YouTube остановил эту песню для проверки на бота. Такое бывает при использовании VPN. Резервный поток позволит продолжить воспроизведение. Он содержит видео, поэтому расходует больше трафика.
-settings-backup-stream-prompt-enable = Включить и повторить
-settings-backup-stream-prompt-settings = Настройки
-settings-backup-stream-prompt-dismiss = Не сейчас

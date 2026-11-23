@@ -1,5 +1,11 @@
-### Player controls and synced lyrics.
+### The player: the bar along the bottom, now playing and the mini player.
 
+# For screen readers, on the time beside the progress line ("0:36 / 1:27"), which a
+# click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
+player-time-show-left = { $time }. बचा हुआ समय दिखाएँ
+player-time-show-length = { $time }. गाने की लंबाई दिखाएँ
+
+# From the interface-wide catalog (#228).
 player-full-screen = पूर्ण स्क्रीन
 player-exit-full-screen = पूर्ण स्क्रीन से बाहर निकलें
 player-pip = चित्र में चित्र
@@ -49,3 +55,7 @@ player-play-next = अगला खेलें
 player-start-radio = रेडियो प्रारंभ करें
 player-go-to-album = एल्बम पर जाएँ
 player-go-to-artist = कलाकार के पास जाएँ
+player-sleep-timer = स्लीप टाइमर
+player-sleep-off = बंद
+player-sleep-minutes = { $minutes } मि
+player-sleep-song-end = गाने का अंत

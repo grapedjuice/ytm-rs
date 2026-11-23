@@ -45,6 +45,7 @@ pub const LANGUAGES: &[Language] = &[
     language("ja-JP", "ja"),
     language("fr-FR", "fr"),
     language("pt-BR", "pt"),
+    language("pt-PT", "pt-PT"),
     language("ru-RU", "ru"),
     language("it-IT", "it"),
     language("nl-NL", "nl"),
@@ -320,7 +321,8 @@ mod tests {
         assert_eq!(choose(Some("uk-UA"), &sys(&["pl-PL"])), "uk-UA");
         assert_eq!(choose(Some("xx-XX"), &sys(&["fr_CA.UTF-8"])), "fr-FR");
         assert_eq!(choose(None, &sys(&["sv-SE", "nl-BE", "en-US"])), "nl-NL");
-        assert_eq!(choose(None, &sys(&["pt-PT"])), "pt-BR");
+        assert_eq!(choose(None, &sys(&["pt-PT"])), "pt-PT");
+        assert_eq!(choose(None, &sys(&["pt"])), "pt-BR");
         assert_eq!(choose(None, &sys(&["sv-SE"])), "en-US");
         assert_eq!(choose(None, &sys(&["id"])), "id-ID");
         assert_eq!(choose(None, &sys(&["ar-EG"])), "ar");

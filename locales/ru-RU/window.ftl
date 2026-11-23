@@ -39,6 +39,7 @@ window-installed-when-closed = Версия { $version } готова. Она у
 window-notes-status = Установлена версия { $version }. { $step }
 window-package-instructions = Скачайте новый пакет и установите его с помощью sudo pacman -U.
 window-package-download = Скачайте и откройте новый файл .deb для установки.
+window-package-flatpak = Эта копия обновляется через Flatpak: выполните flatpak update или проверьте магазин приложений.
 window-keyboard-volume-up = Увеличить громкость
 window-keyboard-volume-down = Уменьшить громкость
 widget-pin-playlist = Закрепить плейлист

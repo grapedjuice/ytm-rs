@@ -41,6 +41,8 @@ settings-autoplay = Automatische Wiedergabe
 settings-autoplay-desc = Spielt ähnliche Titel weiter, wenn die Warteschlange zu Ende ist.
 settings-smart-shuffle = Smart Shuffle
 settings-smart-shuffle-desc = Beim Zufallsmodus werden ähnliche Songs wie der laufende eingemischt, einer nach jeweils drei. Sie verschwinden wieder, wenn der Zufallsmodus ausgeschaltet wird.
+settings-gapless-playback = Lückenlose Wiedergabe
+settings-gapless-playback-desc = Spielt aufeinanderfolgende Titel ohne Pause, für Alben und Live-Aufnahmen, die ineinander übergehen.
 settings-crossfade-songs = Titel überblenden
 settings-crossfade-songs-desc = Der nächste Titel setzt ein, während der aktuelle ausklingt.
 settings-crossfade-length = Überblenddauer
@@ -82,12 +84,15 @@ settings-sound = Ton
 settings-volume-normalization = Lautstärke normalisieren
 settings-logarithmic-volume = Logarithmische Lautstärke
 settings-logarithmic-volume-desc = Passt den Lautstärkeregler dem menschlichen Gehör an und gibt leisen Stufen mehr Platz.
+settings-fade-when-pausing = Sanftes Ausblenden beim Pausieren
+settings-fade-when-pausing-desc = Blendet die Musik beim Pausieren innerhalb von 0,2 Sekunden aus und beim Fortsetzen wieder ein. Ausgeschaltet stoppt und startet sie sofort.
 settings-high-quality-audio = Hohe Audioqualität
 settings-high-quality-audio-desc = 256 statt 128 kbit/s für Konten mit YouTube Premium. Gilt ab dem nächsten Titel.
 settings-output-device = Ausgabegerät
 settings-output-device-desc = Legt fest, wo die Musik ausgegeben wird. Ist das gewählte Gerät getrennt, übernimmt vorübergehend das Windows-Standardgerät.
 settings-windows-default = Windows-Standard
 settings-not-connected = { $name } (nicht verbunden)
+settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Titel behalten ihre ursprüngliche Lautstärke. „Normal“ gleicht sie an, „Leise“ gleicht sie auf niedrigerem Niveau an.
 settings-normalization-normal-desc = Titel klingen gleich laut. Laute werden wie bei YouTube Music abgesenkt, leise um bis zu 6 dB angehoben.
 settings-normalization-quiet-desc = Titel klingen gleich laut auf niedrigerem Niveau. Laute werden stärker abgesenkt, sodass leise selten angehoben werden müssen.
@@ -276,6 +281,14 @@ settings-restart-to-apply = Zum Übernehmen neu starten
 settings-language-restart-desc = Die Sprache ändert sich beim nächsten Start.
 settings-restart-now = Jetzt neu starten
 
+## Song info: the language and country YouTube Music answers in. Separate from Language above.
+
+settings-song-info = Songinformationen
+settings-song-info-language = Sprache der Songinformationen
+settings-song-info-language-desc = Sprache für Songtitel, Künstler- und Albumnamen und Inhaltsbereiche von YouTube Music, soweit Übersetzungen verfügbar sind.
+settings-song-info-country = Land für Charts und Empfehlungen
+settings-song-info-country-desc = Das Land, für das Charts und Empfehlungen angezeigt werden.
+
 ## Window
 
 settings-window = Fenster
@@ -304,10 +317,29 @@ settings-downloads-note = Lade Titel aus ihrem Menü oder ganze Alben und Playli
 settings-download-folder = Downloadordner
 settings-change = Ändern
 settings-open = Öffnen
+settings-download-liked = Titel mit „Gefällt mir“ herunterladen
+settings-download-liked-desc = Songs, die dir gefallen, werden sofort heruntergeladen. Beim Einschalten und bei jedem Start der App auch alle, die noch fehlen. Nur angemeldet; etwa 4 MB pro Song.
+settings-folder-per-list = Alben und Playlists in eigenen Ordnern speichern
+settings-folder-per-list-desc = Beim Herunterladen eines Albums oder einer Playlist über die Seite oder das Menü werden die Songs in einem gleichnamigen Ordner gespeichert. Bereits heruntergeladene Songs bleiben an ihrem bisherigen Ort.
+settings-file-lyrics = Liedtext in der Datei
+settings-file-lyrics-desc = Heruntergeladene Titel enthalten den Liedtext, den du dazu siehst, für andere Musikplayer. Synchrone Liedtexte werden als LRC gespeichert.
+settings-file-lyrics-synced = Synchron
+settings-file-lyrics-plain = Nur Text
+settings-file-lyrics-off = Keiner
 
 ## Network
 
 settings-network = Netzwerk
+settings-backup-stream = Ersatzstream bei Wiedergabeabbrüchen
+settings-backup-stream-desc = Wenn du angemeldet bist und YouTube einen Song wegen einer Bot-Prüfung stoppt (etwa bei einer VPN-Verbindung), wird ein Stream mit Video verwendet. Verbraucht mehr Daten.
+settings-local-network = Suche im lokalen Netzwerk erlauben
+settings-local-network-desc = Sucht AirPlay-Lautsprecher im Netzwerk, damit die Musik dort wiedergegeben werden kann. Die Firewall fragt vielleicht einmal, ob die App durchgelassen werden darf.
+settings-airplay-searching = Suche nach AirPlay-Lautsprechern…
+settings-backup-stream-prompt-title = Wiedergabe angehalten
+settings-backup-stream-prompt-body = YouTube hat diesen Song wegen einer Bot-Prüfung angehalten. Das kann bei einer VPN-Verbindung passieren. Ein Ersatzstream ermöglicht die Wiedergabe. Er enthält auch das Video und verbraucht mehr Daten.
+settings-backup-stream-prompt-enable = Aktivieren und erneut versuchen
+settings-backup-stream-prompt-settings = Einstellungen
+settings-backup-stream-prompt-dismiss = Jetzt nicht
 settings-proxy = Proxy
 settings-proxy-desc = Leitet den gesamten Datenverkehr von ytm-rs über einen Proxy, einschließlich Titeln, Liedtexten, Anmeldung und gemeinsamem Hören.
 settings-proxy-windows-uses = Windows verwendet { $proxy }.
@@ -405,26 +437,3 @@ settings-downloads-and-counting = { $count ->
    *[other] Schon { $shown } Downloads
 }
 settings-counting-downloads = Downloads werden gezählt…
-settings-fade-when-pausing = Sanftes Ausblenden beim Pausieren
-settings-fade-when-pausing-desc = Blendet die Musik beim Pausieren innerhalb von 0,2 Sekunden aus und beim Fortsetzen wieder ein. Ausgeschaltet stoppt und startet sie sofort.
-settings-song-info = Songinformationen
-settings-song-info-language = Sprache der Songinformationen
-settings-song-info-language-desc = Sprache für Songtitel, Künstler- und Albumnamen und Inhaltsbereiche von YouTube Music, soweit Übersetzungen verfügbar sind.
-settings-song-info-country = Land für Charts und Empfehlungen
-settings-song-info-country-desc = Das Land, für das Charts und Empfehlungen angezeigt werden.
-settings-download-liked = Titel mit „Gefällt mir“ herunterladen
-settings-download-liked-desc = Songs, die dir gefallen, werden sofort heruntergeladen. Beim Einschalten und bei jedem Start der App auch alle, die noch fehlen. Nur angemeldet; etwa 4 MB pro Song.
-settings-folder-per-list = Alben und Playlists in eigenen Ordnern speichern
-settings-folder-per-list-desc = Beim Herunterladen eines Albums oder einer Playlist über die Seite oder das Menü werden die Songs in einem gleichnamigen Ordner gespeichert. Bereits heruntergeladene Songs bleiben an ihrem bisherigen Ort.
-settings-file-lyrics = Liedtext in der Datei
-settings-file-lyrics-desc = Heruntergeladene Titel enthalten den Liedtext, den du dazu siehst, für andere Musikplayer. Synchrone Liedtexte werden als LRC gespeichert.
-settings-file-lyrics-synced = Synchron
-settings-file-lyrics-plain = Nur Text
-settings-file-lyrics-off = Keiner
-settings-backup-stream = Ersatzstream bei Wiedergabeabbrüchen
-settings-backup-stream-desc = Wenn du angemeldet bist und YouTube einen Song wegen einer Bot-Prüfung stoppt (etwa bei einer VPN-Verbindung), wird ein Stream mit Video verwendet. Verbraucht mehr Daten.
-settings-backup-stream-prompt-title = Wiedergabe angehalten
-settings-backup-stream-prompt-body = YouTube hat diesen Song wegen einer Bot-Prüfung angehalten. Das kann bei einer VPN-Verbindung passieren. Ein Ersatzstream ermöglicht die Wiedergabe. Er enthält auch das Video und verbraucht mehr Daten.
-settings-backup-stream-prompt-enable = Aktivieren und erneut versuchen
-settings-backup-stream-prompt-settings = Einstellungen
-settings-backup-stream-prompt-dismiss = Jetzt nicht

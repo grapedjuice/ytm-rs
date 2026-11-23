@@ -39,6 +39,7 @@ window-installed-when-closed = { $version } 版本已准备就绪。当您关闭
 window-notes-status = 您正在使用 { $version }。 { $step }
 window-package-instructions = 下载新软件包并使用 sudo pacman -U 进行安装。
 window-package-download = 下载新的 .deb 并打开它以覆盖此版本。
+window-package-flatpak = 此版本通过 Flatpak 更新：运行 flatpak update，或到软件商店查看。
 window-keyboard-volume-up = 音量调高
 window-keyboard-volume-down = 音量调低
 widget-pin-playlist = 固定播放列表

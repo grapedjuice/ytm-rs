@@ -39,11 +39,17 @@ settings-switching = جارٍ التبديل…
 
 settings-autoplay = التشغيل التلقائي
 settings-autoplay-desc = الاستمرار في تشغيل أغانٍ مشابهة عند انتهاء قائمة الانتظار.
+settings-smart-shuffle = التشغيل العشوائي الذكي
+settings-smart-shuffle-desc = أثناء التشغيل العشوائي تُدرج أغانٍ شبيهة بالأغنية الحالية، واحدة بعد كل ثلاث. وتختفي مجددًا عند إيقاف التشغيل العشوائي.
+settings-gapless-playback = تشغيل بلا فواصل
+settings-gapless-playback-desc = يشغّل الأغاني المتتالية بلا توقف بينها، للألبومات والتسجيلات الحيّة التي تتصل ببعضها.
 settings-crossfade-songs = التلاشي المتداخل بين الأغاني
 settings-crossfade-songs-desc = دمج نهاية كل أغنية مع بداية الأغنية التالية.
 settings-crossfade-length = مدة التلاشي المتداخل
 settings-crossfade-when-skipping = التلاشي المتداخل عند التخطّي
 settings-crossfade-when-skipping-desc = التلاشي أيضًا نحو الأغنية التالية عند التخطّي إلى الأمام. أما الرجوع للخلف أو اختيار أغنية فيبدّلان فورًا.
+settings-skip-silence = تخطّي الصمت في النهاية
+settings-skip-silence-desc = إذا هدأت أغنية لبضع ثوانٍ في نصفها الثاني، ينتقل إلى التالية. يتخطّى النهايات الصامتة الطويلة والمقاطع المخفية بعدها.
 settings-hide-explicit-songs = إخفاء الأغاني الصريحة
 settings-hide-explicit-songs-desc = استبعاد الأغاني المميّزة بالرمز E من القوائم والبحث وقائمة الانتظار والتشغيل التلقائي. وتُكمل الأغاني قيد التشغيل حاليًا حتى نهايتها.
 settings-show-podcasts = إظهار البودكاست
@@ -86,6 +92,7 @@ settings-output-device = جهاز الإخراج
 settings-output-device-desc = مكان تشغيل الموسيقى. إذا لم يكن الجهاز المختار متصلاً، يُترك الأمر إلى الجهاز الافتراضي في Windows حتى يعود للاتصال.
 settings-windows-default = الافتراضي في Windows
 settings-not-connected = { $name } (غير متصل)
+settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = تُشغَّل الأغاني بمستوى الصوت الذي صُنعت به. يوحّد وضع عادي مستواها جميعًا، ويوحّد وضع هادئ مستواها عند مستوى أخفض.
 settings-normalization-normal-desc = تُشغَّل الأغاني بالمستوى نفسه: تُخفَّض الأغاني العالية كما في YouTube Music، وتُرفع الأغاني الهادئة بما يصل إلى 6 dB.
 settings-normalization-quiet-desc = تُشغَّل الأغاني بمستوى أخفض موحّد: تُخفَّض الأغاني العالية بشكل أكبر، فلا تحتاج الأغاني الهادئة غالبًا إلى رفع الصوت.
@@ -119,7 +126,6 @@ settings-keep-pitch = الحفاظ على طبقة الصوت
 settings-keep-pitch-desc = أسرع أو أبطأ دون أن يصبح الصوت أعلى أو أخفض طبقةً. عند إيقافه، تتغير الطبقة مع السرعة، مثل الأسطوانة.
 settings-playback-speed-jam-note = تعود إلى الوضع الطبيعي أثناء وجودك في جلسة مشتركة، حتى يسمع الجميع الأغنية نفسها.
 
-
 ## Music videos
 
 settings-music-videos = مقاطع الفيديو الموسيقية
@@ -137,6 +143,7 @@ settings-hide-videos-in-search = إخفاء مقاطع الفيديو في ال�
 settings-hide-videos-in-search-desc = إظهار الأغاني والألبومات والفنانين وقوائم التشغيل فقط في نتائج البحث.
 settings-skip-non-music-parts = تخطّي الأجزاء غير الموسيقية
 settings-skip-non-music-parts-desc = القفز فوق الحديث والمشاهد التمثيلية وفواصل الرعاة في مقاطع الفيديو الموسيقية، وفق ما حدّده مجتمع SponsorBlock. ولا تحتوي أغاني الألبومات على أيٍّ منها.
+
 ## Lyrics
 
 settings-romanization = الكتابة بالحروف اللاتينية
@@ -148,6 +155,17 @@ settings-text-size = حجم النص
 settings-text-size-desc = يجعل الكلمات أكبر أو أصغر. يعمل فوق الحجم الخاص بالسمة نفسها.
 settings-larger = أكبر
 settings-smaller = أصغر
+settings-line-weight = سُمك الخط
+settings-line-weight-desc = مدى سماكة الكلمات، بدل سُمك السمة نفسها.
+settings-theme-default = افتراضي السمة
+settings-weight-light = خفيف
+settings-weight-regular = عادي
+settings-weight-medium = متوسط
+settings-weight-semibold = شبه عريض
+settings-weight-bold = عريض
+settings-weight-extra-bold = عريض جدًا
+settings-translation-size = حجم الترجمة
+settings-translation-size-desc = يكبّر أو يصغّر الأسطر المترجمة والمنقولة بالحروف اللاتينية بجانب الكلمات. ‎100% هي قيمة السمة.
 settings-quick-line-changes = الانتقال السريع للأسطر
 settings-quick-line-changes-desc = ينتقل السطر التالي إلى موضعه بسرعة على طريقة Better Lyrics. وعند الإيقاف، تحرّك كل سمة أسطرها بوتيرتها الخاصة.
 settings-lyrics-full-frame-rate = الكلمات بمعدل تحديث الشاشة
@@ -189,10 +207,20 @@ settings-always-show-seek-knob = إظهار مقبض التقديم دائمًا
 settings-always-show-seek-knob-desc = يبقى المقبض على خط التقدّم ظاهرًا، وليس فقط عند الإشارة إليه بالمؤشر، في السمات التي تتضمنه.
 settings-animated-background = خلفية متحركة
 settings-animated-background-desc = ينجرف غلاف الألبوم ببطء خلف كل شيء, في السمات ذات الخلفية المتحركة.
+settings-background-speed = سرعة الخلفية
+settings-background-speed-desc = سرعة انجراف الخلفية في السمات التي تتحرك خلفيتها. ‎100% هي سرعة السمة.
+settings-faster = أسرع
+settings-slower = أبطأ
+settings-background-brightness = سطوع الخلفية
+settings-background-brightness-desc = يجعل غلاف الألبوم خلف قيد التشغيل الآن والصفحات أكثر سطوعًا أو عتمة. ‎100% هي قيمة السمة.
+settings-brighter = أكثر سطوعًا
+settings-darker = أكثر عتمة
 settings-frosted-glass = الزجاج المصنفر
 settings-frosted-glass-desc = تقوم القوائم والأشرطة العائمة بتمويه ما خلفها في السمات التي تستخدم هذه الميزة. وعند إيقافها تصبح أكثر كثافةً.
 settings-pulse-with-the-music = النبض مع الموسيقى
 settings-pulse-with-the-music-desc = تتمدد الخلفية مع الإيقاع, في السمات ذات الخلفية المتحركة.
+settings-visualizer = العارض البصري
+settings-visualizer-desc = أشرطة أسفل قيد التشغيل الآن تتحرك مع الموسيقى، بلون التمييز.
 settings-dim-bright-covers = تعتيم الأغلفة الفاتحة
 settings-dim-bright-covers-desc = يغمّق الخلفية عندما يكون غلاف الألبوم فاتحًا، لتظل الكلمات والعناوين فوقه سهلة القراءة. وتُترك الأغلفة الداكنة كما هي.
 settings-font = الخط
@@ -253,7 +281,6 @@ settings-restart-to-apply = أعد التشغيل للتطبيق
 settings-language-restart-desc = تتغيّر لغة التطبيق بدءًا من التشغيل التالي.
 settings-restart-now = أعد التشغيل الآن
 
-
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
 
 settings-song-info = معلومات الأغنية
@@ -290,6 +317,8 @@ settings-downloads-note = نزّل الأغاني من قائمتها، أو ا�
 settings-download-folder = مجلد التنزيلات
 settings-change = تغيير
 settings-open = فتح
+settings-download-liked = تنزيل الأغاني التي أُعجبتَ بها
+settings-download-liked-desc = تُنزَّل الأغاني التي تعجبك فورًا. وعند تشغيل هذا، وفي كل مرة يبدأ التطبيق، تُنزَّل أيضًا الأغاني التي أُعجبتَ بها ولم تُنزَّل بعد. عند تسجيل الدخول فقط؛ نحو 4 ميغابايت للأغنية.
 settings-folder-per-list = وضع الألبومات وقوائم التشغيل في مجلد خاص بها
 settings-folder-per-list-desc = تنزيل ألبوم أو قائمة تشغيل من صفحتها أو قائمتها يحفظ أغانيها في مجلد يحمل اسمها. تبقى الأغاني المُنزَّلة مسبقاً في مكانها الحالي.
 settings-file-lyrics = الكلمات في الملف
@@ -303,6 +332,9 @@ settings-file-lyrics-off = بلا كلمات
 settings-network = الشبكة
 settings-backup-stream = بث احتياطي عند توقف الأغاني
 settings-backup-stream-desc = عند تسجيل الدخول وإيقاف YouTube للأغنية بسبب التحقق من الروبوت (قد يحدث ذلك عند استخدام VPN)، يتم تشغيلها من بث مصاحب للفيديو. يستهلك بيانات أكثر.
+settings-local-network = السماح بالبحث في الشبكة المحلية
+settings-local-network-desc = يبحث عن مكبّرات AirPlay في شبكتك كي تُشغَّل الموسيقى عليها. قد يطلب جدار الحماية مرةً واحدة السماح للتطبيق بالمرور.
+settings-airplay-searching = جارٍ البحث عن مكبّرات AirPlay…
 settings-backup-stream-prompt-title = توقف التشغيل
 settings-backup-stream-prompt-body = أوقف YouTube هذه الأغنية بسبب التحقق من الروبوت، وهو أمر قد يحدث عند استخدام VPN. يمكن تشغيلها عبر بث احتياطي بدلًا من ذلك، وبما أنه يأتي مع الفيديو فهو يستهلك بيانات أكثر.
 settings-backup-stream-prompt-enable = تشغيل وإعادة المحاولة
@@ -363,6 +395,7 @@ settings-zoom-in-out = تكبير / تصغير
 settings-shortcut-zoom-reset = إعادة مستوى التكبير إلى 100%
 settings-shortcut-leave = الخروج من ملء الشاشة, قيد التشغيل الآن أو التحديد
 settings-esc = Esc
+
 ## Updates
 
 settings-updates = التحديثات
@@ -388,6 +421,7 @@ settings-another-copy = نسخة أخرى
 settings-another-copy-desc = تطبيق ytm-rs مثبّت أيضًا من { $kind }. لإزالة تلك النسخة، شغّل { $cmd }
 settings-whats-new = ما الجديد
 settings-whats-new-in = ما الجديد في { $version }
+
 ## About
 
 settings-about-tagline = عميل سريع وأصلي لـ YouTube Music.
@@ -397,7 +431,6 @@ settings-background = الخلفية
 settings-about-background-credit = منفذ منقول من Kawarp، رخصة MIT © Better Lyrics
 settings-fonts-and-icons = الخطوط والأيقونات
 settings-about-fonts-credit = Inter, DM Sans, Google Sans Flex, Figtree, Instrument Sans (SIL OFL 1.1) • Lucide (ISC)
-
 # { $shown } is { $count } written with its thousands separators.
 settings-downloads-and-counting = { $count ->
     [zero] لم يتم تنزيل أي عنصر بعد

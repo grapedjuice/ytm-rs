@@ -39,6 +39,7 @@ window-installed-when-closed = La version { $version } est prête. Elle s’inst
 window-notes-status = Vous utilisez la version { $version }. { $step }
 window-package-instructions = Téléchargez le nouveau paquet et installez-le avec sudo pacman -U.
 window-package-download = Téléchargez le nouveau .deb et ouvrez-le pour l’installer.
+window-package-flatpak = Cette copie se met à jour via Flatpak : lancez flatpak update, ou regardez dans votre logithèque.
 window-keyboard-volume-up = Augmenter le volume
 window-keyboard-volume-down = Baisser le volume
 widget-pin-playlist = Épingler la playlist

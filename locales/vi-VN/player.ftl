@@ -1,5 +1,11 @@
-### Player controls and synced lyrics.
+### The player: the bar along the bottom, now playing and the mini player.
 
+# For screen readers, on the time beside the progress line ("0:36 / 1:27"), which a
+# click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
+player-time-show-left = { $time }. Hiện thời gian còn lại
+player-time-show-length = { $time }. Hiện độ dài bài hát
+
+# From the interface-wide catalog (#228).
 player-full-screen = Toàn màn hình
 player-exit-full-screen = Thoát toàn màn hình
 player-pip = Hình trong hình
@@ -49,3 +55,7 @@ player-play-next = Chơi tiếp
 player-start-radio = Bắt đầu đài
 player-go-to-album = Đi tới album
 player-go-to-artist = Tới nghệ sĩ
+player-sleep-timer = Hẹn giờ tắt
+player-sleep-off = Tắt
+player-sleep-minutes = { $minutes } phút
+player-sleep-song-end = Hết bài hát

@@ -39,11 +39,17 @@ settings-switching = Wisselen…
 
 settings-autoplay = Automatisch afspelen
 settings-autoplay-desc = Speelt vergelijkbare nummers af als de wachtrij klaar is.
+settings-smart-shuffle = Slim willekeurig
+settings-smart-shuffle-desc = Bij willekeurig afspelen worden nummers zoals het huidige tussengevoegd, één na elke drie. Ze verdwijnen weer als willekeurig uitgaat.
+settings-gapless-playback = Naadloos afspelen
+settings-gapless-playback-desc = Speelt opeenvolgende nummers zonder pauze ertussen, voor albums en live-opnames die in elkaar overlopen.
 settings-crossfade-songs = Nummers laten overvloeien
 settings-crossfade-songs-desc = Laat het einde van elk nummer overvloeien in het begin van het volgende.
 settings-crossfade-length = Duur van de overgang
 settings-crossfade-when-skipping = Overvloeien bij overslaan
 settings-crossfade-when-skipping-desc = Laat nummers ook bij het overslaan overvloeien. Teruggaan en een nummer kiezen gebeurt meteen.
+settings-skip-silence = Stilte aan het einde overslaan
+settings-skip-silence-desc = Als een nummer in de tweede helft een paar seconden stil is, gaat het door naar het volgende. Slaat lange stille eindes en verborgen nummers erna over.
 settings-hide-explicit-songs = Expliciete nummers verbergen
 settings-hide-explicit-songs-desc = Sluit nummers met een E uit van lijsten, zoeken, de wachtrij en automatisch afspelen. Het huidige nummer speelt uit.
 settings-show-podcasts = Podcasts tonen
@@ -78,12 +84,15 @@ settings-sound = Geluid
 settings-volume-normalization = Volumenormalisatie
 settings-logarithmic-volume = Logaritmisch volume
 settings-logarithmic-volume-desc = Stemt de schuifregelaar af op het gehoor en geeft lage volumes meer ruimte.
+settings-fade-when-pausing = Geluid geleidelijk dempen bij pauzeren
+settings-fade-when-pausing-desc = Dempt de muziek bij pauzeren en herstelt het volume bij hervatten, in 0,2 seconden. Uitgeschakeld stopt en start de muziek meteen.
 settings-high-quality-audio = Audio van hoge kwaliteit
 settings-high-quality-audio-desc = 256 kbps in plaats van 128 kbps voor accounts met YouTube Premium. Geldt vanaf het volgende nummer.
 settings-output-device = Uitvoerapparaat
 settings-output-device-desc = Bepaalt waar je muziek afspeelt. Is het gekozen apparaat losgekoppeld, dan neemt het standaardapparaat van Windows het tijdelijk over.
 settings-windows-default = Windows-standaard
 settings-not-connected = { $name } (niet verbonden)
+settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Nummers behouden hun oorspronkelijke volume. Normaal maakt ze even luid, Stil doet dat op een lager volume.
 settings-normalization-normal-desc = Nummers klinken even luid. Luide nummers worden zachter zoals bij YouTube Music, zachte nummers tot 6 dB harder.
 settings-normalization-quiet-desc = Nummers klinken even luid op een lager niveau. Luide nummers worden verder gedempt, zodat zachte nummers zelden harder hoeven.
@@ -113,6 +122,8 @@ settings-0-db = 0 dB
 settings-playback-speed = Afspeelsnelheid
 settings-playback-speed-desc = Speel nummers sneller of trager af, ook via de spelerbalk. Net als bij een plaat klinkt sneller hoger en trager lager. Songteksten blijven gelijklopen. Bij het openen van ytm-rs wordt de snelheid 1×.
 settings-speed = Snelheid
+settings-keep-pitch = Toonhoogte behouden
+settings-keep-pitch-desc = Sneller of langzamer zonder hoger of lager te klinken. Uit volgt de toonhoogte de snelheid, zoals bij een plaat.
 settings-playback-speed-jam-note = Bij Samen luisteren geldt de normale snelheid, zodat iedereen hetzelfde nummer hoort.
 
 ## Music videos
@@ -144,6 +155,17 @@ settings-text-size = Tekstgrootte
 settings-text-size-desc = Maakt de songtekst groter of kleiner ten opzichte van het thema.
 settings-larger = Groter
 settings-smaller = Kleiner
+settings-line-weight = Lettergewicht
+settings-line-weight-desc = Hoe vet de songtekst is, in plaats van die van het thema.
+settings-theme-default = Standaard van het thema
+settings-weight-light = Licht
+settings-weight-regular = Normaal
+settings-weight-medium = Gemiddeld
+settings-weight-semibold = Halfvet
+settings-weight-bold = Vet
+settings-weight-extra-bold = Extra vet
+settings-translation-size = Grootte van de vertaling
+settings-translation-size-desc = Maakt vertaalde en geromaniseerde regels groter of kleiner naast de songtekst. 100% is die van het thema.
 settings-quick-line-changes = Snel naar de volgende regel
 settings-quick-line-changes-desc = De volgende regel springt snel op zijn plaats, zoals bij Better Lyrics. Uitgeschakeld bepaalt het thema het tempo.
 settings-lyrics-full-frame-rate = Songteksten op de vernieuwingsfrequentie van het scherm
@@ -185,10 +207,20 @@ settings-always-show-seek-knob = Positieknop altijd tonen
 settings-always-show-seek-knob-desc = In thema’s met een positieknop blijft die zichtbaar, ook als je de voortgangsbalk niet aanwijst.
 settings-animated-background = Geanimeerde achtergrond
 settings-animated-background-desc = In thema’s met bewegende achtergronden schuift de albumhoes langzaam op de achtergrond.
+settings-background-speed = Achtergrondsnelheid
+settings-background-speed-desc = Hoe snel de achtergrond beweegt, bij thema’s waarvan de achtergrond beweegt. 100% is die van het thema.
+settings-faster = Sneller
+settings-slower = Langzamer
+settings-background-brightness = Helderheid van de achtergrond
+settings-background-brightness-desc = Maakt de hoes achter Speelt nu en de pagina’s lichter of donkerder. 100% is die van het thema.
+settings-brighter = Lichter
+settings-darker = Donkerder
 settings-frosted-glass = Matglas
 settings-frosted-glass-desc = Menu’s en zwevende balken vervagen hun achtergrond in thema’s die dat ondersteunen. Met het effect uit zijn ze wat minder doorzichtig.
 settings-pulse-with-the-music = Meebewegen op de muziek
 settings-pulse-with-the-music-desc = In thema’s met bewegende achtergronden zet de achtergrond uit op de maat.
+settings-visualizer = Visualizer
+settings-visualizer-desc = Balken onderaan Speelt nu bewegen met de muziek, in de accentkleur.
 settings-dim-bright-covers = Heldere hoezen dimmen
 settings-dim-bright-covers-desc = Maakt de achtergrond van lichte hoezen donkerder, zodat songteksten en titels leesbaar blijven. Donkere hoezen houden hun helderheid.
 settings-font = Lettertype
@@ -249,6 +281,14 @@ settings-restart-to-apply = Herstart om toe te passen
 settings-language-restart-desc = De taal verandert de volgende keer dat je de app opent.
 settings-restart-now = Nu herstarten
 
+## Song info: the language and country YouTube Music answers in. Separate from Language above.
+
+settings-song-info = Nummerinformatie
+settings-song-info-language = Taal van de nummerinformatie
+settings-song-info-language-desc = Taal voor titels van nummers, namen van artiesten en albums en secties van YouTube Music, voor zover vertalingen beschikbaar zijn.
+settings-song-info-country = Land voor hitlijsten en aanbevelingen
+settings-song-info-country-desc = Het land waarop de hitlijsten en aanbevelingen zijn gebaseerd.
+
 ## Window
 
 settings-window = Venster
@@ -277,10 +317,29 @@ settings-downloads-note = Download nummers via hun menu of hele albums en afspee
 settings-download-folder = Downloadmap
 settings-change = Wijzigen
 settings-open = Openen
+settings-download-liked = Gelikete nummers downloaden
+settings-download-liked-desc = Nummers die je leuk vindt worden meteen gedownload. Bij het aanzetten, en telkens als de app start, ook de gelikete nummers die er nog niet zijn. Alleen ingelogd; ongeveer 4 MB per nummer.
+settings-folder-per-list = Elk album en elke afspeellijst in een eigen map opslaan
+settings-folder-per-list-desc = Als je een album of afspeellijst via de pagina of het menu downloadt, worden de nummers in een map met die naam opgeslagen. Eerder gedownloade nummers blijven op hun plek.
+settings-file-lyrics = Songtekst in het bestand
+settings-file-lyrics-desc = Gedownloade nummers bevatten de songtekst die je ziet, voor andere spelers. Gesynchroniseerde tekst wordt als LRC opgeslagen.
+settings-file-lyrics-synced = Gesynchroniseerd
+settings-file-lyrics-plain = Alleen tekst
+settings-file-lyrics-off = Geen
 
 ## Network
 
 settings-network = Netwerk
+settings-backup-stream = Reservestream als de muziek stopt
+settings-backup-stream-desc = Als je bent ingelogd en YouTube een nummer stopt voor een botcontrole (dit kan met een VPN gebeuren), wordt een stream met video gebruikt. Verbruikt meer data.
+settings-local-network = Zoeken op het lokale netwerk toestaan
+settings-local-network-desc = Zoekt AirPlay-speakers op je netwerk, zodat de muziek daar kan spelen. Je firewall kan één keer vragen om de app toe te laten.
+settings-airplay-searching = AirPlay-speakers zoeken…
+settings-backup-stream-prompt-title = Afspelen gestopt
+settings-backup-stream-prompt-body = YouTube heeft dit nummer gestopt voor een botcontrole. Dit kan met een VPN gebeuren. Je kunt het met een reservestream afspelen. Die bevat ook video en verbruikt meer data.
+settings-backup-stream-prompt-enable = Inschakelen en opnieuw proberen
+settings-backup-stream-prompt-settings = Instellingen
+settings-backup-stream-prompt-dismiss = Nu niet
 settings-proxy = Proxy
 settings-proxy-desc = Stuurt al het verkeer van ytm-rs via een proxy, inclusief nummers, songteksten, inloggen en Samen luisteren.
 settings-proxy-windows-uses = Windows is ingesteld om { $proxy } te gebruiken.
@@ -378,19 +437,3 @@ settings-downloads-and-counting = { $count ->
    *[other] Al { $shown } downloads
 }
 settings-counting-downloads = Downloads tellen…
-settings-fade-when-pausing = Geluid geleidelijk dempen bij pauzeren
-settings-fade-when-pausing-desc = Dempt de muziek bij pauzeren en herstelt het volume bij hervatten, in 0,2 seconden. Uitgeschakeld stopt en start de muziek meteen.
-settings-song-info = Nummerinformatie
-settings-song-info-language = Taal van de nummerinformatie
-settings-song-info-language-desc = Taal voor titels van nummers, namen van artiesten en albums en secties van YouTube Music, voor zover vertalingen beschikbaar zijn.
-settings-song-info-country = Land voor hitlijsten en aanbevelingen
-settings-song-info-country-desc = Het land waarop de hitlijsten en aanbevelingen zijn gebaseerd.
-settings-folder-per-list = Elk album en elke afspeellijst in een eigen map opslaan
-settings-folder-per-list-desc = Als je een album of afspeellijst via de pagina of het menu downloadt, worden de nummers in een map met die naam opgeslagen. Eerder gedownloade nummers blijven op hun plek.
-settings-backup-stream = Reservestream als de muziek stopt
-settings-backup-stream-desc = Als je bent ingelogd en YouTube een nummer stopt voor een botcontrole (dit kan met een VPN gebeuren), wordt een stream met video gebruikt. Verbruikt meer data.
-settings-backup-stream-prompt-title = Afspelen gestopt
-settings-backup-stream-prompt-body = YouTube heeft dit nummer gestopt voor een botcontrole. Dit kan met een VPN gebeuren. Je kunt het met een reservestream afspelen. Die bevat ook video en verbruikt meer data.
-settings-backup-stream-prompt-enable = Inschakelen en opnieuw proberen
-settings-backup-stream-prompt-settings = Instellingen
-settings-backup-stream-prompt-dismiss = Nu niet

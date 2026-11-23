@@ -55,3 +55,7 @@ player-play-next = التشغيل تالياً
 player-start-radio = بدء محطة راديو
 player-go-to-album = الانتقال إلى الألبوم
 player-go-to-artist = الانتقال إلى الفنّان
+player-sleep-timer = مؤقت النوم
+player-sleep-off = متوقف
+player-sleep-minutes = { $minutes } د
+player-sleep-song-end = نهاية الأغنية

@@ -93,7 +93,7 @@ async fn ensure(http: &reqwest::Client, data_dir: &Path, name: &str, repo: &str,
 /// GitHub's API gives for it: it's a program this app runs, with the session's cookies.
 async fn fetch(http: &reqwest::Client, bin: &Path, repo: &str, asset: &str) -> anyhow::Result<()> {
     let get = |url: String, secs: u64| async move { http.get(url).timeout(Duration::from_secs(secs)).send().await?.error_for_status() };
-    let release: Value = get(format!("https://api.github.com/repos/{repo}/releases/latest"), 30).await?.json().await?;
+    let release: Value = crate::update::github_api(http, &format!("https://api.github.com/repos/{repo}/releases/latest")).await?.json().await?;
     let (url, want) = download_of(&release, asset).ok_or_else(|| anyhow::anyhow!("{repo}'s latest release has no {asset} with a SHA-256"))?;
     log::info!("downloading {asset}");
     let bytes = get(url, 120).await?.bytes().await?;

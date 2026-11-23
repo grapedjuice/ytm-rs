@@ -354,17 +354,18 @@ impl App {
             self.updater = Some(Updater::new(self.backend.data_dir(), self.update_nightly, move || c.request_repaint()));
         }
         let Some(u) = self.updater.clone() else { return };
-        let due = match self.update_checked {
-            None => now > 8.0,
-            Some(t) => now - t > 6.0 * 3600.0 && !matches!(u.state(), State::Ready { .. }),
+        // After a check GitHub turned down for its rate limit (a manual one too), again when the limit ends.
+        let next = match u.state() {
+            State::RateLimited { until } => now + until.saturating_duration_since(std::time::Instant::now()).as_secs_f64(),
+            _ => self.update_checked.map_or(8.0, |t| t + 6.0 * 3600.0),
         };
+        let due = now >= next && !matches!(u.state(), State::Ready { .. });
         let enabled = self.auto_update && updatable() && dev_var("YTM_BACKGROUND").is_none_or(|_| dev_var("YTM_UPDATE_FORCE").is_some() || dev_var("YTM_UPDATE_FEED").is_some());
         if enabled && due {
             self.update_checked = Some(now);
             u.check();
         } else if enabled && !matches!(u.state(), State::Ready { .. }) {
             // An idle app doesn't repaint on its own: wake up when the next check is due.
-            let next = self.update_checked.map_or(8.0, |t| t + 6.0 * 3600.0);
             ctx.request_repaint_after(Duration::from_secs_f64((next - now).max(0.5) + 0.1));
         }
         match u.state() {

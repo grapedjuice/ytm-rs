@@ -2975,6 +2975,10 @@ fn settings_updates(app: &mut App, ui: &mut Ui) {
                 Some(State::Downloading { version, percent }) => tr!("settings-update-downloading", version = version.as_str(), percent = *percent),
                 Some(State::Ready { version, .. }) => tr!("settings-update-ready", version = version.as_str()),
                 Some(State::Available { version, .. }) => tr!("settings-update-available", version = version.as_str(), step = crate::update::package_step()),
+                Some(State::RateLimited { until }) => {
+                    let secs = until.saturating_duration_since(std::time::Instant::now()).as_secs();
+                    tr!("settings-update-rate-limited", minutes = secs.div_ceil(60).max(1))
+                }
                 Some(State::Failed(e)) => tr!("settings-update-failed", error = e.to_string()),
                 _ => tr!("settings-version", version = crate::update::current_version()),
             }

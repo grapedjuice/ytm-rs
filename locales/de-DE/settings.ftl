@@ -377,6 +377,10 @@ settings-update-downloading = { $version } wird geladen… { $percent } %
 settings-update-ready = Version { $version } ist bereit. Die Installation startet beim Schließen von ytm-rs.
 settings-update-available = Version { $version } ist verfügbar. { $step }
 settings-update-failed = Update-Suche fehlgeschlagen: { $error }
+settings-update-rate-limited = { $minutes ->
+    [one] GitHub begrenzt gerade die Update-Suche aus deinem Netzwerk. Versuch es in { $minutes } Minute erneut.
+   *[other] GitHub begrenzt gerade die Update-Suche aus deinem Netzwerk. Versuch es in { $minutes } Minuten erneut.
+}
 settings-version = Version { $version }.
 settings-automatic-updates-desc-packaged = Sucht nach neuen Versionen und meldet, wenn eine verfügbar ist.
 settings-automatic-updates-desc = Lädt neue Versionen im Hintergrund und installiert sie beim Schließen der App.

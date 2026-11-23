@@ -669,17 +669,24 @@ fn mood_grid(ui: &mut Ui, g: &crate::ytm::MoodGroup, acts: &mut Vec<Action>) {
     arrive::item(ui, arr, 0, 10.0, |ui| shelf_header(ui, browse_label(&g.title), None, None, false));
     let gap = 14.0;
     let w = ui.available_width();
-    let cols = ((w + gap) / (190.0 + gap)).floor().max(1.0);
+    let cols = ((w + gap) / (190.0 + gap)).floor().max(1.0) as usize;
     // A little under the exact share, so rounding never pushes the last one to a new line.
-    let bw = ((w - gap * (cols - 1.0)) / cols - 0.5).max(60.0);
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = vec2(gap, gap);
-        for (i, m) in g.moods.iter().enumerate() {
-            if arrive::item(ui, arr, 1 + i / 2, 10.0, |ui| mood_button(ui, m, bw)).clicked() {
-                acts.push(Action::Go(Page::Mood(m.params.clone())));
-            }
+    let bw = ((w - gap * (cols as f32 - 1.0)) / cols as f32 - 0.5).max(60.0);
+    let mut i = 0;
+    for (row_idx, chunk) in g.moods.chunks(cols).enumerate() {
+        if row_idx > 0 {
+            ui.add_space(gap);
         }
-    });
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            for m in chunk {
+                if arrive::item(ui, arr, 1 + i / 2, 10.0, |ui| mood_button(ui, m, bw)).clicked() {
+                    acts.push(Action::Go(Page::Mood(m.params.clone())));
+                }
+                i += 1;
+            }
+        });
+    }
 }
 
 /// A category's button: its name, and the stripe of its own colour down the left edge.
@@ -1357,13 +1364,23 @@ fn library(app: &mut App, ui: &mut Ui, tab: LibTab, now: f64) {
     // `pinned`: on Library › Playlists, where playlists are pinned.
     let grid = |ui: &mut Ui, cards: &[Card], order: &[usize], pinned: Option<&[String]>, acts: &mut Vec<Action>| {
         let g = arrive::group(ui, "library-grid");
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(20.0, 22.0);
-            for (k, &i) in order.iter().enumerate() {
-                let pin = pinned.map(|p| matches!(&cards[i].target, Target::Playlist(id) if p.contains(id)));
-                arrive::item(ui, g, k, 16.0, |ui| card(ui, &cards[i], CARD, false, pin, acts));
+        let (gap_x, gap_y) = (20.0, 22.0);
+        let full = ui.available_width();
+        let cols = (((full + gap_x) / (CARD + gap_x)).floor() as usize).max(1);
+        let mut k = 0;
+        for (row_idx, line) in order.chunks(cols).enumerate() {
+            if row_idx > 0 {
+                ui.add_space(gap_y);
             }
-        });
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = gap_x;
+                for &i in line {
+                    let pin = pinned.map(|p| matches!(&cards[i].target, Target::Playlist(id) if p.contains(id)));
+                    arrive::item(ui, g, k, 16.0, |ui| card(ui, &cards[i], CARD, false, pin, acts));
+                    k += 1;
+                }
+            });
+        }
     };
     let rows = Rows::new(app, now);
     let plain = |_: usize, _: &Track| None;

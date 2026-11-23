@@ -391,8 +391,8 @@ fn log_native_crashes() {
 
 /// Settings, caches and the sign-in: `data` beside the portable build's exe, else the
 /// user's app data. Dev hook: YTM_DATA_DIR runs on a separate profile.
-/// Whether the desktop session is Wayland, and whether this run's window is a Wayland
-/// one. Not the same thing: with Close to tray on, the window is an X11 one there.
+/// Whether the desktop session and this run's window use Wayland. The window can use
+/// XWayland for desktop features that need X11 window controls.
 static WAYLAND: OnceLock<(bool, bool)> = OnceLock::new();
 
 /// The desktop session is Wayland, whatever kind of window the app has: apps can't
@@ -416,17 +416,17 @@ pub fn wayland_window() -> bool {
     WAYLAND.get().is_some_and(|w| w.1)
 }
 
-/// Whether to open an X11 window in a Wayland session: with Close to tray on. A Wayland
-/// window can't hide itself or come back when asked, so there the tray's "Show" could
-/// only ask for attention; an X11 window (through XWayland) does both.
-fn x11_for_tray(wayland: bool, x11: bool, close_to_tray: bool, keep_wayland: bool) -> bool {
-    wayland && x11 && close_to_tray && !keep_wayland
+/// Whether to open an X11 window in a Wayland session: with Close to tray or "Keep on top
+/// on Wayland" on. A Wayland window can't hide itself, come back when asked or stay above
+/// others (winit ignores the window level there); an X11 window (through XWayland) can.
+fn use_x11(wayland: bool, x11: bool, wanted: bool, keep_wayland: bool) -> bool {
+    wayland && x11 && wanted && !keep_wayland
 }
 
-/// "Close to tray" as last saved: read from the settings file itself, since this is
-/// decided before the window, and so the settings, exist.
-fn close_to_tray_saved(app_ron: &str) -> bool {
-    app_ron.split_whitespace().collect::<String>().contains("\"close_to_tray\":\"1\"")
+/// Whether the switch `key` was last saved on: read from the settings file itself, since
+/// this is decided before the window, and so the settings, exist.
+fn saved_on(app_ron: &str, key: &str) -> bool {
+    app_ron.split_whitespace().collect::<String>().contains(&format!("\"{key}\":\"1\""))
 }
 
 /// Linux: every few minutes, give the system back the memory glibc keeps after it's freed
@@ -451,16 +451,31 @@ fn settle_window_system() {
     if !cfg!(target_os = "linux") {
         return;
     }
+    // A restart starts the new copy with this run's environment, switch included: undo it
+    // first, so the new run still knows the session is Wayland and decides afresh.
+    if let Some(d) = std::env::var_os("YTM_WAYLAND_DISPLAY") {
+        // SAFETY: as below, nothing else is running yet.
+        unsafe {
+            std::env::set_var("WAYLAND_DISPLAY", d);
+            std::env::set_var("XDG_SESSION_TYPE", "wayland");
+            std::env::remove_var("GDK_BACKEND");
+            std::env::remove_var("YTM_WAYLAND_DISPLAY");
+        }
+    }
     let set = |k: &str| std::env::var_os(k).is_some_and(|v| !v.is_empty());
     let wayland = set("WAYLAND_DISPLAY") || std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v == "wayland");
-    let tray = close_to_tray_saved(&std::fs::read_to_string(data_dir().join("app.ron")).unwrap_or_default());
-    let x11 = x11_for_tray(wayland, set("DISPLAY"), tray, set("YTM_WAYLAND"));
+    let saved = std::fs::read_to_string(data_dir().join("app.ron")).unwrap_or_default();
+    let wanted = saved_on(&saved, "close_to_tray") || saved_on(&saved, "mini_x11");
+    let x11 = use_x11(wayland, set("DISPLAY"), wanted, set("YTM_WAYLAND"));
     if x11 {
-        log::info!("window: X11 (XWayland), so Close to tray can hide the window and bring it back");
+        log::info!("window: X11 (XWayland), for Close to tray or Keep on top on Wayland");
         // SAFETY: nothing else is running yet (no thread has been started), so nothing
-        // reads the environment while it changes. winit goes by XDG_SESSION_TYPE first;
-        // GTK (the tray, the sign-in window) by GDK_BACKEND.
+        // reads the environment while it changes. winit picks Wayland whenever
+        // WAYLAND_DISPLAY is set; GTK (the tray, the sign-in window) goes by GDK_BACKEND.
         unsafe {
+            if let Some(d) = std::env::var_os("WAYLAND_DISPLAY") {
+                std::env::set_var("YTM_WAYLAND_DISPLAY", d);
+            }
             std::env::remove_var("WAYLAND_DISPLAY");
             std::env::remove_var("WAYLAND_SOCKET");
             std::env::set_var("XDG_SESSION_TYPE", "x11");
@@ -482,22 +497,24 @@ fn data_dir() -> std::path::PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{close_to_tray_saved, x11_for_tray};
+    use super::{saved_on, use_x11};
 
     #[test]
-    fn close_to_tray_opens_an_x11_window_on_wayland() {
-        assert!(x11_for_tray(true, true, true, false));
-        // Not without the setting, without XWayland, off Wayland, or when asked not to.
-        assert!(!x11_for_tray(true, true, false, false));
-        assert!(!x11_for_tray(true, false, true, false));
-        assert!(!x11_for_tray(false, true, true, false));
-        assert!(!x11_for_tray(true, true, true, true));
+    fn an_x11_window_on_wayland_only_when_wanted() {
+        assert!(use_x11(true, true, true, false));
+        // Not without a setting asking for it, without XWayland, off Wayland, or when asked not to.
+        assert!(!use_x11(true, true, false, false));
+        assert!(!use_x11(true, false, true, false));
+        assert!(!use_x11(false, true, true, false));
+        assert!(!use_x11(true, true, true, true));
     }
 
     #[test]
-    fn the_saved_setting_is_read_from_the_settings_file() {
-        assert!(close_to_tray_saved("{\n    \"play_songs\": \"1\",\n    \"close_to_tray\": \"1\",\n}"));
-        assert!(!close_to_tray_saved("{\n    \"close_to_tray\": \"0\",\n}"));
-        assert!(!close_to_tray_saved(""));
+    fn the_saved_settings_are_read_from_the_settings_file() {
+        let ron = "{\n    \"play_songs\": \"1\",\n    \"close_to_tray\": \"1\",\n    \"mini_x11\": \"0\",\n}";
+        assert!(saved_on(ron, "close_to_tray"));
+        assert!(!saved_on(ron, "mini_x11"));
+        assert!(saved_on("{\n    \"mini_x11\": \"1\",\n}", "mini_x11"));
+        assert!(!saved_on("", "close_to_tray"));
     }
 }

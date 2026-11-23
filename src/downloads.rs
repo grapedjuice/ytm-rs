@@ -624,7 +624,11 @@ fn tag_lyrics(audio: &Path, video_id: &str, set: &LyricsSet) {
         let shift = source.and_then(|p| c.offsets.get(&format!("{video_id}|{}", p.key()))).map_or(0, |s| (s * 1000.0).round() as i32);
         tag_text(set, source, file_lyrics(), shift)
     };
-    let written = mp4ameta::Tag::read_from_path(audio).and_then(|mut tag| {
+    // Written to a copy that then takes the file's place, as a download is: a write cut
+    // short (the app quit, the disk full) leaves the song as it was, not half moved along.
+    let part = audio.with_extension("m4a.lyrics.part");
+    let written = (|| -> anyhow::Result<()> {
+        let mut tag = mp4ameta::Tag::read_from_path(audio)?;
         if tag.lyrics() == want.as_deref() {
             return Ok(());
         }
@@ -632,10 +636,14 @@ fn tag_lyrics(audio: &Path, video_id: &str, set: &LyricsSet) {
             Some(w) => tag.set_lyrics(w),
             None => tag.remove_lyrics(),
         }
-        tag.write_to_path(audio)
-    });
+        std::fs::copy(audio, &part)?;
+        tag.write_to_path(&part)?;
+        std::fs::rename(&part, audio)?;
+        Ok(())
+    })();
     if let Err(e) = written {
-        log::warn!("couldn't tag the lyrics of {}: {e}", audio.display());
+        let _ = std::fs::remove_file(&part);
+        log::warn!("couldn't tag the lyrics of {}: {e:#}", audio.display());
     }
 }
 

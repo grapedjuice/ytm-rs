@@ -63,7 +63,11 @@ pub fn faded_text_at(ui: &Ui, pos: Pos2, text: &str, font: egui::FontId, color: 
     let g = ui.painter().layout_no_wrap(text.to_owned(), font, color);
     let rect = Rect::from_min_size(pos, vec2(g.size().x.min(width), g.size().y));
     if g.size().x <= width || fade <= 0.0 {
+        let cut = g.size().x > width;
         ui.painter().with_clip_rect(rect.expand2(vec2(0.0, 2.0))).galley(pos, g, color);
+        if cut && color.a() >= 16 {
+            tip_full_text(ui, rect, text);
+        }
         return rect;
     }
     // The glyphs' own mesh, each vertex's alpha by how near the edge it is.

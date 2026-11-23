@@ -1885,65 +1885,83 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
     let state_id = ui.make_persistent_id(egui::IdSalt::new(sid));
     let current = egui::scroll_area::State::load(ui.ctx(), state_id).map_or(0.0, |s| s.clamped_offset().x);
     let target_id = sid.with("target");
+    let coast_id = sid.with("coast");
     let viewport_id = sid.with("viewport");
     let viewport = ui.ctx().data(|d| d.get_temp::<f32>(viewport_id)).unwrap_or_else(|| ui.available_width());
     let step = item_width + gap;
     let visible = ((viewport + gap) / step).floor().max(1.0) as usize;
     let starts = shelf_page_starts(count, visible);
     let last_start = *starts.last().unwrap();
+    // Give the last page enough trailing room to land exactly on its first item.
+    let content_width = (last_start as f32 * step + viewport).max(count as f32 * step - gap);
+    let max_scroll = (content_width - viewport).max(0.0);
     let mut reached_end = false;
+    // Where the arrows send it, and apart from that where a flick coasts to: the arrows
+    // page on from where it is now, not from where a flick would have stopped.
     let mut target: Option<f32> = ui.ctx().data(|d| d.get_temp(target_id));
+    let mut coast: Option<f32> = ui.ctx().data(|d| d.get_temp(coast_id));
     if nudge != 0 {
         let t = shelf_page_target(&starts, step, target.unwrap_or(current), nudge);
         reached_end = nudge > 0 && count > visible && (t - last_start as f32 * step).abs() < 0.5;
         // Snap the animator to the real position, then glide to the target.
         ui.ctx().animate_value_with_time(anim_id, current, 0.0);
-        target = Some(t);
-        ui.ctx().data_mut(|d| d.insert_temp(target_id, t));
+        (target, coast) = (Some(t), None);
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(target_id, t);
+            d.remove::<f32>(coast_id);
+        });
     }
-    // Give the last page enough trailing room to land exactly on its first item.
-    let content_width = (last_start as f32 * step + viewport).max(count as f32 * step - gap);
-    let max_scroll = (content_width - viewport).max(0.0);
-    let mut area = egui::ScrollArea::horizontal().id_salt(sid).scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
-    // A finger on the cards: the shelf's own drag would take an up-and-down swipe too
-    // and the page wouldn't move, so the drag is handled here instead, locked to the
-    // way it starts (the shelf sideways, the page up and down).
-    let height_id = sid.with("h_height");
-    let height = ui.ctx().data(|d| d.get_temp::<f32>(height_id)).unwrap_or(item_width + 58.0);
-    let rect = Rect::from_min_size(ui.cursor().min, vec2(viewport, height));
-    let mut drag_delta = 0.0;
-    let mut dragging_horizontal = false;
-    {
-        use egui::scroll_area::{DragScroll, ScrollSource};
-        area = area.scroll_source(ScrollSource { drag: DragScroll::Never, ..ScrollSource::default() });
-        let resp = ui.interact(rect, sid.with("touch"), Sense::DRAG);
-        if resp.drag_started() || resp.dragged() {
-            ui.ctx().data_mut(|d| d.remove::<f32>(target_id));
-            target = None;
-        }
-
-        match axis_locked_drag(ui, &resp, sid.with("axis")) {
-            Some(DragAction::Step(dx)) => {
-                dragging_horizontal = true;
-                drag_delta = dx;
+    // The shelf's own drag would take an up-and-down swipe too and the page wouldn't move,
+    // so the drag is handled here instead, over the cards as last laid out (only as tall
+    // as they are, so it doesn't reach the shelves below).
+    use egui::scroll_area::{DragScroll, ScrollSource};
+    let mut area = egui::ScrollArea::horizontal()
+        .id_salt(sid)
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+        .scroll_source(ScrollSource { drag: DragScroll::Never, ..ScrollSource::default() });
+    let size_id = sid.with("size");
+    let mut held = None;
+    let cards = ui.ctx().data(|d| d.get_temp::<Vec2>(size_id)).map(|size| Rect::from_min_size(ui.cursor().min, size));
+    // Sideways scrolling over the shelf (touchpad, Shift+wheel) takes over from any glide,
+    // or the glide would put it back.
+    if cards.is_some_and(|r| ui.rect_contains_pointer(r)) && ui.input(|i| i.smooth_scroll_delta.x != 0.0) {
+        (target, coast) = (None, None);
+        ui.ctx().data_mut(|d| {
+            d.remove::<f32>(target_id);
+            d.remove::<f32>(coast_id);
+        });
+    }
+    if let Some(rect) = cards {
+        let resp = ui.interact(rect, sid.with("drag"), Sense::DRAG);
+        match shelf_drag(ui, &resp, sid.with("axis")) {
+            ShelfDrag::Move(dx) => {
+                // A drag takes over from any glide.
+                (target, coast) = (None, None);
+                ui.ctx().data_mut(|d| {
+                    d.remove::<f32>(target_id);
+                    d.remove::<f32>(coast_id);
+                });
+                held = Some((current - dx).clamp(0.0, max_scroll));
             }
-            Some(DragAction::Coast(vx)) => {
-                let coast_target = (current - vx).clamp(0.0, max_scroll);
+            ShelfDrag::Coast(dx) => {
+                let c = (current - dx).clamp(0.0, max_scroll);
                 ui.ctx().animate_value_with_time(anim_id, current, 0.0);
-                target = Some(coast_target);
-                ui.ctx().data_mut(|d| d.insert_temp(target_id, coast_target));
+                coast = Some(c);
+                ui.ctx().data_mut(|d| d.insert_temp(coast_id, c));
             }
-            None => {}
+            ShelfDrag::Idle => {}
         }
     }
-    if dragging_horizontal {
-        let new_offset = (current - drag_delta).clamp(0.0, max_scroll);
-        area = area.horizontal_scroll_offset(new_offset);
-    } else if let Some(t) = target {
+    if let Some(x) = held {
+        area = area.horizontal_scroll_offset(x);
+    } else if let Some(t) = target.or(coast) {
         let v = ui.ctx().animate_value_with_time(anim_id, t, 0.35 * theme::SPEED);
         area = area.horizontal_scroll_offset(v);
         if (v - t).abs() < 0.5 {
-            ui.ctx().data_mut(|d| d.remove::<f32>(target_id));
+            ui.ctx().data_mut(|d| {
+                d.remove::<f32>(target_id);
+                d.remove::<f32>(coast_id);
+            });
         }
     }
     let out = area.show(ui, |ui| ui.horizontal_top(|ui| {
@@ -1952,99 +1970,74 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
     }).inner);
     ui.ctx().data_mut(|d| {
         d.insert_temp(viewport_id, out.inner_rect.width());
-        if out.content_size.y > 0.0 {
-            d.insert_temp(height_id, out.content_size.y);
-        }
+        // Not `inner_rect`'s height: that's all the room left below, over the next shelves.
+        d.insert_temp(size_id, vec2(out.inner_rect.width(), out.content_size.y));
     });
     (out.inner, reached_end)
 }
 
-#[derive(Copy, Clone, Debug)]
-enum DragAction {
-    Step(f32),
+/// What a drag on a shelf asks of it this frame: move it by, or coast it on by, points.
+enum ShelfDrag {
+    Idle,
+    Move(f32),
     Coast(f32),
 }
 
-/// A drag that, once it has gone a few points, scrolls only the way it started for the
-/// rest of it (sideways or up and down), as phones and browsers do with a scroller inside
-/// a page; let go, and it coasts on. Sideways drags are returned directly to the shelf
-/// so each shelf scrolls independently without stealing each other's gestures; vertical
-/// drags scroll the outer page.
-fn axis_locked_drag(ui: &Ui, resp: &Response, state_id: egui::Id) -> Option<DragAction> {
+/// A drag on a shelf. A finger, once it has gone a few points, scrolls only the way it
+/// started for the rest of it, as phones and browsers do with a scroller inside a page:
+/// the shelf sideways, the page up and down. The mouse's left button drags the shelf
+/// sideways only, once it has gone too far for a click. Let go, and it coasts on.
+fn shelf_drag(ui: &Ui, resp: &Response, state_id: egui::Id) -> ShelfDrag {
     use egui::style::ScrollAnimation;
-    /// How far a drag goes before its direction counts, points.
+    /// How far a drag goes before it counts (and before its direction does), points.
     const LOCK: f32 = 6.0;
     /// How much of the speed at letting go it coasts on: points per point/second.
     const COAST: f32 = 0.3;
-
-    // For mouse drag (desktop): mouse left-click on a horizontal carousel is ALWAYS an intentional
-    // horizontal drag. Desktop users never expect left-click dragging on a carousel to scroll the
-    // page vertically (which is done via mouse wheel).
-    // Locking to vertical on slight diagonal mouse movement caused shelves to randomly freeze ("kadang bisa kadang tidak").
-    let is_touch = ui.input(|i| i.any_touches());
-    if !is_touch {
-        let mut action = None;
-        if resp.dragged() {
-            let delta = ui.input(|i| i.pointer.delta());
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-            if delta.x != 0.0 {
-                action = Some(DragAction::Step(delta.x));
-            }
-        }
-        if resp.drag_stopped() {
-            let speed = (ui.input(|i| i.pointer.velocity().x) * COAST).clamp(-2000.0, 2000.0);
-            if speed.abs() > 1.0 {
-                action = Some(DragAction::Coast(speed));
-            }
-        }
-        return action;
-    }
-
-    let (mut moved, mut axis): (Vec2, Option<usize>) = ui.ctx().data(|d| d.get_temp(state_id)).unwrap_or((Vec2::ZERO, None));
+    let (mut moved, mut axis, mut finger): (Vec2, Option<usize>, bool) = ui.ctx().data(|d| d.get_temp(state_id)).unwrap_or((Vec2::ZERO, None, false));
     if resp.drag_started() {
-        (moved, axis) = (Vec2::ZERO, None);
+        // Told once: the frame a finger lifts has no touches left in it.
+        (moved, axis, finger) = (Vec2::ZERO, None, ui.input(|i| i.any_touches()));
     }
-    let mut action = None;
-    if resp.dragged() {
-        let delta = ui.input(|i| i.pointer.delta());
+    let mut out = ShelfDrag::Idle;
+    if resp.dragged_by(egui::PointerButton::Primary) {
+        // From the press on: the pointer's own delta would count a move made just before it.
+        let delta = if resp.drag_started() { resp.total_drag_delta().unwrap_or_default() } else { resp.drag_delta() };
         moved += delta;
         let step = match axis {
             Some(_) => delta,
-            // Locked now: what it went before counts too.
-            None if moved.length() >= LOCK => {
-                axis = Some(usize::from(moved.y.abs() >= moved.x.abs()));
+            // Locked now, past what still counts as a click: what it went before counts too.
+            None if moved.length() > LOCK => {
+                axis = Some(usize::from(finger && moved.y.abs() >= moved.x.abs()));
                 moved
             }
             None => Vec2::ZERO,
         };
-        if let Some(a) = axis {
-            if a == 0 {
+        match axis {
+            Some(0) => {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-                action = Some(DragAction::Step(step.x));
-            } else {
-                let mut v = Vec2::ZERO;
-                v[a] = step[a];
-                ui.scroll_with_delta_animation(v, ScrollAnimation::none());
+                out = ShelfDrag::Move(step.x);
             }
+            Some(_) => ui.scroll_with_delta_animation(vec2(0.0, step.y), ScrollAnimation::none()),
+            None => {}
         }
     }
     if resp.drag_stopped() {
-        if let Some(a) = axis {
+        // Not when the drag was called off (Escape).
+        if resp.drag_stopped_by(egui::PointerButton::Primary)
+            && let Some(a) = axis
+        {
             let speed = (ui.input(|i| i.pointer.velocity())[a] * COAST).clamp(-2000.0, 2000.0);
             if a == 0 {
-                if speed.abs() > 1.0 {
-                    action = Some(DragAction::Coast(speed));
-                }
+                // With the last move, when it came in with the letting go.
+                out = ShelfDrag::Coast(speed + ui.input(|i| i.pointer.delta().x));
             } else if speed.abs() > 1.0 {
-                let mut v = Vec2::ZERO;
-                v[a] = speed;
-                ui.scroll_with_delta_animation(v, ScrollAnimation::duration(0.6));
+                ui.scroll_with_delta_animation(vec2(0.0, speed), ScrollAnimation::duration(0.6));
             }
         }
         (moved, axis) = (Vec2::ZERO, None);
     }
-    ui.ctx().data_mut(|d| d.insert_temp(state_id, (moved, axis)));
-    action
+    ui.ctx().data_mut(|d| d.insert_temp(state_id, (moved, axis, finger)));
+    out
 }
 
 /// The skeleton's light band sweeping across `r`, for anything still loading.
@@ -2201,23 +2194,47 @@ mod shelf_scroll_tests {
 
 #[cfg(test)]
 mod shelf_touch_tests {
-    use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, TouchDeviceId, TouchId, TouchPhase, pos2, vec2};
+    use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, TouchDeviceId, TouchId, TouchPhase, Vec2, pos2, vec2};
 
-    /// A page that scrolls up and down with a shelf of cards in it, under a finger.
+    /// A page that scrolls up and down with two shelves of cards in it, under a finger
+    /// or a mouse.
     struct Page {
         ctx: egui::Context,
         time: f64,
-        /// The first card, as last drawn.
-        card: Rect,
+        /// Room above the shelves; changing it moves them on the page.
+        above: f32,
+        /// The arrows' nudge for the top shelf, next frame.
+        nudge: i32,
+        /// Each shelf's first card, as last drawn, and where it started.
+        cards: [Rect; 2],
+        start: [Pos2; 2],
+        clicks: usize,
     }
 
+    /// How far each shelf has scrolled, and the page.
+    #[derive(Debug, Clone, Copy)]
+    struct Seen {
+        shelf: [f32; 2],
+        page: f32,
+    }
+
+    #[derive(Clone, Copy)]
+    enum How {
+        Finger,
+        Mouse(PointerButton),
+    }
+
+    const LEFT: How = How::Mouse(PointerButton::Primary);
+
     impl Page {
-        fn new() -> Self {
-            let mut p = Self { ctx: egui::Context::default(), time: 0.0, card: Rect::NOTHING };
-            // A touch elsewhere first, so the page knows there's a touch screen.
-            p.frame(vec![touch(TouchPhase::Start, pos2(700.0, 550.0)), touch(TouchPhase::End, pos2(700.0, 550.0))]);
-            p.frame(vec![]);
-            p.frame(vec![]);
+        fn new(touch_screen: bool) -> Self {
+            let mut p = Self { ctx: egui::Context::default(), time: 0.0, above: 100.0, nudge: 0, cards: [Rect::NOTHING; 2], start: [Pos2::ZERO; 2], clicks: 0 };
+            if touch_screen {
+                // A touch elsewhere first, so the page knows there's a touch screen.
+                p.frame(vec![touch(TouchPhase::Start, pos2(790.0, 590.0)), touch(TouchPhase::End, pos2(790.0, 590.0))]);
+            }
+            p.idle(3);
+            p.start = p.cards.map(|c| c.min);
             p
         }
 
@@ -2225,53 +2242,69 @@ mod shelf_touch_tests {
             let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))), time: Some(self.time), predicted_dt: 1.0 / 60.0, events, ..Default::default() };
             self.time += 1.0 / 60.0;
             let ctx = self.ctx.clone();
-            let mut card = Rect::NOTHING;
+            let (above, nudge) = (self.above, std::mem::take(&mut self.nudge));
+            let mut cards = [Rect::NOTHING; 2];
+            let mut clicks = 0;
             let mut out = ctx.run_ui(raw, |ui| {
                 egui::ScrollArea::vertical().id_salt("page").auto_shrink(false).show(ui, |ui| {
-                    ui.add_space(100.0);
-                    super::h_scroll(ui, "touch-test", 0, 20, 150.0, 10.0, |ui| {
-                        for i in 0..20 {
-                            let (r, _) = ui.allocate_exact_size(vec2(150.0, 150.0), egui::Sense::click());
-                            if i == 0 {
-                                card = r;
+                    ui.add_space(above);
+                    for (s, card) in cards.iter_mut().enumerate() {
+                        super::h_scroll(ui, ["shelf-a", "shelf-b"][s], if s == 0 { nudge } else { 0 }, 20, 150.0, 10.0, |ui| {
+                            for i in 0..20 {
+                                let (r, resp) = ui.allocate_exact_size(vec2(150.0, 150.0), egui::Sense::click());
+                                if i == 0 {
+                                    *card = r;
+                                }
+                                clicks += usize::from(resp.clicked());
                             }
-                        }
-                    });
+                        });
+                        ui.add_space(50.0);
+                    }
                     ui.add_space(2000.0);
                 });
             });
             out.textures_delta.clear();
-            self.card = card;
+            self.cards = cards;
+            self.clicks += clicks;
         }
 
-        /// A finger from `from` by `by`, in steps, lifted at the end; returns where the
-        /// first card moved by while the finger was down.
-        fn swipe(&mut self, from: Pos2, by: egui::Vec2) -> egui::Vec2 {
-            let start = self.card.min;
-            let press = |down| Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: down, modifiers: Modifiers::NONE };
-            self.frame(vec![touch(TouchPhase::Start, from), Event::PointerMoved(from), press(true)]);
-            let mut at = from;
-            for _ in 0..10 {
-                at += by / 10.0;
-                self.frame(vec![touch(TouchPhase::Move, at), Event::PointerMoved(at)]);
+        fn idle(&mut self, frames: usize) {
+            for _ in 0..frames {
+                self.frame(vec![]);
             }
-            let moved = self.card.min - start;
-            self.frame(vec![Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }, touch(TouchPhase::End, at), Event::PointerGone]);
-            moved
         }
 
-        fn drag_mouse(&mut self, from: Pos2, by: egui::Vec2) -> egui::Vec2 {
-            let start = self.card.min;
-            let press = |down| Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: down, modifiers: Modifiers::NONE };
-            self.frame(vec![Event::PointerMoved(from), press(true)]);
+        fn seen(&self) -> Seen {
+            let moved = |s: usize| self.start[s] - self.cards[s].min;
+            Seen { shelf: [moved(0).x, moved(1).x], page: moved(0).y }
+        }
+
+        /// On shelf `s`, `x` points from the window's left.
+        fn on(&self, s: usize, x: f32) -> Pos2 {
+            pos2(x, self.cards[s].center().y)
+        }
+
+        /// A drag from `from` by `by` in `steps`, let go at the end; returns what had moved
+        /// just before letting go.
+        fn drag(&mut self, how: How, from: Pos2, by: Vec2, steps: usize) -> Seen {
+            let button = match how {
+                How::Finger => PointerButton::Primary,
+                How::Mouse(b) => b,
+            };
+            let press = |pos, pressed| Event::PointerButton { pos, button, pressed, modifiers: Modifiers::NONE };
+            let finger = |phase, pos| match how {
+                How::Finger => vec![touch(phase, pos)],
+                How::Mouse(_) => vec![],
+            };
+            self.frame([finger(TouchPhase::Start, from), vec![Event::PointerMoved(from), press(from, true)]].concat());
             let mut at = from;
-            for _ in 0..10 {
-                at += by / 10.0;
-                self.frame(vec![Event::PointerMoved(at)]);
+            for _ in 0..steps {
+                at += by / steps as f32;
+                self.frame([finger(TouchPhase::Move, at), vec![Event::PointerMoved(at)]].concat());
             }
-            let moved = self.card.min - start;
-            self.frame(vec![Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }, Event::PointerGone]);
-            moved
+            let seen = self.seen();
+            self.frame([vec![press(at, false)], finger(TouchPhase::End, at)].concat());
+            seen
         }
     }
 
@@ -2280,107 +2313,119 @@ mod shelf_touch_tests {
     }
 
     #[test]
-    fn mouse_drag_on_cards_scrolls_the_shelf() {
-        let mut p = Page::new();
-        // Mouse drag with diagonal wobble (e.g. moving mouse sideways while slightly jittering vertically)
-        let moved = p.drag_mouse(pos2(400.0, 200.0), vec2(-150.0, 10.0));
-        assert!(moved.x < -100.0, "mouse drag didn't scroll shelf: {moved:?}");
-    }
-
-    #[test]
     fn swiping_up_on_the_cards_scrolls_the_page() {
-        let mut p = Page::new();
-        let moved = p.swipe(pos2(300.0, 200.0), vec2(4.0, -150.0));
-        assert!(moved.y < -100.0, "the page didn't scroll: {moved:?}");
-        assert_eq!(moved.x, 0.0, "the shelf moved: {moved:?}");
+        let mut p = Page::new(true);
+        let seen = p.drag(How::Finger, p.on(0, 300.0), vec2(4.0, -150.0), 10);
+        assert!(seen.page > 100.0, "the page didn't scroll: {seen:?}");
+        assert_eq!(seen.shelf, [0.0, 0.0], "a shelf moved: {seen:?}");
     }
 
     #[test]
     fn swiping_sideways_on_the_cards_scrolls_the_shelf() {
-        let mut p = Page::new();
-        let moved = p.swipe(pos2(400.0, 200.0), vec2(-150.0, 4.0));
-        assert!(moved.x < -100.0, "the shelf didn't scroll: {moved:?}");
-        assert_eq!(moved.y, 0.0, "the page moved: {moved:?}");
+        let mut p = Page::new(true);
+        let seen = p.drag(How::Finger, p.on(0, 400.0), vec2(-150.0, 4.0), 10);
+        assert!(seen.shelf[0] > 100.0, "the shelf didn't scroll: {seen:?}");
+        assert_eq!(seen.page, 0.0, "the page moved: {seen:?}");
     }
 
     #[test]
-    fn swiping_on_second_shelf_scrolls_second_shelf() {
-        struct TwoShelvesPage {
-            ctx: egui::Context,
-            time: f64,
-            shelf1_card: Rect,
-            shelf2_card: Rect,
+    fn a_finger_lifted_after_swiping_up_leaves_the_shelf_and_the_page_coasts_on() {
+        let mut p = Page::new(true);
+        let held = p.drag(How::Finger, p.on(0, 400.0), vec2(-40.0, -200.0), 10);
+        p.idle(60);
+        let after = p.seen();
+        assert_eq!(after.shelf, [0.0, 0.0], "a shelf moved: {after:?}");
+        assert!(after.page > held.page + 50.0, "the page didn't coast on: {held:?} then {after:?}");
+    }
+
+    #[test]
+    fn a_finger_on_the_lower_shelf_after_the_shelves_moved_scrolls_only_it() {
+        let mut p = Page::new(true);
+        // The shelves move up the page, and a finger lands on the lower one where it is now.
+        p.above = 0.0;
+        p.idle(1);
+        let seen = p.drag(How::Finger, p.on(1, 400.0), vec2(-150.0, 0.0), 10);
+        assert_eq!(seen.shelf[0], 0.0, "the upper shelf moved: {seen:?}");
+        assert!(seen.shelf[1] > 100.0, "the lower shelf didn't scroll: {seen:?}");
+    }
+
+    #[test]
+    fn the_mouse_drags_the_shelf_sideways_even_when_it_starts_down() {
+        let mut p = Page::new(false);
+        let seen = p.drag(LEFT, p.on(1, 400.0), vec2(-150.0, 20.0), 10);
+        assert!(seen.shelf[1] > 100.0, "the shelf didn't scroll: {seen:?}");
+        assert_eq!((seen.shelf[0], seen.page), (0.0, 0.0), "something else moved: {seen:?}");
+    }
+
+    #[test]
+    fn a_wobbly_click_is_a_click_and_leaves_the_shelf() {
+        let mut p = Page::new(false);
+        p.drag(LEFT, p.on(0, 80.0), vec2(-4.0, 1.0), 2);
+        p.idle(30);
+        assert_eq!(p.clicks, 1);
+        assert_eq!(p.seen().shelf, [0.0, 0.0]);
+    }
+
+    #[test]
+    fn other_mouse_buttons_dont_drag_the_shelf() {
+        let mut p = Page::new(false);
+        for b in [PointerButton::Secondary, PointerButton::Middle] {
+            p.drag(How::Mouse(b), p.on(0, 400.0), vec2(-200.0, 0.0), 10);
         }
-        impl TwoShelvesPage {
-            fn new() -> Self {
-                let mut p = Self { ctx: egui::Context::default(), time: 0.0, shelf1_card: Rect::NOTHING, shelf2_card: Rect::NOTHING };
-                p.frame(vec![touch(TouchPhase::Start, pos2(700.0, 550.0)), touch(TouchPhase::End, pos2(700.0, 550.0))]);
-                p.frame(vec![]);
-                p.frame(vec![]);
-                p
-            }
-            fn frame(&mut self, events: Vec<Event>) {
-                let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))), time: Some(self.time), predicted_dt: 1.0 / 60.0, events, ..Default::default() };
-                self.time += 1.0 / 60.0;
-                let ctx = self.ctx.clone();
-                let mut s1 = Rect::NOTHING;
-                let mut s2 = Rect::NOTHING;
-                let mut out = ctx.run_ui(raw, |ui| {
-                    egui::ScrollArea::vertical().id_salt("page").auto_shrink(false).show(ui, |ui| {
-                        super::h_scroll(ui, "shelf-1", 0, 20, 150.0, 10.0, |ui| {
-                            for i in 0..20 {
-                                let (r, _) = ui.allocate_exact_size(vec2(150.0, 150.0), egui::Sense::click());
-                                if i == 0 { s1 = r; }
-                            }
-                        });
-                        ui.add_space(50.0);
-                        super::h_scroll(ui, "shelf-2", 0, 20, 150.0, 10.0, |ui| {
-                            for i in 0..20 {
-                                let (r, _) = ui.allocate_exact_size(vec2(150.0, 150.0), egui::Sense::click());
-                                if i == 0 { s2 = r; }
-                            }
-                        });
-                        ui.add_space(2000.0);
-                    });
-                });
-                out.textures_delta.clear();
-                self.shelf1_card = s1;
-                self.shelf2_card = s2;
-            }
-            fn swipe(&mut self, from: Pos2, by: egui::Vec2) -> (egui::Vec2, egui::Vec2) {
-                let start1 = self.shelf1_card.min;
-                let start2 = self.shelf2_card.min;
-                let press = |down| Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: down, modifiers: Modifiers::NONE };
-                self.frame(vec![touch(TouchPhase::Start, from), Event::PointerMoved(from), press(true)]);
-                let mut at = from;
-                for _ in 0..10 {
-                    at += by / 10.0;
-                    self.frame(vec![touch(TouchPhase::Move, at), Event::PointerMoved(at)]);
+        p.idle(30);
+        assert_eq!(p.seen().shelf, [0.0, 0.0]);
+    }
+
+    #[test]
+    fn swiping_back_while_it_coasts_turns_it_around() {
+        let mut p = Page::new(true);
+        let forward = p.drag(How::Finger, p.on(0, 400.0), vec2(-250.0, 0.0), 10);
+        assert!(forward.shelf[0] > 100.0, "the shelf didn't scroll: {forward:?}");
+        let gone = p.seen().shelf[0];
+        let back = p.drag(How::Finger, p.on(0, 100.0), vec2(250.0, 0.0), 10);
+        assert!(back.shelf[0] < gone - 100.0, "the shelf didn't come back: from {gone} to {back:?}");
+    }
+
+    #[test]
+    fn a_click_that_moves_as_far_as_a_click_may_leaves_the_shelf() {
+        let mut p = Page::new(false);
+        let at = p.on(0, 300.0);
+        // Moved just before the press, too: that's not part of it.
+        p.frame(vec![Event::PointerMoved(at - vec2(50.0, 0.0))]);
+        p.drag(LEFT, at, vec2(-6.0, 0.0), 1);
+        p.idle(30);
+        assert_eq!(p.clicks, 1);
+        assert_eq!(p.seen().shelf, [0.0, 0.0]);
+    }
+
+    #[test]
+    fn a_touchpad_swipe_back_during_a_coast_takes_over() {
+        let flick = |swipe_back: bool| {
+            let mut p = Page::new(false);
+            p.drag(LEFT, p.on(0, 600.0), vec2(-200.0, 0.0), 4);
+            if swipe_back {
+                for _ in 0..5 {
+                    p.frame(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(26.0, 0.0), phase: TouchPhase::Move, modifiers: Modifiers::NONE, source: egui::MouseWheelSource::Unknown }]);
                 }
-                let moved1 = self.shelf1_card.min - start1;
-                let moved2 = self.shelf2_card.min - start2;
-                self.frame(vec![Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }, touch(TouchPhase::End, at), Event::PointerGone]);
-                (moved1, moved2)
             }
-        }
-        let mut p = TwoShelvesPage::new();
-        // Shelf 1 is at y=0..150. Shelf 2 is at y=200..350. Swipe at y=250.
-        let (s1_moved, s2_moved) = p.swipe(pos2(400.0, 250.0), vec2(-150.0, 0.0));
-        assert_eq!(s1_moved.x, 0.0, "shelf 1 moved when shelf 2 was dragged: {s1_moved:?}");
-        assert!(s2_moved.x < -100.0, "shelf 2 didn't scroll: {s2_moved:?}");
+            p.idle(90);
+            p.seen().shelf[0]
+        };
+        let (alone, back) = (flick(false), flick(true));
+        assert!(alone - back > 100.0, "the swipe back went {}", alone - back);
     }
 
     #[test]
-    fn swiping_back_after_reaching_end_scrolls_shelf_back() {
-        let mut p = Page::new();
-        // Swipe left to scroll forward (card moves left)
-        let moved = p.swipe(pos2(400.0, 200.0), vec2(-250.0, 0.0));
-        assert!(moved.x < -100.0, "shelf didn't scroll forward: {moved:?}");
-        let pos_after_forward = p.card.min.x;
-        // Swipe right to scroll backward (card moves right)
-        let moved_back = p.swipe(pos2(400.0, 200.0), vec2(250.0, 0.0));
-        assert!(moved_back.x > 100.0, "shelf didn't scroll backward: {moved_back:?}");
-        assert!(p.card.min.x > pos_after_forward, "card position did not move back");
+    fn an_arrow_during_a_coast_goes_to_the_next_page() {
+        let mut p = Page::new(false);
+        p.drag(LEFT, p.on(0, 600.0), vec2(-200.0, 0.0), 4);
+        p.idle(2);
+        let from = p.seen().shelf[0];
+        p.nudge = 1;
+        p.idle(90);
+        let to = p.seen().shelf[0];
+        // Cards are 160 apart and four or five fit, so the next page is past `from`, within 800.
+        assert!(to > from && to - from <= 800.0 && to % 160.0 == 0.0, "from {from} to {to}");
     }
 }
 

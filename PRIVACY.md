@@ -13,6 +13,6 @@ ytm-rs has no accounts of its own and collects nothing about you. It only talks 
 - **Shazam** (`amp.shazam.com`, run by Apple), only when you use **Recognize song** (experimental), receives a fingerprint of up to 12 seconds of what your computer is playing (the peaks of its sound, which can't be played back), with a random ID and a fixed placeholder location, not yours. The recording itself never leaves your computer. What Shazam names is then looked up on YouTube Music in a signed-out search, and opened as a search in the app, which is signed in like any other search you make.
 - **GitHub** (`github.com`, `api.github.com`) to check for and download app updates (you can turn this off in **Settings › About › Updates**), and to download `yt-dlp` when an age-restricted song is played on an account without Premium.
 - **Discord**, through the Discord app on your PC, when **Show what I'm playing on Discord** is on.
-- **AirPlay speakers on your local network**, only when **Settings › Network › Allow local network scan** is on: the app looks for them (mDNS), and the one you pick as the output device receives the music you play, the app's name and your PC's network address. Nothing leaves your local network.
+- **AirPlay speakers on your local network**, only when **Settings › Playback › Find speakers on your network** is on: the app looks for them (mDNS), and the one you pick in Play on receives the music you play, the app's name and your PC's network address. Nothing leaves your local network.
 
 The app itself sends no analytics, telemetry or crash reports.

@@ -577,7 +577,7 @@ pub struct App {
     skip_silence: bool,
     high_quality: bool,
     backup_stream: bool,
-    /// Settings › Network › Allow local network scan, which AirPlay speakers need.
+    /// Settings › Playback › Find speakers on your network, which network speakers need.
     local_network: bool,
     backup_prompt: BackupPrompt,
     reveal_backup_setting: bool,
@@ -624,9 +624,10 @@ pub struct App {
     /// Songs' music videos, for the Song/Video switch: looked up once each (`None`: it has
     /// none, or the answer hasn't come yet).
     music_videos: std::collections::HashMap<String, Option<crate::ytm::MusicVideo>>,
-    /// The output device picked in settings (cpal's id and its name, for when it's not
-    /// connected), and the devices last listed there.
-    output_device: Option<(String, String)>,
+    /// Where the music plays ("Play on"), and its name, for when it's not there; and the
+    /// sound cards last listed there.
+    destination: crate::destination::Destination,
+    destination_name: String,
     output_devices: Vec<crate::audio::OutputDevice>,
     /// The language picked in Settings (`None`: the system's), saved; this run shows
     /// [`crate::i18n::current`] until the next start.
@@ -1063,7 +1064,8 @@ impl App {
             locale,
             playing_as: None,
             music_videos: Default::default(),
-            output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
+            destination: crate::destination::Destination::parse(&get("output_device").unwrap_or_default()),
+            destination_name: get("output_device_name").unwrap_or_default(),
             output_devices: Vec::new(),
             language,
             updater: None,
@@ -2226,9 +2228,8 @@ impl eframe::App for App {
         storage.set_string("download_dir", if folder == crate::downloads::default_folder() { String::new() } else { folder.display().to_string() });
         storage.set_string("download_folder_per_list", b(crate::downloads::per_list()));
         storage.set_string("download_lyrics", crate::downloads::file_lyrics().key().to_owned());
-        let (device, device_name) = self.output_device.clone().unzip();
-        storage.set_string("output_device", device.unwrap_or_default());
-        storage.set_string("output_device_name", device_name.unwrap_or_default());
+        storage.set_string("output_device", self.destination.key());
+        storage.set_string("output_device_name", self.destination_name.clone());
         storage.set_string("language", self.language.clone().unwrap_or_default());
         storage.set_string("auto_update", b(self.auto_update));
         storage.set_string("update_channel", if self.update_nightly { "nightly" } else { "stable" }.to_owned());

@@ -49,4 +49,4 @@ palette-pages = Pagina’s
 palette-actions = Acties
 palette-title = Opdrachtenpalet
 palette-search = Zoek pagina’s, instellingen, afspeellijsten en acties
-palette-search-for = Zoek naar ‘“{ $query }”’
+palette-search-for = Zoek naar ‘{ $query }’

@@ -39,4 +39,4 @@ status-switched-channel = { $name }로 전환됨
 status-skipped-track = 건너뛴 “{ $title }”: { $reason }
 status-track-failed = “{ $title }”를 재생할 수 없습니다: { $reason }
 status-track-from-device = 다른 장치에서 “{ $title }”를 선택했습니다. 계속하려면 재생을 누르세요.
-status-track-disconnected = "“{ $title }”"를 재생하는 동안 연결이 끊어졌습니다. 계속하려면 재생을 누르세요.
+status-track-disconnected = “{ $title }”를 재생하는 동안 연결이 끊어졌습니다. 계속하려면 재생을 누르세요.

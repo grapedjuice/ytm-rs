@@ -1976,7 +1976,7 @@ impl eframe::App for App {
                 .frame(side_frame)
                 .show_separator_line(false)
                 .show(ui, |ui| {
-                    if let (Some([a, px]), Some(bg)) = (app_style.nav_item.cover_tint.filter(|_| !light), self.bg.as_ref()) {
+                    if let (Some([a, px]), Some(bg)) = (app_style.nav_item.cover_tint.filter(|_| !light && !self.flat_bg), self.bg.as_ref()) {
                         // The cover's blur showing through the top of the sidebar, fading out.
                         let r = ui.max_rect().expand2(egui::vec2(14.0, 0.0));
                         let band = egui::Rect::from_min_size(egui::pos2(r.left(), screen.top()), egui::vec2(r.width(), px));

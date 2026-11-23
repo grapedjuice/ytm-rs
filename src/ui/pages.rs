@@ -2460,17 +2460,18 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         });
         divider(ui);
         setting_row(ui, tr!("settings-flat-background"), Some(tr!("settings-flat-background-desc")), |ui| {
-            if toggle(ui, &mut app.flat_bg, tr!("settings-flat-background")).changed() && app.flat_bg && app.flat_color.is_none() {
-                let c = app.look().solid();
-                app.flat_color = Some(c);
+            toggle(ui, &mut app.flat_bg, tr!("settings-flat-background"));
+            // Next to the toggle. Only a pick is kept, so the theme's colour follows light and dark.
+            if app.flat_bg {
+                ui.add_space(8.0);
+                let was = super::shell::base_color(app);
+                let mut c = was;
+                super::colorpick::button(ui, &mut c, tr!("settings-flat-background-colour"));
+                if c != was {
+                    app.flat_color = Some(c);
+                }
             }
         });
-        if app.flat_bg {
-            ui.add_space(8.0);
-            let mut c = app.flat_color.unwrap_or_else(|| app.look().solid());
-            super::colorpick::button(ui, &mut c, tr!("settings-flat-background-colour"));
-            app.flat_color = Some(c);
-        }
         divider(ui);
         setting_row(ui, tr!("settings-frosted-glass"), Some(tr!("settings-frosted-glass-desc")), |ui| {
             toggle(ui, &mut app.glass_on, tr!("settings-frosted-glass"));

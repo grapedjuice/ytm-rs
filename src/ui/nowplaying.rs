@@ -224,7 +224,7 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
         } else {
             super::shell::vgradient(&painter, rect, theme::shade(from), theme::shade(to));
         }
-    } else if k > 0.0 {
+    } else if themed && k > 0.0 {
         super::shell::vgradient(&painter, rect, theme::shade((0.18 * k).min(0.95)), theme::shade((0.42 * k).min(0.95)));
     }
     if themed {
@@ -232,7 +232,7 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
             super::shell::overlay_light(&painter, rect, o, app.accent_color());
         }
     }
-    if app.ambient_light && app.shown_video().is_some() {
+    if themed && app.ambient_light && app.shown_video().is_some() {
         paint_glow(app, ui, rect, clip);
     }
     if app.visualizer && app.playing() && app.shown_video().is_none() {

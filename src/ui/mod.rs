@@ -2038,7 +2038,10 @@ impl eframe::App for App {
                         self.page_insets = [0.0, 0.0];
                         shell::top_bar(self, ui);
                         ui.add_space(6.0);
-                        ui.scope_builder(egui::UiBuilder::new().scope_id(page_id), |ui| pages::page(self, ui, now));
+                        let page_rect = ui.available_rect_before_wrap();
+                        let mut page_ui = ui.new_child(egui::UiBuilder::new().scope_id(page_id).max_rect(page_rect));
+                        page_ui.set_clip_rect(page_rect);
+                        pages::page(self, &mut page_ui, now);
                         return;
                     }
                     // The page first, running under the glass, then what's over it.

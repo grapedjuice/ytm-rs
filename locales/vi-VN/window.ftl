@@ -49,4 +49,4 @@ palette-pages = Trang
 palette-actions = Hành động
 palette-title = Bảng lệnh
 palette-search = Trang tìm kiếm, cài đặt, danh sách phát và hành động
-palette-search-for = Tìm kiếm ““{ $query }””
+palette-search-for = Tìm kiếm “{ $query }”

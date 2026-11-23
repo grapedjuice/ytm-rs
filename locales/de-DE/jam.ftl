@@ -49,5 +49,5 @@ jam-host-only-queue = Nur der Gastgeber kann die Warteschlange ändern
 jam-host-only-shuffle = Nur der Gastgeber kann die Warteschlange mischen
 jam-queue-limit = Deine Warteschlange ist voll ({ $count }). Füge einen Titel hinzu, sobald einer läuft.
 jam-explicit-skipped = Ein expliziter Titel von { $name } wurde übersprungen
-jam-guest-added = { $name } hat „“{ $title }”“ hinzugefügt
-jam-guest-queued-next = { $name } hat „“{ $title }”“ als Nächstes eingereiht
+jam-guest-added = { $name } hat „{ $title }“ hinzugefügt
+jam-guest-queued-next = { $name } hat „{ $title }“ als Nächstes eingereiht

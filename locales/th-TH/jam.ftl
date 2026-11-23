@@ -49,5 +49,5 @@ jam-host-only-queue = มีเพียงโฮสต์เท่านั้�
 jam-host-only-shuffle = มีเพียงเจ้าภาพเท่านั้นที่สามารถสุ่มเพลงที่ติดได้
 jam-queue-limit = คิวของคุณเต็มแล้ว ({ $count }) เพิ่มเพลงอื่นเมื่อมีการเล่น
 jam-explicit-skipped = ข้ามเพลงที่อาจไม่เหมาะสมที่เพิ่ม { $name }
-jam-guest-added = { $name } เพิ่ม ““{ $title }””
-jam-guest-queued-next = { $name } เข้าคิว ““{ $title }”” ถัดไป
+jam-guest-added = { $name } เพิ่ม “{ $title }”
+jam-guest-queued-next = { $name } เข้าคิว “{ $title }” ถัดไป

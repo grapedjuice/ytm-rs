@@ -49,5 +49,5 @@ jam-host-only-queue = Cuma host yang bisa mengubah antrean jam
 jam-host-only-shuffle = Cuma host yang bisa mengacak jam
 jam-queue-limit = Antreanmu penuh ({ $count }). Tambah lagu lagi setelah ada yang diputar.
 jam-explicit-skipped = Lagu eksplisit yang ditambahkan { $name } dilewati
-jam-guest-added = { $name } menambahkan ““{ $title }””
-jam-guest-queued-next = { $name } menaruh ““{ $title }”” sebagai lagu berikutnya
+jam-guest-added = { $name } menambahkan “{ $title }”
+jam-guest-queued-next = { $name } menaruh “{ $title }” sebagai lagu berikutnya

@@ -23,15 +23,15 @@ status-like-refused = O YouTube Music não aceitou a alteração. Tente novament
 status-refused-count = Recusadas pelo YouTube Music: { $count }
 status-removed-liked = Removido das faixas curtidas
 status-download-batch = Baixando faixas: { $count }
-status-download-collection = Baixando de ““{ $title }””: { $count }
+status-download-collection = Baixando de “{ $title }”: { $count }
 status-download-stopped = Download interrompido{ $name }. Salvas: { $songs }
 status-download-already = Já foi baixado
-status-download-name-already = ““{ $title }”” já foi baixado
+status-download-name-already = “{ $title }” já foi baixado
 status-download-done = Baixado{ $name }: { $songs }
 status-download-already-count = { $count } já estavam lá
 status-download-fail-count = Não foi possível baixar { $count } ({ $details })
-status-play-premium = ““{ $title }”” requer YouTube Music Premium
-status-play-sign-in = Entre para tocar ““{ $title }””
+status-play-premium = “{ $title }” requer YouTube Music Premium
+status-play-sign-in = Entre para tocar “{ $title }”
 status-age-restricted = tem restrição de idade
 status-songs = { $count ->
     [one] { $count } faixa
@@ -41,6 +41,6 @@ status-episodes = { $count ->
     [one] { $count } episódio
    *[other] { $count } episódios
 }
-status-download-quoted-title = ““{ $title }””
+status-download-quoted-title = “{ $title }”
 discord-view-artist = Ir para o artista
 discord-view-album = Ir para o álbum

@@ -49,5 +49,5 @@ jam-host-only-queue = Tylko gospodarz może zmieniać kolejkę sesji
 jam-host-only-shuffle = Tylko gospodarz może mieszać kolejkę
 jam-queue-limit = Twoja kolejka jest pełna ({ $count }). Dodaj kolejny utwór, gdy jeden zacznie grać.
 jam-explicit-skipped = Pominięto utwór z oznaczeniem E dodany przez { $name }
-jam-guest-added = { $name } dodał(a) „“{ $title }””
-jam-guest-queued-next = { $name } dodał(a) „“{ $title }”” jako następny utwór
+jam-guest-added = { $name } dodał(a) „{ $title }”
+jam-guest-queued-next = { $name } dodał(a) „{ $title }” jako następny utwór

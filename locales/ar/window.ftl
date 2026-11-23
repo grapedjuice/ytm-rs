@@ -49,4 +49,4 @@ palette-pages = الصفحات
 palette-actions = الإجراءات
 palette-title = لوحة الأوامر
 palette-search = البحث في الصفحات والإعدادات وقوائم التشغيل والإجراءات
-palette-search-for = البحث عن ““{ $query }””
+palette-search-for = البحث عن “{ $query }”

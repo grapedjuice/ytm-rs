@@ -49,4 +49,4 @@ palette-pages = Sayfalar
 palette-actions = Eylemler
 palette-title = Komut paleti
 palette-search = Sayfalarda, ayarlarda, oynatma listelerinde ve işlemlerde arama yapın
-palette-search-for = ““{ $query }””yi arayın
+palette-search-for = “{ $query }”yi arayın

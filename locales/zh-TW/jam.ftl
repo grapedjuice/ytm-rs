@@ -49,5 +49,5 @@ jam-host-only-queue = 只有主持人可以更改 jam 的隊列
 jam-host-only-shuffle = 只有主持人才能洗牌
 jam-queue-limit = 您的佇列已滿 ({ $count })。播放一首歌曲後再增加一首歌曲。
 jam-explicit-skipped = 已新增跳過一首露骨歌曲 { $name }
-jam-guest-added = { $name } 新增了““{ $title }””
-jam-guest-queued-next = { $name } 接下來排隊““{ $title }””
+jam-guest-added = { $name } 新增了“{ $title }”
+jam-guest-queued-next = { $name } 接下來排隊“{ $title }”

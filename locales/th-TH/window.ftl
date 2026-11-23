@@ -49,4 +49,4 @@ palette-pages = หน้า
 palette-actions = การดำเนินการ
 palette-title = ชุดคำสั่ง
 palette-search = ค้นหาหน้า การตั้งค่า เพลย์ลิสต์ และการดำเนินการ
-palette-search-for = ค้นหา ““{ $query }””
+palette-search-for = ค้นหา “{ $query }”

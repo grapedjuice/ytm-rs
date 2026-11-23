@@ -49,4 +49,4 @@ palette-pages = Páginas
 palette-actions = Ações
 palette-title = Paleta de comandos
 palette-search = Pesquisar páginas, definições, listas de reprodução e ações
-palette-search-for = Pesquisar ““{ $query }””
+palette-search-for = Pesquisar “{ $query }”

@@ -1384,10 +1384,11 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
         match app.playing_from() {
             Some((label, name, target)) => {
                 text_at(ui, pos2(l, head - 16.0), label, theme::regular(11.0), theme::text_faint(), head_w);
-                let nr = text_at(ui, pos2(l, head - 1.0), &name, theme::semibold(13.0), theme::text(), head_w);
+                let (nr, elided) = widgets::text_at_elided(ui, pos2(l, head - 1.0), &name, theme::semibold(13.0), theme::text(), head_w);
                 let sense = if live { Sense::click() } else { Sense::hover() };
                 let resp = named(ui.interact(nr, ui.scope_id().with("card-from"), sense), &name);
                 let resp = if live { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
+                let resp = if elided { resp.on_hover_text(&name) } else { resp };
                 if resp.hovered() && live {
                     ui.painter().hline(nr.x_range(), nr.bottom(), egui::Stroke::new(1.0, theme::text()));
                 }

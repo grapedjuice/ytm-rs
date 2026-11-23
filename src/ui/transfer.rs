@@ -527,7 +527,9 @@ fn destination(app: &mut App, ui: &mut Ui, chosen: Option<&Entry>, accent: Color
             let x = rect.left() + 38.0;
             text_at(ui, pos2(x, rect.top() + 11.0), title, theme::semibold(14.5), theme::text(), rect.width() - 46.0);
             let g = widgets::galley_wrapped(ui, desc, theme::regular(12.5), theme::text_dim(), rect.width() - 46.0, 2);
-            ui.painter().galley(pos2(x, rect.top() + 31.0), g, theme::text_dim());
+            let pos = pos2(x, rect.top() + 31.0);
+            ui.painter().galley(pos, g.clone(), theme::text_dim());
+            widgets::tip_if_elided(ui, Rect::from_min_size(pos, g.size()), &g, desc);
             if resp.clicked() {
                 app.xfer.to_liked = to_liked;
             }
@@ -1417,8 +1419,11 @@ pub fn settings_section(app: &mut App, ui: &mut Ui) {
         let x = b.right() + 16.0;
         let tw = rect.right() - x - 120.0;
         ui.painter().text(pos2(x, rect.center().y - 10.0), Align2::LEFT_CENTER, crate::tr!("transfer-title"), theme::semibold(14.5), theme::text());
-        let g = widgets::galley_wrapped(ui, crate::tr!("transfer-intro"), theme::regular(12.5), theme::text_dim(), tw, 2);
-        ui.painter().galley(pos2(x, rect.center().y + 2.0), g, theme::text_dim());
+        let intro = crate::tr!("transfer-intro");
+        let g = widgets::galley_wrapped(ui, intro, theme::regular(12.5), theme::text_dim(), tw, 2);
+        let pos = pos2(x, rect.center().y + 2.0);
+        ui.painter().galley(pos, g.clone(), theme::text_dim());
+        widgets::tip_if_elided(ui, Rect::from_min_size(pos, g.size()), &g, intro);
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::right_to_left(egui::Align::Center)));
         open = pill(&mut child, crate::tr!("settings-open"), None, true).clicked();
         super::pages::divider(ui);

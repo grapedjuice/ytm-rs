@@ -63,7 +63,11 @@ pub fn faded_text_at(ui: &Ui, pos: Pos2, text: &str, font: egui::FontId, color: 
     let g = ui.painter().layout_no_wrap(text.to_owned(), font, color);
     let rect = Rect::from_min_size(pos, vec2(g.size().x.min(width), g.size().y));
     if g.size().x <= width || fade <= 0.0 {
+        let cut = g.size().x > width;
         ui.painter().with_clip_rect(rect.expand2(vec2(0.0, 2.0))).galley(pos, g, color);
+        if cut && color.a() >= 16 {
+            tip_full_text(ui, rect, text);
+        }
         return rect;
     }
     // The glyphs' own mesh, each vertex's alpha by how near the edge it is.
@@ -89,6 +93,9 @@ pub fn faded_text_at(ui: &Ui, pos: Pos2, text: &str, font: egui::FontId, color: 
         }
     }
     ui.painter().with_clip_rect(rect.expand2(vec2(0.0, 2.0))).add(egui::Shape::mesh(mesh));
+    if color.a() >= 16 {
+        tip_full_text(ui, rect, text);
+    }
     rect
 }
 
@@ -192,23 +199,67 @@ pub fn ui_text(text: &str, font: egui::FontId, color: Color32) -> egui::WidgetTe
     crate::bidi::job_based(text, font, color, ui_base()).into()
 }
 
-pub fn text_at(ui: &Ui, pos: Pos2, text: &str, font: egui::FontId, color: Color32, width: f32) -> Rect {
+/// Whether `g` was cut short with an ellipsis compared to `text` (covering both egui's
+/// LTR wrapping and our RTL truncation helpers).
+pub fn is_elided(g: &egui::Galley, text: &str) -> bool {
+    if g.elided {
+        return true;
+    }
+    let Some(last) = g.text().lines().last() else { return false };
+    let orig_last = text.lines().last().unwrap_or(text);
+    (last.starts_with('…') && !orig_last.starts_with('…')) || (last.ends_with('…') && !orig_last.ends_with('…'))
+}
+
+/// Show `text` in a hover tooltip when `g` was truncated to fit `rect`.
+/// Uses `Sense::hover()` so parent rows, cards, and buttons keep their click and hover
+/// states, and works on disabled widgets too (such as disabled settings rows).
+pub fn tip_if_elided(ui: &Ui, rect: Rect, g: &egui::Galley, text: &str) {
+    if is_elided(g, text) {
+        tip_full_text(ui, rect, text);
+    }
+}
+
+fn tip_full_text(ui: &Ui, rect: Rect, text: &str) {
+    if text.is_empty() || ui.is_sizing_pass() {
+        return;
+    }
+    let id = ui.scope_id().with(("elided-tip", text, rect.left() as i32, rect.top() as i32));
+    let resp = ui.interact(rect, id, Sense::hover());
+    if resp.enabled() {
+        resp.on_hover_text(text);
+    } else {
+        resp.on_disabled_hover_text(text);
+    }
+}
+
+/// Paints single-line truncated text and returns its bounds and whether it was elided,
+/// without registering a hover widget (for callers that place a clickable widget over it).
+pub fn text_at_elided(ui: &Ui, pos: Pos2, text: &str, font: egui::FontId, color: Color32, width: f32) -> (Rect, bool) {
     let g = galley(ui, text, font, color, width);
     let rect = Rect::from_min_size(pos, g.size());
+    let elided = is_elided(&g, text);
     ui.painter().galley(pos, g, color);
+    (rect, elided)
+}
+
+pub fn text_at(ui: &Ui, pos: Pos2, text: &str, font: egui::FontId, color: Color32, width: f32) -> Rect {
+    let (rect, elided) = text_at_elided(ui, pos, text, font, color, width);
+    if elided && color.a() >= 16 {
+        tip_full_text(ui, rect, text);
+    }
     rect
 }
 
-/// A song's title, followed by the "E" YouTube Music marks explicit songs with: a square
-/// in the title's own `color` with the E cut out of it, so whatever's behind shows through.
-pub fn title_at(ui: &Ui, pos: Pos2, title: &str, explicit: bool, font: egui::FontId, color: Color32, width: f32) -> Rect {
+/// [`title_at`], returning whether the title was elided without registering a hover widget
+/// (for callers that place a clickable widget over the returned rect).
+pub fn title_at_elided(ui: &Ui, pos: Pos2, title: &str, explicit: bool, font: egui::FontId, color: Color32, width: f32) -> (Rect, bool) {
     if !explicit {
-        return text_at(ui, pos, title, font, color, width);
+        return text_at_elided(ui, pos, title, font, color, width);
     }
     let ppp = ui.ctx().pixels_per_point();
     let side = (font.size * 0.8 * ppp).round().max(9.0); // in physical pixels
     let gap = (side * 0.4).round() / ppp;
-    let r = text_at(ui, pos, title, font, color, width - side / ppp - gap);
+    let (r, elided) = text_at_elided(ui, pos, title, font, color, width - side / ppp - gap);
     let snap = |v: f32| (v * ppp).round() / ppp;
     let b = Rect::from_min_size(pos2(snap(r.right() + gap), snap(r.center().y - side / ppp / 2.0)), Vec2::splat(side / ppp));
     // Drawn from a mask made once per size: one texel a screen pixel, so it stays sharp.
@@ -230,7 +281,17 @@ pub fn title_at(ui: &Ui, pos: Pos2, title: &str, explicit: bool, font: egui::Fon
         t
     });
     ui.painter().image(tex.id(), b, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), color);
-    r.union(b)
+    (r.union(b), elided)
+}
+
+/// A song's title, followed by the "E" YouTube Music marks explicit songs with: a square
+/// in the title's own `color` with the E cut out of it, so whatever's behind shows through.
+pub fn title_at(ui: &Ui, pos: Pos2, title: &str, explicit: bool, font: egui::FontId, color: Color32, width: f32) -> Rect {
+    let (rect, elided) = title_at_elided(ui, pos, title, explicit, font, color, width);
+    if elided && color.a() >= 16 {
+        tip_full_text(ui, rect, title);
+    }
+    rect
 }
 
 /// A rounded square with an E cut out of it, `side` pixels across, as white coverage
@@ -317,7 +378,10 @@ pub fn linked_text(
             acts.push(Action::Open(Target::Artist(id.clone())));
         }
     }
-    ui.painter().galley(pos, g, color);
+    ui.painter().galley(pos, g.clone(), color);
+    if color.a() >= 16 {
+        tip_if_elided(ui, rect, &g, text);
+    }
     rect
 }
 
@@ -851,7 +915,9 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, pin: Option<bool>, a
     let tcolor = theme::text();
     let title = galley_wrapped(ui, &c.title, theme::weighted(cl.title_weight, cl.title_px), tcolor, width, 2);
     let title_h = title.size().y;
-    ui.painter().galley(pos2(rect.left(), img.bottom() + 10.0), title, tcolor);
+    let title_pos = pos2(rect.left(), img.bottom() + 10.0);
+    ui.painter().galley(title_pos, title.clone(), tcolor);
+    tip_if_elided(ui, Rect::from_min_size(title_pos, title.size()), &title, &c.title);
     let sub_y = img.bottom() + 14.0 + title_h;
     linked_text(ui, pos2(rect.left(), sub_y), &c.subtitle, &c.links, theme::regular(13.0), theme::with_alpha(theme::text_dim(), cl.subtitle_alpha), width - 36.0, acts);
     // On the subtitle line, whose width leaves room for it, so a two-line title never sits under it.
@@ -1583,7 +1649,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         let album_color = theme::with_alpha(theme::text_dim(), opacity);
         let g = galley(ui, &album.name, theme::regular(13.5), album_color, w);
         let ar = Rect::from_min_size(pos2(ax, cy - 9.0), g.size());
-        ui.painter().galley(ar.min, g, album_color);
+        ui.painter().galley(ar.min, g.clone(), album_color);
         // Album name opens the album, like the artist names.
         if let Some(id) = &album.id {
             let r = named(ui.interact(ar, resp.id.with("album"), Sense::click()), &album.name);
@@ -1595,6 +1661,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
                 acts.push(Action::Open(Target::Album(id.clone())));
             }
         }
+        tip_if_elided(ui, ar, &g, &album.name);
     }
     if let Some(rating) = rating {
         let label = match rating {
@@ -2201,6 +2268,27 @@ mod time_tests {
                 let base = if s.len() > 4 { width("0:00 / 0:00") } else { width("0:00") };
                 assert!((width(s) - base).abs() < 0.01, "{s}: {} vs {base}", width(s));
             }
+        });
+        out.textures_delta.clear();
+    }
+
+    #[test]
+    fn elided_detects_single_and_multiline_truncation() {
+        let ctx = egui::Context::default();
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let font = egui::FontId::proportional(13.0);
+            let long = "A long setting description that cannot fit in a narrow column without being cut off";
+            let cut = super::galley(ui, long, font.clone(), egui::Color32::WHITE, 80.0);
+            assert!(super::is_elided(&cut, long));
+            let fit = super::galley(ui, "Short", font.clone(), egui::Color32::WHITE, 200.0);
+            assert!(!super::is_elided(&fit, "Short"));
+            let literal = super::galley(ui, "Wait…", font.clone(), egui::Color32::WHITE, 200.0);
+            assert!(!super::is_elided(&literal, "Wait…"));
+            let wrap_cut = super::galley_wrapped(ui, long, font.clone(), egui::Color32::WHITE, 80.0, 2);
+            assert!(super::is_elided(&wrap_cut, long));
+            let wrap_fit = super::galley_wrapped(ui, "Short text", font, egui::Color32::WHITE, 200.0, 2);
+            assert!(!super::is_elided(&wrap_fit, "Short text"));
         });
         out.textures_delta.clear();
     }

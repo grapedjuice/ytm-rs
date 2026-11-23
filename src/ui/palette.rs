@@ -442,7 +442,9 @@ fn row(ui: &mut Ui, e: &Entry, selected: bool, unlike: Option<egui::Id>, enter_p
     };
     let x = rect.left() + 42.0;
     let g = widgets::galley(ui, &e.label, theme::regular(14.0), theme::text(), rect.right() - 12.0 - detail_w - x);
-    ui.painter().galley(pos2(x, mid - g.size().y / 2.0), g, theme::text());
+    let pos = pos2(x, mid - g.size().y / 2.0);
+    ui.painter().galley(pos, g.clone(), theme::text());
+    widgets::tip_if_elided(ui, Rect::from_min_size(pos, g.size()), &g, &e.label);
     let activated = gesture.map_or_else(|| resp.clicked(), |gesture| gesture.activate);
     (resp, activated)
 }

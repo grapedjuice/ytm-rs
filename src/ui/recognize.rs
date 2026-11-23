@@ -19,6 +19,10 @@ use crate::theme::{self, icon};
 const PAUSE_SETTLES: Duration = Duration::from_millis(400);
 /// How long an answer stays up, in seconds (longer while the pointer is on it).
 const HOLD: f64 = 8.0;
+/// After Play or Add to playlist: up this long, pointer on it or not, then it fades.
+const ACTED_HOLD: f64 = 3.0;
+/// Its fade out, in seconds.
+const FADE: f64 = 0.4;
 /// The mini player's strip.
 const SIZE: Vec2 = mini::SIZE;
 /// From the screen's corner, and from the mini player.
@@ -36,6 +40,8 @@ pub(super) struct Recognizing {
     answered: Option<f64>,
     /// The pointer is on the card: it stays up.
     hovered: bool,
+    /// When Play or Add to playlist was clicked: it fades away a little later.
+    acted: Option<f64>,
     /// The bars as drawn: up at once, falling back slowly.
     bars: [f32; BARS],
     /// The app was in front last frame: coming back to it puts the answer away.
@@ -89,6 +95,7 @@ pub(super) fn tick(app: &mut App, ctx: &egui::Context) {
             app.audio.send(AudioCmd::Resume);
         }
         app.recognizing.answered = None;
+        app.recognizing.acted = None;
         return;
     };
     // The card's window shows with the app's in the tray or minimized too.
@@ -116,6 +123,9 @@ pub(super) fn tick(app: &mut App, ctx: &egui::Context) {
     match r.answered {
         _ if matches!(phase, Phase::Listening { .. } | Phase::Identifying) => {}
         None => answer(app, phase, now),
+        // Played or added: gone once faded, the app coming up for the picker or not.
+        Some(_) if r.acted.is_some_and(|at| now - at > ACTED_HOLD + FADE) => app.recognize.close(),
+        Some(_) if r.acted.is_some() => ctx.request_repaint(),
         // Seen in the app now, as the search it opened.
         Some(_) if back => app.recognize.close(),
         Some(at) if now - at > HOLD && !r.hovered => app.recognize.close(),
@@ -148,6 +158,13 @@ fn answer(app: &mut App, phase: Phase, now: f64) {
     }
 }
 
+/// The card's opacity: 1 until it fades after Play or Add to playlist.
+fn opacity(app: &App, ctx: &egui::Context) -> f32 {
+    let Some(at) = app.recognizing.acted else { return 1.0 };
+    let t = ((ctx.input(|i| i.time) - at - ACTED_HOLD) / FADE).clamp(0.0, 1.0) as f32;
+    1.0 - t * t * (3.0 - 2.0 * t)
+}
+
 /// Over the app while it's in front (and not the mini player, too small for it); else in
 /// a window of its own.
 fn in_app(app: &App, ctx: &egui::Context) -> bool {
@@ -167,13 +184,17 @@ pub(super) fn popout(app: &mut App, ctx: &egui::Context) {
         .with_decorations(false)
         .with_always_on_top()
         .with_taskbar(false)
+        // So it can fade away.
+        .with_transparent(true)
         // Not the keyboard: the user is likely in the app playing the song, or a game.
         .with_active(false);
     if let Some(p) = place(app, ctx) {
         builder = builder.with_position(p);
     }
+    let fade = opacity(app, ctx);
     let out = ctx.show_viewport_immediate(ViewportId::from_hash_of("recognize"), builder, |ui, _| {
         let ctx = ui.ctx().clone();
+        ui.multiply_opacity(fade);
         // Under the card's buttons: the rest of it brings the app up.
         let bg = ui.interact(ctx.content_rect(), egui::Id::unique("recognize-focus"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
         let mut out = card(app, ui, ctx.content_rect(), &v, 0.0);
@@ -192,11 +213,13 @@ pub(super) fn inline(app: &mut App, ctx: &egui::Context) {
     }
     let Some(v) = view(app) else { return };
     let screen = ctx.content_rect();
+    let fade = opacity(app, ctx);
     let out = egui::Area::new(egui::Id::unique("recognize-card"))
         .order(egui::Order::Foreground)
         .pivot(egui::Align2::RIGHT_BOTTOM)
         .fixed_pos(pos2(screen.right() - MARGIN, screen.bottom() - OVER_BAR))
         .show(ctx, |ui| {
+            ui.multiply_opacity(fade);
             let (r, _) = ui.allocate_exact_size(SIZE, Sense::hover());
             let shadow = egui::epaint::Shadow { offset: [0, 8], blur: 24, spread: 0, color: theme::shade(0.45) };
             ui.painter().add(shadow.as_shape(r, RADIUS));
@@ -398,11 +421,10 @@ fn apply(app: &mut App, ctx: &egui::Context, track: Option<Track>, out: Out) {
     }
     let r = &mut app.recognizing;
     r.hovered = out.hovered;
-    if out.play {
-        // Up a while longer, now playing.
-        r.answered = Some(ctx.input(|i| i.time));
+    if (out.play || out.playlist) && r.acted.is_none() {
+        r.acted = Some(ctx.input(|i| i.time));
     }
-    if out.close || out.playlist {
+    if out.close {
         app.recognize.close();
     }
 }

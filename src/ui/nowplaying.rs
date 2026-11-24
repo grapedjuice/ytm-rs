@@ -317,7 +317,9 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     let video = app.shown_video().cloned();
     let video_mode = video.is_some();
     let (header, content) = np_rects(area, app.fullscreen);
-    let video_lyrics = video_mode && look.now_playing.video_lyrics && !app.no_lyrics() && content_wide(ui.ctx(), content);
+    // Decided every frame, a video's too, so what it was is never one from before a resize.
+    let wide = content_wide(ui.ctx(), content);
+    let video_lyrics = video_mode && look.now_playing.video_lyrics && !app.no_lyrics() && wide;
     let no_lyrics = app.no_lyrics() || (video_mode && !video_lyrics);
     // In some themes full screen's header leaves until the pointer moves. It comes back at once, and for the keyboard too.
     let hide = look.now_playing.header_autohide && app.fullscreen;
@@ -851,9 +853,10 @@ fn portrait_layout(ctx: &egui::Context, content: Rect) -> bool {
 }
 
 /// The content's height to width from which it stacks, and below which it goes back side
-/// by side. Half of a landscape screen (16:9, 16:10, even 3:2) comes to 1.22 at most and stays
-/// side by side; a portrait monitor comes to about 1.7, a third of a 1440p screen to 1.55.
-const PORTRAIT_RATIO: [f32; 2] = [1.3, 1.25];
+/// by side. Half of a 16:9, 16:10 or 3:2 screen stays under 1.33 however large it is (about 1.2
+/// at the usual sizes), so it stays side by side; a portrait monitor comes to about 1.7, a
+/// 3:2 tablet stood up to 1.38, a third of a 1440p screen to 1.55.
+const PORTRAIT_RATIO: [f32; 2] = [1.35, 1.3];
 
 /// No least size: it's in points, and the smallest window (`MIN_SIZE`) this tall has room
 /// for the cover and the panel.
@@ -892,7 +895,7 @@ fn portrait_panel(look: &crate::preset::Preset, content: Rect, fullscreen: bool)
 
 /// Room for lyrics beside something else.
 fn content_wide(ctx: &egui::Context, area: Rect) -> bool {
-    area.width() >= 860.0 && !portrait_layout(ctx, area)
+    !portrait_layout(ctx, area) && area.width() >= 860.0
 }
 
 /// Upper pixel bound imposed by the theme on the artwork size; by the window's width
@@ -2520,6 +2523,8 @@ mod tests {
             (960.0, 1152.0),  // 1920×1200
             (1280.0, 1552.0), // 2560×1600
             (1128.0, 1456.0), // 3:2, 2256×1504
+            (1920.0, 2512.0), // 3:2, 3840×2560 at 100 %
+            (1536.0, 2000.0), // 3:2, 3840×2560 at 125 %
             (1720.0, 1392.0), // 3440×1440 ultrawide
             (1146.0, 1392.0), // a third of it
         ] {
@@ -2534,6 +2539,8 @@ mod tests {
             (1080.0, 1872.0), // 1080×1920
             (864.0, 1488.0),  // 1080×1920 at 125 %
             (1440.0, 2512.0), // 1440×2560
+            (1200.0, 1872.0), // 1200×1920
+            (960.0, 1392.0),  // a 2880×1920 tablet stood up, at 200 %
             (960.0, 1659.0),  // 1440×2560 at 150 %
             (853.0, 1392.0),  // a third of a 1440p screen
         ] {
@@ -2543,7 +2550,7 @@ mod tests {
 
     #[test]
     fn near_the_line_it_keeps_what_it_was() {
-        let c = vec2(1000.0, 1270.0);
+        let c = vec2(1000.0, 1320.0);
         assert!(is_portrait(c, true));
         assert!(!is_portrait(c, false));
     }

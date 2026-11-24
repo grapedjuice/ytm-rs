@@ -1853,7 +1853,8 @@ fn settings_account(app: &mut App, ui: &mut Ui) {
     settings_section(ui, tr!("settings-account"), None, None, |ui| {
         if app.logged_in {
             let name = app.account_name.clone().unwrap_or_else(|| "YouTube Music".to_owned());
-            setting_row(ui, &name, Some(tr!("settings-signed-in-desc")), |ui| {
+            let desc = if cfg!(windows) { tr!("settings-signed-in-desc") } else { tr!("settings-signed-in-desc-system") };
+            setting_row(ui, &name, Some(desc), |ui| {
                 sign_out = pill(ui, tr!("settings-sign-out"), Some(icon::LOG_OUT), false).clicked();
             });
             // Also with one, when the one in use isn't it (a brand channel since deleted).
@@ -2074,7 +2075,8 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
         divider(ui);
         stereo_settings(app, ui);
         divider(ui);
-        setting_row(ui, tr!("settings-output-device"), Some(tr!("settings-output-device-desc")), |ui| {
+        let desc = if cfg!(windows) { tr!("settings-output-device-desc") } else { tr!("settings-output-device-desc-system") };
+        setting_row(ui, tr!("settings-output-device"), Some(desc), |ui| {
             output_device_picker(app, ui);
         });
     });
@@ -3279,7 +3281,8 @@ fn network(app: &mut App, ui: &mut Ui) {
             ui.horizontal(|ui| {
                 save = pill(ui, if saved { tr!("settings-saved") } else { tr!("settings-save") }, None, !saved).clicked() && !saved;
                 ui.add_space(8.0);
-                widgets::note(ui, tr!("settings-proxy-password-note"), theme::regular(12.5), theme::text_dim());
+                let note = if cfg!(windows) { tr!("settings-proxy-password-note") } else { tr!("settings-proxy-password-note-system") };
+                widgets::note(ui, note, theme::regular(12.5), theme::text_dim());
             });
             if save {
                 match proxy::save(app.backend.data_dir(), &custom) {
@@ -3457,8 +3460,10 @@ fn font_picker(ui: &mut Ui) -> Option<String> {
     picked.filter(|p| *p != current)
 }
 
+/// The output device that follows the system's choice. On Linux that's ALSA's default,
+/// which plays through PipeWire or PulseAudio where they run.
 fn system_default() -> &'static str {
-    tr!("settings-windows-default")
+    if cfg!(windows) { tr!("settings-windows-default") } else { tr!("settings-system-default") }
 }
 
 /// A device's name in the list, AirPlay speakers marked as such.
@@ -3487,7 +3492,7 @@ pub(super) fn output_device_menu(app: &mut App, btn: &egui::Response, popup: egu
     // Listed when opened, so a device that just connected shows up. Only then: the player
     // bar draws this every frame, and listing asks the system each time.
     if btn.clicked() {
-        app.output_devices = crate::audio::output_devices();
+        app.output_devices = crate::audio::output_devices(app.output_device.as_ref().map(|(id, _)| id.as_str()));
         crate::airplay::discover();
     }
     let mut pick: Option<Option<(String, String)>> = None;

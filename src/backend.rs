@@ -124,7 +124,7 @@ pub enum Req {
     EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
     /// Save one of your playlist's sort orders to it ([`PlaylistSort::actions`]).
     SortPlaylist { id: String, actions: serde_json::Value },
-    AddToPlaylist { playlist_id: String, video_ids: Vec<String> },
+    AddToPlaylist { playlist_id: String, tracks: Vec<Track>, duplicates: ytm::Duplicates },
     /// `(videoId, setVideoId)` entries to take out of the playlist.
     RemoveFromPlaylist { playlist_id: String, items: Vec<(String, String)> },
     /// Move an entry to just before another, or to the end.
@@ -446,6 +446,8 @@ pub enum Resp {
     /// A playlist wasn't deleted, though it's left the library here already.
     DeleteFailed { error: String },
     AddedToPlaylist { id: String, video_ids: Vec<String>, error: Option<String> },
+    /// None of `tracks` went in: some are in the playlist already ([`ytm::Duplicates::Ask`]).
+    AlreadyInPlaylist { id: String, tracks: Vec<Track> },
     /// YouTube Music answered a song dragged to a new place.
     PlaylistMoved { id: String, move_id: u64, ok: bool },
     Collaboration(ytm::Collaboration),
@@ -487,6 +489,7 @@ impl Resp {
                 | Resp::LikeProgress { .. }
                 | Resp::LikedMany { .. }
                 | Resp::AddedToPlaylist { .. }
+                | Resp::AlreadyInPlaylist { .. }
                 | Resp::Artist(_)
                 | Resp::Subscribed { .. }
         )
@@ -1372,13 +1375,17 @@ impl Backend {
                         Resp::PlaylistChanged { id, change: PlaylistChange::SortFailed }
                     }
                 },
-                Req::AddToPlaylist { playlist_id, video_ids } => {
+                Req::AddToPlaylist { playlist_id, tracks, duplicates } => {
+                    let video_ids: Vec<String> = tracks.iter().map(|t| t.id.clone()).collect();
                     // A failure says which songs too, so they stop showing in the playlist.
-                    let error = ytm::add_videos(api, &playlist_id, &video_ids).await.err().map(|e| {
-                        log::warn!("{what} failed: {e:#}");
-                        format!("{what} failed: {e}")
-                    });
-                    Resp::AddedToPlaylist { id: playlist_id, video_ids, error }
+                    match ytm::add_videos(api, &playlist_id, &video_ids, duplicates).await {
+                        Ok(true) => Resp::AddedToPlaylist { id: playlist_id, video_ids, error: None },
+                        Ok(false) => Resp::AlreadyInPlaylist { id: playlist_id, tracks },
+                        Err(e) => {
+                            log::warn!("{what} failed: {e:#}");
+                            Resp::AddedToPlaylist { id: playlist_id, video_ids, error: Some(format!("{what} failed: {e}")) }
+                        }
+                    }
                 }
                 Req::RemoveFromPlaylist { playlist_id, items } => {
                     match ytm::remove_videos(api, &playlist_id, &items).await {

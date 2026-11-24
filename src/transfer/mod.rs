@@ -858,7 +858,7 @@ impl Transfer {
                 self.checkpoint().await?;
                 let batch = &part[done..(done + BATCH).min(part.len())];
                 // Adding skips songs already in the playlist, so a repeated batch is harmless.
-                retry(|| ytm::add_videos(api, &id, batch)).await.context("Adding songs to the playlist failed")?;
+                retry(|| ytm::add_videos(api, &id, batch, ytm::Duplicates::Skip)).await.context("Adding songs to the playlist failed")?;
                 self.with_job(|j| {
                     j.added = base + done + batch.len();
                     j.saving.0 = j.added;

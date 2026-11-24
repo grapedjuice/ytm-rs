@@ -288,13 +288,18 @@ pub fn wait_for_predecessor() {
 /// Start `exe` once this process has exited: it waits for this one
 /// ([`wait_for_predecessor`]), so this process can take as long as it needs to close.
 pub fn start_after_exit(exe: &Path) -> bool {
+    start_after_exit_with_args(exe, &[])
+}
+
+/// Start again with extra arguments, after this process exits.
+pub fn start_after_exit_with_args(exe: &Path, args: &[&str]) -> bool {
     let after = format!("{AFTER_FLAG}{}", std::process::id());
     #[cfg(target_os = "macos")]
     if let Some(app) = bundle_of(exe) {
         // Through Launch Services; `-n` starts a new copy while this one is still up.
-        return spawn(Command::new("open").arg("-n").arg(app).arg("--args").arg(&after));
+        return spawn(Command::new("open").arg("-n").arg(app).arg("--args").arg(&after).args(args));
     }
-    spawn(Command::new(exe).arg(after))
+    spawn(Command::new(exe).arg(after).args(args))
 }
 
 /// Wait for process `pid` to exit, however long it takes: going ahead early would run

@@ -2218,6 +2218,31 @@ fn settings_lyrics(app: &mut App, ui: &mut Ui) {
             }
         });
         divider(ui);
+        // Another theme's lyrics (Spicy's, Apple Music's, …) under this theme's pages.
+        setting_row(ui, tr!("settings-lyrics-look"), Some(tr!("settings-lyrics-look-desc")), |ui| {
+            let theme_default = tr!("settings-theme-default");
+            let now = app.lyric_prefs.look.as_deref().map_or(theme_default, |id| crate::preset::get(id).name.as_str());
+            let btn = dropdown_button(ui, now, 210.0, tr!("settings-lyrics-look"));
+            widgets::menu_popup(&btn).show(|ui| {
+                widgets::menu_body(ui, 260.0);
+                dropdown_list(ui, 320.0, |ui| {
+                    let looks = std::iter::once(None).chain(crate::preset::all().iter().map(Some));
+                    for p in looks {
+                        let id = p.map(|p| p.id.clone());
+                        let checked = id == app.lyric_prefs.look;
+                        let row = option_row(ui, p.map_or(theme_default, |p| p.name.as_str()), checked);
+                        if checked && btn.clicked() {
+                            row.scroll_to_me(Some(egui::Align::Center));
+                        }
+                        if row.clicked() {
+                            app.lyric_prefs.look = id;
+                            ui.close();
+                        }
+                    }
+                });
+            });
+        });
+        divider(ui);
         setting_row(ui, tr!("settings-text-size"), Some(tr!("settings-text-size-desc")), |ui| {
             percent_stepper(ui, &mut app.lyric_prefs.text_scale, super::lyric_prefs::TEXT_SCALE, tr!("settings-larger"), tr!("settings-smaller"));
         });

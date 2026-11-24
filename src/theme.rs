@@ -1548,14 +1548,15 @@ fn map(path: impl AsRef<std::path::Path>) -> Option<&'static [u8]> {
 
 /// Apply a theme preset's chrome: how strong glass surfaces are and how round
 /// buttons, pills and fields are.
-pub fn apply_chrome(ctx: &egui::Context, p: &crate::preset::Preset) {
+/// `lyrics`: the lyrics look in use, another theme's when the listener picked one.
+pub fn apply_chrome(ctx: &egui::Context, p: &crate::preset::Preset, lyrics: &crate::preset::LyricStyle) {
     GLASS.store(p.chrome.glass.clamp(0.0, 2.5).to_bits(), std::sync::atomic::Ordering::Relaxed);
     let dim = crate::preset::hex(&p.app.text_dim).unwrap_or(TEXT_DIM);
     DIM.store(u32::from_le_bytes(dim.to_array()), std::sync::atomic::Ordering::Relaxed);
     TEXT_OVER.store(crate::preset::hex(&p.app.text_color).map_or(0, |c| u32::from_le_bytes(c.to_array())), std::sync::atomic::Ordering::Relaxed);
     FADE.store(p.app.ui_fade_secs.map_or(1.0, |s| (s / 0.18).clamp(0.3, 3.0)).to_bits(), std::sync::atomic::Ordering::Relaxed);
     install_style(ctx);
-    install_fonts(ctx, &p.app.font, &[&p.lyrics.font]);
+    install_fonts(ctx, &p.app.font, &[&p.lyrics.font, &lyrics.font]);
 }
 
 pub fn install_style(ctx: &egui::Context) {

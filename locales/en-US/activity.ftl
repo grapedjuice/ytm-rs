@@ -7,6 +7,11 @@ status-added-queue = Added to queue
 status-removed-queue = Removed from queue
 status-cleared-queue = Queue cleared
 status-removed-playlist = Removed from playlist
+status-not-added-duplicates =
+    { $count ->
+        [one] Not added: it's already in “{ $title }”
+       *[other] Nothing added: some of these songs are already in “{ $title }”
+    }
 status-playlist-deleted = Playlist deleted
 status-added-liked = Added to Liked Music
 status-sign-in-like = Sign in to like songs

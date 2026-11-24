@@ -74,6 +74,15 @@ pub fn active() -> &'static Setting {
     ACTIVE.get_or_init(Setting::default)
 }
 
+/// Whether requests go through a proxy this run: one set here, or the system's.
+pub fn in_use() -> bool {
+    match active() {
+        Setting::Custom(_) => true,
+        Setting::System => system().is_some(),
+        Setting::Off => false,
+    }
+}
+
 pub fn load(data_dir: &Path) -> Setting {
     match std::fs::read_to_string(data_dir.join("proxy")).unwrap_or_default().trim() {
         "off" => Setting::Off,

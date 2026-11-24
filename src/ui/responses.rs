@@ -366,8 +366,13 @@ impl App {
                     self.lyrics_extras = Some((video_id, source, target, extras));
                 }
             }
-            Resp::Art { key, mut art } => {
-                if self.current_id() == Some(key.as_str()) {
+            Resp::Art { key, art } => {
+                // An older request's failure doesn't take away a cover already showing.
+                let covered = self.art_key.as_deref() == Some(key.as_str()) && !self.art_uncovered;
+                if self.current_id() == Some(key.as_str()) && (art.is_some() || !covered) {
+                    self.art_uncovered = art.is_none();
+                    // No cover: the idle backdrop's colours, not the song before's (#356).
+                    let mut art = art.unwrap_or_else(crate::art::idle);
                     crate::art::soften(&mut art, self.look().background.blur_passes.saturating_sub(6));
                     self.track_art = Some(art);
                     self.art_key = Some(key);
@@ -554,6 +559,7 @@ impl App {
                 self.lists.edits.confirm_add(&id, &video_ids);
                 self.on_playlist_changed(id, PlaylistChange::Added);
             }
+            Resp::AlreadyInPlaylist { id, tracks } => self.already_in_playlist(id, tracks),
             Resp::AddedToPlaylist { id, video_ids, error: Some(e) } => {
                 // Shown as added: out again, and a reload makes sure of the rest.
                 self.lists.add_failed(&id, &video_ids);
@@ -640,7 +646,29 @@ impl App {
                 }
             }
             Resp::LoggedIn(v) => self.on_logged_in(v, now),
-            Resp::Error(e) => self.on_error(e),
+            // Only what the page was waiting for says why it failed, not some other request.
+            Resp::Error(e) => {
+                if self.page_waiting() {
+                    self.offline = false;
+                }
+                self.on_error(e);
+            }
+            // Back: the page that couldn't load loads, as Try again would. Should it still
+            // fail, the checks go on as far apart as they'd got.
+            Resp::Reachable(true) if self.offline && self.load_failed => {
+                let wait = self.online_wait;
+                self.refresh();
+                self.online_wait = wait;
+            }
+            Resp::Reachable(_) => {}
+            Resp::Offline => {
+                if self.page_waiting() {
+                    self.offline = true;
+                }
+                // On Downloads already, it doesn't point there.
+                let here = self.page == super::Page::Library(super::LibTab::Downloads);
+                self.on_error(super::offline_text(here).to_owned());
+            }
         }
     }
 
@@ -861,6 +889,10 @@ impl App {
     fn on_logged_in(&mut self, v: bool, now: f64) {
         // An Undo made meanwhile was the last account's: it isn't sent as this one.
         self.undo = None;
+        // So is a question about adding to its playlist.
+        if matches!(self.dialog, Some(Dialog::ConfirmAddDuplicates { .. })) {
+            self.dialog = None;
+        }
         self.toast_after_unlike = None;
         self.ratings.reset();
         self.logged_in = v;
@@ -908,6 +940,11 @@ impl App {
     }
 
     /// A request failed: pages waiting for it stop waiting, and the error shows.
+    /// Whether the page is still waiting for its first data: an error now is its own.
+    fn page_waiting(&self) -> bool {
+        self.loading || (self.page == Page::Home && self.home_loading)
+    }
+
     fn on_error(&mut self, e: String) {
         if let Some(Dialog::Collaborate { info, busy, .. }) = &mut self.dialog {
             *busy = false;
@@ -917,7 +954,7 @@ impl App {
             }
         }
         // A page still waiting for its first data shows a retry instead of loading forever.
-        self.load_failed |= self.loading || (self.page == Page::Home && self.home_loading);
+        self.load_failed |= self.page_waiting();
         self.loading = false;
         self.home_loading = false;
         self.radio_pending = false;

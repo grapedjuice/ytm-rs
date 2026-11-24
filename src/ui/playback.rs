@@ -129,13 +129,12 @@ impl App {
     /// Fetch the current song's art for the background and accent.
     pub(super) fn request_art(&mut self) {
         let Some(track) = self.current() else { return };
-        if self.art_key.as_deref() == Some(track.id.as_str()) {
+        if self.art_key.as_deref() == Some(track.id.as_str()) && !self.art_uncovered {
             return;
         }
-        if let Some(url) = backend::art_url(track) {
-            let key = track.id.clone();
-            self.backend.request(Req::Art { key, url });
-        }
+        // Asked for without a cover too: the answer takes the song before's colours away.
+        let (key, url) = (track.id.clone(), backend::art_url(track));
+        self.backend.request(Req::Art { key, url });
     }
 
     pub(super) fn play_list(&mut self, tracks: Vec<Track>, start: usize) {

@@ -1864,6 +1864,17 @@ fn video_line_pill(app: &App, ui: &Ui, picture: Rect) {
     ui.painter().galley(r.center() - g.size() / 2.0, g, Color32::WHITE);
 }
 
+/// A new frame into a texture that's shown frame after frame. The same size, it's written
+/// into the texture's storage; `set` would have the GPU driver make that anew for every
+/// frame, which some keep the old storage of while frames in flight use it (#107, #324).
+fn overwrite(tex: &mut egui::TextureHandle, image: egui::ColorImage) {
+    if tex.size() == image.size {
+        tex.set_partial([0, 0], image, egui::TextureOptions::LINEAR);
+    } else {
+        tex.set(image, egui::TextureOptions::LINEAR);
+    }
+}
+
 /// The video's colours, eased toward the latest frame's, across all of Now playing.
 fn paint_glow(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect) {
     let dim_bright = app.dim_bright;
@@ -1876,7 +1887,7 @@ fn paint_glow(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect) {
     }
     let [w, h] = crate::video::GLOW_SIZE;
     let pixels = current.iter().map(|c| Color32::from_rgb(c[0] as u8, c[1] as u8, c[2] as u8)).collect();
-    tex.set(egui::ColorImage { size: [w, h], source_size: vec2(w as f32, h as f32), pixels }, egui::TextureOptions::LINEAR);
+    overwrite(tex, egui::ColorImage { size: [w, h], source_size: vec2(w as f32, h as f32), pixels });
     // Bigger than the view, so its coarse edges stay out of sight.
     let full = rect.expand2(rect.size() * 0.08);
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
@@ -1962,7 +1973,7 @@ fn cover_clip(app: &mut App, ctx: &egui::Context, track: &crate::model::Track, p
             recolour = app.clip_art.as_ref().is_some_and(|(id, _)| *id == c.id);
         }
         match &mut c.frame {
-            Some((tex, _)) => tex.set(f.image, egui::TextureOptions::LINEAR),
+            Some((tex, _)) => overwrite(tex, f.image),
             None => c.frame = Some((ctx.load_texture("cover-clip", f.image, egui::TextureOptions::LINEAR), now)),
         }
     }
@@ -2049,7 +2060,7 @@ pub(super) fn video_frame(app: &mut App, ctx: &egui::Context, track: &crate::mod
             }
         }
         match &mut app.video_frame {
-            Some(tex) => tex.set(frame.image, egui::TextureOptions::LINEAR),
+            Some(tex) => overwrite(tex, frame.image),
             None => app.video_frame = Some(ctx.load_texture("music-video", frame.image, egui::TextureOptions::LINEAR)),
         }
     }
@@ -2510,7 +2521,7 @@ fn mini_text(ui: &mut Ui, text: &str, on: bool, tip: &str) -> egui::Response {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_portrait, lyrics_panel_wanted};
+    use super::{is_portrait, lyrics_panel_wanted, overwrite};
     use egui::{Vec2, vec2};
 
     /// Now playing's content in a window of `w`×`h` points: its padding, header and the
@@ -2558,6 +2569,27 @@ mod tests {
         let c = vec2(1000.0, 1320.0);
         assert!(is_portrait(c, true));
         assert!(!is_portrait(c, false));
+    }
+
+    /// A frame the texture's size is written into it; another size makes it anew.
+    #[test]
+    fn a_same_size_frame_overwrites_its_texture() {
+        let ctx = egui::Context::default();
+        let img = |w, h| egui::ColorImage::filled([w, h], egui::Color32::RED);
+        let mut tex = ctx.load_texture("t", img(4, 4), egui::TextureOptions::LINEAR);
+        let id = tex.id();
+        let pos = |ctx: &egui::Context| {
+            let mut delta = ctx.tex_manager().write().take_delta();
+            let pos = delta.set.get(&id).and_then(|d| d.last()).map(|d| d.pos);
+            delta.clear();
+            pos
+        };
+        pos(&ctx);
+        overwrite(&mut tex, img(4, 4));
+        assert_eq!(pos(&ctx), Some(Some([0, 0])));
+        overwrite(&mut tex, img(8, 4));
+        assert_eq!(pos(&ctx), Some(None));
+        assert_eq!(tex.size(), [8, 4]);
     }
 
     #[test]

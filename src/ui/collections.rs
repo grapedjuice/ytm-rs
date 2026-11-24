@@ -5,11 +5,12 @@ use std::collections::HashSet;
 
 use crate::backend::{Collection, Req};
 use crate::model::{Card, ShelfKind, Target, Track};
+use crate::ytm::Duplicates;
 
 use super::lists::{Arrival, Done, LIBRARY_SONGS, LIKED_MUSIC, Opened, Start};
 use super::pages::thousands;
 use super::queue::QueueFill;
-use super::App;
+use super::{App, Dialog};
 
 impl App {
     /// What the queue was started from, while the song playing is one of it: what kind
@@ -68,12 +69,39 @@ impl App {
     }
 
     /// Add songs to one of the account's playlists. They show in it at once, even while
-    /// YouTube Music goes on listing it without them.
-    pub(super) fn add_to_playlist(&mut self, playlist_id: String, tracks: &[Track]) {
+    /// YouTube Music goes on listing it without them. With [`Duplicates::Ask`], YouTube
+    /// Music adds none if it has some already, and the listener is asked (issue #339).
+    pub(super) fn add_to_playlist(&mut self, playlist_id: String, tracks: &[Track], duplicates: Duplicates) {
         self.lists.added(&playlist_id, tracks);
         self.sync_card_count(&playlist_id);
-        let video_ids = tracks.iter().map(|t| t.id.clone()).collect();
-        self.backend.request(Req::AddToPlaylist { playlist_id, video_ids });
+        self.backend.request(Req::AddToPlaylist { playlist_id, tracks: tracks.to_vec(), duplicates });
+    }
+
+    /// YouTube Music added none of `tracks`, as some are in the playlist already: out of
+    /// it here again, and the listener chooses.
+    pub(super) fn already_in_playlist(&mut self, playlist_id: String, tracks: Vec<Track>) {
+        let video_ids: Vec<String> = tracks.iter().map(|t| t.id.clone()).collect();
+        self.lists.add_failed(&playlist_id, &video_ids);
+        self.sync_card_count(&playlist_id);
+        // Which ones: one song is that song; of more, the ones a playlist kept whole here
+        // lists (it may be out of date, so none found names none).
+        let duplicates: Vec<String> = match (&tracks[..], self.lists.get(&playlist_id).filter(|o| o.complete)) {
+            ([t], _) => vec![t.title.clone()],
+            (_, Some(o)) => tracks.iter().filter(|t| o.c.tracks.iter().any(|s| s.id == t.id)).map(|t| t.title.clone()).collect(),
+            (_, None) => Vec::new(),
+        };
+        let cards = self.library.as_ref().map(|l| l.playlists.as_slice()).or(self.sidebar_cache.as_deref()).unwrap_or_default();
+        let playlist_title = cards
+            .iter()
+            .find(|c| matches!(&c.target, Target::Playlist(p) if *p == playlist_id))
+            .map(|c| c.title.clone())
+            .or_else(|| self.lists.get(&playlist_id).map(|o| o.c.title.clone()))
+            .unwrap_or_default();
+        // Another dialog opened meanwhile stays; the answer is a toast instead.
+        match self.dialog {
+            None => self.dialog = Some(Dialog::ConfirmAddDuplicates { playlist_id, playlist_title, tracks, duplicates }),
+            Some(_) => self.toast(crate::tr!("status-not-added-duplicates", title = playlist_title.as_str(), count = tracks.len())),
+        }
     }
 
     /// The sidebar's and Library's playlist cards ("Suko • 4 tracks") count what YouTube

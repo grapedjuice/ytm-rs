@@ -465,8 +465,11 @@ pub struct App {
     /// It failed because YouTube Music can't be reached: the retry says so, and offers
     /// Downloads, which play without it.
     offline: bool,
-    /// When to next ask whether it can be reached again (`Req::Reachable`), while it says so.
-    online_check: f64,
+    /// When to next ask whether it can be reached again (`Req::Reachable`), while it says
+    /// so: `None` until the page has said so a while.
+    online_check: Option<f64>,
+    /// How long until the check after that, doubling each time up to [`ONLINE_WAIT_MOST`].
+    online_wait: f64,
     search_text: String,
     /// What was typed, the search terms for it, and the songs, artists and albums it
     /// most likely means.
@@ -961,7 +964,8 @@ impl App {
             loading: false,
             load_failed: false,
             offline: false,
-            online_check: 0.0,
+            online_check: None,
+            online_wait: ONLINE_WAIT_FIRST,
             search_text: String::new(),
             suggestions: Default::default(),
             suggest_sel: None,
@@ -1372,6 +1376,9 @@ impl App {
     /// showing the cached copy meanwhile.
     fn page_loaded(&mut self) {
         self.page_changed = -1.0; // stamped with the frame time on the next pass
+        // A page asked for afresh checks whether it's back soon again.
+        self.online_check = None;
+        self.online_wait = ONLINE_WAIT_FIRST;
         // The search box holds the query of the search page you're on, and is empty elsewhere.
         self.search_text = match &self.page {
             Page::Search(q) => q.clone(),
@@ -2530,6 +2537,11 @@ pub fn fmt_end(pos: f32, total: f32, left: bool) -> String {
 pub fn fmt_running(pos: f32, total: f32, left: bool) -> String {
     format!("{} / {}", fmt_left(pos, total, left).unwrap_or_else(|| fmt_time(pos as u32)), fmt_time(total as u32))
 }
+
+/// While a page says YouTube Music can't be reached, the first check whether it can be
+/// again, seconds after it said so, and the longest wait between checks (#366).
+const ONLINE_WAIT_FIRST: f64 = 5.0;
+const ONLINE_WAIT_MOST: f64 = 60.0;
 
 /// What to say when YouTube Music can't be reached (`Resp::Offline`). `on_downloads`: the
 /// page is Library › Downloads, which it needn't point to. Through a proxy, that's the

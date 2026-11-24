@@ -644,8 +644,13 @@ impl App {
                 self.offline = false;
                 self.on_error(e);
             }
-            // Back: the page that couldn't load loads, as Try again would.
-            Resp::Reachable(true) if self.offline && self.load_failed => self.refresh(),
+            // Back: the page that couldn't load loads, as Try again would. Should it still
+            // fail, the checks go on as far apart as they'd got.
+            Resp::Reachable(true) if self.offline && self.load_failed => {
+                let wait = self.online_wait;
+                self.refresh();
+                self.online_wait = wait;
+            }
             Resp::Reachable(_) => {}
             Resp::Offline => {
                 self.offline = true;

@@ -2001,6 +2001,16 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
     queue_list(app, ui, "drawer");
 }
 
+/// "Play similar songs automatically". A long translation wraps: one wider than Up next
+/// would widen it past the window, and the page would take that overflow, over the drawer.
+fn autoplay_toggle(ui: &mut Ui, on: &mut bool, pad: f32, text: &str) {
+    ui.horizontal(|ui| {
+        ui.add_space(pad);
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+        ui.checkbox(on, egui::RichText::new(text).color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
+    });
+}
+
 /// "Playing from playlist", and its name, which opens it.
 fn playing_from(app: &mut App, ui: &mut Ui) {
     let Some((label, name, target)) = app.playing_from() else { return };
@@ -2034,10 +2044,7 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
     let start = app.queue.index.unwrap_or(0);
     // Above the list, so they stay in sight however far up it's scrolled.
     playing_from(app, ui);
-    ui.horizontal(|ui| {
-        ui.add_space(q.side_pad);
-        ui.checkbox(&mut app.autoplay, egui::RichText::new(crate::tr!("ui-auto-similar")).color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
-    });
+    autoplay_toggle(ui, &mut app.autoplay, q.side_pad, crate::tr!("ui-auto-similar"));
     ui.add_space(6.0);
     // A new current song (or a new queue) brings it back to the top of the list.
     let mut area = egui::ScrollArea::vertical().id_salt(("queue", salt)).auto_shrink(false);
@@ -2166,7 +2173,28 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{BG_BRIGHTNESS, BG_SPEED, QUEUE_W, load_factor, load_queue_w};
+    use super::{BG_BRIGHTNESS, BG_SPEED, QUEUE_W, autoplay_toggle, load_factor, load_queue_w};
+
+    /// A long translation of the autoplay toggle stays inside Up next: wider, it would push
+    /// the drawer past the window and the page beside it into the drawer (#327).
+    #[test]
+    fn a_long_autoplay_toggle_keeps_the_page_out_of_up_next() {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 600.0));
+        let page = std::cell::Cell::new(egui::Rect::NOTHING);
+        for _ in 0..2 {
+            let raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(raw, |ui| {
+                egui::Panel::right("queue").resizable(false).exact_size(QUEUE_W.0).show(ui, |ui| {
+                    autoplay_toggle(ui, &mut true, 8.0, &"Reproducir canciones similares automáticamente ".repeat(3));
+                });
+                egui::CentralPanel::default().show(ui, |ui| page.set(ui.max_rect()));
+            })
+            .textures_delta
+            .clear();
+        }
+        assert!(page.get().right() <= screen.right() - QUEUE_W.0, "{:?}", page.get());
+    }
 
     /// Up next starts at its own width; saved, it stays between its narrowest and widest.
     #[test]

@@ -411,6 +411,8 @@ impl Background {
                 ] {
                     gl.tex_parameter_i32(glow::TEXTURE_2D, p, v as i32);
                 }
+                // Its storage, made once: new art only overwrites it (`upload`).
+                gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA8 as i32, SIZE as i32, SIZE as i32, 0, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(None));
                 Ok(t)
             };
             let tex = [mk()?, mk()?];
@@ -555,20 +557,13 @@ fn upload_wgpu(queue: &wgpu::Queue, tex: &wgpu::Texture, art: &Art) {
     );
 }
 
+/// Into the texture's existing storage. Making it anew for each cover (and each frame of
+/// a music video's picture) has drivers keep the old storage while frames still in flight
+/// use it, which NVIDIA's on Linux may not give back (#107).
 unsafe fn upload(gl: &glow::Context, tex: glow::Texture, art: &Art) {
     unsafe {
         gl.bind_texture(glow::TEXTURE_2D, Some(tex));
-        gl.tex_image_2d(
-            glow::TEXTURE_2D,
-            0,
-            glow::RGBA8 as i32,
-            SIZE as i32,
-            SIZE as i32,
-            0,
-            glow::RGBA,
-            glow::UNSIGNED_BYTE,
-            glow::PixelUnpackData::Slice(Some(&art.rgba)),
-        );
+        gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, SIZE as i32, SIZE as i32, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(&art.rgba)));
     }
 }
 

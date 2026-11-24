@@ -594,6 +594,8 @@ pub struct App {
     hide_explicit: bool,
     /// Podcast shows and episodes on Home, in search and in the library.
     show_podcasts: bool,
+    /// Community playlists (the site's listeners') beside the search results' playlists.
+    show_community: bool,
     /// Now playing's Comments panel. Off by default.
     show_comments: bool,
     /// With them, ask YouTube for its Restricted Mode too.
@@ -895,7 +897,9 @@ impl App {
         backend.set_locale(locale);
         let show_podcasts = get("podcasts").is_some_and(|v| v == "1");
         let show_comments = get("comments").is_some_and(|v| v == "1");
+        let show_community = get("community").is_some_and(|v| v == "1");
         crate::ytm::set_podcasts(show_podcasts);
+        crate::ytm::set_community_playlists(show_community);
         backend.request(Req::Home(None));
         let start_choice = start_choice(&get("start_page").unwrap_or_default());
         let start = start_page(&start_choice, logged_in, show_podcasts);
@@ -1033,6 +1037,7 @@ impl App {
             hide_search_videos: get("hide_search_videos").is_some_and(|v| v == "1"),
             hide_explicit,
             show_podcasts,
+            show_community,
             show_comments,
             restricted_mode,
             locale,
@@ -2177,6 +2182,7 @@ impl eframe::App for App {
         storage.set_string("list_sorts", serde_json::to_string(&self.find.sorts).unwrap_or_default());
         storage.set_string("pinned_playlists", serde_json::to_string(&self.pinned).unwrap_or_default());
         storage.set_string("podcasts", b(self.show_podcasts));
+        storage.set_string("community", b(self.show_community));
         storage.set_string("comments", b(self.show_comments));
         storage.set_string("restricted_mode", b(self.restricted_mode));
         storage.set_string("content_language", self.locale.hl.to_owned());

@@ -766,7 +766,7 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     let tracks: Vec<&Track> = r.tracks.iter().filter(|t| rows.shows(t)).collect();
     let videos: Vec<&Track> = r.videos.iter().filter(|t| rows.shows(t)).collect();
     let episodes: Vec<&Track> = r.episodes.iter().filter(|t| rows.shows(t)).collect();
-    if tracks.is_empty() && videos.is_empty() && r.artists.is_empty() && r.albums.is_empty() && r.playlists.is_empty() && r.podcasts.is_empty() && episodes.is_empty() {
+    if tracks.is_empty() && videos.is_empty() && r.artists.is_empty() && r.albums.is_empty() && r.playlists.is_empty() && r.community.is_empty() && r.podcasts.is_empty() && episodes.is_empty() {
         page_title(
             ui,
             match scope {
@@ -863,6 +863,7 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
         row_drag::carry(ui, drag, ids("more"));
     }
     card_row(ui, "s-pl", crate::tr!("nav-playlists"), &r.playlists, acts);
+    card_row(ui, "s-community", crate::tr!("nav-community-playlists"), &r.community, acts);
     card_row(ui, "s-podcasts", crate::tr!("nav-podcasts"), &r.podcasts, acts);
     if !episodes.is_empty() {
         ui.add_space(26.0);
@@ -1987,6 +1988,12 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
         setting_row(ui, tr!("settings-show-podcasts"), Some(tr!("settings-show-podcasts-desc")), |ui| {
             if toggle(ui, &mut app.show_podcasts, tr!("settings-show-podcasts")).changed() {
                 app.set_show_podcasts();
+            }
+        });
+        divider(ui);
+        setting_row(ui, tr!("settings-show-community-playlists"), Some(tr!("settings-show-community-playlists-desc")), |ui| {
+            if toggle(ui, &mut app.show_community, tr!("settings-show-community-playlists")).changed() {
+                app.set_show_community();
             }
         });
         divider(ui);

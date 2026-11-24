@@ -734,6 +734,17 @@ impl App {
         }
     }
 
+    /// Settings › Playback › Show community playlists: search results are asked for again
+    /// with or without them.
+    pub(super) fn set_show_community(&mut self) {
+        crate::ytm::set_community_playlists(self.show_community);
+        self.search = None;
+        // On a search page already, it holds the old answer: ask for it again at once.
+        if let super::Page::Search(q) = &self.page {
+            self.backend.request(Req::Search(q.clone()));
+        }
+    }
+
     /// Settings › Song info: what's on screen is asked for again in the new language.
     pub(super) fn set_locale(&mut self) {
         self.backend.set_locale(self.locale);

@@ -37,6 +37,18 @@ pub fn podcasts() -> bool {
     PODCASTS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Whether search results bring the community playlists too (Settings › Playback › Show
+/// community playlists). Off, search is as YouTube Music's chips set it.
+static COMMUNITY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_community_playlists(on: bool) {
+    COMMUNITY.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn community_playlists() -> bool {
+    COMMUNITY.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// A podcast show's page id is "MPSP" and its playlist's id. It's kept whole as the
 /// playlist's id here, since the show's page is what lists its episodes; this is the
 /// playlist id itself, for what YouTube takes that by (saving it, sharing it).
@@ -141,6 +153,9 @@ pub enum Filter {
     Artists,
     /// Playlists made by YouTube Music (not the community ones).
     Playlists,
+    /// Playlists made by YouTube Music's listeners, which the site keeps on their own
+    /// shelf. Asked for only with Settings › Playback › Show community playlists on.
+    Community,
     Videos,
     /// Podcast shows.
     Podcasts,
@@ -155,6 +170,7 @@ impl Filter {
             Filter::Albums => "EgWKAQIYAWoQEAMQBBAJEAoQBRAREBAQFQ%3D%3D",
             Filter::Artists => "EgWKAQIgAWoQEAMQBBAJEAoQBRAREBAQFQ%3D%3D",
             Filter::Playlists => "EgeKAQQoADgBahIQAxAEEAkQDhAKEAUQERAQEBU%3D",
+            Filter::Community => "EgeKAQQoAEABahIQAxAEEAkQDhAKEAUQERAQEBU%3D",
             Filter::Videos => "EgWKAQIQAWoQEAMQBBAJEAoQBRAREBAQFQ%3D%3D",
             Filter::Podcasts => "EgWKAQJQAWoQEAMQBBAJEAoQBRAREBAQFQ%3D%3D",
             Filter::Episodes => "EgWKAQJIAWoQEAMQBBAJEAoQBRAREBAQFQ%3D%3D",

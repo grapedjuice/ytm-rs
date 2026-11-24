@@ -1970,10 +1970,6 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
         white_on_card = theme::light();
     }
     ui.horizontal(|ui| {
-        let label = crate::tr!("ui-up-next");
-        let (label, size) = if q.queue_upper { (label.to_uppercase(), 13.0) } else { (label.to_owned(), 20.0) };
-        let heading = egui::RichText::new(label).font(theme::bold(size));
-        ui.label(if white_on_card { heading.color(Color32::WHITE) } else { heading });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Left of the window buttons, which sit over the drawer's top right.
             ui.add_space(super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 0.0));
@@ -1995,6 +1991,16 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
             if app.queue.tracks.len() > usize::from(app.queue.index.is_some()) && icon_button(ui, icon::TRASH_2, 15.0, crate::tr!("ui-clear-queue"), false).clicked() {
                 app.actions.push(Action::QueueClear);
             }
+            // The heading last, in what's left: a long translation is cut short, not drawn under the buttons.
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                let label = crate::tr!("ui-up-next");
+                let (label, size) = if q.queue_upper { (label.to_uppercase(), 13.0) } else { (label.to_owned(), 20.0) };
+                let font = theme::bold(size);
+                // Cut at its end, which in Arabic is its left: egui's own truncation keeps the end.
+                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ui.fonts_mut(|f| f.row_height(&font))), Sense::hover());
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &label));
+                text_at(ui, r.min, &label, font, if white_on_card { Color32::WHITE } else { theme::text() }, r.width());
+            });
         });
     });
     ui.add_space(8.0);

@@ -883,7 +883,10 @@ fn portrait_panel(look: &crate::preset::Preset, content: Rect, fullscreen: bool)
     let card_h = if np.shows_info_card(fullscreen) { info_card_room(np, content).height() + np.info_card_margin + 12.0 } else { 0.0 };
     let (above, below) = if np.info_card_top { (card_h, text_h) } else { (0.0, text_h + card_h) };
     let top_pad = (content.height() * 0.03).clamp(16.0, 48.0);
-    let max_h = (content.height() * 0.48 - top_pad - above - below - 16.0).max(100.0);
+    // Up to about half the height, but the panel under it keeps 600 points at least: a few
+    // lines even in a theme with large lyrics, in a window only just tall enough to stack.
+    let column = (content.height() * 0.48).min(content.height() - 600.0);
+    let max_h = (column - top_pad - above - below - 16.0).max(100.0);
     let cs = &look.cover;
     // The theme's limit, but not its steps by window width: here the cover has the whole width.
     let cap = (content.width() * 0.82).min(max_h).min(art_max_px(cs, fullscreen, None));

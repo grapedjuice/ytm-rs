@@ -126,6 +126,8 @@ opt-level = 2
 
 [dev-dependencies]
 egui_system_font_provider = "0.37.0"
+# Paused time: a stalled download's 20 s pass at once in tests.
+tokio = { version = "1.53.2", features = ["test-util"] }
 
 [build-dependencies]
 winresource = "0.1.31"

@@ -576,6 +576,12 @@ fn is_retryable(e: &anyhow::Error) -> bool {
     }
 }
 
+/// Whether music.youtube.com answers at all through `http`, whatever it says: what
+/// `Req::Reachable` asks. Quick, so a check while offline doesn't hang about.
+pub async fn reachable(http: &reqwest::Client) -> bool {
+    http.head(ORIGIN).timeout(Duration::from_secs(5)).send().await.is_ok()
+}
+
 /// Whether music.youtube.com is offered through `http`: its "not available in your
 /// area" stub is a couple of KB, so a few KB of the page tell.
 pub async fn offered_through(http: &reqwest::Client) -> bool {

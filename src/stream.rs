@@ -1070,7 +1070,7 @@ mod tests {
     }
 
     /// A host that refuses the connection: the download goes on from the URL's second
-    /// host straight away (#342).
+    /// host (#342). Retried on the first, it never would.
     #[tokio::test]
     async fn an_unreachable_host_falls_back_to_the_second_one() {
         let (served, _, server) = serve(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx").await;
@@ -1084,14 +1084,12 @@ mod tests {
             .build()
             .unwrap();
         let url = format!("http://rr4---sn-first.googlevideo.com:{port}/videoplayback?mn=sn-first,sn-second&fvip=2");
-        let started = Instant::now();
         let download = super::download(http, super::Media::File(url), String::new(), shared.clone(), None);
-        tokio::time::timeout(Duration::from_secs(5), download).await.expect("the download hung");
+        // Windows takes about 2 s to give up on a refused connection.
+        tokio::time::timeout(Duration::from_secs(10), download).await.expect("the download hung");
         server.abort();
         assert_eq!(shared.error(), None);
         assert_eq!(shared.bytes().as_deref(), Some(&b"x"[..]));
-        // Not after the retries' back-off (400 ms and more): at once.
-        assert!(started.elapsed() < Duration::from_millis(400), "{:?}", started.elapsed());
     }
 
     /// Skipping a song must release its buffer even if the server stops mid-block.

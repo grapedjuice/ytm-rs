@@ -69,15 +69,21 @@ impl Rows {
 }
 
 /// Lets row `i` of `list` be picked up. Call just before building the row: its buttons
-/// stay on top and clicks still reach them; only a real drag lands here. Touch is left
-/// alone, where dragging scrolls.
+/// stay on top and clicks still reach them; only a real drag lands here. Not for a
+/// finger, where dragging scrolls (see `finger`).
 pub fn grip(ui: &mut Ui, drag: &mut Option<RowDrag>, list: Id, i: usize, t: &Track) {
-    if !ui.input(|input| input.any_touches()) {
-        let rect = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), row_height(ui)));
+    let id = list.with(("grip", i));
+    let finger = finger(ui);
+    let rect = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), row_height(ui)));
+    // A finger's first swipe after the mouse came down on a grip still there from it, and
+    // egui gave it the press: the grip stays for that swipe, and scrolls as a shelf does.
+    if finger && ui.ctx().is_being_dragged(id) {
+        super::widgets::shelf_drag(ui, &ui.interact(rect, id, Sense::DRAG), id.with("swipe"));
+    } else if !finger {
         // egui counts a drag-only widget as dragged from the press itself: wait until the
         // pointer has moved too far (or held too long) for a click. A drag some other list
         // left behind gives way.
-        let grip = ui.interact(rect, list.with(("grip", i)), Sense::DRAG);
+        let grip = ui.interact(rect, id, Sense::DRAG);
         let held = drag.as_ref().is_some_and(|d| d.list == list && d.from == i);
         if grip.dragged_by(egui::PointerButton::Primary) && !held && ui.input(|input| input.pointer.is_decidedly_dragging()) {
             *drag = Some(RowDrag { list, from: i, track: t.clone(), seen: ui.ctx().cumulative_frame_nr() });
@@ -86,6 +92,30 @@ pub fn grip(ui: &mut Ui, drag: &mut Option<RowDrag>, list: Id, i: usize, t: &Tra
     // The picked-up row stays dimmed in its old place.
     if drag.as_ref().is_some_and(|d| d.list == list && d.from == i) {
         ui.multiply_opacity(0.35);
+    }
+}
+
+/// Whether the pointer is a finger, as last seen (see `note_pointer`). egui gives a press
+/// to what was under it the frame before, so the grips have to be gone before a finger
+/// comes down: one there would take the swipe, and the list wouldn't scroll (#190).
+fn finger(ui: &Ui) -> bool {
+    ui.data(|d| d.get_temp::<bool>(finger_id())).unwrap_or(false)
+}
+
+fn finger_id() -> Id {
+    Id::unique("row-drag-finger")
+}
+
+/// Notes from each frame's `events` whether the pointer is a finger: a touch makes it one,
+/// and the mouse moving (or a button without a touch) the mouse again. Every frame,
+/// whatever is on screen: a list a finger opened (from the search box, say) knows it's a
+/// finger before its first swipe.
+pub fn note_pointer(ctx: &egui::Context, events: &[egui::Event]) {
+    use egui::Event;
+    let touched = events.iter().any(|e| matches!(e, Event::Touch { .. }));
+    let pointed = events.iter().any(|e| matches!(e, Event::PointerMoved(_) | Event::PointerButton { .. }));
+    if touched || pointed {
+        ctx.data_mut(|d| d.insert_temp(finger_id(), touched));
     }
 }
 
@@ -260,7 +290,7 @@ fn edge_speed(y: f32, top: f32, bottom: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{SCROLL_EDGE, SCROLL_SPEED, edge_speed, gap_at};
-    use super::{Dropped, Over, RowDrag, Rows, carry, feedback, grip, receive, target};
+    use super::{Dropped, Over, RowDrag, Rows, carry, feedback, grip, note_pointer, receive, target};
     use crate::model::Track;
     use crate::ui::widgets::{RowOpts, row_height, track_row, visible_rows};
     use egui::{Event, Modifiers, PointerButton, Pos2, Rect, RawInput, pos2, vec2};
@@ -313,6 +343,8 @@ mod tests {
             let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(WIDTH, HEIGHT))), time: Some(self.time), predicted_dt: 1.0 / 60.0, events, ..Default::default() };
             self.time += 1.0 / 60.0;
             let ctx = self.ctx.clone();
+            // As the app's `raw_input_hook` does.
+            note_pointer(&ctx, &raw.events);
             let id = egui::Id::unique("test-list");
             let mut output = ctx.run_ui(raw, |ui| {
                 self.held = false;
@@ -390,6 +422,36 @@ mod tests {
             let p = self.on_row(i, x);
             self.move_to(p);
             self.button(true);
+        }
+
+        /// A finger at `p`, as egui-winit sends it: the touch, with the pointer's events.
+        fn touch(&mut self, phase: egui::TouchPhase, p: Pos2) {
+            let touch = Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(1), phase, pos: p, force: None };
+            let press = |pressed| Event::PointerButton { pos: p, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+            self.frame(match phase {
+                egui::TouchPhase::Start => vec![touch, Event::PointerMoved(p), press(true)],
+                egui::TouchPhase::Move => vec![touch, Event::PointerMoved(p)],
+                _ => vec![touch, press(false), Event::PointerGone],
+            });
+        }
+
+        /// A finger put on row `i` and swiped up by `dy`, after a tap elsewhere: egui
+        /// scrolls by dragging once it has seen a touch screen.
+        fn swipe_up(&mut self, i: usize, dy: f32) {
+            let far = pos2(WIDTH - 20.0, HEIGHT - 10.0);
+            self.touch(egui::TouchPhase::Start, far);
+            self.touch(egui::TouchPhase::End, far);
+            self.swipe_up_now(i, dy);
+        }
+
+        /// A finger put on row `i` and swiped up by `dy`, with nothing before it.
+        fn swipe_up_now(&mut self, i: usize, dy: f32) {
+            let p = self.on_row(i, 300.0);
+            self.touch(egui::TouchPhase::Start, p);
+            for s in 1..=10 {
+                self.touch(egui::TouchPhase::Move, p - vec2(0.0, dy * s as f32 / 10.0));
+            }
+            self.touch(egui::TouchPhase::End, p - vec2(0.0, dy));
         }
     }
 
@@ -696,6 +758,58 @@ mod tests {
             l.frame(vec![Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(1), phase: egui::TouchPhase::Move, pos: q, force: None }, Event::PointerMoved(q)]);
         }
         assert!(l.drag.is_none());
+    }
+
+    /// The grips were left out only while a finger was down, which is too late: egui
+    /// gives the press to the grip that was there the frame before, and the list didn't
+    /// scroll (#190).
+    #[test]
+    fn a_finger_swiping_over_the_rows_scrolls_the_list() {
+        let mut l = List::new(40);
+        l.swipe_up(5, 190.0);
+        // At least as far as the finger went: let go, it coasts on a little.
+        assert!(l.offset >= 189.0, "{}", l.offset);
+        assert!(l.drag.is_none() && l.clicked.is_empty());
+    }
+
+    /// A finger that last tapped where no list was (the search box, say) is still one
+    /// when a list then opens: its first swipe there scrolls it.
+    #[test]
+    fn a_list_opened_by_a_finger_scrolls_with_its_first_swipe() {
+        let mut l = List::new(40);
+        l.shown = false;
+        let far = pos2(WIDTH - 20.0, HEIGHT - 10.0);
+        l.touch(egui::TouchPhase::Start, far);
+        l.touch(egui::TouchPhase::End, far);
+        l.shown = true;
+        l.frame(vec![]);
+        l.swipe_up_now(5, 190.0);
+        assert!(l.offset >= 189.0, "{}", l.offset);
+        assert!(l.drag.is_none() && l.clicked.is_empty());
+    }
+
+    /// A finger that comes down where the mouse left the grips: the first swipe scrolls too.
+    #[test]
+    fn the_first_swipe_after_the_mouse_scrolls_the_list() {
+        let mut l = List::new(40);
+        let far = pos2(WIDTH - 20.0, HEIGHT - 10.0);
+        l.touch(egui::TouchPhase::Start, far);
+        l.touch(egui::TouchPhase::End, far);
+        l.move_to(l.on_row(8, 300.0));
+        l.frame(vec![]);
+        l.swipe_up_now(5, 190.0);
+        assert!(l.offset >= 189.0, "{}", l.offset);
+        assert!(l.drag.is_none() && l.clicked.is_empty());
+    }
+
+    #[test]
+    fn the_mouse_picks_rows_up_again_after_a_finger() {
+        let mut l = List::new(40);
+        l.swipe_up(5, 190.0);
+        let row = ((l.offset + 10.0) / l.row) as usize + 1;
+        l.pick_up(row, 300.0);
+        l.glide_to(l.on_row(row + 3, 300.0));
+        assert!(l.drag.is_some());
     }
 
 

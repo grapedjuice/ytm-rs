@@ -171,7 +171,8 @@ fn lift(c: [f32; 3]) -> Color32 {
     Color32::from_rgb((c[0] * k).min(255.0) as u8, (c[1] * k).min(255.0) as u8, (c[2] * k).min(255.0) as u8)
 }
 
-/// A neutral backdrop for when nothing is playing.
+/// A neutral backdrop for when nothing is playing, with the accent and brightness the
+/// app starts with (a song without a cover takes them too).
 pub fn idle() -> Art {
     let n = SIZE as usize;
     let mut rgba = Vec::with_capacity(n * n * 4);
@@ -184,7 +185,7 @@ pub fn idle() -> Art {
             rgba.extend_from_slice(&[r as u8, g as u8, b as u8, 255]);
         }
     }
-    Art { rgba, accent: Color32::from_rgb(0xff, 0x4e, 0x6a), brightness: 0.3 }
+    Art { rgba, accent: crate::theme::RED, brightness: 0.0 }
 }
 
 /// Below this, a background behind white text is left as the theme has it.

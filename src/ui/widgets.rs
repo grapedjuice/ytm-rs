@@ -1978,7 +1978,7 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
 }
 
 /// What a drag on a shelf asks of it this frame: move it by, or coast it on by, points.
-enum ShelfDrag {
+pub(super) enum ShelfDrag {
     Idle,
     Move(f32),
     Coast(f32),
@@ -1988,7 +1988,7 @@ enum ShelfDrag {
 /// started for the rest of it, as phones and browsers do with a scroller inside a page:
 /// the shelf sideways, the page up and down. The mouse's left button drags the shelf
 /// sideways only, once it has gone too far for a click. Let go, and it coasts on.
-fn shelf_drag(ui: &Ui, resp: &Response, state_id: egui::Id) -> ShelfDrag {
+pub(super) fn shelf_drag(ui: &Ui, resp: &Response, state_id: egui::Id) -> ShelfDrag {
     use egui::style::ScrollAnimation;
     /// How far a drag goes before it counts (and before its direction does), points.
     const LOCK: f32 = 6.0;

@@ -418,6 +418,57 @@ impl UrlSlot {
             }
         }
     }
+
+    /// Moves a file stream that `tried_host` couldn't be reached on to the other host its
+    /// URL names (`second_host`). True when it's on another host now, by this or another
+    /// worker's doing; false when there's none left to try.
+    async fn fall_back(&self, tried_host: &str) -> bool {
+        let mut slot = self.url.lock().await;
+        let Media::File(url) = &mut slot.0 else { return false };
+        if host_of(url) != Some(tried_host) {
+            return true;
+        }
+        match second_host(url) {
+            Some(next) => {
+                log::warn!("stream host unreachable, trying the other one YouTube named");
+                *url = next;
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+fn host_of(url: &str) -> Option<&str> {
+    let rest = url.split_once("://")?.1;
+    rest.split(['/', ':', '?']).next()
+}
+
+/// The same googlevideo URL on the second host YouTube names for it (#342), as its web
+/// player falls back to: `mn` lists the server cluster of the host the URL is on and a
+/// second one, `fvip` which server of that second one ("rr{fvip}---{mn[1]}"). `None` for
+/// any other URL, and for one already there.
+fn second_host(url: &str) -> Option<String> {
+    let host = host_of(url)?;
+    if !host.ends_with(".googlevideo.com") {
+        return None;
+    }
+    let query = url.split_once('?')?.1;
+    let param = |name: &str| query.split('&').find_map(|p| p.strip_prefix(name)?.strip_prefix('='));
+    // Commas come percent-encoded too ("sn-a%2Csn-b").
+    let mn = param("mn")?.replace("%2C", ",").replace("%2c", ",");
+    let cluster = mn.split(',').nth(1)?;
+    let server = param("fvip")?;
+    let fits = |s: &str, ok: fn(char) -> bool| !s.is_empty() && s.chars().all(ok);
+    if !cluster.starts_with("sn-") || !fits(cluster, |c| c.is_ascii_alphanumeric() || c == '-') || !fits(server, |c| c.is_ascii_digit()) {
+        return None;
+    }
+    let next = format!("rr{server}---{cluster}.googlevideo.com");
+    (next != host).then(|| url.replacen(&format!("//{host}"), &format!("//{next}"), 1))
+}
+
+fn is_connect(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<reqwest::Error>().is_some_and(reqwest::Error::is_connect)
 }
 
 /// The buffer a background download makes way for (the playing song's), if any.
@@ -496,6 +547,11 @@ pub async fn download_behind(http: reqwest::Client, media: Media, ua: String, sh
                             break;
                         }
                         Err(e) if is_forbidden(&e) && slot.renew(version).await => {}
+                        // A host that can't be reached (a broken ISP cache, one blocked by
+                        // name) won't be on a retry either: its URL's second host, at once.
+                        Err(e) if is_connect(&e) && slot.fall_back(host_of(&url).unwrap_or_default()).await => {
+                            log::warn!("{what}: {e:#}");
+                        }
                         Err(e) if attempt < RETRIES && !is_forbidden(&e) => {
                             attempt += 1;
                             log::warn!("{what}: {e:#} (retry {attempt})");
@@ -990,6 +1046,52 @@ mod tests {
             std::future::pending::<()>().await;
         });
         (url, waiting, server)
+    }
+
+    #[test]
+    fn a_googlevideo_url_has_a_second_host() {
+        // As YouTube hands them out: on the first host `mn` names, `mvi` its server.
+        let url = "https://rr1---sn-u15hn5-5n.googlevideo.com/videoplayback?expire=1&mvi=1&mn=sn-u15hn5-5n%2Csn-oj5hn5-5g&fvip=3&sig=AB";
+        let next = "https://rr3---sn-oj5hn5-5g.googlevideo.com/videoplayback?expire=1&mvi=1&mn=sn-u15hn5-5n%2Csn-oj5hn5-5g&fvip=3&sig=AB";
+        assert_eq!(super::second_host(url).as_deref(), Some(next));
+        // Once there, there's no other.
+        assert_eq!(super::second_host(next), None);
+        assert_eq!(super::second_host("http://rr4---sn-a.googlevideo.com:8080/videoplayback?mn=sn-a,sn-b&fvip=2").as_deref(), Some("http://rr2---sn-b.googlevideo.com:8080/videoplayback?mn=sn-a,sn-b&fvip=2"));
+        for none in [
+            "https://rr1---sn-a.googlevideo.com/videoplayback?mn=sn-a&fvip=3",
+            "https://rr1---sn-a.googlevideo.com/videoplayback?mn=sn-a,sn-b",
+            "https://example.com/videoplayback?mn=sn-a,sn-b&fvip=3",
+            "https://rr1---sn-a.googlevideo.com/videoplayback?mn=sn-a,sn-b.evil.com/x&fvip=3",
+            "https://rr1---sn-a.googlevideo.com/videoplayback?mn=sn-a,evil&fvip=3",
+            "https://rr1---sn-a.googlevideo.com/videoplayback?mn=sn-a,sn-b&fvip=3@evil",
+        ] {
+            assert_eq!(super::second_host(none), None, "{none}");
+        }
+    }
+
+    /// A host that refuses the connection: the download goes on from the URL's second
+    /// host straight away (#342).
+    #[tokio::test]
+    async fn an_unreachable_host_falls_back_to_the_second_one() {
+        let (served, _, server) = serve(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx").await;
+        let port = served.split(':').nth(2).and_then(|p| p.split('/').next()).unwrap().to_owned();
+        let shared = super::Shared::new(1, 0, None, false, true);
+        // The first host's address listens on nothing; the second's is the server.
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .resolve("rr4---sn-first.googlevideo.com", "[::1]:0".parse().unwrap())
+            .resolve("rr2---sn-second.googlevideo.com", "127.0.0.1:0".parse().unwrap())
+            .build()
+            .unwrap();
+        let url = format!("http://rr4---sn-first.googlevideo.com:{port}/videoplayback?mn=sn-first,sn-second&fvip=2");
+        let started = Instant::now();
+        let download = super::download(http, super::Media::File(url), String::new(), shared.clone(), None);
+        tokio::time::timeout(Duration::from_secs(5), download).await.expect("the download hung");
+        server.abort();
+        assert_eq!(shared.error(), None);
+        assert_eq!(shared.bytes().as_deref(), Some(&b"x"[..]));
+        // Not after the retries' back-off (400 ms and more): at once.
+        assert!(started.elapsed() < Duration::from_millis(400), "{:?}", started.elapsed());
     }
 
     /// Skipping a song must release its buffer even if the server stops mid-block.

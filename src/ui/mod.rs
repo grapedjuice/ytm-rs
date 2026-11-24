@@ -314,6 +314,9 @@ enum Dialog {
     ConfirmClearCache,
     /// A large download (`count` songs to go) asked about before it starts.
     ConfirmDownload { target: Option<Target>, title: String, tracks: Vec<Track>, count: usize },
+    /// An add YouTube Music refused, as some of `tracks` are in the playlist already:
+    /// add them anyway, skip those, or not. `duplicates` names them, by title, when known.
+    ConfirmAddDuplicates { playlist_id: String, playlist_title: String, tracks: Vec<Track>, duplicates: Vec<String> },
     /// `info` until it loads; `busy` while a change is on its way; `confirm_off` asks
     /// before turning collaboration off (that removes the collaborators).
     Collaborate { id: String, info: Option<crate::ytm::Collaboration>, busy: bool, confirm_off: bool },
@@ -634,6 +637,8 @@ pub struct App {
 
     // visuals
     art_key: Option<String>,
+    /// `art_key`'s song got no cover: asked again next time, in case it was the network.
+    art_uncovered: bool,
     art_changed: f64,
     art_brightness: f32,
     accent: Color32,
@@ -1106,6 +1111,7 @@ impl App {
             seek_drag: None,
             seek_wheel: seek_wheel::SeekWheel::default(),
             art_key: None,
+            art_uncovered: false,
             art_changed: -10.0,
             art_brightness: 0.0,
             accent: theme::RED,
@@ -1586,7 +1592,7 @@ impl App {
     }
 
     fn toast(&mut self, msg: impl Into<String>) {
-        let msg = msg.into();
+        let msg = without_urls(msg.into());
         if !self.pending_unlikes().is_empty() {
             self.toast_after_unlike = Some(msg);
             return;
@@ -2131,6 +2137,7 @@ impl eframe::App for App {
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.zoom = ctx.zoom_factor();
         dev::dev_script(ctx, raw);
+        row_drag::note_pointer(ctx, &raw.events);
         // Dev hook: YTM_LOG_WHEEL=1 logs the wheel events the window sends.
         if dev_var("YTM_LOG_WHEEL").is_some() {
             for e in raw.events.iter().filter(|e| matches!(e, egui::Event::MouseWheel { .. })) {
@@ -2553,6 +2560,43 @@ fn offline_text(on_downloads: bool) -> &'static str {
         crate::tr!("backend-offline-in-downloads")
     } else {
         crate::tr!("backend-offline")
+    }
+}
+
+/// `msg` without the request URLs reqwest's errors name ("… for url (https://…)"), which
+/// tell a listener nothing and run a toast across the window (#361). The log keeps them.
+fn without_urls(mut msg: String) -> String {
+    const AT: &str = " for url (";
+    while let Some(start) = msg.find(AT) {
+        // Up to the bracket that closes it.
+        let open = start + AT.len() - 1;
+        let mut depth = 0;
+        let end = msg[open..].char_indices().find_map(|(i, c)| {
+            depth += match c {
+                '(' => 1,
+                ')' => -1,
+                _ => 0,
+            };
+            (depth == 0).then_some(open + i + 1)
+        });
+        let Some(end) = end else { break };
+        msg.replace_range(start..end, "");
+    }
+    msg
+}
+
+#[cfg(test)]
+mod toast_tests {
+    #[test]
+    fn toasts_leave_request_urls_out() {
+        let msg = "Home failed: error sending request for url (https://music.youtube.com/youtubei/v1/browse?prettyPrint=false)";
+        assert_eq!(super::without_urls(msg.into()), "Home failed: error sending request");
+        // Every one, and what's around them stays.
+        let chain = "HTTP status server error (500 Internal Server Error) for url (https://a.example/x?q=(1)): retried for url (http://b.example/)";
+        assert_eq!(super::without_urls(chain.into()), "HTTP status server error (500 Internal Server Error): retried");
+        for kept in ["Couldn't play “Song”: no data for 20 s", "Added to (my) playlist", "a for url (unclosed"] {
+            assert_eq!(super::without_urls(kept.into()), kept);
+        }
     }
 }
 

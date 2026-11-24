@@ -220,6 +220,27 @@ impl<T: 'static> EventLoop<T> {
         let randr_event_offset =
             xconn.select_xrandr_input(root).expect("Failed to query XRandR extension");
 
+        // ytm-rs (#326): `property_notify` reloads the resources when RESOURCE_MANAGER
+        // changes, but nothing asked for the root window's property changes, where it is,
+        // so it never heard. Settings that come after the app connects (GNOME starts
+        // XWayland for the first X11 client, and its settings a moment later) were missed.
+        if let Err(err) = xconn
+            .xcb_connection()
+            .change_window_attributes(
+                root,
+                &xproto::ChangeWindowAttributesAux::new()
+                    .event_mask(xproto::EventMask::PROPERTY_CHANGE),
+            )
+            .map(|cookie| cookie.ignore_error())
+        {
+            warn!("Failed to watch the root window's properties: {err}");
+        }
+        // Settings that came since the display was opened, before the watch above: no
+        // event will tell of them.
+        if xconn.reload_database().is_ok() {
+            xconn.refresh_cursor_size();
+        }
+
         let xi2ext = xconn
             .xcb_connection()
             .extension_information(xinput::X11_EXTENSION_NAME)

@@ -222,6 +222,35 @@ impl XConnection {
         Ok(())
     }
 
+    /// ytm-rs (#326): libXcursor takes its cursor size once, from the resources there were
+    /// when the display was opened, and keeps it. Settings that came later (see the root
+    /// window's properties in `EventLoop::new`) left cursors at the size for no settings,
+    /// half size where XWayland scales by 2. Takes `Xcursor.size` as it is now, unless
+    /// XCURSOR_SIZE (which libXcursor goes by first) is set; returns whether it changed.
+    pub fn refresh_cursor_size(&self) -> bool {
+        if std::env::var_os("XCURSOR_SIZE").is_some_and(|v| !v.is_empty()) {
+            return false;
+        }
+        let Some(size) =
+            self.database().get_value::<i32>("Xcursor.size", "").ok().flatten().filter(|&s| s > 0)
+        else {
+            return false;
+        };
+        unsafe {
+            if (self.xcursor.XcursorGetDefaultSize)(self.display) == size {
+                return false;
+            }
+            (self.xcursor.XcursorSetDefaultSize)(self.display, size);
+        }
+        // Made at the old size: they're made again as they're next asked for.
+        for (_, cursor) in self.cursor_cache.lock().unwrap().drain() {
+            if cursor != 0 {
+                unsafe { (self.xlib.XFreeCursor)(self.display, cursor) };
+            }
+        }
+        true
+    }
+
     /// Get the latest timestamp.
     #[inline]
     pub fn timestamp(&self) -> u32 {

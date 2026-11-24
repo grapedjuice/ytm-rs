@@ -468,7 +468,7 @@ fn spotify_account_row(app: &mut App, ui: &mut Ui, account: &Account, compact: b
         ),
         Account::SignedIn { name, .. } => {
             let who = if name.is_empty() { crate::tr!("status-signed-in").to_owned() } else { crate::tr!("transfer-signed-in-as", name = name.as_str()) };
-            (crate::tr!("transfer-spotify-account").to_owned(), format!("{who}. {}", crate::tr!("transfer-credential-storage")))
+            (crate::tr!("transfer-spotify-account").to_owned(), format!("{who}. {}", if cfg!(windows) { crate::tr!("transfer-credential-storage") } else { crate::tr!("transfer-credential-storage-system") }))
         }
         Account::Unknown | Account::Loading => (crate::tr!("transfer-spotify-account").to_owned(), crate::tr!("transfer-checking-sign-in").to_owned()),
         Account::SignedOut if compact => (crate::tr!("settings-not-signed-in").to_owned(), crate::tr!("transfer-private-sign-in").to_owned()),

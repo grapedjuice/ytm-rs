@@ -79,8 +79,9 @@ pub enum Req {
     ArtistPicture { id: String, name: String },
     /// Romanization and translation for the lyric lines of one source.
     LyricsExtras { video_id: String, source: String, lines: Vec<String>, lang: Option<String>, target: String },
-    /// Process cover art for the background; `key` is echoed back.
-    Art { key: String, url: String },
+    /// Process cover art for the background; `key` is echoed back. `None`: the song has
+    /// no cover (answered at once, with none).
+    Art { key: String, url: Option<String> },
     /// Radio seeded from a track (`seed`, its id); appended to the queue. `song_of`: the
     /// track, when it's a music video to play as its song: the song's radio is asked for.
     Radio { seed: String, song_of: Option<Track>, smart: bool },
@@ -124,7 +125,7 @@ pub enum Req {
     EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
     /// Save one of your playlist's sort orders to it ([`PlaylistSort::actions`]).
     SortPlaylist { id: String, actions: serde_json::Value },
-    AddToPlaylist { playlist_id: String, video_ids: Vec<String> },
+    AddToPlaylist { playlist_id: String, tracks: Vec<Track>, duplicates: ytm::Duplicates },
     /// `(videoId, setVideoId)` entries to take out of the playlist.
     RemoveFromPlaylist { playlist_id: String, items: Vec<(String, String)> },
     /// Move an entry to just before another, or to the end.
@@ -424,7 +425,9 @@ pub enum Resp {
     ArtistPicture { id: String, pic: Option<crate::discord::Badge> },
     /// Romanization/translation for one source's lines, arriving after them.
     LyricsExtras { video_id: String, source: String, target: String, extras: crate::translate::Extras },
-    Art { key: String, art: Art },
+    /// `None`: there's no cover to take colours from (the song has none, or it couldn't
+    /// be fetched).
+    Art { key: String, art: Option<Art> },
     Radio { seed: String, tracks: Vec<Track>, smart: bool },
     /// A comments response (`Req::Comments`, `CommentsPage` or `CommentAction`) by its tag;
     /// `None`: it failed.
@@ -449,6 +452,8 @@ pub enum Resp {
     /// A playlist wasn't deleted, though it's left the library here already.
     DeleteFailed { error: String },
     AddedToPlaylist { id: String, video_ids: Vec<String>, error: Option<String> },
+    /// None of `tracks` went in: some are in the playlist already ([`ytm::Duplicates::Ask`]).
+    AlreadyInPlaylist { id: String, tracks: Vec<Track> },
     /// YouTube Music answered a song dragged to a new place.
     PlaylistMoved { id: String, move_id: u64, ok: bool },
     Collaboration(ytm::Collaboration),
@@ -495,6 +500,7 @@ impl Resp {
                 | Resp::LikeProgress { .. }
                 | Resp::LikedMany { .. }
                 | Resp::AddedToPlaylist { .. }
+                | Resp::AlreadyInPlaylist { .. }
                 | Resp::Artist(_)
                 | Resp::Subscribed { .. }
         )
@@ -1229,10 +1235,32 @@ impl Backend {
                     Resp::LyricsExtras { video_id, source, target, extras }
                 }
                 Req::Art { key, url } => {
-                    // The backdrop is a 64 px blur; fetch near that, not the 544 px art.
-                    let url = model::sized(&url, 2 * crate::art::SIZE);
-                    let bytes = self.http().get(&url).send().await?.error_for_status()?.bytes().await?;
-                    let art = tokio::task::spawn_blocking(move || crate::art::process(&bytes)).await??;
+                    let fetched = async {
+                        let Some(url) = url else { return Ok(None) };
+                        // The backdrop is a 64 px blur; fetch near that, not the 544 px art.
+                        let url = model::sized(&url, 2 * crate::art::SIZE);
+                        let bytes = self.http().get(&url).send().await?.error_for_status()?.bytes().await?;
+                        anyhow::Ok(Some(tokio::task::spawn_blocking(move || crate::art::process(&bytes)).await??))
+                    };
+                    let art = match fetched.await {
+                        Ok(art) => Ok(art),
+                        // Offline, or what came wasn't an image: a downloaded song still has
+                        // its cover, in its file.
+                        Err(e) => {
+                            let id = key.clone();
+                            async {
+                                let saved = tokio::task::spawn_blocking(move || crate::downloads::cover(&id)).await?.ok_or(e)?;
+                                anyhow::Ok(Some(tokio::task::spawn_blocking(move || crate::art::process(&saved)).await??))
+                            }
+                            .await
+                        }
+                    };
+                    // Failed, it's answered all the same: without an answer the colours
+                    // would stay the song before's.
+                    let art = art.unwrap_or_else(|e| {
+                        log::warn!("{what} failed: {e:#}");
+                        None
+                    });
                     Resp::Art { key, art }
                 }
                 Req::Radio { seed, song_of, smart } => {
@@ -1381,13 +1409,17 @@ impl Backend {
                         Resp::PlaylistChanged { id, change: PlaylistChange::SortFailed }
                     }
                 },
-                Req::AddToPlaylist { playlist_id, video_ids } => {
+                Req::AddToPlaylist { playlist_id, tracks, duplicates } => {
+                    let video_ids: Vec<String> = tracks.iter().map(|t| t.id.clone()).collect();
                     // A failure says which songs too, so they stop showing in the playlist.
-                    let error = ytm::add_videos(api, &playlist_id, &video_ids).await.err().map(|e| {
-                        log::warn!("{what} failed: {e:#}");
-                        format!("{what} failed: {e}")
-                    });
-                    Resp::AddedToPlaylist { id: playlist_id, video_ids, error }
+                    match ytm::add_videos(api, &playlist_id, &video_ids, duplicates).await {
+                        Ok(true) => Resp::AddedToPlaylist { id: playlist_id, video_ids, error: None },
+                        Ok(false) => Resp::AlreadyInPlaylist { id: playlist_id, tracks },
+                        Err(e) => {
+                            log::warn!("{what} failed: {e:#}");
+                            Resp::AddedToPlaylist { id: playlist_id, video_ids, error: Some(format!("{what} failed: {e}")) }
+                        }
+                    }
                 }
                 Req::RemoveFromPlaylist { playlist_id, items } => {
                     match ytm::remove_videos(api, &playlist_id, &items).await {

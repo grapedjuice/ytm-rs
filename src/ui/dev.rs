@@ -206,7 +206,7 @@ pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
                 }
             }
             Step::Shot(name) => {
-                let path = std::path::Path::new(dev_var("YTM_SCRIPT_DIR").unwrap_or(".")).join(format!("{name}.png"));
+                let path = std::path::Path::new(dev_var("YTM_SCRIPT_DIR").unwrap_or(".")).join(shot_file(name));
                 ctx.request_screenshot(move |img| {
                     let [w, h] = img.size;
                     let bytes: Vec<u8> = img.pixels.iter().flat_map(|c| c.to_array()).collect();
@@ -232,6 +232,11 @@ pub(super) fn dev_script(ctx: &egui::Context, raw: &mut egui::RawInput) {
             ctx.request_repaint();
         });
     }
+}
+
+/// `YTM_SCRIPT`'s `s:<name>`, as a file: `.png` added unless it's there already (#362).
+fn shot_file(name: &str) -> String {
+    if name.ends_with(".png") { name.to_owned() } else { format!("{name}.png") }
 }
 
 /// A `YTM_*` dev hook, read once: several are checked every frame.

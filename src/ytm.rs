@@ -1854,11 +1854,39 @@ pub async fn create_playlist_with(api: &Api, title: &str, video_ids: &[String]) 
     value["playlistId"].as_str().map(str::to_owned).ok_or_else(|| anyhow::anyhow!("YouTube Music did not return a playlist"))
 }
 
-/// Add songs to a playlist in one request, skipping any already in it.
-pub async fn add_videos(api: &Api, playlist_id: &str, video_ids: &[String]) -> anyhow::Result<()> {
-    let actions: Vec<Value> = video_ids.iter().map(|v| json!({"action": "ACTION_ADD_VIDEO", "addedVideoId": v, "dedupeOption": "DEDUPE_OPTION_SKIP"})).collect();
-    write(api, "browse/edit_playlist", json!({"playlistId": playlist_id, "actions": actions})).await?;
-    Ok(())
+/// What an add does with songs the playlist has already.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Duplicates {
+    /// Add nothing if any are there, and say so.
+    Ask,
+    /// Add only the songs it doesn't have.
+    Skip,
+    /// Add them all, a second time for some.
+    Add,
+}
+
+/// Add songs to a playlist in one request: `Ok(false)` when [`Duplicates::Ask`] found
+/// some there already, and none went in.
+pub async fn add_videos(api: &Api, playlist_id: &str, video_ids: &[String], duplicates: Duplicates) -> anyhow::Result<bool> {
+    // DEDUPE_OPTION_SKIP skips the check, not the songs: it's the one that adds twice.
+    let option = match duplicates {
+        Duplicates::Ask => "DEDUPE_OPTION_CHECK",
+        Duplicates::Skip => "DEDUPE_OPTION_DROP_DUPLICATE",
+        Duplicates::Add => "DEDUPE_OPTION_SKIP",
+    };
+    let actions: Vec<Value> = video_ids.iter().map(|v| json!({"action": "ACTION_ADD_VIDEO", "addedVideoId": v, "dedupeOption": option})).collect();
+    let value = api.call_signed_in("browse/edit_playlist", json!({"playlistId": playlist_id, "actions": actions})).await?;
+    if duplicates == Duplicates::Ask && asks_about_duplicates(&value) {
+        return Ok(false);
+    }
+    anyhow::ensure!(!value["status"].as_str().is_some_and(|s| !s.contains("SUCCEEDED")), "YouTube Music rejected the change");
+    Ok(true)
+}
+
+/// A refused add that offers to add the songs anyway (a toast for one, a dialog for
+/// more): that offer is the same add with the check skipped, in any language.
+fn asks_about_duplicates(answer: &Value) -> bool {
+    answer["status"].as_str().is_some_and(|s| !s.contains("SUCCEEDED")) && answer["actions"].to_string().contains("DEDUPE_OPTION_SKIP")
 }
 
 pub async fn edit_playlist(api: &Api, id: &str, title: &str, description: &str, privacy: Option<&str>) -> anyhow::Result<()> {
@@ -2482,6 +2510,21 @@ fn upload_page(run: &Value) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refused_add_offering_add_anyway_is_about_duplicates() {
+        // Trimmed from YouTube Music's answers (November 2026): one song, then two.
+        let add = |opt: &str| json!({"playlistEditEndpoint": {"actions": [{"action": "ACTION_ADD_VIDEO", "addedVideoId": "a", "dedupeOption": opt}]}});
+        let toast = json!({"status": "STATUS_FAILED", "actions": [{"addToToastAction": {"item": {"notificationActionRenderer": {"actionButton": {"buttonRenderer": {"command": add("DEDUPE_OPTION_SKIP")}}}}}}]});
+        let dialog = json!({"status": "STATUS_FAILED", "actions": [{"confirmDialogEndpoint": {"content": {"confirmDialogRenderer": {
+            "cancelButton": {"buttonRenderer": {"command": add("DEDUPE_OPTION_DROP_DUPLICATE")}},
+            "confirmButton": {"buttonRenderer": {"command": add("DEDUPE_OPTION_SKIP")}},
+        }}}}]});
+        assert!(asks_about_duplicates(&toast));
+        assert!(asks_about_duplicates(&dialog));
+        assert!(!asks_about_duplicates(&json!({"status": "STATUS_FAILED", "actions": []})));
+        assert!(!asks_about_duplicates(&json!({"status": "STATUS_SUCCEEDED", "actions": [{"addToToastAction": {}}]})));
+    }
 
     #[test]
     fn song_rating_comes_from_the_requested_player_button() {

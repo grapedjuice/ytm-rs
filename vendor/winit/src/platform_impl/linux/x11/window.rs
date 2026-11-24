@@ -1608,6 +1608,15 @@ impl UnownedWindow {
         result
     }
 
+    /// ytm-rs (#326): sets the named cursor shown again, made afresh (its size changed).
+    pub(super) fn reload_cursor(&self) {
+        #[allow(clippy::mutex_atomic)]
+        let visible = *self.cursor_visible.lock().unwrap();
+        if let (true, SelectedCursor::Named(icon)) = (visible, &*self.selected_cursor.lock().unwrap()) {
+            self.xconn.set_cursor_icon(self.xwindow, Some(*icon));
+        }
+    }
+
     #[inline]
     pub fn set_cursor_visible(&self, visible: bool) {
         #[allow(clippy::mutex_atomic)]

@@ -126,6 +126,8 @@ opt-level = 2
 
 [dev-dependencies]
 egui_system_font_provider = "0.37.0"
+# Paused time: a stalled download's 20 s pass at once in tests.
+tokio = { version = "1.53.2", features = ["test-util"] }
 
 [build-dependencies]
 winresource = "0.1.31"
@@ -141,6 +143,8 @@ winresource = "0.1.31"
 # vendor/winit/src/platform_impl/windows/event_loop.rs.
 # The X11 backend also requests saved window positions explicitly on KWin so the
 # full window's size doesn't constrain where the mini player can go.
+# It also hears the X11 settings that come after it connects, and takes the cursor size
+# from them (#326): see the ytm-rs notes in vendor/winit/src/platform_impl/linux/x11/xdisplay.rs.
 [patch.crates-io]
 epaint = { path = "vendor/epaint" }
 souvlaki = { path = "vendor/souvlaki" }

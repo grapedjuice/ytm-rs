@@ -1133,7 +1133,10 @@ mod tests {
 
     /// A host that takes the request and sends nothing (a broken cache): after `STALL`,
     /// the download goes on from the second host, rather than waiting it out again there.
+    /// Not on macOS: its loopback has no 127.0.0.2, and on ::1 instead paused time runs
+    /// out the stall before the socket answers. The fallback is the same code everywhere.
     #[tokio::test(start_paused = true)]
+    #[cfg_attr(target_os = "macos", ignore)]
     async fn a_host_that_sends_nothing_falls_back_to_the_second_one() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

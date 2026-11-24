@@ -9,7 +9,7 @@ use crate::model::{Card, ShelfKind, Target, Track};
 use super::lists::{Arrival, Done, LIBRARY_SONGS, LIKED_MUSIC, Opened, Start};
 use super::pages::thousands;
 use super::queue::QueueFill;
-use super::App;
+use super::{App, Dialog};
 
 impl App {
     /// What the queue was started from, while the song playing is one of it: what kind
@@ -67,9 +67,37 @@ impl App {
         }
     }
 
-    /// Add songs to one of the account's playlists. They show in it at once, even while
-    /// YouTube Music goes on listing it without them.
+    /// Add songs to one of the account's playlists. Ones the playlist already has, it
+    /// asks about first, as YouTube Music's website does (issue #339). They show in it
+    /// at once, even while YouTube Music goes on listing it without them.
     pub(super) fn add_to_playlist(&mut self, playlist_id: String, tracks: &[Track]) {
+        // A duplicate can only be told from a playlist kept whole here (its page, or a
+        // playlist it loaded fully before); otherwise the songs go in as they did.
+        let duplicates: Vec<String> = self
+            .lists
+            .get(&playlist_id)
+            .filter(|o| o.complete)
+            .map(|o| tracks.iter().filter(|t| o.c.tracks.iter().any(|s| s.id == t.id)).map(|t| t.title.clone()).collect())
+            .unwrap_or_default();
+        if duplicates.is_empty() {
+            self.add_to_playlist_confirmed(playlist_id, tracks);
+            return;
+        }
+        let playlist_title = self
+            .lists
+            .get(&playlist_id)
+            .map(|o| o.c.title.clone())
+            .or_else(|| {
+                self.library
+                    .as_ref()
+                    .and_then(|l| l.playlists.iter().find(|c| matches!(&c.target, Target::Playlist(p) if *p == playlist_id)).map(|c| c.title.clone()))
+            })
+            .unwrap_or_default();
+        self.dialog = Some(Dialog::ConfirmAddDuplicates { playlist_id, playlist_title, tracks: tracks.to_vec(), duplicates });
+    }
+
+    /// The add itself, once any duplicates are asked about or there were none.
+    pub(super) fn add_to_playlist_confirmed(&mut self, playlist_id: String, tracks: &[Track]) {
         self.lists.added(&playlist_id, tracks);
         self.sync_card_count(&playlist_id);
         let video_ids = tracks.iter().map(|t| t.id.clone()).collect();

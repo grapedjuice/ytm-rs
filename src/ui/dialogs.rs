@@ -70,6 +70,7 @@ impl App {
             Dialog::ConfirmDeleteUpload { .. } => crate::tr!("dialog-delete-upload"),
             Dialog::ConfirmClearCache => crate::tr!("settings-clear-cache"),
             Dialog::ConfirmDownload { .. } => crate::tr!("settings-download"),
+            Dialog::ConfirmAddDuplicates { .. } => crate::tr!("dialog-add-duplicates-title"),
             Dialog::Collaborate { .. } => crate::tr!("ui-collaborate"),
         };
         // The same modal card as "Delete playlist?" and the update dialog.
@@ -144,6 +145,21 @@ impl App {
                         if ok {
                             let (target, title, tracks) = (target.clone(), title.clone(), Some(std::mem::take(tracks)));
                             self.backend.request(Req::DownloadMany { target, title, tracks, confirmed: true });
+                        }
+                        done = ok || cancel;
+                    }
+                    Dialog::ConfirmAddDuplicates { playlist_id, playlist_title, tracks, duplicates } => {
+                        let body = if playlist_title.is_empty() {
+                            crate::tr!("dialog-add-duplicates-body", songs = duplicates.join(", ").as_str(), count = duplicates.len())
+                        } else {
+                            crate::tr!("dialog-add-duplicates-in-body", title = playlist_title.as_str(), songs = duplicates.join(", ").as_str(), count = duplicates.len())
+                        };
+                        ui.add(egui::Label::new(egui::RichText::new(body).font(theme::regular(14.0)).color(theme::text_dim())).wrap());
+                        ui.add_space(22.0);
+                        let (ok, cancel) = dialog_buttons(ui, crate::tr!("dialog-add-anyway"), true, accent);
+                        if ok {
+                            let (playlist_id, tracks) = (playlist_id.clone(), std::mem::take(tracks));
+                            self.add_to_playlist_confirmed(playlist_id, &tracks);
                         }
                         done = ok || cancel;
                     }

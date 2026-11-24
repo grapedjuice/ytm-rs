@@ -445,7 +445,9 @@ pub fn song_for(video_id: &str) -> Option<Track> {
 /// The file `id` plays from: its own, or its song version's when it's a music video.
 fn file_of(id: &str) -> Option<PathBuf> {
     let st = STATE.read().unwrap();
-    st.index.get(id).or_else(|| st.index.values().find(|e| e.stands_for(id))).map(|e| e.path.clone())
+    // A file that's gone isn't played from (`entry_for`), so it isn't read either.
+    let there = |e: &&Entry| e.path.is_file();
+    st.index.get(id).filter(there).or_else(|| st.index.values().filter(there).find(|e| e.stands_for(id))).map(|e| e.path.clone())
 }
 
 /// The cover tagged in `id`'s downloaded file (see `file_of`), for the background's
@@ -1046,6 +1048,22 @@ mod tests {
         assert_eq!((written["c"].list.as_deref(), written["a"].list.as_deref()), (Some("PL1"), None));
         assert!(any_listed(&[song("x", "X"), song("c", "C")]) && !all_listed(&[song("x", "X"), song("c", "C")]));
         assert_eq!(not_listed(&[song("x", "X"), song("c", "C")]).iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["x"]);
+
+        // A cover tagged the way a download is, read back: a file with no audio, just the
+        // boxes the tags need.
+        let mut mvhd = [&b"\0\0\0\x6cmvhd"[..], &[0; 100]].concat();
+        mvhd[20..24].copy_from_slice(&1000u32.to_be_bytes()); // its timescale
+        let m4a = [&b"\0\0\0\x14ftypM4A \0\0\0\0M4A "[..], b"\0\0\0\x74moov", &mvhd, b"\0\0\0\x08mdat"].concat();
+        let mut png = Vec::new();
+        image::RgbImage::from_pixel(4, 4, image::Rgb([30, 90, 220])).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        save(&song("f", "F"), &m4a, 0, None, Some(png.clone()), Some("vf".into()), None).unwrap();
+        assert_eq!((cover("f").as_deref(), cover("vf").as_deref()), (Some(&png[..]), Some(&png[..])));
+        let art = crate::art::process(&cover("f").unwrap()).unwrap();
+        assert!(art.accent.b() > art.accent.r(), "the accent is the cover's blue, not {:?}", art.accent);
+        // The video saved on its own too, but that file is gone: its song version's plays,
+        // so its cover is taken.
+        std::fs::remove_file(save(&song("vf", "VF"), &m4a, 0, None, None, None, None).unwrap()).unwrap();
+        assert_eq!(cover("vf").as_deref(), Some(&png[..]));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

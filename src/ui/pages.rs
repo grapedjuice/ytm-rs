@@ -3488,8 +3488,6 @@ pub(super) fn output_device_menu(app: &mut App, btn: &egui::Response, popup: egu
     // bar draws this every frame, and listing asks the system each time.
     if btn.clicked() {
         app.output_devices = crate::audio::output_devices();
-    }
-    if btn.clicked() {
         crate::airplay::discover();
     }
     let mut pick: Option<Option<(String, String)>> = None;
@@ -3905,12 +3903,10 @@ pub(super) fn setting_row_wide(ui: &mut Ui, title: &str, desc: Option<&str>, con
     // In a right-to-left language, the text starts at the right of its column.
     let x = |g: &egui::Galley| if base.is_some() { rect.left() + text_w - g.size().x } else { rect.left() };
     let title_pos = pos2(x(&title_g), top);
-    ui.painter().galley(title_pos, title_g.clone(), theme::with_alpha(theme::text(), fade));
-    widgets::tip_if_elided(ui, Rect::from_min_size(title_pos, title_g.size()), &title_g, title);
+    widgets::galley_tipped(ui, title_pos, title_g.clone(), theme::with_alpha(theme::text(), fade), title);
     if let (Some(d), Some(g)) = (desc, desc_g) {
         let desc_pos = pos2(x(&g), top + title_g.size().y + 3.0);
-        ui.painter().galley(desc_pos, g.clone(), theme::with_alpha(theme::text_dim(), fade));
-        widgets::tip_if_elided(ui, Rect::from_min_size(desc_pos, g.size()), &g, d);
+        widgets::galley_tipped(ui, desc_pos, g, theme::with_alpha(theme::text_dim(), fade), d);
     }
     let ctl = Rect::from_min_max(pos2(rect.left() + text_w + 20.0, rect.top()), rect.max);
     let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(ctl).layout(egui::Layout::right_to_left(egui::Align::Center)));

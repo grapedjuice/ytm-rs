@@ -1129,8 +1129,7 @@ fn suggestion_text(ui: &Ui, pos: Pos2, text: &str, typed: &str, width: f32) {
     job.append(rest, 0.0, egui::TextFormat { font_id: theme::regular(15.0), color: theme::text_dim(), ..Default::default() });
     job.wrap = egui::text::TextWrapping::truncate_at_width(width.max(10.0));
     let g = ui.fonts_mut(|f| f.layout_job(job));
-    ui.painter().galley(pos, g.clone(), theme::text());
-    widgets::tip_if_elided(ui, Rect::from_min_size(pos, g.size()), &g, text);
+    widgets::galley_tipped(ui, pos, g, theme::text(), text);
 }
 
 // ------------------------------------------------------------------ player bar

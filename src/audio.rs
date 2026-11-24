@@ -230,6 +230,13 @@ impl AudioStatus {
         self.sampled_at.store(now_ms(), Ordering::Relaxed);
     }
 
+    /// The position back to what the device has played of `pos` (its buffer not yet heard).
+    fn set_heard(&self, pos: Duration) -> Duration {
+        let heard = pos.saturating_sub(self.latency());
+        self.set_position(heard.as_millis() as u64);
+        heard
+    }
+
     /// The players are pausing outright: they come back up from silence.
     fn silence(&self) {
         self.faded.store(1f32.to_bits(), Ordering::Relaxed);
@@ -1430,7 +1437,7 @@ fn run(
                 pause_at = None;
                 player.pause();
                 fading.iter().for_each(|f| f.player.pause());
-                status.set_position(song_pos(&song_ms).saturating_sub(status.latency()).as_millis() as u64);
+                status.set_heard(song_pos(&song_ms));
                 status.playing.store(false, Ordering::Relaxed);
                 wake();
             }
@@ -1701,9 +1708,7 @@ fn run(
             // playing again goes back to what it last played.
             if output.airplay.is_some() && !output.pauses() && current != 0 {
                 output.flush();
-                let heard = song_pos(&song_ms).saturating_sub(status.latency());
-                status.set_position(heard.as_millis() as u64);
-                rewind = Some(heard);
+                rewind = Some(status.set_heard(song_pos(&song_ms)));
             }
         }
         if let Some(notice) = output.notice.take() {
@@ -1725,9 +1730,7 @@ fn run(
         if held && !output.pauses() {
             held = false;
             if current != 0 {
-                let heard = song_pos(&song_ms).saturating_sub(status.latency());
-                status.set_position(heard.as_millis() as u64);
-                rewind = Some(heard);
+                rewind = Some(status.set_heard(song_pos(&song_ms)));
             }
         }
         // The volume's the speaker's while one plays, and the players' otherwise. The slider

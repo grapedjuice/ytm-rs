@@ -355,13 +355,11 @@ fn port(d: &Dictionary, key: &str) -> Option<u16> {
 }
 
 fn uuid() -> String {
+    // From `random()`, which gives zeros where `Uuid::new_v4` would panic without randomness.
     let mut b = [0u8; 16];
     b[..8].copy_from_slice(&random().to_le_bytes());
     b[8..].copy_from_slice(&random().to_le_bytes());
-    b[6] = b[6] & 0x0f | 0x40;
-    b[8] = b[8] & 0x3f | 0x80;
-    let h: String = b.iter().map(|x| format!("{x:02X}")).collect();
-    format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
+    uuid::Builder::from_random_bytes(b).into_uuid().to_string().to_uppercase()
 }
 
 /// The connection the speaker sends us requests on, answered as briefly as can be: more

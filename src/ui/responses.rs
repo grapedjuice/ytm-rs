@@ -648,8 +648,7 @@ impl App {
                 self.offline = true;
                 // On Downloads already, it doesn't point there.
                 let here = self.page == super::Page::Library(super::LibTab::Downloads);
-                let msg = if here { crate::tr!("backend-offline-in-downloads") } else { crate::tr!("backend-offline") };
-                self.on_error(msg.to_owned());
+                self.on_error(super::offline_text(here).to_owned());
             }
         }
     }

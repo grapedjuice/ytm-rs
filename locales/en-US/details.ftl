@@ -16,6 +16,7 @@ backend-error = { $operation } failed: { $error }
 backend-unexpected-reply = YouTube didn't respond properly
 backend-offline = Can't reach YouTube Music. Downloaded songs still play, from Library › Downloads.
 backend-offline-in-downloads = Can't reach YouTube Music. Downloaded songs still play.
+backend-offline-proxy = Can't reach YouTube Music through the proxy (Settings › Network › Proxy). Downloaded songs still play.
 backend-unreachable = can't reach YouTube Music
 backend-session-expired = Your YouTube sign-in expired. Sign in again to get your library back.
 backend-empty-download = “{ $title }” has no songs to download

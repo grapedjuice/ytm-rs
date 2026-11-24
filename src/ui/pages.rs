@@ -135,7 +135,7 @@ impl Rows {
 fn placeholder(app: &mut App, ui: &mut Ui, now: f64, rows: usize, card: f32) {
     if app.load_failed {
         ui.add_space(40.0);
-        let why = if app.offline { crate::tr!("backend-offline") } else { crate::tr!("nav-load-failed") };
+        let why = if app.offline { super::offline_text(false) } else { crate::tr!("nav-load-failed") };
         ui.add(egui::Label::new(RichText::new(why).color(theme::text_dim())).wrap());
         ui.add_space(12.0);
         ui.horizontal(|ui| {

@@ -2528,6 +2528,19 @@ pub fn fmt_running(pos: f32, total: f32, left: bool) -> String {
     format!("{} / {}", fmt_left(pos, total, left).unwrap_or_else(|| fmt_time(pos as u32)), fmt_time(total as u32))
 }
 
+/// What to say when YouTube Music can't be reached (`Resp::Offline`). `on_downloads`: the
+/// page is Library › Downloads, which it needn't point to. Through a proxy, that's the
+/// likelier cause, and where to look.
+fn offline_text(on_downloads: bool) -> &'static str {
+    if crate::proxy::in_use() {
+        crate::tr!("backend-offline-proxy")
+    } else if on_downloads {
+        crate::tr!("backend-offline-in-downloads")
+    } else {
+        crate::tr!("backend-offline")
+    }
+}
+
 #[cfg(test)]
 mod time_tests {
     use super::{fmt_end, fmt_running};

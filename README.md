@@ -147,7 +147,15 @@ On Arch Linux and its derivatives, the community-maintained [ytm-rs-bin](https:/
 yay -S ytm-rs-bin
 ```
 
-Update it with your AUR helper and uninstall it with `sudo pacman -R ytm-rs-bin`.
+If you install AUR packages manually, install `base-devel` and `git`, then run these commands.
+
+```sh
+git clone https://aur.archlinux.org/ytm-rs-bin.git
+cd ytm-rs-bin
+makepkg -si
+```
+
+For updates, use your AUR helper or pull the latest packaging changes and rerun `makepkg -si`. To uninstall, run `sudo pacman -R ytm-rs-bin`.
 
 For a direct install on Arch Linux, download `ytm-rs-<version>-1-x86_64.pkg.tar.zst` and run `sudo pacman -U ./ytm-rs-<version>-1-x86_64.pkg.tar.zst`, which also installs the libraries it needs. It doesn't update itself either: when a new version is out, the app says so and links to the new package, which installs over the old one the same way. To uninstall it, run `sudo pacman -R ytm-rs`.
 

@@ -465,6 +465,9 @@ pub struct App {
     loading: bool,
     /// The current page's request failed with nothing cached: show a retry, not a skeleton.
     load_failed: bool,
+    /// It failed because YouTube Music can't be reached: the retry says so, and offers
+    /// Downloads, which play without it.
+    offline: bool,
     search_text: String,
     /// What was typed, the search terms for it, and the songs, artists and albums it
     /// most likely means.
@@ -960,6 +963,7 @@ impl App {
             track_art: None,
             loading: false,
             load_failed: false,
+            offline: false,
             search_text: String::new(),
             suggestions: Default::default(),
             suggest_sel: None,
@@ -1441,6 +1445,7 @@ impl App {
         let coming = self.page_list().is_some_and(|id| self.lists.loading(id));
         self.loading = (req.is_some() || coming) && !cached;
         self.load_failed = false;
+        self.offline = false;
         match req {
             Some(Req::Library) => self.request_library(),
             Some(r) => self.backend.request(r),
@@ -2528,6 +2533,19 @@ pub fn fmt_end(pos: f32, total: f32, left: bool) -> String {
 /// the length ("-0:51 / 1:27"), so one side runs and the other stays put either way.
 pub fn fmt_running(pos: f32, total: f32, left: bool) -> String {
     format!("{} / {}", fmt_left(pos, total, left).unwrap_or_else(|| fmt_time(pos as u32)), fmt_time(total as u32))
+}
+
+/// What to say when YouTube Music can't be reached (`Resp::Offline`). `on_downloads`: the
+/// page is Library › Downloads, which it needn't point to. Through a proxy, that's the
+/// likelier cause, and where to look.
+fn offline_text(on_downloads: bool) -> &'static str {
+    if crate::proxy::in_use() {
+        crate::tr!("backend-offline-proxy")
+    } else if on_downloads {
+        crate::tr!("backend-offline-in-downloads")
+    } else {
+        crate::tr!("backend-offline")
+    }
 }
 
 /// `msg` without the request URLs reqwest's errors name ("… for url (https://…)"), which

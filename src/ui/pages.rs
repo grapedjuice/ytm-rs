@@ -135,11 +135,20 @@ impl Rows {
 fn placeholder(app: &mut App, ui: &mut Ui, now: f64, rows: usize, card: f32) {
     if app.load_failed {
         ui.add_space(40.0);
-        ui.label(RichText::new(crate::tr!("nav-load-failed")).color(theme::text_dim()));
+        let why = if app.offline { super::offline_text(false) } else { crate::tr!("nav-load-failed") };
+        ui.add(egui::Label::new(RichText::new(why).color(theme::text_dim())).wrap());
         ui.add_space(12.0);
-        if pill(ui, crate::tr!("ui-try-again"), None, false).clicked() {
-            app.refresh();
-        }
+        ui.horizontal(|ui| {
+            if pill(ui, crate::tr!("ui-try-again"), None, false).clicked() {
+                app.refresh();
+            }
+            if app.offline {
+                ui.add_space(8.0);
+                if pill(ui, LibTab::Downloads.label(), Some(icon::DOWNLOAD), false).clicked() {
+                    app.go(Page::Library(LibTab::Downloads));
+                }
+            }
+        });
     } else {
         widgets::skeleton(ui, now, rows, card);
     }

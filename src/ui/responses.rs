@@ -646,7 +646,21 @@ impl App {
                 }
             }
             Resp::LoggedIn(v) => self.on_logged_in(v, now),
-            Resp::Error(e) => self.on_error(e),
+            // Only what the page was waiting for says why it failed, not some other request.
+            Resp::Error(e) => {
+                if self.page_waiting() {
+                    self.offline = false;
+                }
+                self.on_error(e);
+            }
+            Resp::Offline => {
+                if self.page_waiting() {
+                    self.offline = true;
+                }
+                // On Downloads already, it doesn't point there.
+                let here = self.page == super::Page::Library(super::LibTab::Downloads);
+                self.on_error(super::offline_text(here).to_owned());
+            }
         }
     }
 
@@ -918,6 +932,11 @@ impl App {
     }
 
     /// A request failed: pages waiting for it stop waiting, and the error shows.
+    /// Whether the page is still waiting for its first data: an error now is its own.
+    fn page_waiting(&self) -> bool {
+        self.loading || (self.page == Page::Home && self.home_loading)
+    }
+
     fn on_error(&mut self, e: String) {
         if let Some(Dialog::Collaborate { info, busy, .. }) = &mut self.dialog {
             *busy = false;
@@ -927,7 +946,7 @@ impl App {
             }
         }
         // A page still waiting for its first data shows a retry instead of loading forever.
-        self.load_failed |= self.loading || (self.page == Page::Home && self.home_loading);
+        self.load_failed |= self.page_waiting();
         self.loading = false;
         self.home_loading = false;
         self.radio_pending = false;

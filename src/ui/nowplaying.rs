@@ -116,7 +116,8 @@ fn behind_panel(app: &App, ctx: &egui::Context, area: Rect, now: f64) -> Option<
     let track = app.current()?;
     // A video takes the middle instead of the cover.
     let vis = if app.shown_video().is_some() { 1.0 } else { 1.0 - panel_motion(app, ctx, &track.id, app.no_lyrics(), now).art_vis };
-    Some(BehindPanel { beside: content_wide(area), vis })
+    let (_, content) = np_rects(area, app.fullscreen);
+    Some(BehindPanel { beside: content_wide(content), vis })
 }
 
 /// Now playing's background laid out over `rect`, drawn only inside `clip`.
@@ -315,11 +316,9 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     let area = ui.max_rect();
     let video = app.shown_video().cloned();
     let video_mode = video.is_some();
-    let video_lyrics = video_mode && look.now_playing.video_lyrics && !app.no_lyrics() && content_wide(area);
+    let (header, content) = np_rects(area, app.fullscreen);
+    let video_lyrics = video_mode && look.now_playing.video_lyrics && !app.no_lyrics() && content_wide(content);
     let no_lyrics = app.no_lyrics() || (video_mode && !video_lyrics);
-    // Header: on the window buttons' line, when the app draws them.
-    let lift = 20.0 - f32::from(super::titlebar::top_margin(20, 44.0));
-    let header = Rect::from_min_size(area.min - vec2(0.0, if app.fullscreen { 0.0 } else { lift }), vec2(area.width(), 44.0));
     // In some themes full screen's header leaves until the pointer moves. It comes back at once, and for the keyboard too.
     let hide = look.now_playing.header_autohide && app.fullscreen;
     let moved_id = egui::Id::unique("np-pointer-moved");
@@ -331,14 +330,10 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     }
     let quiet = hide && now - ui.ctx().data(|d| d.get_temp::<f64>(moved_id)).unwrap_or(now) > 2.5;
     let shown_header = theme::anim_bool(ui.ctx(), "np-header-shown", !quiet, 0.3);
-    let header_real = header;
     let header = header.translate(vec2(0.0, -(header.height() + 20.0) * (1.0 - shown_header)));
     if hide && !quiet {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
     }
-    // The content first: some themes run the lyrics up under the header in full screen,
-    // and its buttons go over them, taking the clicks.
-    let content = Rect::from_min_max(pos2(area.left(), header_real.bottom() + 12.0), area.max);
     if app.fullscreen && look.now_playing.fullscreen_progress_px > 0.0 {
         fullscreen_progress(app, ui, ui.ctx().content_rect(), look.now_playing.fullscreen_progress_px);
     }
@@ -636,13 +631,16 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
     let window_w = ui.ctx().content_rect().width();
     // The cover gliding between its two places (wide layouts): a gentle S-curve.
     let glide = p * p * (3.0 - 2.0 * p);
-    let narrow = !content_wide(content);
-    let corner = !narrow && layout == Layout::Corner;
-    let fs_corner = !narrow && app.fullscreen && cs.fullscreen.is_some_and(|f| f.corner_layout);
+    let portrait = is_portrait(content);
+    let wide = content_wide(content);
+    let narrow = !portrait && !wide;
+    let corner = wide && layout == Layout::Corner;
+    let fs_corner = wide && app.fullscreen && cs.fullscreen.is_some_and(|f| f.corner_layout);
     let lyrics_only = narrow || corner || fs_corner || layout == Layout::LyricsOnly;
     // reCover: the backdrop cover sits on the left, so the lyrics take the right side.
-    let beside_cover = !narrow && layout == Layout::LyricsOnly && look.background.fullbleed(app.fullscreen);
-    let centered = lyrics_only && !beside_cover;
+    let beside_cover = wide && layout == Layout::LyricsOnly && look.background.fullbleed(app.fullscreen);
+    let centered = portrait || (lyrics_only && !beside_cover);
+    let stacked_portrait = portrait && !lyrics_only;
     // Artwork alone: centered.
     let col_art = Rect::from_center_size(content.center(), vec2(content.width().min(content.height() * 0.9), content.height()));
     let np = &look.now_playing;
@@ -665,7 +663,7 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
             let px = (art_side(cs, col_alone, app.fullscreen, window_w) * ppp) as u32;
             let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(content));
             cui.multiply_opacity(art_vis);
-            cover_column(app, &mut cui, col_alone.translate(vec2(-slide * (1.0 - art_vis), 0.0)), track, no_lyrics, now, px);
+            cover_column(app, &mut cui, col_alone.translate(vec2(-slide * (1.0 - art_vis), 0.0)), track, no_lyrics, now, px, None);
         }
         if art_vis < 0.999 {
             let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(content));
@@ -683,16 +681,24 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
         if art_vis > 0.001 {
             let mut cui = ui.new_child(egui::UiBuilder::new().max_rect(content));
             cui.multiply_opacity(art_vis);
-            cover_column(app, &mut cui, col_alone.translate(vec2(-slide * (1.0 - art_vis), 0.0)), track, no_lyrics, now, px);
+            cover_column(app, &mut cui, col_alone.translate(vec2(-slide * (1.0 - art_vis), 0.0)), track, no_lyrics, now, px, None);
         } else {
             // Hidden behind the lyrics: have it loaded for when they're turned off.
             widgets::preload_cover(ui.ctx(), &track.thumbs, px);
         }
-        let full_panel = look.now_playing.fullscreen_panel_frac.filter(|_| app.fullscreen);
+        let full_panel = look.now_playing.fullscreen_panel_frac.filter(|_| app.fullscreen && !portrait);
         if let Some(f) = full_panel {
             let side = content.width() * (1.0 - f);
             if cover_side == Side::Right { Rect::from_min_max(content.min, pos2(content.right() - side, content.bottom())) } else { Rect::from_min_max(pos2(content.left() + side, content.top()), content.max) }
         } else if beside_cover { Rect::from_min_max(pos2(content.left() + content.width() * 0.46, content.top()), content.max) } else { content }
+    } else if stacked_portrait {
+        let (col_panel, side_panel) = portrait_panel(look, content, app.fullscreen);
+        let side_alone = art_side(cs, col_alone, app.fullscreen, window_w);
+        let col = Rect::from_min_max(col_alone.min.lerp(col_panel.min, glide), col_alone.max.lerp(col_panel.max, glide));
+        let side_now = egui::lerp(side_alone..=side_panel, glide);
+        let px = (side_alone.max(side_panel) * ppp) as u32;
+        cover_column(app, ui, col, track, no_lyrics, now, px, Some((side_now, glide)));
+        Rect::from_min_max(pos2(content.left(), (col_panel.bottom() + 12.0).min(content.bottom())), content.max)
     } else {
         // Cover column, on the preset's side; it glides to the center as the panel leaves.
         let frac = match look.now_playing.panel_frac {
@@ -710,7 +716,7 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
         let col = Rect::from_min_max(col_art.min.lerp(col_panel.min, glide), col_art.max.lerp(col_panel.max, glide));
         // One image size for the whole glide, the bigger of its two ends.
         let px = (art_side(cs, col_art, app.fullscreen, window_w).max(art_side(cs, col_panel, app.fullscreen, window_w)) * ppp) as u32;
-        cover_column(app, ui, col, track, no_lyrics, now, px);
+        cover_column(app, ui, col, track, no_lyrics, now, px, None);
         card_at = col;
         if cover_side == Side::Right {
             Rect::from_min_max(content.min, pos2(col_panel.left() - 28.0, content.bottom()))
@@ -720,7 +726,7 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
     };
     // The theme's card for the song, in the corner (the cover then has no title under it).
     // It stays with the backdrop's cover too, so it's the one card through the transition.
-    let card_vis = if fs_corner { art_vis } else if corner { 0.0 } else if beside_cover || !lyrics_only { 1.0 } else { art_vis };
+    let card_vis = if fs_corner || stacked_portrait { art_vis } else if corner { 0.0 } else if beside_cover || !lyrics_only { 1.0 } else { art_vis };
     if np.shows_info_card(app.fullscreen) && card_vis > 0.001 {
         let mut card = ui.new_child(egui::UiBuilder::new().max_rect(card_at));
         card.multiply_opacity(card_vis);
@@ -730,9 +736,14 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
         return;
     }
     let toward = if !lyrics_only && cover_side == Side::Right { -slide } else { slide };
-    let rect = right.translate(vec2(toward * (1.0 - panel_vis), 0.0));
+    let shift = if stacked_portrait { vec2(0.0, slide) } else { vec2(toward, 0.0) };
+    let rect = right.translate(shift * (1.0 - panel_vis));
     let inset = look.now_playing.fullscreen_panel_inset.filter(|_| app.fullscreen);
-    let rect = inset.map_or(rect, |[top, bottom]| Rect::from_min_max(pos2(rect.left(), rect.top() + top), pos2(rect.right(), rect.bottom() - bottom)));
+    let rect = inset.map_or(rect, |[top, bottom]| {
+        let top = rect.top() + if stacked_portrait { top.max(0.0) } else { top };
+        let bottom = (rect.bottom() - bottom).max(top);
+        Rect::from_min_max(pos2(rect.left(), top), pos2(rect.right(), bottom))
+    });
     // Switching between Lyrics, Up next and Comments: the old one fades out over the first 55%,
     // the new one fades in and rises into place from a third of the way.
     for (tab, key) in [(NpTab::Lyrics, "np-tab-lyrics"), (NpTab::UpNext, "np-tab-upnext"), (NpTab::Comments, "np-tab-comments")] {
@@ -752,7 +763,11 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
         let rise = if panel_tab == tab { 18.0 * (1.0 - vis) } else { 0.0 };
         let r = rect.translate(vec2(0.0, rise));
         let mut rui = ui.new_child(egui::UiBuilder::new().max_rect(r));
-        rui.set_clip_rect(if inset.is_some() { ui.clip_rect() } else { content.intersect(ui.clip_rect()) });
+        let mut clip = if inset.is_some() { ui.clip_rect() } else { content.intersect(ui.clip_rect()) };
+        if stacked_portrait {
+            clip = clip.with_min_y(clip.min.y.max(right.top()));
+        }
+        rui.set_clip_rect(clip);
         rui.multiply_opacity(panel_vis * vis);
         match tab {
             NpTab::Lyrics => lyrics_panel(app, &mut rui, r, now, centered),
@@ -813,9 +828,52 @@ fn fullscreen_progress(app: &mut App, ui: &mut Ui, screen: Rect, px: f32) {
     }
 }
 
+/// Header and content rects inside `area`, shared by `behind_panel` and `body`.
+fn np_rects(area: Rect, fullscreen: bool) -> (Rect, Rect) {
+    let lift = if fullscreen { 0.0 } else { 20.0 - f32::from(super::titlebar::top_margin(20, 44.0)) };
+    let header = Rect::from_min_size(area.min - vec2(0.0, lift), vec2(area.width(), 44.0));
+    let content = Rect::from_min_max(pos2(area.left(), header.bottom() + 12.0), area.max);
+    (header, content)
+}
+
+/// Portrait monitor or tall snapped window with room to stack cover and panel.
+fn is_portrait(area: Rect) -> bool {
+    area.width() >= 260.0 && area.height() >= 520.0 && area.height() >= area.width()
+}
+
+/// Top cover column rect and artwork side for the stacked portrait layout.
+fn portrait_panel(look: &crate::preset::Preset, content: Rect, fullscreen: bool) -> (Rect, f32) {
+    let np = &look.now_playing;
+    let text_h = if !np.shows_info_card(fullscreen) && np.shows_title(fullscreen) {
+        let [title_px, artist_px] = np.fullscreen_text_px.filter(|_| fullscreen).unwrap_or([np.title_px, np.artist_px]);
+        match np.fullscreen_title_card.filter(|_| fullscreen).or(np.title_card) {
+            Some(c) => title_px * 1.4 + artist_px * 1.5 + (c.pad * 2.0).max(22.0) + if c.attached { 0.0 } else { 11.0 },
+            None => 22.0 + title_px * 1.4 + artist_px * 1.3,
+        }
+    } else {
+        0.0
+    };
+    let top_pad = (content.height() * 0.03).clamp(16.0, 48.0);
+    let max_h = (content.height() * 0.48 - top_pad - text_h - 16.0).max(100.0);
+    let cs = &look.cover;
+    let theme_max = cs.fullscreen.filter(|_| fullscreen).and_then(|f| f.max_px).or(if fullscreen && cs.fullscreen.is_some() { None } else { cs.max_px }).unwrap_or(f32::INFINITY);
+    let cap = (content.width() * 0.82).min(max_h).min(theme_max);
+    let desired = (content.width() * 0.76).min(max_h) * cs.size.clamp(0.65, 1.3);
+    let side = desired.min(cap).max(140.0_f32.min(cap));
+    let col = Rect::from_min_size(content.min + vec2(0.0, top_pad), vec2(content.width(), side + text_h));
+    (col, side)
+}
+
 /// Room for lyrics beside something else.
 fn content_wide(area: Rect) -> bool {
-    area.width() >= 860.0
+    area.width() >= 860.0 && !is_portrait(area)
+}
+
+/// Upper pixel bound imposed by the theme on the artwork size.
+fn art_max_px(cs: &crate::preset::CoverStyle, fullscreen: bool, window_w: f32) -> f32 {
+    let fs_max = cs.fullscreen.filter(|_| fullscreen).and_then(|f| f.max_px);
+    let stepped = cs.size_steps.iter().rev().find(|s| window_w >= s[0]).map(|s| s[1]);
+    fs_max.or(stepped).or(if fullscreen && cs.fullscreen.is_some() { None } else { cs.max_px }).unwrap_or(f32::INFINITY)
 }
 
 /// Size of the artwork laid out in `col`.
@@ -836,9 +894,7 @@ fn art_side(cs: &crate::preset::CoverStyle, col: Rect, fullscreen: bool, window_
         Some(f) => side.min(col.width() * f),
         None => side,
     };
-    // By the window's width, when it has steps.
-    let stepped = cs.size_steps.iter().rev().find(|s| window_w >= s[0]).map(|s| s[1]);
-    side.min(fs.max_px.or(stepped).or(if fullscreen && cs.fullscreen.is_some() { None } else { cs.max_px }).unwrap_or(f32::INFINITY))
+    side.min(art_max_px(cs, fullscreen, window_w))
 }
 
 /// The corner layout's cover and title.
@@ -1099,14 +1155,16 @@ fn cover_glyph(ui: &Ui, c: egui::Pos2, glyph: char, px: f32, key: &str, name: &s
 }
 
 /// Artwork with the title and artists under it, laid out in `col`. `px`: the size to
-/// fetch the image at (fixed while the column animates).
+/// fetch the image at (fixed while the column animates). `stacked`: `(side, glide)` for
+/// the stacked portrait layout.
 #[allow(clippy::too_many_arguments)]
-fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Track, no_lyrics: bool, now: f64, px: u32) {
+fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Track, no_lyrics: bool, now: f64, px: u32, stacked: Option<(f32, f32)>) {
     use crate::preset::Shape;
     let look = app.look();
     let cs = &look.cover;
     let np = &look.now_playing;
-    let side = art_side(cs, col, app.fullscreen, ui.ctx().content_rect().width());
+    let side = stacked.map_or_else(|| art_side(cs, col, app.fullscreen, ui.ctx().content_rect().width()), |(s, _)| s);
+    let free = 1.0 - stacked.map_or(0.0, |(_, g)| g);
     // Opening now playing, the cover grows into place.
     let opened = if cs.open_scale < 1.0 || cs.open_slide != 0.0 || cs.open_fade { theme::anim_bool_timed(ui.ctx(), "np-cover-open", app.np_open, cs.open_secs) } else { 1.0 };
     let mut opening = if cs.open_scale < 1.0 { egui::lerp(cs.open_scale..=1.0, opened) } else { 1.0 };
@@ -1130,10 +1188,10 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         }
     }
     let window_h = ui.ctx().content_rect().height();
-    let art = Rect::from_center_size(pos2(col.center().x, col.top() + side / 2.0 + (col.height() - side - 110.0).max(0.0) * 0.35), Vec2::splat(side)).translate(vec2(cs.offset_vh[0], cs.offset_vh[1]) * window_h + {
-        let [x, y] = fs.padding.unwrap_or(cs.padding);
-        vec2(x, y)
-    });
+    let [pad_x, pad_y] = fs.padding.unwrap_or(cs.padding);
+    let shift = (vec2(cs.offset_vh[0], cs.offset_vh[1]) * window_h + vec2(pad_x, pad_y)) * free;
+    let center_y = col.top() + side / 2.0 + (col.height() - side - 110.0).max(0.0) * 0.35 * free;
+    let art = Rect::from_center_size(pos2(col.center().x, center_y), Vec2::splat(side)).translate(shift);
     let art = Rect::from_center_size(art.center(), art.size() * opening).translate(vec2(cs.open_slide * side * (1.0 - opened), settling * window_h));
     if cs.open_fade {
         ui.multiply_opacity(opened.clamp(0.0, 1.0));
@@ -1433,7 +1491,7 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
     // Up next or Comments: beside the video, or under it when there's no room.
     let comments = app.np_tab == NpTab::Comments && app.show_comments;
     let side = app.np_tab == NpTab::UpNext || comments;
-    let queue_w = if side && content.width() > 900.0 { 360.0 } else { 0.0 };
+    let queue_w = if side && content.width() > 900.0 && !is_portrait(content) { 360.0 } else { 0.0 };
     let queue_h = if side && queue_w == 0.0 { content.height() * 0.45 } else { 0.0 };
     let stage = Rect::from_min_max(content.min, pos2(content.right() - queue_w, content.bottom() - queue_h));
     let (w, h) = frame.as_ref().map_or((16.0, 9.0), |t| (t.size()[0] as f32, t.size()[1] as f32));

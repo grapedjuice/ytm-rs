@@ -73,26 +73,14 @@ impl App {
     pub(super) fn add_to_playlist(&mut self, playlist_id: String, tracks: &[Track]) {
         // A duplicate can only be told from a playlist kept whole here (its page, or a
         // playlist it loaded fully before); otherwise the songs go in as they did.
-        let duplicates: Vec<String> = self
-            .lists
-            .get(&playlist_id)
-            .filter(|o| o.complete)
-            .map(|o| tracks.iter().filter(|t| o.c.tracks.iter().any(|s| s.id == t.id)).map(|t| t.title.clone()).collect())
-            .unwrap_or_default();
-        if duplicates.is_empty() {
+        let found = self.lists.get(&playlist_id).filter(|o| o.complete).map(|o| {
+            let duplicates: Vec<String> = tracks.iter().filter(|t| o.c.tracks.iter().any(|s| s.id == t.id)).map(|t| t.title.clone()).collect();
+            (o.c.title.clone(), duplicates)
+        });
+        let Some((playlist_title, duplicates)) = found.filter(|(_, d)| !d.is_empty()) else {
             self.add_to_playlist_confirmed(playlist_id, tracks);
             return;
-        }
-        let playlist_title = self
-            .lists
-            .get(&playlist_id)
-            .map(|o| o.c.title.clone())
-            .or_else(|| {
-                self.library
-                    .as_ref()
-                    .and_then(|l| l.playlists.iter().find(|c| matches!(&c.target, Target::Playlist(p) if *p == playlist_id)).map(|c| c.title.clone()))
-            })
-            .unwrap_or_default();
+        };
         self.dialog = Some(Dialog::ConfirmAddDuplicates { playlist_id, playlist_title, tracks: tracks.to_vec(), duplicates });
     }
 
@@ -183,7 +171,8 @@ impl App {
     }
 
     /// An album or playlist (or a playlist's first page) came in. Only the load under way
-    /// counts: one from before a sign-in change or a deletion is dropped.
+    /// counts: one that changed meanwhile is dropped, and one from before a sign-in change
+    /// or a deletion is dropped.
     pub(super) fn collection_in(&mut self, load: u64, c: Collection, more: bool) {
         let id = c.id.clone();
         let keep = self.keep_lists();

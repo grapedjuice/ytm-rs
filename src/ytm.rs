@@ -141,6 +141,9 @@ pub enum Filter {
     Artists,
     /// Playlists made by YouTube Music (not the community ones).
     Playlists,
+    /// Playlists made by YouTube Music's listeners, which the site keeps on their own
+    /// shelf.
+    Community,
     Videos,
     /// Podcast shows.
     Podcasts,
@@ -155,6 +158,7 @@ impl Filter {
             Filter::Albums => "EgWKAQIYAWoQEAMQBBAJEAoQBRAREBAQFQ%3D%3D",
             Filter::Artists => "EgWKAQIgAWoQEAMQBBAJEAoQBRAREBAQFQ%3D%3D",
             Filter::Playlists => "EgeKAQQoADgBahIQAxAEEAkQDhAKEAUQERAQEBU%3D",
+            Filter::Community => "EgeKAQQoAEABahIQAxAEEAkQDhAKEAUQERAQEBU%3D",
             Filter::Videos => "EgWKAQIQAWoQEAMQBBAJEAoQBRAREBAQFQ%3D%3D",
             Filter::Podcasts => "EgWKAQJQAWoQEAMQBBAJEAoQBRAREBAQFQ%3D%3D",
             Filter::Episodes => "EgWKAQJIAWoQEAMQBBAJEAoQBRAREBAQFQ%3D%3D",

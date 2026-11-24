@@ -220,6 +220,8 @@ pub struct SearchResults {
     pub albums: Vec<Card>,
     pub artists: Vec<Card>,
     pub playlists: Vec<Card>,
+    /// Playlists made by YouTube Music's listeners.
+    pub community: Vec<Card>,
     /// Podcast shows and episodes, when podcasts are shown.
     pub podcasts: Vec<Card>,
     pub episodes: Vec<Track>,
@@ -501,7 +503,7 @@ impl Resp {
 /// songs apart from videos, and the pages it found by kind.
 fn search_in(found: ytm::ScopedResults, query: String, scope: ytm::Scope) -> SearchResults {
     let (videos, tracks) = found.tracks.into_iter().partition(|t| t.video);
-    let mut r = SearchResults { query, scope, tracks, videos, albums: Vec::new(), artists: Vec::new(), playlists: Vec::new(), podcasts: Vec::new(), episodes: found.episodes };
+    let mut r = SearchResults { query, scope, tracks, videos, albums: Vec::new(), artists: Vec::new(), playlists: Vec::new(), community: Vec::new(), podcasts: Vec::new(), episodes: found.episodes };
     for c in found.cards {
         match &c.target {
             Target::Artist(_) => r.artists.push(c),
@@ -1476,12 +1478,13 @@ impl Backend {
             let (shows, episodes) = tokio::join!(ytm::search_cards(api, &query, ytm::Filter::Podcasts, me), ytm::search_episodes(api, &query, me));
             (shows.unwrap_or_default(), episodes.unwrap_or_default())
         };
-        let (t, v, al, ar, pl, (podcasts, episodes)) = tokio::join!(
+        let (t, v, al, ar, pl, cm, (podcasts, episodes)) = tokio::join!(
             ytm::search_songs(api, &query, me),
             ytm::search_videos(api, &query, me),
             ytm::search_cards(api, &query, ytm::Filter::Albums, me),
             ytm::search_cards(api, &query, ytm::Filter::Artists, me),
             ytm::search_cards(api, &query, ytm::Filter::Playlists, me),
+            ytm::search_cards(api, &query, ytm::Filter::Community, me),
             podcasts,
         );
         Ok(Resp::Search(SearchResults {
@@ -1490,6 +1493,8 @@ impl Backend {
             albums: al.unwrap_or_default(),
             artists: ar.unwrap_or_default(),
             playlists: pl.unwrap_or_default(),
+            // Only playlists, should the reply carry another kind of shelf too.
+            community: cm.unwrap_or_default().into_iter().filter(|c| matches!(c.target, Target::Playlist(_))).collect(),
             podcasts,
             episodes,
             query,

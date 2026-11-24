@@ -171,8 +171,7 @@ impl App {
     }
 
     /// An album or playlist (or a playlist's first page) came in. Only the load under way
-    /// counts: one that changed meanwhile is dropped, and one from before a sign-in change
-    /// or a deletion is dropped.
+    /// counts: one from before a sign-in change or a deletion is dropped.
     pub(super) fn collection_in(&mut self, load: u64, c: Collection, more: bool) {
         let id = c.id.clone();
         let keep = self.keep_lists();

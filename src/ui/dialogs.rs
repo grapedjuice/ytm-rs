@@ -51,6 +51,7 @@ impl App {
             let body = crate::tr!("dialog-delete-upload-body", title = title.as_str());
             match confirm(ctx, crate::tr!("dialog-delete-upload-title"), &body, crate::tr!("ui-delete"), crate::tr!("dialog-delete-upload")) {
                 Some(true) => {
+                    self.dialog = None;
                     self.backend.request(Req::DeleteUpload { entity, title });
                 }
                 Some(false) => self.dialog = None,

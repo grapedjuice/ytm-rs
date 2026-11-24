@@ -456,12 +456,12 @@ pub fn drag_area(ui: &Ui, rect: Rect, id: &str) {
     }
 }
 
-/// Whether a click on the strip `resp` maximizes or restores the window.
+/// Whether a click on the strip `resp` maximizes or restores the window: a finger's by
+/// [`double_tapped`] alone. egui counts taps as clicks too, so letting its double-click in
+/// as well would toggle the window back on a quick third tap.
 fn toggles(ui: &Ui, resp: &egui::Response) -> bool {
-    // The tap first, every time: a double tap egui also took as a double-click still
-    // starts over, or a quick third tap would count with the first and toggle it back.
-    let tapped = double_tapped(ui, resp);
-    tapped || resp.double_clicked()
+    let finger = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Touch { .. })));
+    if finger { double_tapped(ui, resp) } else { resp.double_clicked() }
 }
 
 /// A finger's double tap on `resp`. A finger lands less exactly than a mouse clicks, and
@@ -470,8 +470,7 @@ fn toggles(ui: &Ui, resp: &egui::Response) -> bool {
 fn double_tapped(ui: &Ui, resp: &egui::Response) -> bool {
     const DELAY: f64 = 0.4;
     const NEAR: f32 = 48.0;
-    let finger = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Touch { .. })));
-    let (Some(at), true) = (resp.interact_pointer_pos(), resp.clicked() && finger) else { return false };
+    let (Some(at), true) = (resp.interact_pointer_pos(), resp.clicked()) else { return false };
     let now = ui.input(|i| i.time);
     let id = resp.id.with("tap");
     let double = ui.data(|d| d.get_temp::<(f64, Pos2)>(id)).is_some_and(|(t, p)| now - t < DELAY && p.distance(at) < NEAR);
@@ -1117,11 +1116,12 @@ mod tap_tests {
         doubles
     }
 
-    /// A quick triple tap: egui takes the second as a double-click, and the third, close
-    /// enough to the first, mustn't toggle the window back.
+    /// A quick triple tap maximizes once, whichever pair of taps egui would take as a
+    /// double-click.
     #[test]
     fn a_quick_triple_tap_maximizes_once() {
         assert_eq!(toggles(true, &[(0.5, 0.0), (0.65, 0.0), (0.8, 0.0)]), 1);
+        assert_eq!(toggles(true, &[(0.5, 0.0), (0.85, 0.0), (1.0, 0.0)]), 1);
     }
 
     #[test]

@@ -443,8 +443,7 @@ pub fn drag_area(ui: &Ui, rect: Rect, id: &str) {
     if !shown(ui.ctx()) {
         return;
     }
-    let strip = drag_strip(ui, rect, id);
-    if strip.double_clicked() || double_tapped(ui, &strip) {
+    if toggles(ui, &drag_strip(ui, rect, id)) {
         let max = maximized(ui.ctx());
         // macOS: what System Settings › Desktop & Dock says a double-click on a title bar does.
         #[cfg(target_os = "macos")]
@@ -455,6 +454,14 @@ pub fn drag_area(ui: &Ui, rect: Rect, id: &str) {
         }
         ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(!max));
     }
+}
+
+/// Whether a click on the strip `resp` maximizes or restores the window.
+fn toggles(ui: &Ui, resp: &egui::Response) -> bool {
+    // The tap first, every time: a double tap egui also took as a double-click still
+    // starts over, or a quick third tap would count with the first and toggle it back.
+    let tapped = double_tapped(ui, resp);
+    tapped || resp.double_clicked()
 }
 
 /// A finger's double tap on `resp`. A finger lands less exactly than a mouse clicks, and
@@ -1076,6 +1083,14 @@ mod tap_tests {
     /// (as egui-winit sends a tap: the touch with the pointer's events) or the mouse:
     /// whether the second one maximizes, as `drag_area` decides.
     fn second_is_double(finger: bool, gap: f64, dx: f32) -> bool {
+        let doubles = toggles(finger, &[(0.5, 0.0), (0.5 + gap, dx)]);
+        assert!(doubles <= 1);
+        doubles == 1
+    }
+
+    /// Clicks on a title bar strip at (seconds, points right): how many times the window
+    /// would maximize or restore.
+    fn toggles(finger: bool, clicks: &[(f64, f32)]) -> usize {
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx, "", &[]);
         let click = |t: f64, p: Pos2, id: u64| {
@@ -1087,19 +1102,26 @@ mod tap_tests {
             }
         };
         let mut frames = vec![(0.0, vec![])];
-        frames.extend(click(0.5, pos2(300.0, 20.0), 1));
-        frames.extend(click(0.5 + gap, pos2(300.0 + dx, 20.0), 2));
+        for (n, &(t, dx)) in clicks.iter().enumerate() {
+            frames.extend(click(t, pos2(300.0 + dx, 20.0), n as u64 + 1));
+        }
         let mut doubles = 0;
         for (t, events) in frames {
             let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))), time: Some(t), events, ..Default::default() };
             let mut out = ctx.run_ui(raw, |ui| {
                 let strip = super::drag_strip(ui, Rect::from_min_size(Pos2::ZERO, vec2(800.0, 50.0)), "test");
-                doubles += usize::from(strip.double_clicked() || super::double_tapped(ui, &strip));
+                doubles += usize::from(super::toggles(ui, &strip));
             });
             out.textures_delta.clear();
         }
-        assert!(doubles <= 1);
-        doubles == 1
+        doubles
+    }
+
+    /// A quick triple tap: egui takes the second as a double-click, and the third, close
+    /// enough to the first, mustn't toggle the window back.
+    #[test]
+    fn a_quick_triple_tap_maximizes_once() {
+        assert_eq!(toggles(true, &[(0.5, 0.0), (0.65, 0.0), (0.8, 0.0)]), 1);
     }
 
     #[test]

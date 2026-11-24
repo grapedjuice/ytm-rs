@@ -15,7 +15,7 @@ settings-account = Аккаунт
 settings-general = Общие
 settings-keyboard-shortcuts = Сочетания клавиш
 settings-about = О приложении
-settings-no-match = По запросу "{ $query }" ничего не найдено
+settings-no-match = По запросу «{ $query }» ничего не найдено
 settings-title = Настройки
 settings-search-box = Поиск настроек
 settings-clear = Очистить
@@ -55,27 +55,27 @@ settings-hide-explicit-songs-desc = Убирает треки с пометко�
 settings-show-podcasts = Показывать подкасты
 settings-show-podcasts-desc = Добавляет фильтр подкастов на главную, показывает передачи и выпуски в поиске, а сохранённые подкасты — в медиатеке.
 settings-show-comments = Показывать комментарии
-settings-show-comments-desc = Добавляет вкладку Комментарии на экран воспроизведения рядом с очередью и текстом. Можно читать популярные и новые комментарии с ответами. Войдите, чтобы писать, отвечать и ставить лайки.
+settings-show-comments-desc = Добавляет вкладку «Комментарии» на экран воспроизведения рядом с очередью и текстом. Можно читать популярные и новые комментарии с ответами. Войдите, чтобы писать, отвечать и ставить лайки.
 settings-use-youtubes-restricted-mode = Включить безопасный режим YouTube
 settings-use-youtubes-restricted-mode-desc = YouTube дополнительно скрывает материалы, которые считает предназначенными для взрослых. Применяется к страницам, загруженным после включения.
 
 ## Song ratings
 
 settings-song-ratings = Оценки треков
-settings-ratings-player-button = Кнопка Не нравится в плеере
+settings-ratings-player-button = Кнопка «Не нравится» в плеере
 settings-ratings-player-button-desc = Показывает кнопку с большим пальцем вниз рядом с сердцем.
 settings-ratings-list-icons = Значки оценок в списках
-settings-ratings-list-icons-desc = Показывает оценки рядом с длительностью. Наведите курсор на трек без оценки, чтобы увидеть кнопку Нравится.
-settings-ratings-dim-disliked = Приглушать треки с отметкой Не нравится
-settings-ratings-dim-disliked-desc = Показывает треки с отметкой Не нравится в списках приглушённым цветом.
-settings-ratings-skip-disliked = Пропускать трек при отметке Не нравится
+settings-ratings-list-icons-desc = Показывает оценки рядом с длительностью. Наведите курсор на трек без оценки, чтобы увидеть кнопку «Нравится».
+settings-ratings-dim-disliked = Приглушать треки с отметкой «Не нравится»
+settings-ratings-dim-disliked-desc = Показывает треки с отметкой «Не нравится» в списках приглушённым цветом.
+settings-ratings-skip-disliked = Пропускать трек при отметке «Не нравится»
 settings-ratings-skip-disliked-desc = Переходит дальше после подтверждения от YouTube Music. При совместном прослушивании гости следуют воспроизведению ведущего.
-settings-ratings-dislike-notices = Уведомления об отметках Не нравится
-settings-ratings-dislike-notices-desc = Показывает уведомление при добавлении или снятии отметки Не нравится.
-settings-ratings-unlike-notices = Уведомления о снятии отметки Нравится
-settings-ratings-unlike-notices-desc = Показывает кнопку Отменить, прежде чем отправить изменение в YouTube Music.
+settings-ratings-dislike-notices = Уведомления об отметках «Не нравится»
+settings-ratings-dislike-notices-desc = Показывает уведомление при добавлении или снятии отметки «Не нравится».
+settings-ratings-unlike-notices = Уведомления о снятии отметки «Нравится»
+settings-ratings-unlike-notices-desc = Показывает кнопку «Отменить», прежде чем отправить изменение в YouTube Music.
 settings-ratings-safe-likes = Защита от случайного снятия лайка
-settings-ratings-safe-likes-desc = Чтобы снять лайк, удерживайте кнопку Нравится.
+settings-ratings-safe-likes-desc = Чтобы снять лайк, удерживайте кнопку «Нравится».
 settings-ratings-hold-to-remove = Удерживайте, чтобы снять лайк
 
 ## Sound
@@ -132,7 +132,7 @@ settings-music-videos = Музыкальные клипы
 settings-songs-not-videos = Предпочитать аудиоверсии клипам
 settings-songs-not-videos-desc = Если в YouTube Music есть альбомная версия, она играет вместо официального клипа без его заставок, диалогов и специальных монтажных вставок. Содержимое списков сохраняется.
 settings-show-music-videos = Показывать музыкальные клипы
-settings-show-music-videos-desc = Клипы показываются в движении со своим звуком и без текста песни. Если выключить показ и выбрать приоритет аудиоверсий, переключатель Трек / Видео останется на экране воспроизведения только у клипов.
+settings-show-music-videos-desc = Клипы показываются в движении со своим звуком и без текста песни. Если выключить показ и выбрать приоритет аудиоверсий, переключатель «Трек / Видео» останется на экране воспроизведения только у клипов.
 settings-video-quality = Качество видео
 settings-video-quality-desc = Клипы воспроизводятся в этом или ближайшем доступном разрешении ниже него. 1080p требует примерно втрое больше ресурсов, чем 720p, и может перегружать медленные компьютеры.
 settings-ambient-light = Фоновая подсветка
@@ -212,20 +212,20 @@ settings-background-speed-desc = Как быстро плывёт фон в те
 settings-faster = Быстрее
 settings-slower = Медленнее
 settings-background-brightness = Яркость фона
-settings-background-brightness-desc = Делает обложку за Сейчас играет и страницами светлее или темнее. 100 % — как в теме.
+settings-background-brightness-desc = Делает обложку за «Сейчас играет» и страницами светлее или темнее. 100 % — как в теме.
 settings-brighter = Светлее
 settings-darker = Темнее
 settings-flat-background = Плоский фон
-settings-flat-background-desc = Один цвет за страницами и экраном Сейчас играет, без обложки и без градиента.
+settings-flat-background-desc = Один цвет за страницами и экраном «Сейчас играет», без обложки и без градиента.
 settings-flat-background-colour = Цвет фона
 settings-frosted-glass = Матовое стекло
 settings-frosted-glass-desc = В подходящих темах меню и плавающие панели размывают фон под собой. Без эффекта они чуть менее прозрачны.
 settings-classic-title-bar = Классическая строка заголовка
-settings-classic-title-bar-desc = Кнопки окна как до 2.0.2: квадратные в правом верхнем углу, а не в вырезе. Кнопки Сейчас играет и кнопка аккаунта снова рядом с ними.
+settings-classic-title-bar-desc = Кнопки окна как до 2.0.2: квадратные в правом верхнем углу, а не в вырезе. Кнопки «Сейчас играет» и кнопка аккаунта снова рядом с ними.
 settings-pulse-with-the-music = Пульсация в такт музыке
 settings-pulse-with-the-music-desc = В темах с анимированным фоном он увеличивается в такт музыке.
 settings-visualizer = Визуализатор
-settings-visualizer-desc = Полоски внизу экрана Сейчас играет двигаются в такт, цветом акцента.
+settings-visualizer-desc = Полоски внизу экрана «Сейчас играет» двигаются в такт, цветом акцента.
 settings-dim-bright-covers = Затемнять светлые обложки
 settings-dim-bright-covers-desc = Затемняет фон светлых обложек, чтобы тексты и названия хорошо читались. Яркость тёмных обложек сохраняется.
 settings-font = Шрифт
@@ -258,7 +258,7 @@ settings-keep-on-top-wayland-restart-desc = Окно изменится при �
 ## App icon
 
 settings-app-icon-note-linux = Меняет значок в меню приложений, окне и области уведомлений.
-settings-app-icon-note = Меняет значок в окне, на панели задач, в области уведомлений и меню Пуск.
+settings-app-icon-note = Меняет значок в окне, на панели задач, в области уведомлений и меню «Пуск».
 settings-app-icon = Значок приложения
 settings-preview = Предпросмотр
 settings-preview-desc = Как значок выглядит на панели задач и в области уведомлений.
@@ -307,7 +307,7 @@ settings-close-to-tray-desc-linux = Оставляет значок в обла�
 settings-close-to-tray-desc = Оставляет значок в области уведомлений. Кнопка × скрывает окно, музыка продолжает играть. Щёлкните по значку, чтобы вернуть окно, или щёлкните правой кнопкой, чтобы скрыть, показать окно или выйти.
 settings-close-to-tray = Сворачивать в область уведомлений
 settings-song-notifications-desc = Показывает название, исполнителя и обложку нового трека, если окно свёрнуто, скрыто в области уведомлений или перекрыто другими окнами.
-settings-song-notifications-unavailable = Нужна установленная версия. Windows показывает уведомления только от приложений из меню Пуск.
+settings-song-notifications-unavailable = Нужна установленная версия. Windows показывает уведомления только от приложений из меню «Пуск».
 settings-song-notifications = Уведомления о треках
 settings-close-to-tray-restart-desc = В Wayland скрытие и возврат окна через область уведомлений заработают после перезапуска. До этого кнопка × сворачивает окно.
 settings-title-bar = Строка заголовка
@@ -415,10 +415,10 @@ settings-update-ready = Версия { $version } готова. Она уста�
 settings-update-available = Доступна версия { $version }. { $step }
 settings-update-failed = Не удалось проверить обновления: { $error }
 settings-update-rate-limited = { $minutes ->
- [one] GitHub ограничивает проверку обновлений из вашей сети. Попробуйте снова через { $minutes } минуту.
- [few] GitHub ограничивает проверку обновлений из вашей сети. Попробуйте снова через { $minutes } минуты.
- [many] GitHub ограничивает проверку обновлений из вашей сети. Попробуйте снова через { $minutes } минут.
- *[other] GitHub ограничивает проверку обновлений из вашей сети. Попробуйте снова через { $minutes } минуты.
+    [one] GitHub ограничивает проверку обновлений из вашей сети. Попробуйте снова через { $minutes } минуту.
+    [few] GitHub ограничивает проверку обновлений из вашей сети. Попробуйте снова через { $minutes } минуты.
+    [many] GitHub ограничивает проверку обновлений из вашей сети. Попробуйте снова через { $minutes } минут.
+   *[other] GitHub ограничивает проверку обновлений из вашей сети. Попробуйте снова через { $minutes } минуты.
 }
 settings-version = Версия { $version }.
 settings-automatic-updates-desc-packaged = Проверяет наличие новых версий и сообщает об их выходе.
@@ -447,9 +447,9 @@ settings-fonts-and-icons = Шрифты и значки
 settings-about-fonts-credit = Inter, DM Sans, Google Sans Flex, Figtree, Instrument Sans (SIL OFL 1.1) • Lucide (ISC)
 # { $shown } is { $count } written with its thousands separators.
 settings-downloads-and-counting = { $count ->
- [one] Уже { $shown } скачивание
- [few] Уже { $shown } скачивания
- [many] Уже { $shown } скачиваний
- *[other] Уже { $shown } скачивания
+    [one] Уже { $shown } скачивание
+    [few] Уже { $shown } скачивания
+    [many] Уже { $shown } скачиваний
+   *[other] Уже { $shown } скачивания
 }
 settings-counting-downloads = Подсчёт загрузок…

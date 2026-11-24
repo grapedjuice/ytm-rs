@@ -49,4 +49,4 @@ palette-pages = Страницы
 palette-actions = Действия
 palette-title = Палитра команд
 palette-search = Поиск страниц, настроек, плейлистов и действий
-palette-search-for = Искать “{ $query }”
+palette-search-for = Искать «{ $query }»

@@ -2,10 +2,10 @@
 
 # After unliking several songs at once; Undo sits beside it.
 likes-removed = { $count ->
- [one] Знято { $count } вподобайку
- [few] Знято { $count } вподобайки
- [many] Знято { $count } вподобайок
- *[other] Знято { $count } вподобайки
+    [one] Знято { $count } вподобайку
+    [few] Знято { $count } вподобайки
+    [many] Знято { $count } вподобайок
+   *[other] Знято { $count } вподобайки
 }
 
 # An AirPlay speaker picked as the output device wouldn't play; the music stays on this
@@ -14,7 +14,7 @@ airplay-couldnt-play = Не вдалося відтворити на { $name }: 
 airplay-unreachable = до нього не вдалося достукатися
 airplay-busy = він зайнятий відтворенням з іншого пристрою
 airplay-needs-pairing = він просить пароль або з’єднання, а це ще не підтримується
-airplay-pairing-refused = він відмовився з’єднуватися (на Apple TV у Параметри › AirPlay і HomeKit › Дозволити доступ має бути Будь-хто в тій самій мережі)
+airplay-pairing-refused = він відмовився з’єднуватися (на Apple TV у Параметри › AirPlay і HomeKit › Дозволити доступ має бути «Будь-хто в тій самій мережі»)
 airplay-no-clock = він не надіслав свій годинник (брандмауер може блокувати UDP-порти 319 і 320)
 airplay-clock-ports = його годинник іде через UDP-порти 319 і 320, які зайняті іншим застосунком (іншим застосунком AirPlay або службою PTP)
 # "sysctl …" and "CAP_NET_BIND_SERVICE" are a command and a Linux name: keep them as they are.
@@ -48,10 +48,10 @@ recognize-device-changed = Вивід звуку змінився. Спробу�
 recognize-offline = Не вдалося зв’язатися з Shazam. Перевірте з’єднання.
 recognize-no-answer = Shazam не відповів. Спробуйте за мить.
 recognize-rate-limited = { $secs ->
- [one] Shazam потрібна перерва. Спробуйте за { $secs } секунду.
- [few] Shazam потрібна перерва. Спробуйте за { $secs } секунди.
- [many] Shazam потрібна перерва. Спробуйте за { $secs } секунд.
- *[other] Shazam потрібна перерва. Спробуйте за { $secs } секунди.
+    [one] Shazam потрібна перерва. Спробуйте за { $secs } секунду.
+    [few] Shazam потрібна перерва. Спробуйте за { $secs } секунди.
+    [many] Shazam потрібна перерва. Спробуйте за { $secs } секунд.
+   *[other] Shazam потрібна перерва. Спробуйте за { $secs } секунди.
 }
 # Buttons on the card.
 recognize-playing = Зараз грає

@@ -15,7 +15,7 @@ settings-account = Conta
 settings-general = Geral
 settings-keyboard-shortcuts = Atalhos de teclado
 settings-about = Sobre
-settings-no-match = Nenhuma definição corresponde a "{ $query }"
+settings-no-match = Nenhuma definição corresponde a «{ $query }»
 settings-title = Definições
 settings-search-box = Pesquisar definições
 settings-clear = Limpar
@@ -62,21 +62,21 @@ settings-use-youtubes-restricted-mode-desc = Mais rigoroso: o YouTube também de
 ## Song ratings
 
 settings-song-ratings = Avaliações de músicas
-settings-ratings-player-button = Botão Não gosto no leitor
+settings-ratings-player-button = Botão «Não gosto» no leitor
 settings-ratings-player-button-desc = Mostra o botão de polegar para baixo ao lado do coração.
 settings-ratings-list-icons = Ícones de avaliação nas listas
 settings-ratings-list-icons-desc = Mostra as avaliações ao lado da duração. Passe o rato sobre uma música sem avaliação para revelar o botão Gosto.
-settings-ratings-dim-disliked = Atenuar músicas com Não gosto
-settings-ratings-dim-disliked-desc = Mostra as músicas com Não gosto em cores suaves nas listas.
-settings-ratings-skip-disliked = Não gosto salta para a seguinte
-settings-ratings-skip-disliked-desc = Avança depois que o YouTube Music confirma o Não gosto. Convidados em Ouvir juntos seguem a reprodução do anfitrião.
-settings-ratings-dislike-notices = Notificações de Não gosto
-settings-ratings-dislike-notices-desc = Mostra uma mensagem quando um Não gosto é guardado ou removido.
-settings-ratings-unlike-notices = Notificações ao remover Gosto
+settings-ratings-dim-disliked = Atenuar músicas com «Não gosto»
+settings-ratings-dim-disliked-desc = Mostra as músicas com «Não gosto» em cores suaves nas listas.
+settings-ratings-skip-disliked = «Não gosto» salta para a seguinte
+settings-ratings-skip-disliked-desc = Avança depois que o YouTube Music confirma o «Não gosto». Convidados em Ouvir juntos seguem a reprodução do anfitrião.
+settings-ratings-dislike-notices = Notificações de «Não gosto»
+settings-ratings-dislike-notices-desc = Mostra uma mensagem quando um «Não gosto» é guardado ou removido.
+settings-ratings-unlike-notices = Notificações ao remover «Gosto»
 settings-ratings-unlike-notices-desc = Mostra um botão Desfazer antes de enviar a remoção ao YouTube Music.
-settings-ratings-safe-likes = Gosto protegido
-settings-ratings-safe-likes-desc = Segure o botão Gosto para remover um Gosto.
-settings-ratings-hold-to-remove = Segure para remover o Gosto
+settings-ratings-safe-likes = «Gosto» protegido
+settings-ratings-safe-likes-desc = Segure o botão Gosto para remover um «Gosto».
+settings-ratings-hold-to-remove = Segure para remover o «Gosto»
 
 ## Sound
 

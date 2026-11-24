@@ -2,8 +2,8 @@
 
 # After unliking several songs at once; Undo sits beside it.
 likes-removed = { $count ->
- [one] { $count } mention J’aime retirée
- *[other] { $count } mentions J’aime retirées
+    [one] { $count } mention « J’aime » retirée
+   *[other] { $count } mentions « J’aime » retirées
 }
 
 # An AirPlay speaker picked as the output device wouldn't play; the music stays on this
@@ -46,8 +46,8 @@ recognize-device-changed = La sortie son a changé. Réessayez.
 recognize-offline = Shazam est injoignable. Vérifiez votre connexion.
 recognize-no-answer = Shazam n’a pas répondu. Réessayez dans un instant.
 recognize-rate-limited = { $secs ->
- [one] Shazam a besoin d’une pause. Réessayez dans { $secs } seconde.
- *[other] Shazam a besoin d’une pause. Réessayez dans { $secs } secondes.
+    [one] Shazam a besoin d’une pause. Réessayez dans { $secs } seconde.
+   *[other] Shazam a besoin d’une pause. Réessayez dans { $secs } secondes.
 }
 # Buttons on the card.
 recognize-playing = Lecture en cours

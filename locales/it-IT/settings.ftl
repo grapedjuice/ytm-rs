@@ -15,19 +15,19 @@ settings-account = Account
 settings-general = Generali
 settings-keyboard-shortcuts = Scorciatoie da tastiera
 settings-about = Informazioni
-settings-no-match = Nessuna impostazione corrisponde a "{ $query }"
+settings-no-match = Nessuna impostazione corrisponde a «{ $query }»
 settings-title = Impostazioni
 settings-search-box = Cerca impostazioni
 settings-clear = Cancella
 
 ## Account
 
-settings-signed-in-desc = Hai effettuato l’accesso con Google. Il feed della home, la raccolta e i Mi piace provengono da questo account. I dati di accesso sono cifrati in Gestione credenziali di Windows.
+settings-signed-in-desc = Hai effettuato l’accesso con Google. Il feed della home, la raccolta e i «Mi piace» provengono da questo account. I dati di accesso sono cifrati in Gestione credenziali di Windows.
 settings-sign-out = Esci
 settings-channel = Canale
-settings-channel-desc = Il tuo account Google e ogni canale YouTube che gestisce hanno raccolta, Mi piace, cronologia e suggerimenti propri.
+settings-channel-desc = Il tuo account Google e ogni canale YouTube che gestisce hanno raccolta, «Mi piace», cronologia e suggerimenti propri.
 settings-not-signed-in = Accesso non eseguito
-settings-not-signed-in-desc = Accedi per ritrovare il feed della home, la raccolta e i Mi piace.
+settings-not-signed-in-desc = Accedi per ritrovare il feed della home, la raccolta e i «Mi piace».
 settings-sign-in-with-google = Accedi con Google
 settings-sign-in-finish = Completa l’accesso nella finestra che si è aperta.
 settings-no-channel = { $name } (nessun canale)
@@ -55,28 +55,28 @@ settings-hide-explicit-songs-desc = Esclude i brani contrassegnati con E da elen
 settings-show-podcasts = Mostra i podcast
 settings-show-podcasts-desc = Mostra programmi ed episodi nella ricerca, aggiunge il filtro Podcast alla home e mostra quelli salvati nella raccolta.
 settings-show-comments = Mostra i commenti
-settings-show-comments-desc = Aggiunge la scheda Commenti accanto a In coda e Testi in In riproduzione. Puoi leggere i commenti principali o recenti e le risposte. Accedi per commentare, rispondere e mettere Mi piace.
+settings-show-comments-desc = Aggiunge la scheda Commenti accanto a In coda e Testi in In riproduzione. Puoi leggere i commenti principali o recenti e le risposte. Accedi per commentare, rispondere e mettere «Mi piace».
 settings-use-youtubes-restricted-mode = Usa la Modalità con restrizioni di YouTube
 settings-use-youtubes-restricted-mode-desc = YouTube esclude anche gli altri contenuti che considera per un pubblico adulto. Si applica alle pagine caricate da questo momento.
 
 ## Song ratings
 
 settings-song-ratings = Valutazioni dei brani
-settings-ratings-player-button = Pulsante Non mi piace nel lettore
+settings-ratings-player-button = Pulsante «Non mi piace» nel lettore
 settings-ratings-player-button-desc = Mostra il pollice verso il basso accanto al cuore.
 settings-ratings-list-icons = Icone di valutazione negli elenchi
-settings-ratings-list-icons-desc = Mostra le valutazioni accanto alla durata. Passa il puntatore su un brano senza voto per mostrare Mi piace.
-settings-ratings-dim-disliked = Attenua i brani contrassegnati con Non mi piace
-settings-ratings-dim-disliked-desc = Mostra negli elenchi i brani con Non mi piace in colori attenuati.
-settings-ratings-skip-disliked = Salta il brano dopo Non mi piace
+settings-ratings-list-icons-desc = Mostra le valutazioni accanto alla durata. Passa il puntatore su un brano senza voto per mostrare «Mi piace».
+settings-ratings-dim-disliked = Attenua i brani contrassegnati con «Non mi piace»
+settings-ratings-dim-disliked-desc = Mostra negli elenchi i brani con «Non mi piace» in colori attenuati.
+settings-ratings-skip-disliked = Salta il brano dopo «Non mi piace»
 settings-ratings-skip-disliked-desc = Passa al brano successivo quando YouTube Music conferma il voto. In Ascolta insieme, gli ospiti seguono la riproduzione di chi ospita.
-settings-ratings-dislike-notices = Notifiche per Non mi piace
-settings-ratings-dislike-notices-desc = Mostra un avviso quando aggiungi o rimuovi un Non mi piace.
-settings-ratings-unlike-notices = Notifiche di rimozione dei Mi piace
+settings-ratings-dislike-notices = Notifiche per «Non mi piace»
+settings-ratings-dislike-notices-desc = Mostra un avviso quando aggiungi o rimuovi un «Non mi piace».
+settings-ratings-unlike-notices = Notifiche di rimozione dei «Mi piace»
 settings-ratings-unlike-notices-desc = Mostra il pulsante Annulla prima di inviare la rimozione a YouTube Music.
-settings-ratings-safe-likes = Proteggi i Mi piace
-settings-ratings-safe-likes-desc = Tieni premuto il pulsante Mi piace per rimuoverlo.
-settings-ratings-hold-to-remove = Tieni premuto per rimuovere il Mi piace
+settings-ratings-safe-likes = Proteggi i «Mi piace»
+settings-ratings-safe-likes-desc = Tieni premuto il pulsante «Mi piace» per rimuoverlo.
+settings-ratings-hold-to-remove = Tieni premuto per rimuovere il «Mi piace»
 
 ## Sound
 
@@ -415,8 +415,8 @@ settings-update-ready = La versione { $version } è pronta. Verrà installata al
 settings-update-available = È disponibile la versione { $version }. { $step }
 settings-update-failed = Impossibile verificare la disponibilità di aggiornamenti: { $error }
 settings-update-rate-limited = { $minutes ->
- [one] GitHub sta limitando i controlli degli aggiornamenti dalla tua rete. Riprova tra { $minutes } minuto.
- *[other] GitHub sta limitando i controlli degli aggiornamenti dalla tua rete. Riprova tra { $minutes } minuti.
+    [one] GitHub sta limitando i controlli degli aggiornamenti dalla tua rete. Riprova tra { $minutes } minuto.
+   *[other] GitHub sta limitando i controlli degli aggiornamenti dalla tua rete. Riprova tra { $minutes } minuti.
 }
 settings-version = Versione { $version }.
 settings-automatic-updates-desc-packaged = Cerca nuove versioni e ti avvisa quando ne viene pubblicata una.

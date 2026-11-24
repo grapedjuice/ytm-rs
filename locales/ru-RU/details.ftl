@@ -2,8 +2,8 @@
 
 ui-podcast = Подкаст
 ui-unpin-window = Убрать закрепление поверх окон
-ui-scroll-right = Прокрутить { $title } вправо
-ui-scroll-left = Прокрутить { $title } влево
+ui-scroll-right = Прокрутить «{ $title }» вправо
+ui-scroll-left = Прокрутить «{ $title }» влево
 nav-listen-again = Послушать снова
 nav-quick-picks = Быстрый выбор
 nav-mood-genres = Настроения и жанры
@@ -15,7 +15,7 @@ login-spotify-failed = Ошибка окна входа в Spotify: { $error }
 backend-error = Ошибка ({ $operation }): { $error }
 backend-unexpected-reply = Неожиданный ответ от YouTube
 backend-session-expired = Сеанс YouTube истёк. Войдите снова, чтобы открыть медиатеку.
-backend-empty-download = В “{ $title }” нет треков для скачивания
+backend-empty-download = В «{ $title }» нет треков для скачивания
 backend-rating = Оценка трека
 backend-channel-switch = Смена канала
 backend-move-playlist = Перемещение в плейлисте

@@ -1828,6 +1828,12 @@ impl EventProcessor {
     {
         let wt = Self::window_target(&self.target);
         wt.xconn.reload_database().expect("failed to reload Xft database");
+        // ytm-rs (#326): cursors at the size the settings say, the shown ones too.
+        if wt.xconn.refresh_cursor_size() {
+            for window in wt.windows.borrow().iter().filter_map(|(_, w)| w.upgrade()) {
+                window.reload_cursor();
+            }
+        }
 
         // In the future, it would be quite easy to emit monitor hotplug events.
         let prev_list = {

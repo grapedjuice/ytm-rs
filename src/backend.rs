@@ -1223,16 +1223,20 @@ impl Backend {
                 Req::Art { key, url } => {
                     // The backdrop is a 64 px blur; fetch near that, not the 544 px art.
                     let url = model::sized(&url, 2 * crate::art::SIZE);
-                    let fetched = async { anyhow::Ok(self.http().get(&url).send().await?.error_for_status()?.bytes().await?.to_vec()) }.await;
-                    let bytes = match fetched {
-                        Ok(b) => b,
-                        // Offline, a downloaded song still has its cover, in its file.
+                    let fetched = async {
+                        let bytes = self.http().get(&url).send().await?.error_for_status()?.bytes().await?;
+                        tokio::task::spawn_blocking(move || crate::art::process(&bytes)).await?
+                    };
+                    let art = match fetched.await {
+                        Ok(art) => art,
+                        // Offline, or what came wasn't an image: a downloaded song still has
+                        // its cover, in its file.
                         Err(e) => {
                             let id = key.clone();
-                            tokio::task::spawn_blocking(move || crate::downloads::cover(&id)).await?.ok_or(e)?
+                            let saved = tokio::task::spawn_blocking(move || crate::downloads::cover(&id)).await?.ok_or(e)?;
+                            tokio::task::spawn_blocking(move || crate::art::process(&saved)).await??
                         }
                     };
-                    let art = tokio::task::spawn_blocking(move || crate::art::process(&bytes)).await??;
                     Resp::Art { key, art }
                 }
                 Req::Radio { seed, song_of, smart } => {

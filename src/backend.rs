@@ -79,8 +79,9 @@ pub enum Req {
     ArtistPicture { id: String, name: String },
     /// Romanization and translation for the lyric lines of one source.
     LyricsExtras { video_id: String, source: String, lines: Vec<String>, lang: Option<String>, target: String },
-    /// Process cover art for the background; `key` is echoed back.
-    Art { key: String, url: String },
+    /// Process cover art for the background; `key` is echoed back. `None`: the song has
+    /// no cover (answered at once, with none).
+    Art { key: String, url: Option<String> },
     /// Radio seeded from a track (`seed`, its id); appended to the queue. `song_of`: the
     /// track, when it's a music video to play as its song: the song's radio is asked for.
     Radio { seed: String, song_of: Option<Track>, smart: bool },
@@ -421,7 +422,9 @@ pub enum Resp {
     ArtistPicture { id: String, pic: Option<crate::discord::Badge> },
     /// Romanization/translation for one source's lines, arriving after them.
     LyricsExtras { video_id: String, source: String, target: String, extras: crate::translate::Extras },
-    Art { key: String, art: Art },
+    /// `None`: there's no cover to take colours from (the song has none, or it couldn't
+    /// be fetched).
+    Art { key: String, art: Option<Art> },
     Radio { seed: String, tracks: Vec<Track>, smart: bool },
     /// A comments response (`Req::Comments`, `CommentsPage` or `CommentAction`) by its tag;
     /// `None`: it failed.
@@ -1221,10 +1224,19 @@ impl Backend {
                     Resp::LyricsExtras { video_id, source, target, extras }
                 }
                 Req::Art { key, url } => {
-                    // The backdrop is a 64 px blur; fetch near that, not the 544 px art.
-                    let url = model::sized(&url, 2 * crate::art::SIZE);
-                    let bytes = self.http().get(&url).send().await?.error_for_status()?.bytes().await?;
-                    let art = tokio::task::spawn_blocking(move || crate::art::process(&bytes)).await??;
+                    let fetched = async {
+                        let Some(url) = url else { return Ok(None) };
+                        // The backdrop is a 64 px blur; fetch near that, not the 544 px art.
+                        let url = model::sized(&url, 2 * crate::art::SIZE);
+                        let bytes = self.http().get(&url).send().await?.error_for_status()?.bytes().await?;
+                        anyhow::Ok(Some(tokio::task::spawn_blocking(move || crate::art::process(&bytes)).await??))
+                    };
+                    // Failed, it's answered all the same: without an answer the colours
+                    // would stay the song before's.
+                    let art = fetched.await.unwrap_or_else(|e| {
+                        log::warn!("{what} failed: {e:#}");
+                        None
+                    });
                     Resp::Art { key, art }
                 }
                 Req::Radio { seed, song_of, smart } => {

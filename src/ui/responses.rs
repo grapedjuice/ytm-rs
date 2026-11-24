@@ -366,7 +366,9 @@ impl App {
                     self.lyrics_extras = Some((video_id, source, target, extras));
                 }
             }
-            Resp::Art { key, mut art } => {
+            Resp::Art { key, art } => {
+                // No cover: the idle backdrop's colours, not the song before's (#356).
+                let mut art = art.unwrap_or_else(crate::art::idle);
                 if self.current_id() == Some(key.as_str()) {
                     crate::art::soften(&mut art, self.look().background.blur_passes.saturating_sub(6));
                     self.track_art = Some(art);

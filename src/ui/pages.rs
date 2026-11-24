@@ -3487,7 +3487,7 @@ pub(super) fn output_device_menu(app: &mut App, btn: &egui::Response, popup: egu
     // Listed when opened, so a device that just connected shows up. Only then: the player
     // bar draws this every frame, and listing asks the system each time.
     if btn.clicked() {
-        app.output_devices = crate::audio::output_devices();
+        app.output_devices = crate::audio::output_devices(app.output_device.as_ref().map(|(id, _)| id.as_str()));
         crate::airplay::discover();
     }
     let mut pick: Option<Option<(String, String)>> = None;

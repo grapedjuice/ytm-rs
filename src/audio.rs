@@ -1051,10 +1051,11 @@ pub struct OutputDevice {
     pub name: String,
 }
 
-/// The connected output devices, by the names Windows' sound settings show.
-pub fn output_devices() -> Vec<OutputDevice> {
+/// The connected output devices, by the names Windows' sound settings show. `picked`, the
+/// one picked in settings, is listed even where it'd be left out (see `offered`).
+pub fn output_devices(picked: Option<&str>) -> Vec<OutputDevice> {
     let Ok(all) = rodio::cpal::default_host().output_devices() else { return Vec::new() };
-    let mut out: Vec<OutputDevice> = all
+    let all = all
         .filter_map(|d| {
             let id = d.id().ok()?.to_string();
             let desc = d.description().ok()?;
@@ -1063,8 +1064,58 @@ pub fn output_devices() -> Vec<OutputDevice> {
             Some(OutputDevice { id, name })
         })
         .collect();
+    offered(all, picked)
+}
+
+/// What of `all` to offer, by name. Linux's ALSA lists each output many ways (#337): its
+/// card's default, front, the surround layouts, S/PDIF, plughw and hw, all under the
+/// output's one name; and plugins that aren't outputs at all. Each output is offered
+/// once, the way that plays best, and plugins and sound servers not at all: they play on
+/// the system's default output, which settings offer already.
+fn offered(all: Vec<OutputDevice>, picked: Option<&str>) -> Vec<OutputDevice> {
+    // Ranked, the picked one first of all: what's picked is shown as listed.
+    let mut out: Vec<(u8, OutputDevice)> = Vec::new();
+    for d in all {
+        let rank = match alsa_rank(&d.id) {
+            _ if picked == Some(d.id.as_str()) => 0,
+            Some(rank) => rank + 1,
+            None => continue,
+        };
+        // Only ALSA lists one output several ways. Elsewhere, two with one name (two of the
+        // same headset on a Mac) are two outputs.
+        let alsa = d.id.starts_with("alsa:");
+        match out.iter_mut().find(|(_, o)| alsa && o.name == d.name) {
+            Some(best) if rank < best.0 => *best = (rank, d),
+            Some(_) => {}
+            None => out.push((rank, d)),
+        }
+    }
+    let mut out: Vec<OutputDevice> = out.into_iter().map(|(_, d)| d).collect();
     out.sort_by_key(|a| a.name.to_lowercase());
     out
+}
+
+/// How well an output listed by ALSA (`alsa:<pcm>`) plays, lower better; `None`: not offered.
+/// Other systems' outputs are each offered as they are.
+fn alsa_rank(id: &str) -> Option<u8> {
+    let Some(pcm) = id.strip_prefix("alsa:") else { return Some(0) };
+    // A card's outputs name it ("front:CARD=PCH,DEV=0"); the rest are plugins, or sound
+    // servers on the default output (default, pipewire, pulse).
+    if !pcm.contains("CARD=") {
+        return None;
+    }
+    match pcm.split_once(':').map_or(pcm, |(kind, _)| kind) {
+        // Mixed with what else plays and converted to what the card takes.
+        "sysdefault" => Some(0),
+        "front" | "hdmi" => Some(1),
+        "iec958" => Some(2),
+        "plughw" => Some(3),
+        // hw takes only the card's own format; the surround layouts are the front output
+        // with more channels; usbstream is for a few USB devices' own drivers.
+        "hw" | "usbstream" => None,
+        kind if kind.starts_with("surround") => None,
+        _ => Some(4),
+    }
 }
 
 /// Our mixer's output, as a source in the device's mixer. Never ends, so the device
@@ -1855,6 +1906,67 @@ fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ALSA as it lists a PC's outputs under PipeWire (this one's, cut down): the plugins
+    /// and servers, then each card's ways to one output.
+    fn alsa_listing() -> Vec<OutputDevice> {
+        let generic = "HD-Audio Generic, ALC897 Analog";
+        [
+            ("null", "Discard all samples (playback) or generate zero samples (capture)"),
+            ("samplerate", "Rate Converter Plugin Using Samplerate Library"),
+            ("jack", "JACK Audio Connection Kit"),
+            ("pipewire", "PipeWire Sound Server"),
+            ("pulse", "PulseAudio Sound Server"),
+            ("default", "Default ALSA Output (currently PipeWire Media Server)"),
+            ("hdmi:CARD=HDMI,DEV=0", "HDA ATI HDMI, DELL S2421HGF"),
+            ("hdmi:CARD=HDMI,DEV=1", "HDA ATI HDMI, BenQ GW2490E"),
+            ("usbstream:CARD=HDMI", "HDA ATI HDMI"),
+            ("sysdefault:CARD=Generic", generic),
+            ("front:CARD=Generic,DEV=0", generic),
+            ("surround51:CARD=Generic,DEV=0", generic),
+            ("iec958:CARD=Generic,DEV=0", "HD-Audio Generic, ALC897 Digital"),
+            ("hw:CARD=1,DEV=3", "HDA ATI HDMI, DELL S2421HGF"),
+            ("plughw:CARD=1,DEV=3", "HDA ATI HDMI, DELL S2421HGF"),
+            ("hw:CARD=2,DEV=0", generic),
+            ("plughw:CARD=2,DEV=0", generic),
+            ("hw:CARD=2,DEV=1", "HD-Audio Generic, ALC897 Digital"),
+            ("plughw:CARD=2,DEV=1", "HD-Audio Generic, ALC897 Digital"),
+        ]
+        .into_iter()
+        .map(|(pcm, name)| OutputDevice { id: format!("alsa:{pcm}"), name: name.into() })
+        .collect()
+    }
+
+    fn ids(list: &[OutputDevice]) -> Vec<&str> {
+        list.iter().map(|d| d.id.as_str()).collect()
+    }
+
+    #[test]
+    fn alsa_offers_each_output_once() {
+        let offered = offered(alsa_listing(), None);
+        // By name: "HD-Audio …" before "HDA …".
+        assert_eq!(ids(&offered), ["alsa:sysdefault:CARD=Generic", "alsa:iec958:CARD=Generic,DEV=0", "alsa:hdmi:CARD=HDMI,DEV=1", "alsa:hdmi:CARD=HDMI,DEV=0"]);
+        assert_eq!(offered[0].name, "HD-Audio Generic, ALC897 Analog");
+    }
+
+    #[test]
+    fn a_picked_output_stays_listed_as_it_was_picked() {
+        // Picked before the list was cut down: shown, not "not connected", and in place of
+        // the way the list would offer that output.
+        for picked in ["alsa:hw:CARD=2,DEV=0", "alsa:pipewire"] {
+            let offered = offered(alsa_listing(), Some(picked));
+            assert!(ids(&offered).contains(&picked), "{picked}");
+            assert_eq!(offered.len(), if picked.contains("pipewire") { 5 } else { 4 }, "{picked}");
+        }
+    }
+
+    #[test]
+    fn other_systems_outputs_are_offered_as_they_are() {
+        let wasapi = |id: &str, name: &str| OutputDevice { id: id.into(), name: name.into() };
+        // Two of one name are two outputs, not one listed twice.
+        let all = vec![wasapi("wasapi:{b}", "Speakers (Realtek(R) Audio)"), wasapi("wasapi:{a}", "Headphones (WH-1000XM4)"), wasapi("wasapi:{c}", "Speakers (Realtek(R) Audio)")];
+        assert_eq!(ids(&offered(all, None)), ["wasapi:{a}", "wasapi:{b}", "wasapi:{c}"]);
+    }
 
     #[test]
     fn a_song_counts_as_started_only_once_the_engine_starts_it() {

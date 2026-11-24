@@ -91,11 +91,16 @@ impl App {
             (_, None) => Vec::new(),
         };
         let cards = self.library.as_ref().map(|l| l.playlists.as_slice()).or(self.sidebar_cache.as_deref()).unwrap_or_default();
-        let playlist_title = cards.iter().find(|c| matches!(&c.target, Target::Playlist(p) if *p == playlist_id)).map(|c| c.title.clone()).unwrap_or_default();
+        let playlist_title = cards
+            .iter()
+            .find(|c| matches!(&c.target, Target::Playlist(p) if *p == playlist_id))
+            .map(|c| c.title.clone())
+            .or_else(|| self.lists.get(&playlist_id).map(|o| o.c.title.clone()))
+            .unwrap_or_default();
         // Another dialog opened meanwhile stays; the answer is a toast instead.
         match self.dialog {
             None => self.dialog = Some(Dialog::ConfirmAddDuplicates { playlist_id, playlist_title, tracks, duplicates }),
-            Some(_) => self.toast(super::dialogs::duplicates_body(&playlist_title, &duplicates)),
+            Some(_) => self.toast(crate::tr!("status-not-added-duplicates", title = playlist_title.as_str(), count = tracks.len())),
         }
     }
 

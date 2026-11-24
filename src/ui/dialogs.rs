@@ -169,9 +169,13 @@ impl App {
                         let body = duplicates_body(playlist_title, duplicates);
                         ui.add(egui::Label::new(egui::RichText::new(body).font(theme::regular(14.0)).color(theme::text_dim())).wrap());
                         ui.add_space(22.0);
-                        // Skipping adds nothing when every song is known to be there already.
-                        let skip = (tracks.len() > duplicates.len().max(1)).then(|| crate::tr!("dialog-skip-duplicates"));
-                        let (add, skip, cancel) = dialog_buttons(ui, crate::tr!("dialog-add-anyway"), skip, true, accent);
+                        // Of several songs, adding just the new ones is the likely answer.
+                        let (add, skip, cancel) = if tracks.len() > 1 {
+                            let (skip, add, cancel) = dialog_buttons(ui, crate::tr!("dialog-skip-duplicates"), Some(crate::tr!("dialog-add-anyway")), true, accent);
+                            (add, skip, cancel)
+                        } else {
+                            dialog_buttons(ui, crate::tr!("dialog-add-anyway"), None, true, accent)
+                        };
                         if add || skip {
                             let how = if add { Duplicates::Add } else { Duplicates::Skip };
                             self.add_to_playlist(playlist_id.clone(), tracks, how);

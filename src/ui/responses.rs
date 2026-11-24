@@ -862,6 +862,10 @@ impl App {
     fn on_logged_in(&mut self, v: bool, now: f64) {
         // An Undo made meanwhile was the last account's: it isn't sent as this one.
         self.undo = None;
+        // So is a question about adding to its playlist.
+        if matches!(self.dialog, Some(Dialog::ConfirmAddDuplicates { .. })) {
+            self.dialog = None;
+        }
         self.toast_after_unlike = None;
         self.ratings.reset();
         self.logged_in = v;

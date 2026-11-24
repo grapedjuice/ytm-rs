@@ -629,6 +629,8 @@ pub struct App {
 
     // visuals
     art_key: Option<String>,
+    /// `art_key`'s song got no cover: asked again next time, in case it was the network.
+    art_uncovered: bool,
     art_changed: f64,
     art_brightness: f32,
     accent: Color32,
@@ -1098,6 +1100,7 @@ impl App {
             seek_drag: None,
             seek_wheel: seek_wheel::SeekWheel::default(),
             art_key: None,
+            art_uncovered: false,
             art_changed: -10.0,
             art_brightness: 0.0,
             accent: theme::RED,

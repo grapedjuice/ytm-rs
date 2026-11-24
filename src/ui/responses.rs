@@ -366,8 +366,13 @@ impl App {
                     self.lyrics_extras = Some((video_id, source, target, extras));
                 }
             }
-            Resp::Art { key, mut art } => {
-                if self.current_id() == Some(key.as_str()) {
+            Resp::Art { key, art } => {
+                // An older request's failure doesn't take away a cover already showing.
+                let covered = self.art_key.as_deref() == Some(key.as_str()) && !self.art_uncovered;
+                if self.current_id() == Some(key.as_str()) && (art.is_some() || !covered) {
+                    self.art_uncovered = art.is_none();
+                    // No cover: the idle backdrop's colours, not the song before's (#356).
+                    let mut art = art.unwrap_or_else(crate::art::idle);
                     crate::art::soften(&mut art, self.look().background.blur_passes.saturating_sub(6));
                     self.track_art = Some(art);
                     self.art_key = Some(key);

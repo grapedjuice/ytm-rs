@@ -456,7 +456,7 @@ impl App {
         // ← and → seek, unless something on screen has them: a focused widget moves the
         // focus with them (or its cursor, in a text box), and a menu, a dialog or the
         // palette is in front of the player.
-        let covered = self.dialog.is_some() || egui::Popup::is_any_open(ctx) || ctx.memory(|m| m.top_modal_layer()).is_some();
+        let covered = self.palette.is_open() || self.dialog.is_some() || egui::Popup::is_any_open(ctx) || ctx.memory(|m| m.top_modal_layer()).is_some();
         if !typing && !covered {
             let seeks: Vec<(bool, bool)> = ctx.input(|i| {
                 i.events

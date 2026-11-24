@@ -121,6 +121,12 @@ fn sections() -> [(&'static str, SettingsTab); 22] {
     ]
 }
 
+impl Palette {
+    pub(super) fn is_open(&self) -> bool {
+        self.open
+    }
+}
+
 /// Ctrl+K opens and closes it. Taken before any text box sees it: there, it would delete
 /// to the end of the line (Cmd+K on macOS leaves Ctrl+K to do that). Its own keys are
 /// taken here too, at the start of the frame: else the page under it would see Esc, and

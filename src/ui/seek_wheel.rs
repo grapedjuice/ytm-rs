@@ -58,6 +58,11 @@ impl SeekWheel {
         }
     }
 
+    /// Whether it has a position to show: one it's seeking to, or will.
+    pub(super) fn seeking(&self) -> bool {
+        self.target.is_some()
+    }
+
     /// Takes the wheel events over the seek bar pointed at last frame out of one frame's
     /// `events`, at `time`, the pointer starting at `pointer`, and moves the target from `pos`
     /// within `0..=total`, short of its end (seconds). Ctrl+wheel zoom stays. Returns whether it took any.
@@ -232,11 +237,13 @@ impl App {
     }
 
     /// ← or → pressed (`back`), held if `repeat`: 5 seconds back or on. Nothing playing,
-    /// a live stream or a length not known yet has nowhere to go.
+    /// a live stream or a length not known yet has nowhere to go, nor does a queue played
+    /// out (the player has stopped, and drops a seek).
     pub(super) fn seek_by_key(&mut self, ctx: &egui::Context, back: bool, repeat: bool) {
         // A drag on a seek bar has the position, as it does from the wheel.
         let (down, time) = ctx.input(|i| (i.pointer.any_down(), i.time));
-        if self.current().is_none() || down || self.jam.guest_without_control() {
+        let played_out = self.ended && self.resume_at.is_none();
+        if self.current().is_none() || played_out || down || self.jam.guest_without_control() {
             return;
         }
         let total = self.seek_length();

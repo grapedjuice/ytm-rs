@@ -348,6 +348,7 @@ settings-space = Leertaste
 settings-next-previous-song = Nächster / vorheriger Titel
 settings-ctrl = Strg
 settings-volume-up-down = Lauter / leiser
+settings-shortcut-seek = Im Titel 5 Sekunden zurück / vorspulen
 settings-shortcut-command-palette = Befehlspalette für Seiten, Einstellungen, Playlists und Aktionen
 settings-search = Suchen
 settings-shortcut-find-in-list = In einer Titelliste suchen

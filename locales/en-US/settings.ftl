@@ -387,6 +387,7 @@ settings-space = Space
 settings-next-previous-song = Next / previous song
 settings-ctrl = Ctrl
 settings-volume-up-down = Volume up / down
+settings-shortcut-seek = Back / forward 5 seconds in the song
 settings-shortcut-command-palette = Command palette: pages, settings, playlists and actions
 settings-search = Search
 settings-shortcut-find-in-list = Find in a song list

@@ -1081,7 +1081,10 @@ fn offered(all: Vec<OutputDevice>, picked: Option<&str>) -> Vec<OutputDevice> {
             Some(rank) => rank + 1,
             None => continue,
         };
-        match out.iter_mut().find(|(_, o)| o.name == d.name) {
+        // Only ALSA lists one output several ways. Elsewhere, two with one name (two of the
+        // same headset on a Mac) are two outputs.
+        let alsa = d.id.starts_with("alsa:");
+        match out.iter_mut().find(|(_, o)| alsa && o.name == d.name) {
             Some(best) if rank < best.0 => *best = (rank, d),
             Some(_) => {}
             None => out.push((rank, d)),
@@ -1960,8 +1963,9 @@ mod tests {
     #[test]
     fn other_systems_outputs_are_offered_as_they_are() {
         let wasapi = |id: &str, name: &str| OutputDevice { id: id.into(), name: name.into() };
-        let all = vec![wasapi("wasapi:{b}", "Speakers (Realtek(R) Audio)"), wasapi("wasapi:{a}", "Headphones (WH-1000XM4)")];
-        assert_eq!(ids(&offered(all, None)), ["wasapi:{a}", "wasapi:{b}"]);
+        // Two of one name are two outputs, not one listed twice.
+        let all = vec![wasapi("wasapi:{b}", "Speakers (Realtek(R) Audio)"), wasapi("wasapi:{a}", "Headphones (WH-1000XM4)"), wasapi("wasapi:{c}", "Speakers (Realtek(R) Audio)")];
+        assert_eq!(ids(&offered(all, None)), ["wasapi:{a}", "wasapi:{b}", "wasapi:{c}"]);
     }
 
     #[test]

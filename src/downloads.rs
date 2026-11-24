@@ -446,8 +446,9 @@ pub fn song_for(video_id: &str) -> Option<Track> {
 fn file_of(id: &str) -> Option<PathBuf> {
     let st = STATE.read().unwrap();
     // A file that's gone isn't played from (`entry_for`), so it isn't read either.
+    // Only the song versions' files are looked at, not every download's.
     let there = |e: &&Entry| e.path.is_file();
-    st.index.get(id).filter(there).or_else(|| st.index.values().filter(there).find(|e| e.stands_for(id))).map(|e| e.path.clone())
+    st.index.get(id).filter(there).or_else(|| st.index.values().find(|e| e.stands_for(id) && e.path.is_file())).map(|e| e.path.clone())
 }
 
 /// The cover tagged in `id`'s downloaded file (see `file_of`), for the background's

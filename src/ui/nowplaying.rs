@@ -692,12 +692,14 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
             if cover_side == Side::Right { Rect::from_min_max(content.min, pos2(content.right() - side, content.bottom())) } else { Rect::from_min_max(pos2(content.left() + side, content.top()), content.max) }
         } else if beside_cover { Rect::from_min_max(pos2(content.left() + content.width() * 0.46, content.top()), content.max) } else { content }
     } else if stacked_portrait {
-        let (col_panel, side_panel) = portrait_panel(look, content, app.fullscreen);
+        let (col_panel, side_panel, card_panel) = portrait_panel(look, content, app.fullscreen);
         let side_alone = art_side(cs, col_alone, app.fullscreen, window_w);
         let col = Rect::from_min_max(col_alone.min.lerp(col_panel.min, glide), col_alone.max.lerp(col_panel.max, glide));
         let side_now = egui::lerp(side_alone..=side_panel, glide);
         let px = (side_alone.max(side_panel) * ppp) as u32;
         cover_column(app, ui, col, track, no_lyrics, now, px, Some((side_now, glide)));
+        // The card goes with the cover, from the corner (where the cover on its own leaves it room).
+        card_at = Rect::from_min_max(content.min.lerp(card_panel.min, glide), content.max.lerp(card_panel.max, glide));
         Rect::from_min_max(pos2(content.left(), (col_panel.bottom() + 12.0).min(content.bottom())), content.max)
     } else {
         // Cover column, on the preset's side; it glides to the center as the panel leaves.
@@ -726,7 +728,7 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
     };
     // The theme's card for the song, in the corner (the cover then has no title under it).
     // It stays with the backdrop's cover too, so it's the one card through the transition.
-    let card_vis = if fs_corner || stacked_portrait { art_vis } else if corner { 0.0 } else if beside_cover || !lyrics_only { 1.0 } else { art_vis };
+    let card_vis = if fs_corner { art_vis } else if corner { 0.0 } else if beside_cover || !lyrics_only { 1.0 } else { art_vis };
     if np.shows_info_card(app.fullscreen) && card_vis > 0.001 {
         let mut card = ui.new_child(egui::UiBuilder::new().max_rect(card_at));
         card.multiply_opacity(card_vis);
@@ -859,8 +861,9 @@ fn is_portrait(content: Vec2, was: bool) -> bool {
     content.y >= content.x * PORTRAIT_RATIO[usize::from(was)]
 }
 
-/// Top cover column rect and artwork side for the stacked portrait layout.
-fn portrait_panel(look: &crate::preset::Preset, content: Rect, fullscreen: bool) -> (Rect, f32) {
+/// The stacked layout's cover column at the top, the artwork's side, and where the theme's
+/// card for the song goes: under the cover, or over it with `info_card_top`, at its left edge.
+fn portrait_panel(look: &crate::preset::Preset, content: Rect, fullscreen: bool) -> (Rect, f32, Rect) {
     let np = &look.now_playing;
     let text_h = if !np.shows_info_card(fullscreen) && np.shows_title(fullscreen) {
         let [title_px, artist_px] = np.fullscreen_text_px.filter(|_| fullscreen).unwrap_or([np.title_px, np.artist_px]);
@@ -871,15 +874,20 @@ fn portrait_panel(look: &crate::preset::Preset, content: Rect, fullscreen: bool)
     } else {
         0.0
     };
+    // The card has the title, so it takes the text's place (12 apart from the cover).
+    let card_h = if np.shows_info_card(fullscreen) { info_card_room(np, content).height() + np.info_card_margin + 12.0 } else { 0.0 };
+    let (above, below) = if np.info_card_top { (card_h, text_h) } else { (0.0, text_h + card_h) };
     let top_pad = (content.height() * 0.03).clamp(16.0, 48.0);
-    let max_h = (content.height() * 0.48 - top_pad - text_h - 16.0).max(100.0);
+    let max_h = (content.height() * 0.48 - top_pad - above - below - 16.0).max(100.0);
     let cs = &look.cover;
     // The theme's limit, but not its steps by window width: here the cover has the whole width.
     let cap = (content.width() * 0.82).min(max_h).min(art_max_px(cs, fullscreen, None));
     let desired = (content.width() * 0.76).min(max_h) * cs.size.clamp(0.65, 1.3);
     let side = desired.min(cap).max(140.0_f32.min(cap));
-    let col = Rect::from_min_size(content.min + vec2(0.0, top_pad), vec2(content.width(), side + text_h));
-    (col, side)
+    let col = Rect::from_min_size(content.min + vec2(0.0, top_pad + above), vec2(content.width(), side + below));
+    let edge = (side / 2.0 + np.info_card_margin) * vec2(1.0, 0.0);
+    let card = Rect::from_min_max(pos2(col.center().x, col.top() - above) - edge, pos2(col.center().x, col.bottom()) + edge);
+    (col, side, card)
 }
 
 /// Room for lyrics beside something else.

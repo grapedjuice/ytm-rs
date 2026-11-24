@@ -23,6 +23,7 @@ settings-clear = Clear
 ## Account
 
 settings-signed-in-desc = Signed in with Google. Your home feed, library and likes come from this account. Saved encrypted in Windows Credential Manager.
+settings-signed-in-desc-system = Signed in with Google. Your home feed, library and likes come from this account. Saved in the system's keyring, or where there isn't one, in a file only you can read.
 settings-sign-out = Sign out
 settings-channel = Channel
 settings-channel-desc = Your Google account and each YouTube channel it manages have their own library, likes, history and recommendations.
@@ -90,7 +91,9 @@ settings-high-quality-audio = High quality audio
 settings-high-quality-audio-desc = 256 kbps instead of 128 kbps, for accounts with YouTube Premium. Applies from the next song.
 settings-output-device = Output device
 settings-output-device-desc = Where the music plays: this computer's speakers or headphones, or an AirPlay speaker on your network (with Settings › Network › Allow local network scan on). A picked device that isn't connected leaves it to Windows' default until it's back.
+settings-output-device-desc-system = Where the music plays: this computer's speakers or headphones, or an AirPlay speaker on your network (with Settings › Network › Allow local network scan on). A picked device that isn't connected leaves it to the system's default until it's back.
 settings-windows-default = Windows default
+settings-system-default = System default
 settings-not-connected = { $name } (not connected)
 settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Songs play as loud as they were made. Normal brings them all to the same level, and Quiet to the same, lower one.
@@ -363,6 +366,7 @@ settings-address = Address
 settings-saved = Saved
 settings-save = Save
 settings-proxy-password-note = A password in the address is kept in Windows Credential Manager.
+settings-proxy-password-note-system = A password in the address is kept in the system's keyring, or where there isn't one, in a file only you can read.
 settings-checking = Checking…
 settings-proxy-test-desc = Checks that YouTube Music answers through this setting.
 settings-test-connection = Test connection

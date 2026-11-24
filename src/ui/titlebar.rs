@@ -927,7 +927,7 @@ mod frame {
     use windows::Win32::UI::WindowsAndMessaging::{
         GWL_STYLE, GetClientRect, GetWindowLongW, GetWindowRect, HTMAXBUTTON, IsZoomed, MINMAXINFO, NCCALCSIZE_PARAMS, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
         SWP_NOZORDER, SetWindowLongW, SetWindowPos, WM_GETMINMAXINFO, WM_MOUSEMOVE, WM_NCACTIVATE, WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP,
-        WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_NCPAINT, WM_STYLECHANGING, WS_CAPTION,
+        WM_CANCELMODE, WM_CAPTURECHANGED, WM_DPICHANGED, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_NCPAINT, WM_SIZE, WM_STYLECHANGING, WS_CAPTION,
     };
 
     /// See `super::drop_caption`.
@@ -942,13 +942,15 @@ mod frame {
     /// the frame rather than the app's area, so egui doesn't see it.
     struct SnapButton {
         rect: Option<RECT>,
+        /// Drawn last frame, so the pointer's state on it still holds.
+        drawn: bool,
         hovered: bool,
         down: bool,
         clicked: bool,
         ctx: Option<egui::Context>,
     }
 
-    static SNAP: Mutex<SnapButton> = Mutex::new(SnapButton { rect: None, hovered: false, down: false, clicked: false, ctx: None });
+    static SNAP: Mutex<SnapButton> = Mutex::new(SnapButton { rect: None, drawn: false, hovered: false, down: false, clicked: false, ctx: None });
 
     pub fn init(hwnd: *mut std::ffi::c_void, no_caption: bool) {
         let hwnd = HWND(hwnd);
@@ -972,12 +974,14 @@ mod frame {
         }
     }
 
-    /// Until the maximize button is drawn again this frame, the window has none.
+    /// Until the maximize button is drawn again this frame, the window has none. A button
+    /// that wasn't drawn last frame (the mini player, full screen) lets go of the pointer.
     pub fn snap_forget() {
         let mut s = SNAP.lock().unwrap();
         s.rect = None;
-        s.hovered = false;
-        s.down = false;
+        if !std::mem::take(&mut s.drawn) {
+            (s.hovered, s.down, s.clicked) = (false, false, false);
+        }
     }
 
     /// See `super::snap`.
@@ -987,13 +991,17 @@ mod frame {
         }
         let ctx = ui.ctx();
         let ppp = ctx.pixels_per_point();
-        let px = |v: f32| (v * ppp).round() as i32;
+        // Up, not to the nearest: a pixel row half in the resize strip above stays the strip's.
+        let px = |v: f32| (v * ppp).ceil() as i32;
         let mut s = SNAP.lock().unwrap();
         s.ctx.get_or_insert_with(|| ctx.clone());
         // Not under a dialog, where egui keeps the pointer from the button too.
-        if ctx.memory(|m| m.allows_interaction(ui.layer_id())) {
-            s.rect = Some(RECT { left: px(hit.left()), top: px(hit.top()), right: px(hit.right()), bottom: px(hit.bottom()) });
+        if !ctx.memory(|m| m.allows_interaction(ui.layer_id())) {
+            s.clicked = false;
+            return super::Snap::default();
         }
+        s.rect = Some(RECT { left: px(hit.left()), top: px(hit.top()), right: px(hit.right()), bottom: px(hit.bottom()) });
+        s.drawn = true;
         super::Snap { hovered: s.hovered, down: s.down, clicked: std::mem::take(&mut s.clicked) }
     }
 
@@ -1033,8 +1041,14 @@ mod frame {
                 s.clicked |= std::mem::take(&mut s.down);
                 Some(LRESULT(0))
             }
-            // Off the button: a press that left it doesn't click it.
-            WM_NCMOUSEMOVE | WM_NCMOUSELEAVE | WM_MOUSEMOVE => {
+            // Resized or on another monitor's scale: the button moved, and is where the next
+            // frame draws it.
+            WM_SIZE | WM_DPICHANGED => {
+                s.rect = None;
+                return None;
+            }
+            // Off the button, or a press Windows called off: it doesn't click.
+            WM_NCMOUSEMOVE | WM_NCMOUSELEAVE | WM_MOUSEMOVE | WM_CANCELMODE | WM_CAPTURECHANGED => {
                 (s.hovered, s.down) = (false, false);
                 None
             }

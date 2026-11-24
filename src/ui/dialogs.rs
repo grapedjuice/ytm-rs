@@ -3,8 +3,9 @@
 use egui::{Color32, Ui};
 
 use crate::backend::Req;
-use crate::model::{Target, Track};
+use crate::model::Target;
 use crate::theme;
+use crate::ytm::Duplicates;
 
 use super::{Action, App, Dialog, Page, BackupPrompt, notes, pages, widgets};
 
@@ -74,9 +75,9 @@ impl App {
             Dialog::Collaborate { .. } => crate::tr!("ui-collaborate"),
         };
         // A distinct area id per dialog kind. egui keeps an area's previous size when its
-        // content shrinks, so a small dialog opened over a big one (the duplicate
-        // confirmation after "Add to playlist") would otherwise inherit the stale, taller
-        // rect and draw with a large empty gap below its buttons.
+        // content shrinks, so a small dialog opened after a big one (the duplicates
+        // question after "Add to playlist") would otherwise get the stale, taller rect
+        // and draw with a large empty gap below its buttons.
         let modal_id = egui::Id::unique((
             "playlist-dialog",
             match &dialog {
@@ -113,7 +114,7 @@ impl App {
                                 if let Target::Playlist(id) = &card.target {
                                     if !id.starts_with("PL") { continue; }
                                     if dialog_row(ui, Some(&card.thumbs), None, &card.title) {
-                                        self.add_to_playlist(id.clone(), tracks);
+                                        self.add_to_playlist(id.clone(), tracks, Duplicates::Ask);
                                         done = true;
                                     }
                                 }
@@ -165,45 +166,17 @@ impl App {
                         done = ok || cancel;
                     }
                     Dialog::ConfirmAddDuplicates { playlist_id, playlist_title, tracks, duplicates } => {
-                        // The first three titles, and "and N more" past that: an album's
-                        // worth of titles would push the buttons out of the window, as
-                        // the modal doesn't scroll.
-                        let titles: Vec<&str> = duplicates.iter().map(String::as_str).collect();
-                        let (songs, more) = match titles.len() {
-                            0..=3 => (titles.join(", "), 0),
-                            n => (titles[..3].join(", "), n - 3),
-                        };
-                        let body = if playlist_title.is_empty() {
-                            crate::tr!("dialog-add-duplicates-body", songs = songs.as_str(), count = duplicates.len(), more = more)
-                        } else {
-                            crate::tr!("dialog-add-duplicates-in-body", title = playlist_title.as_str(), songs = songs.as_str(), count = duplicates.len(), more = more)
-                        };
+                        let body = duplicates_body(playlist_title, duplicates);
                         ui.add(egui::Label::new(egui::RichText::new(body).font(theme::regular(14.0)).color(theme::text_dim())).wrap());
                         ui.add_space(22.0);
-                        // A mix of new songs and duplicates: a middle button adds just
-                        // the new ones, rather than all or nothing.
-                        let skip_label = crate::tr!("dialog-add-new", count = tracks.len() - duplicates.len());
-                        let (ok, skip, cancel) = if tracks.len() > duplicates.len() {
-                            dialog_buttons(ui, crate::tr!("dialog-add-anyway"), Some(skip_label.as_str()), true, accent)
-                        } else {
-                            dialog_buttons(ui, crate::tr!("dialog-add-anyway"), None, true, accent)
-                        };
-                        if ok {
-                            let (playlist_id, tracks) = (playlist_id.clone(), std::mem::take(tracks));
-                            self.add_to_playlist_confirmed(playlist_id, &tracks);
+                        // Skipping adds nothing when every song is known to be there already.
+                        let skip = (tracks.len() > duplicates.len().max(1)).then(|| crate::tr!("dialog-skip-duplicates"));
+                        let (add, skip, cancel) = dialog_buttons(ui, crate::tr!("dialog-add-anyway"), skip, true, accent);
+                        if add || skip {
+                            let how = if add { Duplicates::Add } else { Duplicates::Skip };
+                            self.add_to_playlist(playlist_id.clone(), tracks, how);
                         }
-                        if skip {
-                            let (playlist_id, tracks) = (playlist_id.clone(), std::mem::take(tracks));
-                            // The playlist was whole when the dialog opened and is kept
-                            // here still (or it isn't known at all now): the same check
-                            // picks out the songs it doesn't have yet.
-                            let new: Vec<Track> = match self.lists.get(&playlist_id).filter(|o| o.complete) {
-                                Some(o) => tracks.into_iter().filter(|t| !o.c.tracks.iter().any(|s| s.id == t.id)).collect(),
-                                None => tracks,
-                            };
-                            self.add_to_playlist_confirmed(playlist_id, &new);
-                        }
-                        done = ok || skip || cancel;
+                        done = add || skip || cancel;
                     }
                     Dialog::Collaborate { info, busy, confirm_off, .. } => done = self.collaborate_dialog(ui, info, busy, confirm_off, accent),
                     Dialog::ConfirmDelete { .. } | Dialog::ConfirmDeleteUpload { .. } | Dialog::ConfirmClearCache => unreachable!("drawn by confirm"),
@@ -386,6 +359,17 @@ fn privacy_picker(ui: &mut Ui, privacy: &mut Option<String>) {
         ui.add_space(8.0);
         ui.label(egui::RichText::new(crate::tr!("dialog-visibility-prompt")).font(theme::regular(12.5)).color(theme::text_faint()));
     }
+}
+
+/// Which songs `playlist` has already, by title: the first three, and how many more.
+/// None named: YouTube Music only said some are.
+pub(super) fn duplicates_body(playlist: &str, duplicates: &[String]) -> String {
+    if duplicates.is_empty() {
+        return crate::tr!("dialog-add-duplicates-some", title = playlist);
+    }
+    let shown = duplicates.len().min(3);
+    let songs = duplicates[..shown].join(", ");
+    crate::tr!("dialog-add-duplicates-body", title = playlist, songs = songs.as_str(), count = duplicates.len(), more = duplicates.len() - shown)
 }
 
 /// Cancel, an optional middle pill and a primary button, right-aligned:

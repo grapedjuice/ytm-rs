@@ -314,8 +314,8 @@ enum Dialog {
     ConfirmClearCache,
     /// A large download (`count` songs to go) asked about before it starts.
     ConfirmDownload { target: Option<Target>, title: String, tracks: Vec<Track>, count: usize },
-    /// Songs (`duplicates`, by title) already in `playlist_id` asked about before
-    /// they're added again, as YouTube Music's website asks (issue #339).
+    /// An add YouTube Music refused, as some of `tracks` are in the playlist already:
+    /// add them anyway, skip those, or not. `duplicates` names them, by title, when known.
     ConfirmAddDuplicates { playlist_id: String, playlist_title: String, tracks: Vec<Track>, duplicates: Vec<String> },
     /// `info` until it loads; `busy` while a change is on its way; `confirm_off` asks
     /// before turning collaboration off (that removes the collaborators).

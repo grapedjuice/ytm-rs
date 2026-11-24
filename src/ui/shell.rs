@@ -591,7 +591,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                     app.actions.push(Action::Like(t, true));
                     app.toast(crate::tr!("status-added-liked"));
                 }
-                Some((playlist_id, t)) => app.add_to_playlist(playlist_id, &[t]),
+                Some((playlist_id, t)) => app.add_to_playlist(playlist_id, &[t], crate::ytm::Duplicates::Ask),
                 None => {}
             }
         });

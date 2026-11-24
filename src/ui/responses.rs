@@ -554,6 +554,7 @@ impl App {
                 self.lists.edits.confirm_add(&id, &video_ids);
                 self.on_playlist_changed(id, PlaylistChange::Added);
             }
+            Resp::AlreadyInPlaylist { id, tracks } => self.already_in_playlist(id, tracks),
             Resp::AddedToPlaylist { id, video_ids, error: Some(e) } => {
                 // Shown as added: out again, and a reload makes sure of the rest.
                 self.lists.add_failed(&id, &video_ids);

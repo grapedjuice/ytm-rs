@@ -355,7 +355,11 @@ fn port(d: &Dictionary, key: &str) -> Option<u16> {
 }
 
 fn uuid() -> String {
-    uuid::Uuid::new_v4().to_string().to_uppercase()
+    // From `random()`, which gives zeros where `Uuid::new_v4` would panic without randomness.
+    let mut b = [0u8; 16];
+    b[..8].copy_from_slice(&random().to_le_bytes());
+    b[8..].copy_from_slice(&random().to_le_bytes());
+    uuid::Builder::from_random_bytes(b).into_uuid().to_string().to_uppercase()
 }
 
 /// The connection the speaker sends us requests on, answered as briefly as can be: more

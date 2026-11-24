@@ -221,8 +221,8 @@ pub fn tip_if_elided(ui: &Ui, rect: Rect, g: &egui::Galley, text: &str) {
 
 /// Paints `g` at `pos`, with `text` in a hover tooltip when `g` was cut short.
 pub fn galley_tipped(ui: &Ui, pos: Pos2, g: std::sync::Arc<egui::Galley>, color: Color32, text: &str) {
+    ui.painter().galley(pos, g.clone(), color);
     tip_if_elided(ui, Rect::from_min_size(pos, g.size()), &g, text);
-    ui.painter().galley(pos, g, color);
 }
 
 fn tip_full_text(ui: &Ui, rect: Rect, text: &str) {

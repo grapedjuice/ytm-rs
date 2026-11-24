@@ -117,7 +117,7 @@ fn behind_panel(app: &App, ctx: &egui::Context, area: Rect, now: f64) -> Option<
     // A video takes the middle instead of the cover.
     let vis = if app.shown_video().is_some() { 1.0 } else { 1.0 - panel_motion(app, ctx, &track.id, app.no_lyrics(), now).art_vis };
     let (_, content) = np_rects(area, app.fullscreen);
-    Some(BehindPanel { beside: content_wide(content), vis })
+    Some(BehindPanel { beside: content_wide(ctx, content), vis })
 }
 
 /// Now playing's background laid out over `rect`, drawn only inside `clip`.
@@ -317,7 +317,7 @@ fn body(app: &mut App, ui: &mut Ui, now: f64) {
     let video = app.shown_video().cloned();
     let video_mode = video.is_some();
     let (header, content) = np_rects(area, app.fullscreen);
-    let video_lyrics = video_mode && look.now_playing.video_lyrics && !app.no_lyrics() && content_wide(content);
+    let video_lyrics = video_mode && look.now_playing.video_lyrics && !app.no_lyrics() && content_wide(ui.ctx(), content);
     let no_lyrics = app.no_lyrics() || (video_mode && !video_lyrics);
     // In some themes full screen's header leaves until the pointer moves. It comes back at once, and for the keyboard too.
     let hide = look.now_playing.header_autohide && app.fullscreen;
@@ -631,8 +631,8 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
     let window_w = ui.ctx().content_rect().width();
     // The cover gliding between its two places (wide layouts): a gentle S-curve.
     let glide = p * p * (3.0 - 2.0 * p);
-    let portrait = is_portrait(content);
-    let wide = content_wide(content);
+    let portrait = portrait_layout(ui.ctx(), content);
+    let wide = content_wide(ui.ctx(), content);
     let narrow = !portrait && !wide;
     let corner = wide && layout == Layout::Corner;
     let fs_corner = wide && app.fullscreen && cs.fullscreen.is_some_and(|f| f.corner_layout);
@@ -836,9 +836,27 @@ fn np_rects(area: Rect, fullscreen: bool) -> (Rect, Rect) {
     (header, content)
 }
 
-/// Portrait monitor or tall snapped window with room to stack cover and panel.
-fn is_portrait(area: Rect) -> bool {
-    area.width() >= 260.0 && area.height() >= 520.0 && area.height() >= area.width()
+/// Whether the cover stacks over the panel in `content` (a portrait monitor, or a tall,
+/// narrow window). It's kept across frames so a window resized near the line doesn't flip.
+fn portrait_layout(ctx: &egui::Context, content: Rect) -> bool {
+    let id = egui::Id::unique("np-portrait");
+    let was = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    let now = is_portrait(content.size(), was);
+    if now != was {
+        ctx.data_mut(|d| d.insert_temp(id, now));
+    }
+    now
+}
+
+/// The content's height to width from which it stacks, and below which it goes back side
+/// by side. Half of a landscape screen (16:9, 16:10, even 3:2) comes to 1.22 at most and stays
+/// side by side; a portrait monitor comes to about 1.7, a third of a 1440p screen to 1.55.
+const PORTRAIT_RATIO: [f32; 2] = [1.3, 1.25];
+
+/// No least size: it's in points, and the smallest window (`MIN_SIZE`) this tall has room
+/// for the cover and the panel.
+fn is_portrait(content: Vec2, was: bool) -> bool {
+    content.y >= content.x * PORTRAIT_RATIO[usize::from(was)]
 }
 
 /// Top cover column rect and artwork side for the stacked portrait layout.
@@ -865,8 +883,8 @@ fn portrait_panel(look: &crate::preset::Preset, content: Rect, fullscreen: bool)
 }
 
 /// Room for lyrics beside something else.
-fn content_wide(area: Rect) -> bool {
-    area.width() >= 860.0 && !is_portrait(area)
+fn content_wide(ctx: &egui::Context, area: Rect) -> bool {
+    area.width() >= 860.0 && !portrait_layout(ctx, area)
 }
 
 /// Upper pixel bound imposed by the theme on the artwork size.
@@ -1491,7 +1509,7 @@ fn video_stage(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::
     // Up next or Comments: beside the video, or under it when there's no room.
     let comments = app.np_tab == NpTab::Comments && app.show_comments;
     let side = app.np_tab == NpTab::UpNext || comments;
-    let queue_w = if side && content.width() > 900.0 && !is_portrait(content) { 360.0 } else { 0.0 };
+    let queue_w = if side && content.width() > 900.0 && !portrait_layout(ui.ctx(), content) { 360.0 } else { 0.0 };
     let queue_h = if side && queue_w == 0.0 { content.height() * 0.45 } else { 0.0 };
     let stage = Rect::from_min_max(content.min, pos2(content.right() - queue_w, content.bottom() - queue_h));
     let (w, h) = frame.as_ref().map_or((16.0, 9.0), |t| (t.size()[0] as f32, t.size()[1] as f32));
@@ -2475,7 +2493,51 @@ fn mini_text(ui: &mut Ui, text: &str, on: bool, tip: &str) -> egui::Response {
 
 #[cfg(test)]
 mod tests {
-    use super::lyrics_panel_wanted;
+    use super::{is_portrait, lyrics_panel_wanted};
+    use egui::{Vec2, vec2};
+
+    /// Now playing's content in a window of `w`×`h` points: its padding, header and the
+    /// player bar taken off. Snapped sizes leave out a 48-point taskbar.
+    fn content(w: f32, h: f32) -> Vec2 {
+        vec2(w - 64.0, h - 154.0)
+    }
+
+    #[test]
+    fn half_a_landscape_screen_stays_side_by_side() {
+        for (w, h) in [
+            (960.0, 1032.0),  // 1080p
+            (1280.0, 1392.0), // 1440p, and 4K at 150 %
+            (1920.0, 2112.0), // 4K at 100 %
+            (960.0, 1152.0),  // 1920×1200
+            (1280.0, 1552.0), // 2560×1600
+            (1128.0, 1456.0), // 3:2, 2256×1504
+            (1720.0, 1392.0), // 3440×1440 ultrawide
+            (1146.0, 1392.0), // a third of it
+        ] {
+            // Even coming from a taller window.
+            assert!(!is_portrait(content(w, h), false) && !is_portrait(content(w, h), true), "{w}×{h}");
+        }
+    }
+
+    #[test]
+    fn portrait_monitors_and_tall_windows_stack() {
+        for (w, h) in [
+            (1080.0, 1872.0), // 1080×1920
+            (864.0, 1488.0),  // 1080×1920 at 125 %
+            (1440.0, 2512.0), // 1440×2560
+            (960.0, 1659.0),  // 1440×2560 at 150 %
+            (853.0, 1392.0),  // a third of a 1440p screen
+        ] {
+            assert!(is_portrait(content(w, h), false), "{w}×{h}");
+        }
+    }
+
+    #[test]
+    fn near_the_line_it_keeps_what_it_was() {
+        let c = vec2(1000.0, 1270.0);
+        assert!(is_portrait(c, true));
+        assert!(!is_portrait(c, false));
+    }
 
     #[test]
     fn lyrics_panel_holds_state_while_loading_and_tracks_lyrics_availability() {

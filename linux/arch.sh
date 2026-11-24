@@ -40,8 +40,11 @@ arch=('x86_64')
 url='https://github.com/grapedjuice/ytm-rs'
 license=('GPL-3.0-only')
 # The libraries it links. The tray's appindicator is loaded at run time.
+# libssl.so and libcrypto.so: makepkg turns them into the major version the app was
+# linked against here (libssl.so=4-64), so pacman refuses the package on a system with
+# an older OpenSSL instead of installing one that can't start (#331).
 # desktop-file-utils builds the MIME cache that `ytm-rs://` links are found through.
-depends=('alsa-lib' 'gtk3' 'webkit2gtk-4.1' 'libayatana-appindicator' 'dbus' 'openssl' 'desktop-file-utils')
+depends=('alsa-lib' 'gtk3' 'webkit2gtk-4.1' 'libayatana-appindicator' 'dbus' 'openssl' 'libssl.so' 'libcrypto.so' 'desktop-file-utils')
 optdepends=('libpulse: Recognize song, through its parec')
 options=('!debug')
 

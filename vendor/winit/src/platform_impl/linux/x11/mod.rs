@@ -235,6 +235,11 @@ impl<T: 'static> EventLoop<T> {
         {
             warn!("Failed to watch the root window's properties: {err}");
         }
+        // Settings that came since the display was opened, before the watch above: no
+        // event will tell of them.
+        if xconn.reload_database().is_ok() {
+            xconn.refresh_cursor_size();
+        }
 
         let xi2ext = xconn
             .xcb_connection()

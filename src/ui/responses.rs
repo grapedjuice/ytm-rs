@@ -640,7 +640,14 @@ impl App {
                 }
             }
             Resp::LoggedIn(v) => self.on_logged_in(v, now),
-            Resp::Error(e) => self.on_error(e),
+            Resp::Error(e) => {
+                self.offline = false;
+                self.on_error(e);
+            }
+            Resp::Offline => {
+                self.offline = true;
+                self.on_error(crate::tr!("backend-offline").to_owned());
+            }
         }
     }
 

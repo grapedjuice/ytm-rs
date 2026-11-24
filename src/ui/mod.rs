@@ -462,6 +462,9 @@ pub struct App {
     loading: bool,
     /// The current page's request failed with nothing cached: show a retry, not a skeleton.
     load_failed: bool,
+    /// It failed because YouTube Music can't be reached: the retry says so, and offers
+    /// Downloads, which play without it.
+    offline: bool,
     search_text: String,
     /// What was typed, the search terms for it, and the songs, artists and albums it
     /// most likely means.
@@ -955,6 +958,7 @@ impl App {
             track_art: None,
             loading: false,
             load_failed: false,
+            offline: false,
             search_text: String::new(),
             suggestions: Default::default(),
             suggest_sel: None,
@@ -1435,6 +1439,7 @@ impl App {
         let coming = self.page_list().is_some_and(|id| self.lists.loading(id));
         self.loading = (req.is_some() || coming) && !cached;
         self.load_failed = false;
+        self.offline = false;
         match req {
             Some(Req::Library) => self.request_library(),
             Some(r) => self.backend.request(r),

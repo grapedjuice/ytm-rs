@@ -462,6 +462,9 @@ pub enum Resp {
     /// A past search left the account's history; the list already shows it gone.
     SearchForgotten,
     Error(String),
+    /// A request failed because YouTube Music can't be reached at all (no connection):
+    /// one plain message for all of them, not each one's error (#353).
+    Offline,
 }
 
 impl Resp {
@@ -1278,7 +1281,8 @@ impl Backend {
                     Ok(()) => return Ok(None),
                     Err(e) => {
                         log::warn!("play {video_id}: {e:#}");
-                        Resp::PlayError { generation, msg: format!("{e:#}"), offer_backup_at: None }
+                        let msg = if unreachable(&e) { crate::tr!("backend-unreachable").to_owned() } else { format!("{e:#}") };
+                        Resp::PlayError { generation, msg, offer_backup_at: None }
                     }
                 },
                 Req::VideoStream { video_id, max_height } => {
@@ -1449,7 +1453,10 @@ impl Backend {
         .await;
         res.unwrap_or_else(|e| {
             log::warn!("{what} failed: {e:#}");
-            (!quiet).then(|| Resp::Error(crate::tr!("backend-error", operation = what, error = e.to_string())))
+            match unreachable(&e) {
+                true => (!quiet).then_some(Resp::Offline),
+                false => (!quiet).then(|| Resp::Error(crate::tr!("backend-error", operation = what, error = e.to_string()))),
+            }
         })
     }
 
@@ -2841,8 +2848,40 @@ fn artist_pic(found: &[Card], id: &str, name: &str) -> Option<crate::discord::Ba
 }
 
 // Larger art URL for the background / now-playing view.
+/// Whether `e` is that nothing could be reached: no connection, or a name that doesn't
+/// resolve. Not a server that answered with an error, nor one that's slow.
+fn unreachable(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| c.downcast_ref::<reqwest::Error>().is_some_and(reqwest::Error::is_connect))
+}
+
 pub fn art_url(t: &Track) -> Option<String> {
     model::pick(&t.thumbs, 120).map(|u| sized(u, 544))
+}
+
+#[cfg(test)]
+mod unreachable_tests {
+    use anyhow::Context;
+
+    #[tokio::test]
+    async fn no_connection_is_unreachable_and_a_servers_error_isnt() {
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        // Nothing listens there: refused, as with no network.
+        let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap();
+        let refused = http.get(format!("http://{closed}/")).send().await.unwrap_err();
+        assert!(super::unreachable(&anyhow::Error::new(refused).context("Home")));
+        // A server that answered, with an error.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let _ = socket.read(&mut [0; 1024]).await;
+            let _ = socket.write_all(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n").await;
+        });
+        let status = http.get(format!("http://{addr}/")).send().await.unwrap().error_for_status().unwrap_err();
+        assert!(!super::unreachable(&anyhow::Error::new(status)));
+        assert!(!super::unreachable(&Err::<(), _>(anyhow::anyhow!("no songs")).context("Search").unwrap_err()));
+    }
 }
 
 #[cfg(test)]

@@ -26,6 +26,7 @@ transfer-spotify-account = Spotify account
 transfer-signed-in-plan = Signed in · works with Free and Premium
 transfer-signed-in-as = Signed in as { $name }
 transfer-credential-storage = The sign-in is saved encrypted in Windows Credential Manager.
+transfer-credential-storage-system = The sign-in is saved in the system's keyring, or, if it can't be used, in a file only you can read.
 transfer-checking-sign-in = Checking your sign-in…
 transfer-private-sign-in = Needed for Liked Songs and private playlists. Public playlists work without it.
 transfer-sign-in-spotify = Sign in to Spotify

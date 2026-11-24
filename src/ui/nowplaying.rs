@@ -874,8 +874,8 @@ fn portrait_panel(look: &crate::preset::Preset, content: Rect, fullscreen: bool)
     let top_pad = (content.height() * 0.03).clamp(16.0, 48.0);
     let max_h = (content.height() * 0.48 - top_pad - text_h - 16.0).max(100.0);
     let cs = &look.cover;
-    let theme_max = cs.fullscreen.filter(|_| fullscreen).and_then(|f| f.max_px).or(if fullscreen && cs.fullscreen.is_some() { None } else { cs.max_px }).unwrap_or(f32::INFINITY);
-    let cap = (content.width() * 0.82).min(max_h).min(theme_max);
+    // The theme's limit, but not its steps by window width: here the cover has the whole width.
+    let cap = (content.width() * 0.82).min(max_h).min(art_max_px(cs, fullscreen, None));
     let desired = (content.width() * 0.76).min(max_h) * cs.size.clamp(0.65, 1.3);
     let side = desired.min(cap).max(140.0_f32.min(cap));
     let col = Rect::from_min_size(content.min + vec2(0.0, top_pad), vec2(content.width(), side + text_h));
@@ -887,10 +887,11 @@ fn content_wide(ctx: &egui::Context, area: Rect) -> bool {
     area.width() >= 860.0 && !portrait_layout(ctx, area)
 }
 
-/// Upper pixel bound imposed by the theme on the artwork size.
-fn art_max_px(cs: &crate::preset::CoverStyle, fullscreen: bool, window_w: f32) -> f32 {
+/// Upper pixel bound imposed by the theme on the artwork size; by the window's width
+/// (`window_w`) when it has steps.
+fn art_max_px(cs: &crate::preset::CoverStyle, fullscreen: bool, window_w: Option<f32>) -> f32 {
     let fs_max = cs.fullscreen.filter(|_| fullscreen).and_then(|f| f.max_px);
-    let stepped = cs.size_steps.iter().rev().find(|s| window_w >= s[0]).map(|s| s[1]);
+    let stepped = window_w.and_then(|w| cs.size_steps.iter().rev().find(|s| w >= s[0])).map(|s| s[1]);
     fs_max.or(stepped).or(if fullscreen && cs.fullscreen.is_some() { None } else { cs.max_px }).unwrap_or(f32::INFINITY)
 }
 
@@ -912,7 +913,7 @@ fn art_side(cs: &crate::preset::CoverStyle, col: Rect, fullscreen: bool, window_
         Some(f) => side.min(col.width() * f),
         None => side,
     };
-    side.min(art_max_px(cs, fullscreen, window_w))
+    side.min(art_max_px(cs, fullscreen, Some(window_w)))
 }
 
 /// The corner layout's cover and title.

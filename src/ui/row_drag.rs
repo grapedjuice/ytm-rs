@@ -72,12 +72,18 @@ impl Rows {
 /// stay on top and clicks still reach them; only a real drag lands here. Not for a
 /// finger, where dragging scrolls (see `finger`).
 pub fn grip(ui: &mut Ui, drag: &mut Option<RowDrag>, list: Id, i: usize, t: &Track) {
-    if !finger(ui) {
-        let rect = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), row_height(ui)));
+    let id = list.with(("grip", i));
+    let finger = finger(ui);
+    let rect = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), row_height(ui)));
+    // A finger's first swipe after the mouse came down on a grip still there from it, and
+    // egui gave it the press: the grip stays for that swipe, and scrolls as a shelf does.
+    if finger && ui.ctx().is_being_dragged(id) {
+        super::widgets::shelf_drag(ui, &ui.interact(rect, id, Sense::DRAG), id.with("swipe"));
+    } else if !finger {
         // egui counts a drag-only widget as dragged from the press itself: wait until the
         // pointer has moved too far (or held too long) for a click. A drag some other list
         // left behind gives way.
-        let grip = ui.interact(rect, list.with(("grip", i)), Sense::DRAG);
+        let grip = ui.interact(rect, id, Sense::DRAG);
         let held = drag.as_ref().is_some_and(|d| d.list == list && d.from == i);
         if grip.dragged_by(egui::PointerButton::Primary) && !held && ui.input(|input| input.pointer.is_decidedly_dragging()) {
             *drag = Some(RowDrag { list, from: i, track: t.clone(), seen: ui.ctx().cumulative_frame_nr() });
@@ -776,6 +782,20 @@ mod tests {
         l.touch(egui::TouchPhase::Start, far);
         l.touch(egui::TouchPhase::End, far);
         l.shown = true;
+        l.frame(vec![]);
+        l.swipe_up_now(5, 190.0);
+        assert!(l.offset >= 189.0, "{}", l.offset);
+        assert!(l.drag.is_none() && l.clicked.is_empty());
+    }
+
+    /// A finger that comes down where the mouse left the grips: the first swipe scrolls too.
+    #[test]
+    fn the_first_swipe_after_the_mouse_scrolls_the_list() {
+        let mut l = List::new(40);
+        let far = pos2(WIDTH - 20.0, HEIGHT - 10.0);
+        l.touch(egui::TouchPhase::Start, far);
+        l.touch(egui::TouchPhase::End, far);
+        l.move_to(l.on_row(8, 300.0));
         l.frame(vec![]);
         l.swipe_up_now(5, 190.0);
         assert!(l.offset >= 189.0, "{}", l.offset);

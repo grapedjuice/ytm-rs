@@ -139,6 +139,8 @@ pub enum Req {
     Subscribe { channel_id: String, on: bool },
     SetCookie(String),
     Logout,
+    /// Whether YouTube Music can be reached now, asked while a page says it can't (#366).
+    Reachable,
 }
 
 impl Req {
@@ -193,12 +195,13 @@ impl Req {
             Req::Subscribe { .. } => crate::tr!("ui-subscribe"),
             Req::SetCookie(_) => crate::tr!("nav-sign-in"),
             Req::Logout => crate::tr!("settings-sign-out"),
+            Req::Reachable => crate::tr!("settings-network"),
         }
     }
 
     /// Background requests fail quietly (logged, no toast).
     fn quiet(&self) -> bool {
-        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::SongRating { .. } | Req::Art { .. } | Req::Radio { smart: true, .. } | Req::Prefetch { .. } | Req::StageNext { .. } | Req::GaplessStarted { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::ArtistPicture { .. } | Req::MusicVideo(_) | Req::LyricsExtras { .. } | Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. })
+        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::SongRating { .. } | Req::Art { .. } | Req::Radio { smart: true, .. } | Req::Prefetch { .. } | Req::StageNext { .. } | Req::GaplessStarted { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::ArtistPicture { .. } | Req::MusicVideo(_) | Req::LyricsExtras { .. } | Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. } | Req::Reachable)
     }
 }
 
@@ -465,6 +468,8 @@ pub enum Resp {
     /// A request failed because YouTube Music can't be reached at all (no connection):
     /// one plain message for all of them, not each one's error (#353).
     Offline,
+    /// `Req::Reachable`'s answer.
+    Reachable(bool),
 }
 
 impl Resp {
@@ -1448,6 +1453,7 @@ impl Backend {
                     self.forget_session().await;
                     Resp::LoggedIn(false)
                 }
+                Req::Reachable => Resp::Reachable(ytmapi::reachable(&self.http()).await),
             }))
         }
         .await;

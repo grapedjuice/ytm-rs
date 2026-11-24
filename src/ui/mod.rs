@@ -465,6 +465,8 @@ pub struct App {
     /// It failed because YouTube Music can't be reached: the retry says so, and offers
     /// Downloads, which play without it.
     offline: bool,
+    /// When to next ask whether it can be reached again (`Req::Reachable`), while it says so.
+    online_check: f64,
     search_text: String,
     /// What was typed, the search terms for it, and the songs, artists and albums it
     /// most likely means.
@@ -959,6 +961,7 @@ impl App {
             loading: false,
             load_failed: false,
             offline: false,
+            online_check: 0.0,
             search_text: String::new(),
             suggestions: Default::default(),
             suggest_sel: None,

@@ -644,6 +644,9 @@ impl App {
                 self.offline = false;
                 self.on_error(e);
             }
+            // Back: the page that couldn't load loads, as Try again would.
+            Resp::Reachable(true) if self.offline && self.load_failed => self.refresh(),
+            Resp::Reachable(_) => {}
             Resp::Offline => {
                 self.offline = true;
                 // On Downloads already, it doesn't point there.

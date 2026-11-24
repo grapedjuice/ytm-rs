@@ -134,6 +134,15 @@ impl Rows {
 /// request failed.
 fn placeholder(app: &mut App, ui: &mut Ui, now: f64, rows: usize, card: f32) {
     if app.load_failed {
+        // Offline: asked again every few seconds, quietly; reachable, it loads (#366).
+        if app.offline {
+            const EVERY: f64 = 10.0;
+            if now >= app.online_check {
+                app.online_check = now + EVERY;
+                app.backend.request(crate::backend::Req::Reachable);
+            }
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64((app.online_check - now).max(0.1)));
+        }
         ui.add_space(40.0);
         let why = if app.offline { super::offline_text(false) } else { crate::tr!("nav-load-failed") };
         ui.add(egui::Label::new(RichText::new(why).color(theme::text_dim())).wrap());

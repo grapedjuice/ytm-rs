@@ -22,6 +22,14 @@ pub fn retrying() -> bool {
     std::env::args_os().skip(1).any(|a| a == RETRY_FLAG)
 }
 
+/// The relaunch's arguments: this launch's own (a jam link to join, say), without the
+/// predecessor's `--after=`, plus the retry flag.
+pub fn retry_args(args: impl Iterator<Item = std::ffi::OsString>) -> Vec<String> {
+    let mut out: Vec<String> = args.filter_map(|a| a.into_string().ok()).filter(|a| !a.starts_with("--after=")).collect();
+    out.push(RETRY_FLAG.into());
+    out
+}
+
 /// The saved choice; wgpu falls back to OpenGL when no adapter for it answers, since a
 /// window that fails to open can't be switched back from inside the app.
 pub fn init(data_dir: &Path) -> Renderer {
@@ -83,4 +91,14 @@ pub fn available() -> bool {
     let Ok(rt) = tokio::runtime::Builder::new_current_thread().build() else { return false };
     let adapter = rt.block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()));
     adapter.is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn retry_args_keep_the_launch_and_add_the_flag() {
+        let args = ["--after=42", "ytm-rs://jam/ABC123"].map(std::ffi::OsString::from);
+        assert_eq!(super::retry_args(args.into_iter()), ["ytm-rs://jam/ABC123", super::RETRY_FLAG]);
+        assert_eq!(super::retry_args(std::iter::empty()), [super::RETRY_FLAG]);
+    }
 }

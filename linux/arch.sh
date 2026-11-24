@@ -17,6 +17,13 @@ if [[ ! "$pkg_version" =~ ^[0-9][0-9A-Za-z.+_]*$ ]]; then
   echo "Invalid Arch package version: $pkg_version" >&2
   exit 1
 fi
+# 2.0.x was a joke: from 0.4.0 on, epoch=1 puts a version after it, as the
+# app's updater does. makepkg puts it in the file's name (1:0.4.0); the release's
+# copy leaves it out.
+case $version in
+  2.0.*) epoch= ;;
+  *) epoch=1 ;;
+esac
 
 pacman -Syu --noconfirm --needed \
   base-devel git rust pkgconf clang cmake nasm \
@@ -67,10 +74,12 @@ package() {
 PKGBUILD
 
 sed -i "s/^pkgver=.*/pkgver=$pkg_version/" _archpkg/PKGBUILD
+[ -z "$epoch" ] || sed -i "s/^pkgver=/epoch=$epoch\npkgver=/" _archpkg/PKGBUILD
 chown -R builder:builder _archpkg
 runuser -u builder -- bash -c \
   'cd /src/_archpkg && makepkg --force --noconfirm --nodeps'
 
 pkg="ytm-rs-$pkg_version-1-x86_64.pkg.tar.zst"
-cp "_archpkg/$pkg" out/
+built="ytm-rs-${epoch:+$epoch:}$pkg_version-1-x86_64.pkg.tar.zst"
+cp "_archpkg/$built" "out/$pkg"
 ls -lh "out/$pkg"

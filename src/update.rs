@@ -28,11 +28,12 @@
 //! finds, and any other on request ([`Updater::notes`]), for the update dialog, the
 //! card shown after updating and Settings.
 //!
-//! Two channels: stable follows the latest published release; nightly also takes the
-//! prereleases built from main every night there are new changes (tagged
-//! `v<version>-nightly.<date>`, see the release workflow), whichever is newer. A nightly
-//! build knows it is one from `YTM_NIGHTLY`, set when it was built. Switching back to
-//! stable from a nightly installs the latest stable release, though its version is lower.
+//! Two channels, both picked from the list of releases: stable takes the newest
+//! published release; nightly also takes the prereleases built from main every night
+//! there are new changes (tagged `v<version>-nightly.<date>`, see the release workflow),
+//! whichever is newer. A nightly build knows it is one from `YTM_NIGHTLY`, set when it
+//! was built. Switching back to stable from a nightly installs the latest stable
+//! release, though its version is lower.
 //!
 //! Dev hooks: `YTM_UPDATE_FORCE=1` treats any build as installed; `YTM_UPDATE_AS=<ver>`
 //! pretends to be that version; `YTM_UPDATE_FLATPAK=1` (Linux) acts as a Flatpak;
@@ -55,7 +56,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 
-const LATEST: &str = "https://api.github.com/repos/grapedjuice/ytm-rs/releases/latest";
 const ALL_RELEASES: &str = "https://api.github.com/repos/grapedjuice/ytm-rs/releases";
 const BY_TAG: &str = "https://api.github.com/repos/grapedjuice/ytm-rs/releases/tags/v";
 pub const RELEASES: &str = "https://github.com/grapedjuice/ytm-rs/releases";
@@ -399,13 +399,21 @@ fn spawn(cmd: &mut Command) -> bool {
 /// `a` is newer than `b` (dotted numeric versions, a leading "v" ignored). A nightly
 /// (`0.2.34-nightly.20261110`) is built from main after that version's release, so it's
 /// newer than the release and older than the next one.
+///
+/// 2.0.x was a joke between 0.3.4 and 0.4.0, so it counts as 0.3.4.x: 2.0.2
+/// and the 2.0.3 that brings it back go on to 0.4.0, and nothing goes back to them.
+/// A real 2.0 would have to skip to 2.1.
 pub fn newer(a: &str, b: &str) -> bool {
     let nums = |s: &str| s.split('.').map(|p| p.parse::<u64>().unwrap_or(0)).collect::<Vec<_>>();
+    let base = |s: &str| match nums(s).as_slice() {
+        [2, 0, rest @ ..] => [0, 3, 4].iter().chain(rest).copied().collect(),
+        n => n.to_vec(),
+    };
     let parse = |v: &str| {
         let v = v.trim_start_matches('v');
         match v.split_once(NIGHTLY) {
-            Some((base, build)) => (nums(base), Some(nums(build))),
-            None => (nums(v), None),
+            Some((b, build)) => (base(b), Some(nums(build))),
+            None => (base(v), None),
         }
     };
     let cmp = |a: &[u64], b: &[u64]| {
@@ -592,8 +600,9 @@ impl Updater {
 
     async fn run(&self, nightly: bool) -> anyhow::Result<State> {
         let http = client()?;
-        // Nightlies are prereleases, which the latest release never is: they're in the list.
-        let feed = std::env::var("YTM_UPDATE_FEED").unwrap_or_else(|_| if nightly { format!("{ALL_RELEASES}?per_page=30") } else { LATEST.to_owned() });
+        // The list, on stable too: GitHub's latest release is the one copies before 2.0.3
+        // read, so it can stay the 2.0.3 that brings 2.0.2 back to 0.x while 0.x goes on.
+        let feed = std::env::var("YTM_UPDATE_FEED").unwrap_or_else(|_| format!("{ALL_RELEASES}?per_page=30"));
         let feed: serde_json::Value = github_api(&http, &feed).await?.json().await?;
         let release = pick_release(feed, nightly).ok_or_else(|| anyhow::anyhow!("no releases found"))?;
         let tag = release["tag_name"].as_str().unwrap_or_default();

@@ -1991,12 +1991,6 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             }
         });
         divider(ui);
-        setting_row(ui, tr!("settings-show-community-playlists"), Some(tr!("settings-show-community-playlists-desc")), |ui| {
-            if toggle(ui, &mut app.show_community, tr!("settings-show-community-playlists")).changed() {
-                app.set_show_community();
-            }
-        });
-        divider(ui);
         setting_row(ui, tr!("settings-show-comments"), Some(tr!("settings-show-comments-desc")), |ui| {
             if toggle(ui, &mut app.show_comments, tr!("settings-show-comments")).changed() && !app.show_comments && app.np_tab == super::NpTab::Comments {
                 app.np_tab = super::NpTab::Art;

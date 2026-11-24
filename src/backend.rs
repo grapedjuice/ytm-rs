@@ -220,8 +220,7 @@ pub struct SearchResults {
     pub albums: Vec<Card>,
     pub artists: Vec<Card>,
     pub playlists: Vec<Card>,
-    /// Playlists made by YouTube Music's listeners, with Settings › Playback › Show
-    /// community playlists on.
+    /// Playlists made by YouTube Music's listeners.
     pub community: Vec<Card>,
     /// Podcast shows and episodes, when podcasts are shown.
     pub podcasts: Vec<Card>,
@@ -1479,19 +1478,13 @@ impl Backend {
             let (shows, episodes) = tokio::join!(ytm::search_cards(api, &query, ytm::Filter::Podcasts, me), ytm::search_episodes(api, &query, me));
             (shows.unwrap_or_default(), episodes.unwrap_or_default())
         };
-        let community = async {
-            if !ytm::community_playlists() {
-                return Vec::new();
-            }
-            ytm::search_cards(api, &query, ytm::Filter::Community, me).await.unwrap_or_default()
-        };
         let (t, v, al, ar, pl, cm, (podcasts, episodes)) = tokio::join!(
             ytm::search_songs(api, &query, me),
             ytm::search_videos(api, &query, me),
             ytm::search_cards(api, &query, ytm::Filter::Albums, me),
             ytm::search_cards(api, &query, ytm::Filter::Artists, me),
             ytm::search_cards(api, &query, ytm::Filter::Playlists, me),
-            community,
+            ytm::search_cards(api, &query, ytm::Filter::Community, me),
             podcasts,
         );
         Ok(Resp::Search(SearchResults {
@@ -1500,7 +1493,8 @@ impl Backend {
             albums: al.unwrap_or_default(),
             artists: ar.unwrap_or_default(),
             playlists: pl.unwrap_or_default(),
-            community: cm,
+            // Only playlists, should the reply carry another kind of shelf too.
+            community: cm.unwrap_or_default().into_iter().filter(|c| matches!(c.target, Target::Playlist(_))).collect(),
             podcasts,
             episodes,
             query,

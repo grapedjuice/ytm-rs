@@ -700,8 +700,10 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
         let side_now = egui::lerp(side_alone..=side_panel, glide);
         let px = (side_alone.max(side_panel) * ppp) as u32;
         cover_column(app, ui, col, track, no_lyrics, now, px, Some((side_now, glide)));
-        // The card goes with the cover, from the corner (where the cover on its own leaves it room).
-        card_at = Rect::from_min_max(content.min.lerp(card_panel.min, glide), content.max.lerp(card_panel.max, glide));
+        // The card goes with the cover: in the corner while it's on its own (which leaves the
+        // card room), by it once stacked. It fades between the two rather than moving, or it
+        // would cross the panel coming in.
+        card_at = if glide < 0.5 { content } else { card_panel };
         Rect::from_min_max(pos2(content.left(), (col_panel.bottom() + 12.0).min(content.bottom())), content.max)
     } else {
         // Cover column, on the preset's side; it glides to the center as the panel leaves.
@@ -728,9 +730,9 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
             Rect::from_min_max(pos2(col_panel.right() + 28.0, content.top()), content.max)
         }
     };
-    // The theme's card for the song, in the corner (the cover then has no title under it).
-    // It stays with the backdrop's cover too, so it's the one card through the transition.
-    let card_vis = if fs_corner { art_vis } else if corner { 0.0 } else if beside_cover || !lyrics_only { 1.0 } else { art_vis };
+    // The theme's card for the song, in a corner of the cover's place (the cover then has no
+    // title under it). It stays with the backdrop's cover too, so it's the one card through the transition.
+    let card_vis = if stacked_portrait { (2.0 * glide - 1.0).abs() } else if fs_corner { art_vis } else if corner { 0.0 } else if beside_cover || !lyrics_only { 1.0 } else { art_vis };
     if np.shows_info_card(app.fullscreen) && card_vis > 0.001 {
         let mut card = ui.new_child(egui::UiBuilder::new().max_rect(card_at));
         card.multiply_opacity(card_vis);

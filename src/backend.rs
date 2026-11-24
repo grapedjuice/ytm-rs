@@ -2849,9 +2849,12 @@ fn artist_pic(found: &[Card], id: &str, name: &str) -> Option<crate::discord::Ba
 
 // Larger art URL for the background / now-playing view.
 /// Whether `e` is that nothing could be reached: no connection, or a name that doesn't
-/// resolve. Not a server that answered with an error, nor one that's slow.
+/// resolve. Not a server that answered with an error, nor one that's slow, nor a proxy
+/// that answered and wouldn't pass the request on (it wants a sign-in, say): reqwest
+/// counts that as connecting too, and its own error says more.
 fn unreachable(e: &anyhow::Error) -> bool {
-    e.chain().any(|c| c.downcast_ref::<reqwest::Error>().is_some_and(reqwest::Error::is_connect))
+    let proxy_said_no = e.chain().any(|c| matches!(c.to_string().as_str(), "tunnel error: proxy authorization required" | "tunnel error: unsuccessful"));
+    !proxy_said_no && e.chain().any(|c| c.downcast_ref::<reqwest::Error>().is_some_and(reqwest::Error::is_connect))
 }
 
 pub fn art_url(t: &Track) -> Option<String> {
@@ -2881,6 +2884,23 @@ mod unreachable_tests {
         let status = http.get(format!("http://{addr}/")).send().await.unwrap().error_for_status().unwrap_err();
         assert!(!super::unreachable(&anyhow::Error::new(status)));
         assert!(!super::unreachable(&Err::<(), _>(anyhow::anyhow!("no songs")).context("Search").unwrap_err()));
+        // A proxy that answered, and wants a sign-in or couldn't get through itself.
+        for answer in ["407 Proxy Authentication Required", "502 Bad Gateway"] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(async move {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let _ = socket.read(&mut [0; 1024]).await;
+                let _ = socket.write_all(format!("HTTP/1.1 {answer}
+Content-Length: 0
+
+").as_bytes()).await;
+            });
+            let http = reqwest::Client::builder().proxy(reqwest::Proxy::all(format!("http://{addr}")).unwrap()).build().unwrap();
+            let refused = http.get("https://music.youtube.com/").send().await.unwrap_err();
+            assert!(!super::unreachable(&anyhow::Error::new(refused)), "{answer}");
+        }
     }
 }
 

@@ -73,9 +73,25 @@ impl App {
             Dialog::ConfirmAddDuplicates { .. } => crate::tr!("dialog-add-duplicates-title"),
             Dialog::Collaborate { .. } => crate::tr!("ui-collaborate"),
         };
+        // A distinct area id per dialog kind. egui keeps an area's previous size when its
+        // content shrinks, so a small dialog opened over a big one (the duplicate
+        // confirmation after "Add to playlist") would otherwise inherit the stale, taller
+        // rect and draw with a large empty gap below its buttons.
+        let modal_id = egui::Id::unique((
+            "playlist-dialog",
+            match &dialog {
+                Dialog::PickPlaylist(_) => 0,
+                Dialog::NewPlaylist { .. } => 1,
+                Dialog::EditPlaylist { .. } => 2,
+                Dialog::ConfirmAddDuplicates { .. } => 3,
+                Dialog::ConfirmDownload { .. } => 4,
+                Dialog::Collaborate { .. } => 5,
+                Dialog::ConfirmDelete { .. } | Dialog::ConfirmDeleteUpload { .. } | Dialog::ConfirmClearCache => 6,
+            },
+        ));
         // The same modal card as "Delete playlist?" and the update dialog.
-        widgets::modal_extras(ctx, egui::Id::unique("playlist-dialog"));
-        let modal = egui::Modal::new(egui::Id::unique("playlist-dialog")).frame(notes::surface()).backdrop_color(theme::shade(0.55)).show(ctx, |ui| {
+        widgets::modal_extras(ctx, modal_id);
+        let modal = egui::Modal::new(modal_id).frame(notes::surface()).backdrop_color(theme::shade(0.55)).show(ctx, |ui| {
             ui.set_width(440.0_f32.min(ctx.content_rect().width() - 48.0));
             egui::Frame::new().inner_margin(egui::Margin { left: 26, right: 26, top: 24, bottom: 22 }).show(ui, |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);

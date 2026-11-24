@@ -443,7 +443,8 @@ pub fn drag_area(ui: &Ui, rect: Rect, id: &str) {
     if !shown(ui.ctx()) {
         return;
     }
-    if drag_strip(ui, rect, id).double_clicked() {
+    let strip = drag_strip(ui, rect, id);
+    if strip.double_clicked() || double_tapped(ui, &strip) {
         let max = maximized(ui.ctx());
         // macOS: what System Settings › Desktop & Dock says a double-click on a title bar does.
         #[cfg(target_os = "macos")]
@@ -454,6 +455,28 @@ pub fn drag_area(ui: &Ui, rect: Rect, id: &str) {
         }
         ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(!max));
     }
+}
+
+/// A finger's double tap on `resp`. A finger lands less exactly than a mouse clicks, and
+/// egui's double-click wants both clicks within 6 points and 0.3 s (#190): a tap counts
+/// within a touch target's width of the one before, and GNOME's double-click time.
+fn double_tapped(ui: &Ui, resp: &egui::Response) -> bool {
+    const DELAY: f64 = 0.4;
+    const NEAR: f32 = 48.0;
+    let finger = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Touch { .. })));
+    let (Some(at), true) = (resp.interact_pointer_pos(), resp.clicked() && finger) else { return false };
+    let now = ui.input(|i| i.time);
+    let id = resp.id.with("tap");
+    let double = ui.data(|d| d.get_temp::<(f64, Pos2)>(id)).is_some_and(|(t, p)| now - t < DELAY && p.distance(at) < NEAR);
+    ui.data_mut(|d| {
+        // A third tap starts over, rather than toggling back.
+        if double {
+            d.remove::<(f64, Pos2)>(id);
+        } else {
+            d.insert_temp(id, (now, at));
+        }
+    });
+    double
 }
 
 /// [`drag_area`] without the double-click, with or without the system's frame (the mini
@@ -1043,5 +1066,58 @@ mod tests {
         assert!(!Choice::Auto.own(true, ""));
         assert!(Choice::Own.own(false, "KDE"));
         assert!(!Choice::System.own(true, "GNOME"));
+    }
+}
+#[cfg(test)]
+mod tap_tests {
+    use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, pos2, vec2};
+
+    /// Two clicks on a title bar strip, `gap` seconds and `dx` points apart, by a finger
+    /// (as egui-winit sends a tap: the touch with the pointer's events) or the mouse:
+    /// whether the second one maximizes, as `drag_area` decides.
+    fn second_is_double(finger: bool, gap: f64, dx: f32) -> bool {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx, "", &[]);
+        let click = |t: f64, p: Pos2, id: u64| {
+            let touch = |phase| Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(id), phase, pos: p, force: None };
+            let button = |pressed| Event::PointerButton { pos: p, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+            match finger {
+                true => vec![(t, vec![touch(egui::TouchPhase::Start), Event::PointerMoved(p), button(true)]), (t + 0.08, vec![touch(egui::TouchPhase::End), button(false), Event::PointerGone])],
+                false => vec![(t, vec![Event::PointerMoved(p), button(true)]), (t + 0.08, vec![button(false)])],
+            }
+        };
+        let mut frames = vec![(0.0, vec![])];
+        frames.extend(click(0.5, pos2(300.0, 20.0), 1));
+        frames.extend(click(0.5 + gap, pos2(300.0 + dx, 20.0), 2));
+        let mut doubles = 0;
+        for (t, events) in frames {
+            let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))), time: Some(t), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| {
+                let strip = super::drag_strip(ui, Rect::from_min_size(Pos2::ZERO, vec2(800.0, 50.0)), "test");
+                doubles += usize::from(strip.double_clicked() || super::double_tapped(ui, &strip));
+            });
+            out.textures_delta.clear();
+        }
+        assert!(doubles <= 1);
+        doubles == 1
+    }
+
+    #[test]
+    fn a_finger_double_taps_the_title_bar_as_a_finger_lands() {
+        // What egui's double-click already takes.
+        assert!(second_is_double(true, 0.15, 0.0));
+        // A finger's second tap a little beside the first, or a little later.
+        assert!(second_is_double(true, 0.15, 8.0));
+        assert!(second_is_double(true, 0.35, 0.0));
+        // Too late, or somewhere else: two taps.
+        assert!(!second_is_double(true, 0.5, 0.0));
+        assert!(!second_is_double(true, 0.15, 60.0));
+    }
+
+    #[test]
+    fn the_mouse_double_clicks_as_before() {
+        assert!(second_is_double(false, 0.15, 0.0));
+        assert!(!second_is_double(false, 0.15, 8.0));
+        assert!(!second_is_double(false, 0.35, 0.0));
     }
 }

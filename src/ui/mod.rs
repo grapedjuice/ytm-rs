@@ -2120,6 +2120,8 @@ impl eframe::App for App {
         recognize::inline(self, &ctx);
         shell::toast(self, &ctx, now);
 
+        // Full screen may have come or gone this frame, and the buttons go with it.
+        titlebar::set_fullscreen(&ctx, self.fullscreen);
         titlebar::window_buttons(&ctx);
         titlebar::resize_edges(&ctx);
         // Back from the mini player.

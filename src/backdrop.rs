@@ -70,6 +70,12 @@ pub fn shows() -> bool {
 /// Windows 11 22H2 or later, where `DWMWA_SYSTEMBACKDROP_TYPE` exists.
 #[cfg(windows)]
 pub fn supported() -> bool {
+    windows_build().is_some_and(|build| build >= 22621)
+}
+
+/// The Windows build this runs on (22000 and up is Windows 11), as the registry says.
+#[cfg(windows)]
+pub fn windows_build() -> Option<u32> {
     use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
     use windows::core::w;
     let mut buf = [0u16; 16];
@@ -77,7 +83,10 @@ pub fn supported() -> bool {
     // SAFETY: an out-buffer of the size passed; the strings are static.
     let read = unsafe { RegGetValueW(HKEY_LOCAL_MACHINE, w!(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"), w!("CurrentBuildNumber"), RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr() as *mut _), Some(&mut size)) };
     let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-    read.is_ok() && String::from_utf16_lossy(&buf[..len]).parse::<u32>().is_ok_and(|build| build >= 22621)
+    if read.is_err() {
+        return None;
+    }
+    String::from_utf16_lossy(&buf[..len]).parse().ok()
 }
 
 #[cfg(not(windows))]

@@ -89,22 +89,28 @@ pub fn grip(ui: &mut Ui, drag: &mut Option<RowDrag>, list: Id, i: usize, t: &Tra
     }
 }
 
-/// Whether the pointer is a finger, as last seen. egui gives a press to what was under it
-/// the frame before, so the grips have to be gone before a finger comes down: one there
-/// would take the swipe, and the list wouldn't scroll (#190). Moving the mouse makes the
-/// grips come back for it.
+/// Whether the pointer is a finger, as last seen (see `note_pointer`). egui gives a press
+/// to what was under it the frame before, so the grips have to be gone before a finger
+/// comes down: one there would take the swipe, and the list wouldn't scroll (#190).
 fn finger(ui: &Ui) -> bool {
-    let id = Id::unique("row-drag-finger");
-    let was = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
-    let now = ui.input(|i| {
-        let touched = i.any_touches() || i.events.iter().any(|e| matches!(e, egui::Event::Touch { .. }));
-        let pointed = i.events.iter().any(|e| matches!(e, egui::Event::PointerMoved(_) | egui::Event::PointerButton { .. }));
-        if touched { true } else if pointed { false } else { was }
-    });
-    if now != was {
-        ui.data_mut(|d| d.insert_temp(id, now));
+    ui.data(|d| d.get_temp::<bool>(finger_id())).unwrap_or(false)
+}
+
+fn finger_id() -> Id {
+    Id::unique("row-drag-finger")
+}
+
+/// Notes from each frame's `events` whether the pointer is a finger: a touch makes it one,
+/// and the mouse moving (or a button without a touch) the mouse again. Every frame,
+/// whatever is on screen: a list a finger opened (from the search box, say) knows it's a
+/// finger before its first swipe.
+pub fn note_pointer(ctx: &egui::Context, events: &[egui::Event]) {
+    use egui::Event;
+    let touched = events.iter().any(|e| matches!(e, Event::Touch { .. }));
+    let pointed = events.iter().any(|e| matches!(e, Event::PointerMoved(_) | Event::PointerButton { .. }));
+    if touched || pointed {
+        ctx.data_mut(|d| d.insert_temp(finger_id(), touched));
     }
-    now
 }
 
 /// Call after the rows, inside their scroll area: shows where the drag in `list` would
@@ -278,7 +284,7 @@ fn edge_speed(y: f32, top: f32, bottom: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{SCROLL_EDGE, SCROLL_SPEED, edge_speed, gap_at};
-    use super::{Dropped, Over, RowDrag, Rows, carry, feedback, grip, receive, target};
+    use super::{Dropped, Over, RowDrag, Rows, carry, feedback, grip, note_pointer, receive, target};
     use crate::model::Track;
     use crate::ui::widgets::{RowOpts, row_height, track_row, visible_rows};
     use egui::{Event, Modifiers, PointerButton, Pos2, Rect, RawInput, pos2, vec2};
@@ -331,6 +337,8 @@ mod tests {
             let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(WIDTH, HEIGHT))), time: Some(self.time), predicted_dt: 1.0 / 60.0, events, ..Default::default() };
             self.time += 1.0 / 60.0;
             let ctx = self.ctx.clone();
+            // As the app's `raw_input_hook` does.
+            note_pointer(&ctx, &raw.events);
             let id = egui::Id::unique("test-list");
             let mut output = ctx.run_ui(raw, |ui| {
                 self.held = false;
@@ -427,6 +435,11 @@ mod tests {
             let far = pos2(WIDTH - 20.0, HEIGHT - 10.0);
             self.touch(egui::TouchPhase::Start, far);
             self.touch(egui::TouchPhase::End, far);
+            self.swipe_up_now(i, dy);
+        }
+
+        /// A finger put on row `i` and swiped up by `dy`, with nothing before it.
+        fn swipe_up_now(&mut self, i: usize, dy: f32) {
             let p = self.on_row(i, 300.0);
             self.touch(egui::TouchPhase::Start, p);
             for s in 1..=10 {
@@ -749,6 +762,22 @@ mod tests {
         let mut l = List::new(40);
         l.swipe_up(5, 190.0);
         // At least as far as the finger went: let go, it coasts on a little.
+        assert!(l.offset >= 189.0, "{}", l.offset);
+        assert!(l.drag.is_none() && l.clicked.is_empty());
+    }
+
+    /// A finger that last tapped where no list was (the search box, say) is still one
+    /// when a list then opens: its first swipe there scrolls it.
+    #[test]
+    fn a_list_opened_by_a_finger_scrolls_with_its_first_swipe() {
+        let mut l = List::new(40);
+        l.shown = false;
+        let far = pos2(WIDTH - 20.0, HEIGHT - 10.0);
+        l.touch(egui::TouchPhase::Start, far);
+        l.touch(egui::TouchPhase::End, far);
+        l.shown = true;
+        l.frame(vec![]);
+        l.swipe_up_now(5, 190.0);
         assert!(l.offset >= 189.0, "{}", l.offset);
         assert!(l.drag.is_none() && l.clicked.is_empty());
     }

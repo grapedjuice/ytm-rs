@@ -17,6 +17,12 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 # A nightly (0.3.0-nightly.20261111) comes after its version, and before the next, as
 # in the app's own updater.
 debver=$(echo "$version" | sed 's/-nightly\./+nightly./')
+# 2.0.x was a joke: from 0.4.0 on, an epoch (1:) puts a version after it,
+# as the app's updater does. The file's name leaves it out.
+case $version in
+    2.0.*) epoch= ;;
+    *) epoch=1: ;;
+esac
 case $(uname -m) in
     x86_64) arch=amd64 ;;
     aarch64) arch=arm64 ;;
@@ -49,7 +55,7 @@ depends="$shlibs, libayatana-appindicator3-1 | libappindicator3-1, desktop-file-
 mkdir -p "$pkg/DEBIAN"
 cat > "$pkg/DEBIAN/control" <<EOF
 Package: ytm-rs
-Version: $debver
+Version: $epoch$debver
 Architecture: $arch
 Maintainer: grapedjuice <82706397+grapedjuice@users.noreply.github.com>
 Installed-Size: $(du -sk "$pkg/usr" | cut -f1)

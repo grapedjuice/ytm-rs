@@ -1995,9 +1995,11 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 let label = crate::tr!("ui-up-next");
                 let (label, size) = if q.queue_upper { (label.to_uppercase(), 13.0) } else { (label.to_owned(), 20.0) };
-                let heading = egui::RichText::new(label).font(theme::bold(size));
-                let heading = if white_on_card { heading.color(Color32::WHITE) } else { heading };
-                ui.add(egui::Label::new(heading).truncate());
+                let font = theme::bold(size);
+                // Cut at its end, which in Arabic is its left: egui's own truncation keeps the end.
+                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ui.fonts_mut(|f| f.row_height(&font))), Sense::hover());
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &label));
+                text_at(ui, r.min, &label, font, if white_on_card { Color32::WHITE } else { theme::text() }, r.width());
             });
         });
     });

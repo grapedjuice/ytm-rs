@@ -2507,4 +2507,19 @@ mod time_tests {
         });
         out.textures_delta.clear();
     }
+
+    /// Up next in Arabic, too long for its room beside the window buttons, keeps its start.
+    #[test]
+    fn right_to_left_text_is_cut_at_its_end() {
+        let ctx = egui::Context::default();
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let font = egui::FontId::proportional(20.0);
+            let text = "التالي في الانتظار";
+            let full = ui.fonts_mut(|f| f.layout_job(crate::bidi::job(text, font.clone(), egui::Color32::WHITE)).size().x);
+            let cut = super::rtl_fit(ui, text, &font, full / 2.0);
+            assert!(cut.starts_with("التالي") && cut.ends_with('…'), "{cut}");
+        });
+        out.textures_delta.clear();
+    }
 }

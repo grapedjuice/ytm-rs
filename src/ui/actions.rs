@@ -453,6 +453,26 @@ impl App {
             )
         });
         let (space, back, fwd, next, prev, lyr, full, esc, vol_up, vol_down, mini, refresh, quit, undo) = i;
+        // ← and → seek, unless something on screen has them: a focused widget moves the
+        // focus with them (or its cursor, in a text box), and a menu, a dialog or the
+        // palette is in front of the player.
+        let covered = self.palette.is_open() || self.dialog.is_some() || egui::Popup::is_any_open(ctx) || ctx.memory(|m| m.top_modal_layer()).is_some();
+        if !typing && !covered {
+            let seeks: Vec<(bool, bool)> = ctx.input(|i| {
+                i.events
+                    .iter()
+                    .filter_map(|e| match e {
+                        egui::Event::Key { key: key @ (egui::Key::ArrowLeft | egui::Key::ArrowRight), pressed: true, repeat, modifiers, .. } if modifiers.is_none() => {
+                            Some((*key == egui::Key::ArrowLeft, *repeat))
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            });
+            for (back, repeat) in seeks {
+                self.seek_by_key(ctx, back, repeat);
+            }
+        }
         if undo && self.undo.is_some() {
             self.actions.push(Action::Undo);
         }

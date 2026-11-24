@@ -1148,8 +1148,8 @@ pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
         app.mini.set_card(&ctx, false);
     }
     let card_on = app.mini.card;
-    // A seek dragged in the card ends with it.
-    if !card_on {
+    // A seek dragged in the card ends with it; the arrow keys' (`seek_wheel`) goes on.
+    if !card_on && !app.seek_wheel.seeking() {
         app.seek_drag = None;
     }
     // The card waits for its window: grown, and moved up when it opens upwards.

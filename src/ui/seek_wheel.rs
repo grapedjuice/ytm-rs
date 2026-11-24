@@ -1,4 +1,5 @@
-//! The mouse wheel over a seek bar seeks, as it sets the volume over the volume.
+//! The mouse wheel over a seek bar seeks, as it sets the volume over the volume, and so
+//! do ← and →.
 //!
 //! A seek bar pointed at takes the frame's wheel events before smooth scrolling sees them,
 //! so nothing scrolls under it and a touchpad flick has no coast to seek on with. The
@@ -11,7 +12,7 @@ use egui::{Event, MouseWheelSource, MouseWheelUnit, Pos2, Rect};
 use super::wheel::{NOTCH_PX, PAUSE, TOUCHPAD_SCALE};
 use super::{Action, App};
 
-/// How far a wheel notch seeks, seconds: YouTube's arrow-key step. Fine enough to hear a
+/// How far a wheel notch or an arrow key seeks, seconds: YouTube's arrow-key step. Fine enough to hear a
 /// line again, and ten notches go most of a minute.
 const STEP: f32 = 5.0;
 /// A touchpad's points per notch: a swipe that would scroll a page by a notch seeks a step.
@@ -55,6 +56,11 @@ impl SeekWheel {
         if resp.hovered() {
             self.over = Some(self.over.map_or(resp.interact_rect, |r| r.union(resp.interact_rect)));
         }
+    }
+
+    /// Whether it has a position to show: one it's seeking to, or will.
+    pub(super) fn seeking(&self) -> bool {
+        self.target.is_some()
     }
 
     /// Takes the wheel events over the seek bar pointed at last frame out of one frame's
@@ -104,18 +110,41 @@ impl SeekWheel {
             self.last = time;
             // Turning on from a seek sent takes more than drift too.
             if (self.target.is_some() && self.sent.is_none()) || self.secs.abs() >= MIN {
-                let from = self.target.unwrap_or(pos);
-                // Already within `END` of the end, onward goes nowhere (and back still works).
-                let last = (total - END).max(from.min(total));
-                let t = (from + std::mem::take(&mut self.secs)).clamp(0.0, last);
-                // At the end, a seek there already sent isn't sent again, nor one to where
-                // playback already is.
-                if self.target != Some(t) && (self.target.is_some() || t != pos) {
-                    (self.target, self.sent) = (Some(t), None);
-                }
+                let secs = std::mem::take(&mut self.secs);
+                self.shift(secs, pos, total);
             }
         }
         events.len() != before
+    }
+
+    /// The target moved `secs` on from where it is, or from `pos`, within `0..=total`, short of its end.
+    fn shift(&mut self, secs: f32, pos: f32, total: f32) {
+        let from = self.target.unwrap_or(pos);
+        // Already within `END` of the end, onward goes nowhere (and back still works).
+        let last = (total - END).max(from.min(total));
+        let t = (from + secs).clamp(0.0, last);
+        // At the end, a seek there already sent isn't sent again, nor one to where
+        // playback already is.
+        if self.target != Some(t) && (self.target.is_some() || t != pos) {
+            (self.target, self.sent) = (Some(t), None);
+        }
+    }
+
+    /// ← or → (`back`) at `time`, playback at `pos` of `total`. A press with no seek under
+    /// way seeks at once, returning where to; a held key's repeats, and presses while one
+    /// is under way, move the target and seek once the key rests, as the wheel does.
+    fn key(&mut self, back: bool, repeat: bool, time: f64, pos: f32, total: f32) -> Option<f32> {
+        if total <= 0.0 {
+            return None;
+        }
+        let idle = self.target.is_none();
+        self.last = time;
+        self.shift(if back { -STEP } else { STEP }, pos, total);
+        if idle && !repeat && self.target.is_some() {
+            self.sent = Some(time);
+            return self.target;
+        }
+        None
     }
 
     /// The target to seek to, once the wheel has rested at `time`; drift too small to move
@@ -205,6 +234,29 @@ impl App {
                 self.seek_drag = self.seek_wheel.target;
             }
         }
+    }
+
+    /// ← or → pressed (`back`), held if `repeat`: 5 seconds back or on. Nothing playing,
+    /// a live stream or a length not known yet has nowhere to go, nor does a queue played
+    /// out (the player has stopped, and drops a seek).
+    pub(super) fn seek_by_key(&mut self, ctx: &egui::Context, back: bool, repeat: bool) {
+        // A drag on a seek bar has the position, as it does from the wheel.
+        let (down, time) = ctx.input(|i| (i.pointer.any_down(), i.time));
+        let played_out = self.ended && self.resume_at.is_none();
+        if self.current().is_none() || played_out || down || self.jam.guest_without_control() {
+            return;
+        }
+        let total = self.seek_length();
+        let pos = self.seek_drag.unwrap_or(self.audio.status.position_smooth().as_secs_f32()).min(total.max(0.0));
+        let now = self.seek_wheel.key(back, repeat, time, pos, total);
+        if self.seek_wheel.target.is_some() {
+            self.seek_drag = self.seek_wheel.target;
+        }
+        if let Some(t) = now {
+            self.apply(Action::Seek(t));
+        }
+        // The seek goes, or the position shown goes back, from the next frame's `seek_wheel_rest`.
+        ctx.request_repaint();
     }
 
     /// In the frame, after the actions and the jam's news (a song changed by them isn't seeked
@@ -404,6 +456,65 @@ mod tests {
         assert_eq!(turn(&mut w, vec![notch(0.1)], 3.1, 66.0), Some(66.0));
         assert_eq!(turn(&mut w, vec![notch(0.1)], 4.1, 66.0), Some(66.0));
         assert_eq!(w.settled(5.0), None);
+    }
+
+    #[test]
+    fn an_arrow_key_seeks_a_step_at_once() {
+        let mut w = SeekWheel::default();
+        assert_eq!(w.key(false, false, 1.0, 60.0, 200.0), Some(65.0));
+        // Sent already: resting doesn't send it again.
+        assert_eq!(w.settled(2.0), None);
+        assert!(w.landed(2.0, 65.1));
+        w.reset();
+        assert_eq!(w.key(true, false, 3.0, 65.0, 200.0), Some(60.0));
+    }
+
+    #[test]
+    fn a_held_arrow_key_seeks_once_it_rests() {
+        let mut w = SeekWheel::default();
+        assert_eq!(w.key(false, false, 1.0, 60.0, 200.0), Some(65.0));
+        // The repeats move the target from the last one, and nothing goes until they stop.
+        for (n, time) in [1.5, 1.53, 1.56].into_iter().enumerate() {
+            assert_eq!(w.key(false, true, time, 60.0, 200.0), None);
+            assert_eq!(w.target, Some(65.0 + 5.0 * (n + 1) as f32));
+        }
+        assert_eq!(w.settled(1.56 + SETTLE - 0.01), None);
+        assert_eq!(w.settled(1.56 + SETTLE), Some(80.0));
+        // Quick presses while a seek is under way add up the same way.
+        assert_eq!(w.key(true, false, 2.0, 60.0, 200.0), None);
+        assert_eq!(w.key(true, false, 2.25, 60.0, 200.0), None);
+        assert_eq!(w.settled(2.25 + SETTLE - 0.01), None);
+        assert_eq!(w.settled(2.6), Some(70.0));
+    }
+
+    #[test]
+    fn arrow_keys_stop_at_the_start_and_short_of_the_end() {
+        let mut w = SeekWheel::default();
+        assert_eq!(w.key(true, false, 1.0, 3.0, 200.0), Some(0.0));
+        let mut w = SeekWheel::default();
+        assert_eq!(w.key(false, false, 1.0, 197.0, 200.0), Some(199.0));
+        // At the start, or in the last second, the way it goes goes nowhere.
+        let mut w = SeekWheel::default();
+        assert_eq!(w.key(true, false, 1.0, 0.0, 200.0), None);
+        assert_eq!(w.key(false, false, 1.0, 199.5, 200.0), None);
+        assert_eq!(w.wait(1.0), None);
+        // Held into the end: the one seek there, once.
+        let mut w = SeekWheel::default();
+        assert_eq!(w.key(false, false, 1.0, 190.0, 200.0), Some(195.0));
+        assert_eq!(w.key(false, true, 1.5, 190.0, 200.0), None);
+        assert_eq!(w.key(false, true, 1.53, 190.0, 200.0), None);
+        assert_eq!(w.target, Some(199.0));
+        assert_eq!(w.settled(2.0), Some(199.0));
+        assert_eq!(w.key(false, true, 2.1, 195.0, 200.0), None);
+        assert_eq!(w.settled(3.0), None);
+    }
+
+    #[test]
+    fn arrow_keys_do_nothing_without_a_length() {
+        let mut w = SeekWheel::default();
+        assert_eq!(w.key(false, false, 1.0, 0.0, 0.0), None);
+        assert_eq!(w.target, None);
+        assert_eq!(w.wait(1.0), None);
     }
 
     #[test]

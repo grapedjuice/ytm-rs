@@ -3117,6 +3117,7 @@ fn settings_shortcuts(ui: &mut Ui) {
             (tr!("settings-play-pause"), &[tr!("settings-space")]),
             (tr!("settings-next-previous-song"), &[tr!("settings-ctrl"), "→ / ←"]),
             (tr!("settings-volume-up-down"), &[tr!("settings-ctrl"), "↑ / ↓"]),
+            (tr!("settings-shortcut-seek"), &["← / →"]),
             (tr!("settings-shortcut-command-palette"), &[tr!("settings-ctrl"), "K"]),
             (tr!("settings-search"), &[tr!("settings-ctrl"), "F"]),
             (tr!("settings-shortcut-find-in-list"), &[tr!("settings-ctrl"), tr!("settings-shift"), "F"]),

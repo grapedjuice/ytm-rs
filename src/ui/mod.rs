@@ -1577,7 +1577,7 @@ impl App {
     }
 
     fn toast(&mut self, msg: impl Into<String>) {
-        let msg = msg.into();
+        let msg = without_urls(msg.into());
         if !self.pending_unlikes().is_empty() {
             self.toast_after_unlike = Some(msg);
             return;
@@ -2527,6 +2527,43 @@ pub fn fmt_end(pos: f32, total: f32, left: bool) -> String {
 /// the length ("-0:51 / 1:27"), so one side runs and the other stays put either way.
 pub fn fmt_running(pos: f32, total: f32, left: bool) -> String {
     format!("{} / {}", fmt_left(pos, total, left).unwrap_or_else(|| fmt_time(pos as u32)), fmt_time(total as u32))
+}
+
+/// `msg` without the request URLs reqwest's errors name ("… for url (https://…)"), which
+/// tell a listener nothing and run a toast across the window (#361). The log keeps them.
+fn without_urls(mut msg: String) -> String {
+    const AT: &str = " for url (";
+    while let Some(start) = msg.find(AT) {
+        // Up to the bracket that closes it.
+        let open = start + AT.len() - 1;
+        let mut depth = 0;
+        let end = msg[open..].char_indices().find_map(|(i, c)| {
+            depth += match c {
+                '(' => 1,
+                ')' => -1,
+                _ => 0,
+            };
+            (depth == 0).then_some(open + i + 1)
+        });
+        let Some(end) = end else { break };
+        msg.replace_range(start..end, "");
+    }
+    msg
+}
+
+#[cfg(test)]
+mod toast_tests {
+    #[test]
+    fn toasts_leave_request_urls_out() {
+        let msg = "Home failed: error sending request for url (https://music.youtube.com/youtubei/v1/browse?prettyPrint=false)";
+        assert_eq!(super::without_urls(msg.into()), "Home failed: error sending request");
+        // Every one, and what's around them stays.
+        let chain = "HTTP status server error (500 Internal Server Error) for url (https://a.example/x?q=(1)): retried for url (http://b.example/)";
+        assert_eq!(super::without_urls(chain.into()), "HTTP status server error (500 Internal Server Error): retried");
+        for kept in ["Couldn't play “Song”: no data for 20 s", "Added to (my) playlist", "a for url (unclosed"] {
+            assert_eq!(super::without_urls(kept.into()), kept);
+        }
+    }
 }
 
 #[cfg(test)]

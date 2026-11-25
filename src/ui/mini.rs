@@ -1511,19 +1511,26 @@ fn pill_credit(app: &App) -> Option<crate::lyrics::UnisonCredit> {
         return None;
     }
     let pos = app.audio.status.position_smooth().as_secs_f64() - app.audio.status.latency().as_secs_f64();
-    let t = pos - app.lyric_prefs.offset(id, lyrics.provider, lyrics.sync == crate::lyrics::Sync::Word);
-    credit_due(app, lyrics, t).and(lyrics.unison.clone())
+    let off = app.lyric_prefs.offset(id, lyrics.provider, lyrics.sync == crate::lyrics::Sync::Word);
+    credit_due(app, lyrics, pos - off, off).and(lyrics.unison.clone())
 }
 
 /// Unison asks for its credit under the last line. The mini views show one line at a time,
 /// so it gets its own turn: after the last sung line, or [`CREDIT_SECS`] before the song
 /// ends or crossfades away if that comes first. Some: it's due, with the last line's end.
-fn credit_due(app: &App, lyrics: &crate::lyrics::Lyrics, t: f64) -> Option<f64> {
+/// `t` is lyric time: the position less the lyrics' offset `off`.
+fn credit_due(app: &App, lyrics: &crate::lyrics::Lyrics, t: f64, off: f64) -> Option<f64> {
     lyrics.unison.as_ref().filter(|_| lyrics.provider.is_unison())?;
-    let end = lyrics.lines.iter().filter(|l| !l.instrumental && !l.text.trim().is_empty()).map(|l| f64::from(l.start + l.dur) / 1000.0).fold(0.0, f64::max);
+    // The renderer's last sung line, so the card's credits block is the one in focus.
+    let last = lyrics.lines.iter().rev().find(|l| !l.instrumental)?;
+    let (start, end) = (f64::from(last.start) / 1000.0, f64::from(last.end()) / 1000.0);
     let len = f64::from(song_length(app, app.current()));
-    let fade = if app.crossfade { f64::from(app.crossfade_secs) } else { 0.0 };
-    let due = if len > 0.0 { end.min(len - fade - CREDIT_SECS) } else { end };
+    // As the audio engine crossfades: in real time (more of the song when faster), and
+    // only for songs longer than twice the fade.
+    let speed = f64::from(app.audio.status.speed());
+    let fade = if app.crossfade { f64::from(app.crossfade_secs) * speed } else { 0.0 };
+    let fade = if len > 2.0 * fade { fade } else { 0.0 };
+    let due = if len > 0.0 { end.min(len - fade - CREDIT_SECS * speed - off).max(start) } else { end };
     (t >= due).then_some(end)
 }
 
@@ -1659,6 +1666,8 @@ fn card_lyrics(app: &mut App, ui: &mut Ui, area: Rect, open: f32, now: f64) {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         id.hash(&mut h);
         lyrics.provider.key().hash(&mut h);
+        // A download's submitter arrives after its lyrics.
+        lyrics.unison.hash(&mut h);
         app.theme_id.hash(&mut h);
         app.lyric_prefs.look.hash(&mut h);
         h.finish()
@@ -1674,9 +1683,10 @@ fn card_lyrics(app: &mut App, ui: &mut Ui, area: Rect, open: f32, now: f64) {
     let playing = app.playing();
     let pos = app.audio.status.position_smooth().as_secs_f64() - app.audio.status.latency().as_secs_f64();
     let pos = app.lyric_clock.tick(pos, playing, now, app.audio.status.speed() as f64);
-    let t = pos - app.lyric_prefs.offset(id, lyrics.provider, lyrics.sync == crate::lyrics::Sync::Word);
+    let off = app.lyric_prefs.offset(id, lyrics.provider, lyrics.sync == crate::lyrics::Sync::Word);
+    let t = pos - off;
     // Unison's credit gets its turn before a crossfade can take the song away.
-    let t = credit_due(app, lyrics, t).map_or(t, |end| t.max(end + 0.05));
+    let t = credit_due(app, lyrics, t, off).map_or(t, |end| t.max(end + 0.05));
     // The whole lyrics are fed to the renderer, so its normal scroll runs between lines.
     // With the chrome showing, the band is only the line being sung: the next line rolls
     // through during the transition, but at rest only the active line is in the card. With

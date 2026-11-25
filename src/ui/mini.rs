@@ -1508,18 +1508,18 @@ fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<S
 
 /// The pill's lyric line: Lucid's look and word sweep, always, whatever theme the rest of
 /// the app uses. It gets the whole lyrics set so its normal scroll rolls the next line in.
-fn pill_lyrics(app: &mut App, ui: &mut Ui, area: Rect, clip: Rect, now: f64) -> bool {
+fn pill_lyrics(app: &mut App, ui: &mut Ui, area: Rect, clip: Rect, now: f64) {
     let Some((id, set)) = app.lyrics.as_ref() else {
         app.mini.pill_lyric_live = false;
-        return false;
+        return;
     };
     let Some(lyrics) = app.lyric_prefs.choose(id, set).and_then(|p| set.get(p)) else {
         app.mini.pill_lyric_live = false;
-        return false;
+        return;
     };
     if lyrics.sync == crate::lyrics::Sync::None {
         app.mini.pill_lyric_live = false;
-        return false;
+        return;
     }
     let playing = app.playing();
     let pos = app.audio.status.position_smooth().as_secs_f64() - app.audio.status.latency().as_secs_f64();
@@ -1529,7 +1529,7 @@ fn pill_lyrics(app: &mut App, ui: &mut Ui, area: Rect, clip: Rect, now: f64) -> 
     let has_line = lyrics.lines.iter().any(|l| !l.instrumental && !l.text.trim().is_empty() && l.start <= t_ms);
     if !has_line {
         app.mini.pill_lyric_live = false;
-        return false;
+        return;
     }
     let key = {
         use std::hash::{Hash, Hasher};
@@ -1594,7 +1594,6 @@ fn pill_lyrics(app: &mut App, ui: &mut Ui, area: Rect, clip: Rect, now: f64) -> 
         super::pace::repaint_after(ui.ctx(), Duration::from_millis(16));
     }
     app.mini.pill_lyric_live = true;
-    true
 }
 
 /// The card's lyrics: the line being sung (and, with the chrome hidden, the lines around

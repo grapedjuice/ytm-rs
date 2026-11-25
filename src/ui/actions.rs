@@ -126,7 +126,7 @@ impl App {
             }
             Action::Open(Target::Song(t)) | Action::Radio(t) => {
                 self.queue_source = None;
-                self.play_list(vec![t.clone()], 0);
+                self.play_for_radio(t.clone());
                 if !self.radio_pending {
                     self.radio_pending = true;
                     self.backend.request(Req::Radio { song_of: self.song_of(&t), seed: t.id, smart: false });

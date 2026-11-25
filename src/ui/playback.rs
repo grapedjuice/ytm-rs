@@ -146,10 +146,21 @@ impl App {
     pub(super) fn play_list_filling(&mut self, tracks: Vec<Track>, start: usize, fill: Option<QueueFill>) {
         // A song opened from a link, say: the next one that isn't explicit plays, if any.
         let hidden = tracks.get(start).is_some_and(|t| self.hide_explicit && t.explicit);
-        let played = self.queue.replace(tracks, start, fill);
+        // Shuffle stays on for the next list (#376), but not in someone else's jam, whose
+        // shuffle is the host's.
+        let played = if self.jam.guest() { self.queue.replace(tracks, start, fill) } else { self.queue.replace_keeping_shuffle(tracks, start, fill) };
         if hidden {
             self.toast(if played { crate::tr!("status-explicit-skipped") } else { crate::tr!("status-no-clean-tracks") });
         }
+        self.start_queue(played);
+        if played {
+            self.smart_mix();
+        }
+    }
+
+    /// Just `t`, for its radio to follow: the radio's order is its own, so shuffle goes off.
+    pub(super) fn play_for_radio(&mut self, t: Track) {
+        let played = self.queue.replace(vec![t], 0, None);
         self.start_queue(played);
     }
 

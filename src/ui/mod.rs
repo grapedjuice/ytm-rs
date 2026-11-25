@@ -11,6 +11,7 @@ mod collections;
 mod colorpick;
 mod comments;
 mod dev;
+mod device_sound;
 mod dialogs;
 mod find;
 mod hotkeys;
@@ -627,6 +628,8 @@ pub struct App {
     /// The output device picked in settings (cpal's id and its name, for when it's not
     /// connected), and the devices last listed there.
     output_device: Option<(String, String)>,
+    /// Each output device's own volume and equalizer, for switching back to it.
+    device_sound: device_sound::ByDevice,
     output_devices: Vec<crate::audio::OutputDevice>,
     /// The language picked in Settings (`None`: the system's), saved; this run shows
     /// [`crate::i18n::current`] until the next start.
@@ -1065,6 +1068,7 @@ impl App {
             music_videos: Default::default(),
             output_device: get("output_device").filter(|d| !d.is_empty()).map(|id| (id, get("output_device_name").unwrap_or_default())),
             output_devices: Vec::new(),
+            device_sound: get("device_sound").and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
             language,
             updater: None,
             storage: Default::default(),
@@ -2229,6 +2233,7 @@ impl eframe::App for App {
         let (device, device_name) = self.output_device.clone().unzip();
         storage.set_string("output_device", device.unwrap_or_default());
         storage.set_string("output_device_name", device_name.unwrap_or_default());
+        storage.set_string("device_sound", serde_json::to_string(&self.device_sound).unwrap_or_default());
         storage.set_string("language", self.language.clone().unwrap_or_default());
         storage.set_string("auto_update", b(self.auto_update));
         storage.set_string("update_channel", if self.update_nightly { "nightly" } else { "stable" }.to_owned());

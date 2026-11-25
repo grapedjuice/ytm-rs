@@ -552,6 +552,21 @@ impl App {
         self.audio.set_eq(self.eq_on, &self.eq_gains, self.eq_no_clip);
     }
 
+    /// Play on `pick` (None: the system's default device), with the volume and equalizer
+    /// it had when it was last played on (see `device_sound`).
+    pub(super) fn set_output_device(&mut self, pick: Option<(String, String)>) {
+        let id = |d: &Option<(String, String)>| d.as_ref().map(|(id, _)| id.clone());
+        let now = super::device_sound::Sound { volume: self.audio.own_volume(), eq_on: self.eq_on, eq_gains: self.eq_gains };
+        let had = self.device_sound.switch(id(&self.output_device).as_deref(), now, id(&pick).as_deref());
+        self.audio.send(crate::audio::AudioCmd::SetDevice(id(&pick)));
+        self.output_device = pick;
+        if let Some(s) = had {
+            self.audio.set_volume(s.volume);
+            (self.eq_on, self.eq_gains) = (s.eq_on, s.eq_gains);
+            self.set_eq();
+        }
+    }
+
     /// Every frame: a jam starting or ending changes it too. Normal in a jam, where
     /// everyone hears the same song at the same moment.
     pub(super) fn sync_tempo(&self) {

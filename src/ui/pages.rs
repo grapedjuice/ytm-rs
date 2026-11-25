@@ -3569,8 +3569,7 @@ pub(super) fn output_device_menu(app: &mut App, btn: &egui::Response, popup: egu
         });
     });
     if let Some(pick) = pick {
-        app.audio.send(crate::audio::AudioCmd::SetDevice(pick.as_ref().map(|(id, _)| id.clone())));
-        app.output_device = pick;
+        app.set_output_device(pick);
     }
 }
 

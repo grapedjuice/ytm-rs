@@ -818,6 +818,10 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     let mut songs = |ui: &mut Ui, acts: &mut Vec<Action>| {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
+                // The pill's height from the start, so the heading is centred beside it.
+                if !pick && !tracks.is_empty() {
+                    ui.set_min_height(38.0);
+                }
                 ui.label(RichText::new(crate::tr!("nav-songs")).font(theme::bold(24.0)));
                 // A song played alone starts its radio; this plays the songs found, in order
                 // (these and More songs), as a list does.

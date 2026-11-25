@@ -1293,17 +1293,19 @@ pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
     // theme's way so the normal lyrics and controls keep their colours over it. The blur
     // index blends the sharp cover with the app's blurred cover art.
     if app.mini.cover_bg && grow > 0.5 {
-        let (key, image) = match app.cover_colours() {
-            Some(art) => {
+        // The 64×64 art is fixed per track: keying on the id avoids hashing 16 KB every
+        // frame just to find out the texture is still current.
+        let (key, image) = match (app.current_id(), app.cover_colours()) {
+            (Some(id), Some(art)) => {
                 use std::hash::{Hash, Hasher};
                 let mut h = std::collections::hash_map::DefaultHasher::new();
-                art.rgba.hash(&mut h);
+                id.hash(&mut h);
                 let key = h.finish();
                 let need = app.mini.cover_tex.as_ref().is_none_or(|(k, _)| *k != key);
                 let image = need.then(|| egui::ColorImage::from_rgba_unmultiplied([crate::art::SIZE as usize, crate::art::SIZE as usize], &art.rgba));
                 (Some(key), image)
             }
-            None => (None, None),
+            _ => (None, None),
         };
         match (key, image) {
             (Some(key), Some(image)) => {

@@ -3142,6 +3142,7 @@ fn settings_shortcuts(ui: &mut Ui) {
             (tr!("settings-shortcut-seek"), &["← / →"]),
             (tr!("settings-shortcut-command-palette"), &[tr!("settings-ctrl"), "K"]),
             (tr!("settings-search"), &[tr!("settings-ctrl"), "F"]),
+            (tr!("settings-shortcut-open-link"), &[tr!("settings-ctrl"), "V"]),
             (tr!("settings-shortcut-find-in-list"), &[tr!("settings-ctrl"), tr!("settings-shift"), "F"]),
             (tr!("settings-lyrics-and-now-playing"), &["L"]),
             (tr!("settings-shortcut-full-screen"), &["F / F11"]),

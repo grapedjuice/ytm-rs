@@ -394,6 +394,7 @@ settings-volume-up-down = Volume up / down
 settings-shortcut-seek = Back / forward 5 seconds in the song
 settings-shortcut-command-palette = Command palette: pages, settings, playlists and actions
 settings-search = Search
+settings-shortcut-open-link = Open the YouTube Music or YouTube link copied
 settings-shortcut-find-in-list = Find in a song list
 settings-shift = Shift
 settings-lyrics-and-now-playing = Lyrics and now playing

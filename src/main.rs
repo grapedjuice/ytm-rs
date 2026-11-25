@@ -27,6 +27,7 @@ mod innertube;
 mod jsc;
 mod lastfm;
 mod login;
+mod link;
 mod listenbrainz;
 mod locale;
 mod lyrics;

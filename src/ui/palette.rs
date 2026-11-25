@@ -474,7 +474,10 @@ fn run_command(app: &mut App, ctx: &egui::Context, cmd: Command) {
             }
         }
         Command::Open(target) => app.actions.push(Action::Open(target)),
-        Command::Search(q) => app.actions.push(Action::Go(Page::Search(q))),
+        Command::Search(q) => app.actions.push(match crate::link::parse(&q) {
+            Some(link) => Action::OpenLink(link, false),
+            None => Action::Go(Page::Search(q)),
+        }),
         Command::Act(a) => match a {
             Act::TogglePlay => app.actions.push(Action::TogglePlay),
             Act::Next => app.next(),

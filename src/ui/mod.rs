@@ -56,6 +56,7 @@ use souvlaki::MediaControlEvent;
 
 use crate::audio::{AudioEvent, AudioHandle};
 use crate::backend::{ArtistPage, Backend, Explore, Library, Req, Resp, SearchResults};
+use crate::link::Link;
 use crate::lyrics::LyricsSet;
 use crate::media::Media;
 use crate::model::{Card, Chip, Shelf, Target, Track};
@@ -230,6 +231,8 @@ pub enum Action {
     PlayCollection(Target, bool),
     /// Click on a card: songs start a radio, everything else opens its page.
     Open(Target),
+    /// A pasted link: a song plays (with true, it goes to the queue's end), the rest opens.
+    OpenLink(Link, bool),
     PlayNext(Track),
     Enqueue(Track),
     Radio(Track),
@@ -446,6 +449,10 @@ pub struct App {
     /// Asked to play (shuffled?) before its songs are here: a playlist's first page, or
     /// an album's or artist's songs (`Req::PlayCollection`).
     play_pending: Option<(Target, bool)>,
+    /// The last link to play or open whose answer (`Req::Link`) isn't here yet.
+    link_pending: Option<Link>,
+    /// The last song link in the search box that was looked up: its song, or why there's none.
+    link_preview: Option<(Link, Result<Track, String>)>,
     bg: Option<Background>,
 
     // navigation
@@ -956,6 +963,8 @@ impl App {
             queue_source: None,
             played_title: None,
             play_pending: None,
+            link_pending: None,
+            link_preview: None,
             bg,
             page: Page::Home,
             start_page: start_choice,
@@ -1377,6 +1386,16 @@ impl App {
         self.page_changed = changed;
     }
 
+    /// The search box holds the query of the search page you're on, and is empty elsewhere.
+    fn reset_search(&mut self) {
+        self.search_text = match &self.page {
+            Page::Search(q) => q.clone(),
+            _ => String::new(),
+        };
+        self.suggestions = Default::default();
+        self.suggest_sel = None;
+    }
+
     /// Start the page transition and (re)load the page's data. Every page refreshes on
     /// each visit (things change outside the app: likes, other devices, new releases),
     /// showing the cached copy meanwhile.
@@ -1385,13 +1404,9 @@ impl App {
         // A page asked for afresh checks whether it's back soon again.
         self.online_check = None;
         self.online_wait = ONLINE_WAIT_FIRST;
-        // The search box holds the query of the search page you're on, and is empty elsewhere.
-        self.search_text = match &self.page {
-            Page::Search(q) => q.clone(),
-            _ => String::new(),
-        };
-        self.suggestions = Default::default();
-        self.suggest_sel = None;
+        self.reset_search();
+        // A page still looked up from a link isn't the newest place to go any more.
+        self.link_pending.take_if(|l| matches!(l, Link::Resolve(_)));
         self.settings_query.clear();
         // Choosing a transfer match lasts while searching; any other page ends it.
         if !matches!(self.page, Page::Search(_)) {

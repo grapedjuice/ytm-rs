@@ -26,7 +26,7 @@ nav-search-music = Search songs, albums, artists
 nav-search-podcasts = Search songs, albums, artists, podcasts
 nav-clear-search = Clear search
 
-# A YouTube Music or YouTube link pasted into the search box, or anywhere with Ctrl+V.
+# A YouTube Music or YouTube link pasted into the search box.
 link-open = Open link
 link-not-found = Nothing was found behind that link
 link-play-song = Play this song

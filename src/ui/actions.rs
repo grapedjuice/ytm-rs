@@ -519,19 +519,6 @@ impl App {
         if undo && self.undo.is_some() {
             self.actions.push(Action::Undo);
         }
-        // A link pasted anywhere but in a text box opens.
-        if !editing && !covered && let Some(link) = ctx.input(|i| crate::link::pasted(&i.events)) {
-            if !matches!(link, Link::Song { .. }) {
-                // Out of what covers the pages.
-                if self.fullscreen {
-                    self.set_fullscreen(ctx, false);
-                }
-                if self.mini.target() {
-                    self.actions.push(Action::Mini(false));
-                }
-            }
-            self.actions.push(Action::OpenLink(link, false));
-        }
         if quit {
             self.quit(ctx);
         }

@@ -192,6 +192,7 @@ impl App {
             return;
         }
         self.drop_pending_play();
+        self.picked = true;
         self.play_current();
     }
 
@@ -471,12 +472,13 @@ impl App {
     /// `swap`: the same play going on as its song version or its music video, from `at`.
     fn start_current(&mut self, at: Duration, report: bool, swap: bool) {
         let swap = std::mem::take(&mut self.resume_as_song) || swap;
+        let picked = std::mem::take(&mut self.picked);
         self.note_where_left();
         let Some(track) = self.current().cloned() else { return };
         self.left_from = Some(track.id.clone());
-        // A long track played again picks up where it was left (not in a jam, which plays
-        // at the host's position).
-        let resumed = (at.is_zero() && report && !swap && !self.jam.active()).then(|| self.resume.at(&track.id)).flatten();
+        // A long track picked again picks up where it was left (not in a jam, which plays
+        // at the host's position). Come to by Next, the queue or radio, it starts over.
+        let resumed = (picked && at.is_zero() && report && !swap && !self.jam.active()).then(|| self.resume.at(&track.id)).flatten();
         let at = resumed.unwrap_or(at);
         // Picking up mid-song (a resume, a download that broke off): the position is the
         // song version's when one was playing, so that goes on; a music video stays one.
@@ -524,10 +526,14 @@ impl App {
     }
 
     /// Where the track playing was left, for a long one to pick up from there next time.
+    /// Not while it's still loading, which hasn't got anywhere yet.
     pub(super) fn note_where_left(&mut self) {
         let Some(id) = self.left_from.clone() else { return };
         let at = self.current_at().as_secs() as u32;
         let duration = (self.audio.status.duration_ms.load(Ordering::Relaxed) / 1000) as u32;
+        if self.buffering || duration == 0 {
+            return;
+        }
         self.resume.note(&id, at, duration);
     }
 
@@ -692,6 +698,11 @@ impl App {
             return;
         }
         self.queue.started();
+        // The one before played to its end: it starts from the top next time.
+        if let Some(id) = self.left_from.take() {
+            self.resume.note(&id, 0, 0);
+        }
+        self.left_from = self.current().map(|t| t.id.clone());
         self.generation = generation;
         self.recoveries = 0;
         self.skip_streak = 0;

@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 use egui::{Align2, Color32, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
 
 use super::arrive;
-use super::widgets::{self, RowOpts, card, chip, h_scroll, named, paint_cover, pill, shelf_header, track_row};
+use super::widgets::{self, RowOpts, card, chip, h_scroll, named, paint_cover, pill, shelf_arrows, shelf_header, track_row};
 use super::find::{ListFind, Sort};
 use super::row_drag::{self, RowDrag};
 use super::{Action, App, LibTab, Page, Selection};
@@ -200,7 +200,8 @@ fn card_row(ui: &mut Ui, id: &str, title: &str, cards: &[Card], acts: &mut Vec<A
         return;
     }
     let g = arrive::group(ui, id);
-    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, None, None, true));
+    let arrows = shelf_arrows(ui, id, cards.len(), CARD, 18.0, false);
+    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, None, None, Some(arrows)));
     let nudge = r as i32 - l as i32;
     h_scroll(ui, id, nudge, cards.len(), CARD, 18.0, |ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
@@ -211,16 +212,19 @@ fn card_row(ui: &mut Ui, id: &str, title: &str, cards: &[Card], acts: &mut Vec<A
 }
 
 /// Songs laid out in columns of `rows`, scrolling sideways (Quick picks). Clicking a
-/// song starts its radio. Returns whether the arrows reached the end.
+/// song starts its radio. Returns whether the arrows reached the end, where there can be
+/// `more` to bring in.
 #[allow(clippy::too_many_arguments)]
-fn song_grid(ui: &mut Ui, rows_ctx: &Rows, liked: &HashSet<String>, acts: &mut Vec<Action>, id: &str, title: &str, strap: Option<&str>, tracks: &[Track], rows: usize) -> bool {
+fn song_grid(ui: &mut Ui, rows_ctx: &Rows, liked: &HashSet<String>, acts: &mut Vec<Action>, id: &str, title: &str, strap: Option<&str>, tracks: &[Track], rows: usize, more: bool) -> bool {
     let g = arrive::group(ui, id);
-    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, strap, None, true));
-    let nudge = r as i32 - l as i32;
     let col_w = (ui.available_width() / 2.6).clamp(300.0, 420.0);
     let tracks: Vec<&Track> = tracks.iter().filter(|t| rows_ctx.shows(t)).collect();
+    let cols = tracks.len().div_ceil(rows.max(1));
+    let arrows = shelf_arrows(ui, id, cols, col_w, 16.0, more);
+    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, strap, None, Some(arrows)));
+    let nudge = r as i32 - l as i32;
     let mut picked = None;
-    let (_, reached_end) = h_scroll(ui, id, nudge, tracks.len().div_ceil(rows.max(1)), col_w, 16.0, |ui| {
+    let (_, reached_end) = h_scroll(ui, id, nudge, cols, col_w, 16.0, |ui| {
         ui.spacing_mut().item_spacing.x = 16.0;
         for (c, col) in tracks.chunks(rows.max(1)).enumerate() {
             ui.allocate_ui(vec2(col_w, rows as f32 * 60.0), |ui| {
@@ -575,8 +579,9 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
                 cards_shelf(ui, &app.liked, &mut app.actions, &id, title, strap, thumb, &cards);
             }
             ShelfKind::Songs { tracks, rows: n } => {
-                let reached_end = song_grid(ui, &rows, &app.liked, &mut app.actions, &id, title, s.strapline.as_deref(), tracks, *n);
-                if picks == Some(i) && reached_end && !h.picks_loading && !h.picks_expanded {
+                let more = picks == Some(i) && !h.picks_loading && !h.picks_expanded;
+                let reached_end = song_grid(ui, &rows, &app.liked, &mut app.actions, &id, title, s.strapline.as_deref(), tracks, *n, more);
+                if reached_end && more {
                     more_picks = tracks.last().map(|t| t.id.clone());
                 }
             }
@@ -598,7 +603,8 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
 #[allow(clippy::too_many_arguments)]
 fn cards_shelf(ui: &mut Ui, liked: &HashSet<String>, acts: &mut Vec<Action>, id: &str, title: &str, strap: Option<&str>, thumb: Option<&str>, cards: &[&Card]) {
     let g = arrive::group(ui, id);
-    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, strap, thumb, true));
+    let arrows = shelf_arrows(ui, id, cards.len(), CARD, 18.0, false);
+    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, strap, thumb, Some(arrows)));
     let nudge = r as i32 - l as i32;
     h_scroll(ui, id, nudge, cards.len(), CARD, 18.0, |ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
@@ -621,7 +627,7 @@ fn explore(app: &mut App, ui: &mut Ui, now: f64) {
     let Some(e) = &app.explore else { return };
     card_row(ui, "ex-new", if app.logged_in { crate::tr!("nav-new-releases-for-you") } else { crate::tr!("nav-new-releases") }, &e.new_albums, &mut app.actions);
     if !e.top.is_empty() {
-        song_grid(ui, &rows, &app.liked, &mut app.actions, "ex-top", crate::tr!("nav-top-songs"), None, &e.top, 4);
+        song_grid(ui, &rows, &app.liked, &mut app.actions, "ex-top", crate::tr!("nav-top-songs"), None, &e.top, 4, false);
     }
     card_row(ui, "ex-charts", crate::tr!("nav-charts"), &e.charts, &mut app.actions);
     for g in &e.moods {
@@ -686,7 +692,7 @@ fn browse_label(title: &str) -> &str {
 /// A group of Moods & genres: its categories in as many columns as fit, each opening its page.
 fn mood_grid(ui: &mut Ui, g: &crate::ytm::MoodGroup, acts: &mut Vec<Action>) {
     let arr = arrive::group(ui, ("moods", &g.title));
-    arrive::item(ui, arr, 0, 10.0, |ui| shelf_header(ui, browse_label(&g.title), None, None, false));
+    arrive::item(ui, arr, 0, 10.0, |ui| shelf_header(ui, browse_label(&g.title), None, None, None));
     let gap = 14.0;
     let w = ui.available_width();
     let cols = ((w + gap) / (190.0 + gap)).floor().max(1.0);
@@ -741,7 +747,7 @@ fn mood(app: &mut App, ui: &mut Ui, params: &str, now: f64) {
                 }
             }
             ShelfKind::Songs { tracks, rows: n } => {
-                song_grid(ui, &rows, &app.liked, &mut app.actions, &id, &s.title, s.strapline.as_deref(), tracks, *n);
+                song_grid(ui, &rows, &app.liked, &mut app.actions, &id, &s.title, s.strapline.as_deref(), tracks, *n, false);
             }
         }
     }
@@ -1334,7 +1340,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     card_row(ui, "a-pl", crate::tr!("nav-featured-on"), &a.playlists, acts);
     card_row(ui, "a-sim", crate::tr!("nav-similar-artists"), &a.similar, acts);
     if let Some(d) = a.description.as_deref().filter(|d| !d.trim().is_empty()) {
-        shelf_header(ui, crate::tr!("settings-about"), None, None, false);
+        shelf_header(ui, crate::tr!("settings-about"), None, None, None);
         let trimmed = d.trim();
         let g = widgets::galley_wrapped(ui, trimmed, theme::regular(14.5), theme::text_dim(), ui.available_width().min(820.0), 8);
         let resp = ui.label(g.clone());

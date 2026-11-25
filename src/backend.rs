@@ -14,6 +14,7 @@ use tokio::runtime::Runtime;
 
 use crate::art::Art;
 use crate::audio::{AudioCmd, AudioHandle};
+use crate::link::Link;
 use crate::lyrics::{self, LyricsSet};
 use crate::model::{self, Card, Target, Thumb, Track, sized};
 use crate::stream::{self, Shared};
@@ -40,6 +41,8 @@ pub enum Req {
     SearchIn { query: String, scope: ytm::Scope },
     /// Suggestions for a query; `round` comes back with them, so stale ones can be dropped.
     Suggest { query: String, round: u64 },
+    /// What a pasted link (a `Link::Song` or `Link::Resolve`) stands for.
+    Link { link: Link, to: LinkUse },
     /// Remove a past search (its token) from the account's history.
     ForgetSearch(String),
     /// `load` comes back with the album, so an older answer can't replace a newer one.
@@ -174,6 +177,7 @@ impl Req {
             Req::Art { .. } => crate::tr!("discord-album-art"),
             Req::Radio { .. } => crate::tr!("ui-radio"),
             Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. } => crate::tr!("player-comments"),
+            Req::Link { .. } => crate::tr!("link-open"),
             Req::PlayCollection { .. } => crate::tr!("settings-playback"),
             Req::Play { .. } => crate::tr!("settings-playback"),
             Req::Prefetch { .. } | Req::StageNext { .. } | Req::GaplessStarted { .. } => crate::tr!("settings-playback"),
@@ -204,6 +208,24 @@ impl Req {
     fn quiet(&self) -> bool {
         matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::SongRating { .. } | Req::Art { .. } | Req::Radio { smart: true, .. } | Req::Prefetch { .. } | Req::StageNext { .. } | Req::GaplessStarted { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::ArtistPicture { .. } | Req::MusicVideo(_) | Req::LyricsExtras { .. } | Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. } | Req::Reachable)
     }
+}
+
+/// What a link is looked up for.
+#[derive(Clone, Copy, PartialEq)]
+pub enum LinkUse {
+    Open,
+    /// Its song goes to the queue's end.
+    Queue,
+    /// Its song shows under the search box.
+    Preview,
+}
+
+/// What a link turned out to be.
+pub enum LinkTo {
+    Page(Target),
+    Song(Track),
+    /// The song at this place in the album or playlist the link names.
+    InList(Target, Vec<Track>, usize),
 }
 
 pub struct Explore {
@@ -432,6 +454,8 @@ pub enum Resp {
     /// A comments response (`Req::Comments`, `CommentsPage` or `CommentAction`) by its tag;
     /// `None`: it failed.
     CommentsPage { token: String, page: Option<serde_json::Value> },
+    /// Or why it can't be opened.
+    Link { link: Link, to: LinkUse, found: Result<LinkTo, String> },
     /// What was asked to play (a `Req::PlayCollection`), its name, and its songs.
     PlayQueue { target: Target, title: String, tracks: Vec<Track> },
     /// `other`: its other version, whose like went with this one.
@@ -502,6 +526,7 @@ impl Resp {
                 | Resp::AddedToPlaylist { .. }
                 | Resp::AlreadyInPlaylist { .. }
                 | Resp::Artist(_)
+                | Resp::Link { .. }
                 | Resp::Subscribed { .. }
         )
     }
@@ -1121,6 +1146,42 @@ impl Backend {
         });
     }
 
+    /// The name of what's asked to play, and its songs.
+    async fn tracks_of(&self, target: &Target, me: bool) -> anyhow::Result<(String, Vec<Track>)> {
+        let api = &self.api;
+        Ok(match target {
+            Target::Album(id) => ytm::album(api, id).await.map(|c| (c.title, c.tracks))?,
+            Target::Playlist(id) => ytm::playlist(api, id, me, None).await.map(|c| (c.title, c.tracks))?,
+            Target::Artist(id) => ytm::artist(api, id, false).await.map(|a| (a.name, a.top))?,
+            Target::Song(t) => (t.title.clone(), vec![t.clone()]),
+        })
+    }
+
+    async fn follow(&self, link: &Link, to: LinkUse, me: bool) -> anyhow::Result<Option<LinkTo>> {
+        let api = &self.api;
+        match link {
+            Link::Song { id, list } => {
+                if let Some(list) = list.as_ref().filter(|_| to == LinkUse::Open) {
+                    let target = match crate::link::playlist(list) {
+                        Link::Resolve(url) => ytm::resolve(api, &url).await.ok().flatten(),
+                        Link::Page(target) => Some(target),
+                        _ => None,
+                    };
+                    // A list that's gone or private, or without the song: the song alone.
+                    if let Some(target) = target
+                        && let Ok((_, tracks)) = self.tracks_of(&target, me).await
+                        && let Some(i) = tracks.iter().position(|t| t.id == *id)
+                    {
+                        return Ok(Some(LinkTo::InList(target, tracks, i)));
+                    }
+                }
+                Ok(ytm::song(api, id, me).await?.map(LinkTo::Song))
+            }
+            Link::Resolve(url) => Ok(ytm::resolve(api, url).await?.map(LinkTo::Page)),
+            Link::Page(_) | Link::Jam(_) => Ok(None),
+        }
+    }
+
     /// A request answered before this returns (or given up on after a few seconds), its
     /// answer dropped: for the app closing, which can't wait for one.
     pub fn request_now(&self, req: Req) {
@@ -1287,13 +1348,25 @@ impl Backend {
                     log::info!("radio for {from}: {} songs", tracks.len());
                     Resp::Radio { seed, tracks, smart }
                 }
-                Req::PlayCollection { target } => {
-                    let (title, tracks) = match &target {
-                        Target::Album(id) => ytm::album(api, id).await.map(|c| (c.title, c.tracks))?,
-                        Target::Playlist(id) => ytm::playlist(api, id, me, None).await.map(|c| (c.title, c.tracks))?,
-                        Target::Artist(id) => ytm::artist(api, id, false).await.map(|a| (a.name, a.top))?,
-                        Target::Song(t) => (t.title.clone(), vec![t.clone()]),
+                Req::Link { link, to } => {
+                    let found = match self.follow(&link, to, me).await {
+                        Ok(Some(to)) => Ok(to),
+                        Ok(None) => Err(crate::tr!("link-not-found").to_owned()),
+                        Err(e) => {
+                            log::warn!("{what} failed: {e:#}");
+                            Err(if !unreachable(&e) {
+                                crate::tr!("backend-error", operation = what, error = e.to_string())
+                            } else if crate::proxy::in_use() {
+                                crate::tr!("backend-offline-proxy").to_owned()
+                            } else {
+                                crate::tr!("backend-offline").to_owned()
+                            })
+                        }
                     };
+                    Resp::Link { link, to, found }
+                }
+                Req::PlayCollection { target } => {
+                    let (title, tracks) = self.tracks_of(&target, me).await?;
                     Resp::PlayQueue { target, title, tracks }
                 }
                 Req::Download { track: t, for_video } => {

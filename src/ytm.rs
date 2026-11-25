@@ -1143,6 +1143,21 @@ fn leading_int(s: &str) -> Option<u64> {
     digits.parse().ok()
 }
 
+/// A song or video by its id alone, as the queue lists it. `None`: there's no such thing.
+pub async fn song(api: &Api, video_id: &str, auth: bool) -> anyhow::Result<Option<Track>> {
+    let body = json!({"videoId": video_id, "isAudioOnly": true, "enablePersistentPlaylistPanel": true});
+    let v = api.call("next", body, auth).await?;
+    let panel = &v["contents"]["singleColumnMusicWatchNextResultsRenderer"]["tabbedRenderer"]["watchNextTabbedResultsRenderer"]["tabs"][0]
+        ["tabRenderer"]["content"]["musicQueueRenderer"]["content"]["playlistPanelRenderer"];
+    Ok(panel_page(panel).0.into_iter().map(|(t, _)| t).find(|t| t.id == video_id))
+}
+
+/// The page a music.youtube.com address stands for: an artist's `@handle`, an album's list.
+pub async fn resolve(api: &Api, url: &str) -> anyhow::Result<Option<Target>> {
+    let v = api.call("navigation/resolve_url", json!({ "url": url }), false).await?;
+    Ok(v["endpoint"]["browseEndpoint"]["browseId"].as_str().and_then(crate::link::page))
+}
+
 /// The first string keyed `key` anywhere under `v`.
 fn first_string(v: &Value, key: &str) -> Option<String> {
     match v {
@@ -3246,6 +3261,20 @@ mod tests {
             println!("{} {}: {plays:?}", t.id, t.title);
             assert!(plays.is_some_and(|n| n > 0), "{} should have plays", t.title);
         }
+    }
+
+    /// What a song's id, an artist's handle and an album's list stand for, signed out. Run alone:
+    /// `cargo test --bin ytm-rs -- --ignored ytm::tests::links_live --exact`
+    #[tokio::test]
+    #[ignore]
+    async fn links_live() {
+        let api = crate::ytmapi::Api::new(&std::env::temp_dir().join("ytm-rs-links-test"));
+        assert_eq!(super::song(&api, "lYBUbBu4W08", false).await.unwrap().unwrap().title, "Never Gonna Give You Up");
+        assert_eq!(super::song(&api, "zzzzzzzzzzz", false).await.unwrap(), None);
+        assert_eq!(resolve(&api, "https://music.youtube.com/@RickAstleyYT").await.unwrap(), Some(Target::Artist("UCuAXFkgsw1L7xaCfnd5JJOw".into())));
+        let album = "https://music.youtube.com/playlist?list=OLAK5uy_nmDUsWOMoEcz0SsVqUwir0oxu-k1oUyXE";
+        assert_eq!(resolve(&api, album).await.unwrap(), Some(Target::Album("MPREb_dcYZhAh5urI".into())));
+        assert_eq!(resolve(&api, "https://music.youtube.com/@doesnotexist123456789xyz").await.unwrap(), None);
     }
 
     /// A song's Lyrics tab, signed out. Run alone:

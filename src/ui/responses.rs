@@ -6,7 +6,8 @@ use std::time::Duration;
 use souvlaki::MediaControlEvent;
 
 use crate::audio::{AudioCmd, AudioEvent};
-use crate::backend::{PlaylistChange, Req, Resp};
+use crate::backend::{LinkTo, LinkUse, PlaylistChange, Req, Resp};
+use crate::link::Link;
 use crate::model::{ShelfKind, Target, Track};
 use crate::ytm::HomePage;
 
@@ -132,9 +133,16 @@ impl App {
         if self.suggest_due.is_some_and(|d| now >= d) {
             self.suggest_due = None;
             let q = self.search_text.trim().to_owned();
-            // An empty box signed in shows the account's recent searches.
-            if !q.is_empty() || self.logged_in {
-                self.backend.request(Req::Suggest { query: q, round: self.suggest_round });
+            match crate::link::parse(&q) {
+                // A link isn't searched for: its song shows instead.
+                Some(link) => {
+                    if matches!(link, Link::Song { .. }) && self.link_preview.as_ref().is_none_or(|(l, song)| *l != link || song.is_err()) {
+                        self.backend.request(Req::Link { link, to: LinkUse::Preview });
+                    }
+                }
+                // An empty box signed in shows the account's recent searches.
+                None if !q.is_empty() || self.logged_in => self.backend.request(Req::Suggest { query: q, round: self.suggest_round }),
+                None => {}
             }
         }
     }
@@ -405,6 +413,35 @@ impl App {
                     self.next();
                 } else if !self.buffering {
                     self.prefetch_next();
+                }
+            }
+            Resp::Link { link, to: LinkUse::Preview, found } => {
+                if crate::link::parse(&self.search_text).as_ref() == Some(&link) {
+                    self.link_preview = match found {
+                        Ok(LinkTo::Song(t)) => Some((link, Ok(t))),
+                        Ok(_) => None,
+                        // Drawn as it is under the search box, not through `toast`.
+                        Err(e) => Some((link, Err(super::without_urls(e)))),
+                    };
+                }
+            }
+            Resp::Link { found: Ok(LinkTo::Song(t)), to: LinkUse::Queue, .. } => self.apply(Action::Enqueue(t)),
+            Resp::Link { found: Err(e), to: LinkUse::Queue, .. } => self.toast(e),
+            Resp::Link { link, found, .. } => {
+                // Unless something else was asked for meanwhile.
+                if self.link_pending.take_if(|l| *l == link).is_none() {
+                    return;
+                }
+                match found {
+                    Err(e) => self.toast(e),
+                    Ok(LinkTo::Page(target)) => self.apply(Action::Open(target)),
+                    Ok(LinkTo::Song(t)) => self.play_linked(t),
+                    // Someone else's jam takes just the song.
+                    Ok(LinkTo::InList(_, mut tracks, i)) if self.jam.guest() => self.play_linked(tracks.swap_remove(i)),
+                    Ok(LinkTo::InList(source, tracks, i)) => {
+                        self.queue_source = Some(source);
+                        self.play_list(tracks, i);
+                    }
                 }
             }
             // Unless something else was asked to play meanwhile; shuffled as last asked.
@@ -922,6 +959,7 @@ impl App {
         self.liked.clear();
         self.queue.fill = None;
         self.play_pending = None;
+        (self.link_pending, self.link_preview) = (None, None);
         if self.page_list().is_some() || matches!(self.page, Page::Artist(_)) {
             self.refresh();
         }

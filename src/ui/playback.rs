@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use crate::audio::AudioCmd;
 use crate::backend::{self, Req};
+use crate::link::Link;
 use crate::lyrics::Lyrics;
 use crate::model::Track;
 
@@ -179,9 +180,14 @@ impl App {
         if !played {
             return;
         }
-        // Whatever was about to play doesn't.
-        self.play_pending = None;
+        self.drop_pending_play();
         self.play_current();
+    }
+
+    /// Whatever was about to play doesn't: something else does.
+    pub(super) fn drop_pending_play(&mut self) {
+        self.play_pending = None;
+        self.link_pending.take_if(|l| matches!(l, Link::Song { .. }));
     }
 
     /// Put last session's queue back, paused at the saved position, without loading audio.

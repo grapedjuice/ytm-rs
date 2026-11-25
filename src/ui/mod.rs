@@ -1341,6 +1341,11 @@ impl App {
         app.audio.set_skip_silence(app.skip_silence);
         app.set_eq();
         app.audio.set_stereo(app.stereo);
+        // The saved repeat goes out now, not on the first frame: a widget can ask as soon
+        // as the name appears.
+        if let Some(m) = &mut app.media {
+            m.sync_modes(app.queue.shuffled(), app.queue.repeat);
+        }
         app
     }
 
@@ -1707,6 +1712,7 @@ impl eframe::App for App {
             if let Some(wait) = m.sync_volume(self.audio.volume()) {
                 ctx.request_repaint_after(wait);
             }
+            m.sync_modes(self.queue.shuffled(), self.queue.repeat);
         }
         // No sleep while playing, and the screen stays on for a video on show: this song's
         // (picture in picture keeps the last one's player for a song after it).

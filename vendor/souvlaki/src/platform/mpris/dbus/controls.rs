@@ -12,7 +12,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use super::super::Error;
-use crate::{MediaControlEvent, MediaMetadata, MediaPlayback, PlatformConfig};
+use crate::{LoopStatus, MediaControlEvent, MediaMetadata, MediaPlayback, PlatformConfig};
 
 /// A handle to OS media controls.
 pub struct MediaControls {
@@ -32,6 +32,8 @@ enum InternalEvent {
     ChangeMetadata(OwnedMetadata),
     ChangePlayback(MediaPlayback),
     ChangeVolume(f64),
+    ChangeShuffle(bool),
+    ChangeLoopStatus(LoopStatus),
     Kill,
 }
 
@@ -41,6 +43,8 @@ pub struct ServiceState {
     pub metadata_dict: HashMap<String, Variant<Box<dyn RefArg>>>,
     pub playback_status: MediaPlayback,
     pub volume: f64,
+    pub shuffle: bool,
+    pub loop_status: LoopStatus,
 }
 
 impl ServiceState {
@@ -194,6 +198,16 @@ impl MediaControls {
         self.send_internal_event(InternalEvent::ChangeVolume(volume))
     }
 
+    /// ytm-rs: whether shuffle is on (MPRIS's `Shuffle`). (Only available on MPRIS)
+    pub fn set_shuffle(&mut self, shuffle: bool) -> Result<(), Error> {
+        self.send_internal_event(InternalEvent::ChangeShuffle(shuffle))
+    }
+
+    /// ytm-rs: what repeats (MPRIS's `LoopStatus`). (Only available on MPRIS)
+    pub fn set_loop_status(&mut self, loop_status: LoopStatus) -> Result<(), Error> {
+        self.send_internal_event(InternalEvent::ChangeLoopStatus(loop_status))
+    }
+
     fn send_internal_event(&mut self, event: InternalEvent) -> Result<(), Error> {
         let thread = &self.thread.as_ref().ok_or(Error::ThreadNotRunning)?;
         thread
@@ -218,6 +232,8 @@ where
         metadata_dict: create_metadata_dict(&Default::default()),
         playback_status: MediaPlayback::Stopped,
         volume: 1.0,
+        shuffle: false,
+        loop_status: LoopStatus::None,
     }));
     let event_handler = Arc::new(Mutex::new(event_handler));
     let seeked_signal = Arc::new(Mutex::new(None));
@@ -268,6 +284,19 @@ where
                 InternalEvent::ChangeVolume(volume) => {
                     state.volume = volume;
                     changed_properties.insert("Volume".to_owned(), Variant(Box::new(volume)));
+                }
+                // ytm-rs: shuffle and repeat, which media widgets can also set (see
+                // interfaces.rs), go out as they change like the rest.
+                InternalEvent::ChangeShuffle(shuffle) => {
+                    state.shuffle = shuffle;
+                    changed_properties.insert("Shuffle".to_owned(), Variant(Box::new(shuffle)));
+                }
+                InternalEvent::ChangeLoopStatus(loop_status) => {
+                    state.loop_status = loop_status;
+                    changed_properties.insert(
+                        "LoopStatus".to_owned(),
+                        Variant(Box::new(loop_status.as_str().to_string())),
+                    );
                 }
             }
         }

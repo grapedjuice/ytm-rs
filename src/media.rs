@@ -9,7 +9,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::Sender;
-use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig, SeekDirection};
+use souvlaki::{LoopStatus, MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig, SeekDirection};
+
+use crate::ui::Repeat;
 
 /// How far a seek from the OS without an amount of its own goes (fast forward and rewind).
 const SEEK_STEP: Duration = Duration::from_secs(10);
@@ -89,6 +91,9 @@ pub struct Media {
     reported: Option<f32>,
     /// The song the OS was last told about.
     track: Option<Track>,
+    /// Shuffle and repeat as the OS was last told them (only MPRIS shows them).
+    shuffle: Option<bool>,
+    repeat: Option<LoopStatus>,
     #[cfg(windows)]
     thumbbar: Option<Box<std::cell::RefCell<Option<thumbbar::ThumbBar>>>>,
 }
@@ -129,6 +134,8 @@ impl Media {
             volume: None,
             reported: None,
             track: None,
+            shuffle: None,
+            repeat: None,
             #[cfg(windows)]
             thumbbar,
         })
@@ -236,6 +243,53 @@ impl Media {
         let _ = self.controls.set_volume(volume as f64);
         None
     }
+
+    /// The app's shuffle and repeat, where the OS shows them: only MPRIS does. Each goes
+    /// out when it changes.
+    pub fn sync_modes(&mut self, shuffle: bool, repeat: Repeat) {
+        if !MPRIS {
+            return;
+        }
+        let repeat = loop_status(repeat);
+        if self.shuffle.replace(shuffle) != Some(shuffle) {
+            #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+            let _ = self.controls.set_shuffle(shuffle);
+        }
+        if self.repeat.replace(repeat) != Some(repeat) {
+            #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+            let _ = self.controls.set_loop_status(repeat);
+        }
+    }
+
+    /// The OS asked for shuffle: it goes out again on the next sync, changed or not, so a
+    /// widget that showed it before the app said no (a jam guest) goes back to what the
+    /// app has.
+    pub fn resend_shuffle(&mut self) {
+        self.shuffle = None;
+    }
+
+    /// As `resend_shuffle`, for repeat.
+    pub fn resend_repeat(&mut self) {
+        self.repeat = None;
+    }
+}
+
+/// The app's repeat as MPRIS has it: Repeat all repeats the queue, MPRIS's "playlist".
+pub fn loop_status(repeat: Repeat) -> LoopStatus {
+    match repeat {
+        Repeat::Off => LoopStatus::None,
+        Repeat::One => LoopStatus::Track,
+        Repeat::All => LoopStatus::Playlist,
+    }
+}
+
+/// The app's repeat for one the OS asked for.
+pub fn repeat_from_os(status: LoopStatus) -> Repeat {
+    match status {
+        LoopStatus::None => Repeat::Off,
+        LoopStatus::Track => Repeat::One,
+        LoopStatus::Playlist => Repeat::All,
+    }
 }
 
 /// The song as the OS was told it.
@@ -338,6 +392,20 @@ mod tests {
         assert_eq!(to(MediaControlEvent::SeekBy(SeekDirection::Forward, s(30)), 195), Some(s(200)));
         assert_eq!(to(MediaControlEvent::SeekBy(SeekDirection::Backward, s(30)), 100), Some(s(70)));
         assert_eq!(to(MediaControlEvent::Next, 100), None);
+    }
+
+    #[test]
+    fn repeat_maps_both_ways_onto_mpris_loop_status() {
+        for (repeat, status) in [(Repeat::Off, LoopStatus::None), (Repeat::One, LoopStatus::Track), (Repeat::All, LoopStatus::Playlist)] {
+            assert!(loop_status(repeat) == status);
+            assert!(repeat_from_os(status) == repeat);
+        }
+        // The names on the bus, and nothing else.
+        for status in [LoopStatus::None, LoopStatus::Track, LoopStatus::Playlist] {
+            assert_eq!(LoopStatus::from_name(status.as_str()), Some(status));
+        }
+        assert_eq!(LoopStatus::from_name("track"), None);
+        assert_eq!(LoopStatus::from_name(""), None);
     }
 
     #[test]

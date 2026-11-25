@@ -81,6 +81,22 @@ impl App {
                 // The window from the OS's media controls (KDE's, say; GNOME's use the .desktop file).
                 MediaControlEvent::Raise => self.show_window(ctx),
                 MediaControlEvent::Quit => self.quit(ctx),
+                // As the Shuffle and Repeat buttons do (a jam guest can't shuffle); either
+                // way the widget hears back what the app has now.
+                MediaControlEvent::SetShuffle(on) => {
+                    if on != self.queue.shuffled() {
+                        self.toggle_shuffle();
+                    }
+                    if let Some(m) = &mut self.media {
+                        m.resend_shuffle();
+                    }
+                }
+                MediaControlEvent::SetLoopStatus(status) => {
+                    self.queue.repeat = crate::media::repeat_from_os(status);
+                    if let Some(m) = &mut self.media {
+                        m.resend_repeat();
+                    }
+                }
                 MediaControlEvent::SetVolume(v) => {
                     if let Some(v) = crate::media::volume_from_os(v) {
                         self.audio.set_volume(v);

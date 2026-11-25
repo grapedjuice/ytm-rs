@@ -4,10 +4,10 @@ use std::{
     time::Duration,
 };
 
-use dbus::Path;
+use dbus::{MethodErr, Path};
 use dbus_crossroads::{Crossroads, IfaceBuilder};
 
-use crate::{MediaControlEvent, MediaPlayback, MediaPosition, SeekDirection};
+use crate::{LoopStatus, MediaControlEvent, MediaPlayback, MediaPosition, SeekDirection};
 
 use super::controls::{create_metadata_dict, ServiceState};
 
@@ -165,6 +165,39 @@ where
                 move |_, _, volume: f64| {
                     (event_handler.lock().unwrap())(MediaControlEvent::SetVolume(volume));
                     Ok(Some(volume))
+                }
+            })
+            .emits_changed_true();
+
+        // ytm-rs: shuffle and repeat, for media widgets that show and set them (Noctalia's,
+        // KDE's). A set only asks the app, which may say no (a jam guest can't shuffle):
+        // the new value goes out once the app sends it back, never just because it was
+        // asked for.
+        b.property("Shuffle")
+            .get({
+                let state = state.clone();
+                move |_, _| Ok(state.lock().unwrap().shuffle)
+            })
+            .set({
+                let event_handler = event_handler.clone();
+                move |_, _, shuffle: bool| {
+                    (event_handler.lock().unwrap())(MediaControlEvent::SetShuffle(shuffle));
+                    Ok(None)
+                }
+            })
+            .emits_changed_true();
+
+        b.property("LoopStatus")
+            .get({
+                let state = state.clone();
+                move |_, _| Ok(state.lock().unwrap().loop_status.as_str().to_string())
+            })
+            .set({
+                let event_handler = event_handler.clone();
+                move |_, _, name: String| {
+                    let status = LoopStatus::from_name(&name).ok_or_else(|| MethodErr::invalid_arg(&name))?;
+                    (event_handler.lock().unwrap())(MediaControlEvent::SetLoopStatus(status));
+                    Ok(None)
                 }
             })
             .emits_changed_true();

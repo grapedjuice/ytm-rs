@@ -360,6 +360,11 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" files/* --clobber
             gh release edit "$GITHUB_REF_NAME" --draft=false --latest="$([ -n "$HOLD_LATEST" ] && echo false || echo true)"
+          elif [[ "$GITHUB_REF_NAME" == *-kywai.* ]]; then
+            # kywai's builds (Yiku21/ytm-rs): published at once, never the latest, for
+            # kywai to download by their tag.
+            gh release create "$GITHUB_REF_NAME" files/* --prerelease --latest=false --title "ytm-rs ${GITHUB_REF_NAME#v}" \
+              --notes "ytm-rs with the remote control kywai drives it with (play, queue, seek, lyrics, show, quit, YTM_EMBEDDED). Source: this tag."
           else
             gh release create "$GITHUB_REF_NAME" files/* --draft --title "ytm-rs ${GITHUB_REF_NAME#v}" --notes ""
           fi

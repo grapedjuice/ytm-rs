@@ -140,6 +140,17 @@ impl Queue {
         true
     }
 
+    /// `replace`, with shuffle carrying over as repeat does: on, the song picked plays first
+    /// and the rest are shuffled behind it, as the Shuffle button would (#376).
+    pub fn replace_keeping_shuffle(&mut self, tracks: Vec<Track>, start: usize, fill: Option<QueueFill>) -> bool {
+        let shuffled = self.shuffled();
+        let played = self.replace(tracks, start, fill);
+        if played && shuffled {
+            self.toggle_shuffle();
+        }
+        played
+    }
+
     /// Only the song playing is left, for a radio from it to follow, without it starting
     /// over. Unlike `replace` it stays when it's an explicit one left to finish.
     pub fn keep_current(&mut self) -> Option<Track> {
@@ -623,6 +634,31 @@ mod tests {
         q.replace(vec![track("x"), track("r1"), track("y")], 0, None);
         q.drop_mixed();
         assert_eq!(ids(&q), ["x", "r1", "y"]);
+    }
+
+    #[test]
+    fn shuffle_carries_over_to_a_song_picked_from_a_list() {
+        let list: Vec<Track> = ["a", "b", "c", "d", "e", "f"].map(track).into();
+        let mut q = Queue::new(Repeat::Off);
+        // Off: the list in its order, from the song picked.
+        assert!(q.replace_keeping_shuffle(list.clone(), 3, None));
+        assert!(!q.shuffled());
+        assert_eq!((ids(&q), q.index), (vec!["a", "b", "c", "d", "e", "f"], Some(3)));
+        // On: still on, the song picked first and the whole list behind it.
+        q.toggle_shuffle();
+        assert!(q.replace_keeping_shuffle(list.clone(), 3, None));
+        assert!(q.shuffled());
+        assert_eq!((q.index, q.current().unwrap().id.as_str()), (Some(0), "d"));
+        let mut all = ids(&q);
+        all.sort();
+        assert_eq!(all, ["a", "b", "c", "d", "e", "f"]);
+        // Turning it off puts the list back in order, going on from the song playing.
+        q.toggle_shuffle();
+        assert_eq!((ids(&q), q.index), (vec!["a", "b", "c", "d", "e", "f"], Some(3)));
+        // A plain replace (a radio) still turns it off.
+        q.toggle_shuffle();
+        q.replace(vec![track("r")], 0, None);
+        assert!(!q.shuffled());
     }
 
     #[test]

@@ -12,7 +12,8 @@ Thanks for helping out! Bug reports, ideas, fixes, features and translations are
 
 - For anything small (a bug, a typo, a missing translation), go ahead and open a pull request.
 - For anything large (a new feature, a new dependency, a change to how something works), it's worth opening an issue or commenting on the existing one first. That can save you work on something that might not fit.
-- If you'd like to take an issue, say so on it, so two people don't build the same thing.
+- Before you start, check the open pull requests and recent commits on main: someone may already be on it.
+- If you'd like to take an issue, say so on it, so two people don't build the same thing. An issue with someone assigned is taken.
 
 ## Building and checking
 
@@ -37,8 +38,14 @@ Then run the app and try what you changed. Mention what you tried in the pull re
 ## Pull requests
 
 - **Title:** what changes for someone using the app, with the area first, for example "Song lists: a click no longer starts a drag". The same goes for commit messages.
-- **Description:** fill in the [pull request template](.github/pull_request_template.md): what was wrong or missing, what changed and where, and what you checked. Link the issue ("Refs #13"), not with "Fixes" or "Closes": the maintainer closes issues.
+- **Description:** fill in the [pull request template](.github/pull_request_template.md): what was wrong or missing, what changed and where, and what you checked. Link the issue: "Fixes #13" when the pull request fixes all of it, so it closes when the pull request is merged, or "Refs #13" when it's one part.
 - Reviews may ask for changes. Push them to the same branch, and reply on the comment when it's done.
+
+## Labels
+
+Pull requests are labelled automatically: a `size:` label from the lines they change, and an `area:` label when the files make it obvious. Maintainers add the rest.
+
+Useful lists: [issues to pick up](https://github.com/grapedjuice/ytm-rs/issues?q=is%3Aissue+is%3Aopen+no%3Aassignee+label%3A%22good+first+issue%22%2C%22help+wanted%22) · [issues not sorted yet](https://github.com/grapedjuice/ytm-rs/issues?q=is%3Aissue+is%3Aopen+no%3Alabel) · [pull requests ready for review](https://github.com/grapedjuice/ytm-rs/pulls?q=is%3Apr+is%3Aopen+draft%3Afalse+review%3Anone) · [small pull requests](https://github.com/grapedjuice/ytm-rs/pulls?q=is%3Apr+is%3Aopen+draft%3Afalse+label%3A%22size%3A+XS%22%2C%22size%3A+S%22)
 
 ## Translations
 

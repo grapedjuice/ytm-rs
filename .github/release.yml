@@ -1,0 +1,14 @@
+# Sections for GitHub's "Generate release notes", from the labels on merged pull requests.
+# A pull request goes in the first section whose labels it has.
+changelog:
+  categories:
+    - title: New
+      labels: [enhancement]
+    - title: Fixed
+      labels: [bug]
+    - title: Translations
+      labels: ["area: translations"]
+    - title: Installing and packages
+      labels: ["area: packaging"]
+    - title: Everything else
+      labels: ["*"]

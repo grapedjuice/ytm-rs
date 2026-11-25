@@ -2568,6 +2568,8 @@ impl Backend {
             log::info!("{video_id}: solver not ready yet, standard quality for now");
             self.warm_signed_in();
         }
+        // The signed-in web player refused already: it isn't asked again below.
+        let mut web_refused = false;
         if hq
             && solver_ready
             && let Some(session) = self.api.account()
@@ -2576,7 +2578,10 @@ impl Backend {
             match self.resolve_from(Source::WebMusic, video_id, !best).await {
                 Ok(s) => return Ok((Source::WebMusic, s)),
                 // Not fatal: the usual 128 kbps stream still plays.
-                Err(e) => log::warn!("high quality stream failed for {video_id} ({e:#}); using standard quality"),
+                Err(e) => {
+                    web_refused = e.downcast_ref::<innertube::Refused>().is_some();
+                    log::warn!("high quality stream failed for {video_id} ({e:#}); using standard quality");
+                }
             }
         }
         // Downloads stay on the file stream: they're saved as the .m4a it is.
@@ -2615,18 +2620,39 @@ impl Backend {
                 let source = if blocked { Source::YtDlpAfterBotCheck } else { Source::YtDlp };
                 Ok((source, self.resolve_from(source, video_id, false).await?))
             }
-            // An episode of a podcast added by RSS: YouTube doesn't have its audio, and
-            // visionOS answers as for a video that's gone. Only the signed-in web player
-            // tells the two apart (Premium or not), and plays the episode from its feed.
-            Err(e) if not_available(&e) => match self.api.account() {
-                Some(session) => match self.rss_episode(&session, video_id).await? {
-                    Some(s) => Ok((Source::Feed, s)),
-                    None => Err(e),
-                },
-                None => Err(e),
-            },
+            // visionOS answers the same for a video that's gone, one blocked where the
+            // user is (#373), and an episode of a podcast added by RSS. The signed-in web
+            // player gets one try: it may play the first two, and has the episode's feed.
+            Err(e) if not_available(&e) => {
+                let Some(session) = self.api.account().filter(|_| !web_refused) else { return Err(e) };
+                match self.signed_in_retry(&session, video_id, best).await {
+                    Ok(found) => {
+                        log::info!("{video_id}: visionOS said {e}; {:?} plays it", found.0);
+                        Ok(found)
+                    }
+                    Err(web) if web.downcast_ref::<innertube::Refused>().is_some() => {
+                        log::info!("{video_id}: the signed-in web player says {web} too");
+                        Err(e)
+                    }
+                    Err(web) => {
+                        log::warn!("{video_id}: signed-in retry failed: {web:#}");
+                        Err(e)
+                    }
+                }
+            }
             Err(e) => Err(e),
         }
+    }
+
+    /// For a song visionOS says isn't available, ask the signed-in web player: an RSS
+    /// episode plays from its feed, and a song it plays comes from it with Premium, else
+    /// from yt-dlp. A video that's gone costs that one request, as it did before.
+    async fn signed_in_retry(&self, session: &webmusic::Session, video_id: &str, best: bool) -> anyhow::Result<(Source, ResolvedStream)> {
+        if let Some(feed) = session.feed(&self.http(), &self.jsc, video_id).await? {
+            return Ok((Source::Feed, self.feed_stream(feed).await?));
+        }
+        let source = if self.is_premium(session).await { Source::WebMusic } else { Source::YtDlp };
+        Ok((source, self.resolve_from(source, video_id, !best && source == Source::WebMusic).await?))
     }
 
     /// The feed's file when `video_id` is an episode of a podcast added by RSS, `None`
@@ -3238,6 +3264,11 @@ mod resolve_tests {
         assert!(!bot_check(&refused("LOGIN_REQUIRED", "Sign in to confirm your age")));
         assert!(bot_check(&refused("LOGIN_REQUIRED", "Sign in to confirm you’re not a bot")));
         assert!(!needs_account(&refused("ERROR", "This video is not available")));
+        // Blocked where the user is: the signed-in player gets a try too (#373).
+        let region = refused("UNPLAYABLE", "The uploader has not made this video available in your country");
+        assert!(not_available(&region) && !needs_account(&region));
+        let premium = refused("UNPLAYABLE", "This video is only available to Music Premium members");
+        assert!(needs_account(&premium));
         // Only the player's own answer, not an error that reads like one.
         assert!(!not_available(&anyhow::anyhow!("ERROR: This video is not available")));
     }

@@ -526,6 +526,13 @@ impl Queue {
         Some(Filled { ran_out, was_at_end })
     }
 
+    /// Every song in the queue, in its order and each once: what Save queue puts in a
+    /// playlist. Play next and Add to queue can queue a song again, and it'd go in twice.
+    pub fn songs_once(&self) -> Vec<Track> {
+        let mut seen = std::collections::HashSet::new();
+        self.tracks.iter().filter(|t| seen.insert(t.id.as_str())).cloned().collect()
+    }
+
     /// The part of the queue a saved session keeps, and the current song's place in it.
     pub fn saved(&self) -> Option<(&[Track], usize)> {
         let i = self.index?;
@@ -675,6 +682,18 @@ mod tests {
         q.tracks[0].explicit = true;
         q.hide_explicit = true;
         assert!(!q.advance());
+    }
+
+    #[test]
+    fn save_queue_takes_every_song_once_in_queue_order() {
+        let mut q = queue(&["a", "b", "c"], 1, Repeat::Off);
+        q.play_next(track("c"));
+        q.enqueue(track("a"));
+        q.enqueue(track("d"));
+        assert_eq!(ids(&q), ["a", "b", "c", "c", "a", "d"]);
+        let saved: Vec<String> = q.songs_once().into_iter().map(|t| t.id).collect();
+        assert_eq!(saved, ["a", "b", "c", "d"]);
+        assert!(Queue::new(Repeat::Off).songs_once().is_empty());
     }
 
     fn track(id: &str) -> Track {

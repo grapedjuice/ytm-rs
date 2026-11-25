@@ -27,6 +27,7 @@ ui-queue = Queue
 ui-up-next = Up next
 ui-close-queue = Close queue
 ui-clear-queue = Clear queue
+ui-save-queue = Save queue to a playlist
 ui-empty-queue = Nothing queued yet
 ui-auto-similar = Autoplay similar songs
 ui-add-queue = Add to queue

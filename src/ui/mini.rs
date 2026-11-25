@@ -1362,13 +1362,6 @@ fn pill_btn(key: &str) -> egui::Id {
     egui::Id::unique(("pill-btn", key))
 }
 
-/// A diagonal slash across a mic icon, drawn in as `progress` goes 0→1.
-fn crossed_mic(ui: &Ui, center: Pos2, half: f32, color: Color32, progress: f32) {
-    let start = center + vec2(-half, half);
-    let end = center + vec2(half, -half);
-    ui.painter().line_segment([start, start + (end - start) * progress.clamp(0.0, 1.0)], egui::Stroke::new(1.5, color));
-}
-
 /// What's in the pill: the cover in a progress ring, title and artists or a toast, and the
 /// buttons that slide out. `in_card`: the same row sits at the bottom of the card's lyrics.
 #[allow(clippy::too_many_arguments)]
@@ -1476,12 +1469,6 @@ fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<S
         let active_lyrics = key == "lyrics" && app.mini.lyrics;
         let color = if active_lyrics { app.accent_color() } else if hot { theme::text() } else { theme::text_dim() };
         icon_at(ui, center, glyph, if key == "close" { 13.0 } else { 16.0 }, color.gamma_multiply(reveal));
-        if key == "lyrics" {
-            let off = theme::anim_bool(&ctx, "pill-mic-off", app.mini.lyrics, 0.18).clamp(0.0, 1.0);
-            if off > 0.001 {
-                crossed_mic(ui, center, 5.5, color.gamma_multiply(reveal), off);
-            }
-        }
         if resp.clicked() {
             match key {
                 "prev" if enabled => app.prev(),
@@ -1753,10 +1740,6 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
         let mic = pos2(rt - 110.0, head);
         if button(ui, mic, icon::MIC_VOCAL, 14.0, crate::tr!("settings-lyrics"), lyrics) && enabled {
             app.mini.lyrics = !lyrics;
-        }
-        let off = theme::anim_bool(&ctx, "card-mic-off", app.mini.lyrics, 0.18).clamp(0.0, 1.0);
-        if off > 0.001 {
-            crossed_mic(ui, mic, 5.0, theme::text(), off);
         }
         let head_w = rt - 134.0 - l;
         // A toast ("Only the host can shuffle the jam", "Sign in to like songs") takes the header's place while

@@ -19,6 +19,10 @@ concurrency:
 
 jobs:
   size:
+    # After area, whatever its outcome: the labeler writes back the whole list of labels it
+    # read when it started, so a size label added while it ran would be dropped.
+    needs: area
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

@@ -27,6 +27,7 @@ ui-queue = Antrean
 ui-up-next = Selanjutnya
 ui-close-queue = Tutup antrean
 ui-clear-queue = Kosongkan antrean
+ui-save-queue = Simpan antrean ke playlist
 ui-empty-queue = Belum ada lagu di antrean
 ui-auto-similar = Putar otomatis lagu yang mirip
 ui-add-queue = Tambah ke antrean

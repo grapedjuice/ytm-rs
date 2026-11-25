@@ -27,6 +27,7 @@ ui-queue = Очередь
 ui-up-next = Далее
 ui-close-queue = Закрыть очередь
 ui-clear-queue = Очистить очередь
+ui-save-queue = Сохранить очередь в плейлист
 ui-empty-queue = В очереди пока ничего нет
 ui-auto-similar = Автовоспроизведение похожих треков
 ui-add-queue = Добавить в очередь

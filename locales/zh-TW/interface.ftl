@@ -27,6 +27,7 @@ ui-queue = 隊列
 ui-up-next = 接下來
 ui-close-queue = 關閉佇列
 ui-clear-queue = 清除佇列
+ui-save-queue = 將佇列儲存到播放清單
 ui-empty-queue = 尚未排隊
 ui-auto-similar = 自動播放類似歌曲
 ui-add-queue = 新增到佇列

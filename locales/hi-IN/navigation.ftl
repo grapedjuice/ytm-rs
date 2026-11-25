@@ -25,6 +25,15 @@ nav-refresh-shortcut = ताज़ा करें (F5)
 nav-search-music = गाने, एल्बम या कलाकार खोजें
 nav-search-podcasts = गाने, एल्बम, कलाकार या पॉडकास्ट खोजें
 nav-clear-search = स्पष्ट खोज
+
+# A YouTube Music or YouTube link pasted into the search box.
+link-open = लिंक खोलें
+link-not-found = उस लिंक के पीछे कुछ नहीं मिला
+link-play-song = यह गाना चलाएँ
+link-open-album = यह एल्बम खोलें
+link-open-playlist = यह प्लेलिस्ट खोलें
+link-open-artist = इस कलाकार को खोलें
+link-queue-hint = Shift+Enter इसे कतार में जोड़ता है
 nav-remove-recent-search = हाल की खोजों से हटाएँ
 nav-new-releases-for-you = आपके लिए नई रिलीज़
 nav-new-releases = लोकप्रिय नई रिलीज़

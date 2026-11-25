@@ -25,6 +25,15 @@ nav-refresh-shortcut = 更新（F5）
 nav-search-music = 曲、アルバム、アーティストを検索
 nav-search-podcasts = 曲、アルバム、アーティスト、ポッドキャストを検索
 nav-clear-search = 検索をクリア
+
+# A YouTube Music or YouTube link pasted into the search box.
+link-open = リンクを開く
+link-not-found = そのリンクの先には何もありませんでした
+link-play-song = この曲を再生
+link-open-album = このアルバムを開く
+link-open-playlist = このプレイリストを開く
+link-open-artist = このアーティストを開く
+link-queue-hint = Shift+Enter で再生キューに追加
 nav-remove-recent-search = 最近の検索から削除
 nav-new-releases-for-you = あなたへの新作
 nav-new-releases = 人気の新作

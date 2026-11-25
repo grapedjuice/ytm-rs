@@ -27,6 +27,7 @@ ui-queue = Sıra
 ui-up-next = Sıradaki
 ui-close-queue = Sırayı kapat
 ui-clear-queue = Sırayı temizle
+ui-save-queue = Sırayı bir çalma listesine kaydet
 ui-empty-queue = Henüz sıraya alınmış bir şey yok
 ui-auto-similar = Benzer şarkıları otomatik oynat
 ui-add-queue = Sıraya ekle

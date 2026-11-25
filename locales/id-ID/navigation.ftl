@@ -25,6 +25,15 @@ nav-refresh-shortcut = Muat ulang (F5)
 nav-search-music = Cari lagu, album, artis
 nav-search-podcasts = Cari lagu, album, artis, podcast
 nav-clear-search = Hapus pencarian
+
+# A YouTube Music or YouTube link pasted into the search box.
+link-open = Buka tautan
+link-not-found = Nggak ada apa-apa di balik tautan itu
+link-play-song = Putar lagu ini
+link-open-album = Buka album ini
+link-open-playlist = Buka playlist ini
+link-open-artist = Buka artis ini
+link-queue-hint = Shift+Enter menambahkannya ke antrean
 nav-remove-recent-search = Hapus dari pencarian terakhir
 nav-new-releases-for-you = Rilis baru buat kamu
 nav-new-releases = Rilis baru yang populer

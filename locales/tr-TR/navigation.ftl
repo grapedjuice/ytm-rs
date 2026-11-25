@@ -25,6 +25,15 @@ nav-refresh-shortcut = Yenile (F5)
 nav-search-music = Şarkı, albüm veya sanatçı ara
 nav-search-podcasts = Şarkı, albüm, sanatçı veya podcast ara
 nav-clear-search = Aramayı temizle
+
+# A YouTube Music or YouTube link pasted into the search box.
+link-open = Bağlantıyı aç
+link-not-found = O bağlantının arkasında bir şey bulunamadı
+link-play-song = Bu şarkıyı çal
+link-open-album = Bu albümü aç
+link-open-playlist = Bu çalma listesini aç
+link-open-artist = Bu sanatçıyı aç
+link-queue-hint = Shift+Enter sıraya ekler
 nav-remove-recent-search = Son aramalardan kaldır
 nav-new-releases-for-you = Sizin için yeni çıkanlar
 nav-new-releases = Popüler yeni çıkanlar

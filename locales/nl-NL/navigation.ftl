@@ -25,6 +25,15 @@ nav-refresh-shortcut = Vernieuwen (F5)
 nav-search-music = Zoek nummers, albums en artiesten
 nav-search-podcasts = Zoek nummers, albums, artiesten en podcasts
 nav-clear-search = Zoekopdracht wissen
+
+# A YouTube Music or YouTube link pasted into the search box.
+link-open = Link openen
+link-not-found = Achter die link is niets gevonden
+link-play-song = Dit nummer afspelen
+link-open-album = Dit album openen
+link-open-playlist = Deze afspeellijst openen
+link-open-artist = Deze artiest openen
+link-queue-hint = Shift+Enter voegt het toe aan de wachtrij
 nav-remove-recent-search = Uit recente zoekopdrachten verwijderen
 nav-new-releases-for-you = Nieuwe releases voor jou
 nav-new-releases = Populaire nieuwe releases

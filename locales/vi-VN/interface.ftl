@@ -27,6 +27,7 @@ ui-queue = Hàng đợi
 ui-up-next = Tiếp theo
 ui-close-queue = Đóng hàng đợi
 ui-clear-queue = Xóa hàng đợi
+ui-save-queue = Lưu hàng đợi vào danh sách phát
 ui-empty-queue = Chưa có gì được xếp hàng
 ui-auto-similar = Tự động phát các bài hát tương tự
 ui-add-queue = Thêm vào hàng đợi

@@ -27,6 +27,7 @@ ui-queue = 대기줄
 ui-up-next = 다음
 ui-close-queue = 대기열 닫기
 ui-clear-queue = 대기열 지우기
+ui-save-queue = 대기열을 재생목록에 저장
 ui-empty-queue = 아직 대기 중인 항목이 없습니다.
 ui-auto-similar = 비슷한 노래 자동 재생
 ui-add-queue = 대기열에 추가

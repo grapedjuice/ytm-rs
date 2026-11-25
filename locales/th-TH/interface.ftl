@@ -27,6 +27,7 @@ ui-queue = คิว
 ui-up-next = ต่อไป
 ui-close-queue = ปิดคิว
 ui-clear-queue = ล้างคิว
+ui-save-queue = บันทึกคิวลงเพลย์ลิสต์
 ui-empty-queue = ยังไม่มีคิวอะไร
 ui-auto-similar = เล่นเพลงที่คล้ายกันโดยอัตโนมัติ
 ui-add-queue = เพิ่มในคิว

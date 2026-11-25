@@ -27,6 +27,7 @@ ui-queue = कतार
 ui-up-next = आगे
 ui-close-queue = कतार बंद करें
 ui-clear-queue = कतार साफ़ करें
+ui-save-queue = कतार को प्लेलिस्ट में सहेजें
 ui-empty-queue = अभी तक कुछ भी कतार में नहीं है
 ui-auto-similar = समान गाने ऑटोप्ले करें
 ui-add-queue = कतार में जोड़ें

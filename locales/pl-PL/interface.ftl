@@ -27,6 +27,7 @@ ui-queue = Kolejka
 ui-up-next = Następne
 ui-close-queue = Zamknij kolejkę
 ui-clear-queue = Wyczyść kolejkę
+ui-save-queue = Zapisz kolejkę na playliście
 ui-empty-queue = Kolejka jest pusta
 ui-auto-similar = Odtwarzaj automatycznie podobne utwory
 ui-add-queue = Dodaj do kolejki

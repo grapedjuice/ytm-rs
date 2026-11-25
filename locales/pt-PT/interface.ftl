@@ -27,6 +27,7 @@ ui-queue = Fila
 ui-up-next = Seguintes
 ui-close-queue = Fechar fila
 ui-clear-queue = Limpar fila
+ui-save-queue = Guardar a fila numa lista de reprodução
 ui-empty-queue = A fila está vazia
 ui-auto-similar = Reproduzir faixas semelhantes automaticamente
 ui-add-queue = Adicionar à fila

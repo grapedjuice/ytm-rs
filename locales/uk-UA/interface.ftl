@@ -27,6 +27,7 @@ ui-queue = Черга
 ui-up-next = Далі
 ui-close-queue = Закрити чергу
 ui-clear-queue = Очистити чергу
+ui-save-queue = Зберегти чергу в список відтворення
 ui-empty-queue = У черзі поки нічого немає
 ui-auto-similar = Автовідтворення схожих треків
 ui-add-queue = Додати до черги

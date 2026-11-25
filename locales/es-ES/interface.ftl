@@ -27,6 +27,7 @@ ui-queue = Cola
 ui-up-next = A continuación
 ui-close-queue = Cerrar cola
 ui-clear-queue = Vaciar cola
+ui-save-queue = Guardar la cola en una lista
 ui-empty-queue = La cola está vacía
 ui-auto-similar = Reproducir canciones similares automáticamente
 ui-add-queue = Añadir a la cola

@@ -27,6 +27,7 @@ ui-queue = File d’attente
 ui-up-next = À suivre
 ui-close-queue = Fermer la file d’attente
 ui-clear-queue = Vider la file d’attente
+ui-save-queue = Enregistrer la file d’attente dans une playlist
 ui-empty-queue = La file d’attente est vide
 ui-auto-similar = Lire automatiquement les titres similaires
 ui-add-queue = Ajouter à la file d’attente

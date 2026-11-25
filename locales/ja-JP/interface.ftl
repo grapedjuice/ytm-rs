@@ -27,6 +27,7 @@ ui-queue = 再生キュー
 ui-up-next = 次の曲
 ui-close-queue = 再生キューを閉じる
 ui-clear-queue = 再生キューをクリア
+ui-save-queue = 再生キューをプレイリストに保存
 ui-empty-queue = 再生キューは空です
 ui-auto-similar = 似た曲を自動再生
 ui-add-queue = 再生キューに追加

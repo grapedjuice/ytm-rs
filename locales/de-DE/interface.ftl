@@ -27,6 +27,7 @@ ui-queue = Warteschlange
 ui-up-next = Als Nächstes
 ui-close-queue = Warteschlange schließen
 ui-clear-queue = Warteschlange leeren
+ui-save-queue = Warteschlange in einer Playlist speichern
 ui-empty-queue = Die Warteschlange ist leer
 ui-auto-similar = Ähnliche Titel automatisch abspielen
 ui-add-queue = Zur Warteschlange hinzufügen

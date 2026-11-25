@@ -27,6 +27,7 @@ ui-queue = Coda
 ui-up-next = In coda
 ui-close-queue = Chiudi la coda
 ui-clear-queue = Svuota la coda
+ui-save-queue = Salva la coda in una playlist
 ui-empty-queue = La coda è vuota
 ui-auto-similar = Riproduci automaticamente brani simili
 ui-add-queue = Aggiungi alla coda

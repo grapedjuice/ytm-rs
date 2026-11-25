@@ -27,6 +27,7 @@ ui-queue = Wachtrij
 ui-up-next = Hierna
 ui-close-queue = Wachtrij sluiten
 ui-clear-queue = Wachtrij wissen
+ui-save-queue = Wachtrij opslaan in een afspeellijst
 ui-empty-queue = De wachtrij is leeg
 ui-auto-similar = Vergelijkbare nummers automatisch afspelen
 ui-add-queue = Toevoegen aan wachtrij

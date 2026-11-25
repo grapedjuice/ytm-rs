@@ -879,6 +879,8 @@ impl App {
         if change == PlaylistChange::Deleted {
             // Its load is dropped too, and the queue stops waiting for it.
             self.lists.forget(&id);
+            // Kept downloaded, it would be loaded at every launch, and fail each time.
+            self.kept_downloaded.retain(|k| *k != id);
             if self.queue.fill.as_ref().is_some_and(|f| f.id == id) {
                 self.queue.fill = None;
             }

@@ -856,13 +856,8 @@ const UNISON_DIM: f32 = 0.6;
 /// song's page there, and who submitted them, linked to theirs. One row when it fits,
 /// else a row each. Each part with its place under the songwriters and link; the height.
 fn unison_credit(fonts: &mut FontsView<'_>, c: &UnisonCredit, font: &FontId, wrap: f32, align: Align) -> (Vec<CreditPart>, f32) {
-    let mut parts = vec![(crate::tr!("player-lyrics-from-unison").to_owned(), Some(c.song_url()))];
-    if let Some((name, key)) = &c.submitter {
-        parts.push((" · ".to_owned(), None));
-        parts.push((crate::tr!("player-lyrics-submitted-by", name = name.as_str()), Some(UnisonCredit::submitter_url(key))));
-    }
     let font = unison_font(font);
-    let parts: Vec<_> = parts.into_iter().map(|(t, url)| (deco_galley(fonts, t, font.clone(), wrap, align), url)).collect();
+    let parts: Vec<_> = unison_parts(c).into_iter().map(|(t, url)| (deco_galley(fonts, t, font.clone(), wrap, align), url)).collect();
     let rows = if parts.iter().map(|(g, _)| g.size().x).sum::<f32>() <= wrap { vec![parts] } else { parts.into_iter().filter(|(_, url)| url.is_some()).map(|p| vec![p]).collect() };
     let (mut out, mut y) = (Vec::new(), 0.0);
     for row in rows {
@@ -881,6 +876,17 @@ fn unison_credit(fonts: &mut FontsView<'_>, c: &UnisonCredit, font: &FontId, wra
         y += h;
     }
     (out, y)
+}
+
+/// Unison's credit in its parts, each with its link: "Lyrics from Unison", linked to the
+/// song's page there, and who submitted them, linked to theirs. What every view of it shows.
+pub fn unison_parts(c: &UnisonCredit) -> Vec<(String, Option<String>)> {
+    let mut parts = vec![(crate::tr!("player-lyrics-from-unison").to_owned(), Some(c.song_url()))];
+    if let Some((name, key)) = &c.submitter {
+        parts.push((" · ".to_owned(), None));
+        parts.push((crate::tr!("player-lyrics-submitted-by", name = name.as_str()), Some(UnisonCredit::submitter_url(key))));
+    }
+    parts
 }
 
 /// Romanization, translation or credits, its rows set to `align` within the galley's width.

@@ -1763,19 +1763,15 @@ impl Backend {
             let _ = tokio::task::spawn_blocking(move || crate::downloads::save_lyrics(&t.id, &keep)).await;
             set
         });
-        // Unison lyrics saved before they carried its credit wait for a fresh look, which
-        // names who submitted them; offline they're shown crediting Unison alone.
-        let uncredited = |s: &LyricsSet| s.sources.iter().any(|l| l.provider.is_unison() && l.unison.is_none());
         match saved {
-            Some(saved) if !uncredited(&saved) => saved,
-            saved => {
-                let fresh = fresh.await.unwrap_or_default();
-                let Some(mut saved) = saved.filter(|_| fresh.sources.is_empty()) else { return fresh };
-                for l in saved.sources.iter_mut().filter(|l| l.provider.is_unison() && l.unison.is_none()) {
-                    l.unison = Some(lyrics::UnisonCredit { video_id: video_id.clone(), submitter: None });
-                }
+            // Unison lyrics saved before they carried its credit don't wait for the fresh
+            // look, which can take long on a poor connection: they credit Unison alone,
+            // and the fresh look saves who submitted them for next time.
+            Some(mut saved) => {
+                saved.credit_unison(&video_id);
                 saved
             }
+            None => fresh.await.unwrap_or_default(),
         }
     }
 

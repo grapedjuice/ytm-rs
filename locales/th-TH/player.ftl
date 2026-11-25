@@ -1,5 +1,11 @@
-### Player controls and synced lyrics.
+### The player: the bar along the bottom, now playing and the mini player.
 
+# For screen readers, on the time beside the progress line ("0:36 / 1:27"), which a
+# click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
+player-time-show-left = { $time }. แสดงเวลาที่เหลือ
+player-time-show-length = { $time }. แสดงความยาวเพลง
+
+# From the interface-wide catalog (#228).
 player-full-screen = เต็มหน้าจอ
 player-exit-full-screen = ออกจากโหมดเต็มหน้าจอ
 player-pip = ภาพซ้อนภาพ
@@ -49,3 +55,7 @@ player-play-next = เล่นถัดไป
 player-start-radio = เริ่มวิทยุ
 player-go-to-album = ไปที่อัลบั้ม
 player-go-to-artist = ไปที่ศิลปิน
+player-sleep-timer = ตัวตั้งเวลาปิด
+player-sleep-off = ปิด
+player-sleep-minutes = { $minutes } นาที
+player-sleep-song-end = จบเพลง

@@ -7,6 +7,10 @@ status-added-queue = 대기열에 추가되었습니다
 status-removed-queue = 대기열에서 제거되었습니다.
 status-cleared-queue = 대기열이 삭제되었습니다.
 status-removed-playlist = 재생목록에서 삭제되었습니다.
+status-not-added-duplicates =
+    { $count ->
+       *[other] 추가하지 않았습니다. 이미 “{ $title }”에 있습니다
+    }
 status-playlist-deleted = 재생목록이 삭제되었습니다.
 status-added-liked = 좋아요를 누른 음악에 추가됨
 status-sign-in-like = 노래에 좋아요를 누르려면 로그인하세요.
@@ -39,4 +43,4 @@ status-switched-channel = { $name }로 전환됨
 status-skipped-track = 건너뛴 “{ $title }”: { $reason }
 status-track-failed = “{ $title }”를 재생할 수 없습니다: { $reason }
 status-track-from-device = 다른 장치에서 “{ $title }”를 선택했습니다. 계속하려면 재생을 누르세요.
-status-track-disconnected = "{ $title }"를 재생하는 동안 연결이 끊어졌습니다. 계속하려면 재생을 누르세요.
+status-track-disconnected = “{ $title }”를 재생하는 동안 연결이 끊어졌습니다. 계속하려면 재생을 누르세요.

@@ -7,6 +7,11 @@ status-added-queue = Zur Warteschlange hinzugefügt
 status-removed-queue = Aus Warteschlange entfernt
 status-cleared-queue = Warteschlange geleert
 status-removed-playlist = Aus Playlist entfernt
+status-not-added-duplicates =
+    { $count ->
+        [one] Nicht hinzugefügt: ist schon in „{ $title }“
+       *[other] Nichts hinzugefügt: einige dieser Titel sind schon in „{ $title }“
+    }
 status-playlist-deleted = Playlist gelöscht
 status-added-liked = Zu deinen gelikten Titeln hinzugefügt
 status-sign-in-like = Melde dich an, um Titel zu liken

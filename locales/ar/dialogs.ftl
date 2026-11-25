@@ -31,9 +31,34 @@ dialog-invite-instructions = أرسل الرابط إلى الأشخاص الذ�
 dialog-invites-off = لا يمكن للمساهمين الجدد الانضمام. فعّل «السماح بمساهمين جدد» للحصول على رابط دعوة.
 dialog-collaborators = المساهمون
 dialog-no-collaborators = لم ينضم أحد بعد.
-dialog-delete-playlist-body = ستتم إزالة “{ $title }” من مكتبتك على YouTube Music. لا يمكن التراجع عن هذا الإجراء.
-dialog-delete-upload-body = سيتم حذف “{ $title }” من ملفاتك المرفوعة على YouTube Music. لا يمكن التراجع عن هذا الإجراء.
+dialog-delete-playlist-body = ستتم إزالة «{ $title }» من مكتبتك على YouTube Music. لا يمكن التراجع عن هذا الإجراء.
+dialog-delete-upload-body = سيتم حذف «{ $title }» من ملفاتك المرفوعة على YouTube Music. لا يمكن التراجع عن هذا الإجراء.
 dialog-download-count = تنزيل ({ $count })
 dialog-edit-playlist = تعديل قائمة التشغيل
 dialog-download-body = الأغاني المتبقية للتنزيل: { $count }. تعمل التنزيلات في الخلفية وتبدأ بالأغنية الحالية.
-dialog-download-collection-body = الأغاني المتبقية للتنزيل من “{ $title }”: { $count }. تعمل التنزيلات في الخلفية وتبدأ بالأغنية الحالية.
+dialog-download-collection-body = الأغاني المتبقية للتنزيل من «{ $title }»: { $count }. تعمل التنزيلات في الخلفية وتبدأ بالأغنية الحالية.
+dialog-add-duplicates-title = موجودة بالفعل في قائمة التشغيل
+dialog-add-duplicates-some = بعض هذه الأغاني موجود بالفعل في «{ $title }». أتضيفها على أي حال؟
+dialog-add-duplicates-body =
+    { $count ->
+        [zero] { $more ->
+            [0] لا أغاني جديدة: الأغاني المحددة موجودة بالفعل في «{ $title }»: { $songs }. أتضيفها على أي حال؟
+           *[other] لا أغاني جديدة: الأغاني المحددة موجودة بالفعل في «{ $title }»: { $songs } و{ $more } أخرى. أتضيفها على أي حال؟
+        }
+        [one] «{ $songs }» موجودة بالفعل في «{ $title }». أتضيفها على أي حال؟
+        [two] «{ $songs }» موجودتان بالفعل في «{ $title }». أتضيفهما على أي حال؟
+        [few] { $more ->
+            [0] هذه { $count } أغانٍ موجودة بالفعل في «{ $title }»: { $songs }. أتضيفها على أي حال؟
+           *[other] هذه { $count } أغانٍ موجودة بالفعل في «{ $title }»: { $songs } و{ $more } أخرى. أتضيفها على أي حال؟
+        }
+        [many] { $more ->
+            [0] هذه { $count } أغنية موجودة بالفعل في «{ $title }»: { $songs }. أتضيفها على أي حال؟
+           *[other] هذه { $count } أغنية موجودة بالفعل في «{ $title }»: { $songs } و{ $more } أخرى. أتضيفها على أي حال؟
+        }
+       *[other] { $more ->
+            [0] هذه { $count } أغنية موجودة بالفعل في «{ $title }»: { $songs }. أتضيفها على أي حال؟
+           *[other] هذه { $count } أغنية موجودة بالفعل في «{ $title }»: { $songs } و{ $more } أخرى. أتضيفها على أي حال؟
+        }
+    }
+dialog-add-anyway = أضف على أي حال
+dialog-skip-duplicates = تخطّ التكرارات

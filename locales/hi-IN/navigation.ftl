@@ -4,6 +4,7 @@ nav-explore = एक्सप्लोर करें
 nav-library = लाइब्रेरी
 nav-library-section = लाइब्रेरी › { $tab }
 nav-playlists = प्लेलिस्ट
+nav-community-playlists = समुदाय की प्लेलिस्ट
 nav-liked-songs = पसंद किए गए गाने
 nav-albums = एल्बम
 nav-artists = कलाकार

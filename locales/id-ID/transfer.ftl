@@ -26,6 +26,7 @@ transfer-spotify-account = Akun Spotify
 transfer-signed-in-plan = Sudah masuk · bisa dipakai di akun Free dan Premium
 transfer-signed-in-as = Masuk sebagai { $name }
 transfer-credential-storage = Data masuk disimpan terenkripsi di Windows Credential Manager.
+transfer-credential-storage-system = Data masuk disimpan di keyring sistem, atau kalau itu nggak bisa dipakai, di file yang cuma kamu yang bisa baca.
 transfer-checking-sign-in = Mengecek status masuk kamu…
 transfer-private-sign-in = Dibutuhkan buat Lagu yang Disukai dan playlist pribadi. Playlist publik bisa tanpa masuk.
 transfer-sign-in-spotify = Masuk ke Spotify

@@ -55,3 +55,7 @@ player-play-next = Putar berikutnya
 player-start-radio = Mulai radio
 player-go-to-album = Ke album
 player-go-to-artist = Ke artis
+player-sleep-timer = Timer tidur
+player-sleep-off = Mati
+player-sleep-minutes = { $minutes } mnt
+player-sleep-song-end = Akhir lagu

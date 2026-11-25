@@ -1,0 +1,33 @@
+### Additional app features.
+
+comment-more = Mostrar mais comentários
+comment-more-replies = Mostrar mais respostas
+comment-sort-failed = Não foi possível ordenar os comentários.
+comment-like-failed = Não foi possível gostar o comentário.
+comment-post-failed = Não foi possível publicar o comentário. O rascunho ainda está no campo.
+comment-reply-failed = Não foi possível publicar a resposta. O rascunho ainda está no campo.
+comment-posted = Comentário publicado.
+comment-reply-posted = Resposta publicada.
+comment-loading = A carregar comentários…
+comment-loading-replies = A carregar respostas…
+comment-disabled = Os comentários estão desativados nesta faixa.
+comment-load-failed = Não foi possível carregar os comentários.
+comment-retry = Não foi possível carregar. Tentar novamente
+comment-posting = A publicar comentário…
+comment-posting-reply = A publicar resposta…
+comment-replies-unavailable = O YouTube não permite respostas a este comentário.
+comment-unavailable = O YouTube não permite comentários aqui.
+comment-sign-in-like = Entre para gostar comentários.
+comment-like-unavailable = O YouTube não permite gostar este comentário.
+comment-newest = Mais recentes
+comment-top = Em destaque
+comment-empty = Ainda não há comentários.
+comment-sign-in = Entre para comentar
+comment-new = Adicione um comentário…
+comment-compose-disabled = Não é possível comentar aqui
+comment-reply = Responder
+comment-hide-replies = Ocultar respostas
+comment-reply-count = Respostas ({ $count })
+comment-new-reply = Adicione uma resposta…
+comment-sign-in-reply = Entre para responder
+comment-post = Publicar

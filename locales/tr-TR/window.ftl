@@ -39,6 +39,7 @@ window-installed-when-closed = Sürüm { $version } hazır. Uygulamayı kapattı
 window-notes-status = { $version }'desiniz. { $step }
 window-package-instructions = Yeni paketi indirin ve sudo pacman -U ile yükleyin.
 window-package-download = Yeni .deb'yi indirin ve bunun üzerine kurmak için açın.
+window-package-flatpak = Bu kopya Flatpak ile güncellenir: flatpak update çalıştırın veya yazılım mağazanıza bakın.
 window-keyboard-volume-up = Sesi artır
 window-keyboard-volume-down = Sesi kıs
 widget-pin-playlist = Oynatma listesini sabitle

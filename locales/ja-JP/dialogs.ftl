@@ -37,3 +37,14 @@ dialog-download-count = ダウンロード（{ $count } 件）
 dialog-edit-playlist = プレイリストを編集
 dialog-download-body = 残り { $count } 曲です。再生中の曲からバックグラウンドでダウンロードします。
 dialog-download-collection-body = 「{ $title }」の残りは { $count } 曲です。再生中の曲からバックグラウンドでダウンロードします。
+dialog-add-duplicates-title = すでにプレイリストに入っています
+dialog-add-duplicates-some = これらの曲の一部はすでに 「{ $title }」 に入っています。それでも追加しますか？
+dialog-add-duplicates-body =
+    { $count ->
+       *[other] { $more ->
+            [0] この { $count } 曲はすでに 「{ $title }」 に入っています: { $songs }。それでも追加しますか？
+           *[other] この { $count } 曲はすでに 「{ $title }」 に入っています: { $songs }、ほか { $more } 曲。それでも追加しますか？
+        }
+    }
+dialog-add-anyway = それでも追加
+dialog-skip-duplicates = 重複をスキップ

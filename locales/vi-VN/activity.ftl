@@ -7,6 +7,10 @@ status-added-queue = Đã thêm vào hàng đợi
 status-removed-queue = Đã xóa khỏi hàng đợi
 status-cleared-queue = Đã xóa hàng đợi
 status-removed-playlist = Đã xóa khỏi danh sách phát
+status-not-added-duplicates =
+    { $count ->
+       *[other] Không thêm: đã có trong "{ $title }"
+    }
 status-playlist-deleted = Đã xóa danh sách phát
 status-added-liked = Đã thêm vào Nhạc đã thích
 status-sign-in-like = Đăng nhập để thích bài hát

@@ -1,5 +1,11 @@
-### Player controls and synced lyrics.
+### The player: the bar along the bottom, now playing and the mini player.
 
+# For screen readers, on the time beside the progress line ("0:36 / 1:27"), which a
+# click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
+player-time-show-left = { $time }. Показать оставшееся время
+player-time-show-length = { $time }. Показать длительность трека
+
+# From the interface-wide catalog (#228).
 player-full-screen = Полноэкранный режим
 player-exit-full-screen = Выйти из полноэкранного режима
 player-pip = Картинка в картинке
@@ -49,3 +55,7 @@ player-play-next = Играть следующим
 player-start-radio = Включить радио
 player-go-to-album = К альбому
 player-go-to-artist = К исполнителю
+player-sleep-timer = Таймер сна
+player-sleep-off = Выкл.
+player-sleep-minutes = { $minutes } мин
+player-sleep-song-end = Конец трека

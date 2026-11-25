@@ -37,3 +37,15 @@ dialog-download-count = Downloaden ({ $count })
 dialog-edit-playlist = Afspeellijst bewerken
 dialog-download-body = Nog te downloaden: { $count }. Downloads lopen op de achtergrond, te beginnen met het huidige nummer.
 dialog-download-collection-body = Nog te downloaden uit ‘{ $title }’: { $count }. Downloads lopen op de achtergrond, te beginnen met het huidige nummer.
+dialog-add-duplicates-title = Staat al in de afspeellijst
+dialog-add-duplicates-some = Een deel van deze nummers staat al in ‘{ $title }’. Toch toevoegen?
+dialog-add-duplicates-body =
+    { $count ->
+        [one] ‘{ $songs }’ staat al in ‘{ $title }’. Toch toevoegen?
+       *[other] { $more ->
+            [0] Deze { $count } nummers staan al in ‘{ $title }’: { $songs }. Toch toevoegen?
+           *[other] Deze { $count } nummers staan al in ‘{ $title }’: { $songs } en nog { $more }. Toch toevoegen?
+        }
+    }
+dialog-add-anyway = Toch toevoegen
+dialog-skip-duplicates = Duplicaten overslaan

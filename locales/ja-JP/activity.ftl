@@ -7,6 +7,10 @@ status-added-queue = 再生キューに追加しました
 status-removed-queue = 再生キューから削除しました
 status-cleared-queue = 再生キューをクリアしました
 status-removed-playlist = プレイリストから削除しました
+status-not-added-duplicates =
+    { $count ->
+       *[other] 追加しませんでした。すでに 「{ $title }」 に入っています
+    }
 status-playlist-deleted = プレイリストを削除しました
 status-added-liked = 高く評価した曲に追加しました
 status-sign-in-like = 高評価を付けるにはログインしてください

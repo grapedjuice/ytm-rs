@@ -4,6 +4,7 @@ nav-explore = استكشاف
 nav-library = المكتبة
 nav-library-section = المكتبة › { $tab }
 nav-playlists = قوائم التشغيل
+nav-community-playlists = قوائم تشغيل المجتمع
 nav-liked-songs = الأغاني التي أعجبتك
 nav-albums = الألبومات
 nav-artists = الفنانون

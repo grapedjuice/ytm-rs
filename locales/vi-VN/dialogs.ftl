@@ -37,3 +37,14 @@ dialog-download-count = Tải xuống ({ $count })
 dialog-edit-playlist = Chỉnh sửa danh sách phát
 dialog-download-body = Các bản nhạc còn lại để tải xuống: { $count }. Tải xuống chạy ở chế độ nền và bắt đầu với bản nhạc hiện tại.
 dialog-download-collection-body = Các bản nhạc còn lại để tải xuống từ “{ $title }”: { $count }. Tải xuống chạy ở chế độ nền và bắt đầu với bản nhạc hiện tại.
+dialog-add-duplicates-title = Đã có trong danh sách phát
+dialog-add-duplicates-some = Một số bài này đã có trong "{ $title }". Vẫn thêm chứ?
+dialog-add-duplicates-body =
+    { $count ->
+       *[other] { $more ->
+            [0] { $count } bài này đã có trong "{ $title }": { $songs }. Vẫn thêm chứ?
+           *[other] { $count } bài này đã có trong "{ $title }": { $songs } và { $more } bài nữa. Vẫn thêm chứ?
+        }
+    }
+dialog-add-anyway = Vẫn thêm
+dialog-skip-duplicates = Bỏ qua bản trùng

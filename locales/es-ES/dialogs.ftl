@@ -37,3 +37,15 @@ dialog-download-count = Descargar ({ $count })
 dialog-edit-playlist = Editar lista
 dialog-download-body = Canciones pendientes: { $count }. Las descargas se ejecutan en segundo plano y empiezan por la canción en reproducción.
 dialog-download-collection-body = Canciones pendientes de «{ $title }»: { $count }. Las descargas se ejecutan en segundo plano y empiezan por la canción en reproducción.
+dialog-add-duplicates-title = Ya está en la lista
+dialog-add-duplicates-some = Algunas de estas canciones ya están en «{ $title }». ¿Añadirlas de todos modos?
+dialog-add-duplicates-body =
+    { $count ->
+        [one] «{ $songs }» ya está en «{ $title }». ¿Añadirla de todos modos?
+       *[other] { $more ->
+            [0] Estas { $count } canciones ya están en «{ $title }»: { $songs }. ¿Añadirlas de todos modos?
+           *[other] Estas { $count } canciones ya están en «{ $title }»: { $songs } y { $more } más. ¿Añadirlas de todos modos?
+        }
+    }
+dialog-add-anyway = Añadir de todos modos
+dialog-skip-duplicates = Omitir duplicados

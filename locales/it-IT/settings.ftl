@@ -23,6 +23,7 @@ settings-clear = Cancella
 ## Account
 
 settings-signed-in-desc = Hai effettuato l’accesso con Google. Il feed della home, la raccolta e i «Mi piace» provengono da questo account. I dati di accesso sono cifrati in Gestione credenziali di Windows.
+settings-signed-in-desc-system = Hai effettuato l’accesso con Google. Il feed della home, la raccolta e i «Mi piace» provengono da questo account. I dati di accesso sono nel portachiavi di sistema o, se non si può usare, in un file che solo tu puoi leggere.
 settings-sign-out = Esci
 settings-channel = Canale
 settings-channel-desc = Il tuo account Google e ogni canale YouTube che gestisce hanno raccolta, «Mi piace», cronologia e suggerimenti propri.
@@ -39,11 +40,17 @@ settings-switching = Cambio in corso…
 
 settings-autoplay = Riproduzione automatica
 settings-autoplay-desc = Continua con brani simili quando termina la coda.
+settings-smart-shuffle = Casuale intelligente
+settings-smart-shuffle-desc = In casuale vengono inseriti brani simili a quello in riproduzione, uno ogni tre. Spariscono di nuovo quando disattivi la riproduzione casuale.
+settings-gapless-playback = Riproduzione senza interruzioni
+settings-gapless-playback-desc = Riproduce i brani di seguito senza pausa, per album e live che scorrono uno nell’altro.
 settings-crossfade-songs = Dissolvenza tra brani
 settings-crossfade-songs-desc = Sovrappone la fine di ogni brano all’inizio del successivo.
 settings-crossfade-length = Durata della dissolvenza
 settings-crossfade-when-skipping = Dissolvenza quando salti un brano
 settings-crossfade-when-skipping-desc = Applica la dissolvenza anche quando salti al brano successivo. Tornando indietro o scegliendo un brano, il cambio è immediato.
+settings-skip-silence = Salta il silenzio finale
+settings-skip-silence-desc = Se un brano resta in silenzio per qualche secondo nella seconda metà, si passa al successivo. Salta finali lunghi di silenzio e le tracce nascoste che li seguono.
 settings-hide-explicit-songs = Nascondi i brani espliciti
 settings-hide-explicit-songs-desc = Esclude i brani contrassegnati con E da elenchi, ricerca, coda e riproduzione automatica. I brani già in riproduzione proseguono fino alla fine.
 settings-show-podcasts = Mostra i podcast
@@ -78,12 +85,17 @@ settings-sound = Audio
 settings-volume-normalization = Normalizzazione del volume
 settings-logarithmic-volume = Volume logaritmico
 settings-logarithmic-volume-desc = Adatta il cursore alla percezione dell’orecchio, lasciando più spazio ai volumi bassi.
+settings-fade-when-pausing = Dissolvenza audio durante la pausa
+settings-fade-when-pausing-desc = Abbassa gradualmente il volume quando metti in pausa e lo ripristina quando riprendi, in 0,2 secondi. Se disattivato, la riproduzione si ferma e riparte subito.
 settings-high-quality-audio = Audio di alta qualità
 settings-high-quality-audio-desc = 256 kbps invece di 128 kbps per gli account con YouTube Premium. Si applica dal brano successivo.
 settings-output-device = Dispositivo di uscita
 settings-output-device-desc = Sceglie dove riprodurre la musica. Se il dispositivo scelto è scollegato, viene usato quello predefinito di Windows fino alla riconnessione.
+settings-output-device-desc-system = Dove suona la musica: gli altoparlanti o le cuffie di questo computer, oppure un diffusore AirPlay nella tua rete (con Impostazioni › Rete › Consenti la ricerca nella rete locale attivo). Un dispositivo scelto che non è collegato lascia il posto a quello predefinito di sistema finché non torna.
 settings-windows-default = Predefinito di Windows
+settings-system-default = Predefinito di sistema
 settings-not-connected = { $name } (non collegato)
+settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = I brani mantengono il volume originale. Normale li uniforma a un livello comune, Basso a un livello inferiore.
 settings-normalization-normal-desc = I brani suonano allo stesso volume. Quelli forti si abbassano come in YouTube Music, quelli deboli salgono fino a 6 dB.
 settings-normalization-quiet-desc = I brani suonano allo stesso volume, ma più basso. Quelli forti si abbassano ulteriormente e quelli deboli raramente vanno amplificati.
@@ -113,6 +125,8 @@ settings-0-db = 0 dB
 settings-playback-speed = Velocità di riproduzione
 settings-playback-speed-desc = Riproduci i brani più velocemente o più lentamente, anche dalla barra del lettore. Come con un disco, accelerando il suono è più acuto, rallentando più grave. I testi restano sincronizzati. All’avvio di ytm-rs torna a 1×.
 settings-speed = Velocità
+settings-keep-pitch = Mantieni l’intonazione
+settings-keep-pitch-desc = Più veloce o più lento senza suonare più acuto o più grave. Disattivato, l’intonazione segue la velocità, come un disco.
 settings-playback-speed-jam-note = Nelle sessioni di gruppo si torna alla velocità normale, così tutti ascoltano lo stesso brano.
 
 ## Music videos
@@ -140,10 +154,23 @@ settings-romanization-desc = Trascrive in caratteri latini il giapponese, il cor
 settings-translation = Traduzione
 settings-translation-desc = Ha la precedenza la traduzione fornita con il testo. In sua assenza traduce Unison o, se non disponibile, Google.
 settings-translate-into = Traduci in
+settings-lyrics-look = Stile dei testi
+settings-lyrics-look-desc = I testi di un altro tema, come quelli di Spicy, mentre il resto dell’app tiene i tuoi.
 settings-text-size = Dimensione del testo
 settings-text-size-desc = Ingrandisce o riduce il testo rispetto alla dimensione prevista dal tema.
 settings-larger = Più grande
 settings-smaller = Più piccolo
+settings-line-weight = Spessore del testo
+settings-line-weight-desc = Quanto è grassetto il testo, al posto di quello del tema.
+settings-theme-default = Predefinito del tema
+settings-weight-light = Leggera
+settings-weight-regular = Normale
+settings-weight-medium = Media
+settings-weight-semibold = Semigrassetto
+settings-weight-bold = Grassetto
+settings-weight-extra-bold = Extra grassetto
+settings-translation-size = Dimensione della traduzione
+settings-translation-size-desc = Ingrandisce o rimpicciolisce le righe tradotte e romanizzate accanto al testo. 100% è quello del tema.
 settings-quick-line-changes = Cambio rapido di riga
 settings-quick-line-changes-desc = La riga successiva scatta al suo posto come in Better Lyrics. Se disattivato, ogni tema usa la propria velocità.
 settings-lyrics-full-frame-rate = Testi alla frequenza dello schermo
@@ -185,13 +212,25 @@ settings-always-show-seek-knob = Mostra sempre l’indicatore di avanzamento
 settings-always-show-seek-knob-desc = Nei temi che lo prevedono, l’indicatore resta visibile anche quando il puntatore non è sulla barra di avanzamento.
 settings-animated-background = Sfondo animato
 settings-animated-background-desc = Nei temi con sfondo animato, la copertina dell’album si sposta lentamente sullo sfondo.
+settings-background-speed = Velocità dello sfondo
+settings-background-speed-desc = Quanto veloce si muove lo sfondo, nei temi in cui si muove. 100% è quello del tema.
+settings-faster = Più veloce
+settings-slower = Più lento
+settings-background-brightness = Luminosità dello sfondo
+settings-background-brightness-desc = Rende la copertina dietro In riproduzione e le pagine più chiara o più scura. 100% è quella del tema.
+settings-brighter = Più chiaro
+settings-darker = Più scuro
 settings-flat-background = Sfondo piatto
 settings-flat-background-desc = Un solo colore dietro le pagine e In riproduzione, senza copertina e senza sfumatura.
 settings-flat-background-colour = Colore di sfondo
 settings-frosted-glass = Vetro satinato
 settings-frosted-glass-desc = Nei temi compatibili, menu e barre mobili sfocano ciò che sta dietro. Senza l’effetto sono un po’ più opachi.
+settings-classic-title-bar = Barra del titolo classica
+settings-classic-title-bar-desc = I pulsanti della finestra come prima della 2.0.2: quadrati in alto a destra, invece che in una tacca. I pulsanti di In riproduzione e il pulsante dell'account tornano accanto.
 settings-pulse-with-the-music = Pulsa a ritmo di musica
 settings-pulse-with-the-music-desc = Nei temi con sfondo animato, lo sfondo si espande a ritmo di musica.
+settings-visualizer = Visualizzatore
+settings-visualizer-desc = Delle barre in fondo a In riproduzione si muovono con la musica, nel colore di accento.
 settings-dim-bright-covers = Scurisci le copertine luminose
 settings-dim-bright-covers-desc = Scurisce lo sfondo delle copertine luminose per mantenere leggibili testi e titoli. Le copertine scure conservano la propria luminosità.
 settings-font = Carattere
@@ -217,6 +256,9 @@ settings-pill-mini-player = Mini lettore a capsula
 settings-keep-on-top = Sempre in primo piano
 settings-keep-on-top-desc = Il mini lettore resta in primo piano sulle altre finestre.
 settings-pill-mini-player-restart-desc = Lo stile del mini lettore cambierà al prossimo avvio.
+settings-keep-on-top-wayland = Sempre in primo piano su Wayland
+settings-keep-on-top-wayland-desc = Wayland non consente alle app di tenere la finestra sopra le altre, quindi l'app si apre tramite XWayland. Lo scorrimento del touchpad non prosegue da solo, e il testo può risultare più morbido con il ridimensionamento frazionario.
+settings-keep-on-top-wayland-restart-desc = La finestra cambia al prossimo avvio.
 
 ## App icon
 
@@ -252,6 +294,14 @@ settings-restart-to-apply = Riavvia per applicare
 settings-language-restart-desc = La lingua cambierà al prossimo avvio.
 settings-restart-now = Riavvia ora
 
+## Song info: the language and country YouTube Music answers in. Separate from Language above.
+
+settings-song-info = Informazioni sui brani
+settings-song-info-language = Lingua delle informazioni sui brani
+settings-song-info-language-desc = Lingua dei titoli dei brani, nomi degli artisti e degli album e sezioni di YouTube Music, quando è disponibile una traduzione.
+settings-song-info-country = Paese per classifiche e consigli
+settings-song-info-country-desc = Il paese a cui si riferiscono classifiche e consigli.
+
 ## Window
 
 settings-window = Finestra
@@ -280,10 +330,29 @@ settings-downloads-note = Scarica i brani dal relativo menu o interi album e pla
 settings-download-folder = Cartella dei download
 settings-change = Cambia
 settings-open = Apri
+settings-download-liked = Scarica i brani con Mi piace
+settings-download-liked-desc = I brani che ti piacciono vengono scaricati subito. All’attivazione, e a ogni avvio dell’app, anche quelli non ancora scaricati. Solo se hai eseguito l’accesso; circa 4 MB a brano.
+settings-folder-per-list = Salva ogni album e playlist nella propria cartella
+settings-folder-per-list-desc = Scaricando un album o una playlist dalla relativa pagina o dal menu, i brani vengono salvati in una cartella con lo stesso nome. I brani già scaricati rimangono dove sono.
+settings-file-lyrics = Testo nel file
+settings-file-lyrics-desc = I brani scaricati portano il testo che vedi, per gli altri lettori. Il testo sincronizzato viene salvato come LRC.
+settings-file-lyrics-synced = Sincronizzato
+settings-file-lyrics-plain = Solo testo
+settings-file-lyrics-off = Nessuno
 
 ## Network
 
 settings-network = Rete
+settings-backup-stream = Flusso alternativo se la musica si interrompe
+settings-backup-stream-desc = Se hai effettuato l'accesso e YouTube interrompe un brano per verificare che tu non sia un bot (può succedere con una VPN), usa un flusso che include il video. Consuma più dati.
+settings-local-network = Consenti la ricerca nella rete locale
+settings-local-network-desc = Cerca diffusori AirPlay nella rete, così la musica può suonarci. Il firewall può chiedere una volta di lasciar passare l’app.
+settings-airplay-searching = Ricerca di diffusori AirPlay…
+settings-backup-stream-prompt-title = Riproduzione interrotta
+settings-backup-stream-prompt-body = YouTube ha interrotto questo brano per verificare che tu non sia un bot. Può succedere con una VPN. Un flusso alternativo permette di riprodurlo. Include il video, quindi consuma più dati.
+settings-backup-stream-prompt-enable = Attiva e riprova
+settings-backup-stream-prompt-settings = Impostazioni
+settings-backup-stream-prompt-dismiss = Non ora
 settings-proxy = Proxy
 settings-proxy-desc = Fa passare tutto il traffico di ytm-rs da un proxy, inclusi brani, testi, accesso e Ascolta insieme.
 settings-proxy-windows-uses = Windows è configurato per usare { $proxy }.
@@ -297,6 +366,7 @@ settings-address = Indirizzo
 settings-saved = Salvato
 settings-save = Salva
 settings-proxy-password-note = Se l’indirizzo include una password, viene salvata in Gestione credenziali di Windows.
+settings-proxy-password-note-system = Se l’indirizzo include una password, viene salvata nel portachiavi di sistema o, se non si può usare, in un file che solo tu puoi leggere.
 settings-checking = Verifica in corso…
 settings-proxy-test-desc = Verifica che YouTube Music risponda con questa impostazione.
 settings-test-connection = Prova la connessione
@@ -321,6 +391,7 @@ settings-space = Spazio
 settings-next-previous-song = Brano successivo / precedente
 settings-ctrl = Ctrl
 settings-volume-up-down = Alza / abbassa il volume
+settings-shortcut-seek = Indietro / avanti di 5 secondi nel brano
 settings-shortcut-command-palette = Tavolozza dei comandi (pagine, impostazioni, playlist e azioni)
 settings-search = Cerca
 settings-shortcut-find-in-list = Cerca in un elenco di brani
@@ -350,6 +421,10 @@ settings-update-downloading = Download di { $version }… { $percent }%
 settings-update-ready = La versione { $version } è pronta. Verrà installata alla chiusura di ytm-rs.
 settings-update-available = È disponibile la versione { $version }. { $step }
 settings-update-failed = Impossibile verificare la disponibilità di aggiornamenti: { $error }
+settings-update-rate-limited = { $minutes ->
+    [one] GitHub sta limitando i controlli degli aggiornamenti dalla tua rete. Riprova tra { $minutes } minuto.
+   *[other] GitHub sta limitando i controlli degli aggiornamenti dalla tua rete. Riprova tra { $minutes } minuti.
+}
 settings-version = Versione { $version }.
 settings-automatic-updates-desc-packaged = Cerca nuove versioni e ti avvisa quando ne viene pubblicata una.
 settings-automatic-updates-desc = Scarica le nuove versioni in background e le installa alla chiusura dell’app.
@@ -375,21 +450,6 @@ settings-background = Sfondo
 settings-about-background-credit = Versione adattata di Kawarp, MIT © Better Lyrics
 settings-fonts-and-icons = Caratteri e icone
 settings-about-fonts-credit = Inter, DM Sans, Google Sans Flex, Figtree, Instrument Sans (SIL OFL 1.1) • Lucide (ISC)
+# { $shown } is { $count } written with its thousands separators.
 settings-downloads-and-counting = Già { $shown } download
 settings-counting-downloads = Conteggio dei download…
-settings-fade-when-pausing = Dissolvenza audio durante la pausa
-settings-fade-when-pausing-desc = Abbassa gradualmente il volume quando metti in pausa e lo ripristina quando riprendi, in 0,2 secondi. Se disattivato, la riproduzione si ferma e riparte subito.
-settings-song-info = Informazioni sui brani
-settings-song-info-language = Lingua delle informazioni sui brani
-settings-song-info-language-desc = Lingua dei titoli dei brani, nomi degli artisti e degli album e sezioni di YouTube Music, quando è disponibile una traduzione.
-settings-song-info-country = Paese per classifiche e consigli
-settings-song-info-country-desc = Il paese a cui si riferiscono classifiche e consigli.
-settings-folder-per-list = Salva ogni album e playlist nella propria cartella
-settings-folder-per-list-desc = Scaricando un album o una playlist dalla relativa pagina o dal menu, i brani vengono salvati in una cartella con lo stesso nome. I brani già scaricati rimangono dove sono.
-settings-backup-stream = Flusso alternativo se la musica si interrompe
-settings-backup-stream-desc = Se hai effettuato l'accesso e YouTube interrompe un brano per verificare che tu non sia un bot (può succedere con una VPN), usa un flusso che include il video. Consuma più dati.
-settings-backup-stream-prompt-title = Riproduzione interrotta
-settings-backup-stream-prompt-body = YouTube ha interrotto questo brano per verificare che tu non sia un bot. Può succedere con una VPN. Un flusso alternativo permette di riprodurlo. Include il video, quindi consuma più dati.
-settings-backup-stream-prompt-enable = Attiva e riprova
-settings-backup-stream-prompt-settings = Impostazioni
-settings-backup-stream-prompt-dismiss = Non ora

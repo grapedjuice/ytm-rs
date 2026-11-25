@@ -23,15 +23,15 @@ status-like-refused = لم يقبل YouTube Music هذا التغيير. حاو�
 status-refused-count = رفض YouTube Music: { $count }
 status-removed-liked = تمت الإزالة من الأغاني التي أعجبتك
 status-download-batch = جارٍ تنزيل المقاطع الصوتية: { $count }
-status-download-collection = جارٍ التنزيل من “{ $title }”: { $count }
+status-download-collection = جارٍ التنزيل من «{ $title }»: { $count }
 status-download-stopped = تم إيقاف تنزيل{ $name }: تم حفظ { $songs }
 status-download-already = تم التنزيل مسبقاً
-status-download-name-already = “{ $title }” منزّل مسبقاً
+status-download-name-already = «{ $title }» منزّل مسبقاً
 status-download-done = تم تنزيل{ $name }: { $songs }
 status-download-already-count = { $count } موجودة مسبقاً
 status-download-fail-count = تعذّر تنزيل { $count } ({ $details })
-status-play-premium = يتطلب “{ $title }” اشتراك YouTube Music Premium
-status-play-sign-in = سجّل الدخول لتشغيل “{ $title }”
+status-play-premium = يتطلب «{ $title }» اشتراك YouTube Music Premium
+status-play-sign-in = سجّل الدخول لتشغيل «{ $title }»
 status-age-restricted = المحتوى مقيّد بفئة عمرية
 status-songs = { $count ->
     [zero] { $count } أغنية
@@ -49,6 +49,6 @@ status-episodes = { $count ->
     [many] { $count } حلقة
    *[other] { $count } حلقة
 }
-status-download-quoted-title = “{ $title }”
+status-download-quoted-title = «{ $title }»
 discord-view-artist = عرض الفنّان
 discord-view-album = عرض الألبوم

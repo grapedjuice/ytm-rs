@@ -1,5 +1,11 @@
-### Player controls and synced lyrics.
+### The player: the bar along the bottom, now playing and the mini player.
 
+# For screen readers, on the time beside the progress line ("0:36 / 1:27"), which a
+# click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
+player-time-show-left = { $time }。残り時間を表示
+player-time-show-length = { $time }。曲の長さを表示
+
+# From the interface-wide catalog (#228).
 player-full-screen = 全画面表示
 player-exit-full-screen = 全画面表示を終了
 player-pip = ピクチャー イン ピクチャー
@@ -49,3 +55,7 @@ player-play-next = 次に再生
 player-start-radio = ラジオを開始
 player-go-to-album = アルバムへ移動
 player-go-to-artist = アーティストへ移動
+player-sleep-timer = スリープタイマー
+player-sleep-off = オフ
+player-sleep-minutes = { $minutes } 分
+player-sleep-song-end = 曲の終わり

@@ -31,9 +31,21 @@ dialog-invite-instructions = Envoyez le lien aux personnes à inviter. Elles rej
 dialog-invites-off = Les nouveaux collaborateurs ne peuvent pas rejoindre la playlist. Autorisez-les pour obtenir un lien d’invitation.
 dialog-collaborators = Collaborateurs
 dialog-no-collaborators = Personne n’a encore rejoint la playlist.
-dialog-delete-playlist-body = « { $title } » sera retirée de votre bibliothèque YouTube Music. Cette action est irréversible.
-dialog-delete-upload-body = « { $title } » sera supprimé de vos titres importés dans YouTube Music. Cette action est irréversible.
+dialog-delete-playlist-body = « { $title } » sera retirée de votre bibliothèque YouTube Music. Cette action est irréversible.
+dialog-delete-upload-body = « { $title } » sera supprimé de vos titres importés dans YouTube Music. Cette action est irréversible.
 dialog-download-count = Télécharger ({ $count })
 dialog-edit-playlist = Modifier la playlist
 dialog-download-body = Titres restant à télécharger : { $count }. Le téléchargement se fait en arrière-plan, en commençant par le titre en cours.
-dialog-download-collection-body = Titres de « { $title } » restant à télécharger : { $count }. Le téléchargement se fait en arrière-plan, en commençant par le titre en cours.
+dialog-download-collection-body = Titres de « { $title } » restant à télécharger : { $count }. Le téléchargement se fait en arrière-plan, en commençant par le titre en cours.
+dialog-add-duplicates-title = Déjà dans la playlist
+dialog-add-duplicates-some = Certains de ces titres sont déjà dans « { $title } ». Les ajouter quand même ?
+dialog-add-duplicates-body =
+    { $count ->
+        [one] « { $songs } » est déjà dans « { $title } ». L’ajouter quand même ?
+       *[other] { $more ->
+            [0] Ces { $count } titres sont déjà dans « { $title } » : { $songs }. Les ajouter quand même ?
+           *[other] Ces { $count } titres sont déjà dans « { $title } » : { $songs } et { $more } de plus. Les ajouter quand même ?
+        }
+    }
+dialog-add-anyway = Ajouter quand même
+dialog-skip-duplicates = Ignorer les doublons

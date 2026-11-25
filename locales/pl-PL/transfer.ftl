@@ -26,6 +26,7 @@ transfer-spotify-account = Konto Spotify
 transfer-signed-in-plan = Zalogowano · działa z Free i Premium
 transfer-signed-in-as = Zalogowano jako { $name }
 transfer-credential-storage = Dane logowania są szyfrowane w Menedżerze poświadczeń Windows.
+transfer-credential-storage-system = Dane logowania są w pęku kluczy systemu albo, jeśli nie da się go użyć, w pliku, który możesz czytać tylko ty.
 transfer-checking-sign-in = Sprawdzanie logowania…
 transfer-private-sign-in = Wymagane dla polubień i prywatnych playlist. Publiczne playlisty działają bez logowania.
 transfer-sign-in-spotify = Zaloguj się do Spotify

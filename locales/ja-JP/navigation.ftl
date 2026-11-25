@@ -4,6 +4,7 @@ nav-explore = 探索
 nav-library = ライブラリ
 nav-library-section = ライブラリ › { $tab }
 nav-playlists = プレイリスト
+nav-community-playlists = コミュニティ プレイリスト
 nav-liked-songs = 高く評価した曲
 nav-albums = アルバム
 nav-artists = アーティスト

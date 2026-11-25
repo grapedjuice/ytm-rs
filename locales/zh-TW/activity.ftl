@@ -7,6 +7,10 @@ status-added-queue = 已新增至佇列
 status-removed-queue = 已從佇列中刪除
 status-cleared-queue = 佇列已清除
 status-removed-playlist = 已從播放清單中刪除
+status-not-added-duplicates =
+    { $count ->
+       *[other] 未加入：已在 「{ $title }」 中
+    }
 status-playlist-deleted = 播放清單已刪除
 status-added-liked = 已加入喜歡的音樂
 status-sign-in-like = 登入以按讚歌曲

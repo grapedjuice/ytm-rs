@@ -31,9 +31,20 @@ dialog-invite-instructions = 추가하려는 사람들에게 링크를 보냅니
 dialog-invites-off = 새로운 공동작업자는 참여할 수 없습니다. 초대 링크에 대해 새 공동작업자 허용을 켭니다.
 dialog-collaborators = 협력자
 dialog-no-collaborators = 아직 가입한 사람이 없습니다.
-dialog-delete-playlist-body = "{ $title }"가 YouTube Music 라이브러리에서 제거됩니다. 이 작업은 취소할 수 없습니다.
+dialog-delete-playlist-body = “{ $title }”가 YouTube Music 라이브러리에서 제거됩니다. 이 작업은 취소할 수 없습니다.
 dialog-delete-upload-body = “{ $title }”가 YouTube Music 업로드에서 삭제되었습니다. 이 작업은 취소할 수 없습니다.
 dialog-download-count = 다운로드 ({ $count })
 dialog-edit-playlist = 재생목록 수정
 dialog-download-body = 다운로드할 수 있는 트랙: { $count }. 다운로드는 백그라운드에서 실행되며 현재 트랙부터 시작됩니다.
 dialog-download-collection-body = “{ $title }”에서 다운로드할 수 있는 남은 트랙: { $count }. 다운로드는 백그라운드에서 실행되며 현재 트랙부터 시작됩니다.
+dialog-add-duplicates-title = 이미 재생목록에 있음
+dialog-add-duplicates-some = 이 곡 중 일부는 이미 “{ $title }”에 있습니다. 그래도 추가할까요?
+dialog-add-duplicates-body =
+    { $count ->
+       *[other] { $more ->
+            [0] 이 { $count }곡은 이미 “{ $title }”에 있습니다: { $songs }. 그래도 추가할까요?
+           *[other] 이 { $count }곡은 이미 “{ $title }”에 있습니다: { $songs }, 그 외 { $more }곡. 그래도 추가할까요?
+        }
+    }
+dialog-add-anyway = 그래도 추가
+dialog-skip-duplicates = 중복 건너뛰기

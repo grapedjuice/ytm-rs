@@ -15,7 +15,7 @@ settings-account = الحساب
 settings-general = عام
 settings-keyboard-shortcuts = اختصارات لوحة المفاتيح
 settings-about = حول
-settings-no-match = لا توجد إعدادات تطابق "{ $query }"
+settings-no-match = لا توجد إعدادات تطابق «{ $query }»
 settings-title = الإعدادات
 settings-search-box = البحث في الإعدادات
 settings-clear = مسح
@@ -23,6 +23,7 @@ settings-clear = مسح
 ## Account
 
 settings-signed-in-desc = تم تسجيل الدخول باستخدام Google. تأتي خلاصتك الرئيسية ومكتبتك وإعجاباتك من هذا الحساب. تُحفظ البيانات مشفّرة في Windows Credential Manager.
+settings-signed-in-desc-system = تم تسجيل الدخول باستخدام Google. تأتي خلاصتك الرئيسية ومكتبتك وإعجاباتك من هذا الحساب. تُحفظ في حلقة مفاتيح النظام، أو في ملف لا يقرأه سواك إذا تعذّر استخدامها.
 settings-sign-out = تسجيل الخروج
 settings-channel = القناة
 settings-channel-desc = يمتلك حساب Google الخاص بك وكل قناة على YouTube يديرها مكتبةً وإعجاباتٍ وسجلًا وتوصياتٍ خاصة بها.
@@ -39,11 +40,17 @@ settings-switching = جارٍ التبديل…
 
 settings-autoplay = التشغيل التلقائي
 settings-autoplay-desc = الاستمرار في تشغيل أغانٍ مشابهة عند انتهاء قائمة الانتظار.
+settings-smart-shuffle = التشغيل العشوائي الذكي
+settings-smart-shuffle-desc = أثناء التشغيل العشوائي تُدرج أغانٍ شبيهة بالأغنية الحالية، واحدة بعد كل ثلاث. وتختفي مجددًا عند إيقاف التشغيل العشوائي.
+settings-gapless-playback = تشغيل بلا فواصل
+settings-gapless-playback-desc = يشغّل الأغاني المتتالية بلا توقف بينها، للألبومات والتسجيلات الحيّة التي تتصل ببعضها.
 settings-crossfade-songs = التلاشي المتداخل بين الأغاني
 settings-crossfade-songs-desc = دمج نهاية كل أغنية مع بداية الأغنية التالية.
 settings-crossfade-length = مدة التلاشي المتداخل
 settings-crossfade-when-skipping = التلاشي المتداخل عند التخطّي
 settings-crossfade-when-skipping-desc = التلاشي أيضًا نحو الأغنية التالية عند التخطّي إلى الأمام. أما الرجوع للخلف أو اختيار أغنية فيبدّلان فورًا.
+settings-skip-silence = تخطّي الصمت في النهاية
+settings-skip-silence-desc = إذا هدأت أغنية لبضع ثوانٍ في نصفها الثاني، ينتقل إلى التالية. يتخطّى النهايات الصامتة الطويلة والمقاطع المخفية بعدها.
 settings-hide-explicit-songs = إخفاء الأغاني الصريحة
 settings-hide-explicit-songs-desc = استبعاد الأغاني المميّزة بالرمز E من القوائم والبحث وقائمة الانتظار والتشغيل التلقائي. وتُكمل الأغاني قيد التشغيل حاليًا حتى نهايتها.
 settings-show-podcasts = إظهار البودكاست
@@ -84,8 +91,11 @@ settings-high-quality-audio = صوت عالي الجودة
 settings-high-quality-audio-desc = 256 kbps بدلاً من 128 kbps، للحسابات المشتركة في YouTube Premium. يُطبَّق بدءاً من الأغنية التالية.
 settings-output-device = جهاز الإخراج
 settings-output-device-desc = مكان تشغيل الموسيقى. إذا لم يكن الجهاز المختار متصلاً، يُترك الأمر إلى الجهاز الافتراضي في Windows حتى يعود للاتصال.
+settings-output-device-desc-system = أين تُشغَّل الموسيقى: مكبّرات هذا الجهاز أو سماعاته، أو مكبّر AirPlay على شبكتك (مع تشغيل الإعدادات › الشبكة › السماح بالبحث في الشبكة المحلية). الجهاز الذي اخترته ولم يكن متصلاً يترك التشغيل للافتراضي في النظام إلى أن يعود.
 settings-windows-default = الافتراضي في Windows
+settings-system-default = الافتراضي في النظام
 settings-not-connected = { $name } (غير متصل)
+settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = تُشغَّل الأغاني بمستوى الصوت الذي صُنعت به. يوحّد وضع عادي مستواها جميعًا، ويوحّد وضع هادئ مستواها عند مستوى أخفض.
 settings-normalization-normal-desc = تُشغَّل الأغاني بالمستوى نفسه: تُخفَّض الأغاني العالية كما في YouTube Music، وتُرفع الأغاني الهادئة بما يصل إلى 6 dB.
 settings-normalization-quiet-desc = تُشغَّل الأغاني بمستوى أخفض موحّد: تُخفَّض الأغاني العالية بشكل أكبر، فلا تحتاج الأغاني الهادئة غالبًا إلى رفع الصوت.
@@ -119,7 +129,6 @@ settings-keep-pitch = الحفاظ على طبقة الصوت
 settings-keep-pitch-desc = أسرع أو أبطأ دون أن يصبح الصوت أعلى أو أخفض طبقةً. عند إيقافه، تتغير الطبقة مع السرعة، مثل الأسطوانة.
 settings-playback-speed-jam-note = تعود إلى الوضع الطبيعي أثناء وجودك في جلسة مشتركة، حتى يسمع الجميع الأغنية نفسها.
 
-
 ## Music videos
 
 settings-music-videos = مقاطع الفيديو الموسيقية
@@ -137,6 +146,7 @@ settings-hide-videos-in-search = إخفاء مقاطع الفيديو في ال�
 settings-hide-videos-in-search-desc = إظهار الأغاني والألبومات والفنانين وقوائم التشغيل فقط في نتائج البحث.
 settings-skip-non-music-parts = تخطّي الأجزاء غير الموسيقية
 settings-skip-non-music-parts-desc = القفز فوق الحديث والمشاهد التمثيلية وفواصل الرعاة في مقاطع الفيديو الموسيقية، وفق ما حدّده مجتمع SponsorBlock. ولا تحتوي أغاني الألبومات على أيٍّ منها.
+
 ## Lyrics
 
 settings-romanization = الكتابة بالحروف اللاتينية
@@ -144,10 +154,23 @@ settings-romanization-desc = اليابانية والكورية والصيني�
 settings-translation = الترجمة
 settings-translation-desc = تُترجم بواسطة Unison، أو Google عندما يتعذّر ذلك. وتُستخدم الترجمة المرفقة مع الكلمات إن وُجدت.
 settings-translate-into = الترجمة إلى
+settings-lyrics-look = نمط كلمات الأغنية
+settings-lyrics-look-desc = كلمات من سمة أخرى، مثل Spicy، بينما يبقى باقي التطبيق على سمتك.
 settings-text-size = حجم النص
 settings-text-size-desc = يجعل الكلمات أكبر أو أصغر. يعمل فوق الحجم الخاص بالسمة نفسها.
 settings-larger = أكبر
 settings-smaller = أصغر
+settings-line-weight = سُمك الخط
+settings-line-weight-desc = مدى سماكة الكلمات، بدل سُمك السمة نفسها.
+settings-theme-default = افتراضي السمة
+settings-weight-light = خفيف
+settings-weight-regular = عادي
+settings-weight-medium = متوسط
+settings-weight-semibold = شبه عريض
+settings-weight-bold = عريض
+settings-weight-extra-bold = عريض جدًا
+settings-translation-size = حجم الترجمة
+settings-translation-size-desc = يكبّر أو يصغّر الأسطر المترجمة والمنقولة بالحروف اللاتينية بجانب الكلمات. ‎100% هي قيمة السمة.
 settings-quick-line-changes = الانتقال السريع للأسطر
 settings-quick-line-changes-desc = ينتقل السطر التالي إلى موضعه بسرعة على طريقة Better Lyrics. وعند الإيقاف، تحرّك كل سمة أسطرها بوتيرتها الخاصة.
 settings-lyrics-full-frame-rate = الكلمات بمعدل تحديث الشاشة
@@ -189,13 +212,25 @@ settings-always-show-seek-knob = إظهار مقبض التقديم دائمًا
 settings-always-show-seek-knob-desc = يبقى المقبض على خط التقدّم ظاهرًا، وليس فقط عند الإشارة إليه بالمؤشر، في السمات التي تتضمنه.
 settings-animated-background = خلفية متحركة
 settings-animated-background-desc = ينجرف غلاف الألبوم ببطء خلف كل شيء, في السمات ذات الخلفية المتحركة.
+settings-background-speed = سرعة الخلفية
+settings-background-speed-desc = سرعة انجراف الخلفية في السمات التي تتحرك خلفيتها. ‎100% هي سرعة السمة.
+settings-faster = أسرع
+settings-slower = أبطأ
+settings-background-brightness = سطوع الخلفية
+settings-background-brightness-desc = يجعل غلاف الألبوم خلف قيد التشغيل الآن والصفحات أكثر سطوعًا أو عتمة. ‎100% هي قيمة السمة.
+settings-brighter = أكثر سطوعًا
+settings-darker = أكثر عتمة
 settings-flat-background = خلفية سادة
 settings-flat-background-desc = لون واحد خلف الصفحات وشاشة التشغيل، بلا غلاف ألبوم وبلا تدرج.
 settings-flat-background-colour = لون الخلفية
 settings-frosted-glass = الزجاج المصنفر
 settings-frosted-glass-desc = تقوم القوائم والأشرطة العائمة بتمويه ما خلفها في السمات التي تستخدم هذه الميزة. وعند إيقافها تصبح أكثر كثافةً.
+settings-classic-title-bar = شريط العنوان الكلاسيكي
+settings-classic-title-bar-desc = أزرار النافذة كما كانت قبل 2.0.2: مربعة في أعلى اليمين، بدل التجويف. تعود أزرار قيد التشغيل الآن وزر الحساب إلى جانبها.
 settings-pulse-with-the-music = النبض مع الموسيقى
 settings-pulse-with-the-music-desc = تتمدد الخلفية مع الإيقاع, في السمات ذات الخلفية المتحركة.
+settings-visualizer = العارض البصري
+settings-visualizer-desc = أشرطة أسفل قيد التشغيل الآن تتحرك مع الموسيقى، بلون التمييز.
 settings-dim-bright-covers = تعتيم الأغلفة الفاتحة
 settings-dim-bright-covers-desc = يغمّق الخلفية عندما يكون غلاف الألبوم فاتحًا، لتظل الكلمات والعناوين فوقه سهلة القراءة. وتُترك الأغلفة الداكنة كما هي.
 settings-font = الخط
@@ -221,6 +256,9 @@ settings-pill-mini-player = المشغّل المصغّر الكبسولي
 settings-keep-on-top = الإبقاء في المقدمة
 settings-keep-on-top-desc = يبقى المشغّل المصغّر فوق النوافذ الأخرى.
 settings-pill-mini-player-restart-desc = يتغيّر شكل المشغّل المصغّر بدءًا من التشغيل التالي.
+settings-keep-on-top-wayland = الإبقاء في المقدمة على Wayland
+settings-keep-on-top-wayland-desc = لا يسمح Wayland للتطبيقات بإبقاء نافذتها فوق النوافذ الأخرى، لذلك يفتح التطبيق عبر XWayland. لا يتابع تمرير لوحة اللمس هناك من تلقاء نفسه، وقد يبدو النص أنعم مع التحجيم الكسري.
+settings-keep-on-top-wayland-restart-desc = تتغيّر النافذة بدءًا من التشغيل التالي.
 
 ## App icon
 
@@ -255,7 +293,6 @@ settings-language-desc = النصوص الخاصة بالتطبيق نفسه. أ
 settings-restart-to-apply = أعد التشغيل للتطبيق
 settings-language-restart-desc = تتغيّر لغة التطبيق بدءًا من التشغيل التالي.
 settings-restart-now = أعد التشغيل الآن
-
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
 
@@ -293,6 +330,8 @@ settings-downloads-note = نزّل الأغاني من قائمتها، أو ا�
 settings-download-folder = مجلد التنزيلات
 settings-change = تغيير
 settings-open = فتح
+settings-download-liked = تنزيل الأغاني التي أُعجبتَ بها
+settings-download-liked-desc = تُنزَّل الأغاني التي تعجبك فورًا. وعند تشغيل هذا، وفي كل مرة يبدأ التطبيق، تُنزَّل أيضًا الأغاني التي أُعجبتَ بها ولم تُنزَّل بعد. عند تسجيل الدخول فقط؛ نحو 4 ميغابايت للأغنية.
 settings-folder-per-list = وضع الألبومات وقوائم التشغيل في مجلد خاص بها
 settings-folder-per-list-desc = تنزيل ألبوم أو قائمة تشغيل من صفحتها أو قائمتها يحفظ أغانيها في مجلد يحمل اسمها. تبقى الأغاني المُنزَّلة مسبقاً في مكانها الحالي.
 settings-file-lyrics = الكلمات في الملف
@@ -306,6 +345,9 @@ settings-file-lyrics-off = بلا كلمات
 settings-network = الشبكة
 settings-backup-stream = بث احتياطي عند توقف الأغاني
 settings-backup-stream-desc = عند تسجيل الدخول وإيقاف YouTube للأغنية بسبب التحقق من الروبوت (قد يحدث ذلك عند استخدام VPN)، يتم تشغيلها من بث مصاحب للفيديو. يستهلك بيانات أكثر.
+settings-local-network = السماح بالبحث في الشبكة المحلية
+settings-local-network-desc = يبحث عن مكبّرات AirPlay في شبكتك كي تُشغَّل الموسيقى عليها. قد يطلب جدار الحماية مرةً واحدة السماح للتطبيق بالمرور.
+settings-airplay-searching = جارٍ البحث عن مكبّرات AirPlay…
 settings-backup-stream-prompt-title = توقف التشغيل
 settings-backup-stream-prompt-body = أوقف YouTube هذه الأغنية بسبب التحقق من الروبوت، وهو أمر قد يحدث عند استخدام VPN. يمكن تشغيلها عبر بث احتياطي بدلًا من ذلك، وبما أنه يأتي مع الفيديو فهو يستهلك بيانات أكثر.
 settings-backup-stream-prompt-enable = تشغيل وإعادة المحاولة
@@ -324,6 +366,7 @@ settings-address = العنوان
 settings-saved = تم الحفظ
 settings-save = حفظ
 settings-proxy-password-note = يتم حفظ كلمة المرور الموجودة في العنوان في مدير بيانات اعتماد Windows.
+settings-proxy-password-note-system = كلمة المرور في العنوان تُحفظ في حلقة مفاتيح النظام، أو في ملف لا يقرأه سواك إذا تعذّر استخدامها.
 settings-checking = جارٍ التحقق…
 settings-proxy-test-desc = يتحقق من استجابة YouTube Music عبر هذا الإعداد.
 settings-test-connection = اختبار الاتصال
@@ -348,6 +391,7 @@ settings-space = مسافة
 settings-next-previous-song = الأغنية التالية / السابقة
 settings-ctrl = Ctrl
 settings-volume-up-down = رفع / خفض مستوى الصوت
+settings-shortcut-seek = الرجوع / التقديم 5 ثوانٍ في الأغنية
 settings-shortcut-command-palette = لوحة الأوامر: الصفحات, الإعدادات, قوائم التشغيل والإجراءات
 settings-search = بحث
 settings-shortcut-find-in-list = البحث في قائمة أغانٍ
@@ -366,6 +410,7 @@ settings-zoom-in-out = تكبير / تصغير
 settings-shortcut-zoom-reset = إعادة مستوى التكبير إلى 100%
 settings-shortcut-leave = الخروج من ملء الشاشة, قيد التشغيل الآن أو التحديد
 settings-esc = Esc
+
 ## Updates
 
 settings-updates = التحديثات
@@ -376,6 +421,14 @@ settings-update-downloading = جارٍ تنزيل { $version }… { $percent }%
 settings-update-ready = الإصدار { $version } جاهز. سيتم تثبيته عند إغلاق ytm-rs.
 settings-update-available = متوفر الإصدار { $version }. { $step }
 settings-update-failed = يعذّر التحقق من وجود تحديثات: { $error }
+settings-update-rate-limited = { $minutes ->
+    [zero] يحد GitHub من التحقق من التحديثات على شبكتك. أعد المحاولة بعد { $minutes } دقيقة.
+    [one] يحد GitHub من التحقق من التحديثات على شبكتك. أعد المحاولة بعد { $minutes } دقيقة.
+    [two] يحد GitHub من التحقق من التحديثات على شبكتك. أعد المحاولة بعد { $minutes } دقيقتين.
+    [few] يحد GitHub من التحقق من التحديثات على شبكتك. أعد المحاولة بعد { $minutes } دقائق.
+    [many] يحد GitHub من التحقق من التحديثات على شبكتك. أعد المحاولة بعد { $minutes } دقيقة.
+   *[other] يحد GitHub من التحقق من التحديثات على شبكتك. أعد المحاولة بعد { $minutes } دقيقة.
+}
 settings-version = الإصدار { $version }.
 settings-automatic-updates-desc-packaged = التحقق من وجود إصدارات جديدة وإعلامك عند توفر أحدها.
 settings-automatic-updates-desc = تنزيل الإصدارات الجديدة في الخلفية وتثبيتها عند إغلاق التطبيق.
@@ -391,6 +444,7 @@ settings-another-copy = نسخة أخرى
 settings-another-copy-desc = تطبيق ytm-rs مثبّت أيضًا من { $kind }. لإزالة تلك النسخة، شغّل { $cmd }
 settings-whats-new = ما الجديد
 settings-whats-new-in = ما الجديد في { $version }
+
 ## About
 
 settings-about-tagline = عميل سريع وأصلي لـ YouTube Music.
@@ -400,7 +454,6 @@ settings-background = الخلفية
 settings-about-background-credit = منفذ منقول من Kawarp، رخصة MIT © Better Lyrics
 settings-fonts-and-icons = الخطوط والأيقونات
 settings-about-fonts-credit = Inter, DM Sans, Google Sans Flex, Figtree, Instrument Sans (SIL OFL 1.1) • Lucide (ISC)
-
 # { $shown } is { $count } written with its thousands separators.
 settings-downloads-and-counting = { $count ->
     [zero] لم يتم تنزيل أي عنصر بعد

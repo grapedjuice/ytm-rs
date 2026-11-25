@@ -35,6 +35,6 @@ status-play-sign-in = “{ $title }”를 플레이하려면 로그인하세요.
 status-age-restricted = 연령 제한이 있습니다
 status-songs = 노래 { $count }곡
 status-episodes = 에피소드 { $count }개
-status-download-quoted-title = "{ $title }"
+status-download-quoted-title = “{ $title }”
 discord-view-artist = 아티스트 보기
 discord-view-album = 앨범 보기

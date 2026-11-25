@@ -7,6 +7,11 @@ status-added-queue = कतार में जोड़ा गया
 status-removed-queue = कतार से हटाया गया
 status-cleared-queue = कतार साफ़ हो गई
 status-removed-playlist = प्लेलिस्ट से हटा दिया गया
+status-not-added-duplicates =
+    { $count ->
+        [one] नहीं जोड़ा गया: यह पहले से “{ $title }” में है
+       *[other] कुछ नहीं जोड़ा गया: इनमें से कुछ गाने पहले से “{ $title }” में हैं
+    }
 status-playlist-deleted = प्लेलिस्ट हटा दी गई
 status-added-liked = पसंदीदा संगीत में जोड़ा गया
 status-sign-in-like = गाने पसंद करने के लिए साइन इन करें
@@ -19,8 +24,8 @@ status-sign-in-upload = संगीत अपलोड करने के ल�
 status-upload-formats = YouTube Music केवल MP3, M4A, FLAC, OGG और WMA फ़ाइलें लेता है
 status-uploading = ट्रैक अपलोड हो रहा है: { $count }…
 status-liking = पसंदीदा ट्रैक: { $count }…
-status-downloading = "{ $title }" डाउनलोड हो रहा है
-status-downloaded = डाउनलोड किया गया "{ $title }"
+status-downloading = “{ $title }” डाउनलोड हो रहा है
+status-downloaded = डाउनलोड किया गया “{ $title }”
 status-playlist-loading = यह प्लेलिस्ट अभी भी लोड हो रही है। थोड़ी देर में पुनः प्रयास करें.
 status-playlist-reload = YouTube Music ने यह नहीं बताया कि ये गाने प्लेलिस्ट में कहां हैं। इसे पुनः लोड करें और पुनः प्रयास करें।
 status-queue-changed = तब से कतार बदल गई है, इसलिए इसे पूर्ववत नहीं किया जा सकता है
@@ -36,7 +41,7 @@ status-no-clean-tracks = खेलने के लिए ऐसा कुछ �
 status-signed-in = साइन इन किया गया
 status-signed-out = साइन आउट किया गया
 status-switched-channel = { $name } पर स्विच किया गया
-status-skipped-track = "{ $title }" को छोड़ दिया गया: { $reason }
-status-track-failed = "{ $title }" नहीं चला सकते: { $reason }
-status-track-from-device = आपके अन्य डिवाइस से "{ $title }" उठाया। जारी रखने के लिए प्ले दबाएँ।
-status-track-disconnected = "{ $title }" खेलते समय कनेक्शन टूट गया। जारी रखने के लिए प्ले दबाएँ.
+status-skipped-track = “{ $title }” को छोड़ दिया गया: { $reason }
+status-track-failed = “{ $title }” नहीं चला सकते: { $reason }
+status-track-from-device = आपके अन्य डिवाइस से “{ $title }” उठाया। जारी रखने के लिए प्ले दबाएँ।
+status-track-disconnected = “{ $title }” खेलते समय कनेक्शन टूट गया। जारी रखने के लिए प्ले दबाएँ.

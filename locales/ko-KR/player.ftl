@@ -1,5 +1,11 @@
-### Player controls and synced lyrics.
+### The player: the bar along the bottom, now playing and the mini player.
 
+# For screen readers, on the time beside the progress line ("0:36 / 1:27"), which a
+# click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
+player-time-show-left = { $time }. 남은 시간 표시
+player-time-show-length = { $time }. 곡 길이 표시
+
+# From the interface-wide catalog (#228).
 player-full-screen = 전체 화면
 player-exit-full-screen = 전체 화면 종료
 player-pip = PIP(Picture in Picture)
@@ -49,3 +55,7 @@ player-play-next = 다음 플레이
 player-start-radio = 라디오 시작
 player-go-to-album = 앨범 바로가기
 player-go-to-artist = 아티스트로 이동
+player-sleep-timer = 취침 타이머
+player-sleep-off = 끄기
+player-sleep-minutes = { $minutes }분
+player-sleep-song-end = 곡 끝

@@ -7,6 +7,13 @@ status-added-queue = Додано до черги
 status-removed-queue = Вилучено з черги
 status-cleared-queue = Чергу очищено
 status-removed-playlist = Вилучено зі списку відтворення
+status-not-added-duplicates =
+    { $count ->
+        [one] Не додано: уже є в «{ $title }»
+        [few] Нічого не додано: частина цих треків уже є в «{ $title }»
+        [many] Нічого не додано: частина цих треків уже є в «{ $title }»
+       *[other] Нічого не додано: частина цих треків уже є в «{ $title }»
+    }
 status-playlist-deleted = Список відтворення видалено
 status-added-liked = Додано до вподобаних
 status-sign-in-like = Увійдіть, щоб уподобати треки

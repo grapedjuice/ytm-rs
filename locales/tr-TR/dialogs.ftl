@@ -37,3 +37,15 @@ dialog-download-count = İndir ({ $count })
 dialog-edit-playlist = Çalma listesini düzenle
 dialog-download-body = İndirilecek parçalar kaldı: { $count }. İndirmeler arka planda çalışır ve geçerli parçayla başlar.
 dialog-download-collection-body = “{ $title }”den indirilebilecek parçalar kaldı: { $count }. İndirmeler arka planda çalışır ve geçerli parçayla başlar.
+dialog-add-duplicates-title = Zaten çalma listesinde
+dialog-add-duplicates-some = Bu şarkıların bazıları zaten "{ $title }" içinde. Yine de eklensin mi?
+dialog-add-duplicates-body =
+    { $count ->
+        [one] "{ $songs }" zaten "{ $title }" içinde. Yine de eklensin mi?
+       *[other] { $more ->
+            [0] Bu { $count } şarkı zaten "{ $title }" içinde: { $songs }. Yine de eklensin mi?
+           *[other] Bu { $count } şarkı zaten "{ $title }" içinde: { $songs } ve { $more } tane daha. Yine de eklensin mi?
+        }
+    }
+dialog-add-anyway = Yine de ekle
+dialog-skip-duplicates = Yinelenenleri atla

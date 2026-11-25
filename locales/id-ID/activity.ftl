@@ -7,6 +7,10 @@ status-added-queue = Ditambahkan ke antrean
 status-removed-queue = Dihapus dari antrean
 status-cleared-queue = Antrean dikosongkan
 status-removed-playlist = Dihapus dari playlist
+status-not-added-duplicates =
+    { $count ->
+       *[other] Nggak ditambahkan: sudah ada di "{ $title }"
+    }
 status-playlist-deleted = Playlist dihapus
 status-added-liked = Ditambahkan ke Musik yang Disukai
 status-sign-in-like = Masuk dulu buat menyukai lagu

@@ -15,7 +15,7 @@ settings-account = खाता
 settings-general = सामान्य
 settings-keyboard-shortcuts = कीबोर्ड शॉर्टकट
 settings-about = ऐप के बारे में
-settings-no-match = कोई भी सेटिंग "{ $query }" से मेल नहीं खाती
+settings-no-match = कोई भी सेटिंग “{ $query }” से मेल नहीं खाती
 settings-title = सेटिंग
 settings-search-box = सेटिंग में खोजें
 settings-clear = साफ़ करें
@@ -23,6 +23,7 @@ settings-clear = साफ़ करें
 ## Account
 
 settings-signed-in-desc = Google के साथ साइन इन किया गया। आपका होम फ़ीड, लाइब्रेरी और लाइक इस खाते से आते हैं। Windows क्रेडेंशियल मैनेजर में एन्क्रिप्टेड सहेजा गया।
+settings-signed-in-desc-system = Google के साथ साइन इन किया गया। आपका होम फ़ीड, लाइब्रेरी और लाइक इस खाते से आते हैं। सिस्टम की कीरिंग में सहेजे गए, या अगर उसका इस्तेमाल न हो सके तो एक ऐसी फ़ाइल में जिसे सिर्फ़ आप पढ़ सकते हैं।
 settings-sign-out = साइन आउट करें
 settings-channel = चैनल
 settings-channel-desc = आपके Google खाते और उसके द्वारा प्रबंधित प्रत्येक YouTube चैनल की अपनी लाइब्रेरी, पसंद, इतिहास और सिफारिशें हैं।
@@ -39,11 +40,17 @@ settings-switching = स्विचिंग…
 
 settings-autoplay = ऑटोप्ले
 settings-autoplay-desc = कतार समाप्त होने पर इसी तरह के गाने बजाते रहें।
+settings-smart-shuffle = स्मार्ट शफ़ल
+settings-smart-shuffle-desc = शफ़ल के दौरान, चल रहे गाने जैसे गाने बीच में आते हैं, हर तीन के बाद एक। शफ़ल बंद करने पर वे हट जाते हैं।
+settings-gapless-playback = बिना रुकावट प्लेबैक
+settings-gapless-playback-desc = एक के बाद एक गाने बिना रुके चलाता है, उन एल्बम और लाइव सेट के लिए जो एक-दूसरे से जुड़े हों।
 settings-crossfade-songs = क्रॉसफ़ेड गाने
 settings-crossfade-songs-desc = प्रत्येक गीत के अंत को अगले गीत की शुरुआत में मिलाएं।
 settings-crossfade-length = क्रॉसफ़ेड लंबाई
 settings-crossfade-when-skipping = स्किप करते समय क्रॉसफ़ेड
 settings-crossfade-when-skipping-desc = जब आप आगे बढ़ते हैं तो यह अगले गीत में भी फीका पड़ जाता है। वापस जाना या कोई गाना चुनना अभी भी तुरंत स्विच हो जाता है।
+settings-skip-silence = अंत की खामोशी छोड़ें
+settings-skip-silence-desc = जब कोई गाना अपने दूसरे आधे में कुछ सेकंड के लिए शांत हो जाए, तो अगले पर चला जाता है। लंबे खामोश अंत और उनके बाद के छिपे ट्रैक छोड़ देता है।
 settings-hide-explicit-songs = स्पष्ट गाने छुपाएं
 settings-hide-explicit-songs-desc = ई के रूप में चिह्नित गानों को सूची से बाहर छोड़ें, खोजें, कतार में रखें और ऑटोप्ले करें। जो पहले से ही खेल रहे हैं वे समाप्त हो गए हैं।
 settings-show-podcasts = पॉडकास्ट दिखाएं
@@ -78,12 +85,17 @@ settings-sound = ध्वनि
 settings-volume-normalization = वॉल्यूम सामान्यीकरण
 settings-logarithmic-volume = लघुगणकीय आयतन
 settings-logarithmic-volume-desc = वॉल्यूम स्लाइडर को उस तरह से बाहर रखें जिस तरह से कान तेज़ आवाज़ सुनते हैं, ताकि शांत स्तर इसके पहले कुछ पिक्सेल में न दबें।
+settings-fade-when-pausing = रोकने पर आवाज़ धीरे-धीरे कम करें
+settings-fade-when-pausing-desc = रोकने पर 0.2 सेकंड में आवाज़ धीरे-धीरे कम करता है और दोबारा चलाने पर वापस बढ़ाता है। बंद होने पर गाना तुरंत रुकता है और फिर से चलता है।
 settings-high-quality-audio = उच्च गुणवत्ता वाला ऑडियो
 settings-high-quality-audio-desc = YouTube प्रीमियम वाले खातों के लिए 128 केबीपीएस के बजाय 256 केबीपीएस। अगले गीत से लागू होता है.
 settings-output-device = आउटपुट डिवाइस
 settings-output-device-desc = जहां संगीत बजता है। एक चुना हुआ उपकरण जो कनेक्ट नहीं है, उसे वापस आने तक Windows के डिफ़ॉल्ट पर छोड़ देता है।
+settings-output-device-desc-system = संगीत कहाँ बजता है: इस कंप्यूटर के स्पीकर या हेडफ़ोन, या आपके नेटवर्क पर एक AirPlay स्पीकर (सेटिंग › नेटवर्क › स्थानीय नेटवर्क स्कैन की अनुमति दें चालू होने पर)। चुना हुआ उपकरण जो जुड़ा नहीं है, लौटने तक सिस्टम डिफ़ॉल्ट पर छोड़ देता है।
 settings-windows-default = Windows डिफ़ॉल्ट
+settings-system-default = सिस्टम डिफ़ॉल्ट
 settings-not-connected = { $name } (कनेक्टेड नहीं)
+settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = गाने उतनी ही तेज़ आवाज़ में बजते हैं जितनी ऊँची आवाज़ में बजते हैं। सामान्य उन सभी को एक ही स्तर पर लाता है, और शांत एक समान, निचले स्तर पर लाता है।
 settings-normalization-normal-desc = गाने समान स्तर पर बजते हैं: तेज़ आवाज़ वाले गाने कम कर दिए जाते हैं, जैसे YouTube Music पर, और शांत गाने 6 डीबी तक तेज़ कर दिए जाते हैं।
 settings-normalization-quiet-desc = गाने उसी स्तर पर, निचले स्तर पर बजते हैं: ऊंचे स्तर के गाने और नीचे बजते हैं, इसलिए शांत गानों को शायद ही कभी बजने की जरूरत पड़ती है।
@@ -113,6 +125,8 @@ settings-0-db = 0 डीबी
 settings-playback-speed = प्लेबैक गति
 settings-playback-speed-desc = प्लेयर बार के एक बटन से भी गाने तेज या धीमी गति से चलाएं। तेज़ ध्वनि ऊँची और धीमी धीमी, एक रिकॉर्ड की तरह। गीत समय में रहते हैं. हर बार ytm-rs प्रारंभ होने पर 1× पर वापस जाएँ।
 settings-speed = गति
+settings-keep-pitch = पिच बनाए रखें
+settings-keep-pitch-desc = तेज़ या धीमा, बिना ऊँचा या नीचा सुनाई दिए। बंद होने पर पिच गति के साथ बदलती है, रिकॉर्ड की तरह।
 settings-playback-speed-jam-note = जब आप जाम में हों तो वापस सामान्य हो जाएं, ताकि हर कोई एक ही गाना सुन सके।
 
 ## Music videos
@@ -140,10 +154,23 @@ settings-romanization-desc = जापानी, कोरियाई, ची�
 settings-translation = अनुवाद
 settings-translation-desc = बोल के साथ मिला अनुवाद उपलब्ध होने पर वही दिखता है। बाकी मामलों में Unison से अनुवाद होता है, और ज़रूरत पड़ने पर Google से।
 settings-translate-into = अनुवाद की भाषा
+settings-lyrics-look = बोल का अंदाज़
+settings-lyrics-look-desc = किसी और थीम के बोल, जैसे Spicy के, जबकि बाकी ऐप आपका ही रहता है।
 settings-text-size = पाठ का आकार
 settings-text-size-desc = गीत को बड़ा या छोटा करें। थीम के अपने आकार के शीर्ष पर कार्य करता है.
 settings-larger = बड़ा
 settings-smaller = छोटा
+settings-line-weight = अक्षर की मोटाई
+settings-line-weight-desc = बोल कितने मोटे दिखें, थीम की अपनी मोटाई की जगह।
+settings-theme-default = थीम का डिफ़ॉल्ट
+settings-weight-light = हल्का
+settings-weight-regular = सामान्य
+settings-weight-medium = मध्यम
+settings-weight-semibold = अर्ध मोटा
+settings-weight-bold = मोटा
+settings-weight-extra-bold = बहुत मोटा
+settings-translation-size = अनुवाद का आकार
+settings-translation-size-desc = अनुवाद और रोमन पंक्तियाँ बोल के पास बड़ी या छोटी करता है। 100% थीम का अपना आकार है।
 settings-quick-line-changes = पंक्तियों के बीच तेज़ बदलाव
 settings-quick-line-changes-desc = अगली पंक्ति Better Lyrics तरीके से तेजी से अपनी जगह पर आ जाती है। बंद, प्रत्येक थीम अपनी पंक्तियों को अपनी गति से आगे बढ़ाती है।
 settings-lyrics-full-frame-rate = स्क्रीन की ताज़ा दर पर गीत
@@ -185,13 +212,25 @@ settings-always-show-seek-knob = हमेशा सीक नॉब दिख�
 settings-always-show-seek-knob-desc = प्रगति रेखा पर घुंडी ऊपर रहती है, न केवल जब आप उस पर इशारा करते हैं, बल्कि उन विषयों में भी जिनमें एक होता है।
 settings-animated-background = एनिमेटेड पृष्ठभूमि
 settings-animated-background-desc = एल्बम कला धीरे-धीरे हर चीज़ के पीछे चली जाती है, उन विषयों में जिनकी पृष्ठभूमि चलती है।
+settings-background-speed = पृष्ठभूमि की गति
+settings-background-speed-desc = जिन थीम में पृष्ठभूमि हिलती है, वहाँ वह कितनी तेज़ बहे। 100% थीम की अपनी गति है।
+settings-faster = तेज़
+settings-slower = धीमा
+settings-background-brightness = पृष्ठभूमि की चमक
+settings-background-brightness-desc = अभी चल रहा है और पन्नों के पीछे कवर को हल्का या गहरा करता है। 100% थीम की अपनी चमक है।
+settings-brighter = अधिक चमकीला
+settings-darker = अधिक गहरा
 settings-flat-background = सपाट पृष्ठभूमि
 settings-flat-background-desc = पृष्ठों और अभी चल रहा है के पीछे एक ही रंग, बिना कवर और बिना ग्रेडिएंट.
 settings-flat-background-colour = पृष्ठभूमि का रंग
 settings-frosted-glass = फ्रॉस्टेड ग्लास
 settings-frosted-glass-desc = मेनू और फ़्लोटिंग बार इसका उपयोग करने वाले विषयों में, उनके पीछे क्या है, इसे धुंधला कर देते हैं। बंद, वे थोड़े अधिक ठोस हैं।
+settings-classic-title-bar = क्लासिक शीर्षक पट्टी
+settings-classic-title-bar-desc = विंडो बटन जैसे 2.0.2 से पहले थे: ऊपर दाएँ चौकोर, खाँच में नहीं। अभी खेल रहा हूँ के बटन और खाता बटन फिर उनके बगल में आ जाते हैं।
 settings-pulse-with-the-music = संगीत के साथ धड़कन
 settings-pulse-with-the-music-desc = जिन विषयों की पृष्ठभूमि चलती है, उनमें पृष्ठभूमि बीट के साथ फूल जाती है।
+settings-visualizer = विज़ुअलाइज़र
+settings-visualizer-desc = अभी चल रहा है के नीचे की पट्टियाँ संगीत के साथ हिलती हैं, एक्सेंट रंग में।
 settings-dim-bright-covers = मंद चमकीले आवरण
 settings-dim-bright-covers-desc = जब एल्बम कला उज्ज्वल होती है तो पृष्ठभूमि को गहरा कर देता है, ताकि उसके ऊपर के गीत और शीर्षक पढ़ने में आसान रहें। अँधेरे आवरणों को वैसे ही छोड़ दिया जाता है।
 settings-font = फ़ॉन्ट
@@ -217,6 +256,9 @@ settings-pill-mini-player = पिल मिनी प्लेयर
 settings-keep-on-top = शीर्ष पर बने रहें
 settings-keep-on-top-desc = मिनी प्लेयर अन्य विंडो के ऊपर रहता है।
 settings-pill-mini-player-restart-desc = मिनी प्लेयर अगली शुरुआत से शैली बदलता है।
+settings-keep-on-top-wayland = Wayland पर शीर्ष पर बने रहें
+settings-keep-on-top-wayland-desc = Wayland ऐप्स को अपनी विंडो दूसरों के ऊपर रखने नहीं देता, इसलिए ऐप XWayland से खुलता है। वहाँ टचपैड स्क्रॉल अपने आप नहीं चलता, और भिन्नात्मक स्केलिंग पर पाठ नरम दिख सकता है।
+settings-keep-on-top-wayland-restart-desc = विंडो अगली शुरुआत से बदलती है।
 
 ## App icon
 
@@ -252,6 +294,14 @@ settings-restart-to-apply = लागू करने के लिए ऐप �
 settings-language-restart-desc = अगली बार ऐप खोलने पर नई भाषा लागू होगी।
 settings-restart-now = अभी फिर से शुरू करें
 
+## Song info: the language and country YouTube Music answers in. Separate from Language above.
+
+settings-song-info = गानों की जानकारी
+settings-song-info-language = गानों की जानकारी की भाषा
+settings-song-info-language-desc = गानों के शीर्षक, कलाकारों और एल्बम के नाम और YouTube Music के सेक्शन की भाषा, जहाँ अनुवाद उपलब्ध हो।
+settings-song-info-country = चार्ट और सुझावों के लिए देश
+settings-song-info-country-desc = वह देश जिसके लिए चार्ट और सुझाव दिखाए जाते हैं।
+
 ## Window
 
 settings-window = खिड़की
@@ -280,10 +330,29 @@ settings-downloads-note = उनके मेनू से गाने, या 
 settings-download-folder = फ़ोल्डर डाउनलोड करें
 settings-change = परिवर्तन
 settings-open = खुला
+settings-download-liked = पसंद किए गाने डाउनलोड करें
+settings-download-liked-desc = जो गाने आपको पसंद हैं वे तुरंत डाउनलोड होते हैं। इसे चालू करने पर, और हर बार ऐप खुलने पर, जो पसंद अभी डाउनलोड नहीं हुए वे भी। केवल साइन इन होने पर; लगभग 4 MB प्रति गाना।
+settings-folder-per-list = हर एल्बम और प्लेलिस्ट को अलग फ़ोल्डर में रखें
+settings-folder-per-list-desc = किसी एल्बम या प्लेलिस्ट को उसके पेज या मेन्यू से डाउनलोड करने पर गाने उसी नाम के फ़ोल्डर में सहेजे जाते हैं। पहले से डाउनलोड किए गए गाने अपनी जगह पर रहते हैं।
+settings-file-lyrics = फ़ाइल में बोल
+settings-file-lyrics-desc = डाउनलोड किए गानों में वही बोल होते हैं जो आप देखते हैं, दूसरे प्लेयर के लिए। समय वाले बोल LRC के रूप में सहेजे जाते हैं।
+settings-file-lyrics-synced = समय के साथ
+settings-file-lyrics-plain = केवल शब्द
+settings-file-lyrics-off = कोई नहीं
 
 ## Network
 
 settings-network = नेटवर्क
+settings-backup-stream = गाने रुकने पर वैकल्पिक स्ट्रीम
+settings-backup-stream-desc = साइन इन करने पर, अगर YouTube यह जाँचने के लिए गाना रोक दे कि आप बॉट तो नहीं हैं (VPN पर ऐसा हो सकता है), तो वीडियो वाली स्ट्रीम से गाना चलाएँ। इसमें अधिक डेटा लगता है।
+settings-local-network = स्थानीय नेटवर्क स्कैन की अनुमति दें
+settings-local-network-desc = आपके नेटवर्क पर AirPlay स्पीकर ढूँढता है, ताकि संगीत उन पर चल सके। फ़ायरवॉल एक बार ऐप को जाने देने के लिए पूछ सकता है।
+settings-airplay-searching = AirPlay स्पीकर ढूँढ रहे हैं…
+settings-backup-stream-prompt-title = गाना रुक गया
+settings-backup-stream-prompt-body = YouTube ने यह जाँचने के लिए गाना रोक दिया कि आप बॉट तो नहीं हैं। VPN इस्तेमाल करने पर ऐसा हो सकता है। वैकल्पिक स्ट्रीम से गाना चल सकता है। इसमें वीडियो भी शामिल है, इसलिए अधिक डेटा लगता है।
+settings-backup-stream-prompt-enable = चालू करके फिर कोशिश करें
+settings-backup-stream-prompt-settings = सेटिंग
+settings-backup-stream-prompt-dismiss = अभी नहीं
 settings-proxy = प्रॉक्सी
 settings-proxy-desc = ytm-rs द्वारा प्राप्त सभी चीजें प्रॉक्सी के माध्यम से भेजें: गाने, गीत, साइन-इन और एक साथ सुनें।
 settings-proxy-windows-uses = Windows को { $proxy } का उपयोग करने के लिए सेट किया गया है।
@@ -297,6 +366,7 @@ settings-address = पता
 settings-saved = सहेजा गया
 settings-save = सहेजें
 settings-proxy-password-note = पते में एक पासवर्ड Windows क्रेडेंशियल मैनेजर में रखा जाता है।
+settings-proxy-password-note-system = पते में एक पासवर्ड सिस्टम की कीरिंग में रखा जाता है, या अगर उसका इस्तेमाल न हो सके तो एक ऐसी फ़ाइल में जिसे सिर्फ़ आप पढ़ सकते हैं।
 settings-checking = जाँच हो रही है...
 settings-proxy-test-desc = जाँचता है कि YouTube Music इस सेटिंग के माध्यम से उत्तर देता है या नहीं।
 settings-test-connection = परीक्षण कनेक्शन
@@ -321,6 +391,7 @@ settings-space = अंतरिक्ष
 settings-next-previous-song = अगला/पिछला गाना
 settings-ctrl = Ctrl
 settings-volume-up-down = वॉल्यूम ऊपर/नीचे
+settings-shortcut-seek = गाने में 5 सेकंड पीछे / आगे
 settings-shortcut-command-palette = कमांड पैलेट: पेज, सेटिंग्स, प्लेलिस्ट और क्रियाएं
 settings-search = खोजें
 settings-shortcut-find-in-list = गीत सूची में खोजें
@@ -350,6 +421,10 @@ settings-update-downloading = डाउनलोड हो रहा है { $v
 settings-update-ready = संस्करण { $version } तैयार है। जब आप ytm-rs बंद करते हैं तो यह इंस्टॉल हो जाता है।
 settings-update-available = संस्करण { $version } आ गया है। { $step }
 settings-update-failed = अपडेट की जांच नहीं की जा सकी: { $error }
+settings-update-rate-limited = { $minutes ->
+    [one] GitHub आपके नेटवर्क से अपडेट जाँच सीमित कर रहा है। { $minutes } मिनट में फिर कोशिश करें।
+   *[other] GitHub आपके नेटवर्क से अपडेट जाँच सीमित कर रहा है। { $minutes } मिनट में फिर कोशिश करें।
+}
 settings-version = संस्करण { $version }।
 settings-automatic-updates-desc-packaged = नए संस्करणों की जांच करें और जब कोई संस्करण आ जाए तो आपको बताएं।
 settings-automatic-updates-desc = पृष्ठभूमि में नए संस्करण डाउनलोड करें और ऐप बंद करने पर उन्हें इंस्टॉल करें।
@@ -378,19 +453,3 @@ settings-about-fonts-credit = Inter, DM Sans, Google सैन्स फ्ल�
 # { $shown } is { $count } written with its thousands separators.
 settings-downloads-and-counting = अब तक { $shown } डाउनलोड
 settings-counting-downloads = डाउनलोड की गिनती हो रही है...
-settings-fade-when-pausing = रोकने पर आवाज़ धीरे-धीरे कम करें
-settings-fade-when-pausing-desc = रोकने पर 0.2 सेकंड में आवाज़ धीरे-धीरे कम करता है और दोबारा चलाने पर वापस बढ़ाता है। बंद होने पर गाना तुरंत रुकता है और फिर से चलता है।
-settings-song-info = गानों की जानकारी
-settings-song-info-language = गानों की जानकारी की भाषा
-settings-song-info-language-desc = गानों के शीर्षक, कलाकारों और एल्बम के नाम और YouTube Music के सेक्शन की भाषा, जहाँ अनुवाद उपलब्ध हो।
-settings-song-info-country = चार्ट और सुझावों के लिए देश
-settings-song-info-country-desc = वह देश जिसके लिए चार्ट और सुझाव दिखाए जाते हैं।
-settings-folder-per-list = हर एल्बम और प्लेलिस्ट को अलग फ़ोल्डर में रखें
-settings-folder-per-list-desc = किसी एल्बम या प्लेलिस्ट को उसके पेज या मेन्यू से डाउनलोड करने पर गाने उसी नाम के फ़ोल्डर में सहेजे जाते हैं। पहले से डाउनलोड किए गए गाने अपनी जगह पर रहते हैं।
-settings-backup-stream = गाने रुकने पर वैकल्पिक स्ट्रीम
-settings-backup-stream-desc = साइन इन करने पर, अगर YouTube यह जाँचने के लिए गाना रोक दे कि आप बॉट तो नहीं हैं (VPN पर ऐसा हो सकता है), तो वीडियो वाली स्ट्रीम से गाना चलाएँ। इसमें अधिक डेटा लगता है।
-settings-backup-stream-prompt-title = गाना रुक गया
-settings-backup-stream-prompt-body = YouTube ने यह जाँचने के लिए गाना रोक दिया कि आप बॉट तो नहीं हैं। VPN इस्तेमाल करने पर ऐसा हो सकता है। वैकल्पिक स्ट्रीम से गाना चल सकता है। इसमें वीडियो भी शामिल है, इसलिए अधिक डेटा लगता है।
-settings-backup-stream-prompt-enable = चालू करके फिर कोशिश करें
-settings-backup-stream-prompt-settings = सेटिंग
-settings-backup-stream-prompt-dismiss = अभी नहीं

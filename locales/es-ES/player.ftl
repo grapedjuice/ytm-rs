@@ -1,5 +1,7 @@
 ### The player: the bar along the bottom, now playing and the mini player.
 
+# For screen readers, on the time beside the progress line ("0:36 / 1:27"), which a
+# click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }. Mostrar tiempo restante
 player-time-show-length = { $time }. Mostrar duración de la canción
 
@@ -53,3 +55,7 @@ player-play-next = Reproducir a continuación
 player-start-radio = Iniciar radio
 player-go-to-album = Ir al álbum
 player-go-to-artist = Ir al artista
+player-sleep-timer = Temporizador de reposo
+player-sleep-off = Desactivado
+player-sleep-minutes = { $minutes } min
+player-sleep-song-end = Final de la canción

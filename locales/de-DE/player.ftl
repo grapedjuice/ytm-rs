@@ -1,7 +1,11 @@
-### Player controls and synced lyrics.
+### The player: the bar along the bottom, now playing and the mini player.
 
+# For screen readers, on the time beside the progress line ("0:36 / 1:27"), which a
+# click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }. Restzeit anzeigen
 player-time-show-length = { $time }. Titellänge anzeigen
+
+# From the interface-wide catalog (#228).
 player-full-screen = Vollbild
 player-exit-full-screen = Vollbild verlassen
 player-pip = Bild im Bild

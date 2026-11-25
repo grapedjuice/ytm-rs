@@ -49,5 +49,5 @@ jam-host-only-queue = يمكن للمضيف فقط تغيير قائمة انت�
 jam-host-only-shuffle = يمكن للمضيف فقط تفعيل التشغيل العشوائي للجلسة
 jam-queue-limit = قائمة الانتظار ممتلئة ({ $count }). أضف أغنية أخرى بمجرد تشغيل إحداهما.
 jam-explicit-skipped = تم تخطي أغنية ذات محتوى صريح أضافها { $name }
-jam-guest-added = أضاف { $name } “{ $title }”
-jam-guest-queued-next = أضاف { $name } “{ $title }” لتُشغَّل تالياً
+jam-guest-added = أضاف { $name } «{ $title }»
+jam-guest-queued-next = أضاف { $name } «{ $title }» لتُشغَّل تالياً

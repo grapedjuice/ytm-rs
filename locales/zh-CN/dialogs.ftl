@@ -37,3 +37,14 @@ dialog-download-count = 下载({ $count })
 dialog-edit-playlist = 编辑播放列表
 dialog-download-body = 尚待下载的曲目：{ $count }。下载在后台运行并从当前曲目开始。
 dialog-download-collection-body = 剩余曲目可从“{ $title }”下载：{ $count }。下载在后台运行并从当前曲目开始。
+dialog-add-duplicates-title = 已在播放列表中
+dialog-add-duplicates-some = 其中一些歌曲已在 “{ $title }” 中。仍然添加吗？
+dialog-add-duplicates-body =
+    { $count ->
+       *[other] { $more ->
+            [0] 这 { $count } 首已在 “{ $title }” 中：{ $songs }。仍然添加吗？
+           *[other] 这 { $count } 首已在 “{ $title }” 中：{ $songs }，另有 { $more } 首。仍然添加吗？
+        }
+    }
+dialog-add-anyway = 仍然添加
+dialog-skip-duplicates = 跳过重复

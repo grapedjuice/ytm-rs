@@ -7,6 +7,11 @@ status-added-queue = Añadido a la cola
 status-removed-queue = Quitado de la cola
 status-cleared-queue = Cola vaciada
 status-removed-playlist = Quitado de la lista
+status-not-added-duplicates =
+    { $count ->
+        [one] No se añadió: ya está en «{ $title }»
+       *[other] No se añadió nada: algunas de estas canciones ya están en «{ $title }»
+    }
 status-playlist-deleted = Lista eliminada
 status-added-liked = Añadido a tus canciones favoritas
 status-sign-in-like = Inicia sesión para dar «Me gusta»

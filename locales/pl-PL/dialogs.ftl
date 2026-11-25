@@ -37,3 +37,23 @@ dialog-download-count = Pobierz ({ $count })
 dialog-edit-playlist = Edytuj playlistę
 dialog-download-body = Utwory do pobrania: { $count }. Pobieranie działa w tle, od bieżącego utworu.
 dialog-download-collection-body = Utwory do pobrania z „{ $title }”: { $count }. Pobieranie działa w tle, od bieżącego utworu.
+dialog-add-duplicates-title = Już na playliście
+dialog-add-duplicates-some = Część tych utworów jest już w „{ $title }”. Dodać mimo to?
+dialog-add-duplicates-body =
+    { $count ->
+        [one] „{ $songs }” jest już w „{ $title }”. Dodać mimo to?
+        [few] { $more ->
+            [0] Te { $count } utwory są już w „{ $title }”: { $songs }. Dodać mimo to?
+           *[other] Te { $count } utwory są już w „{ $title }”: { $songs } i jeszcze { $more }. Dodać mimo to?
+        }
+        [many] { $more ->
+            [0] Tych { $count } utworów jest już w „{ $title }”: { $songs }. Dodać mimo to?
+           *[other] Tych { $count } utworów jest już w „{ $title }”: { $songs } i jeszcze { $more }. Dodać mimo to?
+        }
+       *[other] { $more ->
+            [0] Tego { $count } utworu jest już w „{ $title }”: { $songs }. Dodać mimo to?
+           *[other] Tego { $count } utworu jest już w „{ $title }”: { $songs } i jeszcze { $more }. Dodać mimo to?
+        }
+    }
+dialog-add-anyway = Dodaj mimo to
+dialog-skip-duplicates = Pomiń duplikaty

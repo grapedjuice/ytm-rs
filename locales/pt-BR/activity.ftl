@@ -7,9 +7,14 @@ status-added-queue = Adicionado à fila
 status-removed-queue = Removido da fila
 status-cleared-queue = Fila limpa
 status-removed-playlist = Removido da playlist
+status-not-added-duplicates =
+    { $count ->
+        [one] Não adicionada: já está em “{ $title }”
+       *[other] Nada adicionado: algumas destas músicas já estão em “{ $title }”
+    }
 status-playlist-deleted = Playlist excluída
 status-added-liked = Adicionado às faixas curtidas
-status-sign-in-like = Entre para curtir faixas
+status-sign-in-like = Entre para curtir
 status-sign-in-rate = Entre para avaliar faixas
 status-sign-in-edit = Entre para editar playlists
 status-sign-in-create = Entre para criar playlists
@@ -26,10 +31,10 @@ status-playlist-reload = O YouTube Music não informou a posição das faixas. R
 status-queue-changed = A fila mudou. Não é possível desfazer.
 status-video-unavailable = Não é possível exibir este vídeo
 status-upload-deleted = Excluído dos seus uploads
-status-disliked = «Não gostei» marcado
-status-dislike-failed = Não foi possível marcar «Não gostei»
-status-undisliked = «Não gostei» removido
-status-undislike-failed = Não foi possível remover «Não gostei»
+status-disliked = Música não curtida
+status-dislike-failed = Não foi possível não curtir a música
+status-undisliked = Não curtida removida
+status-undislike-failed = Não foi possível remover a não curtida
 status-unlike-failed = Não foi possível remover a curtida
 status-explicit-skipped = Faixa explícita pulada
 status-no-clean-tracks = Não há faixas sem conteúdo explícito

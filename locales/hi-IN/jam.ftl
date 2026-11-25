@@ -49,5 +49,5 @@ jam-host-only-queue = केवल मेजबान ही जाम की �
 jam-host-only-shuffle = केवल मेज़बान ही जाम को हिला सकता है
 jam-queue-limit = आपकी कतार भरी हुई है ({ $count })। एक बार बजने पर दूसरा गाना जोड़ें।
 jam-explicit-skipped = जोड़ा गया एक स्पष्ट गाना { $name } छोड़ दिया गया
-jam-guest-added = { $name } ने "{ $title }" जोड़ा
-jam-guest-queued-next = { $name } अगली पंक्ति में "{ $title }" है
+jam-guest-added = { $name } ने “{ $title }” जोड़ा
+jam-guest-queued-next = { $name } अगली पंक्ति में “{ $title }” है

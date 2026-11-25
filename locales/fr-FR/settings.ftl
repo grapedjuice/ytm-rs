@@ -15,19 +15,20 @@ settings-account = Compte
 settings-general = Général
 settings-keyboard-shortcuts = Raccourcis clavier
 settings-about = À propos
-settings-no-match = Aucun réglage ne correspond à « { $query } »
+settings-no-match = Aucun réglage ne correspond à « { $query } »
 settings-title = Paramètres
 settings-search-box = Rechercher
 settings-clear = Effacer
 
 ## Account
 
-settings-signed-in-desc = Connecté avec Google. L’accueil, la bibliothèque et les « J’aime » proviennent de ce compte. Les identifiants sont chiffrés dans le Gestionnaire d’identification Windows.
+settings-signed-in-desc = Connecté avec Google. L’accueil, la bibliothèque et les « J’aime » proviennent de ce compte. Les identifiants sont chiffrés dans le Gestionnaire d’identification Windows.
+settings-signed-in-desc-system = Connecté avec Google. L’accueil, la bibliothèque et les « J’aime » proviennent de ce compte. Les identifiants sont dans le trousseau du système ou, s’il ne peut pas être utilisé, dans un fichier que vous seul pouvez lire.
 settings-sign-out = Se déconnecter
 settings-channel = Chaîne
-settings-channel-desc = Votre compte Google et chaque chaîne YouTube qu’il gère ont leur propre bibliothèque, leurs « J’aime », leur historique et leurs recommandations.
+settings-channel-desc = Votre compte Google et chaque chaîne YouTube qu’il gère ont leur propre bibliothèque, leurs « J’aime », leur historique et leurs recommandations.
 settings-not-signed-in = Non connecté
-settings-not-signed-in-desc = Connectez-vous pour retrouver votre accueil, votre bibliothèque et vos « J’aime ».
+settings-not-signed-in-desc = Connectez-vous pour retrouver votre accueil, votre bibliothèque et vos « J’aime ».
 settings-sign-in-with-google = Se connecter avec Google
 settings-sign-in-finish = Terminez la connexion dans la fenêtre qui s’est ouverte.
 settings-no-channel = { $name } (aucune chaîne)
@@ -39,11 +40,17 @@ settings-switching = Changement en cours…
 
 settings-autoplay = Lecture automatique
 settings-autoplay-desc = Continue à lire des titres similaires à la fin de la file d’attente.
+settings-smart-shuffle = Lecture aléatoire intelligente
+settings-smart-shuffle-desc = En lecture aléatoire, des titres proches de celui en cours sont glissés, un tous les trois. Ils disparaissent quand la lecture aléatoire est désactivée.
+settings-gapless-playback = Lecture sans coupure
+settings-gapless-playback-desc = Enchaîne les titres sans pause, pour les albums et les lives qui se suivent.
 settings-crossfade-songs = Fondu enchaîné
 settings-crossfade-songs-desc = Mélange la fin de chaque titre avec le début du suivant.
 settings-crossfade-length = Durée du fondu
 settings-crossfade-when-skipping = Fondu en passant au titre suivant
 settings-crossfade-when-skipping-desc = Applique aussi le fondu en passant au titre suivant. Le retour en arrière et la sélection d’un titre restent immédiats.
+settings-skip-silence = Ignorer le silence de la fin
+settings-skip-silence-desc = Si un titre se tait quelques secondes dans sa seconde moitié, on passe au suivant. Les longues fins silencieuses et les pistes cachées après elles sont sautées.
 settings-hide-explicit-songs = Masquer les titres explicites
 settings-hide-explicit-songs-desc = Retire les titres marqués E des listes, de la recherche, de la file d’attente et de la lecture automatique. Un titre en cours se termine normalement.
 settings-show-podcasts = Afficher les podcasts
@@ -56,21 +63,21 @@ settings-use-youtubes-restricted-mode-desc = YouTube masque aussi les autres con
 ## Song ratings
 
 settings-song-ratings = Évaluations des titres
-settings-ratings-player-button = Bouton « Je n’aime pas » dans le lecteur
+settings-ratings-player-button = Bouton « Je n’aime pas » dans le lecteur
 settings-ratings-player-button-desc = Affiche le pouce vers le bas à côté du cœur.
 settings-ratings-list-icons = Icônes d’évaluation dans les listes
-settings-ratings-list-icons-desc = Affiche les évaluations à côté de la durée. Survolez un titre sans évaluation pour afficher « J’aime ».
+settings-ratings-list-icons-desc = Affiche les évaluations à côté de la durée. Survolez un titre sans évaluation pour afficher « J’aime ».
 settings-ratings-dim-disliked = Estomper les titres non aimés
 settings-ratings-dim-disliked-desc = Affiche les titres non aimés dans des couleurs atténuées dans les listes.
 settings-ratings-skip-disliked = Passer au titre suivant après un avis négatif
 settings-ratings-skip-disliked-desc = Passe au titre suivant après confirmation par YouTube Music. En écoute collective, les invités suivent la lecture de l’hôte.
 settings-ratings-dislike-notices = Notifications d’avis négatif
 settings-ratings-dislike-notices-desc = Affiche un message lorsqu’un avis négatif est enregistré ou retiré.
-settings-ratings-unlike-notices = Notifications de retrait d’un « J’aime »
+settings-ratings-unlike-notices = Notifications de retrait d’un « J’aime »
 settings-ratings-unlike-notices-desc = Propose d’annuler avant d’envoyer le retrait à YouTube Music.
-settings-ratings-safe-likes = Protéger les « J’aime »
-settings-ratings-safe-likes-desc = Maintenez le bouton « J’aime » enfoncé pour retirer l’évaluation.
-settings-ratings-hold-to-remove = Maintenir pour retirer le « J’aime »
+settings-ratings-safe-likes = Protéger les « J’aime »
+settings-ratings-safe-likes-desc = Maintenez le bouton « J’aime » enfoncé pour retirer l’évaluation.
+settings-ratings-hold-to-remove = Maintenir pour retirer le « J’aime »
 
 ## Sound
 
@@ -78,12 +85,17 @@ settings-sound = Son
 settings-volume-normalization = Normalisation du volume
 settings-logarithmic-volume = Volume logarithmique
 settings-logarithmic-volume-desc = Adapte le curseur à la perception de l’oreille et donne plus de place aux faibles volumes.
+settings-fade-when-pausing = Fondu sonore lors de la pause
+settings-fade-when-pausing-desc = Diminue progressivement le volume à la pause et le rétablit à la reprise, en 0,2 seconde. Si cette option est désactivée, la lecture s'arrête et reprend immédiatement.
 settings-high-quality-audio = Audio haute qualité
 settings-high-quality-audio-desc = 256 kbit/s au lieu de 128 kbit/s avec YouTube Premium. S’applique à partir du titre suivant.
 settings-output-device = Périphérique de sortie
 settings-output-device-desc = Choisit où diffuser la musique. Si le périphérique choisi est déconnecté, celui par défaut de Windows prend le relais.
+settings-output-device-desc-system = Où la musique est lue : les haut-parleurs ou le casque de cet ordinateur, ou une enceinte AirPlay de votre réseau (avec Paramètres › Réseau › Autoriser la recherche sur le réseau local activé). Un périphérique choisi qui n’est pas connecté laisse la place au périphérique par défaut du système jusqu’à son retour.
 settings-windows-default = Par défaut (Windows)
+settings-system-default = Par défaut (système)
 settings-not-connected = { $name } (non connecté)
+settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Les titres gardent leur volume d’origine. Normal les égalise, et Faible les égalise à un niveau inférieur.
 settings-normalization-normal-desc = Les titres ont le même volume. Les plus forts sont atténués, comme sur YouTube Music, et les plus faibles sont amplifiés jusqu’à 6 dB.
 settings-normalization-quiet-desc = Les titres ont le même volume, à un niveau plus faible. Les titres forts sont davantage atténués, et les plus faibles ont rarement besoin d’être amplifiés.
@@ -113,6 +125,8 @@ settings-0-db = 0 dB
 settings-playback-speed = Vitesse de lecture
 settings-playback-speed-desc = Accélère ou ralentit les titres, aussi depuis la barre du lecteur. Comme sur un disque, le son devient plus aigu en accélérant et plus grave en ralentissant. Les paroles restent synchronisées. Revient à 1× au démarrage de ytm-rs.
 settings-speed = Vitesse
+settings-keep-pitch = Garder la hauteur
+settings-keep-pitch-desc = Plus vite ou plus lentement sans monter ni descendre. Désactivé, la hauteur suit la vitesse, comme un disque.
 settings-playback-speed-jam-note = En écoute collective, la vitesse redevient normale pour que tout le monde entende le même titre.
 
 ## Music videos
@@ -140,10 +154,23 @@ settings-romanization-desc = Transcrit en caractères latins le japonais, le cor
 settings-translation = Traduction
 settings-translation-desc = La traduction fournie avec les paroles est prioritaire. À défaut, Unison traduit le texte, ou Google si Unison ne le peut pas.
 settings-translate-into = Traduire en
+settings-lyrics-look = Style des paroles
+settings-lyrics-look-desc = Les paroles d’un autre thème, comme celles de Spicy, pendant que le reste de l’app garde les vôtres.
 settings-text-size = Taille du texte
 settings-text-size-desc = Agrandit ou réduit les paroles par rapport à la taille définie par le thème.
 settings-larger = Plus grand
 settings-smaller = Plus petit
+settings-line-weight = Graisse du texte
+settings-line-weight-desc = À quel point les paroles sont grasses, à la place de celles du thème.
+settings-theme-default = Celui du thème
+settings-weight-light = Fine
+settings-weight-regular = Normale
+settings-weight-medium = Moyenne
+settings-weight-semibold = Demi-gras
+settings-weight-bold = Grasse
+settings-weight-extra-bold = Extra-grasse
+settings-translation-size = Taille de la traduction
+settings-translation-size-desc = Agrandit ou réduit les lignes traduites et romanisées à côté des paroles. 100 % est celui du thème.
 settings-quick-line-changes = Changement rapide de ligne
 settings-quick-line-changes-desc = La ligne suivante se met rapidement en place, comme dans Better Lyrics. Si l’option est désactivée, chaque thème utilise sa propre vitesse.
 settings-lyrics-full-frame-rate = Paroles à la fréquence de l’écran
@@ -185,13 +212,25 @@ settings-always-show-seek-knob = Toujours afficher le curseur de lecture
 settings-always-show-seek-knob-desc = Dans les thèmes qui en disposent, le curseur reste visible même sans survoler la barre de progression.
 settings-animated-background = Arrière-plan animé
 settings-animated-background-desc = Dans les thèmes à fond animé, la pochette se déplace lentement en arrière-plan.
+settings-background-speed = Vitesse du fond
+settings-background-speed-desc = La vitesse à laquelle le fond dérive, dans les thèmes dont le fond bouge. 100 % est celle du thème.
+settings-faster = Plus vite
+settings-slower = Plus lentement
+settings-background-brightness = Luminosité du fond
+settings-background-brightness-desc = Éclaircit ou assombrit la pochette derrière Lecture en cours et les pages. 100 % est celle du thème.
+settings-brighter = Plus clair
+settings-darker = Plus sombre
 settings-flat-background = Fond uni
 settings-flat-background-desc = Une seule couleur derrière les pages et Lecture en cours, sans pochette ni dégradé.
 settings-flat-background-colour = Couleur de fond
 settings-frosted-glass = Verre dépoli
 settings-frosted-glass-desc = Dans les thèmes compatibles, les menus et barres flottantes floutent l’arrière-plan. Une fois l’effet désactivé, ils sont un peu plus opaques.
+settings-classic-title-bar = Barre de titre classique
+settings-classic-title-bar-desc = Les boutons de la fenêtre comme avant la 2.0.2 : carrés en haut à droite, au lieu d'un décrochement. Les boutons de Lecture en cours et le bouton du compte reviennent à côté.
 settings-pulse-with-the-music = Pulsation au rythme de la musique
 settings-pulse-with-the-music-desc = Dans les thèmes à fond animé, le décor s’agrandit au rythme de la musique.
+settings-visualizer = Visualiseur
+settings-visualizer-desc = Des barres en bas de Lecture en cours bougent avec la musique, dans la couleur d’accent.
 settings-dim-bright-covers = Assombrir les pochettes claires
 settings-dim-bright-covers-desc = Assombrit le fond des pochettes claires pour que les paroles et les titres restent lisibles. Les pochettes sombres gardent leur luminosité.
 settings-font = Police
@@ -217,6 +256,9 @@ settings-pill-mini-player = Mini-lecteur en pilule
 settings-keep-on-top = Garder au premier plan
 settings-keep-on-top-desc = Le mini-lecteur reste au-dessus des autres fenêtres.
 settings-pill-mini-player-restart-desc = Le style du mini-lecteur changera au prochain démarrage.
+settings-keep-on-top-wayland = Garder au premier plan sous Wayland
+settings-keep-on-top-wayland-desc = Wayland n'autorise pas les applications à garder leur fenêtre au-dessus des autres, donc l'application s'ouvre via XWayland. Le défilement du pavé tactile n'y a pas d'inertie, et le texte peut paraître plus flou avec une mise à l'échelle fractionnaire.
+settings-keep-on-top-wayland-restart-desc = La fenêtre change au prochain démarrage.
 
 ## App icon
 
@@ -252,6 +294,14 @@ settings-restart-to-apply = Redémarrer pour appliquer
 settings-language-restart-desc = La langue changera au prochain démarrage.
 settings-restart-now = Redémarrer maintenant
 
+## Song info: the language and country YouTube Music answers in. Separate from Language above.
+
+settings-song-info = Informations sur les titres
+settings-song-info-language = Langue des informations sur les titres
+settings-song-info-language-desc = Langue des titres de chansons, noms d'artistes et d'albums et rubriques de YouTube Music, lorsqu'une traduction est disponible.
+settings-song-info-country = Pays des classements et recommandations
+settings-song-info-country-desc = Pays auquel correspondent les classements et les recommandations.
+
 ## Window
 
 settings-window = Fenêtre
@@ -280,10 +330,29 @@ settings-downloads-note = Téléchargez des titres depuis leur menu ou des album
 settings-download-folder = Dossier de téléchargement
 settings-change = Modifier
 settings-open = Ouvrir
+settings-download-liked = Télécharger les titres aimés
+settings-download-liked-desc = Les titres que vous aimez se téléchargent tout de suite. À l’activation, et à chaque ouverture de l’app, ceux qui ne le sont pas encore aussi. Connecté seulement ; environ 4 Mo par titre.
+settings-folder-per-list = Enregistrer chaque album et playlist dans son dossier
+settings-folder-per-list-desc = Le téléchargement d'un album ou d'une playlist depuis sa page ou son menu enregistre les titres dans un dossier portant son nom. Les titres déjà téléchargés conservent leur emplacement.
+settings-file-lyrics = Paroles dans le fichier
+settings-file-lyrics-desc = Les titres téléchargés emportent les paroles que vous voyez, pour d’autres lecteurs. Les paroles minutées sont enregistrées en LRC.
+settings-file-lyrics-synced = Minutée
+settings-file-lyrics-plain = Texte seul
+settings-file-lyrics-off = Aucune
 
 ## Network
 
 settings-network = Réseau
+settings-backup-stream = Flux de secours en cas d'interruption
+settings-backup-stream-desc = Avec une session ouverte, si YouTube interrompt un titre pour vérifier que vous n'êtes pas un robot (cela peut arriver avec un VPN), utilise un flux incluant la vidéo. Consomme plus de données.
+settings-local-network = Autoriser la recherche sur le réseau local
+settings-local-network-desc = Cherche des enceintes AirPlay sur votre réseau, pour y jouer la musique. Le pare-feu peut demander une fois de laisser passer l’app.
+settings-airplay-searching = Recherche d’enceintes AirPlay…
+settings-backup-stream-prompt-title = Lecture interrompue
+settings-backup-stream-prompt-body = YouTube a interrompu ce titre pour vérifier que vous n'êtes pas un robot. Cela peut arriver avec un VPN. Un flux de secours permet de reprendre la lecture. Il inclut la vidéo et consomme donc plus de données.
+settings-backup-stream-prompt-enable = Activer et réessayer
+settings-backup-stream-prompt-settings = Paramètres
+settings-backup-stream-prompt-dismiss = Pas maintenant
 settings-proxy = Proxy
 settings-proxy-desc = Fait passer tout le trafic de ytm-rs par un proxy, notamment les titres, les paroles, la connexion et l’écoute collective.
 settings-proxy-windows-uses = Windows est configuré pour utiliser { $proxy }.
@@ -297,6 +366,7 @@ settings-address = Adresse
 settings-saved = Enregistré
 settings-save = Enregistrer
 settings-proxy-password-note = Si l’adresse contient un mot de passe, il est conservé dans le Gestionnaire d’identification Windows.
+settings-proxy-password-note-system = Si l’adresse contient un mot de passe, il est conservé dans le trousseau du système ou, s’il ne peut pas être utilisé, dans un fichier que vous seul pouvez lire.
 settings-checking = Vérification…
 settings-proxy-test-desc = Vérifie que YouTube Music répond avec ce réglage.
 settings-test-connection = Tester la connexion
@@ -321,6 +391,7 @@ settings-space = Espace
 settings-next-previous-song = Titre suivant / précédent
 settings-ctrl = Ctrl
 settings-volume-up-down = Monter / baisser le volume
+settings-shortcut-seek = Reculer / avancer de 5 secondes dans le titre
 settings-shortcut-command-palette = Palette de commandes (pages, paramètres, playlists et actions)
 settings-search = Rechercher
 settings-shortcut-find-in-list = Rechercher dans une liste de titres
@@ -350,6 +421,10 @@ settings-update-downloading = Téléchargement de { $version }… { $percent } %
 settings-update-ready = La version { $version } est prête. Elle s’installera à la fermeture de ytm-rs.
 settings-update-available = La version { $version } est disponible. { $step }
 settings-update-failed = Impossible de rechercher les mises à jour : { $error }
+settings-update-rate-limited = { $minutes ->
+    [one] GitHub limite les recherches de mises à jour depuis votre réseau. Réessayez dans { $minutes } minute.
+   *[other] GitHub limite les recherches de mises à jour depuis votre réseau. Réessayez dans { $minutes } minutes.
+}
 settings-version = Version { $version }.
 settings-automatic-updates-desc-packaged = Recherche les nouvelles versions et vous avertit lorsqu’elles paraissent.
 settings-automatic-updates-desc = Télécharge les nouvelles versions en arrière-plan et les installe à la fermeture de l’application.
@@ -381,19 +456,3 @@ settings-downloads-and-counting = { $count ->
    *[other] Déjà { $shown } téléchargements
 }
 settings-counting-downloads = Comptage des téléchargements…
-settings-fade-when-pausing = Fondu sonore lors de la pause
-settings-fade-when-pausing-desc = Diminue progressivement le volume à la pause et le rétablit à la reprise, en 0,2 seconde. Si cette option est désactivée, la lecture s'arrête et reprend immédiatement.
-settings-song-info = Informations sur les titres
-settings-song-info-language = Langue des informations sur les titres
-settings-song-info-language-desc = Langue des titres de chansons, noms d'artistes et d'albums et rubriques de YouTube Music, lorsqu'une traduction est disponible.
-settings-song-info-country = Pays des classements et recommandations
-settings-song-info-country-desc = Pays auquel correspondent les classements et les recommandations.
-settings-folder-per-list = Enregistrer chaque album et playlist dans son dossier
-settings-folder-per-list-desc = Le téléchargement d'un album ou d'une playlist depuis sa page ou son menu enregistre les titres dans un dossier portant son nom. Les titres déjà téléchargés conservent leur emplacement.
-settings-backup-stream = Flux de secours en cas d'interruption
-settings-backup-stream-desc = Avec une session ouverte, si YouTube interrompt un titre pour vérifier que vous n'êtes pas un robot (cela peut arriver avec un VPN), utilise un flux incluant la vidéo. Consomme plus de données.
-settings-backup-stream-prompt-title = Lecture interrompue
-settings-backup-stream-prompt-body = YouTube a interrompu ce titre pour vérifier que vous n'êtes pas un robot. Cela peut arriver avec un VPN. Un flux de secours permet de reprendre la lecture. Il inclut la vidéo et consomme donc plus de données.
-settings-backup-stream-prompt-enable = Activer et réessayer
-settings-backup-stream-prompt-settings = Paramètres
-settings-backup-stream-prompt-dismiss = Pas maintenant

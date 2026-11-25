@@ -49,5 +49,5 @@ jam-host-only-queue = Seul l’hôte peut modifier la file de la session
 jam-host-only-shuffle = Seul l’hôte peut mélanger la file
 jam-queue-limit = Votre file est pleine ({ $count }). Ajoutez un titre après le passage du suivant.
 jam-explicit-skipped = Un titre explicite ajouté par { $name } a été ignoré
-jam-guest-added = { $name } a ajouté « { $title } »
-jam-guest-queued-next = { $name } a mis « { $title } » en suivant
+jam-guest-added = { $name } a ajouté « { $title } »
+jam-guest-queued-next = { $name } a mis « { $title } » en suivant

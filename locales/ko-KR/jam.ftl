@@ -49,5 +49,5 @@ jam-host-only-queue = 호스트만 Jam 대기열을 변경할 수 있습니다.
 jam-host-only-shuffle = 호스트만 잼을 섞을 수 있습니다.
 jam-queue-limit = 대기열이 꽉 찼습니다({ $count }). 한 곡이 재생되면 다른 곡을 추가하세요.
 jam-explicit-skipped = 노골적인 노래 건너뛰기 { $name } 추가됨
-jam-guest-added = { $name }에 "{ $title }"가 추가되었습니다.
-jam-guest-queued-next = { $name }가 다음 대기열에 "{ $title }"를 추가했습니다.
+jam-guest-added = { $name }에 “{ $title }”가 추가되었습니다.
+jam-guest-queued-next = { $name }가 다음 대기열에 “{ $title }”를 추가했습니다.

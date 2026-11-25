@@ -26,6 +26,7 @@ transfer-spotify-account = Обліковий запис Spotify
 transfer-signed-in-plan = Вхід виконано · працює з Free та Premium
 transfer-signed-in-as = Ви ввійшли як { $name }
 transfer-credential-storage = Дані входу шифруються в Диспетчері облікових даних Windows.
+transfer-credential-storage-system = Дані входу зберігаються у зв’язці ключів системи або, якщо нею не можна скористатися, у файлі, який можете читати лише ви.
 transfer-checking-sign-in = Перевірка входу…
 transfer-private-sign-in = Вхід потрібний для вподобаних треків і приватних списків. Публічні доступні без входу.
 transfer-sign-in-spotify = Увійти в Spotify

@@ -4,6 +4,7 @@ nav-explore = Keşfet
 nav-library = Kitaplık
 nav-library-section = Kitaplık › { $tab }
 nav-playlists = Çalma listeleri
+nav-community-playlists = Topluluk çalma listeleri
 nav-liked-songs = Beğenilen şarkılar
 nav-albums = Albümler
 nav-artists = Sanatçılar

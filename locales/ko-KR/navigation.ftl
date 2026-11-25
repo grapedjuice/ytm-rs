@@ -4,6 +4,7 @@ nav-explore = 둘러보기
 nav-library = 보관함
 nav-library-section = 보관함 › { $tab }
 nav-playlists = 재생목록
+nav-community-playlists = 커뮤니티 재생목록
 nav-liked-songs = 좋아요 표시한 노래
 nav-albums = 앨범
 nav-artists = 아티스트

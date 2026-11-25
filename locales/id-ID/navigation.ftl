@@ -4,6 +4,7 @@ nav-explore = Jelajahi
 nav-library = Koleksi
 nav-library-section = Koleksi › { $tab }
 nav-playlists = Playlist
+nav-community-playlists = Playlist komunitas
 nav-liked-songs = Lagu yang disukai
 nav-albums = Album
 nav-artists = Artis

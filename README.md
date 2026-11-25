@@ -83,7 +83,7 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 **Desktop**
 - System media controls with a seekable timeline, taskbar thumbnail buttons, close to tray (Wayland too), song notifications while the window is in the background, a choice of page to open on, a collapsible sidebar and screen-reader-accessible controls.
 - The app draws its own title bar on Windows, so the window is one surface, and on Linux desktops that draw none. On Windows 11, Mica or Acrylic can show behind the window.
-- **Your language:** the interface comes in 20 languages, and song titles, shelves and charts can follow your language and country.
+- **Your language:** the interface comes in 21 languages, and song titles, shelves and charts can follow your language and country.
 - **Touch screens:** swipe to scroll pages and lyrics, and swipe the player bar up to open Now playing.
 - **Mini player:** shrink the window to a small strip with the song and controls (Ctrl+M), or try the experimental pill that sits in a corner and opens on hover.
   On Wayland, turn on Settings › Mini player › Keep on top on Wayland for the pin to keep the window above others (it opens through XWayland).

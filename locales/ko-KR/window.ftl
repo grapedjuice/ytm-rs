@@ -39,6 +39,7 @@ window-installed-when-closed = 버전 { $version }가 준비되었습니다. 앱
 window-notes-status = 당신은 { $version }에 있습니다. { $step }
 window-package-instructions = 새 패키지를 다운로드하고 sudo pacman -U로 설치하세요.
 window-package-download = 새로운 .deb를 다운로드하고 열어 이 위에 설치하세요.
+window-package-flatpak = 이 사본은 Flatpak으로 업데이트됩니다. flatpak update를 실행하거나 소프트웨어 스토어를 확인하세요.
 window-keyboard-volume-up = 볼륨 업
 window-keyboard-volume-down = 볼륨 낮추기
 widget-pin-playlist = 재생목록 고정

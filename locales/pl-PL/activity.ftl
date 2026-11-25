@@ -7,6 +7,13 @@ status-added-queue = Dodano do kolejki
 status-removed-queue = Usunięto z kolejki
 status-cleared-queue = Wyczyszczono kolejkę
 status-removed-playlist = Usunięto z playlisty
+status-not-added-duplicates =
+    { $count ->
+        [one] Nie dodano: już jest w „{ $title }”
+        [few] Nic nie dodano: część tych utworów jest już w „{ $title }”
+        [many] Nic nie dodano: część tych utworów jest już w „{ $title }”
+       *[other] Nic nie dodano: część tych utworów jest już w „{ $title }”
+    }
 status-playlist-deleted = Usunięto playlistę
 status-added-liked = Dodano do polubionych
 status-sign-in-like = Zaloguj się, aby polubić utwory

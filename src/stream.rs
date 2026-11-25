@@ -450,7 +450,7 @@ fn host_of(url: &str) -> Option<&str> {
 /// player falls back to: `mn` lists the server cluster of the host the URL is on and a
 /// second one, `fvip` which server of that second one ("rr{fvip}---{mn[1]}"). `None` for
 /// any other URL, and for one already there.
-fn second_host(url: &str) -> Option<String> {
+pub(crate) fn second_host(url: &str) -> Option<String> {
     let host = host_of(url)?;
     if !host.ends_with(".googlevideo.com") {
         return None;

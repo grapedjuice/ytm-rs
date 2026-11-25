@@ -5,6 +5,7 @@
 //! where the song is, decodes it, and keeps a few frames ready. The UI takes whichever frame
 //! is due. Nothing runs unless the listener turned video on.
 
+use std::cell::RefCell;
 use std::collections::{BinaryHeap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -579,7 +580,9 @@ fn to_image(yuv: &openh264::decoder::DecodedYUV, colors: Colors) -> egui::ColorI
 
 fn run(stream: &VideoStream, http: &reqwest::Client, status: &AudioStatus, shared: &Shared) -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    let download = |from: u64, to: u64| Download { rt: &rt, http, url: &stream.url, from, to, resp: None, tries: 0 };
+    // One for all of the video's requests: once on the second host, each goes there.
+    let url = RefCell::new(stream.url.clone());
+    let download = |from: u64, to: u64| Download { rt: &rt, http, url: &url, from, to, resp: None, tries: 0 };
     // The header and the index after it, in one request.
     let start = download(0, stream.index.1).all()?;
     let head = start.get(..=stream.init_end as usize).ok_or_else(|| anyhow::anyhow!("short header"))?;
@@ -700,11 +703,12 @@ fn disposable(sample: &[u8], nal_len: usize) -> bool {
 }
 
 /// A range of the video, read as it arrives. One that breaks off goes on from where it got
-/// to, three times.
+/// to, three times. A host that can't be reached or answers nothing passes it to the
+/// second host the URL names, as the audio does (#372).
 struct Download<'a> {
     rt: &'a tokio::runtime::Runtime,
     http: &'a reqwest::Client,
-    url: &'a str,
+    url: &'a RefCell<String>,
     from: u64,
     to: u64,
     resp: Option<reqwest::Response>,
@@ -721,7 +725,7 @@ impl Download<'_> {
             }
             let got = self.rt.block_on(async {
                 if self.resp.is_none() {
-                    let url = format!("{}&range={at}-{}", self.url, self.to);
+                    let url = format!("{}&range={at}-{}", self.url.borrow(), self.to);
                     self.resp = Some(self.http.get(&url).header("User-Agent", crate::innertube::UA).timeout(Duration::from_secs(30)).send().await?.error_for_status()?);
                 }
                 anyhow::Ok(self.resp.as_mut().expect("just set").chunk().await?)
@@ -735,6 +739,13 @@ impl Download<'_> {
                 Ok(None) => self.resp = None,
                 Err(e) => {
                     self.resp = None;
+                    // Not a try lost: the first host was never going to answer.
+                    let next = unresponsive(&e).then(|| crate::stream::second_host(&self.url.borrow())).flatten();
+                    if let Some(next) = next {
+                        log::warn!("video host unreachable or not answering, trying the other one YouTube named");
+                        *self.url.borrow_mut() = next;
+                        continue;
+                    }
                     self.tries += 1;
                     if self.tries >= 3 {
                         return Err(e);
@@ -749,6 +760,12 @@ impl Download<'_> {
         while self.more(&mut buf)? {}
         Ok(buf)
     }
+}
+
+/// Refused, or nothing in the request's 30 s: worth the second host. A status (a 403 for
+/// an expired URL) isn't the host's doing.
+fn unresponsive(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<reqwest::Error>().is_some_and(|e| e.is_connect() || e.is_timeout())
 }
 
 // ---------------------------------------------------------------------------- looping clips
@@ -929,6 +946,35 @@ mod tests {
 
     fn u32s(values: &[u32]) -> Vec<u8> {
         values.iter().flat_map(|v| v.to_be_bytes()).collect()
+    }
+
+    /// A video host that refuses the connection: the range comes from the URL's second
+    /// host (#372), and so do the requests after it. Retried on the first, it never would.
+    #[test]
+    fn an_unreachable_host_falls_back_to_the_second_one() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for socket in listener.incoming() {
+                let Ok(mut socket) = socket else { return };
+                let _ = socket.read(&mut [0; 4096]);
+                let _ = socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc");
+            }
+        });
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        // The first host's address listens on nothing; the second's is the server.
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .resolve("rr4---sn-first.googlevideo.com", "[::1]:0".parse().unwrap())
+            .resolve("rr2---sn-second.googlevideo.com", "127.0.0.1:0".parse().unwrap())
+            .build()
+            .unwrap();
+        let url = RefCell::new(format!("http://rr4---sn-first.googlevideo.com:{port}/videoplayback?mn=sn-first,sn-second&fvip=2"));
+        let download = || Download { rt: &rt, http: &http, url: &url, from: 0, to: 2, resp: None, tries: 0 };
+        assert_eq!(download().all().unwrap(), b"abc");
+        assert!(url.borrow().contains("//rr2---sn-second.googlevideo.com:"));
+        assert_eq!(download().all().unwrap(), b"abc");
     }
 
     fn track() -> Track {

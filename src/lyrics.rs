@@ -112,7 +112,7 @@ impl Provider {
     }
 
     pub fn is_unison(self) -> bool {
-        self.name() == "Unison"
+        matches!(self, Provider::UnisonRich | Provider::UnisonWord | Provider::UnisonSynced | Provider::UnisonPlain)
     }
 
     pub fn sync(self) -> SyncKind {
@@ -148,7 +148,7 @@ pub struct Part {
     pub bg: bool,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Line {
     pub start: i32,
     pub dur: i32,
@@ -233,6 +233,14 @@ pub struct LyricsSet {
 impl LyricsSet {
     pub fn get(&self, p: Provider) -> Option<&Lyrics> {
         self.sources.iter().find(|l| l.provider == p)
+    }
+
+    /// Unison lyrics saved before they carried its credit get one crediting Unison alone,
+    /// linked to `video_id`'s page there: who submitted them comes with the next fresh look.
+    pub fn credit_unison(&mut self, video_id: &str) {
+        for l in self.sources.iter_mut().filter(|l| l.provider.is_unison() && l.unison.is_none()) {
+            l.unison = Some(UnisonCredit { video_id: video_id.to_owned(), submitter: None });
+        }
     }
 }
 
@@ -1662,6 +1670,17 @@ Two");
         assert_eq!(ttml_time("12.5s"), 12500);
         assert_eq!(ttml_time("250ms"), 250);
         assert_eq!(ttml_time("01:00:01.000"), 3_601_000);
+    }
+
+    #[test]
+    fn unison_lyrics_saved_without_a_credit_credit_unison_alone() {
+        let lyrics = |provider, unison| Lyrics { lines: vec![], sync: Sync::None, provider, language: None, songwriters: vec![], unison };
+        let had = UnisonCredit { video_id: "v".into(), submitter: Some(("boidu".into(), "k".into())) };
+        let mut set = LyricsSet { sources: vec![lyrics(Provider::UnisonSynced, None), lyrics(Provider::UnisonPlain, Some(had.clone())), lyrics(Provider::LrclibSynced, None)] };
+        set.credit_unison("v");
+        assert_eq!(set.sources[0].unison, Some(UnisonCredit { video_id: "v".into(), submitter: None }));
+        // One that has its credit keeps it, and other sources get none.
+        assert_eq!((set.sources[1].unison.as_ref(), set.sources[2].unison.as_ref()), (Some(&had), None));
     }
 
     #[test]

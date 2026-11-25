@@ -591,7 +591,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                     app.actions.push(Action::Like(t, true));
                     app.toast(crate::tr!("status-added-liked"));
                 }
-                Some((playlist_id, t)) => app.add_to_playlist(playlist_id, &[t]),
+                Some((playlist_id, t)) => app.add_to_playlist(playlist_id, &[t], crate::ytm::Duplicates::Ask),
                 None => {}
             }
         });
@@ -1129,8 +1129,7 @@ fn suggestion_text(ui: &Ui, pos: Pos2, text: &str, typed: &str, width: f32) {
     job.append(rest, 0.0, egui::TextFormat { font_id: theme::regular(15.0), color: theme::text_dim(), ..Default::default() });
     job.wrap = egui::text::TextWrapping::truncate_at_width(width.max(10.0));
     let g = ui.fonts_mut(|f| f.layout_job(job));
-    ui.painter().galley(pos, g.clone(), theme::text());
-    widgets::tip_if_elided(ui, Rect::from_min_size(pos, g.size()), &g, text);
+    widgets::galley_tipped(ui, pos, g, theme::text(), text);
 }
 
 // ------------------------------------------------------------------ player bar
@@ -1970,10 +1969,6 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
         white_on_card = theme::light();
     }
     ui.horizontal(|ui| {
-        let label = crate::tr!("ui-up-next");
-        let (label, size) = if q.queue_upper { (label.to_uppercase(), 13.0) } else { (label.to_owned(), 20.0) };
-        let heading = egui::RichText::new(label).font(theme::bold(size));
-        ui.label(if white_on_card { heading.color(Color32::WHITE) } else { heading });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Left of the window buttons, which sit over the drawer's top right.
             ui.add_space(super::titlebar::right_gap(ui.ctx(), ui.max_rect(), 0.0));
@@ -1995,10 +1990,30 @@ pub fn queue_drawer(app: &mut App, ui: &mut Ui) {
             if app.queue.tracks.len() > usize::from(app.queue.index.is_some()) && icon_button(ui, icon::TRASH_2, 15.0, crate::tr!("ui-clear-queue"), false).clicked() {
                 app.actions.push(Action::QueueClear);
             }
+            // The heading last, in what's left: a long translation is cut short, not drawn under the buttons.
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                let label = crate::tr!("ui-up-next");
+                let (label, size) = if q.queue_upper { (label.to_uppercase(), 13.0) } else { (label.to_owned(), 20.0) };
+                let font = theme::bold(size);
+                // Cut at its end, which in Arabic is its left: egui's own truncation keeps the end.
+                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ui.fonts_mut(|f| f.row_height(&font))), Sense::hover());
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &label));
+                text_at(ui, r.min, &label, font, if white_on_card { Color32::WHITE } else { theme::text() }, r.width());
+            });
         });
     });
     ui.add_space(8.0);
     queue_list(app, ui, "drawer");
+}
+
+/// "Play similar songs automatically". A long translation wraps: one wider than Up next
+/// would widen it past the window, and the page would take that overflow, over the drawer.
+fn autoplay_toggle(ui: &mut Ui, on: &mut bool, pad: f32, text: &str) {
+    ui.horizontal(|ui| {
+        ui.add_space(pad);
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+        ui.checkbox(on, egui::RichText::new(text).color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
+    });
 }
 
 /// "Playing from playlist", and its name, which opens it.
@@ -2034,10 +2049,7 @@ pub fn queue_list(app: &mut App, ui: &mut Ui, salt: &str) {
     let start = app.queue.index.unwrap_or(0);
     // Above the list, so they stay in sight however far up it's scrolled.
     playing_from(app, ui);
-    ui.horizontal(|ui| {
-        ui.add_space(q.side_pad);
-        ui.checkbox(&mut app.autoplay, egui::RichText::new(crate::tr!("ui-auto-similar")).color(theme::text_dim())).on_hover_cursor(egui::CursorIcon::PointingHand);
-    });
+    autoplay_toggle(ui, &mut app.autoplay, q.side_pad, crate::tr!("ui-auto-similar"));
     ui.add_space(6.0);
     // A new current song (or a new queue) brings it back to the top of the list.
     let mut area = egui::ScrollArea::vertical().id_salt(("queue", salt)).auto_shrink(false);
@@ -2166,7 +2178,28 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{BG_BRIGHTNESS, BG_SPEED, QUEUE_W, load_factor, load_queue_w};
+    use super::{BG_BRIGHTNESS, BG_SPEED, QUEUE_W, autoplay_toggle, load_factor, load_queue_w};
+
+    /// A long translation of the autoplay toggle stays inside Up next: wider, it would push
+    /// the drawer past the window and the page beside it into the drawer (#327).
+    #[test]
+    fn a_long_autoplay_toggle_keeps_the_page_out_of_up_next() {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 600.0));
+        let page = std::cell::Cell::new(egui::Rect::NOTHING);
+        for _ in 0..2 {
+            let raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(raw, |ui| {
+                egui::Panel::right("queue").resizable(false).exact_size(QUEUE_W.0).show(ui, |ui| {
+                    autoplay_toggle(ui, &mut true, 8.0, &"Reproducir canciones similares automáticamente ".repeat(3));
+                });
+                egui::CentralPanel::default().show(ui, |ui| page.set(ui.max_rect()));
+            })
+            .textures_delta
+            .clear();
+        }
+        assert!(page.get().right() <= screen.right() - QUEUE_W.0, "{:?}", page.get());
+    }
 
     /// Up next starts at its own width; saved, it stays between its narrowest and widest.
     #[test]

@@ -79,8 +79,9 @@ pub enum Req {
     ArtistPicture { id: String, name: String },
     /// Romanization and translation for the lyric lines of one source.
     LyricsExtras { video_id: String, source: String, lines: Vec<String>, lang: Option<String>, target: String },
-    /// Process cover art for the background; `key` is echoed back.
-    Art { key: String, url: String },
+    /// Process cover art for the background; `key` is echoed back. `None`: the song has
+    /// no cover (answered at once, with none).
+    Art { key: String, url: Option<String> },
     /// Radio seeded from a track (`seed`, its id); appended to the queue. `song_of`: the
     /// track, when it's a music video to play as its song: the song's radio is asked for.
     Radio { seed: String, song_of: Option<Track>, smart: bool },
@@ -124,7 +125,7 @@ pub enum Req {
     EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
     /// Save one of your playlist's sort orders to it ([`PlaylistSort::actions`]).
     SortPlaylist { id: String, actions: serde_json::Value },
-    AddToPlaylist { playlist_id: String, video_ids: Vec<String> },
+    AddToPlaylist { playlist_id: String, tracks: Vec<Track>, duplicates: ytm::Duplicates },
     /// `(videoId, setVideoId)` entries to take out of the playlist.
     RemoveFromPlaylist { playlist_id: String, items: Vec<(String, String)> },
     /// Move an entry to just before another, or to the end.
@@ -139,6 +140,8 @@ pub enum Req {
     Subscribe { channel_id: String, on: bool },
     SetCookie(String),
     Logout,
+    /// Whether YouTube Music can be reached now, asked while a page says it can't (#366).
+    Reachable,
 }
 
 impl Req {
@@ -193,12 +196,13 @@ impl Req {
             Req::Subscribe { .. } => crate::tr!("ui-subscribe"),
             Req::SetCookie(_) => crate::tr!("nav-sign-in"),
             Req::Logout => crate::tr!("settings-sign-out"),
+            Req::Reachable => crate::tr!("settings-network"),
         }
     }
 
     /// Background requests fail quietly (logged, no toast).
     fn quiet(&self) -> bool {
-        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::SongRating { .. } | Req::Art { .. } | Req::Radio { smart: true, .. } | Req::Prefetch { .. } | Req::StageNext { .. } | Req::GaplessStarted { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::ArtistPicture { .. } | Req::MusicVideo(_) | Req::LyricsExtras { .. } | Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. })
+        matches!(self, Req::Suggest { .. } | Req::Account | Req::Channels | Req::ServerQueue | Req::SongRating { .. } | Req::Art { .. } | Req::Radio { smart: true, .. } | Req::Prefetch { .. } | Req::StageNext { .. } | Req::GaplessStarted { .. } | Req::HomeMore(_) | Req::Lyrics(_) | Req::Segments { .. } | Req::ArtistPicture { .. } | Req::MusicVideo(_) | Req::LyricsExtras { .. } | Req::Comments { .. } | Req::CommentsPage { .. } | Req::CommentAction { .. } | Req::Reachable)
     }
 }
 
@@ -220,6 +224,8 @@ pub struct SearchResults {
     pub albums: Vec<Card>,
     pub artists: Vec<Card>,
     pub playlists: Vec<Card>,
+    /// Playlists made by YouTube Music's listeners.
+    pub community: Vec<Card>,
     /// Podcast shows and episodes, when podcasts are shown.
     pub podcasts: Vec<Card>,
     pub episodes: Vec<Track>,
@@ -419,7 +425,9 @@ pub enum Resp {
     ArtistPicture { id: String, pic: Option<crate::discord::Badge> },
     /// Romanization/translation for one source's lines, arriving after them.
     LyricsExtras { video_id: String, source: String, target: String, extras: crate::translate::Extras },
-    Art { key: String, art: Art },
+    /// `None`: there's no cover to take colours from (the song has none, or it couldn't
+    /// be fetched).
+    Art { key: String, art: Option<Art> },
     Radio { seed: String, tracks: Vec<Track>, smart: bool },
     /// A comments response (`Req::Comments`, `CommentsPage` or `CommentAction`) by its tag;
     /// `None`: it failed.
@@ -444,6 +452,8 @@ pub enum Resp {
     /// A playlist wasn't deleted, though it's left the library here already.
     DeleteFailed { error: String },
     AddedToPlaylist { id: String, video_ids: Vec<String>, error: Option<String> },
+    /// None of `tracks` went in: some are in the playlist already ([`ytm::Duplicates::Ask`]).
+    AlreadyInPlaylist { id: String, tracks: Vec<Track> },
     /// YouTube Music answered a song dragged to a new place.
     PlaylistMoved { id: String, move_id: u64, ok: bool },
     Collaboration(ytm::Collaboration),
@@ -460,6 +470,11 @@ pub enum Resp {
     /// A past search left the account's history; the list already shows it gone.
     SearchForgotten,
     Error(String),
+    /// A request failed because YouTube Music can't be reached at all (no connection):
+    /// one plain message for all of them, not each one's error (#353).
+    Offline,
+    /// `Req::Reachable`'s answer.
+    Reachable(bool),
 }
 
 impl Resp {
@@ -485,6 +500,7 @@ impl Resp {
                 | Resp::LikeProgress { .. }
                 | Resp::LikedMany { .. }
                 | Resp::AddedToPlaylist { .. }
+                | Resp::AlreadyInPlaylist { .. }
                 | Resp::Artist(_)
                 | Resp::Subscribed { .. }
         )
@@ -501,7 +517,7 @@ impl Resp {
 /// songs apart from videos, and the pages it found by kind.
 fn search_in(found: ytm::ScopedResults, query: String, scope: ytm::Scope) -> SearchResults {
     let (videos, tracks) = found.tracks.into_iter().partition(|t| t.video);
-    let mut r = SearchResults { query, scope, tracks, videos, albums: Vec::new(), artists: Vec::new(), playlists: Vec::new(), podcasts: Vec::new(), episodes: found.episodes };
+    let mut r = SearchResults { query, scope, tracks, videos, albums: Vec::new(), artists: Vec::new(), playlists: Vec::new(), community: Vec::new(), podcasts: Vec::new(), episodes: found.episodes };
     for c in found.cards {
         match &c.target {
             Target::Artist(_) => r.artists.push(c),
@@ -1219,10 +1235,32 @@ impl Backend {
                     Resp::LyricsExtras { video_id, source, target, extras }
                 }
                 Req::Art { key, url } => {
-                    // The backdrop is a 64 px blur; fetch near that, not the 544 px art.
-                    let url = model::sized(&url, 2 * crate::art::SIZE);
-                    let bytes = self.http().get(&url).send().await?.error_for_status()?.bytes().await?;
-                    let art = tokio::task::spawn_blocking(move || crate::art::process(&bytes)).await??;
+                    let fetched = async {
+                        let Some(url) = url else { return Ok(None) };
+                        // The backdrop is a 64 px blur; fetch near that, not the 544 px art.
+                        let url = model::sized(&url, 2 * crate::art::SIZE);
+                        let bytes = self.http().get(&url).send().await?.error_for_status()?.bytes().await?;
+                        anyhow::Ok(Some(tokio::task::spawn_blocking(move || crate::art::process(&bytes)).await??))
+                    };
+                    let art = match fetched.await {
+                        Ok(art) => Ok(art),
+                        // Offline, or what came wasn't an image: a downloaded song still has
+                        // its cover, in its file.
+                        Err(e) => {
+                            let id = key.clone();
+                            async {
+                                let saved = tokio::task::spawn_blocking(move || crate::downloads::cover(&id)).await?.ok_or(e)?;
+                                anyhow::Ok(Some(tokio::task::spawn_blocking(move || crate::art::process(&saved)).await??))
+                            }
+                            .await
+                        }
+                    };
+                    // Failed, it's answered all the same: without an answer the colours
+                    // would stay the song before's.
+                    let art = art.unwrap_or_else(|e| {
+                        log::warn!("{what} failed: {e:#}");
+                        None
+                    });
                     Resp::Art { key, art }
                 }
                 Req::Radio { seed, song_of, smart } => {
@@ -1276,7 +1314,8 @@ impl Backend {
                     Ok(()) => return Ok(None),
                     Err(e) => {
                         log::warn!("play {video_id}: {e:#}");
-                        Resp::PlayError { generation, msg: format!("{e:#}"), offer_backup_at: None }
+                        let msg = if unreachable(&e) { crate::tr!("backend-unreachable").to_owned() } else { format!("{e:#}") };
+                        Resp::PlayError { generation, msg, offer_backup_at: None }
                     }
                 },
                 Req::VideoStream { video_id, max_height } => {
@@ -1370,13 +1409,17 @@ impl Backend {
                         Resp::PlaylistChanged { id, change: PlaylistChange::SortFailed }
                     }
                 },
-                Req::AddToPlaylist { playlist_id, video_ids } => {
+                Req::AddToPlaylist { playlist_id, tracks, duplicates } => {
+                    let video_ids: Vec<String> = tracks.iter().map(|t| t.id.clone()).collect();
                     // A failure says which songs too, so they stop showing in the playlist.
-                    let error = ytm::add_videos(api, &playlist_id, &video_ids).await.err().map(|e| {
-                        log::warn!("{what} failed: {e:#}");
-                        format!("{what} failed: {e}")
-                    });
-                    Resp::AddedToPlaylist { id: playlist_id, video_ids, error }
+                    match ytm::add_videos(api, &playlist_id, &video_ids, duplicates).await {
+                        Ok(true) => Resp::AddedToPlaylist { id: playlist_id, video_ids, error: None },
+                        Ok(false) => Resp::AlreadyInPlaylist { id: playlist_id, tracks },
+                        Err(e) => {
+                            log::warn!("{what} failed: {e:#}");
+                            Resp::AddedToPlaylist { id: playlist_id, video_ids, error: Some(format!("{what} failed: {e}")) }
+                        }
+                    }
                 }
                 Req::RemoveFromPlaylist { playlist_id, items } => {
                     match ytm::remove_videos(api, &playlist_id, &items).await {
@@ -1442,12 +1485,16 @@ impl Backend {
                     self.forget_session().await;
                     Resp::LoggedIn(false)
                 }
+                Req::Reachable => Resp::Reachable(ytmapi::reachable(&self.http()).await),
             }))
         }
         .await;
         res.unwrap_or_else(|e| {
             log::warn!("{what} failed: {e:#}");
-            (!quiet).then(|| Resp::Error(crate::tr!("backend-error", operation = what, error = e.to_string())))
+            match unreachable(&e) {
+                true => (!quiet).then_some(Resp::Offline),
+                false => (!quiet).then(|| Resp::Error(crate::tr!("backend-error", operation = what, error = e.to_string()))),
+            }
         })
     }
 
@@ -1476,12 +1523,13 @@ impl Backend {
             let (shows, episodes) = tokio::join!(ytm::search_cards(api, &query, ytm::Filter::Podcasts, me), ytm::search_episodes(api, &query, me));
             (shows.unwrap_or_default(), episodes.unwrap_or_default())
         };
-        let (t, v, al, ar, pl, (podcasts, episodes)) = tokio::join!(
+        let (t, v, al, ar, pl, cm, (podcasts, episodes)) = tokio::join!(
             ytm::search_songs(api, &query, me),
             ytm::search_videos(api, &query, me),
             ytm::search_cards(api, &query, ytm::Filter::Albums, me),
             ytm::search_cards(api, &query, ytm::Filter::Artists, me),
             ytm::search_cards(api, &query, ytm::Filter::Playlists, me),
+            ytm::search_cards(api, &query, ytm::Filter::Community, me),
             podcasts,
         );
         Ok(Resp::Search(SearchResults {
@@ -1490,6 +1538,8 @@ impl Backend {
             albums: al.unwrap_or_default(),
             artists: ar.unwrap_or_default(),
             playlists: pl.unwrap_or_default(),
+            // Only playlists, should the reply carry another kind of shelf too.
+            community: cm.unwrap_or_default().into_iter().filter(|c| matches!(c.target, Target::Playlist(_))).collect(),
             podcasts,
             episodes,
             query,
@@ -2836,8 +2886,60 @@ fn artist_pic(found: &[Card], id: &str, name: &str) -> Option<crate::discord::Ba
 }
 
 // Larger art URL for the background / now-playing view.
+/// Whether `e` is that nothing could be reached: no connection, or a name that doesn't
+/// resolve. Not a server that answered with an error, nor one that's slow, nor a proxy
+/// that answered and wouldn't pass the request on (it wants a sign-in, say): reqwest
+/// counts that as connecting too, and its own error says more.
+fn unreachable(e: &anyhow::Error) -> bool {
+    let proxy_said_no = e.chain().any(|c| matches!(c.to_string().as_str(), "tunnel error: proxy authorization required" | "tunnel error: unsuccessful"));
+    !proxy_said_no && e.chain().any(|c| c.downcast_ref::<reqwest::Error>().is_some_and(reqwest::Error::is_connect))
+}
+
 pub fn art_url(t: &Track) -> Option<String> {
     model::pick(&t.thumbs, 120).map(|u| sized(u, 544))
+}
+
+#[cfg(test)]
+mod unreachable_tests {
+    use anyhow::Context;
+
+    #[tokio::test]
+    async fn no_connection_is_unreachable_and_a_servers_error_isnt() {
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        // Nothing listens there: refused, as with no network.
+        let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap();
+        let refused = http.get(format!("http://{closed}/")).send().await.unwrap_err();
+        assert!(super::unreachable(&anyhow::Error::new(refused).context("Home")));
+        // A server that answered, with an error.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let _ = socket.read(&mut [0; 1024]).await;
+            let _ = socket.write_all(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n").await;
+        });
+        let status = http.get(format!("http://{addr}/")).send().await.unwrap().error_for_status().unwrap_err();
+        assert!(!super::unreachable(&anyhow::Error::new(status)));
+        assert!(!super::unreachable(&Err::<(), _>(anyhow::anyhow!("no songs")).context("Search").unwrap_err()));
+        // A proxy that answered, and wants a sign-in or couldn't get through itself.
+        for answer in ["407 Proxy Authentication Required", "502 Bad Gateway"] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(async move {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let _ = socket.read(&mut [0; 1024]).await;
+                let _ = socket.write_all(format!("HTTP/1.1 {answer}
+Content-Length: 0
+
+").as_bytes()).await;
+            });
+            let http = reqwest::Client::builder().proxy(reqwest::Proxy::all(format!("http://{addr}")).unwrap()).build().unwrap();
+            let refused = http.get("https://music.youtube.com/").send().await.unwrap_err();
+            assert!(!super::unreachable(&anyhow::Error::new(refused)), "{answer}");
+        }
+    }
 }
 
 #[cfg(test)]

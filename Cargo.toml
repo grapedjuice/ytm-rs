@@ -1,6 +1,6 @@
 [package]
 name = "ytm-rs"
-version = "2.0.2"
+version = "0.4.0"
 edition = "2024"
 license = "GPL-3.0-only"
 repository = "https://github.com/grapedjuice/ytm-rs"
@@ -85,7 +85,7 @@ uuid = { version = "1.27", features = ["v4"] }
 [target.'cfg(windows)'.dependencies]
 # Windows Credential Manager, for the Google and Spotify sign-ins.
 keyring = { version = "3.6.3", features = ["windows-native"] }
-windows = { version = "0.62.2", features = ["Data_Xml_Dom", "Foundation", "UI_Notifications", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Diagnostics_Debug", "Win32_System_IO", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_System_Pipes", "Win32_System_Power", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Controls", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62.2", features = ["Data_Xml_Dom", "Foundation", "UI_Notifications", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Diagnostics_Debug", "Win32_System_IO", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_System_Pipes", "Win32_System_Power", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Controls", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The Secret Service (GNOME Keyring, KWallet) for the sign-ins.
@@ -126,6 +126,8 @@ opt-level = 2
 
 [dev-dependencies]
 egui_system_font_provider = "0.37.0"
+# Paused time: a stalled download's 20 s pass at once in tests.
+tokio = { version = "1.53.2", features = ["test-util"] }
 
 [build-dependencies]
 winresource = "0.1.31"
@@ -141,6 +143,8 @@ winresource = "0.1.31"
 # vendor/winit/src/platform_impl/windows/event_loop.rs.
 # The X11 backend also requests saved window positions explicitly on KWin so the
 # full window's size doesn't constrain where the mini player can go.
+# It also hears the X11 settings that come after it connects, and takes the cursor size
+# from them (#326): see the ytm-rs notes in vendor/winit/src/platform_impl/linux/x11/xdisplay.rs.
 [patch.crates-io]
 epaint = { path = "vendor/epaint" }
 souvlaki = { path = "vendor/souvlaki" }

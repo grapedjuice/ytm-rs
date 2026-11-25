@@ -5,6 +5,7 @@ use egui::{Color32, Ui};
 use crate::backend::Req;
 use crate::model::Target;
 use crate::theme;
+use crate::ytm::Duplicates;
 
 use super::{Action, App, Dialog, Page, BackupPrompt, notes, pages, widgets};
 
@@ -70,11 +71,28 @@ impl App {
             Dialog::ConfirmDeleteUpload { .. } => crate::tr!("dialog-delete-upload"),
             Dialog::ConfirmClearCache => crate::tr!("settings-clear-cache"),
             Dialog::ConfirmDownload { .. } => crate::tr!("settings-download"),
+            Dialog::ConfirmAddDuplicates { .. } => crate::tr!("dialog-add-duplicates-title"),
             Dialog::Collaborate { .. } => crate::tr!("ui-collaborate"),
         };
+        // A distinct area id per dialog kind. egui keeps an area's previous size when its
+        // content shrinks, so a small dialog opened after a big one (the duplicates
+        // question after "Add to playlist") would otherwise get the stale, taller rect
+        // and draw with a large empty gap below its buttons.
+        let modal_id = egui::Id::unique((
+            "playlist-dialog",
+            match &dialog {
+                Dialog::PickPlaylist(_) => 0,
+                Dialog::NewPlaylist { .. } => 1,
+                Dialog::EditPlaylist { .. } => 2,
+                Dialog::ConfirmAddDuplicates { .. } => 3,
+                Dialog::ConfirmDownload { .. } => 4,
+                Dialog::Collaborate { .. } => 5,
+                Dialog::ConfirmDelete { .. } | Dialog::ConfirmDeleteUpload { .. } | Dialog::ConfirmClearCache => 6,
+            },
+        ));
         // The same modal card as "Delete playlist?" and the update dialog.
-        widgets::modal_extras(ctx, egui::Id::unique("playlist-dialog"));
-        let modal = egui::Modal::new(egui::Id::unique("playlist-dialog")).frame(notes::surface()).backdrop_color(theme::shade(0.55)).show(ctx, |ui| {
+        widgets::modal_extras(ctx, modal_id);
+        let modal = egui::Modal::new(modal_id).frame(notes::surface()).backdrop_color(theme::shade(0.55)).show(ctx, |ui| {
             ui.set_width(440.0_f32.min(ctx.content_rect().width() - 48.0));
             egui::Frame::new().inner_margin(egui::Margin { left: 26, right: 26, top: 24, bottom: 22 }).show(ui, |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
@@ -96,7 +114,7 @@ impl App {
                                 if let Target::Playlist(id) = &card.target {
                                     if !id.starts_with("PL") { continue; }
                                     if dialog_row(ui, Some(&card.thumbs), None, &card.title) {
-                                        self.add_to_playlist(id.clone(), tracks);
+                                        self.add_to_playlist(id.clone(), tracks, Duplicates::Ask);
                                         done = true;
                                     }
                                 }
@@ -110,7 +128,7 @@ impl App {
                         ui.label(egui::RichText::new(crate::tr!("dialog-private-desc")).font(theme::regular(12.5)).color(theme::text_faint()));
                         ui.add_space(24.0);
                         let enter = name.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        let (ok, cancel) = dialog_buttons(ui, crate::tr!("ui-create"), !title.trim().is_empty(), accent);
+                        let (ok, _, cancel) = dialog_buttons(ui, crate::tr!("ui-create"), None, !title.trim().is_empty(), accent);
                         if (ok || enter) && !title.trim().is_empty() {
                             self.backend.request(Req::CreatePlaylist { title: title.trim().to_owned(), video_ids: tracks.iter().map(|t| t.id.clone()).collect() });
                             done = true;
@@ -125,7 +143,7 @@ impl App {
                         field_label(ui, crate::tr!("dialog-visibility"));
                         privacy_picker(ui, privacy);
                         ui.add_space(26.0);
-                        let (ok, cancel) = dialog_buttons(ui, crate::tr!("settings-save"), !title.trim().is_empty(), accent);
+                        let (ok, _, cancel) = dialog_buttons(ui, crate::tr!("settings-save"), None, !title.trim().is_empty(), accent);
                         if ok {
                             self.backend.request(Req::EditPlaylist { id: id.clone(), title: title.trim().to_owned(), description: description.clone(), privacy: privacy.clone() });
                             done = true;
@@ -140,12 +158,29 @@ impl App {
                         };
                         ui.add(egui::Label::new(egui::RichText::new(body).font(theme::regular(14.0)).color(theme::text_dim())).wrap());
                         ui.add_space(22.0);
-                        let (ok, cancel) = dialog_buttons(ui, &crate::tr!("dialog-download-count", count = *count), true, accent);
+                        let (ok, _, cancel) = dialog_buttons(ui, &crate::tr!("dialog-download-count", count = *count), None, true, accent);
                         if ok {
                             let (target, title, tracks) = (target.clone(), title.clone(), Some(std::mem::take(tracks)));
                             self.backend.request(Req::DownloadMany { target, title, tracks, confirmed: true });
                         }
                         done = ok || cancel;
+                    }
+                    Dialog::ConfirmAddDuplicates { playlist_id, playlist_title, tracks, duplicates } => {
+                        let body = duplicates_body(playlist_title, duplicates);
+                        ui.add(egui::Label::new(egui::RichText::new(body).font(theme::regular(14.0)).color(theme::text_dim())).wrap());
+                        ui.add_space(22.0);
+                        // Of several songs, adding just the new ones is the likely answer.
+                        let (add, skip, cancel) = if tracks.len() > 1 {
+                            let (skip, add, cancel) = dialog_buttons(ui, crate::tr!("dialog-skip-duplicates"), Some(crate::tr!("dialog-add-anyway")), true, accent);
+                            (add, skip, cancel)
+                        } else {
+                            dialog_buttons(ui, crate::tr!("dialog-add-anyway"), None, true, accent)
+                        };
+                        if add || skip {
+                            let how = if add { Duplicates::Add } else { Duplicates::Skip };
+                            self.add_to_playlist(playlist_id.clone(), tracks, how);
+                        }
+                        done = add || skip || cancel;
                     }
                     Dialog::Collaborate { info, busy, confirm_off, .. } => done = self.collaborate_dialog(ui, info, busy, confirm_off, accent),
                     Dialog::ConfirmDelete { .. } | Dialog::ConfirmDeleteUpload { .. } | Dialog::ConfirmClearCache => unreachable!("drawn by confirm"),
@@ -216,7 +251,7 @@ impl App {
             ui.add_space(6.0);
             ui.label(egui::RichText::new(crate::tr!("dialog-stop-collaboration-desc")).font(theme::regular(13.0)).color(theme::text_dim()));
             ui.add_space(24.0);
-            let (ok, cancel) = dialog_buttons(ui, crate::tr!("dialog-turn-off"), !*busy, accent);
+            let (ok, _, cancel) = dialog_buttons(ui, crate::tr!("dialog-turn-off"), None, !*busy, accent);
             if ok {
                 change = Some(CollabChange::Collaborate(false));
             }
@@ -330,10 +365,22 @@ fn privacy_picker(ui: &mut Ui, privacy: &mut Option<String>) {
     }
 }
 
-/// Cancel and a primary button, right-aligned: (primary clicked, cancel clicked).
-fn dialog_buttons(ui: &mut Ui, primary: &str, enabled: bool, accent: Color32) -> (bool, bool) {
+/// Which songs `playlist` has already, by title: the first three, and how many more.
+/// None named: YouTube Music only said some are.
+pub(super) fn duplicates_body(playlist: &str, duplicates: &[String]) -> String {
+    if duplicates.is_empty() {
+        return crate::tr!("dialog-add-duplicates-some", title = playlist);
+    }
+    let shown = duplicates.len().min(3);
+    let songs = duplicates[..shown].join(", ");
+    crate::tr!("dialog-add-duplicates-body", title = playlist, songs = songs.as_str(), count = duplicates.len(), more = duplicates.len() - shown)
+}
+
+/// Cancel, an optional middle pill and a primary button, right-aligned:
+/// (primary clicked, middle clicked, cancel clicked).
+fn dialog_buttons(ui: &mut Ui, primary: &str, middle: Option<&str>, enabled: bool, accent: Color32) -> (bool, bool, bool) {
     use egui::{Sense, vec2};
-    let (mut ok, mut cancel) = (false, false);
+    let (mut ok, mut middle_clicked, mut cancel) = (false, false, false);
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
         let fg = theme::on_fill(accent);
@@ -346,9 +393,12 @@ fn dialog_buttons(ui: &mut Ui, primary: &str, enabled: bool, accent: Color32) ->
         ui.painter().rect_filled(rect, 19.0, theme::with_alpha(fill, if enabled { 1.0 } else { 0.35 }));
         ui.painter().galley_with_override_text_color(rect.center() - g.size() / 2.0, g, theme::with_alpha(fg, if enabled { 1.0 } else { 0.6 }));
         ok = resp.clicked();
+        if let Some(pill) = middle {
+            middle_clicked = widgets::pill(ui, pill, None, false).clicked();
+        }
         cancel = widgets::pill(ui, crate::tr!("ui-cancel"), None, false).clicked();
     });
-    (ok, cancel)
+    (ok, middle_clicked, cancel)
 }
 
 /// A lone right-aligned Done for a dialog whose changes apply as they're made.

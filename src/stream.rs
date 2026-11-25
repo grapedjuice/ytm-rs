@@ -418,7 +418,81 @@ impl UrlSlot {
             }
         }
     }
+
+    /// Moves a stream that `tried_host` couldn't be reached on, or that sent nothing from
+    /// there, to the other host its URLs name (`second_host`): a file's URL, or all of an
+    /// HLS stream's segments. True when it's on another host now, by this or another
+    /// worker's doing; false when there's none left to try.
+    async fn fall_back(&self, tried_host: &str) -> bool {
+        let mut slot = self.url.lock().await;
+        let urls: &mut [String] = match &mut slot.0 {
+            Media::File(url) => std::slice::from_mut(url),
+            Media::Segments(urls) | Media::TransportStream(urls) => urls,
+            Media::Feed(_) => return false,
+        };
+        if !urls.iter().any(|u| host_of(u) == Some(tried_host)) {
+            return true;
+        }
+        // All of them or none: segments on two hosts would be two streams to keep track of.
+        let Some(next) = urls.iter().map(|u| second_host(u)).collect::<Option<Vec<String>>>() else { return false };
+        log::warn!("stream host unreachable or not answering, trying the other one YouTube named");
+        urls.clone_from_slice(&next);
+        true
+    }
 }
+
+fn host_of(url: &str) -> Option<&str> {
+    let rest = url.split_once("://")?.1;
+    rest.split(['/', ':', '?']).next()
+}
+
+/// The same googlevideo URL on the second host YouTube names for it (#342), as its web
+/// player falls back to: `mn` lists the server cluster of the host the URL is on and a
+/// second one, `fvip` which server of that second one ("rr{fvip}---{mn[1]}"). `None` for
+/// any other URL, and for one already there.
+fn second_host(url: &str) -> Option<String> {
+    let host = host_of(url)?;
+    if !host.ends_with(".googlevideo.com") {
+        return None;
+    }
+    // In the query ("&mn=…"), or in the path as HLS segments have them ("/mn/…/").
+    let param = |name: &str| {
+        let (path, query) = url.split_once('?').unwrap_or((url, ""));
+        query.split('&').find_map(|p| p.strip_prefix(name)?.strip_prefix('=')).or_else(|| {
+            let mut parts = path.split('/');
+            parts.find(|p| *p == name)?;
+            parts.next()
+        })
+    };
+    // Commas come percent-encoded too ("sn-a%2Csn-b").
+    let mn = param("mn")?.replace("%2C", ",").replace("%2c", ",");
+    let cluster = mn.split(',').nth(1)?;
+    let server = param("fvip")?;
+    let fits = |s: &str, ok: fn(char) -> bool| !s.is_empty() && s.chars().all(ok);
+    if !cluster.starts_with("sn-") || !fits(cluster, |c| c.is_ascii_alphanumeric() || c == '-') || !fits(server, |c| c.is_ascii_digit()) {
+        return None;
+    }
+    let next = format!("rr{server}---{cluster}.googlevideo.com");
+    (next != host).then(|| url.replacen(&format!("//{host}"), &format!("//{next}"), 1))
+}
+
+/// A host that can't be reached, or that took the request and sent nothing for `STALL`
+/// (a broken cache, a blackholed address): the second host is worth a try at once.
+fn unresponsive(e: &anyhow::Error) -> bool {
+    e.is::<Stalled>() || e.downcast_ref::<reqwest::Error>().is_some_and(reqwest::Error::is_connect)
+}
+
+/// Nothing came for `STALL`.
+#[derive(Debug)]
+struct Stalled;
+
+impl std::fmt::Display for Stalled {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "no data for {} s", STALL.as_secs())
+    }
+}
+
+impl std::error::Error for Stalled {}
 
 /// The buffer a background download makes way for (the playing song's), if any.
 pub type Ahead = Arc<dyn Fn() -> Option<Arc<Shared>> + Send + Sync>;
@@ -496,6 +570,12 @@ pub async fn download_behind(http: reqwest::Client, media: Media, ua: String, sh
                             break;
                         }
                         Err(e) if is_forbidden(&e) && slot.renew(version).await => {}
+                        // A host that can't be reached (one blocked by name) or that sends
+                        // nothing (a broken ISP cache) won't do better on a retry: its URL's
+                        // second host, at once.
+                        Err(e) if unresponsive(&e) && slot.fall_back(host_of(&url).unwrap_or_default()).await => {
+                            log::warn!("{what}: {e:#}");
+                        }
                         Err(e) if attempt < RETRIES && !is_forbidden(&e) => {
                             attempt += 1;
                             log::warn!("{what}: {e:#} (retry {attempt})");
@@ -586,7 +666,7 @@ enum Range {
 
 /// A range comes back with exactly its length; a segment's isn't known.
 async fn fetch(http: &reqwest::Client, url: &str, ua: &str, range: Range) -> anyhow::Result<Bytes> {
-    let stalled = || anyhow::anyhow!("no data for {} s", STALL.as_secs());
+    let stalled = || anyhow::Error::new(Stalled);
     let mut req = http.get(url).header("User-Agent", ua);
     if let Range::Header(a, b) = range {
         req = req.header("Range", format!("bytes={a}-{b}"));
@@ -990,6 +1070,136 @@ mod tests {
             std::future::pending::<()>().await;
         });
         (url, waiting, server)
+    }
+
+    #[test]
+    fn a_googlevideo_url_has_a_second_host() {
+        // As YouTube hands them out: on the first host `mn` names, `mvi` its server.
+        let url = "https://rr1---sn-u15hn5-5n.googlevideo.com/videoplayback?expire=1&mvi=1&mn=sn-u15hn5-5n%2Csn-oj5hn5-5g&fvip=3&sig=AB";
+        let next = "https://rr3---sn-oj5hn5-5g.googlevideo.com/videoplayback?expire=1&mvi=1&mn=sn-u15hn5-5n%2Csn-oj5hn5-5g&fvip=3&sig=AB";
+        assert_eq!(super::second_host(url).as_deref(), Some(next));
+        // Once there, there's no other.
+        assert_eq!(super::second_host(next), None);
+        assert_eq!(super::second_host("http://rr4---sn-a.googlevideo.com:8080/videoplayback?mn=sn-a,sn-b&fvip=2").as_deref(), Some("http://rr2---sn-b.googlevideo.com:8080/videoplayback?mn=sn-a,sn-b&fvip=2"));
+        for none in [
+            "https://rr1---sn-a.googlevideo.com/videoplayback?mn=sn-a&fvip=3",
+            "https://rr1---sn-a.googlevideo.com/videoplayback?mn=sn-a,sn-b",
+            "https://example.com/videoplayback?mn=sn-a,sn-b&fvip=3",
+            "https://rr1---sn-a.googlevideo.com/videoplayback?mn=sn-a,sn-b.evil.com/x&fvip=3",
+            "https://rr1---sn-a.googlevideo.com/videoplayback?mn=sn-a,evil&fvip=3",
+            "https://rr1---sn-a.googlevideo.com/videoplayback?mn=sn-a,sn-b&fvip=3@evil",
+        ] {
+            assert_eq!(super::second_host(none), None, "{none}");
+        }
+    }
+
+    #[test]
+    fn an_hls_segment_has_a_second_host_in_its_path() {
+        // As YouTube lists them: the parameters in the path, and hls_chunk_host signed
+        // with the rest, so only the URL's own host may change.
+        let url = "https://rr1---sn-u15hn5-5h.googlevideo.com/videoplayback/id/x/itag/234/hls_chunk_host/rr1---sn-u15hn5-5h.googlevideo.com/mn/sn-u15hn5-5h%2Csn-aj4g55-52/fvip/2/sig/AB/file/seg.ts";
+        let next = "https://rr2---sn-aj4g55-52.googlevideo.com/videoplayback/id/x/itag/234/hls_chunk_host/rr1---sn-u15hn5-5h.googlevideo.com/mn/sn-u15hn5-5h%2Csn-aj4g55-52/fvip/2/sig/AB/file/seg.ts";
+        assert_eq!(super::second_host(url).as_deref(), Some(next));
+        assert_eq!(super::second_host(next), None);
+    }
+
+    /// An HLS stream's segments all move to the second host together.
+    #[tokio::test]
+    async fn an_hls_streams_segments_fall_back_together() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let _ = socket.read(&mut [0; 4096]).await;
+                let _ = socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx").await;
+            }
+        });
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .resolve("rr4---sn-first.googlevideo.com", "[::1]:0".parse().unwrap())
+            .resolve("rr2---sn-second.googlevideo.com", "127.0.0.1:0".parse().unwrap())
+            .build()
+            .unwrap();
+        let segment = |i: usize| format!("http://rr4---sn-first.googlevideo.com:{port}/videoplayback/mn/sn-first%2Csn-second/fvip/2/seg/{i}");
+        let shared = super::Shared::segmented(vec![0.0, 1.0], 2000, None, false);
+        let download = super::download(http, super::Media::Segments(vec![segment(0), segment(1)]), String::new(), shared.clone(), None);
+        tokio::time::timeout(Duration::from_secs(10), download).await.expect("the download hung");
+        server.abort();
+        assert_eq!(shared.error(), None);
+        assert!(shared.is_complete());
+    }
+
+    /// A host that takes the request and sends nothing (a broken cache): after `STALL`,
+    /// the download goes on from the second host, rather than waiting it out again there.
+    /// Not on macOS: its loopback has no 127.0.0.2, and on ::1 instead paused time runs
+    /// out the stall before the socket answers. The fallback is the same code everywhere.
+    #[tokio::test(start_paused = true)]
+    #[cfg_attr(target_os = "macos", ignore)]
+    async fn a_host_that_sends_nothing_falls_back_to_the_second_one() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = silent.local_addr().unwrap().port();
+        let answers = tokio::net::TcpListener::bind(("127.0.0.2", port)).await.unwrap();
+        // How many times the first host was asked.
+        let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let held = tokio::spawn({
+            let asked = asked.clone();
+            async move {
+                let mut kept = Vec::new();
+                while let Ok((socket, _)) = silent.accept().await {
+                    asked.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    kept.push(socket);
+                }
+            }
+        });
+        let served = tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = answers.accept().await.unwrap();
+                let _ = socket.read(&mut [0; 4096]).await;
+                let _ = socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx").await;
+            }
+        });
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .resolve("rr4---sn-first.googlevideo.com", "127.0.0.1:0".parse().unwrap())
+            .resolve("rr2---sn-second.googlevideo.com", "127.0.0.2:0".parse().unwrap())
+            .build()
+            .unwrap();
+        let url = format!("http://rr4---sn-first.googlevideo.com:{port}/videoplayback?mn=sn-first,sn-second&fvip=2");
+        let shared = super::Shared::new(1, 0, None, false, true);
+        super::download(http, super::Media::File(url), String::new(), shared.clone(), None).await;
+        held.abort();
+        served.abort();
+        assert_eq!(shared.error(), None);
+        assert_eq!(shared.bytes().as_deref(), Some(&b"x"[..]));
+        // Asked once, and left: retried there, it would be asked once per try. (Not timed:
+        // paused time can count a wait for the second host as a stall too.)
+        assert_eq!(asked.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    /// A host that refuses the connection: the download goes on from the URL's second
+    /// host (#342). Retried on the first, it never would.
+    #[tokio::test]
+    async fn an_unreachable_host_falls_back_to_the_second_one() {
+        let (served, _, server) = serve(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx").await;
+        let port = served.split(':').nth(2).and_then(|p| p.split('/').next()).unwrap().to_owned();
+        let shared = super::Shared::new(1, 0, None, false, true);
+        // The first host's address listens on nothing; the second's is the server.
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .resolve("rr4---sn-first.googlevideo.com", "[::1]:0".parse().unwrap())
+            .resolve("rr2---sn-second.googlevideo.com", "127.0.0.1:0".parse().unwrap())
+            .build()
+            .unwrap();
+        let url = format!("http://rr4---sn-first.googlevideo.com:{port}/videoplayback?mn=sn-first,sn-second&fvip=2");
+        let download = super::download(http, super::Media::File(url), String::new(), shared.clone(), None);
+        // Windows takes about 2 s to give up on a refused connection.
+        tokio::time::timeout(Duration::from_secs(10), download).await.expect("the download hung");
+        server.abort();
+        assert_eq!(shared.error(), None);
+        assert_eq!(shared.bytes().as_deref(), Some(&b"x"[..]));
     }
 
     /// Skipping a song must release its buffer even if the server stops mid-block.

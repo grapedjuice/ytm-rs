@@ -219,6 +219,12 @@ pub fn tip_if_elided(ui: &Ui, rect: Rect, g: &egui::Galley, text: &str) {
     }
 }
 
+/// Paints `g` at `pos`, with `text` in a hover tooltip when `g` was cut short.
+pub fn galley_tipped(ui: &Ui, pos: Pos2, g: std::sync::Arc<egui::Galley>, color: Color32, text: &str) {
+    ui.painter().galley(pos, g.clone(), color);
+    tip_if_elided(ui, Rect::from_min_size(pos, g.size()), &g, text);
+}
+
 fn tip_full_text(ui: &Ui, rect: Rect, text: &str) {
     if text.is_empty() || ui.is_sizing_pass() {
         return;
@@ -916,8 +922,7 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, pin: Option<bool>, a
     let title = galley_wrapped(ui, &c.title, theme::weighted(cl.title_weight, cl.title_px), tcolor, width, 2);
     let title_h = title.size().y;
     let title_pos = pos2(rect.left(), img.bottom() + 10.0);
-    ui.painter().galley(title_pos, title.clone(), tcolor);
-    tip_if_elided(ui, Rect::from_min_size(title_pos, title.size()), &title, &c.title);
+    galley_tipped(ui, title_pos, title, tcolor, &c.title);
     let sub_y = img.bottom() + 14.0 + title_h;
     linked_text(ui, pos2(rect.left(), sub_y), &c.subtitle, &c.links, theme::regular(13.0), theme::with_alpha(theme::text_dim(), cl.subtitle_alpha), width - 36.0, acts);
     // On the subtitle line, whose width leaves room for it, so a two-line title never sits under it.
@@ -1886,6 +1891,11 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
     let current = egui::scroll_area::State::load(ui.ctx(), state_id).map_or(0.0, |s| s.clamped_offset().x);
     let target_id = sid.with("target");
     let coast_id = sid.with("coast");
+    // Calls off a glide: the arrows' and a flick's.
+    let stop_glide = |ctx: &egui::Context| ctx.data_mut(|d| {
+        d.remove::<f32>(target_id);
+        d.remove::<f32>(coast_id);
+    });
     let viewport_id = sid.with("viewport");
     let viewport = ui.ctx().data(|d| d.get_temp::<f32>(viewport_id)).unwrap_or_else(|| ui.available_width());
     let step = item_width + gap;
@@ -1926,10 +1936,7 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
     // or the glide would put it back.
     if cards.is_some_and(|r| ui.rect_contains_pointer(r)) && ui.input(|i| i.smooth_scroll_delta.x != 0.0) {
         (target, coast) = (None, None);
-        ui.ctx().data_mut(|d| {
-            d.remove::<f32>(target_id);
-            d.remove::<f32>(coast_id);
-        });
+        stop_glide(ui.ctx());
     }
     if let Some(rect) = cards {
         let resp = ui.interact(rect, sid.with("drag"), Sense::DRAG);
@@ -1937,10 +1944,7 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
             ShelfDrag::Move(dx) => {
                 // A drag takes over from any glide.
                 (target, coast) = (None, None);
-                ui.ctx().data_mut(|d| {
-                    d.remove::<f32>(target_id);
-                    d.remove::<f32>(coast_id);
-                });
+                stop_glide(ui.ctx());
                 held = Some((current - dx).clamp(0.0, max_scroll));
             }
             ShelfDrag::Coast(dx) => {
@@ -1958,10 +1962,7 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
         let v = ui.ctx().animate_value_with_time(anim_id, t, 0.35 * theme::SPEED);
         area = area.horizontal_scroll_offset(v);
         if (v - t).abs() < 0.5 {
-            ui.ctx().data_mut(|d| {
-                d.remove::<f32>(target_id);
-                d.remove::<f32>(coast_id);
-            });
+            stop_glide(ui.ctx());
         }
     }
     let out = area.show(ui, |ui| ui.horizontal_top(|ui| {
@@ -1977,7 +1978,7 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
 }
 
 /// What a drag on a shelf asks of it this frame: move it by, or coast it on by, points.
-enum ShelfDrag {
+pub(super) enum ShelfDrag {
     Idle,
     Move(f32),
     Coast(f32),
@@ -1987,7 +1988,7 @@ enum ShelfDrag {
 /// started for the rest of it, as phones and browsers do with a scroller inside a page:
 /// the shelf sideways, the page up and down. The mouse's left button drags the shelf
 /// sideways only, once it has gone too far for a click. Let go, and it coasts on.
-fn shelf_drag(ui: &Ui, resp: &Response, state_id: egui::Id) -> ShelfDrag {
+pub(super) fn shelf_drag(ui: &Ui, resp: &Response, state_id: egui::Id) -> ShelfDrag {
     use egui::style::ScrollAnimation;
     /// How far a drag goes before it counts (and before its direction does), points.
     const LOCK: f32 = 6.0;
@@ -2504,6 +2505,21 @@ mod time_tests {
             assert!(super::is_elided(&wrap_cut, long));
             let wrap_fit = super::galley_wrapped(ui, "Short text", font, egui::Color32::WHITE, 200.0, 2);
             assert!(!super::is_elided(&wrap_fit, "Short text"));
+        });
+        out.textures_delta.clear();
+    }
+
+    /// Up next in Arabic, too long for its room beside the window buttons, keeps its start.
+    #[test]
+    fn right_to_left_text_is_cut_at_its_end() {
+        let ctx = egui::Context::default();
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let font = egui::FontId::proportional(20.0);
+            let text = "التالي في الانتظار";
+            let full = ui.fonts_mut(|f| f.layout_job(crate::bidi::job(text, font.clone(), egui::Color32::WHITE)).size().x);
+            let cut = super::rtl_fit(ui, text, &font, full / 2.0);
+            assert!(cut.starts_with("التالي") && cut.ends_with('…'), "{cut}");
         });
         out.textures_delta.clear();
     }

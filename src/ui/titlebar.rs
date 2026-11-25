@@ -406,15 +406,18 @@ pub fn below_lights(ctx: &egui::Context) -> f32 {
     if lights_rect(ctx).is_some() { HEIGHT } else { 0.0 }
 }
 
-/// Once a frame, before drawing: macOS keeps the traffic lights on the app's top row.
-/// `full`: the full window is up (the mini player keeps the system's title strip),
-/// None while switching between them.
+/// Once a frame, before drawing: macOS keeps the traffic lights on the app's top row, and
+/// Windows forgets where the maximize button was until it's drawn again (not in the mini
+/// player or full screen). `full`: the full window is up (the mini player keeps the
+/// system's title strip), None while switching between them.
 ///
 /// macOS puts them back where its own title strip would have them when it lays the
 /// window out again (resized, full screen left, the frame back after the mini player),
 /// and that can come after the frame drawn for the change. So for a moment after one,
 /// it's looked at again a few times a second, until they stay put.
 pub fn sync(ctx: &egui::Context, full: Option<bool>) {
+    #[cfg(windows)]
+    frame::snap_forget();
     #[cfg(target_os = "macos")]
     if inset() {
         let id = Id::unique("titlebar-sync");
@@ -443,7 +446,7 @@ pub fn drag_area(ui: &Ui, rect: Rect, id: &str) {
     if !shown(ui.ctx()) {
         return;
     }
-    if drag_strip(ui, rect, id).double_clicked() {
+    if toggles(ui, &drag_strip(ui, rect, id)) {
         let max = maximized(ui.ctx());
         // macOS: what System Settings › Desktop & Dock says a double-click on a title bar does.
         #[cfg(target_os = "macos")]
@@ -454,6 +457,35 @@ pub fn drag_area(ui: &Ui, rect: Rect, id: &str) {
         }
         ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(!max));
     }
+}
+
+/// Whether a click on the strip `resp` maximizes or restores the window: a finger's by
+/// [`double_tapped`] alone. egui counts taps as clicks too, so letting its double-click in
+/// as well would toggle the window back on a quick third tap.
+fn toggles(ui: &Ui, resp: &egui::Response) -> bool {
+    let finger = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Touch { .. })));
+    if finger { double_tapped(ui, resp) } else { resp.double_clicked() }
+}
+
+/// A finger's double tap on `resp`. A finger lands less exactly than a mouse clicks, and
+/// egui's double-click wants both clicks within 6 points and 0.3 s (#190): a tap counts
+/// within a touch target's width of the one before, and GNOME's double-click time.
+fn double_tapped(ui: &Ui, resp: &egui::Response) -> bool {
+    const DELAY: f64 = 0.4;
+    const NEAR: f32 = 48.0;
+    let (Some(at), true) = (resp.interact_pointer_pos(), resp.clicked()) else { return false };
+    let now = ui.input(|i| i.time);
+    let id = resp.id.with("tap");
+    let double = ui.data(|d| d.get_temp::<(f64, Pos2)>(id)).is_some_and(|(t, p)| now - t < DELAY && p.distance(at) < NEAR);
+    ui.data_mut(|d| {
+        // A third tap starts over, rather than toggling back.
+        if double {
+            d.remove::<(f64, Pos2)>(id);
+        } else {
+            d.insert_temp(id, (now, at));
+        }
+    });
+    double
 }
 
 /// [`drag_area`] without the double-click, with or without the system's frame (the mini
@@ -524,11 +556,12 @@ pub fn window_buttons(ctx: &egui::Context) {
             let hit = window_button_hit(r, screen, body.bottom(), kind == Kind::Close);
             let resp = ui.interact(hit, Id::unique(("window-button", i)), Sense::click());
             let resp = super::widgets::named(resp, name);
-            paint_button(ui, r, kind, &resp, false);
+            let snap = if kind.maximizes() { snap(ui, if max { hit } else { hit.with_min_y(screen.top() + EDGE) }) } else { Snap::default() };
+            paint_button(ui, r, kind, &resp, snap, false);
             if resp.has_focus() {
                 ui.painter().rect_stroke(r, 7.0, Stroke::new(1.5, theme::text()), egui::StrokeKind::Inside);
             }
-            if resp.clicked() {
+            if resp.clicked() || snap.clicked {
                 ctx.send_viewport_cmd(kind.command());
             }
         }
@@ -548,11 +581,13 @@ fn classic_buttons(ctx: &egui::Context) {
             let hit = if kind == Kind::Close { r.with_max_x(ctx.content_rect().right()) } else { r };
             // Not the notch's ids: a click held through the switch mustn't land on what's under it now.
             let resp = super::widgets::named(ui.interact(hit, Id::unique(("classic-window-button", i)), Sense::click()), name);
-            paint_button(ui, r, kind, &resp, true);
+            let top = ctx.content_rect().top() + if max { 0.0 } else { EDGE };
+            let snap = if kind.maximizes() { snap(ui, r.with_min_y(top)) } else { Snap::default() };
+            paint_button(ui, r, kind, &resp, snap, true);
             if resp.has_focus() {
                 ui.painter().rect_stroke(r.shrink(3.0), 3.0, Stroke::new(1.5, theme::text()), egui::StrokeKind::Inside);
             }
-            if resp.clicked() {
+            if resp.clicked() || snap.clicked {
                 ctx.send_viewport_cmd(kind.command());
             }
         }
@@ -577,6 +612,10 @@ enum Kind {
 }
 
 impl Kind {
+    fn maximizes(self) -> bool {
+        matches!(self, Self::Maximize | Self::Restore)
+    }
+
     fn command(self) -> ViewportCommand {
         match self {
             Self::Minimize => ViewportCommand::Minimized(true),
@@ -587,10 +626,31 @@ impl Kind {
     }
 }
 
+/// What Windows 11 tells of the pointer over the maximize button, which it takes for its
+/// own there (for its snap layouts) so egui sees the pointer leave. Nothing elsewhere.
+#[derive(Clone, Copy, Default)]
+struct Snap {
+    hovered: bool,
+    down: bool,
+    clicked: bool,
+}
+
+/// Have Windows 11 take `hit` (in points) for the window's maximize button this frame,
+/// so hovering it shows the snap layouts.
+fn snap(ui: &Ui, hit: Rect) -> Snap {
+    #[cfg(windows)]
+    return frame::snap(ui, hit);
+    #[cfg(not(windows))]
+    {
+        let _ = (ui, hit);
+        Snap::default()
+    }
+}
+
 /// A window button in `r`: rounded in the notch, or square and `classic`.
-fn paint_button(ui: &Ui, r: Rect, kind: Kind, resp: &egui::Response, classic: bool) {
-    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.1);
-    let down = resp.is_pointer_button_down_on();
+fn paint_button(ui: &Ui, r: Rect, kind: Kind, resp: &egui::Response, snap: Snap, classic: bool) {
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered() || snap.hovered, 0.1);
+    let down = resp.is_pointer_button_down_on() || snap.down;
     let p = ui.painter();
     let radius = if classic { 0.0 } else { 7.0 };
     let fg = if kind == Kind::Close {
@@ -852,24 +912,50 @@ mod mac {
 
 #[cfg(windows)]
 mod frame {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
     use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
     use windows::Win32::Graphics::Gdi::{
         BLACK_BRUSH, ClientToScreen, FillRect, GetMonitorInfoW, GetStockObject, GetWindowDC, HBRUSH, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect, MonitorFromWindow, ReleaseDC,
+        ScreenToClient,
     };
     use windows::Win32::UI::Controls::MARGINS;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{TME_LEAVE, TME_NONCLIENT, TRACKMOUSEEVENT, TrackMouseEvent};
     use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
     use windows::Win32::UI::WindowsAndMessaging::{
-        GWL_STYLE, GetClientRect, GetWindowLongW, GetWindowRect, IsZoomed, MINMAXINFO, NCCALCSIZE_PARAMS, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-        SetWindowLongW, SetWindowPos, WM_GETMINMAXINFO, WM_NCACTIVATE, WM_NCCALCSIZE, WM_NCPAINT, WM_STYLECHANGING, WS_CAPTION,
+        GWL_STYLE, GetClientRect, GetWindowLongW, GetWindowRect, HTMAXBUTTON, IsZoomed, MINMAXINFO, NCCALCSIZE_PARAMS, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        SWP_NOZORDER, SetWindowLongW, SetWindowPos, WM_GETMINMAXINFO, WM_MOUSEMOVE, WM_NCACTIVATE, WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP,
+        WM_CANCELMODE, WM_CAPTURECHANGED, WM_DPICHANGED, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_NCPAINT, WM_SIZE, WM_STYLECHANGING, WS_CAPTION,
     };
 
     /// See `super::drop_caption`.
-    static NO_CAPTION: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static NO_CAPTION: AtomicBool = AtomicBool::new(false);
+
+    /// Windows 11, whose snap layouts show over the area a window says is its maximize
+    /// button. Windows 10 has none, and its window is left as it was.
+    static SNAP_LAYOUTS: AtomicBool = AtomicBool::new(false);
+
+    /// The maximize button as Windows sees it: where it is (in the window's pixels, None
+    /// while it isn't drawn), and the pointer over it, which Windows sends as messages for
+    /// the frame rather than the app's area, so egui doesn't see it.
+    struct SnapButton {
+        rect: Option<RECT>,
+        /// Drawn last frame, so the pointer's state on it still holds.
+        drawn: bool,
+        hovered: bool,
+        down: bool,
+        clicked: bool,
+        ctx: Option<egui::Context>,
+    }
+
+    static SNAP: Mutex<SnapButton> = Mutex::new(SnapButton { rect: None, drawn: false, hovered: false, down: false, clicked: false, ctx: None });
 
     pub fn init(hwnd: *mut std::ffi::c_void, no_caption: bool) {
         let hwnd = HWND(hwnd);
-        NO_CAPTION.store(no_caption, std::sync::atomic::Ordering::Relaxed);
+        NO_CAPTION.store(no_caption, Ordering::Relaxed);
+        SNAP_LAYOUTS.store(crate::backdrop::windows_build().is_some_and(|build| build >= 22000), Ordering::Relaxed);
         // SAFETY: the app's own window, on the thread that made it (still hidden: eframe
         // shows it after the first frame); the subclass lives as long as the window.
         unsafe {
@@ -886,6 +972,94 @@ mod frame {
             // Have Windows ask for the window's areas again.
             let _ = SetWindowPos(hwnd, None, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
+    }
+
+    /// Until the maximize button is drawn again this frame, the window has none. A button
+    /// that wasn't drawn last frame (the mini player, full screen) lets go of the pointer.
+    pub fn snap_forget() {
+        let mut s = SNAP.lock().unwrap();
+        s.rect = None;
+        if !std::mem::take(&mut s.drawn) {
+            (s.hovered, s.down, s.clicked) = (false, false, false);
+        }
+    }
+
+    /// See `super::snap`.
+    pub fn snap(ui: &egui::Ui, hit: egui::Rect) -> super::Snap {
+        if !SNAP_LAYOUTS.load(Ordering::Relaxed) {
+            return super::Snap::default();
+        }
+        let ctx = ui.ctx();
+        let ppp = ctx.pixels_per_point();
+        // Up, not to the nearest: a pixel row half in the resize strip above stays the strip's.
+        let px = |v: f32| (v * ppp).ceil() as i32;
+        let mut s = SNAP.lock().unwrap();
+        s.ctx.get_or_insert_with(|| ctx.clone());
+        // Not under a dialog, where egui keeps the pointer from the button too.
+        if !ctx.memory(|m| m.allows_interaction(ui.layer_id())) {
+            s.clicked = false;
+            return super::Snap::default();
+        }
+        s.rect = Some(RECT { left: px(hit.left()), top: px(hit.top()), right: px(hit.right()), bottom: px(hit.bottom()) });
+        s.drawn = true;
+        super::Snap { hovered: s.hovered, down: s.down, clicked: std::mem::take(&mut s.clicked) }
+    }
+
+    /// The maximize button's messages, answered here: Windows shows the snap layouts while
+    /// the pointer rests where the window answers `HTMAXBUTTON`, and from then on sends the
+    /// pointer's moves and presses there as the frame's. None for what goes on as usual.
+    fn snap_message(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
+        let on_button = wparam.0 == HTMAXBUTTON as usize;
+        let mut s = SNAP.lock().unwrap();
+        let before = (s.hovered, s.down);
+        let result = match msg {
+            WM_NCHITTEST => {
+                let r = s.rect?;
+                // Screen coordinates, signed: a monitor left of or above the main one.
+                let mut p = POINT { x: lparam.0 as i16 as i32, y: (lparam.0 >> 16) as i16 as i32 };
+                // SAFETY: the app's own window; the point is ours.
+                let inside = unsafe { ScreenToClient(hwnd, &mut p) }.as_bool() && p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
+                return inside.then_some(LRESULT(HTMAXBUTTON as isize));
+            }
+            WM_NCMOUSEMOVE if on_button => {
+                if !s.hovered {
+                    let mut track = TRACKMOUSEEVENT { cbSize: size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE | TME_NONCLIENT, hwndTrack: hwnd, dwHoverTime: 0 };
+                    // SAFETY: the app's own window; the struct is ours and sized.
+                    let _ = unsafe { TrackMouseEvent(&mut track) };
+                }
+                s.hovered = true;
+                // On to Windows, which times the snap layouts by it.
+                None
+            }
+            // Not on to Windows, which would hold the pointer in a loop of its own; the
+            // app's button maximizes or restores on the release, as a click does.
+            WM_NCLBUTTONDOWN | WM_NCLBUTTONDBLCLK if on_button => {
+                (s.hovered, s.down) = (true, true);
+                Some(LRESULT(0))
+            }
+            WM_NCLBUTTONUP if on_button => {
+                s.clicked |= std::mem::take(&mut s.down);
+                Some(LRESULT(0))
+            }
+            // Resized or on another monitor's scale: the button moved, and is where the next
+            // frame draws it.
+            WM_SIZE | WM_DPICHANGED => {
+                s.rect = None;
+                return None;
+            }
+            // Off the button, or a press Windows called off: it doesn't click.
+            WM_NCMOUSEMOVE | WM_NCMOUSELEAVE | WM_MOUSEMOVE | WM_CANCELMODE | WM_CAPTURECHANGED => {
+                (s.hovered, s.down) = (false, false);
+                None
+            }
+            _ => return None,
+        };
+        if ((s.hovered, s.down) != before || s.clicked)
+            && let Some(ctx) = &s.ctx
+        {
+            ctx.request_repaint();
+        }
+        result
     }
 
     /// The reserved row is outside egui's clear. Black lets DWM show the material there.
@@ -919,12 +1093,17 @@ mod frame {
         // wparam set, lparam points at an NCCALCSIZE_PARAMS; for WM_STYLECHANGING, at a
         // STYLESTRUCT.
         unsafe {
-            if msg == WM_STYLECHANGING && wparam.0 as i32 == GWL_STYLE.0 && NO_CAPTION.load(std::sync::atomic::Ordering::Relaxed) {
+            if SNAP_LAYOUTS.load(Ordering::Relaxed)
+                && let Some(result) = snap_message(hwnd, msg, wparam, lparam)
+            {
+                return result;
+            }
+            if msg == WM_STYLECHANGING && wparam.0 as i32 == GWL_STYLE.0 && NO_CAPTION.load(Ordering::Relaxed) {
                 (*(lparam.0 as *mut STYLESTRUCT)).styleNew &= !WS_CAPTION.0;
             }
             // Without the caption style, as GLFW's frameless windows (#196): maximized to
             // the work area, and no old-style title bar drawn on activation or a new title.
-            if NO_CAPTION.load(std::sync::atomic::Ordering::Relaxed) {
+            if NO_CAPTION.load(Ordering::Relaxed) {
                 if msg == WM_GETMINMAXINFO {
                     let result = DefSubclassProc(hwnd, msg, wparam, lparam);
                     to_work_area(hwnd, &mut *(lparam.0 as *mut MINMAXINFO));
@@ -1043,5 +1222,74 @@ mod tests {
         assert!(!Choice::Auto.own(true, ""));
         assert!(Choice::Own.own(false, "KDE"));
         assert!(!Choice::System.own(true, "GNOME"));
+    }
+}
+#[cfg(test)]
+mod tap_tests {
+    use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, pos2, vec2};
+
+    /// Two clicks on a title bar strip, `gap` seconds and `dx` points apart, by a finger
+    /// (as egui-winit sends a tap: the touch with the pointer's events) or the mouse:
+    /// whether the second one maximizes, as `drag_area` decides.
+    fn second_is_double(finger: bool, gap: f64, dx: f32) -> bool {
+        let doubles = toggles(finger, &[(0.5, 0.0), (0.5 + gap, dx)]);
+        assert!(doubles <= 1);
+        doubles == 1
+    }
+
+    /// Clicks on a title bar strip at (seconds, points right): how many times the window
+    /// would maximize or restore.
+    fn toggles(finger: bool, clicks: &[(f64, f32)]) -> usize {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx, "", &[]);
+        let click = |t: f64, p: Pos2, id: u64| {
+            let touch = |phase| Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(id), phase, pos: p, force: None };
+            let button = |pressed| Event::PointerButton { pos: p, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+            match finger {
+                true => vec![(t, vec![touch(egui::TouchPhase::Start), Event::PointerMoved(p), button(true)]), (t + 0.08, vec![touch(egui::TouchPhase::End), button(false), Event::PointerGone])],
+                false => vec![(t, vec![Event::PointerMoved(p), button(true)]), (t + 0.08, vec![button(false)])],
+            }
+        };
+        let mut frames = vec![(0.0, vec![])];
+        for (n, &(t, dx)) in clicks.iter().enumerate() {
+            frames.extend(click(t, pos2(300.0 + dx, 20.0), n as u64 + 1));
+        }
+        let mut doubles = 0;
+        for (t, events) in frames {
+            let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))), time: Some(t), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| {
+                let strip = super::drag_strip(ui, Rect::from_min_size(Pos2::ZERO, vec2(800.0, 50.0)), "test");
+                doubles += usize::from(super::toggles(ui, &strip));
+            });
+            out.textures_delta.clear();
+        }
+        doubles
+    }
+
+    /// A quick triple tap maximizes once, whichever pair of taps egui would take as a
+    /// double-click.
+    #[test]
+    fn a_quick_triple_tap_maximizes_once() {
+        assert_eq!(toggles(true, &[(0.5, 0.0), (0.65, 0.0), (0.8, 0.0)]), 1);
+        assert_eq!(toggles(true, &[(0.5, 0.0), (0.85, 0.0), (1.0, 0.0)]), 1);
+    }
+
+    #[test]
+    fn a_finger_double_taps_the_title_bar_as_a_finger_lands() {
+        // What egui's double-click already takes.
+        assert!(second_is_double(true, 0.15, 0.0));
+        // A finger's second tap a little beside the first, or a little later.
+        assert!(second_is_double(true, 0.15, 8.0));
+        assert!(second_is_double(true, 0.35, 0.0));
+        // Too late, or somewhere else: two taps.
+        assert!(!second_is_double(true, 0.5, 0.0));
+        assert!(!second_is_double(true, 0.15, 60.0));
+    }
+
+    #[test]
+    fn the_mouse_double_clicks_as_before() {
+        assert!(second_is_double(false, 0.15, 0.0));
+        assert!(!second_is_double(false, 0.15, 8.0));
+        assert!(!second_is_double(false, 0.35, 0.0));
     }
 }

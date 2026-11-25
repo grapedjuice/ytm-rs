@@ -8015,7 +8015,7 @@ dependencies = [
 
 [[package]]
 name = "ytm-rs"
-version = "2.0.2"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

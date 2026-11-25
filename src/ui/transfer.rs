@@ -468,7 +468,7 @@ fn spotify_account_row(app: &mut App, ui: &mut Ui, account: &Account, compact: b
         ),
         Account::SignedIn { name, .. } => {
             let who = if name.is_empty() { crate::tr!("status-signed-in").to_owned() } else { crate::tr!("transfer-signed-in-as", name = name.as_str()) };
-            (crate::tr!("transfer-spotify-account").to_owned(), format!("{who}. {}", crate::tr!("transfer-credential-storage")))
+            (crate::tr!("transfer-spotify-account").to_owned(), format!("{who}. {}", if cfg!(windows) { crate::tr!("transfer-credential-storage") } else { crate::tr!("transfer-credential-storage-system") }))
         }
         Account::Unknown | Account::Loading => (crate::tr!("transfer-spotify-account").to_owned(), crate::tr!("transfer-checking-sign-in").to_owned()),
         Account::SignedOut if compact => (crate::tr!("settings-not-signed-in").to_owned(), crate::tr!("transfer-private-sign-in").to_owned()),
@@ -528,8 +528,7 @@ fn destination(app: &mut App, ui: &mut Ui, chosen: Option<&Entry>, accent: Color
             text_at(ui, pos2(x, rect.top() + 11.0), title, theme::semibold(14.5), theme::text(), rect.width() - 46.0);
             let g = widgets::galley_wrapped(ui, desc, theme::regular(12.5), theme::text_dim(), rect.width() - 46.0, 2);
             let pos = pos2(x, rect.top() + 31.0);
-            ui.painter().galley(pos, g.clone(), theme::text_dim());
-            widgets::tip_if_elided(ui, Rect::from_min_size(pos, g.size()), &g, desc);
+            widgets::galley_tipped(ui, pos, g, theme::text_dim(), desc);
             if resp.clicked() {
                 app.xfer.to_liked = to_liked;
             }
@@ -1422,8 +1421,7 @@ pub fn settings_section(app: &mut App, ui: &mut Ui) {
         let intro = crate::tr!("transfer-intro");
         let g = widgets::galley_wrapped(ui, intro, theme::regular(12.5), theme::text_dim(), tw, 2);
         let pos = pos2(x, rect.center().y + 2.0);
-        ui.painter().galley(pos, g.clone(), theme::text_dim());
-        widgets::tip_if_elided(ui, Rect::from_min_size(pos, g.size()), &g, intro);
+        widgets::galley_tipped(ui, pos, g, theme::text_dim(), intro);
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::right_to_left(egui::Align::Center)));
         open = pill(&mut child, crate::tr!("settings-open"), None, true).clicked();
         super::pages::divider(ui);

@@ -8,7 +8,7 @@
 #define AppName "ytm-rs"
 ; A nightly build passes its own: iscc /DAppVersion=0.2.34-nightly.20261110
 #ifndef AppVersion
-  #define AppVersion "2.0.2"
+  #define AppVersion "0.4.0"
 #endif
 #define AppExe "ytm-rs.exe"
 #ifdef Arm64

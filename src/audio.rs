@@ -63,7 +63,9 @@ pub enum AudioCmd {
     Refresh,
     /// Connecting to network speakers (`key`, called `name`) is done, on a thread of its
     /// own so the engine stays responsive meanwhile.
-    Connected { key: String, name: String, kind: Kind, session: anyhow::Result<Box<destination::Session>> },
+    /// `attempt` is `Output::connecting`'s, so an older one for the same speakers (picked,
+    /// then another, then them again) isn't taken for it.
+    Connected { attempt: u64, name: String, kind: Kind, session: anyhow::Result<Box<destination::Session>> },
 }
 
 /// How the network speakers picked are doing.
@@ -170,6 +172,15 @@ pub struct AudioStatus {
 }
 
 impl AudioStatus {
+    /// Not connecting to the speakers, nor playing on them, any more: the menu says neither.
+    /// Why they failed, if they did, still holds.
+    fn remote_gone(&self) {
+        let mut remote = self.remote.lock().unwrap();
+        if matches!(*remote, RemoteState::Connecting | RemoteState::Playing) {
+            *remote = RemoteState::Idle;
+        }
+    }
+
     pub fn speed(&self) -> f32 {
         self.speed.get()
     }
@@ -845,7 +856,8 @@ struct Output {
     remote: Option<destination::Stream>,
     /// The network speakers being connected to (`Destination::key`): a sound card playing
     /// meanwhile goes on till they're ready.
-    connecting: Option<String>,
+    /// Each attempt has its own number (`AudioCmd::Connected`'s).
+    connecting: Option<(String, u64)>,
     /// Whether to try the network speakers picked. Off once they failed or hung up, so the
     /// check for a new device doesn't keep taking them back (from another device playing
     /// on them); on again when the music's asked for.
@@ -1014,19 +1026,21 @@ impl Output {
         // it goes on elsewhere and comes back as `AudioCmd::Connected`. Failing, the sound
         // card stands in, as for one unplugged.
         if let Some((key, kind, members)) = self.remote_target() {
-            if self.connecting.as_ref() == Some(&key) {
+            if self.connecting.as_ref().is_some_and(|(k, _)| *k == key) {
                 return true;
             }
+            static ATTEMPTS: AtomicU64 = AtomicU64::new(0);
+            let attempt = ATTEMPTS.fetch_add(1, Ordering::Relaxed);
             // A sound card playing goes on till the speakers are ready (`connected`).
             self.remote = None;
             self.device = Some(key.clone());
-            self.connecting = Some(key.clone());
+            self.connecting = Some((key, attempt));
             *status.remote.lock().unwrap() = RemoteState::Connecting;
             let back = tx.clone();
             let spawned = std::thread::Builder::new().name("speaker-connect".into()).spawn(move || {
                 let name = members.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join(", ");
                 let session = destination::Session::connect(kind, &members).map(Box::new);
-                let _ = back.send(AudioCmd::Connected { key, name, kind, session });
+                let _ = back.send(AudioCmd::Connected { attempt, name, kind, session });
             });
             if let Err(e) = spawned {
                 log::warn!("audio: couldn't start connecting to {}: {e}", kind.label());
@@ -1040,6 +1054,7 @@ impl Output {
         // The old device's stream gives our mixer back when it's dropped.
         self.close();
         self.device = None;
+        status.remote_gone();
         let report = self.reporter(tx);
         let Some(device) = target(card(&self.destination)) else {
             return false;
@@ -1081,6 +1096,11 @@ impl Output {
     /// default) differs from the one in use.
     fn default_changed(&mut self) -> bool {
         self.checked = Instant::now();
+        // Speakers playing stay till they hang up (`DeviceLost`, which pauses): mDNS
+        // forgetting them for a while isn't them going.
+        if self.remote.is_some() && self.device.as_ref() == Some(&self.destination.key()) {
+            return false;
+        }
         let want = match self.remote_target() {
             Some((key, ..)) => Some(key),
             None => target(card(&self.destination)).and_then(|d| d.id().ok()).map(|i| i.to_string()),
@@ -1834,14 +1854,19 @@ fn run(
                 }
                 output.destination = to;
                 output.remote_retry = true;
+                // Speakers no longer picked aren't to be played on once they're connected,
+                // even with no sound card to open in their place.
+                if output.connecting.as_ref().is_some_and(|(k, _)| *k != output.destination.key()) {
+                    output.connecting = None;
+                }
                 // A device let go while idle opens again with the next song.
                 if (output.is_open() || idle_since.is_none()) && (!output.is_open() || output.default_changed()) {
                     output.open(tx.clone(), &status);
                 }
             }
-            Ok(AudioCmd::Connected { key, name, kind, session }) => {
+            Ok(AudioCmd::Connected { attempt, name, kind, session }) => {
                 // Let go of (or another picked) meanwhile: its session goes.
-                if output.connecting.as_ref() != Some(&key) {
+                if output.connecting.as_ref().map(|(_, a)| *a) != Some(attempt) {
                     continue;
                 }
                 output.connecting = None;
@@ -1975,13 +2000,7 @@ fn run(
             log::info!("audio: nothing playing, letting go of the output device");
             output.close();
             output.device = None;
-            // Not connecting to the speakers, nor playing on them, any more: the menu says
-            // neither. Why they failed, if they did, still holds.
-            let mut remote = status.remote.lock().unwrap();
-            if matches!(*remote, RemoteState::Connecting | RemoteState::Playing) {
-                *remote = RemoteState::Idle;
-            }
-            drop(remote);
+            status.remote_gone();
         }
         if !fading.is_empty() {
             // The next song is taking too long: don't hold this one up any longer.

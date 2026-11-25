@@ -167,7 +167,8 @@ pub fn device_id(fullname: &str) -> String {
     let instance = fullname.strip_suffix(SERVICE).map_or(fullname, |i| i.trim_end_matches('.'));
     match instance.split_once('@') {
         Some((mac, _)) if mac.len() == 12 && mac.chars().all(|c| c.is_ascii_hexdigit()) => mac.to_ascii_lowercase(),
-        _ => instance.to_lowercase(),
+        // No commas: a group's members are saved with them in between.
+        _ => instance.to_lowercase().replace(',', " "),
     }
 }
 
@@ -1110,6 +1111,7 @@ mod tests {
         assert_eq!(device_id("5CAAFD0A1B2C@Living Room._raop._tcp.local."), "5caafd0a1b2c");
         assert_eq!(device_id("5CAAFD0A1B2C@Living\\032Room._raop._tcp.local."), "5caafd0a1b2c");
         assert_eq!(device_id("Kitchen._raop._tcp.local."), "kitchen");
+        assert_eq!(device_id("Kitchen, Dining._raop._tcp.local."), "kitchen  dining");
     }
 
     #[test]

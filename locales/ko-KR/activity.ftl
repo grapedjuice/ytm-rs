@@ -7,6 +7,10 @@ status-added-queue = 대기열에 추가되었습니다
 status-removed-queue = 대기열에서 제거되었습니다.
 status-cleared-queue = 대기열이 삭제되었습니다.
 status-removed-playlist = 재생목록에서 삭제되었습니다.
+status-not-added-duplicates =
+    { $count ->
+       *[other] 추가하지 않았습니다. 이미 “{ $title }”에 있습니다
+    }
 status-playlist-deleted = 재생목록이 삭제되었습니다.
 status-added-liked = 좋아요를 누른 음악에 추가됨
 status-sign-in-like = 노래에 좋아요를 누르려면 로그인하세요.

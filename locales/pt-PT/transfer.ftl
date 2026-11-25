@@ -26,6 +26,7 @@ transfer-spotify-account = Conta do Spotify
 transfer-signed-in-plan = Sessão iniciada · funciona com Free e Premium
 transfer-signed-in-as = Sessão iniciada como { $name }
 transfer-credential-storage = Os dados de acesso são criptografados no Gestor de Credenciais do Windows.
+transfer-credential-storage-system = Os dados de acesso ficam no porta-chaves do sistema ou, se não puder ser usado, num ficheiro que só tu podes ler.
 transfer-checking-sign-in = A verificar início de sessão…
 transfer-private-sign-in = Necessário para faixas de que gosta e listas de reprodução privadas. Listas de reprodução públicas funcionam sem início de sessão.
 transfer-sign-in-spotify = Entrar no Spotify

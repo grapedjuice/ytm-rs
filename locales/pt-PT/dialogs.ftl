@@ -37,3 +37,15 @@ dialog-download-count = Transferir ({ $count })
 dialog-edit-playlist = Editar lista de reprodução
 dialog-download-body = Faixas que faltam transferir: { $count }. A transferência roda em segundo plano e começa pela faixa atual.
 dialog-download-collection-body = Faixas de «{ $title }» que faltam transferir: { $count }. A transferência roda em segundo plano e começa pela faixa atual.
+dialog-add-duplicates-title = Já está na lista de reprodução
+dialog-add-duplicates-some = Algumas destas músicas já estão em «{ $title }». Adicionar mesmo assim?
+dialog-add-duplicates-body =
+    { $count ->
+        [one] «{ $songs }» já está em «{ $title }». Adicionar mesmo assim?
+       *[other] { $more ->
+            [0] Estas { $count } músicas já estão em «{ $title }»: { $songs }. Adicionar mesmo assim?
+           *[other] Estas { $count } músicas já estão em «{ $title }»: { $songs } e mais { $more }. Adicionar mesmo assim?
+        }
+    }
+dialog-add-anyway = Adicionar mesmo assim
+dialog-skip-duplicates = Ignorar repetidas

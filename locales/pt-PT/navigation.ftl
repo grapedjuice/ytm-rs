@@ -4,6 +4,7 @@ nav-explore = Explorar
 nav-library = Biblioteca
 nav-library-section = Biblioteca › { $tab }
 nav-playlists = Listas de reprodução
+nav-community-playlists = Listas de reprodução da comunidade
 nav-liked-songs = Músicas de que gosto
 nav-albums = Álbuns
 nav-artists = Artistas

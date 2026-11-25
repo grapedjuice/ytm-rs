@@ -4,6 +4,7 @@ nav-explore = Обзор
 nav-library = Медиатека
 nav-library-section = Медиатека › { $tab }
 nav-playlists = Плейлисты
+nav-community-playlists = Плейлисты сообщества
 nav-liked-songs = Понравившиеся
 nav-albums = Альбомы
 nav-artists = Исполнители

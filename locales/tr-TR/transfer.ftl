@@ -26,6 +26,7 @@ transfer-spotify-account = Spotify hesabı
 transfer-signed-in-plan = Oturum açıldı · Ücretsiz ve Premium ile çalışıyor
 transfer-signed-in-as = { $name } olarak oturum açıldı
 transfer-credential-storage = Oturum açma işlemi Windows Kimlik Bilgisi Yöneticisi'nde şifrelenmiş olarak kaydedilir.
+transfer-credential-storage-system = Oturum açma bilgisi sistemin anahtarlığında saklanır; kullanılamazsa yalnızca sizin okuyabileceğiniz bir dosyada.
 transfer-checking-sign-in = Oturum açma bilgileriniz kontrol ediliyor…
 transfer-private-sign-in = Beğenilen Şarkılar ve özel çalma listeleri için gereklidir. Herkese açık çalma listeleri bu olmadan çalışır.
 transfer-sign-in-spotify = Spotify'de oturum açın

@@ -7,6 +7,11 @@ status-added-queue = Aggiunto alla coda
 status-removed-queue = Rimosso dalla coda
 status-cleared-queue = Coda svuotata
 status-removed-playlist = Rimosso dalla playlist
+status-not-added-duplicates =
+    { $count ->
+        [one] Non aggiunto: è già in «{ $title }»
+       *[other] Niente aggiunto: alcuni di questi brani sono già in «{ $title }»
+    }
 status-playlist-deleted = Playlist eliminata
 status-added-liked = Aggiunto ai brani che ti piacciono
 status-sign-in-like = Accedi per mettere «Mi piace»

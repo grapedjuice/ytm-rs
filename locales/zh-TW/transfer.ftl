@@ -26,6 +26,7 @@ transfer-spotify-account = Spotify帳號
 transfer-signed-in-plan = 已登入 · 適用於免費版及進階版
 transfer-signed-in-as = 以 { $name } 登入
 transfer-credential-storage = 登入資訊以加密方式保存在 Windows 憑證管理器中。
+transfer-credential-storage-system = 登入資訊保存在系統鑰匙圈中；如果用不了，就保存在只有你能讀取的檔案裡。
 transfer-checking-sign-in = 正在檢查您的登入情況...
 transfer-private-sign-in = 喜歡的歌曲和私人播放清單需要。公共播放清單無需它即可工作。
 transfer-sign-in-spotify = 登入 Spotify

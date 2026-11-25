@@ -7,6 +7,11 @@ status-added-queue = Toegevoegd aan wachtrij
 status-removed-queue = Uit wachtrij verwijderd
 status-cleared-queue = Wachtrij gewist
 status-removed-playlist = Uit afspeellijst verwijderd
+status-not-added-duplicates =
+    { $count ->
+        [one] Niet toegevoegd: staat al in ‘{ $title }’
+       *[other] Niets toegevoegd: een deel van deze nummers staat al in ‘{ $title }’
+    }
 status-playlist-deleted = Afspeellijst verwijderd
 status-added-liked = Toegevoegd aan gelikete nummers
 status-sign-in-like = Log in om nummers te liken

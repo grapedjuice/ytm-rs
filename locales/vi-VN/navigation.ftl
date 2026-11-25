@@ -4,6 +4,7 @@ nav-explore = Khám phá
 nav-library = Thư viện
 nav-library-section = Thư viện › { $tab }
 nav-playlists = Danh sách phát
+nav-community-playlists = Danh sách phát của cộng đồng
 nav-liked-songs = Bài hát đã thích
 nav-albums = Album
 nav-artists = Nghệ sĩ

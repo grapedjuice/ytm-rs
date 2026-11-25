@@ -37,3 +37,15 @@ dialog-download-count = Scarica ({ $count })
 dialog-edit-playlist = Modifica playlist
 dialog-download-body = Brani da scaricare: { $count }. Il download avviene in background, a partire dal brano in riproduzione.
 dialog-download-collection-body = Brani da scaricare da «{ $title }»: { $count }. Il download avviene in background, a partire dal brano in riproduzione.
+dialog-add-duplicates-title = Già nella playlist
+dialog-add-duplicates-some = Alcuni di questi brani sono già in «{ $title }». Aggiungerli comunque?
+dialog-add-duplicates-body =
+    { $count ->
+        [one] «{ $songs }» è già in «{ $title }». Aggiungerlo comunque?
+       *[other] { $more ->
+            [0] Questi { $count } brani sono già in «{ $title }»: { $songs }. Aggiungerli comunque?
+           *[other] Questi { $count } brani sono già in «{ $title }»: { $songs } e altri { $more }. Aggiungerli comunque?
+        }
+    }
+dialog-add-anyway = Aggiungi comunque
+dialog-skip-duplicates = Salta i duplicati

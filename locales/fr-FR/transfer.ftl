@@ -26,6 +26,7 @@ transfer-spotify-account = Compte Spotify
 transfer-signed-in-plan = Connecté · compatible Free et Premium
 transfer-signed-in-as = Connecté en tant que { $name }
 transfer-credential-storage = Les identifiants sont chiffrés dans le Gestionnaire d’identification Windows.
+transfer-credential-storage-system = Les identifiants sont enregistrés dans le trousseau du système ou, s’il ne peut pas être utilisé, dans un fichier que vous seul pouvez lire.
 transfer-checking-sign-in = Vérification de la connexion…
 transfer-private-sign-in = Requis pour vos titres aimés et playlists privées. Les playlists publiques sont accessibles sans connexion.
 transfer-sign-in-spotify = Se connecter à Spotify

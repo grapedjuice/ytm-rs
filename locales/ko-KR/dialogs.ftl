@@ -37,3 +37,14 @@ dialog-download-count = 다운로드 ({ $count })
 dialog-edit-playlist = 재생목록 수정
 dialog-download-body = 다운로드할 수 있는 트랙: { $count }. 다운로드는 백그라운드에서 실행되며 현재 트랙부터 시작됩니다.
 dialog-download-collection-body = “{ $title }”에서 다운로드할 수 있는 남은 트랙: { $count }. 다운로드는 백그라운드에서 실행되며 현재 트랙부터 시작됩니다.
+dialog-add-duplicates-title = 이미 재생목록에 있음
+dialog-add-duplicates-some = 이 곡 중 일부는 이미 “{ $title }”에 있습니다. 그래도 추가할까요?
+dialog-add-duplicates-body =
+    { $count ->
+       *[other] { $more ->
+            [0] 이 { $count }곡은 이미 “{ $title }”에 있습니다: { $songs }. 그래도 추가할까요?
+           *[other] 이 { $count }곡은 이미 “{ $title }”에 있습니다: { $songs }, 그 외 { $more }곡. 그래도 추가할까요?
+        }
+    }
+dialog-add-anyway = 그래도 추가
+dialog-skip-duplicates = 중복 건너뛰기

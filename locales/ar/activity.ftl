@@ -7,6 +7,15 @@ status-added-queue = تمت الإضافة إلى قائمة الانتظار
 status-removed-queue = تمت إزالته من قائمة الانتظار
 status-cleared-queue = تم مسح قائمة الانتظار
 status-removed-playlist = تمت الإزالة من قائمة التشغيل
+status-not-added-duplicates =
+    { $count ->
+        [zero] لم تُضف أي أغنية: بعضها موجود بالفعل في «{ $title }»
+        [one] لم تُضف: إنها موجودة بالفعل في «{ $title }»
+        [two] لم تُضف أي أغنية: بعضها موجود بالفعل في «{ $title }»
+        [few] لم تُضف أي أغنية: بعضها موجود بالفعل في «{ $title }»
+        [many] لم تُضف أي أغنية: بعضها موجود بالفعل في «{ $title }»
+       *[other] لم تُضف أي أغنية: بعضها موجود بالفعل في «{ $title }»
+    }
 status-playlist-deleted = تم حذف قائمة التشغيل
 status-added-liked = تمت الإضافة إلى الأغاني التي أعجبتني
 status-sign-in-like = سجّل الدخول للإعجاب بالأغاني

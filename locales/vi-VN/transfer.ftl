@@ -26,6 +26,7 @@ transfer-spotify-account = Tài khoản Spotify
 transfer-signed-in-plan = Đã đăng nhập · hoạt động với Miễn phí và Cao cấp
 transfer-signed-in-as = Đã đăng nhập với tên { $name }
 transfer-credential-storage = Thông tin đăng nhập được lưu mã hóa trong Trình quản lý thông tin xác thực Windows.
+transfer-credential-storage-system = Thông tin đăng nhập được lưu trong vòng khóa của hệ thống, hoặc nếu không dùng được thì trong một tệp chỉ bạn đọc được.
 transfer-checking-sign-in = Đang kiểm tra thông tin đăng nhập của bạn…
 transfer-private-sign-in = Cần thiết cho các Bài hát đã thích và danh sách phát riêng tư. Danh sách phát công khai hoạt động mà không cần nó.
 transfer-sign-in-spotify = Đăng nhập vào Spotify

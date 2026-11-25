@@ -7,6 +7,13 @@ status-added-queue = Добавлено в очередь
 status-removed-queue = Удалено из очереди
 status-cleared-queue = Очередь очищена
 status-removed-playlist = Удалено из плейлиста
+status-not-added-duplicates =
+    { $count ->
+        [one] Не добавлено: уже есть в «{ $title }»
+        [few] Ничего не добавлено: часть этих треков уже есть в «{ $title }»
+        [many] Ничего не добавлено: часть этих треков уже есть в «{ $title }»
+       *[other] Ничего не добавлено: часть этих треков уже есть в «{ $title }»
+    }
 status-playlist-deleted = Плейлист удалён
 status-added-liked = Добавлено в понравившиеся
 status-sign-in-like = Войдите, чтобы ставить лайки

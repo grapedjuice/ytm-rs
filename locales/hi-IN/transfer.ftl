@@ -26,6 +26,7 @@ transfer-spotify-account = Spotify खाता
 transfer-signed-in-plan = साइन इन · फ्री और प्रीमियम के साथ काम करता है
 transfer-signed-in-as = { $name } के रूप में साइन इन किया गया
 transfer-credential-storage = साइन-इन Windows क्रेडेंशियल मैनेजर में एन्क्रिप्टेड रूप में सहेजा गया है।
+transfer-credential-storage-system = साइन-इन सिस्टम की कीरिंग में सहेजा गया है, या अगर उसका इस्तेमाल न हो सके तो एक ऐसी फ़ाइल में जिसे सिर्फ़ आप पढ़ सकते हैं।
 transfer-checking-sign-in = आपके साइन-इन की जाँच की जा रही है…
 transfer-private-sign-in = पसंदीदा गानों और निजी प्लेलिस्ट की आवश्यकता। सार्वजनिक प्लेलिस्ट इसके बिना काम करती हैं।
 transfer-sign-in-spotify = Spotify में साइन इन करें

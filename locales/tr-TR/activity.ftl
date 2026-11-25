@@ -7,6 +7,11 @@ status-added-queue = Sıraya eklendi
 status-removed-queue = Sıradan kaldırıldı
 status-cleared-queue = Sıra temizlendi
 status-removed-playlist = Oynatma listesinden kaldırıldı
+status-not-added-duplicates =
+    { $count ->
+        [one] Eklenmedi: zaten "{ $title }" içinde
+       *[other] Hiçbiri eklenmedi: bu şarkıların bazıları zaten "{ $title }" içinde
+    }
 status-playlist-deleted = Oynatma listesi silindi
 status-added-liked = Beğenilen Müzikler'e eklendi
 status-sign-in-like = Şarkıları beğenmek için oturum açın

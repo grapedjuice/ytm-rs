@@ -7,6 +7,10 @@ status-added-queue = เพิ่มลงในคิวแล้ว
 status-removed-queue = ลบออกจากคิว
 status-cleared-queue = ล้างคิวแล้ว
 status-removed-playlist = ลบออกจากเพลย์ลิสต์
+status-not-added-duplicates =
+    { $count ->
+       *[other] ไม่ได้เพิ่ม: มีอยู่แล้วใน "{ $title }"
+    }
 status-playlist-deleted = ลบเพลย์ลิสต์แล้ว
 status-added-liked = เพิ่มไปยังเพลงที่ชอบแล้ว
 status-sign-in-like = ลงชื่อเข้าใช้เพื่อชอบเพลง

@@ -26,6 +26,7 @@ transfer-spotify-account = Spotify-account
 transfer-signed-in-plan = Ingelogd · werkt met Free en Premium
 transfer-signed-in-as = Ingelogd als { $name }
 transfer-credential-storage = Je aanmeldgegevens staan versleuteld in Windows Referentiebeheer.
+transfer-credential-storage-system = Je aanmeldgegevens staan in de sleutelbos van het systeem of, als die niet te gebruiken is, in een bestand dat alleen jij kunt lezen.
 transfer-checking-sign-in = Aanmelding controleren…
 transfer-private-sign-in = Nodig voor gelikete nummers en privéafspeellijsten. Openbare lijsten werken zonder inloggen.
 transfer-sign-in-spotify = Inloggen bij Spotify

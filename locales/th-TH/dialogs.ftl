@@ -37,3 +37,14 @@ dialog-download-count = ดาวน์โหลด ({ $count })
 dialog-edit-playlist = แก้ไขเพลย์ลิสต์
 dialog-download-body = เพลงที่เหลือให้ดาวน์โหลด: { $count }. การดาวน์โหลดจะทำงานอยู่เบื้องหลังและเริ่มต้นด้วยแทร็กปัจจุบัน
 dialog-download-collection-body = แทร็กที่เหลือให้ดาวน์โหลดจาก “{ $title }”: { $count } การดาวน์โหลดจะทำงานอยู่เบื้องหลังและเริ่มต้นด้วยแทร็กปัจจุบัน
+dialog-add-duplicates-title = มีอยู่ในเพลย์ลิสต์แล้ว
+dialog-add-duplicates-some = เพลงเหล่านี้บางเพลงมีอยู่ใน "{ $title }" แล้ว เพิ่มต่อไปไหม?
+dialog-add-duplicates-body =
+    { $count ->
+       *[other] { $more ->
+            [0] { $count } เพลงนี้อยู่ใน "{ $title }" แล้ว: { $songs } เพิ่มต่อไปไหม?
+           *[other] { $count } เพลงนี้อยู่ใน "{ $title }" แล้ว: { $songs } และอีก { $more } เพลง เพิ่มต่อไปไหม?
+        }
+    }
+dialog-add-anyway = เพิ่มต่อไป
+dialog-skip-duplicates = ข้ามรายการซ้ำ

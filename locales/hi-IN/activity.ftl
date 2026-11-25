@@ -7,6 +7,11 @@ status-added-queue = कतार में जोड़ा गया
 status-removed-queue = कतार से हटाया गया
 status-cleared-queue = कतार साफ़ हो गई
 status-removed-playlist = प्लेलिस्ट से हटा दिया गया
+status-not-added-duplicates =
+    { $count ->
+        [one] नहीं जोड़ा गया: यह पहले से “{ $title }” में है
+       *[other] कुछ नहीं जोड़ा गया: इनमें से कुछ गाने पहले से “{ $title }” में हैं
+    }
 status-playlist-deleted = प्लेलिस्ट हटा दी गई
 status-added-liked = पसंदीदा संगीत में जोड़ा गया
 status-sign-in-like = गाने पसंद करने के लिए साइन इन करें

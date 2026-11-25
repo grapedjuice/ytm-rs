@@ -37,3 +37,15 @@ dialog-download-count = डाउनलोड करें ({ $count })
 dialog-edit-playlist = प्लेलिस्ट संपादित करें
 dialog-download-body = डाउनलोड करने के लिए ट्रैक शेष हैं: { $count }। डाउनलोड पृष्ठभूमि में चलते हैं और वर्तमान ट्रैक से शुरू होते हैं।
 dialog-download-collection-body = “{ $title }” से डाउनलोड करने के लिए ट्रैक शेष हैं: { $count }। डाउनलोड पृष्ठभूमि में चलते हैं और वर्तमान ट्रैक से शुरू होते हैं।
+dialog-add-duplicates-title = पहले से प्लेलिस्ट में है
+dialog-add-duplicates-some = इनमें से कुछ गाने पहले से “{ $title }” में हैं। फिर भी जोड़ें?
+dialog-add-duplicates-body =
+    { $count ->
+        [one] “{ $songs }” पहले से “{ $title }” में है। फिर भी जोड़ें?
+       *[other] { $more ->
+            [0] ये { $count } गाने पहले से “{ $title }” में हैं: { $songs }। फिर भी जोड़ें?
+           *[other] ये { $count } गाने पहले से “{ $title }” में हैं: { $songs } और { $more } और। फिर भी जोड़ें?
+        }
+    }
+dialog-add-anyway = फिर भी जोड़ें
+dialog-skip-duplicates = डुप्लिकेट छोड़ें

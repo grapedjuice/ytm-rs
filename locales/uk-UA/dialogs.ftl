@@ -37,3 +37,23 @@ dialog-download-count = Завантажити ({ $count })
 dialog-edit-playlist = Змінити список відтворення
 dialog-download-body = Лишилося завантажити: { $count }. Завантаження відбувається у фоновому режимі, починаючи з поточного треку.
 dialog-download-collection-body = Лишилося завантажити з «{ $title }»: { $count }. Завантаження відбувається у фоновому режимі, починаючи з поточного треку.
+dialog-add-duplicates-title = Уже в списку відтворення
+dialog-add-duplicates-some = Частина цих треків уже є в «{ $title }». Додати все одно?
+dialog-add-duplicates-body =
+    { $count ->
+        [one] «{ $songs }» уже є в «{ $title }». Додати все одно?
+        [few] { $more ->
+            [0] Ці { $count } треки вже є в «{ $title }»: { $songs }. Додати все одно?
+           *[other] Ці { $count } треки вже є в «{ $title }»: { $songs } і ще { $more }. Додати все одно?
+        }
+        [many] { $more ->
+            [0] Цих { $count } треків вже є в «{ $title }»: { $songs }. Додати все одно?
+           *[other] Цих { $count } треків вже є в «{ $title }»: { $songs } і ще { $more }. Додати все одно?
+        }
+       *[other] { $more ->
+            [0] Цього { $count } треку вже є в «{ $title }»: { $songs }. Додати все одно?
+           *[other] Цього { $count } треку вже є в «{ $title }»: { $songs } і ще { $more }. Додати все одно?
+        }
+    }
+dialog-add-anyway = Додати все одно
+dialog-skip-duplicates = Пропустити дублікати

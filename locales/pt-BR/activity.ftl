@@ -7,6 +7,11 @@ status-added-queue = Adicionado à fila
 status-removed-queue = Removido da fila
 status-cleared-queue = Fila limpa
 status-removed-playlist = Removido da playlist
+status-not-added-duplicates =
+    { $count ->
+        [one] Não adicionada: já está em “{ $title }”
+       *[other] Nada adicionado: algumas destas músicas já estão em “{ $title }”
+    }
 status-playlist-deleted = Playlist excluída
 status-added-liked = Adicionado às faixas curtidas
 status-sign-in-like = Entre para curtir

@@ -4,6 +4,7 @@ nav-explore = 探索
 nav-library = 音乐库
 nav-library-section = 音乐库 › { $tab }
 nav-playlists = 播放列表
+nav-community-playlists = 社区播放列表
 nav-liked-songs = 点赞的歌曲
 nav-albums = 相册
 nav-artists = 艺术家

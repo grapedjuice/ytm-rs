@@ -7,6 +7,11 @@ status-added-queue = Ajouté à la file d’attente
 status-removed-queue = Retiré de la file d’attente
 status-cleared-queue = File d’attente vidée
 status-removed-playlist = Retiré de la playlist
+status-not-added-duplicates =
+    { $count ->
+        [one] Non ajouté : déjà dans « { $title } »
+       *[other] Rien n’a été ajouté : certains de ces titres sont déjà dans « { $title } »
+    }
 status-playlist-deleted = Playlist supprimée
 status-added-liked = Ajouté aux titres aimés
 status-sign-in-like = Connectez-vous pour aimer des titres

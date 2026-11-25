@@ -4,6 +4,7 @@ nav-explore = สำรวจ
 nav-library = คลังเพลง
 nav-library-section = คลังเพลง › { $tab }
 nav-playlists = เพลย์ลิสต์
+nav-community-playlists = เพลย์ลิสต์ชุมชน
 nav-liked-songs = เพลงที่ชอบ
 nav-albums = อัลบั้ม
 nav-artists = ศิลปิน

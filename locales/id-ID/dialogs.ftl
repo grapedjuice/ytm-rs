@@ -37,3 +37,14 @@ dialog-download-count = Unduh ({ $count })
 dialog-edit-playlist = Edit playlist
 dialog-download-body = Lagu yang belum diunduh: { $count }. Unduhan jalan di latar belakang dan dimulai dari lagu yang lagi diputar.
 dialog-download-collection-body = Lagu yang belum diunduh dari “{ $title }”: { $count }. Unduhan jalan di latar belakang dan dimulai dari lagu yang lagi diputar.
+dialog-add-duplicates-title = Sudah ada di playlist
+dialog-add-duplicates-some = Sebagian lagu ini sudah ada di "{ $title }". Tambahkan saja?
+dialog-add-duplicates-body =
+    { $count ->
+       *[other] { $more ->
+            [0] { $count } lagu ini sudah ada di "{ $title }": { $songs }. Tambahkan saja?
+           *[other] { $count } lagu ini sudah ada di "{ $title }": { $songs } dan { $more } lagi. Tambahkan saja?
+        }
+    }
+dialog-add-anyway = Tambahkan saja
+dialog-skip-duplicates = Lewati duplikat

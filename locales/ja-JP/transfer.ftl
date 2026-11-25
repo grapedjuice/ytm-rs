@@ -26,6 +26,7 @@ transfer-spotify-account = Spotify アカウント
 transfer-signed-in-plan = ログイン済み · Free と Premium に対応
 transfer-signed-in-as = { $name } でログイン済み
 transfer-credential-storage = ログイン情報は Windows 資格情報マネージャーに暗号化して保存します。
+transfer-credential-storage-system = ログイン情報はシステムのキーリングに保存します。使えないときは、あなただけが読めるファイルに保存します。
 transfer-checking-sign-in = ログイン情報を確認中…
 transfer-private-sign-in = お気に入りの曲と非公開プレイリストにはログインが必要です。公開プレイリストはログイン不要です。
 transfer-sign-in-spotify = Spotify にログイン

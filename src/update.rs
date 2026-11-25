@@ -11,8 +11,9 @@
 //! place of its own as it closes. A copy from the Linux .deb (a `deb.txt` beside the
 //! binary, in /usr/lib/ytm-rs) can't replace itself: it only says a new version is out
 //! ([`State::Available`]), and the new .deb installs over it. The Arch package (a
-//! `pacman.txt` there instead) does the same with the new package, and so does the
-//! AppImage (an `appimage.txt` beside the binary inside it) with the new AppImage. A Flatpak (which
+//! `pacman.txt` there instead) does the same with the new package. The AppImage (an
+//! `appimage.txt` beside the binary inside it) downloads the new AppImage and puts it in
+//! place of the file it was started from (`$APPIMAGE`) as it closes. A Flatpak (which
 //! always has `/.flatpak-info`) only says so too, and is updated through Flatpak. Every platform has a portable build too (a
 //! `portable.txt` marker; inside the app bundle on macOS), which updates from the
 //! portable download. Dev builds never update themselves.
@@ -133,6 +134,9 @@ pub fn installed() -> bool {
     if cfg!(target_os = "macos") {
         return bundle_of(&exe).is_some() && portable_dir().is_none();
     }
+    if appimage_file().is_some() {
+        return true;
+    }
     let marker = if cfg!(windows) { "unins000.exe" } else { "install.txt" };
     exe.parent().is_some_and(|d| d.join(marker).exists())
 }
@@ -153,11 +157,41 @@ pub fn pacman() -> bool {
 }
 
 /// Whether this copy runs from the AppImage, which marks it with `appimage.txt` beside
-/// the binary inside it. The binary sits in the image, mounted read-only while it runs,
-/// so like the .deb it never replaces itself.
+/// the binary inside it.
 pub fn appimage() -> bool {
     static APPIMAGE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *APPIMAGE.get_or_init(|| cfg!(target_os = "linux") && std::env::current_exe().ok().and_then(|e| Some(e.parent()?.join("appimage.txt").exists())).unwrap_or(false))
+}
+
+/// The AppImage file this copy was started from, which an update replaces: the binary
+/// itself sits in the image, mounted read-only while it runs. Its runtime says where it
+/// is in `APPIMAGE`. Without that (started from an unpacked image), or where it can't
+/// replace the file (someone else's, or in a folder it can't write to, such as /opt),
+/// it only says a new version is out, as the .deb does.
+pub fn appimage_file() -> Option<PathBuf> {
+    static FILE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    FILE.get_or_init(|| {
+        let file = appimage().then(|| std::env::var_os("APPIMAGE").map(PathBuf::from)).flatten()?;
+        (file.is_absolute() && file.is_file() && replaceable(&file)).then_some(file)
+    })
+    .clone()
+}
+
+/// Whether this user can put a new file in `file`'s place: it's theirs (which a folder
+/// like /tmp also asks), in a folder they can write to.
+#[cfg(unix)]
+fn replaceable(file: &Path) -> bool {
+    use std::os::unix::{ffi::OsStrExt, fs::MetadataExt};
+    // SAFETY: no arguments, can't fail.
+    let mine = std::fs::symlink_metadata(file).is_ok_and(|m| m.uid() == unsafe { libc::geteuid() });
+    let Some(Ok(dir)) = file.parent().map(|d| std::ffi::CString::new(d.as_os_str().as_bytes())) else { return false };
+    // SAFETY: a NUL-terminated path that outlives the call.
+    mine && unsafe { libc::access(dir.as_ptr(), libc::W_OK | libc::X_OK) == 0 }
+}
+
+#[cfg(not(unix))]
+fn replaceable(_: &Path) -> bool {
+    false
 }
 
 /// Whether this copy runs as a Flatpak. Flatpak owns it, so like the .deb it never
@@ -175,9 +209,9 @@ fn in_flatpak(info: &Path, pretend: bool) -> bool {
 }
 
 /// Whether a package manager owns this copy (the .deb, the Arch package or a Flatpak),
-/// or it's the AppImage: it only says a new version is out.
+/// or it's an AppImage with no file to replace: it only says a new version is out.
 pub fn packaged() -> bool {
-    flatpak() || deb() || pacman() || appimage()
+    flatpak() || deb() || pacman() || (appimage() && appimage_file().is_none())
 }
 
 /// What to do with the new version, for a copy a package manager owns. A Flatpak
@@ -199,7 +233,8 @@ pub fn package_step() -> &'static str {
 /// behind: the menu and the `ytm-rs` command open the install.sh one. What it's from,
 /// and the command that removes it.
 pub fn other_copy() -> Option<(&'static str, &'static str)> {
-    if !cfg!(target_os = "linux") {
+    // An AppImage is a file of its own, beside whatever else is installed.
+    if !cfg!(target_os = "linux") || appimage() {
         return None;
     }
     let home = std::env::var_os("HOME").map(PathBuf::from)?;
@@ -700,6 +735,9 @@ impl Updater {
         let unpacked = self.dir.join(format!("ytm-rs-{version}"));
         let ready = if cfg!(target_os = "macos") && !portable {
             open_dmg(&path, &unpacked)?
+        } else if appimage_file().is_some() {
+            // The AppImage is the whole app, nothing to unpack.
+            path
         } else if portable || cfg!(unix) {
             unzip_exe(&path, &unpacked)?
         } else {
@@ -713,7 +751,9 @@ impl Updater {
     /// (if `relaunch`) start the updated app.
     pub fn install(&self, relaunch: bool) {
         let State::Ready { installer, .. } = self.state() else { return };
-        let exe = std::env::current_exe().unwrap_or_default();
+        // An AppImage's binary is in its image, gone once it exits: the image file is
+        // what's replaced and started again.
+        let exe = appimage_file().unwrap_or_else(|| std::env::current_exe().unwrap_or_default());
         if !self.apply(&installer, &exe, relaunch) && relaunch {
             // Nothing changed: start this version again.
             start_after_exit(&exe);

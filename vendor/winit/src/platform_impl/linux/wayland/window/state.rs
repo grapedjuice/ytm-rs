@@ -69,6 +69,11 @@ pub struct WindowState {
     /// The pointers observed on the window.
     pub pointers: Vec<Weak<ThemedPointer<WinitPointerData>>>,
 
+    /// ytm-rs (#190): the seat and serial of the latest finger put down on the window and
+    /// still there, for a drag a finger starts: the compositor takes a move only with the
+    /// serial of the press it comes from, and a finger's isn't a pointer button's.
+    pub touch_grab: Option<(WlSeat, u32, i32)>,
+
     selected_cursor: SelectedCursor,
 
     /// Whether the cursor is visible.
@@ -206,6 +211,7 @@ impl WindowState {
             resize_increments: None,
             pointer_constraints,
             pointers: Default::default(),
+            touch_grab: None,
             queue_handle: queue_handle.clone(),
             resizable: true,
             scale_factor: 1.,
@@ -445,7 +451,11 @@ impl WindowState {
     /// Start the window drag.
     pub fn drag_window(&self) -> Result<(), ExternalError> {
         let xdg_toplevel = self.window.xdg_toplevel();
-        // TODO(kchibisov) handle touch serials.
+        // ytm-rs (#190): a finger that's down moves the window with its own serial.
+        if let Some((seat, serial, _)) = &self.touch_grab {
+            xdg_toplevel._move(seat, *serial);
+            return Ok(());
+        }
         self.apply_on_pointer(|_, data| {
             let serial = data.latest_button_serial();
             let seat = data.seat();

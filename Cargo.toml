@@ -145,6 +145,8 @@ winresource = "0.1.31"
 # full window's size doesn't constrain where the mini player can go.
 # It also hears the X11 settings that come after it connects, and takes the cursor size
 # from them (#326): see the ytm-rs notes in vendor/winit/src/platform_impl/linux/x11/xdisplay.rs.
+# On Wayland, a finger moves the window with its own serial rather than the last mouse
+# button's (#190): see the ytm-rs notes in vendor/winit/src/platform_impl/linux/wayland/seat/touch/mod.rs.
 [patch.crates-io]
 epaint = { path = "vendor/epaint" }
 souvlaki = { path = "vendor/souvlaki" }

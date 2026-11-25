@@ -603,11 +603,7 @@ fn lyrics_file(video_id: &str) -> Option<PathBuf> {
 /// The lyrics saved for a downloaded song, every source that had them.
 pub fn saved_lyrics(video_id: &str) -> Option<LyricsSet> {
     path(video_id)?;
-    let mut set: LyricsSet = serde_json::from_slice(&std::fs::read(lyrics_file(video_id)?).ok()?).ok()?;
-    // Unison lyrics saved before they carried its credit still link to the song.
-    for l in set.sources.iter_mut().filter(|l| l.provider.name() == "Unison" && l.unison.is_none()) {
-        l.unison = Some(crate::lyrics::UnisonCredit { video_id: video_id.to_owned(), submitter: None });
-    }
+    let set: LyricsSet = serde_json::from_slice(&std::fs::read(lyrics_file(video_id)?).ok()?).ok()?;
     (!set.sources.is_empty()).then_some(set)
 }
 

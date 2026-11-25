@@ -111,6 +111,10 @@ impl Provider {
         }
     }
 
+    pub fn is_unison(self) -> bool {
+        self.name() == "Unison"
+    }
+
     pub fn sync(self) -> SyncKind {
         match self {
             Provider::BLyricsRich | Provider::UnisonRich | Provider::BinimumRich => SyncKind::Syllable,
@@ -182,7 +186,7 @@ pub struct Lyrics {
 }
 
 /// Unison asks every app to credit it and the lyrics' submitter, both linked.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Hash, Serialize, Deserialize)]
 pub struct UnisonCredit {
     pub video_id: String,
     /// `submitter.displayName` and `submitter.keyId`.

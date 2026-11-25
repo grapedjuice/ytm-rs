@@ -3414,6 +3414,7 @@ mod tests {
         assert_eq!(count("7,22\u{a0}jt"), Some(7_220_000));
         assert_eq!(count("1,2 jt kali ditonton"), Some(1_200_000));
         assert_eq!(count("1,2\u{a0}M pemutaran"), Some(1_200_000_000));
+        assert_eq!(count("1,8\u{a0}M x ditonton"), Some(1_800_000_000));
         assert_eq!(count("2,5 mlr kali ditonton"), Some(2_500_000_000));
         // A fraction with no unit is no count.
         assert_eq!(count("1.5"), None);

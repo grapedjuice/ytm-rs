@@ -541,9 +541,10 @@ pub struct App {
     /// The other playlists kept downloaded (their page's More › Keep downloaded): songs
     /// that join them are downloaded too.
     kept_downloaded: Vec<String>,
-    /// The songs queued since launch for the lists kept downloaded (each once, so one that
-    /// can't be downloaded doesn't fail on every load).
-    kept_queued: HashSet<String>,
+    /// The songs queued since launch for each list kept downloaded, by (list, song): each
+    /// once, so one that can't be downloaded doesn't fail on every load, and a song one
+    /// list didn't download (its large download declined) still goes for another.
+    kept_queued: HashSet<(String, String)>,
     ratings: ratings::Ratings,
     rating_settings: ratings::Settings,
     selection: Selection,

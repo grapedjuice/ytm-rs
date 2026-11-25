@@ -308,7 +308,7 @@ impl App {
         if !self.keeps_downloaded(id) {
             return;
         }
-        let todo: Vec<Track> = crate::downloads::not_listed(tracks).into_iter().filter(|t| self.kept_queued.insert(t.id.clone())).collect();
+        let todo: Vec<Track> = crate::downloads::not_listed(tracks).into_iter().filter(|t| self.kept_queued.insert((id.to_owned(), t.id.clone()))).collect();
         if todo.is_empty() {
             return;
         }

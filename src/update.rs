@@ -11,7 +11,8 @@
 //! place of its own as it closes. A copy from the Linux .deb (a `deb.txt` beside the
 //! binary, in /usr/lib/ytm-rs) can't replace itself: it only says a new version is out
 //! ([`State::Available`]), and the new .deb installs over it. The Arch package (a
-//! `pacman.txt` there instead) does the same with the new package. A Flatpak (which
+//! `pacman.txt` there instead) does the same with the new package, and so does the
+//! AppImage (an `appimage.txt` beside the binary inside it) with the new AppImage. A Flatpak (which
 //! always has `/.flatpak-info`) only says so too, and is updated through Flatpak. Every platform has a portable build too (a
 //! `portable.txt` marker; inside the app bundle on macOS), which updates from the
 //! portable download. Dev builds never update themselves.
@@ -151,6 +152,14 @@ pub fn pacman() -> bool {
     *PACMAN.get_or_init(|| cfg!(target_os = "linux") && std::env::current_exe().ok().and_then(|e| Some(e.parent()?.join("pacman.txt").exists())).unwrap_or(false))
 }
 
+/// Whether this copy runs from the AppImage, which marks it with `appimage.txt` beside
+/// the binary inside it. The binary sits in the image, mounted read-only while it runs,
+/// so like the .deb it never replaces itself.
+pub fn appimage() -> bool {
+    static APPIMAGE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *APPIMAGE.get_or_init(|| cfg!(target_os = "linux") && std::env::current_exe().ok().and_then(|e| Some(e.parent()?.join("appimage.txt").exists())).unwrap_or(false))
+}
+
 /// Whether this copy runs as a Flatpak. Flatpak owns it, so like the .deb it never
 /// replaces itself, and there's no package to download either: Flatpak updates it.
 pub fn flatpak() -> bool {
@@ -165,10 +174,10 @@ fn in_flatpak(info: &Path, pretend: bool) -> bool {
     pretend || info.is_file()
 }
 
-/// Whether a package manager owns this copy (the .deb, the Arch package or a Flatpak):
-/// it only says a new version is out.
+/// Whether a package manager owns this copy (the .deb, the Arch package or a Flatpak),
+/// or it's the AppImage: it only says a new version is out.
 pub fn packaged() -> bool {
-    flatpak() || deb() || pacman()
+    flatpak() || deb() || pacman() || appimage()
 }
 
 /// What to do with the new version, for a copy a package manager owns. A Flatpak
@@ -178,6 +187,8 @@ pub fn package_step() -> &'static str {
         crate::tr!("window-package-flatpak")
     } else if pacman() {
         crate::tr!("window-package-instructions")
+    } else if appimage() {
+        crate::tr!("window-package-appimage")
     } else {
         crate::tr!("window-package-download")
     }
@@ -227,6 +238,9 @@ fn asset_name(version: &str) -> String {
     let arch = std::env::consts::ARCH;
     if cfg!(target_os = "linux") && pacman() {
         return pacman_package(version, arch);
+    }
+    if cfg!(target_os = "linux") && appimage() {
+        return format!("ytm-rs-{version}-linux-{arch}.AppImage");
     }
     if cfg!(target_os = "linux") && deb() {
         let arch = if arch == "x86_64" { "amd64" } else if arch == "aarch64" { "arm64" } else { arch };

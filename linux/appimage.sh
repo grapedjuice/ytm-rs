@@ -1,8 +1,8 @@
 #!/bin/sh
 # Build the AppImage: one file holding the app, its menu entry and icon. Like the
 # tarballs it runs on the system's own libraries (GTK, WebKitGTK, ALSA, …), so it needs
-# what they need. Beside the app goes appimage.txt, which has it tell you when a new
-# version is out instead of updating itself.
+# what they need. Beside the app goes appimage.txt, which has it update by putting the
+# new AppImage in place of the file it was started from.
 #
 #   linux/appimage.sh <binary> <version> <out dir>
 #
@@ -35,7 +35,7 @@ install -Dm644 "$root/LICENSE" "$app/usr/share/licenses/ytm-rs/LICENSE"
     echo
     cat "$APPIMAGE_RUNTIME_LICENSE"
 } > "$app/usr/share/licenses/ytm-rs/runtime.txt"
-echo "Run from the AppImage. This file has ytm-rs tell you about new versions instead of updating itself." > "$app/usr/lib/ytm-rs/appimage.txt"
+echo "Run from the AppImage. This file has ytm-rs update by replacing the AppImage file it was started from." > "$app/usr/lib/ytm-rs/appimage.txt"
 # The AppImage starts AppRun; the app beside its marker, wherever the image is mounted.
 cat > "$app/AppRun" <<'EOF'
 #!/bin/sh

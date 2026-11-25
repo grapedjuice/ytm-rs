@@ -83,6 +83,10 @@ impl Destination {
         if let Some(name) = saved.strip_prefix(airplay::PREFIX) {
             return Self::Remote { kind: Kind::AirPlay, members: vec![airplay::device_id(name)] };
         }
+        // A kind this version doesn't know, saved by a newer one: not a sound card.
+        if saved.starts_with("remote:") {
+            return Self::default();
+        }
         Self::Local(Some(saved.to_owned()))
     }
 
@@ -311,5 +315,7 @@ mod tests {
         assert_eq!(Destination::Local(Some("wasapi:{abc}".into())).key(), "wasapi:{abc}");
         // Something unreadable plays on the default.
         assert_eq!(Destination::parse("remote:airplay:"), Destination::Local(None));
+        // A kind from a newer version isn't taken for a sound card.
+        assert_eq!(Destination::parse("remote:sonos:rincon_5caafd0a1b2c"), Destination::Local(None));
     }
 }

@@ -490,12 +490,12 @@ impl AudioHandle {
         f32::from_bits(self.status.volume.load(Ordering::Relaxed))
     }
 
-    /// The app's own volume, to save: not a speaker's, while one's is on the slider.
     /// How the network speakers picked are doing.
     pub fn remote_state(&self) -> RemoteState {
         self.status.remote.lock().unwrap().clone()
     }
 
+    /// The app's own volume, to save: not a speaker's, while one's is on the slider.
     pub fn own_volume(&self) -> f32 {
         self.status.kept().unwrap_or_else(|| self.volume())
     }
@@ -1799,7 +1799,12 @@ fn run(
                 if to.is_remote() {
                     destination::discover();
                 }
-                *status.remote.lock().unwrap() = RemoteState::Idle;
+                // The same picked again (the menu stays open) leaves a connection going on
+                // as it is. A retry after a failure still connects: `remote_retry` is on
+                // again, and the card in use isn't the speakers.
+                if to != output.destination {
+                    *status.remote.lock().unwrap() = RemoteState::Idle;
+                }
                 output.destination = to;
                 output.remote_retry = true;
                 // A device let go while idle opens again with the next song.

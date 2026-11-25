@@ -95,7 +95,6 @@ settings-output-device-desc-system = ที่ที่เพลงเล่น:
 settings-windows-default = ค่าเริ่มต้นของ Windows
 settings-system-default = ค่าเริ่มต้นของระบบ
 settings-not-connected = { $name } (ไม่ได้เชื่อมต่อ)
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = เพลงเล่นดังเท่าที่ทำ ปกติจะนำทั้งหมดมาสู่ระดับเดียวกัน และเงียบไปในระดับเดียวกันและต่ำกว่า
 settings-normalization-normal-desc = เพลงเล่นในระดับเดียวกัน: เพลงที่ดังลงดังเช่น YouTube Music และเพลงที่เบาขึ้นมากถึง 6 dB
 settings-normalization-quiet-desc = เพลงเล่นในระดับเดียวกัน ระดับที่ต่ำกว่า: เพลงที่ดังลดลงอีก เพลงที่เงียบจึงแทบไม่ต้องเปิดเพลง

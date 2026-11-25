@@ -95,7 +95,6 @@ settings-output-device-desc-system = संगीत कहाँ बजता �
 settings-windows-default = Windows डिफ़ॉल्ट
 settings-system-default = सिस्टम डिफ़ॉल्ट
 settings-not-connected = { $name } (कनेक्टेड नहीं)
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = गाने उतनी ही तेज़ आवाज़ में बजते हैं जितनी ऊँची आवाज़ में बजते हैं। सामान्य उन सभी को एक ही स्तर पर लाता है, और शांत एक समान, निचले स्तर पर लाता है।
 settings-normalization-normal-desc = गाने समान स्तर पर बजते हैं: तेज़ आवाज़ वाले गाने कम कर दिए जाते हैं, जैसे YouTube Music पर, और शांत गाने 6 डीबी तक तेज़ कर दिए जाते हैं।
 settings-normalization-quiet-desc = गाने उसी स्तर पर, निचले स्तर पर बजते हैं: ऊंचे स्तर के गाने और नीचे बजते हैं, इसलिए शांत गानों को शायद ही कभी बजने की जरूरत पड़ती है।

@@ -95,7 +95,6 @@ settings-output-device-desc-system = Де грає музика: динамік�
 settings-windows-default = Типовий у Windows
 settings-system-default = Типовий у системі
 settings-not-connected = { $name } (не підключено)
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Треки відтворюються з початковою гучністю. Звичайний режим вирівнює гучність, а тихий вирівнює її на нижчому рівні.
 settings-normalization-normal-desc = Треки звучать на одному рівні. Як у YouTube Music, гучні треки приглушуються, а тихі підсилюються до 6 дБ.
 settings-normalization-quiet-desc = Треки звучать на одному нижчому рівні. Гучні сильніше приглушуються, тож тихі майже не потребують підсилення.

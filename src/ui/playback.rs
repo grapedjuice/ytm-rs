@@ -527,12 +527,13 @@ impl App {
     }
 
     /// Where the track playing was left, for a long one to pick up from there next time.
-    /// Not while it's still loading, which hasn't got anywhere yet.
+    /// Not while it's still loading, which hasn't got anywhere yet, nor in a jam's guest,
+    /// which plays at the host's position.
     pub(super) fn note_where_left(&mut self) {
         let Some(id) = self.left_from.clone() else { return };
         let at = self.current_at().as_secs() as u32;
         let duration = (self.audio.status.duration_ms.load(Ordering::Relaxed) / 1000) as u32;
-        if self.buffering || duration == 0 {
+        if self.buffering || duration == 0 || self.jam.guest() {
             return;
         }
         self.resume.note(&id, at, duration);
@@ -541,7 +542,7 @@ impl App {
     /// The track playing played to its end: it starts from the top next time.
     fn left_at_end(&mut self) {
         if let Some(id) = self.left_from.take() {
-            self.resume.note(&id, 0, 0);
+            self.resume.forget(&id);
         }
     }
 

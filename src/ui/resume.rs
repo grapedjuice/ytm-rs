@@ -7,7 +7,7 @@ use std::time::Duration;
 /// From this long on, a track is one people come back to rather than play through.
 pub const LONG: u32 = 20 * 60;
 
-/// Less than this far in, or this close to the end, isn't worth coming back to: the
+/// Less than this far in isn't worth coming back to, and this close to the end the
 /// track starts from the top next time.
 const MARGIN: u32 = 60;
 
@@ -19,15 +19,24 @@ const KEPT: usize = 200;
 pub struct Points(Vec<(String, u32)>);
 
 impl Points {
-    /// Track `id`, `duration` seconds long, was left `at` seconds in.
+    /// Track `id`, `duration` seconds long, was left `at` seconds in. Left in its first
+    /// minute (skipped past, or it never got going), where it was left before still holds.
     pub fn note(&mut self, id: &str, at: u32, duration: u32) {
-        self.0.retain(|(i, _)| i != id);
-        if duration >= LONG && at >= MARGIN && at + MARGIN < duration {
+        if at < MARGIN {
+            return;
+        }
+        self.forget(id);
+        if duration >= LONG && at + MARGIN < duration {
             self.0.push((id.to_owned(), at));
             if self.0.len() > KEPT {
                 self.0.remove(0);
             }
         }
+    }
+
+    /// Track `id` was played to its end: it starts from the top next time.
+    pub fn forget(&mut self, id: &str) {
+        self.0.retain(|(i, _)| i != id);
     }
 
     /// Where to pick up track `id`, if it was left partway.
@@ -49,11 +58,14 @@ mod tests {
         // Left again later: from there.
         p.note("ep", 2000, 3600);
         assert_eq!(p.at("ep"), Some(Duration::from_secs(2000)));
-        // Played to (nearly) the end, or barely begun: from the top next time.
+        // Barely begun (skipped past): still from there.
+        p.note("ep", 20, 3600);
+        assert_eq!(p.at("ep"), Some(Duration::from_secs(2000)));
+        // Played to (nearly) the end: from the top next time.
         p.note("ep", 3590, 3600);
         assert_eq!(p.at("ep"), None);
         p.note("ep", 1500, 3600);
-        p.note("ep", 20, 3600);
+        p.forget("ep");
         assert_eq!(p.at("ep"), None);
         // A song isn't long enough to come back to.
         p.note("song", 120, 240);

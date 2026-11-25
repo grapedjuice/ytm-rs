@@ -135,6 +135,8 @@ struct Cfg {
     /// One CSS rem in points.
     rem: f32,
     active: Color32,
+    /// A fixed ink for a compact view, over the theme's sung (and unsung) colours.
+    ink: Option<Color32>,
     /// Alpha of unsung words, before their line's opacity.
     dim_alpha: f32,
     glow: Color32,
@@ -152,6 +154,8 @@ struct Cfg {
     agent_align: AgentAlign,
     centered: bool,
     fill: Fill,
+    /// Only the row being sung can light, filling word by word (the pill).
+    active_row: bool,
     wave: LetterWave,
     wobble: bool,
     wobble_secs: f64,
@@ -275,6 +279,20 @@ impl Cfg {
         self.active_scale.max(self.hover_scale.unwrap_or(1.0)).max(1.0)
     }
 
+    /// The mini card's neighbors: readable, but softly out of focus. The active line is
+    /// untouched, and the theme's own (often heavier) blur is replaced here only.
+    fn soften_neighbors(&mut self) {
+        // [opacity, blur px] by distance from the line being sung: light enough that
+        // words are still there to read.
+        let ladder = vec![[0.86, 1.1], [0.6, 2.0], [0.38, 3.0], [0.22, 4.0]];
+        self.past = ladder.clone();
+        self.upcoming = ladder.clone();
+        self.past_lines = ladder.clone();
+        self.upcoming_lines = ladder;
+        // The mini card's one-line window keeps the active line in the middle.
+        self.target_ratio = 0.5;
+    }
+
     /// `width`: the lyrics panel; `viewport`: the window (the theme's media queries).
     #[allow(clippy::too_many_arguments)]
     fn new(s: &LyricStyle, accent: Color32, width: f32, viewport: f32, viewport_h: f32, centered: bool, own: Own, fullscreen: bool) -> Self {
@@ -293,6 +311,12 @@ impl Cfg {
             rem *= cap / size;
             size = cap;
         }
+        // A compact view pins its own size, keeping the theme's proportions in rem.
+        if let Some(fixed) = own.size {
+            let fixed = fixed.round().max(1.0);
+            rem *= fixed / size.max(0.001);
+            size = fixed;
+        }
         // The listener's text size goes on top, everything in rem along with it
         // (romanization, translation, spacing), so the theme keeps its proportions.
         // Whole points: every new size fills the font atlas again (it never shrinks),
@@ -300,32 +324,36 @@ impl Cfg {
         let rounded = (size * own.scale).round().max(1.0);
         rem *= rounded / size;
         size = rounded;
+        let padding = match s.line_padding_vh {
+            Some([lo, vh, hi]) => (viewport_h * vh / 100.0).clamp(lo, hi),
+            None => rem * if fullscreen { s.fullscreen_padding_rem.unwrap_or(s.line_padding_rem) } else { s.line_padding_rem },
+        };
         let colour = |c: &str| crate::preset::hex(c);
+        let ink = own.ink;
         Self {
             font: theme::effective_font(&s.font),
             weight: own.weight.unwrap_or(s.weight),
             size,
             deco_scale: own.deco_scale,
             rem,
-            active: theme::with_alpha(crate::preset::paint(&s.sung_color, accent), s.active_alpha),
+            active: ink.unwrap_or_else(|| theme::with_alpha(crate::preset::paint(&s.sung_color, accent), s.active_alpha)),
+            ink,
             dim_alpha: s.dim_alpha,
-            glow: crate::preset::paint(&s.glow_color, accent),
+            glow: ink.unwrap_or_else(|| crate::preset::paint(&s.glow_color, accent)),
             glow_rem: s.glow_rem,
             scale: s.rest_scale,
             active_scale: s.active_scale.max(0.1),
             scale_secs: s.scale_secs.max(0.001) as f64,
             hover_scale: s.hover_scale,
             hover_reveal: s.hover_reveal,
-            padding: match s.line_padding_vh {
-                Some([lo, vh, hi]) => (viewport_h * vh / 100.0).clamp(lo, hi),
-                None => rem * if fullscreen { s.fullscreen_padding_rem.unwrap_or(s.line_padding_rem) } else { s.line_padding_rem },
-            },
+            padding: own.padding.unwrap_or(padding),
             line_height: s.line_height,
             spacing: s.letter_spacing_em * size,
-            target_ratio: s.anchor.clamp(0.1, 0.7),
+            target_ratio: own.anchor.unwrap_or(s.anchor).clamp(0.1, 0.7),
             agent_align: s.agent_align,
             centered,
             fill: s.fill,
+            active_row: own.active_row,
             wave: s.letter_wave,
             wobble: s.wobble,
             wobble_secs: s.wobble_secs.max(0.001) as f64,
@@ -340,15 +368,21 @@ impl Cfg {
             past_lines: if s.past_line_synced.is_empty() { s.past.clone() } else { s.past_line_synced.clone() },
             upcoming_lines: if s.upcoming_line_synced.is_empty() { s.upcoming.clone() } else { s.upcoming_line_synced.clone() },
             past_dim: s.past_dim_alpha,
-            past_color: colour(&s.past_color),
+            past_color: ink.or_else(|| colour(&s.past_color)),
             opacity_t: s.opacity_transition,
             blur_t: s.blur_transition,
             scroll_opacity: s.scroll_opacity,
-            agent_colors: s.agent_colors.iter().map(|c| crate::preset::paint(c, accent)).collect(),
+            agent_colors: match ink {
+                Some(c) => vec![c; s.agent_colors.len()],
+                None => s.agent_colors.iter().map(|c| crate::preset::paint(c, accent)).collect(),
+            },
             dim_from_agent: s.dim_from_agent,
-            band: s.sweep_band.iter().map(|c| crate::preset::paint(c, accent)).collect(),
+            band: match ink {
+                Some(c) => vec![c; s.sweep_band.len()],
+                None => s.sweep_band.iter().map(|c| crate::preset::paint(c, accent)).collect(),
+            },
             band_width: s.sweep_band_width,
-            stroke: (s.stroke_em > 0.0).then(|| (s.stroke_em * size, crate::preset::paint(&s.stroke_color, accent))),
+            stroke: (s.stroke_em > 0.0).then(|| (s.stroke_em * size, ink.unwrap_or_else(|| crate::preset::paint(&s.stroke_color, accent)))),
             bg_em: s.background_em,
             instrumental: s.instrumental,
             aura: s.aura,
@@ -397,11 +431,23 @@ impl Cfg {
             edge_fade: s.edge_fade,
             balance: s.balance,
             exit_fade: s.exit_fade.map_or((FADE_OUT, 0.0), |[secs, delay]| (secs.max(0.01) as f64, delay as f64)),
-            agent_glow: s.agent_glow.iter().map(|c| crate::preset::paint(c, accent)).collect(),
-            aura_colors: s.aura_colors.iter().map(|c| crate::preset::paint(c, accent)).collect(),
-            marker_colors: s.marker_colors.iter().map(|c| crate::preset::paint(c, accent)).collect(),
+            agent_glow: match ink {
+                Some(c) => vec![c; s.agent_glow.len()],
+                None => s.agent_glow.iter().map(|c| crate::preset::paint(c, accent)).collect(),
+            },
+            aura_colors: match ink {
+                Some(c) => vec![c; s.aura_colors.len()],
+                None => s.aura_colors.iter().map(|c| crate::preset::paint(c, accent)).collect(),
+            },
+            marker_colors: match ink {
+                Some(c) => vec![c; s.marker_colors.len()],
+                None => s.marker_colors.iter().map(|c| crate::preset::paint(c, accent)).collect(),
+            },
             active_glow: s.active_glow,
-            active_glow_colors: s.active_glow_colors.iter().map(|c| crate::preset::paint(c, accent)).collect(),
+            active_glow_colors: match ink {
+                Some(c) => vec![c; s.active_glow_colors.len()],
+                None => s.active_glow_colors.iter().map(|c| crate::preset::paint(c, accent)).collect(),
+            },
             hover_glow: s.hover_glow,
             rest_saturate: s.rest_saturate,
             scroll_curve: s.scroll_curve,
@@ -456,6 +502,9 @@ impl Cfg {
     }
     /// The colours a singer's words use: (lit, unsung tint).
     fn agent_color(&self, agent: Option<&str>) -> (Color32, Color32) {
+        if let Some(ink) = self.ink {
+            return (ink, ink);
+        }
         let c = agent.and_then(|a| a.strip_prefix('v')?.parse::<usize>().ok()).and_then(|n| self.agent_colors.get(n.checked_sub(1)?).copied());
         match c {
             Some(c) => (c, if self.dim_from_agent { c } else { Color32::WHITE }),
@@ -1130,6 +1179,9 @@ pub struct View {
     states: Vec<LineState>,
     scroll_top: f32,
     scroll_set: bool,
+    /// The mini card's height last frame: its chrome slides, so the view's height changes
+    /// under the line being sung and the scroll follows it by half of each change.
+    soft_h: f32,
     scrolls: Vec<ScrollAnim>,
     shifts: Vec<Vec<Shift>>,
     last_scroll: Vec<usize>,
@@ -1166,9 +1218,16 @@ struct CfgKey {
     accent: Color32,
     /// Panel width, window width and height, text scale, translation size.
     sizes: [u32; 5],
+    /// A fixed text size, anchor and line padding over the theme's, when the view sets them.
+    fixed_size: Option<u32>,
+    anchor: Option<u32>,
+    line_padding: Option<u32>,
+    ink: Option<Color32>,
+    active_row: bool,
     weight: Option<Weight>,
     centered: bool,
     fullscreen: bool,
+    soft: bool,
     fonts: u32,
 }
 
@@ -1194,6 +1253,8 @@ pub struct Frame<'a> {
     pub glass_chip: Option<[f32; 3]>,
     /// "Quick line changes": lines scroll the extension's own way, not the theme's.
     pub quick_scroll: bool,
+    /// The mini card's look: neighbor lines are dimmed and softly blurred, still readable.
+    pub soft: bool,
 }
 
 /// Settings › Lyrics over the theme's own look.
@@ -1205,11 +1266,24 @@ pub struct Own {
     pub weight: Option<Weight>,
     /// Translations' and romanizations' size, a multiple of the theme's.
     pub deco_scale: f32,
+    /// A fixed text size in points in place of the theme's, for a compact view.
+    pub size: Option<f32>,
+    /// A fixed anchor for the line being sung (0.5: the middle), in place of the theme's.
+    pub anchor: Option<f32>,
+    /// A fixed line padding in points in place of the theme's (0: lines packed close).
+    pub padding: Option<f32>,
+    /// A fixed ink for a compact view, over the theme's sung and unsung colours.
+    pub ink: Option<Color32>,
+    /// Keep the row containing the latest sung word at the anchor, scrolling the line
+    /// through a one-line window as it is sung (the pill's compact karaoke).
+    pub follow: bool,
+    /// Light only the row being sung, with its words filling as they are sung (the pill).
+    pub active_row: bool,
 }
 
 impl Default for Own {
     fn default() -> Self {
-        Self { scale: 1.0, weight: None, deco_scale: 1.0 }
+        Self { scale: 1.0, weight: None, deco_scale: 1.0, size: None, anchor: None, padding: None, ink: None, follow: false, active_row: false }
     }
 }
 
@@ -1219,6 +1293,8 @@ pub struct Out {
     pub animating: bool,
     /// The reader scrolled away; a "resume" control can bring the view back.
     pub user_scrolling: bool,
+    /// The line being sung's block height, for a one-line mini viewport.
+    pub active_h: f32,
 }
 
 impl View {
@@ -1265,23 +1341,36 @@ impl View {
             style: std::ptr::from_ref(f.style) as usize,
             accent: f.accent,
             sizes: [rect.width().to_bits(), viewport.to_bits(), viewport_h.to_bits(), f.own.scale.to_bits(), f.own.deco_scale.to_bits()],
+            fixed_size: f.own.size.map(f32::to_bits),
+            anchor: f.own.anchor.map(f32::to_bits),
+            line_padding: f.own.padding.map(f32::to_bits),
+            ink: f.own.ink,
+            active_row: f.own.active_row,
             weight: f.own.weight,
             centered: f.centered,
             fullscreen: f.fullscreen,
+            soft: f.soft,
             fonts: theme::fonts_generation(),
         };
         let cfg = match &self.cfg {
             Some((key, font, cfg)) if *key == cfg_key && theme::font_choice_is(font) => cfg.clone(),
             _ => {
-                let cfg = Arc::new(Cfg::new(f.style, f.accent, rect.width(), viewport, viewport_h, f.centered, f.own, f.fullscreen));
+                let mut soft = Cfg::new(f.style, f.accent, rect.width(), viewport, viewport_h, f.centered, f.own, f.fullscreen);
+                if f.soft {
+                    soft.soften_neighbors();
+                }
+                let cfg = Arc::new(soft);
                 self.cfg = Some((cfg_key, theme::font_choice(), cfg.clone()));
                 cfg
             }
         };
         // What a line's own picture depends on. The view's height isn't in it: that only moves
         // the lines, and a new blurred image per line for every step of a resize piled up.
-        let image_key = hash((f.key, rect.width().round() as i32, (cfg.size.to_bits(), cfg.deco_scale.to_bits()), cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, &cfg.font, (cfg.weight as u8, cfg.bg_weight as u8), cfg.spacing.to_bits(), cfg.line_height.to_bits(), (cfg.agent_align as u8, cfg.wave.on), theme::fonts_generation()));
-        let layout_key = hash((image_key, rect.height().round() as i32));
+        let image_key = hash((f.key, rect.width().round() as i32, (cfg.size.to_bits(), cfg.deco_scale.to_bits()), (cfg.padding.to_bits(), cfg.max_scale().to_bits(), cfg.centered, cfg.ink.map(|c| c.to_array())), &cfg.font, (cfg.weight as u8, cfg.bg_weight as u8), cfg.spacing.to_bits(), cfg.line_height.to_bits(), (cfg.agent_align as u8, cfg.wave.on), theme::fonts_generation()));
+        // The mini card's lyrics area changes height as its chrome slides. In soft mode the
+        // view simply centres the line being sung, so the height isn't part of its layout:
+        // rebuilding the lines for every step of the slide only made them jitter.
+        let layout_key = hash((image_key, if f.soft { 0 } else { rect.height().round() as i32 }, cfg.target_ratio.to_bits()));
         if self.layout.as_ref().is_none_or(|l| l.key != layout_key) {
             self.relayout(ui, &cfg, &f, layout_key, rect);
         }
@@ -1302,6 +1391,7 @@ impl View {
         // ---- selection and exits (tickView's per-line loop)
         let early = if f.playing { 2.0 } else { 0.0 };
         let mut animating = false;
+        let mut active_h = 0.0;
         for i in 0..lines_n {
             let b = &layout.blocks[i];
             let next = layout.blocks.get(i + 1).filter(|n| n.line.is_some()).map_or(f64::INFINITY, |n| n.start);
@@ -1327,6 +1417,19 @@ impl View {
 
         // ---- scrolling
         let view_h = rect.height();
+        if f.soft {
+            // The line being sung stays at the centre of the view: a height change moves
+            // that centre by half of it, so the scroll moves by the same half.
+            if self.scroll_set && self.soft_h > 0.0 {
+                let d = view_h - self.soft_h;
+                if d.abs() > 0.01 {
+                    self.scroll_top -= d * 0.5;
+                }
+            }
+            self.soft_h = view_h;
+        } else {
+            self.soft_h = 0.0;
+        }
         let scroll_time = t + cfg.scroll_offset;
         let user = f.now < self.user_until;
         let mut active: Vec<usize> = Vec::new();
@@ -1351,13 +1454,12 @@ impl View {
             self.credits_focused = credits_focused;
             new_lyric = true;
         }
-        // A line taller than the view would run off the bottom while it's sung: how far
-        // down it the singing is (the latest word's row, or for a line-synced line, as far
-        // as its time has gone), so the view pages down with it.
+        // How far down its line the singing is: the latest sung word's row, or for a
+        // line-synced line, as far as its time has gone.
         let line_h = cfg.line_h();
-        let sung_y = |i: usize| -> Option<f32> {
+        let row_y = |i: usize| -> Option<f32> {
             let b = &layout.blocks[i];
-            if b.height <= view_h || scroll_time < b.start {
+            if scroll_time < b.start {
                 return None;
             }
             let mut timed = b.words.iter().filter(|w| !w.line_synced && !w.bg).peekable();
@@ -1367,14 +1469,38 @@ impl View {
                 timed.filter(|w| w.start <= scroll_time).map(|w| w.pos.y).fold(0.0, f32::max)
             })
         };
-        let page = active.last().and_then(|&i| sung_y(i).map(|y| (i, (y / line_h) as i32)));
+        // A line taller than the view pages down with the singing.
+        let sung_y = |i: usize| -> Option<f32> {
+            let b = &layout.blocks[i];
+            if b.height <= view_h { None } else { row_y(i) }
+        };
+        // The pill follows the sung row so the active part stays in the middle of its
+        // one-line window; the bigger views keep the whole line centred.
+        let follow_line = if f.own.follow { active.iter().copied().rev().find(|&i| layout.blocks[i].start <= scroll_time) } else { None };
+        let page = if let Some(i) = follow_line {
+            row_y(i).map(|y| (i, (y / line_h) as i32))
+        } else {
+            active.last().and_then(|&i| sung_y(i).map(|y| (i, (y / line_h) as i32)))
+        };
         if page != self.page {
             self.page = page;
             new_lyric |= page.is_some();
         }
         let pos = |i: usize| layout.pad_top + layout.blocks[i].top;
         let max_scroll = (layout.content_h - view_h).max(0.0);
-        if !user && (new_lyric || !self.scroll_set) && lines_n > 0 {
+        // The mini card gives the renderer just the line being sung: put it exactly in the
+        // middle, whatever anchor the theme uses for its multi-line view.
+        let single = f.soft && lines_n == 1;
+        if single {
+            let b = &layout.blocks[0];
+            let centre = layout.pad_top + b.top + b.height / 2.0;
+            self.scroll_top = centre - view_h / 2.0;
+            self.scroll_set = true;
+            self.scrolls.clear();
+            self.coast = 0.0;
+            self.user_until = 0.0;
+            self.last_scroll = active.clone();
+        } else if !user && (new_lyric || !self.scroll_set) && lines_n > 0 {
             if active.is_empty() {
                 active.push(0);
             }
@@ -1404,7 +1530,16 @@ impl View {
             if credits_focused && let (Some(c), Some(ls)) = (credits, last_sung) {
                 top = (pos(c) + h(c) / 2.0 - offset).min(pos(ls));
             }
-            let top = top.clamp(0.0, max_scroll);
+            let top = if let Some(i) = follow_line {
+                // The pill: keep the row being sung in the middle as the line rolls on.
+                row_y(i).map_or(centre - offset, |y| pos(i) + y + line_h * 0.5 - offset)
+            } else if f.soft || f.own.anchor.is_some() {
+                // The mini card and the pill: centre the line being sung even when it is
+                // the first or last one, where the normal view stops at the lyrics' edge.
+                centre - offset
+            } else {
+                top.clamp(0.0, max_scroll)
+            };
             if !self.scroll_set {
                 self.scroll_top = top;
                 self.scroll_set = true;
@@ -1417,10 +1552,10 @@ impl View {
 
         // Reader scrolling.
         let hovered = ui.rect_contains_pointer(rect);
-        let mut wheel = if hovered { ui.input(|i| i.smooth_scroll_delta.y) } else { 0.0 };
+        let mut wheel = if hovered && !single { ui.input(|i| i.smooth_scroll_delta.y) } else { 0.0 };
         // A finger drags them too, as egui's scroll areas let it, and a flick coasts on.
         // Under the lines, which take only taps: a tap still jumps to its line.
-        if ui.input(|i| i.has_touch_screen()) {
+        if !single && ui.input(|i| i.has_touch_screen()) {
             let drag = ui.interact(rect, ui.scope_id().with("lyr-drag"), egui::Sense::DRAG);
             if drag.dragged() {
                 wheel += ui.input(|i| i.pointer.delta().y);
@@ -1430,7 +1565,7 @@ impl View {
                 self.coast = ui.input(|i| i.pointer.velocity().y).clamp(-6000.0, 6000.0);
             }
         }
-        if self.coast != 0.0 {
+        if !single && self.coast != 0.0 {
             let dt = ui.input(|i| i.stable_dt).min(0.1);
             wheel += self.coast * dt;
             // Slowing to a stop in about a second, like a scroll area's coast.
@@ -1553,6 +1688,9 @@ impl View {
 
             // Whole-line opacity and blur by state, as the themes' `.blyrics--active` rules.
             let on = sung_now;
+            if on {
+                active_h = b.height;
+            }
             let (past_t, up_t) = if richsync { (&cfg.past, &cfg.upcoming) } else { (&cfg.past_lines, &cfg.upcoming_lines) };
             let is_past = match first_active {
                 Some(a) => i < a,
@@ -1878,7 +2016,7 @@ impl View {
         // the lit text they belong to by inserting at the recorded positions.
         self.glow.finish(&ctx, &painter, glow_work, atlas, ppp);
         fade_edges(&ctx, painter.layer_id(), first_shape, rect, cfg.size);
-        Out { seek, animating, user_scrolling: user }
+        Out { seek, animating, user_scrolling: user, active_h }
     }
 
     fn relayout(&mut self, ui: &mut egui::Ui, cfg: &Cfg, f: &Frame, key: u64, rect: Rect) {
@@ -2570,8 +2708,44 @@ fn paint_words(
     // The dim run, then the highlight run over it (`.blyrics-highlight-run`, z-index 1):
     // each word's drop-shadow, then its lit text.
     painter.add(Shape::mesh(base));
+    // In the compact pill only the row being sung may light. Its words still fill in
+    // turn through the normal sweep; the row it leaves fades out instead of cutting.
+    const ROW_FADE: f64 = 0.3;
+    let active_row = if cfg.active_row && key.2 == 0 && lit.exit.is_none() && lit.fill == Fill::Sweep {
+        words
+            .iter()
+            .filter(|w| !w.line_synced && !w.bg && w.start <= lit.t)
+            .max_by(|a, b| a.start.total_cmp(&b.start))
+            .map(|w| w.pos.y)
+    } else {
+        None
+    };
+    let next_start = active_row
+        .map(|row| {
+            words.iter().filter(|w| !w.line_synced && !w.bg && (w.pos.y - row).abs() <= 0.5).map(|w| w.start).fold(f64::INFINITY, f64::min)
+        })
+        .filter(|start| start.is_finite());
     for (wi, (w, (quads, wob))) in words.iter().zip(per_word).enumerate() {
         let look = word_look(w, lit, cfg);
+        // The pill's background vocals stay on the dim layer for the line's whole life.
+        // Gating only the sung rows left them briefly lit while their line exited, which
+        // showed up as a flash as the row scrolled up.
+        let look = if cfg.active_row && w.bg {
+            WordLook { opacity: 0.0, ..look }
+        } else if cfg.active_row && key.2 == 0 && lit.exit.is_none() && lit.fill == Fill::Sweep && !w.line_synced {
+            match active_row {
+                Some(row) if (w.pos.y - row).abs() <= 0.5 => look,
+                Some(row) if w.pos.y < row => {
+                    // The row above was active until the next row's first word: fade it down.
+                    let p = next_start.map_or(1.0, |start| ((lit.t - start) / ROW_FADE).clamp(0.0, 1.0)) as f32;
+                    WordLook { opacity: look.opacity * (1.0 - p), ..look }
+                }
+                Some(_) => WordLook { opacity: 0.0, ..look },
+                None => look,
+            }
+        } else {
+            look
+        };
         if look.opacity <= 0.0 || look.end <= 0.0 {
             continue;
         }
@@ -3626,7 +3800,7 @@ mod tests {
             let mut animating = false;
             let mut out = ctx.run_ui(input, |ui| {
                 let n = lyrics.lines.len();
-                let f = Frame { lyrics: &lyrics, key: 1, roman: (0..n).map(|_| None).collect(), trans: vec![None; n], t, playing, now, rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 500.0)), style, accent: Color32::RED, centered: false, own: Own::default(), fullscreen: false, glass_chip: None, quick_scroll: false };
+                let f = Frame { lyrics: &lyrics, key: 1, roman: (0..n).map(|_| None).collect(), trans: vec![None; n], t, playing, now, rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 500.0)), style, accent: Color32::RED, centered: false, own: Own::default(), fullscreen: false, glass_chip: None, quick_scroll: false, soft: false };
                 animating = view.show(ui, f).animating;
             });
             out.textures_delta.clear();
@@ -3672,7 +3846,7 @@ mod tests {
             let mut seek = None;
             let mut out = ctx.run_ui(input, |ui| {
                 let n = lyrics.lines.len();
-                let f = Frame { lyrics: &lyrics, key: 1, roman: (0..n).map(|_| None).collect(), trans: vec![None; n], t: 0.5, playing: false, now, rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 500.0)), style, accent: Color32::RED, centered: false, own: Own::default(), fullscreen: false, glass_chip: None, quick_scroll: false };
+                let f = Frame { lyrics: &lyrics, key: 1, roman: (0..n).map(|_| None).collect(), trans: vec![None; n], t: 0.5, playing: false, now, rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 500.0)), style, accent: Color32::RED, centered: false, own: Own::default(), fullscreen: false, glass_chip: None, quick_scroll: false, soft: false };
                 seek = view.show(ui, f).seek;
             });
             out.textures_delta.clear();

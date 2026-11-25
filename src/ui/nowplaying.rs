@@ -2206,14 +2206,14 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
         trans.hash(&mut h);
         h.finish()
     };
-    let own = karaoke::Own { scale: app.lyric_prefs.text_scale, weight: app.lyric_prefs.weight, deco_scale: app.lyric_prefs.deco_scale };
+    let own = karaoke::Own { scale: app.lyric_prefs.text_scale, weight: app.lyric_prefs.weight, deco_scale: app.lyric_prefs.deco_scale, size: None, anchor: None, padding: None, ink: None, follow: false, active_row: false };
     let fullscreen = app.fullscreen;
     let glass_chip = app.look().app.glass.instrumental;
     let quick_scroll = app.quick_lyric_scroll;
-    let frame = karaoke::Frame { lyrics, key, roman, trans, t, playing, now, rect, style, accent, centered, own, fullscreen, glass_chip, quick_scroll };
+    let frame = karaoke::Frame { lyrics, key, roman, trans, t, playing, now, rect, style, accent, centered, own, fullscreen, glass_chip, quick_scroll, soft: false };
     // The view lives in `app`; the frame borrows `app` for decorations, so swap it out.
     let mut view = std::mem::take(&mut app.lyric_view);
-    let out = if karaoke::dev_off("view") { karaoke::Out { seek: None, animating: true, user_scrolling: false } } else { view.show(ui, frame) };
+    let out = if karaoke::dev_off("view") { karaoke::Out { seek: None, animating: true, user_scrolling: false, active_h: 0.0 } } else { view.show(ui, frame) };
     app.lyric_view = view;
     if let Some(s) = out.seek {
         // The line's time on the player's clock: `t` above, the other way round.

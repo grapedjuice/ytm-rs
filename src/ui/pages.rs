@@ -1014,8 +1014,8 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let rows = Rows::new(app, now);
     let downloaded = all_downloaded(app, id);
     let run = app.download_runs.iter().find(|r| r.key == id).map(|r| (r.done, r.total, r.cancelled));
-    // A playlist can be kept downloaded; an album doesn't change, so its Download is enough.
-    let kept = app.lists.get(id).filter(|o| !o.c.is_album).map(|_| app.keeps_downloaded(id));
+    // A playlist can be kept downloaded, signed in; an album doesn't change, so its Download is enough.
+    let kept = app.lists.get(id).filter(|o| app.logged_in && !o.c.is_album).map(|_| app.keeps_downloaded(id));
     let Some(o) = app.lists.get(id) else { return };
     // Sorted once all of it is here: until then it plays as it arrives.
     app.find.hold(&app.page, !o.complete);

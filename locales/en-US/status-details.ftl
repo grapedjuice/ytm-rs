@@ -44,3 +44,4 @@ status-episodes = { $count ->
 status-download-quoted-title = “{ $title }”
 discord-view-artist = View artist
 discord-view-album = View album
+status-resumed-at = Picking up where you left off, at { $time }

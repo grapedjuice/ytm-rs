@@ -217,6 +217,8 @@ impl App {
         self.audio.status.duration_ms.store(dur, Ordering::Relaxed);
         self.audio.status.position_ms.store(s.position_ms, Ordering::Relaxed);
         self.resume_at = Some(Duration::from_millis(s.position_ms));
+        // Left for another without being played on, a long one still picks up here later.
+        self.left_from = Some(track.id.clone());
         self.listened_at = s.listened_at;
         self.request_art();
         self.show_in_media(&shown);
@@ -469,7 +471,13 @@ impl App {
     /// `swap`: the same play going on as its song version or its music video, from `at`.
     fn start_current(&mut self, at: Duration, report: bool, swap: bool) {
         let swap = std::mem::take(&mut self.resume_as_song) || swap;
+        self.note_where_left();
         let Some(track) = self.current().cloned() else { return };
+        self.left_from = Some(track.id.clone());
+        // A long track played again picks up where it was left (not in a jam, which plays
+        // at the host's position).
+        let resumed = (at.is_zero() && report && !swap && !self.jam.active()).then(|| self.resume.at(&track.id)).flatten();
+        let at = resumed.unwrap_or(at);
         // Picking up mid-song (a resume, a download that broke off): the position is the
         // song version's when one was playing, so that goes on; a music video stays one.
         // Likewise a song's music video.
@@ -510,6 +518,17 @@ impl App {
         self.request_art();
         self.refresh_lyrics(shown);
         self.top_up();
+        if let Some(at) = resumed {
+            self.toast(crate::tr!("status-resumed-at", time = super::fmt_time(at.as_secs() as u32)));
+        }
+    }
+
+    /// Where the track playing was left, for a long one to pick up from there next time.
+    pub(super) fn note_where_left(&mut self) {
+        let Some(id) = self.left_from.clone() else { return };
+        let at = self.current_at().as_secs() as u32;
+        let duration = (self.audio.status.duration_ms.load(Ordering::Relaxed) / 1000) as u32;
+        self.resume.note(&id, at, duration);
     }
 
     /// The playing track's title, artist and length for the system's media controls,

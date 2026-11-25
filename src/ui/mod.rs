@@ -30,6 +30,7 @@ mod playback;
 mod queue;
 mod ratings;
 mod responses;
+mod resume;
 mod row_drag;
 mod seek_wheel;
 mod shell;
@@ -555,6 +556,10 @@ pub struct App {
     pinned: Vec<String>,
 
     // playback
+    /// Where long tracks (podcast episodes, mixes) were left, to pick up from there.
+    resume: resume::Points,
+    /// The track playing, for where it's left to be noted when another starts.
+    left_from: Option<String>,
     queue: Queue,
     generation: u64,
     /// Monotonic counter for assigning play and staged-gapless generation numbers without collisions.
@@ -1020,6 +1025,8 @@ impl App {
             switching_to: None,
             sidebar_cache: None,
             pinned: get("pinned_playlists").and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
+            resume: get("resume_points").and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
+            left_from: None,
             queue: Queue::new(match get("repeat").as_deref() {
                 Some("all") => Repeat::All,
                 Some("one") => Repeat::One,
@@ -2217,6 +2224,8 @@ impl eframe::App for App {
         self.rating_settings.save(storage);
         storage.set_string("list_sorts", serde_json::to_string(&self.find.sorts).unwrap_or_default());
         storage.set_string("pinned_playlists", serde_json::to_string(&self.pinned).unwrap_or_default());
+        self.note_where_left();
+        storage.set_string("resume_points", serde_json::to_string(&self.resume).unwrap_or_default());
         storage.set_string("podcasts", b(self.show_podcasts));
         storage.set_string("comments", b(self.show_comments));
         storage.set_string("restricted_mode", b(self.restricted_mode));

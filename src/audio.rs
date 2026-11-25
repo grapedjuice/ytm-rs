@@ -931,8 +931,8 @@ impl Output {
     fn remote_target(&self) -> Option<(String, Kind, Vec<destination::Receiver>)> {
         let Destination::Remote { kind, members } = &self.destination else { return None };
         let found = destination::find_all(members).filter(|_| self.remote_retry)?;
-        // Found a way they don't all have any more: the best they share.
-        let kind = Some(*kind).filter(|k| destination::shared_kind(&found).is_some_and(|s| s == *k)).or_else(|| destination::shared_kind(&found))?;
+        // The way picked, while they all still have it; otherwise the best they share.
+        let kind = Some(*kind).filter(|&k| destination::all_have(&found, k)).or_else(|| destination::shared_kind(&found))?;
         Some((self.destination.key(), kind, found))
     }
 
@@ -979,7 +979,13 @@ impl Output {
         };
         // The sound card that played meanwhile gives the mixer back.
         self.sink = None;
-        let Some(source) = self.take_source() else { return false };
+        // Failing from here, the sound card stands in, and isn't left to try them again
+        // (and fail again) at once: `open` would otherwise connect anew.
+        let Some(source) = self.take_source() else {
+            self.remote_retry = false;
+            *status.remote.lock().unwrap() = RemoteState::Failed(destination::describe(kind, &anyhow::anyhow!("the audio wasn't handed over")));
+            return false;
+        };
         let bridge = Bridge::new(source, self.slot.clone(), status, true);
         let volume = session.volume();
         match (*session).play(bridge, self.reporter(tx)) {
@@ -994,6 +1000,7 @@ impl Output {
             // The bridge, dropped, gave the mixer back.
             Err(e) => {
                 log::warn!("audio: {}: {e:#}", kind.label());
+                self.remote_retry = false;
                 *status.remote.lock().unwrap() = RemoteState::Failed(destination::describe(kind, &e));
                 false
             }
@@ -1021,10 +1028,14 @@ impl Output {
                 let session = destination::Session::connect(kind, &members).map(Box::new);
                 let _ = back.send(AudioCmd::Connected { key, name, kind, session });
             });
-            if spawned.is_ok() {
+            if let Err(e) = spawned {
+                log::warn!("audio: couldn't start connecting to {}: {e}", kind.label());
+                self.connecting = None;
+                self.remote_retry = false;
+                *status.remote.lock().unwrap() = RemoteState::Failed(destination::describe(kind, &e.into()));
+            } else {
                 return true;
             }
-            self.connecting = None;
         }
         // The old device's stream gives our mixer back when it's dropped.
         self.close();
@@ -1948,6 +1959,13 @@ fn run(
             log::info!("audio: nothing playing, letting go of the output device");
             output.close();
             output.device = None;
+            // Not connecting to the speakers, nor playing on them, any more: the menu says
+            // neither. Why they failed, if they did, still holds.
+            let mut remote = status.remote.lock().unwrap();
+            if matches!(*remote, RemoteState::Connecting | RemoteState::Playing) {
+                *remote = RemoteState::Idle;
+            }
+            drop(remote);
         }
         if !fading.is_empty() {
             // The next song is taking too long: don't hold this one up any longer.

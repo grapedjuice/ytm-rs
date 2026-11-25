@@ -1872,16 +1872,28 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             app.actions.push(Action::OpenNowPlaying(true));
         }
     }
-    // Where the music plays: network speakers' kind, lit, its name saying which.
+    // Where the music plays: network speakers' kind, its name saying which, lit unless
+    // they failed and this computer plays instead.
     let kind = app.destination.kind();
+    let mut lit = kind.is_some();
     let name = match kind {
         None => crate::tr!("settings-output-device").to_owned(),
         Some(_) => {
+            use crate::audio::RemoteState;
             let to = super::pages::destination_label(app);
-            if app.audio.remote_state() == crate::audio::RemoteState::Connecting { crate::tr!("settings-connecting-to", name = to.as_str()) } else { crate::tr!("settings-playing-on", name = to.as_str()) }.to_owned()
+            let to = to.as_str();
+            match app.audio.remote_state() {
+                RemoteState::Connecting => crate::tr!("settings-connecting-to", name = to),
+                RemoteState::Failed(_) => {
+                    lit = false;
+                    crate::tr!("settings-couldnt-play-on", name = to)
+                }
+                RemoteState::Idle | RemoteState::Playing => crate::tr!("settings-playing-on", name = to),
+            }
+            .to_owned()
         }
     };
-    let out = right_btn(ui, kind.map_or(icon::MONITOR_SPEAKER, crate::destination::Kind::icon), &name, kind.is_some());
+    let out = right_btn(ui, kind.map_or(icon::MONITOR_SPEAKER, crate::destination::Kind::icon), &name, lit);
     let opened = out.clicked();
     let popup = widgets::menu_popup(&out).align(egui::RectAlign::TOP_END).align_alternatives(&[egui::RectAlign::BOTTOM_END]);
     super::pages::play_on_menu(app, opened, popup, 320.0);

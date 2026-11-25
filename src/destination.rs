@@ -162,7 +162,12 @@ impl Receiver {
 
 /// The kind to play `members` together by: the most wanted one they all have.
 pub fn shared_kind(members: &[Receiver]) -> Option<Kind> {
-    Kind::ALL.into_iter().find(|&k| !members.is_empty() && members.iter().all(|r| r.way(k).is_some()))
+    Kind::ALL.into_iter().find(|&k| all_have(members, k))
+}
+
+/// Whether `members` (at least one) can all be played the `kind` way.
+pub fn all_have(members: &[Receiver], kind: Kind) -> bool {
+    !members.is_empty() && members.iter().all(|r| r.way(kind).is_some())
 }
 
 /// Settings › Find speakers on your network. Off, nothing listens on the network, so the

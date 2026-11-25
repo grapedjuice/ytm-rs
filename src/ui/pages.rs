@@ -1239,7 +1239,13 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let drag = &mut app.row_drag;
     let top: Vec<Track> = a.top.iter().filter(|t| rows.shows(t)).cloned().collect();
     let top = &top;
-    let videos: Vec<&Card> = a.videos.iter().filter(|c| !matches!(&c.target, Target::Song(t) if !rows.shows(t))).collect();
+    // Videos stand in for Top songs on a channel with none shown (a user channel, a cover
+    // artist), whose page would be empty without them; an artist's page has its songs.
+    let videos: Vec<&Card> = if top.is_empty() {
+        a.videos.iter().filter(|c| !matches!(&c.target, Target::Song(t) if !rows.shows(t))).collect()
+    } else {
+        Vec::new()
+    };
     let header_tracks: Vec<Track> = if !top.is_empty() {
         top.clone()
     } else {

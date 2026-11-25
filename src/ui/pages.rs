@@ -821,7 +821,7 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
                 ui.label(RichText::new(crate::tr!("nav-songs")).font(theme::bold(24.0)));
                 // A song played alone starts its radio; this plays the songs found, in order
                 // (these and More songs), as a list does.
-                if !pick && !tracks.is_empty() && widgets::icon_button(ui, icon::PLAY, 16.0, crate::tr!("ui-play-all"), false).clicked() {
+                if !pick && !tracks.is_empty() && pill(ui, crate::tr!("ui-play"), Some(icon::PLAY), true).clicked() {
                     acts.push(Action::PlayFound(tracks.iter().map(|&t| t.clone()).collect(), 0));
                 }
             });

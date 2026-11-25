@@ -3,7 +3,6 @@
 ui-try-again = Try again
 ui-new-playlist = New playlist
 ui-play = Play
-ui-play-all = Play all
 ui-pause = Pause
 ui-previous = Previous
 ui-next = Next

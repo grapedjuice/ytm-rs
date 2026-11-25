@@ -143,7 +143,7 @@ On Debian, Ubuntu and their derivatives you can instead download `ytm-rs_<versio
 
 On Arch Linux and its derivatives you can instead download `ytm-rs-<version>-1-x86_64.pkg.tar.zst` and run `sudo pacman -U ./ytm-rs-<version>-1-x86_64.pkg.tar.zst`, which also installs the libraries it needs. It doesn't update itself either: when a new version is out, the app says so and links to the new package, which installs over the old one the same way. To uninstall it, run `sudo pacman -R ytm-rs`.
 
-On any distribution you can also download `ytm-rs-<version>-linux-x86_64.AppImage`, make it executable (`chmod +x`) and run it. It uses your system's libraries, so it needs WebKitGTK and the other libraries the installer would put in. It doesn't update itself: when a new version is out, the app says so and links to the new AppImage, which you use in place of the old one.
+On other x86-64 distributions with glibc 2.35 or newer (Ubuntu 22.04's) you can also download `ytm-rs-<version>-linux-x86_64.AppImage`, make it executable (`chmod +x`) and run it. It uses your system's libraries, so it needs GTK 3, WebKitGTK 4.1 and the other libraries the installer would put in, and FUSE to start. It doesn't update itself: when a new version is out, the app says so and links to the new AppImage, which you use in place of the old one.
 
 Sign-ins are kept in your keyring (GNOME Keyring or KWallet). To uninstall, run `~/.local/lib/ytm-rs/install.sh --uninstall`.
 

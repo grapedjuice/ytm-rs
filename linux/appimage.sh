@@ -23,6 +23,7 @@ trap 'rm -rf "$work"' EXIT
 app=$work/ytm-rs.AppDir
 
 install -Dm755 "$bin" "$app/usr/lib/ytm-rs/ytm-rs"
+install -Dm644 "$root/LICENSE" "$app/usr/share/licenses/ytm-rs/LICENSE"
 echo "Run from the AppImage. This file has ytm-rs tell you about new versions instead of updating itself." > "$app/usr/lib/ytm-rs/appimage.txt"
 # The AppImage starts AppRun; the app beside its marker, wherever the image is mounted.
 cat > "$app/AppRun" <<'EOF'
@@ -38,6 +39,8 @@ install -Dm644 "$root/assets/icon/icon.png" "$app/usr/share/icons/hicolor/256x25
 
 mkdir -p "$out"
 image="$out/ytm-rs-$version-linux-$arch.AppImage"
-# Unpacked rather than mounted: CI runners have no FUSE.
-APPIMAGE_EXTRACT_AND_RUN=1 ARCH=$arch "$APPIMAGETOOL" --no-appstream --runtime-file "$APPIMAGE_RUNTIME" "$app" "$image"
+# Unpacked rather than mounted: CI runners have no FUSE. Built aside and moved in, so
+# a failed build leaves no half-written image to attach.
+APPIMAGE_EXTRACT_AND_RUN=1 ARCH=$arch "$APPIMAGETOOL" --no-appstream --runtime-file "$APPIMAGE_RUNTIME" "$app" "$work/image"
+mv "$work/image" "$image"
 echo "Built $image"

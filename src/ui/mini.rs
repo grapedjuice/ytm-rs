@@ -1466,8 +1466,9 @@ fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<S
         buttons.push((47.0, glyph, "card", name));
     }
     if !in_card {
-        // Left of the expand chevron: prev, play, next, lyrics, more, close.
-        buttons.push((73.0, icon::MIC_VOCAL, "lyrics", crate::tr!("settings-lyrics")));
+        // Left of the expand chevron: prev, play, next, lyrics, more, close. The mic
+        // takes the card button's slot where there is no card button (Linux/macOS).
+        buttons.push((47.0 + shift, icon::MIC_VOCAL, "lyrics", crate::tr!("settings-lyrics")));
     }
     for (dx, glyph, key, name) in buttons {
         let center = pos2(right - dx, cy);

@@ -2568,6 +2568,8 @@ impl Backend {
             log::info!("{video_id}: solver not ready yet, standard quality for now");
             self.warm_signed_in();
         }
+        // The signed-in web player refused already: it isn't asked again below.
+        let mut web_refused = false;
         if hq
             && solver_ready
             && let Some(session) = self.api.account()
@@ -2576,7 +2578,10 @@ impl Backend {
             match self.resolve_from(Source::WebMusic, video_id, !best).await {
                 Ok(s) => return Ok((Source::WebMusic, s)),
                 // Not fatal: the usual 128 kbps stream still plays.
-                Err(e) => log::warn!("high quality stream failed for {video_id} ({e:#}); using standard quality"),
+                Err(e) => {
+                    web_refused = e.downcast_ref::<innertube::Refused>().is_some();
+                    log::warn!("high quality stream failed for {video_id} ({e:#}); using standard quality");
+                }
             }
         }
         // Downloads stay on the file stream: they're saved as the .m4a it is.
@@ -2619,7 +2624,7 @@ impl Backend {
             // user is (#373), and an episode of a podcast added by RSS. The signed-in web
             // player gets one try: it may play the first two, and has the episode's feed.
             Err(e) if not_available(&e) => {
-                let Some(session) = self.api.account() else { return Err(e) };
+                let Some(session) = self.api.account().filter(|_| !web_refused) else { return Err(e) };
                 match self.signed_in_retry(&session, video_id, best).await {
                     Ok(found) => {
                         log::info!("{video_id}: visionOS said {e}; {:?} plays it", found.0);
@@ -2639,17 +2644,15 @@ impl Backend {
         }
     }
 
-    /// For a song visionOS says isn't available: the signed-in web player's stream with
-    /// Premium, else the RSS episode's feed or yt-dlp's signed-in stream when the web
-    /// player plays it. One player request either way, as a video that's gone costs.
+    /// For a song visionOS says isn't available, ask the signed-in web player: an RSS
+    /// episode plays from its feed, and a song it plays comes from it with Premium, else
+    /// from yt-dlp. A video that's gone costs that one request, as it did before.
     async fn signed_in_retry(&self, session: &webmusic::Session, video_id: &str, best: bool) -> anyhow::Result<(Source, ResolvedStream)> {
-        if self.is_premium(session).await {
-            return Ok((Source::WebMusic, self.resolve_from(Source::WebMusic, video_id, !best).await?));
+        if let Some(feed) = session.feed(&self.http(), &self.jsc, video_id).await? {
+            return Ok((Source::Feed, self.feed_stream(feed).await?));
         }
-        match session.feed(&self.http(), &self.jsc, video_id).await? {
-            Some(feed) => Ok((Source::Feed, self.feed_stream(feed).await?)),
-            None => Ok((Source::YtDlp, self.resolve_from(Source::YtDlp, video_id, false).await?)),
-        }
+        let source = if self.is_premium(session).await { Source::WebMusic } else { Source::YtDlp };
+        Ok((source, self.resolve_from(source, video_id, !best && source == Source::WebMusic).await?))
     }
 
     /// The feed's file when `video_id` is an episode of a podcast added by RSS, `None`

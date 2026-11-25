@@ -29,6 +29,10 @@ on:
         description: "Publish a nightly from this branch"
         type: boolean
         default: false
+      kywai_tag:
+        description: "kywai's builds (Yiku21/ytm-rs): publish this branch as this tag, like v0.4.0-kywai.1"
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -340,7 +344,7 @@ jobs:
   # Waits for the Arch package, but goes ahead without it if it failed.
   attach:
     if: >-
-      !cancelled() && github.ref_type == 'tag' && needs.prepare.outputs.nightly == '' &&
+      !cancelled() && (github.ref_type == 'tag' || startsWith(inputs.kywai_tag, 'v')) && needs.prepare.outputs.nightly == '' &&
       needs.windows.result == 'success' && needs.linux.result == 'success' && needs.macos.result == 'success'
     needs: [prepare, windows, linux, arch, macos]
     runs-on: ubuntu-latest
@@ -355,16 +359,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           HOLD_LATEST: ${{ vars.HOLD_LATEST }}
+          KYWAI_TAG: ${{ inputs.kywai_tag }}
         run: |
           ls -l files
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+          if [[ "$KYWAI_TAG" == v*-kywai.* ]]; then
+            # kywai's builds, run by hand from a branch: published at once as a prerelease
+            # tagged here, never the latest, for kywai to download by that tag.
+            gh release create "$KYWAI_TAG" files/* --target "$GITHUB_SHA" --prerelease --latest=false --title "ytm-rs ${KYWAI_TAG#v}" \
+              --notes "ytm-rs with the remote control kywai drives it with (play, queue, seek, lyrics, show, quit, YTM_EMBEDDED). Source: this tag."
+          elif gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" files/* --clobber
             gh release edit "$GITHUB_REF_NAME" --draft=false --latest="$([ -n "$HOLD_LATEST" ] && echo false || echo true)"
-          elif [[ "$GITHUB_REF_NAME" == *-kywai.* ]]; then
-            # kywai's builds (Yiku21/ytm-rs): published at once, never the latest, for
-            # kywai to download by their tag.
-            gh release create "$GITHUB_REF_NAME" files/* --prerelease --latest=false --title "ytm-rs ${GITHUB_REF_NAME#v}" \
-              --notes "ytm-rs with the remote control kywai drives it with (play, queue, seek, lyrics, show, quit, YTM_EMBEDDED). Source: this tag."
           else
             gh release create "$GITHUB_REF_NAME" files/* --draft --title "ytm-rs ${GITHUB_REF_NAME#v}" --notes ""
           fi

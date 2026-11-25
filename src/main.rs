@@ -26,6 +26,9 @@ mod jam;
 mod innertube;
 mod jsc;
 mod lastfm;
+mod scrobble_store;
+#[cfg(test)]
+mod scrobble_tests;
 mod login;
 mod link;
 mod listenbrainz;

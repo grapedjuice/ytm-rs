@@ -583,7 +583,18 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                     text_at(ui, pos2(img.right() + 10.0, rect.top() + 7.0), &c.title, theme::semibold(13.5), theme::with_alpha(theme::text(), a), w);
                     text_at(ui, pos2(img.right() + 10.0, rect.top() + 26.0), &c.subtitle, theme::regular(12.0), theme::with_alpha(theme::text_dim(), a), w);
                 }
-                if resp.clicked() {
+                // The first click opens it; a double click plays it too, as its menu's Play does.
+                // Only if the first click was on it: the list can change between the two. The
+                // one playing goes on (or out of pause), rather than starting over.
+                let first = egui::Id::unique("sidebar-first-click");
+                if resp.double_clicked() && ui.data(|d| d.get_temp::<Target>(first)).as_ref() == Some(&c.target) {
+                    match widgets::active_state(ui, &c.target) {
+                        Some(true) => {}
+                        Some(false) => app.actions.push(Action::TogglePlay),
+                        None => app.actions.push(Action::PlayCollection(c.target.clone(), false)),
+                    }
+                } else if resp.clicked() {
+                    ui.data_mut(|d| d.insert_temp(first, c.target.clone()));
                     app.actions.push(Action::Open(c.target.clone()));
                 }
             }

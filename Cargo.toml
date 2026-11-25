@@ -136,6 +136,8 @@ winresource = "0.1.31"
 # in vendor/epaint/src/text/text_layout.rs.
 # souvlaki with its Linux media controls sending changes as they happen, not one a
 # second (#144): see the ytm-rs notes in vendor/souvlaki/src/platform/mpris/dbus/controls.rs.
+# They also show and set shuffle and repeat (MPRIS Shuffle and LoopStatus): see the ytm-rs
+# notes in vendor/souvlaki/src/lib.rs and vendor/souvlaki/src/platform/mpris/dbus/interfaces.rs.
 # winit with X11 windows taking a scale that changes after they open (#208) and Windows
 # throttling move repaints (~30 fps) and skipping duplicate resize paints in the size/move
 # loop so dragging and resizing run at the monitor's refresh rate without freezing video:

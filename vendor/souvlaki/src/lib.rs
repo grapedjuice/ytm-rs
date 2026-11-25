@@ -58,11 +58,46 @@ pub enum MediaControlEvent {
     SetVolume(f64),
     /// Open the URI in the media player.
     OpenUri(String),
+    /// ytm-rs: turn shuffle on or off (MPRIS's `Shuffle`). Once handled, the app tells
+    /// `MediaControls::set_shuffle` what it is now. (*MPRIS only*)
+    SetShuffle(bool),
+    /// ytm-rs: the repeat mode asked for (MPRIS's `LoopStatus`). Once handled, the app
+    /// tells `MediaControls::set_loop_status` what it is now. (*MPRIS only*)
+    SetLoopStatus(LoopStatus),
 
     /// Bring the media player's user interface to the front using any appropriate mechanism available.
     Raise,
     /// Shut down the media player.
     Quit,
+}
+
+/// ytm-rs: what repeats, as MPRIS's `LoopStatus` has it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LoopStatus {
+    None,
+    Track,
+    Playlist,
+}
+
+impl LoopStatus {
+    /// The name MPRIS gives it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LoopStatus::None => "None",
+            LoopStatus::Track => "Track",
+            LoopStatus::Playlist => "Playlist",
+        }
+    }
+
+    /// From the name MPRIS gives it.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "None" => Some(LoopStatus::None),
+            "Track" => Some(LoopStatus::Track),
+            "Playlist" => Some(LoopStatus::Playlist),
+            _ => None,
+        }
+    }
 }
 
 /// An instant in a media item.

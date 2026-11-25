@@ -1496,7 +1496,7 @@ impl View {
         let max_scroll = (layout.content_h - view_h).max(0.0);
         // The mini card gives the renderer just the line being sung: put it exactly in the
         // middle, whatever anchor the theme uses for its multi-line view.
-        let single = f.soft && lines_n == 1;
+        let single = f.soft && lines_n == 1 && !credits_focused;
         if single {
             let b = &layout.blocks[0];
             let centre = layout.pad_top + b.top + b.height / 2.0;
@@ -1539,6 +1539,9 @@ impl View {
             let top = if let Some(i) = follow_line {
                 // The pill: keep the row being sung in the middle as the line rolls on.
                 row_y(i).map_or(centre - offset, |y| pos(i) + y + line_h * 0.5 - offset)
+            } else if f.soft && credits_focused && let Some(c) = credits {
+                // The mini card opens its band to the credits once the song is sung: centre them.
+                pos(c) + h(c) / 2.0 - offset
             } else if f.soft || f.own.anchor.is_some() {
                 // The mini card and the pill: centre the line being sung even when it is
                 // the first or last one, where the normal view stops at the lyrics' edge.
@@ -1651,7 +1654,9 @@ impl View {
                     (true, None) => continue,
                 };
                 let a = theme::anim(&ctx, ("lyr-credits", f.key), a, 0.35);
-                let color = theme::with_alpha(Color32::WHITE, a);
+                // The mini card's own ink (black on a light card); white everywhere else.
+                let ink = cfg.ink.unwrap_or(Color32::WHITE);
+                let color = theme::with_alpha(ink, a);
                 let o = transform_origin(block_rect, b.align, content.x);
                 let wrap = line_w - cfg.size * 0.5;
                 let xf = Xf { origin: o, scale: cfg.scale, content };
@@ -1666,7 +1671,7 @@ impl View {
                     let (parts, _) = ctx.fonts_mut(|fv| unison_credit(fv, c, font, wrap, b.align));
                     for (n, (g, at, url)) in parts.iter().enumerate() {
                         let at = pos2(at.x, y + at.y);
-                        let dim = theme::with_alpha(Color32::WHITE, a * UNISON_DIM);
+                        let dim = theme::with_alpha(ink, a * UNISON_DIM);
                         let r = xf.rect(Rect::from_min_size(at, g.size())).intersect(rect);
                         let Some(url) = url.as_ref().filter(|_| r.is_positive()) else {
                             paint_galley(&painter, g, at, &xf, dim, atlas);

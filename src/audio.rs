@@ -683,6 +683,50 @@ fn pause_due(pause_at: Option<Instant>, instant: bool, now: Instant) -> Option<I
     }
 }
 
+/// How long before the sleep timer pauses the music starts turning down, so it fades
+/// away instead of stopping in the middle of a bar.
+const SLEEP_FADE: Duration = Duration::from_secs(60);
+
+/// The sleep timer's minutes, running in the audio thread.
+#[derive(Clone, Copy, Debug)]
+struct SleepTimer {
+    at: Instant,
+    /// `SLEEP_FADE`, or what's left when set if that's less, so a short timer starts loud.
+    fade: Duration,
+}
+
+impl SleepTimer {
+    fn new(at: Instant, now: Instant) -> Self {
+        Self { at, fade: SLEEP_FADE.min(at.saturating_duration_since(now)) }
+    }
+
+    /// The players' share of the volume at `now`: full until the fade, then down to nothing
+    /// when it pauses. Cubic, like the logarithmic slider, so it sounds like an even fade and
+    /// doesn't stay loud for most of it.
+    fn gain(&self, now: Instant) -> f32 {
+        let left = self.at.saturating_duration_since(now);
+        if left >= self.fade {
+            return 1.0;
+        }
+        (left.as_secs_f32() / self.fade.as_secs_f32()).powi(3)
+    }
+}
+
+/// What the sleep timer leaves of the volume. `hush` is set once the timer has gone off,
+/// until the players have paused, so the music doesn't come back up during the pause's own
+/// fade; after that, playing again is at full volume.
+fn sleep_gain(sleep: Option<SleepTimer>, hush: bool, paused: bool, now: Instant) -> f32 {
+    match sleep {
+        Some(t) => t.gain(now),
+        None if hush && !paused => 0.0,
+        None => 1.0,
+    }
+}
+
+/// How far the volume comes back up each time round while playing, when the timer is
+/// called off mid-fade: a jump straight to full would click.
+const SLEEP_RISE: f32 = 0.25;
+
 /// How long a song keeps playing at full volume for the next one to load before it
 /// fades out anyway.
 const HANDOFF_WAIT: Duration = Duration::from_secs(3);
@@ -1298,8 +1342,11 @@ fn run(
     let mut idle_since: Option<Instant> = Some(Instant::now());
     // When a pause fading out really pauses the players.
     let mut pause_at: Option<Instant> = None;
-    // When the sleep timer pauses.
-    let mut sleep_at: Option<Instant> = None;
+    // When the sleep timer pauses, whether it has just gone off (see `sleep_gain`), and
+    // what it leaves of the volume now.
+    let mut sleep: Option<SleepTimer> = None;
+    let mut sleep_hush = false;
+    let mut sleep_vol = 1.0f32;
     // Where the playing song went silent, for `silent_tail`.
     let mut quiet_from: Option<Duration> = None;
     // Where to carry on from after a pause dropped an AirPlay speaker's buffer.
@@ -1316,7 +1363,7 @@ fn run(
             Some(since) if output.is_open() => IDLE_CLOSE.saturating_sub(since.elapsed()).max(Duration::from_millis(10)),
             Some(_) => Duration::from_secs(3600),
         };
-        let timeout = [pause_at, sleep_at].into_iter().flatten().fold(timeout, |t, at| t.min(at.saturating_duration_since(Instant::now())));
+        let timeout = [pause_at, sleep.map(|t| t.at)].into_iter().flatten().fold(timeout, |t, at| t.min(at.saturating_duration_since(Instant::now())));
         match rx.recv_timeout(timeout) {
             Ok(AudioCmd::Start { generation, decoder, shared: s, at }) => {
                 if generation != status.wanted_gen.load(Ordering::Relaxed) {
@@ -1348,7 +1395,10 @@ fn run(
                 let gain = norm_gain(&status, Some(&s));
                 show_norm(&status, Some(&s));
                 log::info!("audio: loudness {:?} dB, normalization gain {gain:.3}", s.loudness_db);
-                player.set_volume(bar_gain(&status, &output, f32::from_bits(status.volume.load(Ordering::Relaxed))));
+                // A song started after the timer went off plays at full volume.
+                sleep_hush = false;
+                sleep_vol = sleep_gain(sleep, false, false, Instant::now());
+                player.set_volume(bar_gain(&status, &output, f32::from_bits(status.volume.load(Ordering::Relaxed))) * sleep_vol);
                 // Fade in only over a song still playing, both over the same length.
                 fading.retain(|f| !f.player.empty());
                 let crossfade = status.crossfade_ms.load(Ordering::Relaxed);
@@ -1474,7 +1524,7 @@ fn run(
                 status.set_position(at.as_millis() as u64);
                 wake();
             }
-            Ok(AudioCmd::SleepAt(at)) => sleep_at = at,
+            Ok(AudioCmd::SleepAt(at)) => sleep = at.map(|at| SleepTimer::new(at, Instant::now())),
             Ok(AudioCmd::Pause) if output.pauses() && !player.is_paused() => {
                 // It stops at once, at what it was playing, and keeps the rest; playing
                 // again picks up there. No fade: what it holds was sent before this.
@@ -1526,6 +1576,7 @@ fn run(
                     }
                     // Fades back in from where the pause got to (in a few ms with the fade off).
                     status.hushed.store(false, Ordering::Relaxed);
+                    sleep_hush = false;
                     pause_at = None;
                     player.play();
                     fading.iter().for_each(|f| f.player.play());
@@ -1716,7 +1767,7 @@ fn run(
                 if let (AudioCmd::Volume(v), Some(a)) = (cmd, &output.airplay) {
                     a.set_volume(v);
                 }
-                let v = bar_gain(&status, &output, v);
+                let v = bar_gain(&status, &output, v) * sleep_vol;
                 player.set_volume(v);
                 norm.store(norm_gain(&status, shared.as_deref()).to_bits(), Ordering::Relaxed);
                 // The level may be what changed.
@@ -1735,10 +1786,23 @@ fn run(
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
         }
 
-        if sleep_at.is_some_and(|at| at <= Instant::now()) {
-            sleep_at = None;
+        if sleep.is_some_and(|t| t.at <= Instant::now()) {
+            sleep = None;
+            sleep_hush = true;
             log::info!("audio: sleep timer, pausing");
             let _ = tx.send(AudioCmd::Pause);
+        }
+        // The sleep timer's fade, and the volume back once it's over or called off.
+        sleep_hush &= !player.is_paused();
+        let target = sleep_gain(sleep, sleep_hush, player.is_paused(), Instant::now());
+        let next = if target > sleep_vol && !player.is_paused() { (sleep_vol + SLEEP_RISE).min(target) } else { target };
+        if next != sleep_vol {
+            sleep_vol = next;
+            let v = bar_gain(&status, &output, f32::from_bits(status.volume.load(Ordering::Relaxed))) * sleep_vol;
+            player.set_volume(v);
+            for f in &fading {
+                f.player.set_volume(v);
+            }
         }
         if current != 0 && dev_lost.is_some_and(|lost| song_pos(&song_ms) >= lost) {
             dev_lost = None;
@@ -1798,7 +1862,7 @@ fn run(
                 status.keep(None);
             }
             // Normalization is each song's `Meter`'s, not the players'.
-            let v = bar_gain(&status, &output, f32::from_bits(status.volume.load(Ordering::Relaxed)));
+            let v = bar_gain(&status, &output, f32::from_bits(status.volume.load(Ordering::Relaxed))) * sleep_vol;
             player.set_volume(v);
             for f in &fading {
                 f.player.set_volume(v);
@@ -2002,6 +2066,39 @@ mod tests {
         audio.send(AudioCmd::SleepAt(Some(Instant::now() + Duration::from_millis(30))));
         std::thread::sleep(Duration::from_millis(300));
         assert!(audio.status.hushed.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn the_sleep_timer_fades_out_over_its_last_minute() {
+        let now = Instant::now();
+        let t = SleepTimer::new(now + Duration::from_secs(15 * 60), now);
+        // Full volume until the last minute.
+        assert_eq!(t.gain(now), 1.0);
+        assert_eq!(t.gain(t.at - SLEEP_FADE), 1.0);
+        // Then down, a little at first and steadily on: half way it's an eighth (-18 dB).
+        let half = t.gain(t.at - SLEEP_FADE / 2);
+        assert!((half - 0.125).abs() < 1e-3, "{half}");
+        assert!(t.gain(t.at - SLEEP_FADE / 4) < half);
+        assert_eq!(t.gain(t.at), 0.0);
+        assert_eq!(t.gain(t.at + Duration::from_secs(1)), 0.0);
+        // A timer shorter than the fade starts at full volume and fades over what it has.
+        let short = SleepTimer::new(now + Duration::from_secs(10), now);
+        assert_eq!(short.gain(now), 1.0);
+        let half = short.gain(now + Duration::from_secs(5));
+        assert!((half - 0.125).abs() < 1e-3, "{half}");
+    }
+
+    #[test]
+    fn after_the_sleep_timer_the_volume_comes_back_once_paused() {
+        let now = Instant::now();
+        // Gone off and pausing: it stays down through the pause's own fade.
+        assert_eq!(sleep_gain(None, true, false, now), 0.0);
+        // Paused, or no timer at all: full volume for the next time it plays.
+        assert_eq!(sleep_gain(None, true, true, now), 1.0);
+        assert_eq!(sleep_gain(None, false, false, now), 1.0);
+        // A running timer decides, paused or not.
+        let t = SleepTimer::new(now + SLEEP_FADE, now);
+        assert!(sleep_gain(Some(t), false, true, now + SLEEP_FADE / 2) < 0.2);
     }
 
     #[test]

@@ -1570,8 +1570,10 @@ pub fn install_style(ctx: &egui::Context) {
         // own backgrounds that's a dark band, showing at the corners of a rounded row.
         s.spacing.scroll.fade.strength = 0.0;
         // A page stops at its ends under a finger, as it does under the wheel and the
-        // touchpad, instead of pulling past them and springing back (#190).
-        s.spacing.scroll.kinetic.rubber_band = false;
+        // touchpad, instead of pulling past them and springing back (#190). Not on macOS:
+        // there the trackpad's scrolling reaches egui untouched, and egui stretches it
+        // past the ends as macOS itself does. Macs have no touch screens.
+        s.spacing.scroll.kinetic.rubber_band = cfg!(target_os = "macos");
         if crate::preset::active().app.hide_scrollbars {
             let bar = &mut s.spacing.scroll;
             (bar.dormant_handle_opacity, bar.active_handle_opacity, bar.interact_handle_opacity) = (0.0, 0.0, 0.0);
@@ -1648,6 +1650,7 @@ mod tests {
     use super::*;
 
     /// How far past the top a page goes while a finger pulls it down from there and holds.
+    #[cfg(not(target_os = "macos"))]
     fn pulled_past_top(styled: bool) -> f32 {
         use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, TouchDeviceId, TouchId, TouchPhase, pos2, vec2};
         let ctx = egui::Context::default();
@@ -1684,6 +1687,7 @@ mod tests {
         past
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn a_finger_doesnt_pull_a_page_past_its_top() {
         assert_eq!(pulled_past_top(true), 0.0);

@@ -443,6 +443,9 @@ pub enum Resp {
     ConfirmDownload { target: Option<Target>, title: String, tracks: Vec<Track>, count: usize },
     /// Every source's lyrics for a song (empty when nobody has them).
     Lyrics { video_id: String, lyrics: LyricsSet },
+    /// Who submitted a song's saved Unison lyrics, found after they were shown crediting
+    /// Unison alone: each source's credit.
+    UnisonCredit { video_id: String, credits: Vec<(lyrics::Provider, lyrics::UnisonCredit)> },
     Segments { video_id: String, segments: Vec<crate::sponsorblock::Segment> },
     /// `None`: none was found.
     ArtistPicture { id: String, pic: Option<crate::discord::Badge> },
@@ -1765,10 +1768,28 @@ impl Backend {
         });
         match saved {
             // Unison lyrics saved before they carried its credit don't wait for the fresh
-            // look, which can take long on a poor connection: they credit Unison alone,
-            // and the fresh look saves who submitted them for next time.
+            // look, which can take long on a poor connection: they credit Unison alone
+            // until it names who submitted the same lyrics.
             Some(mut saved) => {
-                saved.credit_unison(&video_id);
+                let uncredited: Vec<_> = saved.sources.iter().filter(|l| l.provider.is_unison() && l.unison.is_none()).cloned().collect();
+                if !uncredited.is_empty() {
+                    saved.credit_unison(&video_id);
+                    let this = self.clone();
+                    tokio::spawn(async move {
+                        let Ok(fresh) = fresh.await else { return };
+                        let credits: Vec<_> = uncredited
+                            .iter()
+                            .filter_map(|old| {
+                                let new = fresh.get(old.provider).filter(|new| new.lines == old.lines)?;
+                                new.unison.clone().filter(|c| c.submitter.is_some()).map(|c| (old.provider, c))
+                            })
+                            .collect();
+                        if !credits.is_empty() {
+                            let _ = this.tx.send(Resp::UnisonCredit { video_id, credits });
+                            this.wake();
+                        }
+                    });
+                }
                 saved
             }
             None => fresh.await.unwrap_or_default(),

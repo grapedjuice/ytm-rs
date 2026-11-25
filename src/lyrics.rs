@@ -148,7 +148,7 @@ pub struct Part {
     pub bg: bool,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Line {
     pub start: i32,
     pub dur: i32,

@@ -420,7 +420,8 @@ impl App {
                     self.link_preview = match found {
                         Ok(LinkTo::Song(t)) => Some((link, Ok(t))),
                         Ok(_) => None,
-                        Err(e) => Some((link, Err(e))),
+                        // Drawn as it is under the search box, not through `toast`.
+                        Err(e) => Some((link, Err(super::without_urls(e)))),
                     };
                 }
             }

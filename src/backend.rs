@@ -1354,7 +1354,13 @@ impl Backend {
                         Ok(None) => Err(crate::tr!("link-not-found").to_owned()),
                         Err(e) => {
                             log::warn!("{what} failed: {e:#}");
-                            Err(if unreachable(&e) { crate::tr!("backend-offline").to_owned() } else { crate::tr!("backend-error", operation = what, error = e.to_string()) })
+                            Err(if !unreachable(&e) {
+                                crate::tr!("backend-error", operation = what, error = e.to_string())
+                            } else if crate::proxy::in_use() {
+                                crate::tr!("backend-offline-proxy").to_owned()
+                            } else {
+                                crate::tr!("backend-offline").to_owned()
+                            })
                         }
                     };
                     Resp::Link { link, to, found }

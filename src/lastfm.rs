@@ -92,17 +92,22 @@ fn disconnect(st: &mut State) {
     st.credentials.delete(VAULT, &st.data_dir);
 }
 
-fn keep_session(st: &mut State, session: Session) -> anyhow::Result<()> {
+/// Save a new login and return its queue. Runs without `STATE` held, since the keyring
+/// can wait on an unlock prompt.
+fn save_session(data_dir: &Path, credentials: &dyn Credentials, session: &Session) -> anyhow::Result<Vec<Scrobble>> {
     anyhow::ensure!(!session.name.trim().is_empty() && !session.key.trim().is_empty(), "last.fm: incomplete session");
     // Drop any ownerless queue before startup could recover it with the new credentials.
-    let queue = QueueFile(st.data_dir.join("lastfm_queue.json")).prepare(&session.name)?;
-    st.credentials.set(VAULT, &st.data_dir, format!("{}\n{}", session.name, session.key).as_bytes())?;
+    let queue = QueueFile(data_dir.join("lastfm_queue.json")).prepare(&session.name)?;
+    credentials.set(VAULT, data_dir, format!("{}\n{}", session.name, session.key).as_bytes())?;
+    Ok(queue)
+}
+
+fn use_session(st: &mut State, session: Session, queue: Vec<Scrobble>) {
     // A same-account reconnect keeps the live queue, including unsaved changes.
     if st.session.as_ref().is_none_or(|old| old.name != session.name) {
         st.queue = queue;
     }
     st.session = Some(Arc::new(session));
-    Ok(())
 }
 
 fn is_current(st: &State, session: &Arc<Session>) -> bool {
@@ -122,7 +127,13 @@ pub async fn sign_in(http: &reqwest::Client) -> anyhow::Result<String> {
             Ok(v) => {
                 let name = v["session"]["name"].as_str().unwrap_or_default().to_owned();
                 let key = v["session"]["key"].as_str().ok_or_else(|| anyhow::anyhow!("no session key from Last.fm"))?.to_owned();
-                keep_session(&mut STATE.lock().unwrap(), Session { name: name.clone(), key })?;
+                let session = Session { name: name.clone(), key };
+                let (data_dir, credentials) = {
+                    let st = STATE.lock().unwrap();
+                    (st.data_dir.clone(), st.credentials.clone())
+                };
+                let queue = save_session(&data_dir, credentials.as_ref(), &session)?;
+                use_session(&mut STATE.lock().unwrap(), session, queue);
                 log::info!("last.fm: signed in as {name}");
                 return Ok(name);
             }

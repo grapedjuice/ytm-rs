@@ -63,11 +63,11 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 - **Your library:** liked songs, saved albums and playlists, history and uploads. Upload your own songs from the Uploads tab or by dropping files on the window. Turn on podcasts to see shows and episodes too.
 - **Song lists:** drag songs to reorder the queue and your own playlists, or drop them on a playlist in the sidebar to add them. A find box narrows any list to the songs that match.
 - **Playback:** queue, song radio, shuffle, repeat, autoplay and crossfade, with the next track prefetched for instant skips. Volume normalization, a 10-band equalizer with presets, playback speed that keeps the pitch (or lets it go with the speed, like a record), and a choice of output device.
-- **Sound quality:** Opus at about 256 kbps with YouTube Premium, the best stream YouTube offers, and Opus at about 130 kbps without it.
+- **Sound quality:** songs play in Opus at about 256 kbps with YouTube Premium, the best stream YouTube offers, and Opus at about 130 kbps without it.
 - **Songs, not music videos:** an official music video plays as its album recording, without the intros and skits, or switch to the video itself in Now playing.
 - **Skip non-music parts:** jumps over talking, skits and sponsor breaks in music videos, as marked by SponsorBlock.
 - **Explicit songs:** marked with an E. Turn on Hide explicit songs to leave them out of lists, search, the queue and autoplay, and optionally use YouTube's Restricted Mode as well.
-- **Downloads:** save any song as a tagged `.m4a` with cover art, at the best quality your account gets, with its lyrics inside (timed as LRC where the source has them). Albums and playlists can each go in their own folder. Saved songs are listed in Library › Downloads and play offline.
+- **Downloads:** save any song as a tagged `.m4a` with cover art: YouTube's own AAC file, not re-encoded, at the best quality your account gets, with its lyrics inside (timed as LRC where the source has them). Albums and playlists can each go in their own folder. Saved songs are listed in Library › Downloads and play offline.
 
 **Lyrics and looks**
 - **Karaoke lyrics:** word-by-word lyrics drawn the way the Better Lyrics extension draws them, from every Better Lyrics source, with automatic fallback, romanization, translations and per-song timing offsets.
@@ -143,7 +143,7 @@ On Debian, Ubuntu and their derivatives you can instead download `ytm-rs_<versio
 
 On Arch Linux and its derivatives you can instead download `ytm-rs-<version>-1-x86_64.pkg.tar.zst` and run `sudo pacman -U ./ytm-rs-<version>-1-x86_64.pkg.tar.zst`, which also installs the libraries it needs. It doesn't update itself either: when a new version is out, the app says so and links to the new package, which installs over the old one the same way. To uninstall it, run `sudo pacman -R ytm-rs`.
 
-On other x86-64 distributions with glibc 2.35 or newer (Ubuntu 22.04's) you can also download `ytm-rs-<version>-linux-x86_64.AppImage`, make it executable (`chmod +x`) and run it. It uses your system's libraries, so it needs GTK 3, WebKitGTK 4.1 and the other libraries the installer would put in, and FUSE to start. It doesn't update itself: when a new version is out, the app says so and links to the new AppImage, which you use in place of the old one.
+On other x86-64 distributions with glibc 2.35 or newer (Ubuntu 22.04's) you can also download `ytm-rs-<version>-linux-x86_64.AppImage`, make it executable (`chmod +x`) and run it. It uses your system's libraries, so it needs GTK 3, WebKitGTK 4.1 and the other libraries the installer would put in, and FUSE to start. It updates itself like the installed app: a new version downloads in the background and takes the AppImage file's place when the app closes, or at once with Restart to update. Where it can't replace the file (one that isn't yours, or in a folder you can't write to), it only says a new version is out and links to the new AppImage.
 
 Sign-ins are kept in your keyring (GNOME Keyring or KWallet). To uninstall, run `~/.local/lib/ytm-rs/install.sh --uninstall`.
 

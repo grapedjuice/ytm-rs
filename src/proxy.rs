@@ -32,10 +32,10 @@ pub enum Setting {
 impl Setting {
     pub fn label(&self) -> &'static str {
         match self {
-            Setting::System if cfg!(windows) => "Use Windows settings",
-            Setting::System => "Use system settings",
-            Setting::Off => "No proxy",
-            Setting::Custom(_) => "Custom",
+            Setting::System if cfg!(windows) => crate::tr!("settings-proxy-use-system"),
+            Setting::System => crate::tr!("settings-proxy-use-system-system"),
+            Setting::Off => crate::tr!("settings-proxy-off"),
+            Setting::Custom(_) => crate::tr!("settings-custom"),
         }
     }
 
@@ -64,7 +64,10 @@ pub fn init(data_dir: &Path) {
         Err(_) => load(data_dir),
     };
     if let Some(p) = s.resolve() {
-        log::info!("proxy: {} ({})", s.label(), redact(&p));
+        // Not `label`: the language isn't picked yet, and a message looked up now would
+        // pick English for the whole run.
+        let mode = if matches!(s, Setting::Custom(_)) { "custom" } else { "system" };
+        log::info!("proxy: {mode} ({})", redact(&p));
     }
     let _ = ACTIVE.set(s);
 }

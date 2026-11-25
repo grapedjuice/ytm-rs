@@ -274,7 +274,7 @@ fn retime_settled(video_id: &str, wait: impl FnOnce()) -> bool {
 pub fn pick_folder(ctx: &egui::Context) {
     let ctx = ctx.clone();
     std::thread::spawn(move || {
-        if let Some(dir) = rfd::FileDialog::new().set_title("Download folder").set_directory(folder()).pick_folder() {
+        if let Some(dir) = rfd::FileDialog::new().set_title(crate::tr!("settings-download-folder")).set_directory(folder()).pick_folder() {
             set_folder(dir);
             ctx.request_repaint();
         }

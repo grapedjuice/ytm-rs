@@ -6,7 +6,7 @@ Title: what changes for someone using the app, with the area first if it helps.
 One PR, one change. Lines inside these comment marks don't show up; delete any section that doesn't apply.
 -->
 
-<!-- 1. What was wrong or missing, and what the app does now, in a sentence or three. Write it for a listener, not for the code. Link the issue if there is one: "Fixes #13" or "Refs #70". -->
+<!-- 1. What was wrong or missing, and what the app does now, in a sentence or three. Write it for a listener, not for the code. Link the issue if there is one: "Fixes #13" if this fixes all of it, "Refs #70" if it's one part. -->
 
 
 ### Changes

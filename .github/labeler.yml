@@ -1,0 +1,24 @@
+# Area labels the PR labeler adds from the files a pull request touches.
+# Only paths that belong to one area: changes under src/ are labelled by hand.
+
+# Not en-US: every feature with new text adds strings there.
+"area: translations":
+  - changed-files:
+      - any-glob-to-any-file: ["locales/!(en-US)/**", TRANSLATING.md, crowdin.yml]
+
+"area: packaging":
+  - changed-files:
+      - any-glob-to-any-file: [installer/**, linux/**, macos/**, flake.nix, .github/workflows/release.yml]
+
+"area: website":
+  - changed-files:
+      - any-glob-to-any-file: [site/**, .github/workflows/pages.yml]
+
+"area: repo":
+  - changed-files:
+      - any-glob-to-any-file: [".github/**"]
+
+# Only when docs are all the PR changes, not a feature that also updates the README.
+documentation:
+  - changed-files:
+      - all-globs-to-all-files: ["{docs/**,*.md}"]

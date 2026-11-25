@@ -1627,7 +1627,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         (true, false, true) => (avail * 0.78, Some(x + avail * 0.82), None),
         _ => (avail, None, None),
     };
-    let plays = t.plays.map(|n| format!("{} plays", crate::backend::compact(n)));
+    let plays = t.plays.map(|n| crate::tr!("status-plays", count = crate::backend::compact(n)));
     let title_col = if dimmed { theme::with_alpha(theme::text_dim(), opacity) } else if o.current { o.accent } else { theme::text() };
     let sub = match (album_row, &plays, plays_x) {
         (true, Some(p), None) => Some(p.clone()),

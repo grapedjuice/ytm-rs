@@ -193,7 +193,7 @@ impl ListFind {
         icon_at(ui, pos2(rect.left() + 18.0, rect.center().y), icon::SEARCH, 15.0, theme::text_dim());
         let clearable = !self.query.is_empty();
         let end = rect.right() - if clearable { 36.0 } else { 12.0 };
-        let count = self.searching(page).then(|| self.rows(page, tracks)).flatten().map(|s| ui.painter().layout_no_wrap(format!("{} of {total}", s.len()), theme::regular(12.5), theme::text_faint()));
+        let count = self.searching(page).then(|| self.rows(page, tracks)).flatten().map(|s| ui.painter().layout_no_wrap(crate::tr!("ui-find-count", found = s.len(), total = total), theme::regular(12.5), theme::text_faint()));
         let count_w = count.as_ref().map_or(0.0, |g| g.size().x + 8.0);
         let inner = Rect::from_min_max(pos2(rect.left() + 34.0, rect.top() + 3.0), pos2((end - count_w).max(rect.left() + 60.0), rect.bottom() - 3.0));
         if let Some(g) = count {

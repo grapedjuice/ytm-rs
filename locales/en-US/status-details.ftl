@@ -41,6 +41,8 @@ status-episodes = { $count ->
     [one] { $count } episode
    *[other] { $count } episodes
 }
+status-plays = { $count } plays
+status-subscribers = { $count } subscribers
 status-download-quoted-title = “{ $title }”
 discord-view-artist = View artist
 discord-view-album = View album

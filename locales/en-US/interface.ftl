@@ -77,6 +77,7 @@ ui-keep-downloaded = Keep downloaded
 ui-mini-shortcut = Mini player (Ctrl+M)
 ui-back-normal = Back to normal
 ui-find-list = Find in this list
+ui-find-count = { $found } of { $total }
 ui-sort = Sort
 ui-sort-by = Sort: { $name }
 ui-sorting = Sorting…

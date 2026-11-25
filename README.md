@@ -63,11 +63,11 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 - **Your library:** liked songs, saved albums and playlists, history and uploads. Upload your own songs from the Uploads tab or by dropping files on the window. Turn on podcasts to see shows and episodes too.
 - **Song lists:** drag songs to reorder the queue and your own playlists, or drop them on a playlist in the sidebar to add them. A find box narrows any list to the songs that match.
 - **Playback:** queue, song radio, shuffle, repeat, autoplay and crossfade, with the next track prefetched for instant skips. Volume normalization, a 10-band equalizer with presets, playback speed that keeps the pitch (or lets it go with the speed, like a record), and a choice of output device.
-- **Sound quality:** Opus at about 256 kbps with YouTube Premium, the best stream YouTube offers, and Opus at about 130 kbps without it.
+- **Sound quality:** songs play in Opus at about 256 kbps with YouTube Premium, the best stream YouTube offers, and Opus at about 130 kbps without it.
 - **Songs, not music videos:** an official music video plays as its album recording, without the intros and skits, or switch to the video itself in Now playing.
 - **Skip non-music parts:** jumps over talking, skits and sponsor breaks in music videos, as marked by SponsorBlock.
 - **Explicit songs:** marked with an E. Turn on Hide explicit songs to leave them out of lists, search, the queue and autoplay, and optionally use YouTube's Restricted Mode as well.
-- **Downloads:** save any song as a tagged `.m4a` with cover art, at the best quality your account gets, with its lyrics inside (timed as LRC where the source has them). Albums and playlists can each go in their own folder. Saved songs are listed in Library › Downloads and play offline.
+- **Downloads:** save any song as a tagged `.m4a` with cover art: YouTube's own AAC file, not re-encoded, at the best quality your account gets, with its lyrics inside (timed as LRC where the source has them). Albums and playlists can each go in their own folder. Saved songs are listed in Library › Downloads and play offline.
 
 **Lyrics and looks**
 - **Karaoke lyrics:** word-by-word lyrics drawn the way the Better Lyrics extension draws them, from every Better Lyrics source, with automatic fallback, romanization, translations and per-song timing offsets.

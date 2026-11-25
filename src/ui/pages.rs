@@ -558,8 +558,10 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
     }
     let mut more_picks = None;
     let picks = crate::model::quick_picks(&h.shelves, app.locale.hl);
+    // Each chip's feed scrolls on its own.
+    let chip = h.chips.iter().find(|c| c.selected).map(|c| c.title.as_str());
     for (i, s) in h.shelves.iter().enumerate() {
-        let id = format!("home-{i}-{}", s.title);
+        let id = format!("{:?}", ("home", i, &s.title, chip));
         let title = match s.title.as_str() {
             "Listen again" => tr!("nav-listen-again"),
             "Quick picks" => tr!("nav-quick-picks"),
@@ -733,7 +735,7 @@ fn mood(app: &mut App, ui: &mut Ui, params: &str, now: f64) {
     page_title(ui, browse_label(&m.title));
     let rows = Rows::new(app, now);
     for (i, s) in m.shelves.iter().enumerate() {
-        let id = format!("mood-{i}-{}-{params}", s.title);
+        let id = format!("{:?}", ("mood", i, &s.title, params));
         match &s.kind {
             ShelfKind::Cards(cards) => {
                 let cards: Vec<&Card> = cards.iter().filter(|c| !matches!(&c.target, Target::Song(t) if !rows.shows(t))).collect();

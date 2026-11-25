@@ -7,23 +7,34 @@
 #   linux/appimage.sh <binary> <version> <out dir>
 #
 # Needs appimagetool and the AppImage runtime to put in front, given as APPIMAGETOOL
-# and APPIMAGE_RUNTIME (the release workflow downloads both, pinned).
+# and APPIMAGE_RUNTIME, with the runtime's license and release tag as
+# APPIMAGE_RUNTIME_LICENSE and APPIMAGE_RUNTIME_TAG (the release workflow downloads
+# them, pinned).
 set -e
 
 bin=$1
 version=$2
 out=$3
 [ -f "$bin" ] && [ -n "$version" ] && [ -n "$out" ] || { echo "usage: $0 <binary> <version> <out dir>"; exit 1; }
-[ -x "$APPIMAGETOOL" ] && [ -f "$APPIMAGE_RUNTIME" ] || { echo "set APPIMAGETOOL and APPIMAGE_RUNTIME"; exit 1; }
+[ -x "$APPIMAGETOOL" ] && [ -f "$APPIMAGE_RUNTIME" ] && [ -f "$APPIMAGE_RUNTIME_LICENSE" ] && [ -n "$APPIMAGE_RUNTIME_TAG" ] ||
+    { echo "set APPIMAGETOOL, APPIMAGE_RUNTIME, APPIMAGE_RUNTIME_LICENSE and APPIMAGE_RUNTIME_TAG"; exit 1; }
 root=$(cd "$(dirname "$0")/.." && pwd)
 arch=$(uname -m)
 
-work=$(mktemp -d)
+mkdir -p "$out"
+work=$(mktemp -d "$out/.appimage.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 app=$work/ytm-rs.AppDir
 
 install -Dm755 "$bin" "$app/usr/lib/ytm-rs/ytm-rs"
 install -Dm644 "$root/LICENSE" "$app/usr/share/licenses/ytm-rs/LICENSE"
+{
+    echo "The AppImage runtime in front of this image is type2-runtime $APPIMAGE_RUNTIME_TAG. It statically"
+    echo "links libfuse (LGPL-2.1); its source, patches and build scripts are at"
+    echo "https://github.com/AppImage/type2-runtime/tree/$APPIMAGE_RUNTIME_TAG"
+    echo
+    cat "$APPIMAGE_RUNTIME_LICENSE"
+} > "$app/usr/share/licenses/ytm-rs/runtime.txt"
 echo "Run from the AppImage. This file has ytm-rs tell you about new versions instead of updating itself." > "$app/usr/lib/ytm-rs/appimage.txt"
 # The AppImage starts AppRun; the app beside its marker, wherever the image is mounted.
 cat > "$app/AppRun" <<'EOF'
@@ -37,10 +48,9 @@ install -Dm644 "$root/linux/ytm-rs.desktop" "$app/ytm-rs.desktop"
 install -Dm644 "$root/assets/icon/icon.png" "$app/ytm-rs.png"
 install -Dm644 "$root/assets/icon/icon.png" "$app/usr/share/icons/hicolor/256x256/apps/ytm-rs.png"
 
-mkdir -p "$out"
 image="$out/ytm-rs-$version-linux-$arch.AppImage"
-# Unpacked rather than mounted: CI runners have no FUSE. Built aside and moved in, so
-# a failed build leaves no half-written image to attach.
+# Unpacked rather than mounted: CI runners have no FUSE. Built aside, on the same disk,
+# and moved in, so a failed build leaves no half-written image to attach.
 APPIMAGE_EXTRACT_AND_RUN=1 ARCH=$arch "$APPIMAGETOOL" --no-appstream --runtime-file "$APPIMAGE_RUNTIME" "$app" "$work/image"
 mv "$work/image" "$image"
 echo "Built $image"

@@ -214,16 +214,19 @@ jobs:
       # front are pinned and checked. If this fails, the release goes ahead without it.
       - name: Build the AppImage
         continue-on-error: true
+        env:
+          RUNTIME_TAG: "20251108"
         run: |
           mkdir -p tools
           get() { curl -fsSL --retry 3 --connect-timeout 30 --max-time 300 -o "$1" "$2"; }
           get tools/appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
-          get tools/runtime https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+          get tools/runtime https://github.com/AppImage/type2-runtime/releases/download/$RUNTIME_TAG/runtime-x86_64
+          get tools/runtime.LICENSE https://raw.githubusercontent.com/AppImage/type2-runtime/$RUNTIME_TAG/LICENSE
           printf '%s  %s\n' \
             ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0 tools/appimagetool \
-            2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d tools/runtime | sha256sum -c
+            2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d tools/runtime             aa154fc9070614bbe7921f89db11efd1dba7a1f3a41685958110e2230f9c0ca1 tools/runtime.LICENSE | sha256sum -c
           chmod 755 tools/appimagetool
-          APPIMAGETOOL=$PWD/tools/appimagetool APPIMAGE_RUNTIME=$PWD/tools/runtime sh linux/appimage.sh target/release/ytm-rs "$VERSION" out
+          APPIMAGETOOL=$PWD/tools/appimagetool APPIMAGE_RUNTIME=$PWD/tools/runtime APPIMAGE_RUNTIME_LICENSE=$PWD/tools/runtime.LICENSE APPIMAGE_RUNTIME_TAG=$RUNTIME_TAG             sh linux/appimage.sh target/release/ytm-rs "$VERSION" out
 
       - uses: actions/upload-artifact@v5
         with:

@@ -54,7 +54,7 @@ pub fn init(data_dir: &Path) {
 }
 
 fn load_state(data_dir: &Path, credentials: Arc<dyn Credentials>) -> State {
-    let mut session = credentials.get(VAULT, data_dir).and_then(|b| {
+    let session = credentials.get(VAULT, data_dir).and_then(|b| {
         let s = String::from_utf8(b).ok()?;
         let (name, token) = s.split_once('\n')?;
         if name.trim().is_empty() || token.trim().is_empty() {
@@ -65,10 +65,7 @@ fn load_state(data_dir: &Path, credentials: Arc<dyn Credentials>) -> State {
     let queue = match QueueFile(data_dir.join("listenbrainz_queue.json")).restore(session.as_ref().map(|s| s.name.as_str())) {
         Ok(queue) => queue,
         Err(e) => {
-            // An unread queue must not be overwritten by an empty active state.
-            // Keep credentials and disk data intact for a guarded login or restart.
-            log::warn!("listenbrainz: couldn't restore queued plays; session inactive: {e:#}");
-            session = None;
+            log::warn!("listenbrainz: couldn't restore queued plays: {e:#}");
             Vec::new()
         }
     };
@@ -93,14 +90,13 @@ fn disconnect(st: &mut State) {
 
 fn keep_session(st: &mut State, session: Session) -> anyhow::Result<()> {
     anyhow::ensure!(!session.name.trim().is_empty() && !session.token.trim().is_empty(), "listenbrainz: incomplete session");
-    // Bind any legacy backlog before changing the saved credentials. If preserving
-    // an unknown queue fails, leave the current account and credentials unchanged.
-    if st.session.is_some() {
-        save_queue(st)?;
-    }
+    // Drop any ownerless queue before startup could recover it with the new credentials.
     let queue = QueueFile(st.data_dir.join("listenbrainz_queue.json")).prepare(&session.name)?;
     st.credentials.set(VAULT, &st.data_dir, format!("{}\n{}", session.name, session.token).as_bytes())?;
-    st.queue = queue;
+    // A same-account reconnect keeps the live queue, including unsaved changes.
+    if st.session.as_ref().is_none_or(|old| old.name != session.name) {
+        st.queue = queue;
+    }
     st.session = Some(Arc::new(session));
     Ok(())
 }
@@ -174,9 +170,7 @@ fn listen_with<F: Future<Output = anyhow::Result<()>> + Send>(
                 return;
             }
             st.queue.push(l);
-            if !persist_queue(&st) {
-                return;
-            }
+            persist_queue(&st);
         }
         // Persist even while another request owns the transport lock.
         let _sending = sending.lock().await;
@@ -185,9 +179,6 @@ fn listen_with<F: Future<Output = anyhow::Result<()>> + Send>(
                 let st = state.lock().unwrap();
                 if !is_current(&st, &session) {
                     log::debug!("listenbrainz: skipping queued work from a replaced session");
-                    return;
-                }
-                if !st.queue.is_empty() && !persist_queue(&st) {
                     return;
                 }
                 st.queue.iter().take(BATCH).cloned().collect()
@@ -217,35 +208,22 @@ fn listen_with<F: Future<Output = anyhow::Result<()>> + Send>(
                     // Offline, rate limited or ListenBrainz trouble: keep them for next time.
                     _ => {
                         log::warn!("listenbrainz: submit failed, keeping {count} for later: {e:#}");
-                        persist_queue(&st);
                         break;
                     }
                 },
             }
             st.queue.drain(..count);
-            if !persist_queue(&st) {
-                return;
-            }
+            persist_queue(&st);
         }
     }
 }
 
-fn save_queue(st: &State) -> anyhow::Result<()> {
-    match &st.session {
-        Some(session) => QueueFile(st.data_dir.join("listenbrainz_queue.json")).save(&session.name, &st.queue),
-        None => {
-            anyhow::ensure!(st.queue.is_empty(), "listenbrainz: queue has no owner");
-            Ok(())
-        }
-    }
-}
-
-fn persist_queue(st: &State) -> bool {
-    if let Err(e) = save_queue(st) {
+fn persist_queue(st: &State) {
+    if let Some(session) = &st.session
+        && let Err(e) = QueueFile(st.data_dir.join("listenbrainz_queue.json")).save(&session.name, &st.queue)
+    {
         log::warn!("listenbrainz: couldn't save queued plays: {e:#}");
-        return false;
     }
-    true
 }
 
 fn metadata(l: &Listen) -> Value {
@@ -295,7 +273,11 @@ async fn submit(http: &reqwest::Client, token: &str, body: &Value) -> anyhow::Re
 }
 
 #[cfg(test)]
-mod race_tests;
+mod race_tests {
+    crate::scrobble_tests::service_tests!(listen_with, token, "listenbrainz_queue.json", 401, (), true,
+        Listen { video_id: "test".into(), }
+    );
+}
 
 #[cfg(test)]
 mod tests {

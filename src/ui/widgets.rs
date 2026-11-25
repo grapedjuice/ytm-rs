@@ -1825,9 +1825,11 @@ fn checkbox(ui: &Ui, c: Pos2, on: bool) {
     }
 }
 
-/// Section header with optional strapline/avatar and ‹ › scroll arrows.
+/// Section header with optional strapline/avatar and ‹ › scroll arrows, which of them have
+/// somewhere to go ([`shelf_arrows`]). One that doesn't is dimmed, so the other keeps its
+/// place under the pointer; with neither, both are hidden.
 /// Returns (scroll left, scroll right) clicks.
-pub fn shelf_header(ui: &mut Ui, title: &str, strap: Option<&str>, strap_thumb: Option<&str>, arrows: bool) -> (bool, bool) {
+pub fn shelf_header(ui: &mut Ui, title: &str, strap: Option<&str>, strap_thumb: Option<&str>, arrows: Option<(bool, bool)>) -> (bool, bool) {
     let mut res = (false, false);
     let look = &crate::preset::active().app;
     ui.add_space(26.0);
@@ -1844,11 +1846,16 @@ pub fn shelf_header(ui: &mut Ui, title: &str, strap: Option<&str>, strap_thumb: 
             }
             ui.label(egui::RichText::new(title).font(theme::weighted(look.heading_weight, look.heading_px)).extra_letter_spacing(look.heading_tracking_em * look.heading_px).color(theme::text()));
         });
-        if arrows {
+        if let Some((left, right)) = arrows {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if !left && !right {
+                    // They keep their room, or the page would shift as they come and go.
+                    ui.set_invisible();
+                }
                 let turn = crate::preset::active().app.controls.arrow_hover;
-                res.1 = icon_button_turning(ui, icon::CHEVRON_RIGHT, 18.0, &crate::tr!("ui-scroll-right", title = title), false, turn).clicked();
-                res.0 = icon_button_turning(ui, icon::CHEVRON_LEFT, 18.0, &crate::tr!("ui-scroll-left", title = title), false, turn).clicked();
+                let mut arrow = |on, glyph, name: &str| ui.add_enabled_ui(on, |ui| icon_button_turning(ui, glyph, 18.0, name, false, turn)).inner.clicked();
+                res.1 = arrow(right, icon::CHEVRON_RIGHT, &crate::tr!("ui-scroll-right", title = title));
+                res.0 = arrow(left, icon::CHEVRON_LEFT, &crate::tr!("ui-scroll-left", title = title));
             });
         }
     });
@@ -1879,6 +1886,17 @@ fn shelf_page_target(starts: &[usize], step: f32, from: f32, nudge: i32) -> f32 
         starts.iter().copied().rev().find(|&start| (start as f32 * step) < from - 0.5).unwrap_or(starts[0])
     };
     next as f32 * step
+}
+
+fn shelf_arrows_id(id: &str) -> egui::Id {
+    egui::Id::unique(("hscroll", id)).with("arrows")
+}
+
+/// Which arrows (left, right) have somewhere to go on the [`h_scroll`] of this `id`, as last
+/// laid out. At its end there can be `more` to bring in, which the right one asks for.
+pub fn shelf_arrows(ui: &Ui, id: &str, more: bool) -> (bool, bool) {
+    let (left, right) = ui.ctx().data(|d| d.get_temp(shelf_arrows_id(id))).unwrap_or_default();
+    (left, right || (more && left))
 }
 
 /// Horizontal scroller that animates between aligned pages of cards or song columns.
@@ -1974,6 +1992,14 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
         // Not `inner_rect`'s height: that's all the room left below, over the next shelves.
         d.insert_temp(size_id, vec2(out.inner_rect.width(), out.content_size.y));
     });
+    // For the header's next frame: it's drawn before the shelf.
+    let at = target.unwrap_or(out.state.clamped_offset().x);
+    let goes = |nudge| shelf_page_target(&starts, step, at, nudge);
+    let arrows = (goes(-1) < at - 0.5, goes(1) > at + 0.5);
+    let was = ui.ctx().data_mut(|d| std::mem::replace(d.get_temp_mut_or_default(shelf_arrows_id(id)), arrows));
+    if was != arrows || out.inner_rect.width() != viewport {
+        ui.ctx().request_repaint();
+    }
     (out.inner, reached_end)
 }
 
@@ -2206,6 +2232,13 @@ mod shelf_touch_tests {
         above: f32,
         /// The arrows' nudge for the top shelf, next frame.
         nudge: i32,
+        /// How many cards the top shelf has, whether more can come in at its end, and where
+        /// its arrows could go as last drawn.
+        count: usize,
+        more: bool,
+        arrows: (bool, bool),
+        /// How wide its cards are.
+        card: f32,
         /// Each shelf's first card, as last drawn, and where it started.
         cards: [Rect; 2],
         start: [Pos2; 2],
@@ -2229,7 +2262,7 @@ mod shelf_touch_tests {
 
     impl Page {
         fn new(touch_screen: bool) -> Self {
-            let mut p = Self { ctx: egui::Context::default(), time: 0.0, above: 100.0, nudge: 0, cards: [Rect::NOTHING; 2], start: [Pos2::ZERO; 2], clicks: 0 };
+            let mut p = Self { ctx: egui::Context::default(), time: 0.0, above: 100.0, nudge: 0, count: 20, more: false, arrows: (false, false), card: 150.0, cards: [Rect::NOTHING; 2], start: [Pos2::ZERO; 2], clicks: 0 };
             if touch_screen {
                 // A touch elsewhere first, so the page knows there's a touch screen.
                 p.frame(vec![touch(TouchPhase::Start, pos2(790.0, 590.0)), touch(TouchPhase::End, pos2(790.0, 590.0))]);
@@ -2243,16 +2276,21 @@ mod shelf_touch_tests {
             let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))), time: Some(self.time), predicted_dt: 1.0 / 60.0, events, ..Default::default() };
             self.time += 1.0 / 60.0;
             let ctx = self.ctx.clone();
-            let (above, nudge) = (self.above, std::mem::take(&mut self.nudge));
+            let (above, nudge, count, more, width) = (self.above, std::mem::take(&mut self.nudge), self.count, self.more, self.card);
+            let mut arrows = (false, false);
             let mut cards = [Rect::NOTHING; 2];
             let mut clicks = 0;
             let mut out = ctx.run_ui(raw, |ui| {
                 egui::ScrollArea::vertical().id_salt("page").auto_shrink(false).show(ui, |ui| {
                     ui.add_space(above);
                     for (s, card) in cards.iter_mut().enumerate() {
-                        super::h_scroll(ui, ["shelf-a", "shelf-b"][s], if s == 0 { nudge } else { 0 }, 20, 150.0, 10.0, |ui| {
-                            for i in 0..20 {
-                                let (r, resp) = ui.allocate_exact_size(vec2(150.0, 150.0), egui::Sense::click());
+                        let (id, nudge, count, width) = if s == 0 { ("shelf-a", nudge, count, width) } else { ("shelf-b", 0, 20, 150.0) };
+                        if s == 0 {
+                            arrows = super::shelf_arrows(ui, id, more);
+                        }
+                        super::h_scroll(ui, id, nudge, count, width, 10.0, |ui| {
+                            for i in 0..count {
+                                let (r, resp) = ui.allocate_exact_size(vec2(width, 150.0), egui::Sense::click());
                                 if i == 0 {
                                     *card = r;
                                 }
@@ -2266,6 +2304,7 @@ mod shelf_touch_tests {
             });
             out.textures_delta.clear();
             self.cards = cards;
+            self.arrows = arrows;
             self.clicks += clicks;
         }
 
@@ -2427,6 +2466,68 @@ mod shelf_touch_tests {
         let to = p.seen().shelf[0];
         // Cards are 160 apart and four or five fit, so the next page is past `from`, within 800.
         assert!(to > from && to - from <= 800.0 && to % 160.0 == 0.0, "from {from} to {to}");
+    }
+
+    #[test]
+    fn arrows_go_only_where_the_shelf_has_more_to_show() {
+        let mut p = Page::new(false);
+        assert_eq!(p.arrows, (false, true), "at the start");
+        p.nudge = 1;
+        p.idle(90);
+        assert_eq!(p.arrows, (true, true), "in the middle");
+        for _ in 0..5 {
+            p.nudge = 1;
+            p.idle(90);
+        }
+        assert_eq!(p.arrows, (true, false), "at the end");
+        // More can come in there.
+        p.more = true;
+        p.idle(1);
+        assert_eq!(p.arrows, (true, true), "at the end, with more to come");
+        // Fewer cards than fit, even left scrolled, and even with more to come.
+        p.count = 3;
+        p.idle(3);
+        assert_eq!(p.arrows, (false, false), "all on show");
+    }
+
+    #[test]
+    fn arrows_know_the_end_as_soon_as_a_click_sends_the_shelf_there() {
+        let mut p = Page::new(false);
+        p.count = 6;
+        p.idle(3);
+        assert_eq!(p.arrows, (false, true));
+        p.nudge = 1;
+        p.idle(2);
+        assert_eq!(p.arrows, (true, false), "gliding to the end");
+        p.idle(90);
+        assert_eq!(p.arrows, (true, false), "there");
+    }
+
+    #[test]
+    fn a_card_wider_than_the_page_dragged_aside_can_be_sent_back() {
+        let mut p = Page::new(false);
+        (p.count, p.card) = (1, 1000.0);
+        p.idle(3);
+        assert_eq!(p.arrows, (false, false));
+        p.drag(LEFT, p.on(0, 600.0), vec2(-150.0, 0.0), 4);
+        p.idle(90);
+        assert_eq!(p.arrows, (true, false), "dragged aside");
+        p.nudge = -1;
+        p.idle(90);
+        assert_eq!(p.arrows, (false, false), "sent back");
+    }
+
+    #[test]
+    fn arrows_follow_a_drag() {
+        let mut p = Page::new(false);
+        p.drag(LEFT, p.on(0, 600.0), vec2(-200.0, 0.0), 4);
+        p.idle(90);
+        assert_eq!(p.arrows, (true, true));
+        for _ in 0..3 {
+            p.drag(LEFT, p.on(0, 100.0), vec2(600.0, 0.0), 4);
+            p.idle(90);
+        }
+        assert_eq!(p.arrows, (false, true));
     }
 }
 

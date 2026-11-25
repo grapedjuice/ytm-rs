@@ -3606,12 +3606,15 @@ pub(super) fn play_on_menu(app: &mut App, opened: bool, popup: egui::Popup, widt
         dropdown_list(ui, room.max(200.0), |ui| {
             super::nowplaying::menu_caption(ui, tr!("settings-this-computer"));
             let speaker = Some(theme::icon::MONITOR_SPEAKER);
+            // A sound card plays at once: nothing to watch, so the menu closes as it did.
             if option_row_marked(ui, system_default(), speaker, app.destination == Destination::Local(None)).clicked() {
                 pick = Some((Destination::Local(None), String::new()));
+                ui.close();
             }
             for d in &app.output_devices {
                 if option_row_marked(ui, &d.name, speaker, app.destination == Destination::Local(Some(d.id.clone()))).clicked() {
                     pick = Some((Destination::Local(Some(d.id.clone())), d.name.clone()));
+                    ui.close();
                 }
             }
             widgets::menu_divider(ui);

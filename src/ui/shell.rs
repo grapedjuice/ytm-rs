@@ -1872,10 +1872,11 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             app.actions.push(Action::OpenNowPlaying(true));
         }
     }
-    // Where the music plays: network speakers' kind, its name saying which, lit unless
-    // they failed and this computer plays instead.
+    // Where the music plays: network speakers' kind, its name saying which, lit only while
+    // the music goes (or is on its way) to them. Not found yet, or let go of while nothing
+    // plays, they're only what's picked.
     let kind = app.destination.kind();
-    let mut lit = kind.is_some();
+    let mut lit = false;
     let name = match kind {
         None => crate::tr!("settings-output-device").to_owned(),
         Some(_) => {
@@ -1883,14 +1884,17 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             let to = super::pages::destination_label(app);
             let to = to.as_str();
             match app.audio.remote_state() {
-                RemoteState::Connecting => crate::tr!("settings-connecting-to", name = to),
-                RemoteState::Failed(_) => {
-                    lit = false;
-                    crate::tr!("settings-couldnt-play-on", name = to)
+                RemoteState::Connecting => {
+                    lit = true;
+                    crate::tr!("settings-connecting-to", name = to).to_owned()
                 }
-                RemoteState::Idle | RemoteState::Playing => crate::tr!("settings-playing-on", name = to),
+                RemoteState::Playing => {
+                    lit = true;
+                    crate::tr!("settings-playing-on", name = to).to_owned()
+                }
+                RemoteState::Failed(_) => crate::tr!("settings-couldnt-play-on", name = to).to_owned(),
+                RemoteState::Idle => format!("{}: {to}", crate::tr!("settings-output-device")),
             }
-            .to_owned()
         }
     };
     let out = right_btn(ui, kind.map_or(icon::MONITOR_SPEAKER, crate::destination::Kind::icon), &name, lit);

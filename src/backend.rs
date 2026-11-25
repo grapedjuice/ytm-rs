@@ -2968,15 +2968,27 @@ fn saved_playlist_visible(card: &Card) -> bool {
 }
 
 pub fn compact(n: u64) -> String {
-    let (v, unit) = match n {
-        0..1_000 => return n.to_string(),
-        1_000..1_000_000 => (n as f64 / 1e3, "K"),
-        1_000_000..1_000_000_000 => (n as f64 / 1e6, "M"),
-        _ => (n as f64 / 1e9, "B"),
+    if n < 1_000 {
+        return n.to_string();
+    }
+    let units = [(1e3, "K"), (1e6, "M"), (1e9, "B")];
+    // The unit the number rounds into: 999,950 is "1M", not "1000K".
+    let mut at = match n {
+        1_000..1_000_000 => 0,
+        1_000_000..1_000_000_000 => 1,
+        _ => 2,
     };
-    // "6M", not "6.0M"; three significant figures and up need no decimal.
-    let s = if v >= 100.0 { format!("{v:.0}") } else { format!("{v:.1}") };
-    format!("{}{unit}", s.strip_suffix(".0").unwrap_or(&s))
+    let rounded = |at: usize| {
+        let v = n as f64 / units[at].0;
+        // "6M", not "6.0M"; three significant figures and up need no decimal.
+        if v >= 99.95 { format!("{v:.0}") } else { format!("{v:.1}") }
+    };
+    let mut s = rounded(at);
+    if at + 1 < units.len() && s.parse::<f64>().is_ok_and(|v| v >= 1000.0) {
+        at += 1;
+        s = rounded(at);
+    }
+    format!("{}{}", s.strip_suffix(".0").unwrap_or(&s), units[at].1)
 }
 
 /// The picture of artist `id` among artists found by `name`: the one with that id, or else
@@ -3275,5 +3287,26 @@ mod resolve_tests {
         let (file, size) = stream::probe_feed(&http, &feed.url, webmusic::UA).await.unwrap();
         println!("  -> {file}: {size} bytes");
         assert!(size > 0);
+    }
+}
+
+#[cfg(test)]
+mod compact_tests {
+    use super::compact;
+
+    #[test]
+    fn counts_round_into_the_next_unit() {
+        assert_eq!(compact(999), "999");
+        assert_eq!(compact(1_000), "1K");
+        assert_eq!(compact(1_260), "1.3K");
+        assert_eq!(compact(99_960), "100K");
+        assert_eq!(compact(123_456), "123K");
+        assert_eq!(compact(999_499), "999K");
+        assert_eq!(compact(999_500), "1M");
+        assert_eq!(compact(999_950), "1M");
+        assert_eq!(compact(6_000_000), "6M");
+        assert_eq!(compact(999_960_000), "1B");
+        assert_eq!(compact(3_600_000_000), "3.6B");
+        assert_eq!(compact(1_234_000_000_000), "1234B");
     }
 }

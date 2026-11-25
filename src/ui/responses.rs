@@ -101,11 +101,12 @@ impl App {
         for cmd in self.remote.drain() {
             self.on_remote(cmd);
         }
+        // Playing here (not at a jam host's position): where it's left is noted.
+        if self.left_from.is_none() && !self.jam.guest() && self.audio.status.started(self.generation) {
+            self.left_from = self.current().map(|t| t.id.clone());
+        }
         if self.buffering && self.audio.status.started(self.generation) {
             self.buffering = false;
-            if !self.jam.guest() {
-                self.left_from = self.current().map(|t| t.id.clone());
-            }
             self.skip_streak = 0;
             self.prefetch_next();
             // Dev hook: YTM_SEEK=<secs> jumps into the first track once it starts.

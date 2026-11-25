@@ -614,7 +614,7 @@ fn build_seek(mut j: SeekJob, pending: &std::sync::Mutex<Option<SeekJob>>, tx: &
                 let _ = events.send(AudioEvent::Interrupted { generation, at: pos, failure });
             }
             None => {
-                let _ = events.send(AudioEvent::Error(format!("Seek failed: {e}")));
+                let _ = events.send(AudioEvent::Error(crate::tr!("audio-seek-failed", error = e)));
             }
         },
     }
@@ -1286,7 +1286,7 @@ fn run(
     // the first song, as after `IDLE_CLOSE`.
     let (mut output, found) = Output::new(device);
     if !found {
-        let _ = events.send(AudioEvent::Error("No audio output device".into()));
+        let _ = events.send(AudioEvent::Error(crate::tr!("audio-no-device").to_owned()));
         wake();
     }
     let mut player = Player::connect_new(&output.mixer);
@@ -1394,7 +1394,7 @@ fn run(
                     output.airplay_retry = true;
                 }
                 if (!output.is_open() || output.default_changed()) && !output.open(tx.clone(), &status) {
-                    let _ = events.send(AudioEvent::Error("No audio output device".into()));
+                    let _ = events.send(AudioEvent::Error(crate::tr!("audio-no-device").to_owned()));
                     wake();
                 }
                 clear_queued(&mut queued, &mut prepare_sent, true);
@@ -1789,7 +1789,7 @@ fn run(
                 }
                 output.connecting = None;
                 if !output.connected(&name, session, tx.clone(), &status) && !output.open(tx.clone(), &status) {
-                    let _ = events.send(AudioEvent::Error("No audio output device".into()));
+                    let _ = events.send(AudioEvent::Error(crate::tr!("audio-no-device").to_owned()));
                     wake();
                 }
             }

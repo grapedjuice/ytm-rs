@@ -1052,7 +1052,7 @@ impl Backend {
     /// Act as another of the account's channels. Not while likes of a selection or a
     /// transfer are running: they'd go on as the new channel.
     async fn switch_channel(&self, page_id: Option<String>, epoch: u64) -> anyhow::Result<u64> {
-        let _likes = LIKES.try_lock().map_err(|_| anyhow::anyhow!("Wait until the likes going through are done"))?;
+        let _likes = LIKES.try_lock().map_err(|_| anyhow::anyhow!(crate::tr!("backend-channel-wait-likes")))?;
         // A Premium check running now is for the old channel: let it finish, then forget it.
         let mut premium = self.premium.lock().await;
         let epoch = self.api.switch_channel(page_id, epoch)?;
@@ -1494,7 +1494,7 @@ impl Backend {
                         Ok(false) => Resp::AlreadyInPlaylist { id: playlist_id, tracks },
                         Err(e) => {
                             log::warn!("{what} failed: {e:#}");
-                            Resp::AddedToPlaylist { id: playlist_id, video_ids, error: Some(format!("{what} failed: {e}")) }
+                            Resp::AddedToPlaylist { id: playlist_id, video_ids, error: Some(crate::tr!("backend-error", operation = what, error = e.to_string())) }
                         }
                     }
                 }
@@ -1503,7 +1503,7 @@ impl Backend {
                         Ok(_) => Resp::PlaylistChanged { id: playlist_id, change: PlaylistChange::Removed },
                         Err(e) => {
                             log::warn!("removing from playlist {playlist_id}: {e:#}");
-                            Resp::RemoveFailed { id: playlist_id, error: format!("Couldn't remove from the playlist: {e}") }
+                            Resp::RemoveFailed { id: playlist_id, error: crate::tr!("backend-remove-failed", error = e.to_string()) }
                         }
                     }
                 }
@@ -1525,14 +1525,14 @@ impl Backend {
                     Ok(_) => Resp::PlaylistChanged { id, change: PlaylistChange::Deleted },
                     Err(e) => {
                         log::warn!("deleting playlist {id}: {e:#}");
-                        Resp::DeleteFailed { error: format!("Couldn't delete the playlist: {e}") }
+                        Resp::DeleteFailed { error: crate::tr!("backend-delete-playlist-failed", error = e.to_string()) }
                     }
                 },
                 Req::DeleteUpload { entity, title } => match ytm::delete_upload(api, &entity).await {
                     Ok(()) => Resp::UploadDeleted(ytm::uploads(api).await?),
                     Err(e) => {
                         log::warn!("deleting upload {entity}: {e:#}");
-                        Resp::DeleteFailed { error: format!("Couldn't delete \u{201c}{title}\u{201d}: {e}") }
+                        Resp::DeleteFailed { error: crate::tr!("backend-delete-upload-failed", title = title, error = e.to_string()) }
                     }
                 },
                 Req::Collaboration(id) => Resp::Collaboration(ytm::collaboration(api, &id).await?),

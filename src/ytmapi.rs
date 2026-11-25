@@ -355,10 +355,10 @@ impl Api {
     /// another sign-in since has other channels. The new epoch.
     pub fn switch_channel(&self, page_id: Option<String>, epoch: u64) -> anyhow::Result<u64> {
         let mut slot = self.account.write().unwrap();
-        anyhow::ensure!(self.epoch() == epoch, "The account changed meanwhile; pick the channel again");
+        anyhow::ensure!(self.epoch() == epoch, crate::tr!("backend-channel-account-changed"));
         let next = slot.as_ref().ok_or_else(|| anyhow::anyhow!("sign in first"))?.on_channel(page_id);
         // Not switched unless it's kept: the next launch would be on the old channel.
-        anyhow::ensure!(self.file.parent().is_some_and(|dir| next.save(dir)), "Couldn't save the channel choice");
+        anyhow::ensure!(self.file.parent().is_some_and(|dir| next.save(dir)), crate::tr!("backend-channel-not-saved"));
         *slot = Some(Arc::new(next));
         Ok(self.epoch.fetch_add(1, Relaxed) + 1)
     }

@@ -688,7 +688,7 @@ impl App {
             }
             Resp::Channels(c) => self.channels = Some(c),
             Resp::SwitchedChannel { page_id, epoch, error } => {
-                let name = self.switching_to.take().unwrap_or_else(|| "another channel".to_owned());
+                let name = self.switching_to.take().unwrap_or_else(|| crate::tr!("status-another-channel").to_owned());
                 match error {
                     Some(e) => self.toast(e),
                     None => {

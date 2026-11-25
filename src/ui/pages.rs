@@ -1239,6 +1239,15 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let drag = &mut app.row_drag;
     let top: Vec<Track> = a.top.iter().filter(|t| rows.shows(t)).cloned().collect();
     let top = &top;
+    let videos: Vec<&Card> = a.videos.iter().filter(|c| !matches!(&c.target, Target::Song(t) if !rows.shows(t))).collect();
+    let header_tracks: Vec<Track> = if !top.is_empty() {
+        top.clone()
+    } else {
+        videos.iter().filter_map(|c| match &c.target {
+            Target::Song(t) => Some(t.clone()),
+            _ => None,
+        }).collect()
+    };
     // An artist of your uploads: all your songs by them, as on the website.
     let uploaded = crate::ytm::uploaded(id);
     // Hero banner fading into the page.
@@ -1265,11 +1274,11 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     ui.add_space(18.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
-        play_pill(ui, acts, &Target::Artist(id.to_owned()), top, &app.find, &app.page);
-        if pill(ui, crate::tr!("ui-shuffle"), Some(icon::SHUFFLE), false).clicked() && !top.is_empty() {
-            acts.push(Action::Shuffle(top.clone()));
+        play_pill(ui, acts, &Target::Artist(id.to_owned()), &header_tracks, &app.find, &app.page);
+        if pill(ui, crate::tr!("ui-shuffle"), Some(icon::SHUFFLE), false).clicked() && !header_tracks.is_empty() {
+            acts.push(Action::Shuffle(header_tracks.clone()));
         }
-        if let Some(first) = top.first()
+        if let Some(first) = header_tracks.first()
             && pill(ui, crate::tr!("ui-radio"), Some(icon::RADIO), false).clicked() {
                 acts.push(Action::Radio(first.clone()));
             }
@@ -1326,6 +1335,9 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         row_drag::carry(ui, drag, list);
     }
     card_row(ui, "a-albums", crate::tr!("nav-albums-singles"), &a.albums, acts);
+    if !videos.is_empty() {
+        cards_shelf(ui, &app.liked, acts, "a-videos", crate::tr!("nav-videos"), None, None, &videos);
+    }
     // Their songs you've saved, less those hidden as explicit.
     let library: Vec<&Card> = a.library.iter().filter(|c| !matches!(&c.target, Target::Song(t) if !rows.shows(t))).collect();
     if !library.is_empty() {

@@ -1027,6 +1027,7 @@ fn parse_artist(v: &Value, id: &str) -> Option<ArtistPage> {
         top: Vec::new(),
         top_playlist: None,
         albums: Vec::new(),
+        videos: Vec::new(),
         library: Vec::new(),
         playlists: Vec::new(),
         similar: Vec::new(),
@@ -1065,7 +1066,7 @@ fn parse_artist(v: &Value, id: &str) -> Option<ArtistPage> {
                 }
                 Target::Playlist(_) => page.playlists.push(card),
                 Target::Artist(_) => page.similar.push(card),
-                Target::Song(_) => {}
+                Target::Song(_) => page.videos.push(card),
             }
         }
     }
@@ -1666,6 +1667,7 @@ fn parse_upload_artist(v: &Value, id: &str) -> Option<(ArtistPage, Option<String
         top,
         top_playlist: None,
         albums: Vec::new(),
+        videos: Vec::new(),
         library: Vec::new(),
         playlists: Vec::new(),
         similar: Vec::new(),
@@ -3376,7 +3378,9 @@ mod tests {
         assert_eq!(ids, ["aaaaaaaaaaa", "bbbbbbbbbbb"]);
         assert_eq!(page.library[0].title, "Moral of the Story");
         assert_eq!(page.library[0].links.first().and_then(|l| l.id.as_deref()), Some("UCa"));
-        // Other song shelves (Videos) stay out of it.
+        // Video shelves land in `videos`, leaving library/albums/playlists/similar separate.
+        assert_eq!(page.videos.len(), 1);
+        assert_eq!(page.videos[0].title, "A video");
         assert!(page.albums.is_empty() && page.playlists.is_empty() && page.similar.is_empty());
         // Signed out there's no such shelf.
         let mut out = v.clone();

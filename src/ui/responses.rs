@@ -393,6 +393,7 @@ impl App {
                     // No cover: the idle backdrop's colours, not the song before's (#356).
                     let mut art = art.unwrap_or_else(crate::art::idle);
                     crate::art::soften(&mut art, self.look().background.blur_passes.saturating_sub(6));
+                    self.mini.cover_changed();
                     self.track_art = Some(art);
                     self.art_key = Some(key);
                     // An animated cover on screen keeps its own colours.

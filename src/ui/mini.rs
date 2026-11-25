@@ -479,7 +479,7 @@ pub struct Mini {
     /// How visible the card's cover background is, in percent.
     pub cover_opacity: f32,
     /// The blurred cover texture currently made for the card's background.
-    cover_tex: Option<(u64, egui::TextureHandle)>,
+    cover_tex: Option<(String, egui::TextureHandle)>,
     /// The collapsed pill's lyric view: Lucid's look, at the pill's small size.
     pill_lyric_view: super::karaoke::View,
     /// The frame key that pill view was laid out for.
@@ -595,6 +595,10 @@ impl Mini {
             sized: None,
             asked_from: None,
         }
+    }
+
+    pub(super) fn cover_changed(&mut self) {
+        self.cover_tex = None;
     }
 
     /// Picture in picture takes the video's shape: Windows keeps it while an edge is
@@ -1293,28 +1297,18 @@ pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
     // theme's way so the normal lyrics and controls keep their colours over it. The blur
     // index blends the sharp cover with the app's blurred cover art.
     if app.mini.cover_bg && grow > 0.5 {
-        // The 64×64 art is fixed per track: keying on the id avoids hashing 16 KB every
-        // frame just to find out the texture is still current.
-        let (key, image) = match (app.current_id(), app.cover_colours()) {
-            (Some(id), Some(art)) => {
-                use std::hash::{Hash, Hasher};
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                id.hash(&mut h);
-                let key = h.finish();
-                let need = app.mini.cover_tex.as_ref().is_none_or(|(k, _)| *k != key);
-                let image = need.then(|| egui::ColorImage::from_rgba_unmultiplied([crate::art::SIZE as usize, crate::art::SIZE as usize], &art.rgba));
-                (Some(key), image)
+        // Use the still cover behind the card. The blur slider blends two layers at
+        // paint time, so all its positions share the same blurred texture.
+        let covered = app.art_key.as_deref().filter(|id| Some(*id) == app.current_id()).zip(app.track_art.as_ref());
+        match covered {
+            Some((id, art)) if app.mini.cover_tex.as_ref().is_none_or(|(key, _)| key != id) => {
+                let image = egui::ColorImage::from_rgba_unmultiplied([crate::art::SIZE as usize; 2], &art.rgba);
+                let tex = ui.ctx().load_texture("mini-cover-blur", image, egui::TextureOptions::LINEAR);
+                app.mini.cover_tex = Some((id.to_owned(), tex));
             }
-            _ => (None, None),
-        };
-        match (key, image) {
-            (Some(key), Some(image)) => {
-                let tex = ui.ctx().load_texture(format!("mini-cover-blur-{key}"), image, egui::TextureOptions::LINEAR);
-                app.mini.cover_tex = Some((key, tex));
-            }
-            (None, _) => app.mini.cover_tex = None,
+            None => app.mini.cover_changed(),
             _ => {}
-        }
+        };
         if let Some(t) = app.current() {
             let fade = ((grow - 0.5) * 2.0).clamp(0.0, 1.0);
             let alpha = (app.mini.cover_opacity / 100.0).clamp(0.0, 1.0) * fade;

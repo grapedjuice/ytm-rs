@@ -976,6 +976,9 @@ impl App {
         self.lists.clear();
         self.lists.edits = Default::default();
         self.liked.clear();
+        // The playlists kept downloaded are the last account's (or channel's), maybe its
+        // private ones: they aren't loaded for this one. What's downloaded stays.
+        self.kept_downloaded.clear();
         self.queue.fill = None;
         self.play_pending = None;
         (self.link_pending, self.link_preview) = (None, None);

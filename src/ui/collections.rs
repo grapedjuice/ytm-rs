@@ -257,7 +257,7 @@ impl App {
     /// Whether playlist `id` is kept downloaded: Liked Music by Settings › Downloads ›
     /// Download liked songs, any other by its page's More › Keep downloaded.
     pub(super) fn keeps_downloaded(&self, id: &str) -> bool {
-        if id == LIKED_MUSIC { self.download_liked && self.logged_in } else { self.kept_downloaded.iter().any(|k| k == id) }
+        self.logged_in && if id == LIKED_MUSIC { self.download_liked } else { self.kept_downloaded.iter().any(|k| k == id) }
     }
 
     /// Keep playlist `id` downloaded, or stop: its songs not downloaded yet go now, and
@@ -279,8 +279,11 @@ impl App {
     }
 
     /// The playlists kept downloaded other than Liked Music (which loads anyway), loaded at
-    /// launch and sign-in for the songs that joined them elsewhere.
+    /// launch for the songs that joined them elsewhere. Signed out, none.
     pub(super) fn load_kept_downloaded(&mut self) {
+        if !self.logged_in {
+            return;
+        }
         for id in self.kept_downloaded.clone() {
             self.load_list(&id, false, false);
         }

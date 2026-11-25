@@ -368,7 +368,7 @@ impl Conn {
                     self.create = false;
                     retries += 1;
                     if retries > 6 {
-                        self.emit(Event::Closed("Lost the connection to the jam".into()));
+                        self.emit(Event::Closed(crate::tr!("jam-connection-lost").to_owned()));
                         return;
                     }
                     self.emit(Event::Reconnecting);
@@ -490,11 +490,17 @@ impl Conn {
                         }
                         In::Error { code, msg } => {
                             let text = match code.as_str() {
-                                "not_found" => "No jam with that code. Check it and try again".to_owned(),
-                                "taken" => "That jam code is taken, try again".to_owned(),
-                                "full" => "That jam is full".to_owned(),
-                                "denied" => msg.clone().unwrap_or_else(|| "Only the host can do that".to_owned()),
-                                "rate" => "Slow down a little".to_owned(),
+                                "not_found" => crate::tr!("jam-not-found").to_owned(),
+                                "taken" => crate::tr!("jam-code-taken").to_owned(),
+                                "full" => crate::tr!("jam-full").to_owned(),
+                                // The relay says why in English: the reasons it gives, in the app's language.
+                                "denied" => match msg.as_deref() {
+                                    Some("Only the host can control playback") => crate::tr!("jam-host-only-playback").to_owned(),
+                                    Some("The host turned off adding songs") => crate::tr!("jam-adding-off").to_owned(),
+                                    Some(m) if !m.eq_ignore_ascii_case("only the host can do that") => m.to_owned(),
+                                    _ => crate::tr!("jam-host-only").to_owned(),
+                                },
+                                "rate" => crate::tr!("jam-slow-down").to_owned(),
                                 _ => msg.unwrap_or(code.clone()),
                             };
                             if matches!(code.as_str(), "denied" | "rate") {
@@ -503,7 +509,7 @@ impl Conn {
                                 return End::Refused(text);
                             }
                         }
-                        In::Ended => return End::Done(Some("The host ended the jam".into())),
+                        In::Ended => return End::Done(Some(crate::tr!("jam-host-ended").to_owned())),
                     }
                 }
             }

@@ -1052,7 +1052,7 @@ impl Backend {
     /// Act as another of the account's channels. Not while likes of a selection or a
     /// transfer are running: they'd go on as the new channel.
     async fn switch_channel(&self, page_id: Option<String>, epoch: u64) -> anyhow::Result<u64> {
-        let _likes = LIKES.try_lock().map_err(|_| anyhow::anyhow!("Wait until the likes going through are done"))?;
+        let _likes = LIKES.try_lock().map_err(|_| anyhow::anyhow!(crate::tr!("backend-channel-wait-likes")))?;
         // A Premium check running now is for the old channel: let it finish, then forget it.
         let mut premium = self.premium.lock().await;
         let epoch = self.api.switch_channel(page_id, epoch)?;
@@ -1494,7 +1494,7 @@ impl Backend {
                         Ok(false) => Resp::AlreadyInPlaylist { id: playlist_id, tracks },
                         Err(e) => {
                             log::warn!("{what} failed: {e:#}");
-                            Resp::AddedToPlaylist { id: playlist_id, video_ids, error: Some(format!("{what} failed: {e}")) }
+                            Resp::AddedToPlaylist { id: playlist_id, video_ids, error: Some(crate::tr!("backend-error", operation = what, error = e.to_string())) }
                         }
                     }
                 }
@@ -1503,7 +1503,7 @@ impl Backend {
                         Ok(_) => Resp::PlaylistChanged { id: playlist_id, change: PlaylistChange::Removed },
                         Err(e) => {
                             log::warn!("removing from playlist {playlist_id}: {e:#}");
-                            Resp::RemoveFailed { id: playlist_id, error: format!("Couldn't remove from the playlist: {e}") }
+                            Resp::RemoveFailed { id: playlist_id, error: crate::tr!("backend-remove-failed", error = e.to_string()) }
                         }
                     }
                 }
@@ -1525,14 +1525,14 @@ impl Backend {
                     Ok(_) => Resp::PlaylistChanged { id, change: PlaylistChange::Deleted },
                     Err(e) => {
                         log::warn!("deleting playlist {id}: {e:#}");
-                        Resp::DeleteFailed { error: format!("Couldn't delete the playlist: {e}") }
+                        Resp::DeleteFailed { error: crate::tr!("backend-delete-playlist-failed", error = e.to_string()) }
                     }
                 },
                 Req::DeleteUpload { entity, title } => match ytm::delete_upload(api, &entity).await {
                     Ok(()) => Resp::UploadDeleted(ytm::uploads(api).await?),
                     Err(e) => {
                         log::warn!("deleting upload {entity}: {e:#}");
-                        Resp::DeleteFailed { error: format!("Couldn't delete \u{201c}{title}\u{201d}: {e}") }
+                        Resp::DeleteFailed { error: crate::tr!("backend-delete-upload-failed", title = title, error = e.to_string()) }
                     }
                 },
                 Req::Collaboration(id) => Resp::Collaboration(ytm::collaboration(api, &id).await?),
@@ -2994,15 +2994,27 @@ fn saved_playlist_visible(card: &Card) -> bool {
 }
 
 pub fn compact(n: u64) -> String {
-    let (v, unit) = match n {
-        0..1_000 => return n.to_string(),
-        1_000..1_000_000 => (n as f64 / 1e3, "K"),
-        1_000_000..1_000_000_000 => (n as f64 / 1e6, "M"),
-        _ => (n as f64 / 1e9, "B"),
+    if n < 1_000 {
+        return n.to_string();
+    }
+    let units = [(1e3, "K"), (1e6, "M"), (1e9, "B")];
+    // The unit the number rounds into: 999,950 is "1M", not "1000K".
+    let mut at = match n {
+        1_000..1_000_000 => 0,
+        1_000_000..1_000_000_000 => 1,
+        _ => 2,
     };
-    // "6M", not "6.0M"; three significant figures and up need no decimal.
-    let s = if v >= 100.0 { format!("{v:.0}") } else { format!("{v:.1}") };
-    format!("{}{unit}", s.strip_suffix(".0").unwrap_or(&s))
+    let rounded = |at: usize| {
+        let v = n as f64 / units[at].0;
+        // "6M", not "6.0M"; three significant figures and up need no decimal.
+        if v >= 99.95 { format!("{v:.0}") } else { format!("{v:.1}") }
+    };
+    let mut s = rounded(at);
+    if at + 1 < units.len() && s.parse::<f64>().is_ok_and(|v| v >= 1000.0) {
+        at += 1;
+        s = rounded(at);
+    }
+    format!("{}{}", s.strip_suffix(".0").unwrap_or(&s), units[at].1)
 }
 
 /// The picture of artist `id` among artists found by `name`: the one with that id, or else
@@ -3306,5 +3318,26 @@ mod resolve_tests {
         let (file, size) = stream::probe_feed(&http, &feed.url, webmusic::UA).await.unwrap();
         println!("  -> {file}: {size} bytes");
         assert!(size > 0);
+    }
+}
+
+#[cfg(test)]
+mod compact_tests {
+    use super::compact;
+
+    #[test]
+    fn counts_round_into_the_next_unit() {
+        assert_eq!(compact(999), "999");
+        assert_eq!(compact(1_000), "1K");
+        assert_eq!(compact(1_260), "1.3K");
+        assert_eq!(compact(99_960), "100K");
+        assert_eq!(compact(123_456), "123K");
+        assert_eq!(compact(999_499), "999K");
+        assert_eq!(compact(999_500), "1M");
+        assert_eq!(compact(999_950), "1M");
+        assert_eq!(compact(6_000_000), "6M");
+        assert_eq!(compact(999_960_000), "1B");
+        assert_eq!(compact(3_600_000_000), "3.6B");
+        assert_eq!(compact(1_234_000_000_000), "1234B");
     }
 }

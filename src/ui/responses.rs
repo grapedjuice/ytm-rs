@@ -688,7 +688,7 @@ impl App {
             }
             Resp::Channels(c) => self.channels = Some(c),
             Resp::SwitchedChannel { page_id, epoch, error } => {
-                let name = self.switching_to.take().unwrap_or_else(|| "another channel".to_owned());
+                let name = self.switching_to.take().unwrap_or_else(|| crate::tr!("status-another-channel").to_owned());
                 match error {
                     Some(e) => self.toast(e),
                     None => {
@@ -879,6 +879,8 @@ impl App {
         if change == PlaylistChange::Deleted {
             // Its load is dropped too, and the queue stops waiting for it.
             self.lists.forget(&id);
+            // Kept downloaded, it would be loaded at every launch, and fail each time.
+            self.kept_downloaded.retain(|k| *k != id);
             if self.queue.fill.as_ref().is_some_and(|f| f.id == id) {
                 self.queue.fill = None;
             }

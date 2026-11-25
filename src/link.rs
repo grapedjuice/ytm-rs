@@ -24,7 +24,7 @@ pub fn pasted(events: &[egui::Event]) -> Option<Link> {
 }
 
 fn parse_one(word: &str) -> Option<Link> {
-    let word = word.trim_matches(['<', '>', '(', ')', '"', '\'', ',', '.']);
+    let word = word.trim_matches(['<', '>', '(', ')', '"', '\'', ',', '.', '!', ';']);
     if let Some(code) = crate::deeplink::parse(word) {
         return Some(Link::Jam(code));
     }
@@ -148,6 +148,7 @@ mod tests {
         let paste = |t: &str| egui::Event::Paste(t.into());
         assert_eq!(pasted(&[paste("some words"), egui::Event::Copy, paste("see youtu.be/lYBUbBu4W08")]), song_link("lYBUbBu4W08", None));
         assert_eq!(pasted(&[paste("some words"), egui::Event::Text("youtu.be/lYBUbBu4W08".into())]), None);
+        assert_eq!(parse("listen to this: https://youtu.be/lYBUbBu4W08!"), song_link("lYBUbBu4W08", None));
     }
 
     #[test]

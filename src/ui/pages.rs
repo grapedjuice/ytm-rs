@@ -817,7 +817,14 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     };
     let mut songs = |ui: &mut Ui, acts: &mut Vec<Action>| {
         ui.vertical(|ui| {
-            ui.label(RichText::new(crate::tr!("nav-songs")).font(theme::bold(24.0)));
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(crate::tr!("nav-songs")).font(theme::bold(24.0)));
+                // A song played alone starts its radio; this plays the songs found, in order
+                // (these and More songs), as a list does.
+                if !pick && !tracks.is_empty() && widgets::icon_button(ui, icon::PLAY, 16.0, crate::tr!("ui-play-all"), false).clicked() {
+                    acts.push(Action::PlayFound(tracks.iter().map(|&t| t.clone()).collect(), 0));
+                }
+            });
             ui.add_space(8.0);
             let plays_col = tracks.iter().take(4).any(|t| t.plays.is_some());
             let g = arrive::group(ui, "search-songs");

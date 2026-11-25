@@ -27,7 +27,7 @@ use egui::epaint::text::FontsView;
 use egui::layers::ShapeIdx;
 use egui::{Color32, ColorImage, FontId, Galley, Mesh, Pos2, Rect, Shape, TextureHandle, TextureId, TextureOptions, Vec2, pos2, vec2};
 
-use crate::lyrics::{Line, Lyrics, Part, Sync};
+use crate::lyrics::{Line, Lyrics, Part, Sync, UnisonCredit};
 use crate::preset::{AgentAlign, Fill, Instrumental, LetterWave, LyricStyle, Timing, Weight, WordBounce};
 use crate::theme;
 
@@ -836,6 +836,53 @@ fn balanced(fonts: &mut FontsView<'_>, toks: Vec<Tok>, font: &FontId, max_w: f32
     f
 }
 
+/// A piece of Unison's credit: its text, place and link.
+type CreditPart = (Arc<Galley>, Pos2, Option<String>);
+
+/// Space between the songwriters and Unison's credit under them.
+fn credit_gap(writers: &str, font: &FontId) -> f32 {
+    if writers.is_empty() { 0.0 } else { font.size * 0.4 }
+}
+
+/// Unison's credit, a footnote to the songwriters: smaller and lighter than them.
+fn unison_font(writers: &FontId) -> FontId {
+    theme::regular((writers.size * 0.7).max(11.0))
+}
+
+/// How much dimmer Unison's credit is than the songwriters, till a link in it is hovered.
+const UNISON_DIM: f32 = 0.6;
+
+/// Unison's credit (its terms ask every app for it): "Lyrics from Unison", linked to the
+/// song's page there, and who submitted them, linked to theirs. One row when it fits,
+/// else a row each. Each part with its place under the songwriters and link; the height.
+fn unison_credit(fonts: &mut FontsView<'_>, c: &UnisonCredit, font: &FontId, wrap: f32, align: Align) -> (Vec<CreditPart>, f32) {
+    let mut parts = vec![(crate::tr!("player-lyrics-from-unison").to_owned(), Some(c.song_url()))];
+    if let Some((name, key)) = &c.submitter {
+        parts.push((" · ".to_owned(), None));
+        parts.push((crate::tr!("player-lyrics-submitted-by", name = name.as_str()), Some(UnisonCredit::submitter_url(key))));
+    }
+    let font = unison_font(font);
+    let parts: Vec<_> = parts.into_iter().map(|(t, url)| (deco_galley(fonts, t, font.clone(), wrap, align), url)).collect();
+    let rows = if parts.iter().map(|(g, _)| g.size().x).sum::<f32>() <= wrap { vec![parts] } else { parts.into_iter().filter(|(_, url)| url.is_some()).map(|p| vec![p]).collect() };
+    let (mut out, mut y) = (Vec::new(), 0.0);
+    for row in rows {
+        let w: f32 = row.iter().map(|(g, _)| g.size().x).sum();
+        let mut x = match align {
+            Align::Left => 0.0,
+            Align::Center => (wrap - w).max(0.0) * 0.5,
+            Align::Right => (wrap - w).max(0.0),
+        };
+        let h = row.iter().map(|(g, _)| g.size().y).fold(0.0, f32::max);
+        for (g, url) in row {
+            let gw = g.size().x;
+            out.push((g, pos2(x, y), url));
+            x += gw;
+        }
+        y += h;
+    }
+    (out, y)
+}
+
 /// Romanization, translation or credits, its rows set to `align` within the galley's width.
 fn deco_galley(fonts: &mut FontsView<'_>, text: String, font: FontId, wrap: f32, align: Align) -> Arc<Galley> {
     let g = fonts.layout(text.clone(), font.clone(), Color32::WHITE, wrap);
@@ -1454,16 +1501,49 @@ impl View {
             let content = pos2(x0 + cfg.size * 0.25, top);
 
             if let Some((text, font)) = &b.credits {
-                let a = cfg.credits_alpha[usize::from(credits_focused)];
-                if a < 0.0 {
-                    continue;
-                }
+                let focus = usize::from(credits_focused);
+                let theme_a = cfg.credits_alpha[focus];
+                // A theme can hide the songwriters, never Unison's credit: that dims as the default theme's.
+                let a = match (theme_a < 0.0, &f.lyrics.unison) {
+                    (false, _) => theme_a,
+                    (true, Some(_)) => [0.2, 0.85][focus],
+                    (true, None) => continue,
+                };
                 let a = theme::anim(&ctx, ("lyr-credits", f.key), a, 0.35);
+                let color = theme::with_alpha(Color32::WHITE, a);
                 let o = transform_origin(block_rect, b.align, content.x);
-                let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), line_w - cfg.size * 0.5, b.align));
+                let wrap = line_w - cfg.size * 0.5;
                 let xf = Xf { origin: o, scale: cfg.scale, content };
-                let at_x = if b.align == Align::Center { ((line_w - cfg.size * 0.5) - g.size().x).max(0.0) * 0.5 } else { 0.0 };
-                paint_galley(&painter, &g, pos2(at_x, cfg.padding + cfg.credits_margin), &xf, theme::with_alpha(Color32::WHITE, a), atlas);
+                let mut y = cfg.padding + cfg.credits_margin;
+                if !text.is_empty() && theme_a >= 0.0 {
+                    let g = ctx.fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), wrap, b.align));
+                    let at_x = if b.align == Align::Center { (wrap - g.size().x).max(0.0) * 0.5 } else { 0.0 };
+                    paint_galley(&painter, &g, pos2(at_x, y), &xf, color, atlas);
+                    y += g.size().y + credit_gap(text, font);
+                }
+                if let Some(c) = &f.lyrics.unison {
+                    let (parts, _) = ctx.fonts_mut(|fv| unison_credit(fv, c, font, wrap, b.align));
+                    for (n, (g, at, url)) in parts.iter().enumerate() {
+                        let at = pos2(at.x, y + at.y);
+                        let dim = theme::with_alpha(Color32::WHITE, a * UNISON_DIM);
+                        let r = xf.rect(Rect::from_min_size(at, g.size())).intersect(rect);
+                        let Some(url) = url.as_ref().filter(|_| r.is_positive()) else {
+                            paint_galley(&painter, g, at, &xf, dim, atlas);
+                            continue;
+                        };
+                        let resp = ui.interact(r, ui.scope_id().with(("lyr-unison", f.key, n)), egui::Sense::click());
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, true, g.text()));
+                        paint_galley(&painter, g, at, &xf, if resp.hovered() { color } else { dim }, atlas);
+                        if resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            let base = at.y + g.size().y;
+                            painter.line_segment([xf.point(pos2(at.x, base)), xf.point(pos2(at.x + g.size().x, base))], egui::Stroke::new(1.0, color));
+                        }
+                        if resp.clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        }
+                    }
+                }
                 continue;
             }
             let li = b.line.unwrap();
@@ -1820,11 +1900,19 @@ impl View {
                 })
                 .collect()
         });
-        if !lyrics.songwriters.is_empty() {
+        if !lyrics.songwriters.is_empty() || lyrics.unison.is_some() {
             let names = &lyrics.songwriters;
-            let text = if names.len() > 1 { format!("Written by {} & {}", names[..names.len() - 1].join(", "), names[names.len() - 1]) } else { format!("Written by {}", names[0]) };
+            let text = match names.len() {
+                0 => String::new(),
+                1 => format!("Written by {}", names[0]),
+                n => format!("Written by {} & {}", names[..n - 1].join(", "), names[n - 1]),
+            };
             let font = theme::weighted(cfg.credits_weight, (cfg.size * 0.4).max(12.0));
-            let h = ui.ctx().fonts_mut(|fv| deco_galley(fv, text.clone(), font.clone(), width - cfg.size * 0.5, Align::Left).size().y) + cfg.credits_margin;
+            let wrap = width - cfg.size * 0.5;
+            let h = ui.ctx().fonts_mut(|fv| {
+                let writers = if text.is_empty() { 0.0 } else { deco_galley(fv, text.clone(), font.clone(), wrap, Align::Left).size().y };
+                writers + lyrics.unison.as_ref().map_or(0.0, |c| credit_gap(&text, &font) + unison_credit(fv, c, &font, wrap, Align::Left).1)
+            }) + cfg.credits_margin;
             blocks.push(Block {
                 line: None,
                 start: 0.0,
@@ -3529,7 +3617,7 @@ mod tests {
         let ctx = shot_ctx();
         let words = |at: i32| (0..4).map(|k| Part { start: at + k * 1000, dur: 900, text: format!("word{k} "), bg: false }).collect::<Vec<_>>();
         let lines: Vec<Line> = (0..6).map(|i| Line { start: i * 4000, dur: 3900, text: "word0 word1 word2 word3".into(), parts: words(i * 4000), ..Default::default() }).collect();
-        let lyrics = Lyrics { lines, sync: Sync::Word, provider: crate::lyrics::Provider::BLyricsRich, language: None, songwriters: vec![] };
+        let lyrics = Lyrics { lines, sync: Sync::Word, provider: crate::lyrics::Provider::BLyricsRich, language: None, songwriters: vec![], unison: None };
         let style: &'static LyricStyle = Box::leak(Box::new(LyricStyle::default()));
         let mut view = View::default();
         // (frame time, song time, playing) → whether it asked for another frame soon.
@@ -3571,7 +3659,7 @@ mod tests {
         use egui::{Event, Modifiers, PointerButton, TouchDeviceId, TouchId, TouchPhase};
         let ctx = shot_ctx();
         let lines: Vec<Line> = (0..30).map(|i| Line { start: i * 4000, dur: 3900, text: format!("line {i}"), ..Default::default() }).collect();
-        let lyrics = Lyrics { lines, sync: Sync::Line, provider: crate::lyrics::Provider::BLyricsRich, language: None, songwriters: vec![] };
+        let lyrics = Lyrics { lines, sync: Sync::Line, provider: crate::lyrics::Provider::BLyricsRich, language: None, songwriters: vec![], unison: None };
         let style: &'static LyricStyle = Box::leak(Box::new(LyricStyle::default()));
         let mut view = View::default();
         let mut now = 100.0;

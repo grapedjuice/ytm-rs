@@ -1854,14 +1854,49 @@ fn video_line_pill(app: &App, ui: &Ui, picture: Rect) {
     // As the lyrics panel has it: what's audible, on the listener's timing.
     let pos = app.audio.status.position_smooth().as_secs_f64() - app.audio.status.latency().as_secs_f64();
     let t = ((pos - app.lyric_prefs.offset(id, lyrics.provider, lyrics.sync == Sync::Word)) * 1000.0) as i32;
-    let Some(line) = lyrics.lines.iter().find(|l| !l.instrumental && l.start <= t && t < l.start + l.dur) else { return };
-    let g = widgets::galley(ui, &line.text, theme::semibold(15.0), Color32::WHITE, picture.width() - 64.0);
-    let r = Rect::from_center_size(pos2(picture.center().x, picture.bottom() - 34.0), g.size() + vec2(24.0, 12.0));
-    if let Some(look) = app.look().app.glass.resume {
-        crate::shader::frost(ui.painter(), r, crate::shader::Frost { look, radius: r.height() / 2.0, opacity: 1.0, fade: 0.0 });
+    let pill = |size: Vec2| {
+        let r = Rect::from_center_size(pos2(picture.center().x, picture.bottom() - 34.0), size + vec2(24.0, 12.0));
+        if let Some(look) = app.look().app.glass.resume {
+            crate::shader::frost(ui.painter(), r, crate::shader::Frost { look, radius: r.height() / 2.0, opacity: 1.0, fade: 0.0 });
+        }
+        ui.painter().rect_filled(r, r.height() / 2.0, theme::shade(0.45));
+        r.center() - size / 2.0
+    };
+    if let Some(line) = lyrics.lines.iter().find(|l| !l.instrumental && l.start <= t && t < l.start + l.dur) {
+        let g = widgets::galley(ui, &line.text, theme::semibold(15.0), Color32::WHITE, picture.width() - 64.0);
+        ui.painter().galley(pill(g.size()), g, Color32::WHITE);
+        return;
     }
-    ui.painter().rect_filled(r, r.height() / 2.0, theme::shade(0.45));
-    ui.painter().galley(r.center() - g.size() / 2.0, g, Color32::WHITE);
+    // After the last line, Unison's credit, as the lyrics panel has under it.
+    let Some(c) = &lyrics.unison else { return };
+    if !lyrics.lines.iter().rev().find(|l| !l.instrumental).is_some_and(|l| t >= l.end()) {
+        return;
+    }
+    let mut parts = vec![(crate::tr!("player-lyrics-from-unison").to_owned(), Some(c.song_url()))];
+    if let Some((name, key)) = &c.submitter {
+        parts.push((" · ".to_owned(), None));
+        parts.push((crate::tr!("player-lyrics-submitted-by", name = name.as_str()), Some(crate::lyrics::UnisonCredit::submitter_url(key))));
+    }
+    let (color, dim) = (theme::with_alpha(Color32::WHITE, 0.85), theme::with_alpha(Color32::WHITE, 0.55));
+    let parts: Vec<_> = parts.into_iter().map(|(text, url)| (widgets::galley(ui, &text, theme::regular(11.0), color, f32::INFINITY), url)).collect();
+    let mut at = pill(vec2(parts.iter().map(|(g, _)| g.size().x).sum(), parts[0].0.size().y));
+    for (n, (g, url)) in parts.into_iter().enumerate() {
+        let r = Rect::from_min_size(at, g.size());
+        at.x += g.size().x;
+        let mut tint = dim;
+        if let Some(url) = url {
+            let resp = ui.interact(r, ui.scope_id().with(("pill-unison", n)), Sense::click());
+            if resp.hovered() {
+                tint = color;
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, color));
+            }
+            if resp.clicked() {
+                ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+            }
+        }
+        ui.painter().galley_with_override_text_color(r.min, g, tint);
+    }
 }
 
 /// A new frame into a texture that's shown frame after frame. The same size, it's written
@@ -2159,6 +2194,7 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
         let mut h = std::collections::hash_map::DefaultHasher::new();
         id.hash(&mut h);
         lyrics.provider.key().hash(&mut h);
+        lyrics.unison.hash(&mut h);
         app.theme_id.hash(&mut h);
         app.lyric_prefs.look.hash(&mut h);
                 for r in &roman {
@@ -2267,7 +2303,25 @@ fn plain_lyrics(app: &mut App, ui: &mut Ui, rect: Rect, lyrics: &Lyrics) {
             }
             ui.add_space(size * 0.25);
         }
+        if let Some(c) = &lyrics.unison {
+            ui.add_space(14.0);
+            unison_credit(ui, c);
+        }
         ui.add_space(80.0);
+    });
+}
+
+/// Unison's credit under its unsynced lyrics, as the synced view has it: "Lyrics from
+/// Unison" linked to the song there, and who submitted them linked to their page.
+fn unison_credit(ui: &mut Ui, c: &crate::lyrics::UnisonCredit) {
+    let text = |t: String| egui::RichText::new(t).font(theme::regular(11.5)).color(theme::text_faint());
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.add(egui::Hyperlink::from_label_and_url(text(crate::tr!("player-lyrics-from-unison").to_owned()), c.song_url()));
+        if let Some((name, key)) = &c.submitter {
+            ui.label(text(" · ".to_owned()));
+            ui.add(egui::Hyperlink::from_label_and_url(text(crate::tr!("player-lyrics-submitted-by", name = name.as_str())), crate::lyrics::UnisonCredit::submitter_url(key)));
+        }
     });
 }
 

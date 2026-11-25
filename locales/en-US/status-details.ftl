@@ -44,3 +44,5 @@ status-episodes = { $count ->
 status-download-quoted-title = “{ $title }”
 discord-view-artist = View artist
 discord-view-album = View album
+status-kept-downloaded = Kept downloaded: songs added to this playlist are downloaded too
+status-not-kept-downloaded = No longer kept downloaded. Songs downloaded already stay

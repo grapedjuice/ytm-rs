@@ -279,6 +279,7 @@ impl App {
                 self.backend.request(Req::DownloadMany { target, title, tracks, confirmed: false });
             }
             Action::CancelDownload(key) => self.backend.cancel_downloads(&key),
+            Action::KeepDownloaded(id, on) => self.keep_downloaded(&id, on),
             Action::AddToPlaylist(tracks) => {
                 if self.logged_in { self.dialog = Some(Dialog::PickPlaylist(tracks)); }
                 else { self.toast(crate::tr!("status-sign-in-edit")); }

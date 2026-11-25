@@ -2615,17 +2615,40 @@ impl Backend {
                 let source = if blocked { Source::YtDlpAfterBotCheck } else { Source::YtDlp };
                 Ok((source, self.resolve_from(source, video_id, false).await?))
             }
-            // An episode of a podcast added by RSS: YouTube doesn't have its audio, and
-            // visionOS answers as for a video that's gone. Only the signed-in web player
-            // tells the two apart (Premium or not), and plays the episode from its feed.
-            Err(e) if not_available(&e) => match self.api.account() {
-                Some(session) => match self.rss_episode(&session, video_id).await? {
-                    Some(s) => Ok((Source::Feed, s)),
-                    None => Err(e),
-                },
-                None => Err(e),
-            },
+            // visionOS answers the same for a video that's gone, one blocked where the
+            // user is (#373), and an episode of a podcast added by RSS. The signed-in web
+            // player gets one try: it may play the first two, and has the episode's feed.
+            Err(e) if not_available(&e) => {
+                let Some(session) = self.api.account() else { return Err(e) };
+                match self.signed_in_retry(&session, video_id, best).await {
+                    Ok(found) => {
+                        log::info!("{video_id}: visionOS said {e}; {:?} plays it", found.0);
+                        Ok(found)
+                    }
+                    Err(web) if web.downcast_ref::<innertube::Refused>().is_some() => {
+                        log::info!("{video_id}: the signed-in web player says {web} too");
+                        Err(e)
+                    }
+                    Err(web) => {
+                        log::warn!("{video_id}: signed-in retry failed: {web:#}");
+                        Err(e)
+                    }
+                }
+            }
             Err(e) => Err(e),
+        }
+    }
+
+    /// For a song visionOS says isn't available: the signed-in web player's stream with
+    /// Premium, else the RSS episode's feed or yt-dlp's signed-in stream when the web
+    /// player plays it. One player request either way, as a video that's gone costs.
+    async fn signed_in_retry(&self, session: &webmusic::Session, video_id: &str, best: bool) -> anyhow::Result<(Source, ResolvedStream)> {
+        if self.is_premium(session).await {
+            return Ok((Source::WebMusic, self.resolve_from(Source::WebMusic, video_id, !best).await?));
+        }
+        match session.feed(&self.http(), &self.jsc, video_id).await? {
+            Some(feed) => Ok((Source::Feed, self.feed_stream(feed).await?)),
+            None => Ok((Source::YtDlp, self.resolve_from(Source::YtDlp, video_id, false).await?)),
         }
     }
 
@@ -3238,6 +3261,11 @@ mod resolve_tests {
         assert!(!bot_check(&refused("LOGIN_REQUIRED", "Sign in to confirm your age")));
         assert!(bot_check(&refused("LOGIN_REQUIRED", "Sign in to confirm you’re not a bot")));
         assert!(!needs_account(&refused("ERROR", "This video is not available")));
+        // Blocked where the user is: the signed-in player gets a try too (#373).
+        let region = refused("UNPLAYABLE", "The uploader has not made this video available in your country");
+        assert!(not_available(&region) && !needs_account(&region));
+        let premium = refused("UNPLAYABLE", "This video is only available to Music Premium members");
+        assert!(needs_account(&premium));
         // Only the player's own answer, not an error that reads like one.
         assert!(!not_available(&anyhow::anyhow!("ERROR: This video is not available")));
     }

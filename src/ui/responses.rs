@@ -31,8 +31,12 @@ impl App {
         while let Ok(ev) = self.ch.audio_rx.try_recv() {
             match ev {
                 AudioEvent::Finished { generation } if generation == self.generation && self.jam.guest() => {}
-                AudioEvent::Finished { generation } if generation == self.generation && self.sleep == Some(Sleep::SongEnd) => self.sleep_at_song_end(),
+                AudioEvent::Finished { generation } if generation == self.generation && self.sleep == Some(Sleep::SongEnd) => {
+                    self.left_at_end();
+                    self.sleep_at_song_end();
+                }
                 AudioEvent::Finished { generation } if generation == self.generation => {
+                    self.left_at_end();
                     if self.repeats_one() {
                         self.play_current();
                     } else {
@@ -99,7 +103,9 @@ impl App {
         }
         if self.buffering && self.audio.status.started(self.generation) {
             self.buffering = false;
-            self.left_from = self.current().map(|t| t.id.clone());
+            if !self.jam.guest() {
+                self.left_from = self.current().map(|t| t.id.clone());
+            }
             self.skip_streak = 0;
             self.prefetch_next();
             // Dev hook: YTM_SEEK=<secs> jumps into the first track once it starts.

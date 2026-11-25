@@ -540,7 +540,7 @@ impl App {
     }
 
     /// The track playing played to its end: it starts from the top next time.
-    fn left_at_end(&mut self) {
+    pub(super) fn left_at_end(&mut self) {
         if let Some(id) = self.left_from.take() {
             self.resume.forget(&id);
         }
@@ -892,6 +892,8 @@ impl App {
         if self.generation == generation {
             // Nothing to advance to yet. Cancel a buffered play too, and carry on
             // if more of the playlist or an autoplay queue arrives.
+            self.note_where_left();
+            self.left_from = None;
             self.clear_staged();
             self.generation = self.alloc_generation();
             self.audio.status.wanted_gen.store(self.generation, Ordering::Relaxed);

@@ -521,14 +521,9 @@ pub fn icon_button(ui: &mut Ui, glyph: char, size: f32, name: &str, active: bool
     icon_button_turning(ui, glyph, size, name, active, None)
 }
 
-/// How wide and tall an `icon_button` is around a glyph of `size`.
-fn icon_button_size(size: f32) -> f32 {
-    size + 16.0
-}
-
 /// `icon_button` that grows and turns on hover: `[scale, degrees]`.
 pub fn icon_button_turning(ui: &mut Ui, glyph: char, size: f32, name: &str, active: bool, hover: Option<[f32; 2]>) -> Response {
-    let d = icon_button_size(size);
+    let d = size + 16.0;
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(d), Sense::click());
     let resp = named(resp, name).on_hover_text(name).on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
@@ -1830,12 +1825,11 @@ fn checkbox(ui: &Ui, c: Pos2, on: bool) {
     }
 }
 
-/// Section header with optional strapline/avatar and ‹ › scroll arrows: the way(s) its shelf
-/// has to go, from [`shelf_arrows`]. One that leads nowhere is dimmed, so the other keeps its
-/// place under the pointer; a shelf all on show has neither.
+/// Section header with optional strapline/avatar and ‹ › scroll arrows, which of them have
+/// somewhere to go ([`shelf_arrows`]). One that doesn't is dimmed, so the other keeps its
+/// place under the pointer; with neither, both are hidden.
 /// Returns (scroll left, scroll right) clicks.
 pub fn shelf_header(ui: &mut Ui, title: &str, strap: Option<&str>, strap_thumb: Option<&str>, arrows: Option<(bool, bool)>) -> (bool, bool) {
-    const ARROW: f32 = 18.0;
     let mut res = (false, false);
     let look = &crate::preset::active().app;
     ui.add_space(26.0);
@@ -1855,12 +1849,11 @@ pub fn shelf_header(ui: &mut Ui, title: &str, strap: Option<&str>, strap_thumb: 
         if let Some((left, right)) = arrows {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if !left && !right {
-                    // As tall as with them: resizing the window doesn't nudge the page.
-                    ui.allocate_space(vec2(0.0, icon_button_size(ARROW)));
-                    return;
+                    // They keep their room, or the page would shift as they come and go.
+                    ui.set_invisible();
                 }
                 let turn = crate::preset::active().app.controls.arrow_hover;
-                let mut arrow = |on, glyph, name: &str| ui.add_enabled_ui(on, |ui| icon_button_turning(ui, glyph, ARROW, name, false, turn)).inner.clicked();
+                let mut arrow = |on, glyph, name: &str| ui.add_enabled_ui(on, |ui| icon_button_turning(ui, glyph, 18.0, name, false, turn)).inner.clicked();
                 res.1 = arrow(right, icon::CHEVRON_RIGHT, &crate::tr!("ui-scroll-right", title = title));
                 res.0 = arrow(left, icon::CHEVRON_LEFT, &crate::tr!("ui-scroll-left", title = title));
             });
@@ -1895,62 +1888,45 @@ fn shelf_page_target(starts: &[usize], step: f32, from: f32, nudge: i32) -> f32 
     next as f32 * step
 }
 
-/// Where a shelf is and where its arrows can send it, before it's laid out.
-struct ShelfPlace {
-    sid: egui::Id,
-    target_id: egui::Id,
-    viewport_id: egui::Id,
-    current: f32,
-    /// Where the arrows are sending it.
-    target: Option<f32>,
-    viewport: f32,
-    visible: usize,
-    starts: Vec<usize>,
-    step: f32,
+fn shelf_arrows_id(id: &str) -> egui::Id {
+    egui::Id::unique(("hscroll", id)).with("arrows")
 }
 
-fn shelf_place(ui: &Ui, id: &str, count: usize, item_width: f32, gap: f32) -> ShelfPlace {
-    let sid = egui::Id::unique(("hscroll", id));
-    // ScrollArea hashes its id_salt once more. Read that same ID, or left clicks
-    // always appear to start from zero.
-    let state_id = ui.make_persistent_id(egui::IdSalt::new(sid));
-    let current = egui::scroll_area::State::load(ui.ctx(), state_id).map_or(0.0, |s| s.clamped_offset().x);
-    let (target_id, viewport_id) = (sid.with("target"), sid.with("viewport"));
-    let target = ui.ctx().data(|d| d.get_temp(target_id));
-    let viewport = ui.ctx().data(|d| d.get_temp::<f32>(viewport_id)).unwrap_or_else(|| ui.available_width());
-    let step = item_width + gap;
-    let visible = ((viewport + gap) / step).floor().max(1.0) as usize;
-    ShelfPlace { sid, target_id, viewport_id, current, target, viewport, visible, starts: shelf_page_starts(count, visible), step }
-}
-
-/// Whether a shelf's arrows have somewhere to go, (left, right), for [`shelf_header`] above
-/// the [`h_scroll`] of the same `id`, in the same `ui`. `more` can come in at its end: the
-/// right arrow asks for it there.
-pub fn shelf_arrows(ui: &Ui, id: &str, count: usize, item_width: f32, gap: f32, more: bool) -> (bool, bool) {
-    let p = shelf_place(ui, id, count, item_width, gap);
-    let from = p.target.unwrap_or(p.current);
-    let goes = |nudge| shelf_page_target(&p.starts, p.step, from, nudge);
-    // With everything on show the right arrow can't ask for more: `h_scroll` has no end to reach.
-    (goes(-1) < from - 0.5, (more && p.starts.len() > 1) || goes(1) > from + 0.5)
+/// Which arrows (left, right) have somewhere to go on the [`h_scroll`] of this `id`, as last
+/// laid out. At its end there can be `more` to bring in, which the right one asks for.
+pub fn shelf_arrows(ui: &Ui, id: &str, more: bool) -> (bool, bool) {
+    let (left, right) = ui.ctx().data(|d| d.get_temp(shelf_arrows_id(id))).unwrap_or_default();
+    (left, right || (more && left))
 }
 
 /// Horizontal scroller that animates between aligned pages of cards or song columns.
 pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: f32, gap: f32, add: impl FnOnce(&mut Ui) -> R) -> (R, bool) {
-    let ShelfPlace { sid, target_id, viewport_id, current, mut target, viewport, visible, starts, step } = shelf_place(ui, id, count, item_width, gap);
+    let sid = egui::Id::unique(("hscroll", id));
     let anim_id = sid.with("anim");
+    // ScrollArea hashes its id_salt once more. Read that same ID, or left clicks
+    // always appear to start from zero.
+    let state_id = ui.make_persistent_id(egui::IdSalt::new(sid));
+    let current = egui::scroll_area::State::load(ui.ctx(), state_id).map_or(0.0, |s| s.clamped_offset().x);
+    let target_id = sid.with("target");
     let coast_id = sid.with("coast");
     // Calls off a glide: the arrows' and a flick's.
     let stop_glide = |ctx: &egui::Context| ctx.data_mut(|d| {
         d.remove::<f32>(target_id);
         d.remove::<f32>(coast_id);
     });
+    let viewport_id = sid.with("viewport");
+    let viewport = ui.ctx().data(|d| d.get_temp::<f32>(viewport_id)).unwrap_or_else(|| ui.available_width());
+    let step = item_width + gap;
+    let visible = ((viewport + gap) / step).floor().max(1.0) as usize;
+    let starts = shelf_page_starts(count, visible);
     let last_start = *starts.last().unwrap();
     // Give the last page enough trailing room to land exactly on its first item.
     let content_width = (last_start as f32 * step + viewport).max(count as f32 * step - gap);
     let max_scroll = (content_width - viewport).max(0.0);
     let mut reached_end = false;
-    // Where a flick coasts to, apart from the arrows' target: the arrows page on from where
-    // it is now, not from where a flick would have stopped.
+    // Where the arrows send it, and apart from that where a flick coasts to: the arrows
+    // page on from where it is now, not from where a flick would have stopped.
+    let mut target: Option<f32> = ui.ctx().data(|d| d.get_temp(target_id));
     let mut coast: Option<f32> = ui.ctx().data(|d| d.get_temp(coast_id));
     if nudge != 0 {
         let t = shelf_page_target(&starts, step, target.unwrap_or(current), nudge);
@@ -2016,9 +1992,12 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
         // Not `inner_rect`'s height: that's all the room left below, over the next shelves.
         d.insert_temp(size_id, vec2(out.inner_rect.width(), out.content_size.y));
     });
-    // The header's arrows were drawn from where it was: they catch up even when nothing else
-    // draws another frame.
-    if out.state.clamped_offset().x != current || out.inner_rect.width() != viewport {
+    // For the header's next frame: it's drawn before the shelf.
+    let at = target.unwrap_or(out.state.clamped_offset().x);
+    let goes = |nudge| shelf_page_target(&starts, step, at, nudge);
+    let arrows = (goes(-1) < at - 0.5, goes(1) > at + 0.5);
+    let was = ui.ctx().data_mut(|d| std::mem::replace(d.get_temp_mut_or_default(shelf_arrows_id(id)), arrows));
+    if was != arrows || out.inner_rect.width() != viewport {
         ui.ctx().request_repaint();
     }
     (out.inner, reached_end)
@@ -2307,7 +2286,7 @@ mod shelf_touch_tests {
                     for (s, card) in cards.iter_mut().enumerate() {
                         let (id, nudge, count, width) = if s == 0 { ("shelf-a", nudge, count, width) } else { ("shelf-b", 0, 20, 150.0) };
                         if s == 0 {
-                            arrows = super::shelf_arrows(ui, id, count, width, 10.0, more);
+                            arrows = super::shelf_arrows(ui, id, more);
                         }
                         super::h_scroll(ui, id, nudge, count, width, 10.0, |ui| {
                             for i in 0..count {
@@ -2507,7 +2486,7 @@ mod shelf_touch_tests {
         assert_eq!(p.arrows, (true, true), "at the end, with more to come");
         // Fewer cards than fit, even left scrolled, and even with more to come.
         p.count = 3;
-        p.idle(2);
+        p.idle(3);
         assert_eq!(p.arrows, (false, false), "all on show");
     }
 
@@ -2515,7 +2494,7 @@ mod shelf_touch_tests {
     fn arrows_know_the_end_as_soon_as_a_click_sends_the_shelf_there() {
         let mut p = Page::new(false);
         p.count = 6;
-        p.idle(1);
+        p.idle(3);
         assert_eq!(p.arrows, (false, true));
         p.nudge = 1;
         p.idle(2);
@@ -2528,7 +2507,7 @@ mod shelf_touch_tests {
     fn a_card_wider_than_the_page_dragged_aside_can_be_sent_back() {
         let mut p = Page::new(false);
         (p.count, p.card) = (1, 1000.0);
-        p.idle(1);
+        p.idle(3);
         assert_eq!(p.arrows, (false, false));
         p.drag(LEFT, p.on(0, 600.0), vec2(-150.0, 0.0), 4);
         p.idle(90);

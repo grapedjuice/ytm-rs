@@ -200,8 +200,7 @@ fn card_row(ui: &mut Ui, id: &str, title: &str, cards: &[Card], acts: &mut Vec<A
         return;
     }
     let g = arrive::group(ui, id);
-    let arrows = shelf_arrows(ui, id, cards.len(), CARD, 18.0, false);
-    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, None, None, Some(arrows)));
+    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, None, None, Some(shelf_arrows(ui, id, false))));
     let nudge = r as i32 - l as i32;
     h_scroll(ui, id, nudge, cards.len(), CARD, 18.0, |ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
@@ -217,14 +216,12 @@ fn card_row(ui: &mut Ui, id: &str, title: &str, cards: &[Card], acts: &mut Vec<A
 #[allow(clippy::too_many_arguments)]
 fn song_grid(ui: &mut Ui, rows_ctx: &Rows, liked: &HashSet<String>, acts: &mut Vec<Action>, id: &str, title: &str, strap: Option<&str>, tracks: &[Track], rows: usize, more: bool) -> bool {
     let g = arrive::group(ui, id);
+    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, strap, None, Some(shelf_arrows(ui, id, more))));
+    let nudge = r as i32 - l as i32;
     let col_w = (ui.available_width() / 2.6).clamp(300.0, 420.0);
     let tracks: Vec<&Track> = tracks.iter().filter(|t| rows_ctx.shows(t)).collect();
-    let cols = tracks.len().div_ceil(rows.max(1));
-    let arrows = shelf_arrows(ui, id, cols, col_w, 16.0, more);
-    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, strap, None, Some(arrows)));
-    let nudge = r as i32 - l as i32;
     let mut picked = None;
-    let (_, reached_end) = h_scroll(ui, id, nudge, cols, col_w, 16.0, |ui| {
+    let (_, reached_end) = h_scroll(ui, id, nudge, tracks.len().div_ceil(rows.max(1)), col_w, 16.0, |ui| {
         ui.spacing_mut().item_spacing.x = 16.0;
         for (c, col) in tracks.chunks(rows.max(1)).enumerate() {
             ui.allocate_ui(vec2(col_w, rows as f32 * 60.0), |ui| {
@@ -580,8 +577,7 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
             }
             ShelfKind::Songs { tracks, rows: n } => {
                 let more = picks == Some(i) && !h.picks_loading && !h.picks_expanded;
-                let reached_end = song_grid(ui, &rows, &app.liked, &mut app.actions, &id, title, s.strapline.as_deref(), tracks, *n, more);
-                if reached_end && more {
+                if song_grid(ui, &rows, &app.liked, &mut app.actions, &id, title, s.strapline.as_deref(), tracks, *n, more) && more {
                     more_picks = tracks.last().map(|t| t.id.clone());
                 }
             }
@@ -603,8 +599,7 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
 #[allow(clippy::too_many_arguments)]
 fn cards_shelf(ui: &mut Ui, liked: &HashSet<String>, acts: &mut Vec<Action>, id: &str, title: &str, strap: Option<&str>, thumb: Option<&str>, cards: &[&Card]) {
     let g = arrive::group(ui, id);
-    let arrows = shelf_arrows(ui, id, cards.len(), CARD, 18.0, false);
-    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, strap, thumb, Some(arrows)));
+    let (l, r) = arrive::item(ui, g, 0, 10.0, |ui| shelf_header(ui, title, strap, thumb, Some(shelf_arrows(ui, id, false))));
     let nudge = r as i32 - l as i32;
     h_scroll(ui, id, nudge, cards.len(), CARD, 18.0, |ui| {
         ui.spacing_mut().item_spacing.x = 18.0;

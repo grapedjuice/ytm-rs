@@ -1113,14 +1113,18 @@ pub fn output_devices(picked: Option<&str>) -> Vec<OutputDevice> {
 /// What of `all` to offer, by name. Linux's ALSA lists each output many ways (#337): its
 /// card's default, front, the surround layouts, S/PDIF, plughw and hw, all under the
 /// output's one name; and plugins that aren't outputs at all. Each output is offered
-/// once, the way that plays best, and plugins and sound servers not at all: they play on
-/// the system's default output, which settings offer already.
+/// once, the way that plays best, and plugins not at all. A sound server (PipeWire, else
+/// PulseAudio) is offered only where ALSA's default isn't it already: there the default
+/// plays on a card directly, and the server is the only way to its other outputs, such
+/// as Bluetooth headphones (#397).
 fn offered(all: Vec<OutputDevice>, picked: Option<&str>) -> Vec<OutputDevice> {
+    let server = sound_server(&all);
     // Ranked, the picked one first of all: what's picked is shown as listed.
     let mut out: Vec<(u8, OutputDevice)> = Vec::new();
     for d in all {
         let rank = match alsa_rank(&d.id) {
             _ if picked == Some(d.id.as_str()) => 0,
+            _ if server == Some(d.id.as_str()) => 1,
             Some(rank) => rank + 1,
             None => continue,
         };
@@ -1136,6 +1140,18 @@ fn offered(all: Vec<OutputDevice>, picked: Option<&str>) -> Vec<OutputDevice> {
     let mut out: Vec<OutputDevice> = out.into_iter().map(|(_, d)| d).collect();
     out.sort_by_key(|a| a.name.to_lowercase());
     out
+}
+
+/// The sound server ALSA lists (`alsa:pipewire`, else `alsa:pulse`), when its default
+/// output isn't that server: ALSA says what its default is in the default's name ("Default
+/// ALSA Output (currently PipeWire Media Server)").
+fn sound_server(all: &[OutputDevice]) -> Option<&'static str> {
+    let default = all.iter().find(|d| d.id == "alsa:default").map(|d| d.name.to_lowercase()).unwrap_or_default();
+    [("alsa:pipewire", "pipewire"), ("alsa:pulse", "pulse")]
+        .into_iter()
+        .find(|(id, _)| all.iter().any(|d| d.id == *id))
+        .filter(|(_, named)| !default.contains(named))
+        .map(|(id, _)| id)
 }
 
 /// How well an output listed by ALSA (`alsa:<pcm>`) plays, lower better; `None`: not offered.
@@ -2047,6 +2063,24 @@ mod tests {
             assert!(ids(&offered).contains(&picked), "{picked}");
             assert_eq!(offered.len(), if picked.contains("pipewire") { 5 } else { 4 }, "{picked}");
         }
+    }
+
+    #[test]
+    fn a_sound_server_is_offered_where_alsas_default_isnt_it() {
+        // ALSA's default plays on the card itself (PipeWire's plugin there, but not made the
+        // default): ALSA then lists no `default`, only each card's. PipeWire is the only way
+        // to its other outputs, Bluetooth headphones among them (#397).
+        let on_card = |list: Vec<OutputDevice>| list.into_iter().filter(|d| d.id != "alsa:default").collect::<Vec<_>>();
+        let offered_ids = |list| ids(&offered(list, None)).iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let listed = offered_ids(on_card(alsa_listing()));
+        assert!(listed.contains(&"alsa:pipewire".to_owned()) && !listed.contains(&"alsa:pulse".to_owned()), "{listed:?}");
+        assert_eq!(listed.len(), 5);
+        // Only PulseAudio: that's offered.
+        let no_pipewire = |list: Vec<OutputDevice>| list.into_iter().filter(|d| d.id != "alsa:pipewire").collect::<Vec<_>>();
+        assert!(offered_ids(on_card(no_pipewire(alsa_listing()))).contains(&"alsa:pulse".to_owned()));
+        // The default is the server already: not offered twice (`alsa_offers_each_output_once`).
+        let pulse_default = no_pipewire(alsa_listing()).into_iter().map(|d| if d.id == "alsa:default" { OutputDevice { name: "Default ALSA Output (currently PulseAudio Sound Server)".into(), ..d } } else { d }).collect();
+        assert!(!offered_ids(pulse_default).contains(&"alsa:pulse".to_owned()));
     }
 
     #[test]

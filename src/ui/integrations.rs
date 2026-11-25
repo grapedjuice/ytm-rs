@@ -192,6 +192,8 @@ impl App {
             volume: (self.audio.volume() * 100.0).round() / 100.0,
             position: self.audio.status.position().as_secs(),
             duration: self.audio.status.duration().map(|d| d.as_secs()).unwrap_or(0),
+            video_id: track.map(|t| t.id.clone()),
+            commands: crate::remote::EXTRA_COMMANDS,
         });
         // The window may be hidden, and nothing else would move the position along.
         if self.playing() {

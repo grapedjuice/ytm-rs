@@ -25,6 +25,10 @@ pub const PORT: u16 = 26540;
 
 const MAX_MESSAGE: usize = 4096;
 
+/// The commands beyond the transport keys, listed in every snapshot so a client can tell
+/// this version knows them (older ones ignore unknown commands without a word).
+pub const EXTRA_COMMANDS: &[&str] = &["play", "queue", "seek"];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RepeatMode {
@@ -48,6 +52,10 @@ pub struct Snapshot {
     pub volume: f32,
     pub position: u64,
     pub duration: u64,
+    /// The YouTube ID of what's playing.
+    pub video_id: Option<String>,
+    /// See [`EXTRA_COMMANDS`].
+    pub commands: &'static [&'static str],
 }
 
 impl Default for Snapshot {
@@ -64,6 +72,8 @@ impl Default for Snapshot {
             volume: 1.0,
             position: 0,
             duration: 0,
+            video_id: None,
+            commands: EXTRA_COMMANDS,
         }
     }
 }
@@ -82,6 +92,18 @@ pub enum Cmd {
     Shuffle,
     /// `None` cycles off, then all, then one.
     Repeat(Option<RepeatMode>),
+    /// Play this song (a YouTube video ID) now, as opening its link does.
+    Play(String),
+    /// Add this song to the end of the queue.
+    Queue(String),
+    /// Jump to this many seconds into the song.
+    Seek(f64),
+}
+
+/// A YouTube video ID: 11 letters, digits, `-` or `_`.
+fn video_id(v: Option<&Value>) -> Option<String> {
+    let id = v?.as_str()?;
+    (id.len() == 11 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')).then(|| id.to_owned())
 }
 
 pub struct Remote {
@@ -334,6 +356,15 @@ fn parse_cmd(text: &str) -> Option<Cmd> {
                 _ => return None,
             }),
         }),
+        "play" => Cmd::Play(video_id(value)?),
+        "queue" => Cmd::Queue(video_id(value)?),
+        "seek" => {
+            let n = value?.as_f64()?;
+            if !n.is_finite() || n < 0.0 {
+                return None;
+            }
+            Cmd::Seek(n)
+        }
         _ => return None,
     })
 }
@@ -367,6 +398,13 @@ mod tests {
     }
 
     #[test]
+    fn play_queue_and_seek_parse() {
+        assert_eq!(parse_cmd(r#"{"cmd":"play","value":"dQw4w9WgXcQ"}"#), Some(Cmd::Play("dQw4w9WgXcQ".into())));
+        assert_eq!(parse_cmd(r#"{"cmd":"queue","value":"a_b-c1234XY"}"#), Some(Cmd::Queue("a_b-c1234XY".into())));
+        assert_eq!(parse_cmd(r#"{"cmd":"seek","value":61.5}"#), Some(Cmd::Seek(61.5)));
+    }
+
+    #[test]
     fn junk_is_not_a_command() {
         for bad in [
             "",
@@ -376,6 +414,11 @@ mod tests {
             r#"{"cmd":"like","value":"yes"}"#,
             r#"{"cmd":"set_volume"}"#,
             r#"{"cmd":"repeat","value":"two"}"#,
+            r#"{"cmd":"play"}"#,
+            r#"{"cmd":"play","value":"short"}"#,
+            r#"{"cmd":"queue","value":"has spaces!"}"#,
+            r#"{"cmd":"seek","value":-3}"#,
+            r#"{"cmd":"seek","value":"10"}"#,
         ] {
             assert_eq!(parse_cmd(bad), None, "{bad}");
         }
@@ -409,6 +452,8 @@ mod tests {
         assert_eq!(v["repeat"], "off");
         assert_eq!(v["shuffle"], false);
         assert!(v["album"].is_null());
+        assert!(v["video_id"].is_null());
+        assert_eq!(v["commands"], serde_json::json!(["play", "queue", "seek"]));
     }
 
     #[tokio::test]

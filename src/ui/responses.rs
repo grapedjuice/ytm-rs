@@ -178,6 +178,15 @@ impl App {
                     None => self.queue.repeat.next(),
                 };
             }
+            // As pasting a song's link: the same checks (explicit songs, a jam) apply.
+            Cmd::Play(id) => self.apply(Action::OpenLink(Link::Song { id, list: None }, false)),
+            Cmd::Queue(id) => self.apply(Action::OpenLink(Link::Song { id, list: None }, true)),
+            Cmd::Seek(secs) => {
+                // A jam guest follows the host's position.
+                if !self.jam.guest() {
+                    self.seek_to(Duration::from_secs_f64(secs));
+                }
+            }
         }
     }
 

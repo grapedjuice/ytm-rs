@@ -2433,9 +2433,11 @@ fn count_and_rest(s: &str) -> Option<(u64, &str)> {
         _ => match word {
             // Spanish billions: "3,4 mil M".
             "mil" if words.next() == Some("M") => 1e9,
-            "K" | "k" | "Tsd" | "mil" | "mila" | "tys" | "тыс" => 1e3,
-            "M" | "Mio" | "mi" | "Mln" | "mln" | "млн" => 1e6,
-            "B" | "Mrd" | "Md" | "bi" | "Mld" | "mld" | "млрд" => 1e9,
+            // Indonesian billions: "1,2 M pemutaran" / "1,2 M x ditonton" (M = miliar).
+            "M" if matches!(words.next(), Some("pemutaran" | "ditonton" | "kali" | "x" | "pendengar" | "subscriber")) => 1e9,
+            "K" | "k" | "Tsd" | "mil" | "mila" | "tys" | "тыс" | "rb" | "Rb" => 1e3,
+            "M" | "Mio" | "mi" | "Mln" | "mln" | "млн" | "jt" | "Jt" => 1e6,
+            "B" | "Mrd" | "Md" | "bi" | "Mld" | "mld" | "млрд" | "mlr" | "Mlr" => 1e9,
             _ if fraction => return None,
             _ => 1.0,
         },
@@ -3408,6 +3410,12 @@ mod tests {
         assert_eq!(count("3,82 тыс."), Some(3_820));
         assert_eq!(count("2,5 mil M reproducciones"), Some(2_500_000_000));
         assert_eq!(count("12 mil reproducciones"), Some(12_000));
+        assert_eq!(count("103 rb subscriber"), Some(103_000));
+        assert_eq!(count("7,22\u{a0}jt"), Some(7_220_000));
+        assert_eq!(count("1,2 jt kali ditonton"), Some(1_200_000));
+        assert_eq!(count("1,2\u{a0}M pemutaran"), Some(1_200_000_000));
+        assert_eq!(count("1,8\u{a0}M x ditonton"), Some(1_800_000_000));
+        assert_eq!(count("2,5 mlr kali ditonton"), Some(2_500_000_000));
         // A fraction with no unit is no count.
         assert_eq!(count("1.5"), None);
     }

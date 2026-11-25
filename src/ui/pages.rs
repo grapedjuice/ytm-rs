@@ -2881,6 +2881,29 @@ fn settings_mini(app: &mut App, ui: &mut Ui) {
                     log::warn!("mini player: couldn't save the style: {e}");
                 }
             });
+            divider(ui);
+            setting_row(ui, tr!("settings-mini-autohide"), Some(tr!("settings-mini-autohide-desc")), |ui| {
+                toggle(ui, &mut app.mini.lyrics_autohide, tr!("settings-mini-autohide"));
+            });
+            divider(ui);
+            setting_row(ui, tr!("settings-mini-pill-extended"), Some(tr!("settings-mini-pill-extended-desc")), |ui| {
+                toggle(ui, &mut app.mini.pill_extended, tr!("settings-mini-pill-extended"));
+            });
+            divider(ui);
+            setting_row(ui, tr!("settings-mini-cover-bg"), Some(tr!("settings-mini-cover-bg-desc")), |ui| {
+                toggle(ui, &mut app.mini.cover_bg, tr!("settings-mini-cover-bg"));
+            });
+            if app.mini.cover_bg {
+                divider(ui);
+                setting_row_wide(ui, tr!("settings-mini-cover-blur"), None, SLIDER_W, |ui| {
+                    step_slider(ui, &mut app.mini.cover_blur, (0.0, 10.0, 1.0), Some(0.0), |v| format!("{}", v.round() as u32), tr!("settings-mini-cover-blur"));
+                });
+                divider(ui);
+                setting_row_wide(ui, tr!("settings-mini-cover-opacity"), None, SLIDER_W, |ui| {
+                    // Fills from the left like a level; a double-click still goes to 100%.
+                    step_slider_home(ui, &mut app.mini.cover_opacity, (0.0, 100.0, 1.0), Some(0.0), Some(100.0), |v| format!("{}%", v.round() as u32), tr!("settings-mini-cover-opacity"));
+                });
+            }
         });
         divider(ui);
         setting_row(ui, tr!("settings-keep-on-top"), Some(tr!("settings-keep-on-top-desc")), |ui| {
@@ -4036,7 +4059,12 @@ fn seconds_slider(ui: &mut Ui, v: &mut u32, range: std::ops::RangeInclusive<u32>
 
 /// A slider over `lo..=hi` in steps of `step`, for a settings row: the value, then the
 /// track between its ends. It fills from `from` (`lo` when none) to the knob.
-fn step_slider(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), from: Option<f32>, text: impl Fn(f32) -> String, name: &str) -> egui::Response {
+fn step_slider(ui: &mut Ui, v: &mut f32, range: (f32, f32, f32), from: Option<f32>, text: impl Fn(f32) -> String, name: &str) -> egui::Response {
+    step_slider_home(ui, v, range, from, from, text, name)
+}
+
+/// [`step_slider`] with the fill's start and the double-click's home apart.
+fn step_slider_home(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), fill_from: Option<f32>, home: Option<f32>, text: impl Fn(f32) -> String, name: &str) -> egui::Response {
     let label = |ui: &mut Ui, g: std::sync::Arc<egui::Galley>, w: Option<f32>, color: Color32| {
         let (rect, _) = ui.allocate_exact_size(vec2(w.unwrap_or(g.size().x), 26.0), Sense::hover());
         ui.painter().galley(pos2(rect.right() - g.size().x, rect.center().y - g.size().y / 2.0), g, color);
@@ -4048,7 +4076,7 @@ fn step_slider(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), from: 
     label(ui, hi_g, None, theme::text_dim());
     // Shorter where the row hasn't the room (a narrow window), not over its description.
     let width = (ui.available_width() - lo_g.size().x - 2.0 * ui.spacing().item_spacing.x).clamp(60.0, 170.0);
-    let resp = slider_track(ui, v, (lo, hi, step), from, width, name);
+    let resp = slider_track_home(ui, v, (lo, hi, step), fill_from, home, width, name);
     label(ui, lo_g, None, theme::text_dim());
     resp
 }
@@ -4057,12 +4085,17 @@ fn step_slider(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), from: 
 const SLIDER_W: f32 = 310.0;
 
 /// Just the track and knob of a step slider, `width` wide.
-pub(super) fn slider_track(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), from: Option<f32>, width: f32, name: &str) -> egui::Response {
+pub(super) fn slider_track(ui: &mut Ui, v: &mut f32, range: (f32, f32, f32), from: Option<f32>, width: f32, name: &str) -> egui::Response {
+    slider_track_home(ui, v, range, from, from, width, name)
+}
+
+/// [`slider_track`] with the fill's start and the double-click's home apart.
+pub(super) fn slider_track_home(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), fill_from: Option<f32>, home: Option<f32>, width: f32, name: &str) -> egui::Response {
     let (rect, mut resp) = ui.allocate_exact_size(vec2(width, 26.0), Sense::click_and_drag());
     let track = Rect::from_center_size(rect.center(), vec2(rect.width() - 16.0, 4.0));
     let old = *v;
     // Back home on a double-click, as the equalizer's bands go back to 0.
-    if let Some(home) = from.filter(|_| resp.double_clicked()) {
+    if let Some(home) = home.filter(|_| resp.double_clicked()) {
         *v = home;
     } else if let Some(p) = resp.interact_pointer_pos()
         && (resp.dragged() || resp.clicked())
@@ -4080,7 +4113,7 @@ pub(super) fn slider_track(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, 
     let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
     let x = |v: f32| egui::lerp(track.left()..=track.right(), (v - lo) / (hi - lo));
     let knob = pos2(x(value), track.center().y);
-    let from = x(from.unwrap_or(lo));
+    let from = x(fill_from.unwrap_or(lo));
     ui.painter().rect_filled(track, 2.0, theme::glass(0.15));
     ui.painter().rect_filled(Rect::from_min_max(pos2(from.min(knob.x), track.min.y), pos2(from.max(knob.x), track.max.y)), 2.0, accent);
     ui.painter().circle_filled(knob + vec2(0.0, 1.0), 7.0 + h, theme::shade(0.25));

@@ -1544,10 +1544,9 @@ fn pill_lyrics(app: &mut App, ui: &mut Ui, area: Rect, clip: Rect, now: f64) -> 
         app.mini.pill_lyric_key = key;
         app.mini.pill_lyric_view.reset();
         app.mini.pill_lyric_h = 0.0;
-        let mut full = lyrics.clone();
-        // The renderer appends a credits block from these: not wanted in the pill.
-        full.songwriters.clear();
-        app.mini.pill_lyric_lines = Some(full);
+        // Keep the songwriters and Unison credit: the renderer appends them after the
+        // last line, and the lyrics must carry their attribution here too.
+        app.mini.pill_lyric_lines = Some(lyrics.clone());
     }
     let full = app.mini.pill_lyric_lines.as_ref().expect("the pill's lyrics were cached above");
     let target_h = if app.mini.pill_lyric_h > 0.0 { (app.mini.pill_lyric_h + 12.0).min(area.height()) } else { area.height() };
@@ -1629,10 +1628,9 @@ fn card_lyrics(app: &mut App, ui: &mut Ui, area: Rect, open: f32, now: f64) {
     if app.mini.lyric_key != key || app.mini.lyric_lines.is_none() {
         app.mini.lyric_key = key;
         app.mini.lyric_view.reset();
-        let mut full = lyrics.clone();
-        // The renderer appends a credits block from these: not wanted in the mini card.
-        full.songwriters.clear();
-        app.mini.lyric_lines = Some(full);
+        // Keep the songwriters and Unison credit: the renderer appends them after the
+        // last line, and the lyrics must carry their attribution here too.
+        app.mini.lyric_lines = Some(lyrics.clone());
     }
     let full = app.mini.lyric_lines.as_ref().expect("the lyrics were cached above");
     let playing = app.playing();

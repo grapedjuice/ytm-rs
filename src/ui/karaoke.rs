@@ -2012,6 +2012,11 @@ impl View {
                 }
             }
         }
+        // Once the last line is sung, the credits block is what the one-line mini views
+        // should open to: otherwise the songwriters and Unison credit are clipped.
+        if credits_focused && let Some(c) = credits {
+            active_h = layout.blocks[c].height;
+        }
         // Glows (drop-shadows of the lit text) were queued while painting; draw them under
         // the lit text they belong to by inserting at the recorded positions.
         self.glow.finish(&ctx, &painter, glow_work, atlas, ppp);

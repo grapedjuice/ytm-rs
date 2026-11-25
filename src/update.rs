@@ -165,11 +165,30 @@ pub fn appimage() -> bool {
 
 /// The AppImage file this copy was started from, which an update replaces: the binary
 /// itself sits in the image, mounted read-only while it runs. Its runtime says where it
-/// is in `APPIMAGE`; without that (started from an unpacked image) there's no file to
-/// replace, and it only says a new version is out, as the .deb does.
+/// is in `APPIMAGE`. Without that (started from an unpacked image), or in a folder it
+/// can't write to (/opt), there's no file it can replace, and it only says a new version
+/// is out, as the .deb does.
 pub fn appimage_file() -> Option<PathBuf> {
     static FILE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
-    FILE.get_or_init(|| appimage().then(|| std::env::var_os("APPIMAGE").map(PathBuf::from)).flatten().filter(|p| p.is_absolute() && p.is_file())).clone()
+    FILE.get_or_init(|| {
+        let file = appimage().then(|| std::env::var_os("APPIMAGE").map(PathBuf::from)).flatten()?;
+        (file.is_absolute() && file.is_file() && file.parent().is_some_and(writable)).then_some(file)
+    })
+    .clone()
+}
+
+/// Whether this user can create and rename files in `dir`.
+#[cfg(unix)]
+fn writable(dir: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(dir) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else { return false };
+    // SAFETY: a NUL-terminated path that outlives the call.
+    unsafe { libc::access(dir.as_ptr(), libc::W_OK) == 0 }
+}
+
+#[cfg(not(unix))]
+fn writable(_: &Path) -> bool {
+    false
 }
 
 /// Whether this copy runs as a Flatpak. Flatpak owns it, so like the .deb it never

@@ -603,7 +603,11 @@ fn lyrics_file(video_id: &str) -> Option<PathBuf> {
 /// The lyrics saved for a downloaded song, every source that had them.
 pub fn saved_lyrics(video_id: &str) -> Option<LyricsSet> {
     path(video_id)?;
-    let set: LyricsSet = serde_json::from_slice(&std::fs::read(lyrics_file(video_id)?).ok()?).ok()?;
+    let mut set: LyricsSet = serde_json::from_slice(&std::fs::read(lyrics_file(video_id)?).ok()?).ok()?;
+    // Unison lyrics saved before they carried its credit still link to the song.
+    for l in set.sources.iter_mut().filter(|l| l.provider.name() == "Unison" && l.unison.is_none()) {
+        l.unison = Some(crate::lyrics::UnisonCredit { video_id: video_id.to_owned(), submitter: None });
+    }
     (!set.sources.is_empty()).then_some(set)
 }
 
@@ -1080,7 +1084,7 @@ mod tests {
     #[test]
     fn the_file_gets_the_chosen_sources_lyrics_as_set() {
         use crate::lyrics::{Line, Lyrics, Sync};
-        let lyrics = |provider, text: &str| Lyrics { lines: vec![Line { start: 2000, dur: 1000, text: text.into(), ..Default::default() }], sync: Sync::Line, provider, language: None, songwriters: vec![] };
+        let lyrics = |provider, text: &str| Lyrics { lines: vec![Line { start: 2000, dur: 1000, text: text.into(), ..Default::default() }], sync: Sync::Line, provider, language: None, songwriters: vec![], unison: None };
         let set = LyricsSet { sources: vec![lyrics(Provider::BLyricsRich, "first"), lyrics(Provider::LrclibSynced, "picked")] };
         let order: Vec<(Provider, bool)> = Provider::ALL.iter().map(|p| (*p, true)).collect();
         let pins = HashMap::from([("v".to_owned(), Provider::LrclibSynced)]);

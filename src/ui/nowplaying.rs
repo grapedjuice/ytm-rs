@@ -2267,7 +2267,25 @@ fn plain_lyrics(app: &mut App, ui: &mut Ui, rect: Rect, lyrics: &Lyrics) {
             }
             ui.add_space(size * 0.25);
         }
+        if let Some(c) = &lyrics.unison {
+            ui.add_space(14.0);
+            unison_credit(ui, c);
+        }
         ui.add_space(80.0);
+    });
+}
+
+/// Unison's credit under its unsynced lyrics, as the synced view has it: "Lyrics from
+/// Unison" linked to the song there, and who submitted them linked to their page.
+fn unison_credit(ui: &mut Ui, c: &crate::lyrics::UnisonCredit) {
+    let text = |t: String| egui::RichText::new(t).font(theme::regular(13.0)).color(theme::text_faint());
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.add(egui::Hyperlink::from_label_and_url(text(crate::tr!("player-lyrics-from-unison").to_owned()), c.song_url()));
+        if let Some((name, key)) = &c.submitter {
+            ui.label(text(" · ".to_owned()));
+            ui.add(egui::Hyperlink::from_label_and_url(text(crate::tr!("player-lyrics-submitted-by", name = name.as_str())), crate::lyrics::UnisonCredit::submitter_url(key)));
+        }
     });
 }
 

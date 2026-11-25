@@ -244,7 +244,7 @@ mod tests {
     fn set(of: &[Provider]) -> LyricsSet {
         use crate::lyrics::{Lyrics, Sync};
         let line = Line { start: 1000, dur: 1000, text: "la".into(), ..Default::default() };
-        LyricsSet { sources: of.iter().map(|p| Lyrics { lines: vec![line.clone()], sync: Sync::Line, provider: *p, language: None, songwriters: vec![] }).collect() }
+        LyricsSet { sources: of.iter().map(|p| Lyrics { lines: vec![line.clone()], sync: Sync::Line, provider: *p, language: None, songwriters: vec![], unison: None }).collect() }
     }
 
     #[test]

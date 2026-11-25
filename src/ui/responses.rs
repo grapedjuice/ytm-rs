@@ -359,6 +359,17 @@ impl App {
                     self.lyrics = Some((video_id, lyrics));
                 }
             }
+            Resp::UnisonCredit { video_id, credits } => {
+                if let Some((id, set)) = &mut self.lyrics
+                    && *id == video_id
+                {
+                    for (provider, credit) in credits {
+                        if let Some(l) = set.sources.iter_mut().find(|l| l.provider == provider && l.unison.as_ref().is_some_and(|c| c.submitter.is_none())) {
+                            l.unison = Some(credit);
+                        }
+                    }
+                }
+            }
             Resp::CommentsPage { token, page } => super::comments::on_page(&token, page),
             Resp::ArtistPicture { id, pic } => {
                 self.artist_pics.insert(id, pic);

@@ -316,7 +316,10 @@ impl App {
             None => String::new(),
         };
         log::info!("download {id}, kept downloaded: {} to download", todo.len());
-        self.backend.request(Req::DownloadMany { target: Some(Target::Playlist(id.to_owned())), title, tracks: Some(todo), confirmed: true });
+        // Another playlist asks first when it's a large download, as from its page; the few
+        // songs that join it later don't. Liked Music's setting is the asking.
+        let confirmed = id == LIKED_MUSIC;
+        self.backend.request(Req::DownloadMany { target: Some(Target::Playlist(id.to_owned())), title, tracks: Some(todo), confirmed });
     }
 
     /// The kept albums and playlists not to drop for room: the page on screen and what's playing.

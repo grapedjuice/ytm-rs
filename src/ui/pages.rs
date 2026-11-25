@@ -733,7 +733,7 @@ fn mood(app: &mut App, ui: &mut Ui, params: &str, now: f64) {
     page_title(ui, browse_label(&m.title));
     let rows = Rows::new(app, now);
     for (i, s) in m.shelves.iter().enumerate() {
-        let id = format!("mood-{i}-{}", s.title);
+        let id = format!("mood-{i}-{}-{params}", s.title);
         match &s.kind {
             ShelfKind::Cards(cards) => {
                 let cards: Vec<&Card> = cards.iter().filter(|c| !matches!(&c.target, Target::Song(t) if !rows.shows(t))).collect();
@@ -784,6 +784,9 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     // Songs here can be dragged onto a playlist in the sidebar, but not into another order.
     let drag = &mut app.row_drag;
     let ids = |section: &str| egui::Id::unique(("search", section));
+    // Each search's shelves scroll on their own: one scrolled for an earlier query
+    // doesn't open scrolled here.
+    let shelf = |name: &str| format!("s-{name}-{scope:?}-{q}");
     let tracks: Vec<&Track> = r.tracks.iter().filter(|t| rows.shows(t)).collect();
     let videos: Vec<&Track> = r.videos.iter().filter(|t| rows.shows(t)).collect();
     let episodes: Vec<&Track> = r.episodes.iter().filter(|t| rows.shows(t)).collect();
@@ -859,8 +862,8 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
             songs(ui, acts);
         }
     }
-    card_row(ui, "s-artists", crate::tr!("nav-artists"), &r.artists, acts);
-    card_row(ui, "s-albums", crate::tr!("nav-albums"), &r.albums, acts);
+    card_row(ui, &shelf("artists"), crate::tr!("nav-artists"), &r.artists, acts);
+    card_row(ui, &shelf("albums"), crate::tr!("nav-albums"), &r.albums, acts);
     if !videos.is_empty() && !app.hide_search_videos {
         ui.add_space(26.0);
         ui.label(RichText::new(crate::tr!("nav-videos")).font(theme::bold(24.0)));
@@ -894,9 +897,9 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
         }
         row_drag::carry(ui, drag, ids("more"));
     }
-    card_row(ui, "s-pl", crate::tr!("nav-playlists"), &r.playlists, acts);
-    card_row(ui, "s-community", crate::tr!("nav-community-playlists"), &r.community, acts);
-    card_row(ui, "s-podcasts", crate::tr!("nav-podcasts"), &r.podcasts, acts);
+    card_row(ui, &shelf("pl"), crate::tr!("nav-playlists"), &r.playlists, acts);
+    card_row(ui, &shelf("community"), crate::tr!("nav-community-playlists"), &r.community, acts);
+    card_row(ui, &shelf("podcasts"), crate::tr!("nav-podcasts"), &r.podcasts, acts);
     if !episodes.is_empty() {
         ui.add_space(26.0);
         ui.label(RichText::new(crate::tr!("nav-episodes")).font(theme::bold(24.0)));
@@ -1359,17 +1362,17 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         }
         row_drag::carry(ui, drag, list);
     }
-    card_row(ui, "a-albums", crate::tr!("nav-albums-singles"), &a.albums, acts);
+    card_row(ui, &format!("a-albums-{id}"), crate::tr!("nav-albums-singles"), &a.albums, acts);
     if !videos.is_empty() {
-        cards_shelf(ui, &app.liked, acts, "a-videos", crate::tr!("nav-videos"), None, None, &videos);
+        cards_shelf(ui, &app.liked, acts, &format!("a-videos-{id}"), crate::tr!("nav-videos"), None, None, &videos);
     }
     // Their songs you've saved, less those hidden as explicit.
     let library: Vec<&Card> = a.library.iter().filter(|c| !matches!(&c.target, Target::Song(t) if !rows.shows(t))).collect();
     if !library.is_empty() {
-        cards_shelf(ui, &app.liked, acts, "a-lib", crate::tr!("nav-from-library"), None, None, &library);
+        cards_shelf(ui, &app.liked, acts, &format!("a-lib-{id}"), crate::tr!("nav-from-library"), None, None, &library);
     }
-    card_row(ui, "a-pl", crate::tr!("nav-featured-on"), &a.playlists, acts);
-    card_row(ui, "a-sim", crate::tr!("nav-similar-artists"), &a.similar, acts);
+    card_row(ui, &format!("a-pl-{id}"), crate::tr!("nav-featured-on"), &a.playlists, acts);
+    card_row(ui, &format!("a-sim-{id}"), crate::tr!("nav-similar-artists"), &a.similar, acts);
     if let Some(d) = a.description.as_deref().filter(|d| !d.trim().is_empty()) {
         shelf_header(ui, crate::tr!("settings-about"), None, None, None);
         let trimmed = d.trim();

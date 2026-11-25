@@ -88,17 +88,22 @@ fn disconnect(st: &mut State) {
     st.credentials.delete(VAULT, &st.data_dir);
 }
 
-fn keep_session(st: &mut State, session: Session) -> anyhow::Result<()> {
+/// Save a new login and return its queue. Runs without `STATE` held, since the keyring
+/// can wait on an unlock prompt.
+fn save_session(data_dir: &Path, credentials: &dyn Credentials, session: &Session) -> anyhow::Result<Vec<Listen>> {
     anyhow::ensure!(!session.name.trim().is_empty() && !session.token.trim().is_empty(), "listenbrainz: incomplete session");
     // Drop any ownerless queue before startup could recover it with the new credentials.
-    let queue = QueueFile(st.data_dir.join("listenbrainz_queue.json")).prepare(&session.name)?;
-    st.credentials.set(VAULT, &st.data_dir, format!("{}\n{}", session.name, session.token).as_bytes())?;
+    let queue = QueueFile(data_dir.join("listenbrainz_queue.json")).prepare(&session.name)?;
+    credentials.set(VAULT, data_dir, format!("{}\n{}", session.name, session.token).as_bytes())?;
+    Ok(queue)
+}
+
+fn use_session(st: &mut State, session: Session, queue: Vec<Listen>) {
     // A same-account reconnect keeps the live queue, including unsaved changes.
     if st.session.as_ref().is_none_or(|old| old.name != session.name) {
         st.queue = queue;
     }
     st.session = Some(Arc::new(session));
-    Ok(())
 }
 
 fn is_current(st: &State, session: &Arc<Session>) -> bool {
@@ -114,7 +119,13 @@ pub async fn connect(http: &reqwest::Client, token: &str) -> anyhow::Result<Stri
         anyhow::bail!("ListenBrainz didn't accept that token");
     }
     let name = v["user_name"].as_str().unwrap_or_default().to_owned();
-    keep_session(&mut STATE.lock().unwrap(), Session { name: name.clone(), token: token.to_owned() })?;
+    let session = Session { name: name.clone(), token: token.to_owned() };
+    let (data_dir, credentials) = {
+        let st = STATE.lock().unwrap();
+        (st.data_dir.clone(), st.credentials.clone())
+    };
+    let queue = save_session(&data_dir, credentials.as_ref(), &session)?;
+    use_session(&mut STATE.lock().unwrap(), session, queue);
     log::info!("listenbrainz: connected as {name}");
     Ok(name)
 }

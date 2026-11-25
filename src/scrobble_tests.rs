@@ -64,7 +64,9 @@ macro_rules! service_tests {
         }
 
         fn login(st: &mut State, name: &str) {
-            keep_session(st, Session { name: name.into(), $secret: "secret".into() }).unwrap();
+            let session = Session { name: name.into(), $secret: "secret".into() };
+            let queue = save_session(&st.data_dir, st.credentials.as_ref(), &session).unwrap();
+            use_session(st, session, queue);
         }
 
         #[tokio::test]

@@ -165,10 +165,18 @@ impl App {
     /// Mirror playback to a Stream Deck plugin, and keep the socket open only while the
     /// setting is on. Cheap every frame: clients are told only when the snapshot changes.
     pub(super) fn sync_remote(&mut self, ctx: &egui::Context) {
-        if !self.remote_enabled {
+        if std::mem::take(&mut self.remote_show) {
+            self.show_window(ctx);
+        }
+        if std::mem::take(&mut self.remote_quit) {
+            self.quit(ctx);
+        }
+        // Another app running this copy drives it through the socket, whatever the setting.
+        if !self.remote_enabled && !crate::remote::embedded() {
             if self.remote.is_running() {
                 self.remote.stop();
             }
+            self.remote_lyrics = None;
             return;
         }
         if !self.remote.is_running() {
@@ -176,6 +184,7 @@ impl App {
             self.remote.start(move || wake.request_repaint());
         }
         let track = self.playing_track();
+        let position = self.audio.status.position();
         self.remote.publish(crate::remote::Snapshot {
             title: track.map(|t| t.title.clone()).unwrap_or_default(),
             artist: track.map(|t| t.artist_line()).unwrap_or_default(),
@@ -190,14 +199,67 @@ impl App {
             },
             shuffle: self.queue.shuffled(),
             volume: (self.audio.volume() * 100.0).round() / 100.0,
-            position: self.audio.status.position().as_secs(),
+            position: position.as_secs(),
+            position_ms: position.as_millis() as u64,
             duration: self.audio.status.duration().map(|d| d.as_secs()).unwrap_or(0),
             video_id: track.map(|t| t.id.clone()),
             commands: crate::remote::EXTRA_COMMANDS,
         });
+        self.sync_remote_lyrics();
         // The window may be hidden, and nothing else would move the position along.
         if self.playing() {
             ctx.request_repaint_after(Duration::from_secs(1));
+        }
+    }
+
+    /// The shown lyrics for a remote client that asked for them, with each line's
+    /// translation into its language: what the lyrics ship, else Unison/Google, asked
+    /// for once. Timed as they're shown here, offsets included.
+    fn sync_remote_lyrics(&mut self) {
+        let Some(target) = self.remote_lyrics.clone() else { return };
+        let Some(id) = self.playing_id().map(str::to_owned) else { return };
+        // Still loading.
+        if self.lyrics.as_ref().is_none_or(|(l, _)| *l != id) {
+            return;
+        }
+        let Some(lyrics) = self.lyric_choice() else {
+            self.remote.publish_lyrics(remote_lyrics_json(&id, None, &[], 0.0));
+            return;
+        };
+        let source = lyrics.provider.key().to_owned();
+        let extras = [self.lyrics_extras.as_ref(), self.remote_extras.as_ref()]
+            .into_iter()
+            .flatten()
+            .find(|(v, s, t, _)| *v == id && *s == source && *t == target)
+            .map(|(_, _, _, e)| e);
+        let trans: Vec<Option<&str>> = lyrics
+            .lines
+            .iter()
+            .enumerate()
+            .map(|(i, l)| {
+                if l.instrumental {
+                    return None;
+                }
+                let t = super::lyric_prefs::shipped_translation(l, &target).or_else(|| extras?.trans.get(i)?.as_deref())?;
+                (!t.trim().eq_ignore_ascii_case(l.text.trim())).then_some(t)
+            })
+            .collect();
+        let missing = extras.is_none()
+            && lyrics.lines.iter().any(|l| !l.instrumental && !l.text.trim().is_empty() && super::lyric_prefs::shipped_translation(l, &target).is_none());
+        let want = (id.clone(), source.clone(), target.clone());
+        let ask = (missing && self.remote_extras_asked.as_ref() != Some(&want)).then(|| backend::Req::LyricsExtras {
+            video_id: id.clone(),
+            source,
+            lines: lyrics.lines.iter().map(|x| if x.instrumental { String::new() } else { x.text.clone() }).collect(),
+            lang: lyrics.language.clone(),
+            target,
+        });
+        let offset = self.lyric_prefs.offset(&id, lyrics.provider, lyrics.sync == crate::lyrics::Sync::Word);
+        let json = remote_lyrics_json(&id, Some(lyrics), &trans, offset);
+        self.remote.publish_lyrics(json);
+        if let Some(req) = ask {
+            self.remote_extras_asked = Some(want);
+            self.backend.request(req);
         }
     }
 
@@ -493,6 +555,19 @@ impl App {
         }
     }
 
+    /// Run by another app (`YTM_EMBEDDED`), × hides the window: that app decides when this
+    /// copy quits. With "Close to tray" on, `tray_window` already does it.
+    pub(super) fn embedded_window(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        if !crate::remote::embedded() || self.tray.is_some() || self.exiting {
+            return;
+        }
+        if ctx.input(|i| i.viewport().close_requested()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(hide_command(is_wayland(frame)));
+            self.in_tray = true;
+        }
+    }
+
     /// The window back for the tray's Show or a later launch. Wayland ignores Visible,
     /// un-minimizing and Focus, so there it can only ask for attention (see `tray_window`).
     pub(super) fn bring_back(&mut self, ctx: &egui::Context, wayland: bool) {
@@ -573,6 +648,48 @@ fn file_safe(id: &str) -> String {
     id.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')).collect()
 }
 
+/// The lyrics frame a remote client gets: `{"lyrics":{video_id, source, sync, lines}}`,
+/// no lines when the song has none. Times in milliseconds, moved by `offset` seconds
+/// (the listener's lyrics offset) so they match the song's position.
+fn remote_lyrics_json(video_id: &str, lyrics: Option<&crate::lyrics::Lyrics>, trans: &[Option<&str>], offset: f64) -> String {
+    use crate::lyrics::Sync;
+    let shift = (offset * 1000.0).round() as i64;
+    let at = |ms: i32| (ms as i64 + shift).max(0);
+    let body = match lyrics {
+        None => serde_json::json!({ "video_id": video_id, "source": null, "sync": null, "lines": [] }),
+        Some(l) => {
+            let lines: Vec<_> = l
+                .lines
+                .iter()
+                .enumerate()
+                .map(|(i, line)| {
+                    let parts: Vec<_> = line
+                        .parts
+                        .iter()
+                        .map(|p| serde_json::json!({ "start": at(p.start), "dur": p.dur.max(0), "text": p.text, "bg": p.bg }))
+                        .collect();
+                    serde_json::json!({
+                        "start": if l.sync == Sync::None { 0 } else { at(line.start) },
+                        "dur": line.dur.max(0),
+                        "text": line.text,
+                        "parts": parts,
+                        "translation": trans.get(i).copied().flatten(),
+                        "roman": line.romanization,
+                        "instrumental": line.instrumental,
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "video_id": video_id,
+                "source": l.provider.name(),
+                "sync": match l.sync { Sync::Word => "word", Sync::Line => "line", Sync::None => "plain" },
+                "lines": lines,
+            })
+        }
+    };
+    serde_json::json!({ "lyrics": body }).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -583,6 +700,46 @@ mod tests {
         assert_eq!(window_title(Some(("Get Lucky", String::new()))), "Get Lucky");
         assert_eq!(window_title(Some(("", String::new()))), "YT Music");
         assert_eq!(window_title(None), "YT Music");
+    }
+
+    #[test]
+    fn remote_lyrics_carry_words_translations_and_the_offset() {
+        use crate::lyrics::{Line, Lyrics, Part, Provider, Sync};
+        let lyrics = Lyrics {
+            lines: vec![
+                Line {
+                    start: 1000,
+                    dur: 1500,
+                    text: "Hola mundo".into(),
+                    parts: vec![
+                        Part { start: 1000, dur: 500, text: "Hola ".into(), bg: false },
+                        Part { start: 1500, dur: 900, text: "mundo".into(), bg: false },
+                    ],
+                    ..Line::default()
+                },
+                Line { start: 2600, dur: 6000, instrumental: true, ..Line::default() },
+            ],
+            sync: Sync::Word,
+            provider: Provider::MusixmatchRich,
+            language: Some("es".into()),
+            songwriters: vec![],
+            unison: None,
+        };
+        let v: serde_json::Value = serde_json::from_str(&remote_lyrics_json("dQw4w9WgXcQ", Some(&lyrics), &[Some("Hello world"), None], 0.25)).unwrap();
+        let l = &v["lyrics"];
+        assert_eq!(l["video_id"], "dQw4w9WgXcQ");
+        assert_eq!(l["source"], "Musixmatch");
+        assert_eq!(l["sync"], "word");
+        assert_eq!(l["lines"][0]["start"], 1250);
+        assert_eq!(l["lines"][0]["parts"][1]["start"], 1750);
+        assert_eq!(l["lines"][0]["parts"][1]["text"], "mundo");
+        assert_eq!(l["lines"][0]["translation"], "Hello world");
+        assert_eq!(l["lines"][1]["instrumental"], true);
+        assert!(l["lines"][1]["translation"].is_null());
+
+        let none: serde_json::Value = serde_json::from_str(&remote_lyrics_json("dQw4w9WgXcQ", None, &[], 0.0)).unwrap();
+        assert_eq!(none["lyrics"]["lines"], serde_json::json!([]));
+        assert!(none["lyrics"]["sync"].is_null());
     }
 
     #[test]

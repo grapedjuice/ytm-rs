@@ -149,6 +149,10 @@ fn main() -> eframe::Result {
         .with_titlebar_shown(!ui::titlebar_inset())
         .with_title_shown(!ui::titlebar_inset())
         .with_icon(appicon::get(appicon::load(&data_dir())).icon_data().expect("bundled icons are valid PNGs"));
+    // Run by another app, which brings the window up when it's wanted (`remote`).
+    if remote::embedded() {
+        viewport = viewport.with_visible(false);
+    }
     if background {
         viewport = viewport.with_position([-4000.0, 0.0]).with_inner_size([1920.0, 1057.0]).with_active(false).with_taskbar(false);
     }

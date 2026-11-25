@@ -4,7 +4,16 @@
 //! can't drive the player. Any other program on this machine can. There is no auth.
 //!
 //! Position is whole seconds. Finer than that isn't shown on a key, and the UI would
-//! push an update every frame while a song plays.
+//! push an update every frame while a song plays. `position_ms` is the same moment to
+//! the millisecond, for a client that keeps its own clock (lyrics); it alone never
+//! sends an update.
+//!
+//! A client that sends `{"cmd":"lyrics"}` also gets the shown lyrics, as their own
+//! frame `{"lyrics":{…}}`, now and whenever they change.
+//!
+//! Another app can run this copy for itself (`YTM_EMBEDDED`): the window starts hidden,
+//! the socket is on whatever the setting says, on `YTM_REMOTE_PORT` if set, and that app
+//! keeps the copy up to date, so it doesn't update itself.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,11 +32,22 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 /// `ws://127.0.0.1:26540`. Not `localhost`: that can resolve to IPv6, which isn't bound.
 pub const PORT: u16 = 26540;
 
+/// [`PORT`], or `YTM_REMOTE_PORT`: an app running its own copy alongside the listener's.
+pub fn port() -> u16 {
+    std::env::var("YTM_REMOTE_PORT").ok().and_then(|p| p.parse().ok()).filter(|p| *p > 0).unwrap_or(PORT)
+}
+
+/// Run by another app that drives it over this socket (`YTM_EMBEDDED`).
+pub fn embedded() -> bool {
+    static EMBEDDED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *EMBEDDED.get_or_init(|| std::env::var_os("YTM_EMBEDDED").is_some_and(|v| !v.is_empty() && v != "0"))
+}
+
 const MAX_MESSAGE: usize = 4096;
 
 /// The commands beyond the transport keys, listed in every snapshot so a client can tell
 /// this version knows them (older ones ignore unknown commands without a word).
-pub const EXTRA_COMMANDS: &[&str] = &["play", "queue", "seek"];
+pub const EXTRA_COMMANDS: &[&str] = &["play", "queue", "seek", "lyrics", "show", "quit"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -51,6 +71,8 @@ pub struct Snapshot {
     /// 0.0–1.0.
     pub volume: f32,
     pub position: u64,
+    /// `position` in milliseconds, as it was when this snapshot was made.
+    pub position_ms: u64,
     pub duration: u64,
     /// The YouTube ID of what's playing.
     pub video_id: Option<String>,
@@ -71,6 +93,7 @@ impl Default for Snapshot {
             shuffle: false,
             volume: 1.0,
             position: 0,
+            position_ms: 0,
             duration: 0,
             video_id: None,
             commands: EXTRA_COMMANDS,
@@ -98,6 +121,22 @@ pub enum Cmd {
     Queue(String),
     /// Jump to this many seconds into the song.
     Seek(f64),
+    /// Send this client the lyrics, translated into this language (a code like `es` or
+    /// `pt-BR`; the app's own setting when none).
+    Lyrics(Option<String>),
+    /// Bring the window up (one started hidden, say).
+    Show,
+    /// Close the app, even with "Close to tray" on.
+    Quit,
+}
+
+/// A language code: letters, and a region after `-` or `_`.
+fn language(v: &Value) -> Option<String> {
+    let code = v.as_str()?;
+    let ok = (2..=12).contains(&code.len())
+        && code.split(['-', '_']).all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_alphanumeric()))
+        && code.bytes().next().is_some_and(|b| b.is_ascii_alphabetic());
+    ok.then(|| code.to_owned())
 }
 
 /// A YouTube video ID: 11 letters, digits, `-` or `_`.
@@ -110,6 +149,8 @@ pub struct Remote {
     cmds: Receiver<Cmd>,
     cmd_tx: Sender<Cmd>,
     state: watch::Sender<Snapshot>,
+    /// The lyrics frame (`{"lyrics":…}`), sent to the clients that asked for it.
+    lyrics: watch::Sender<Option<Arc<str>>>,
     /// Dropping it (or `stop`) ends the server thread.
     stop: Option<oneshot::Sender<()>>,
 }
@@ -119,10 +160,13 @@ impl Remote {
         let (cmd_tx, cmds) = unbounded();
         let (state, rx) = watch::channel(Snapshot::default());
         drop(rx);
+        let (lyrics, rx) = watch::channel(None);
+        drop(rx);
         Self {
             cmds,
             cmd_tx,
             state,
+            lyrics,
             stop: None,
         }
     }
@@ -140,6 +184,7 @@ impl Remote {
         let (stop_tx, stop_rx) = oneshot::channel();
         let cmd_tx = self.cmd_tx.clone();
         let state = self.state.subscribe();
+        let lyrics = self.lyrics.subscribe();
         let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(wake);
         let spawned = std::thread::Builder::new()
             .name("remote".into())
@@ -154,7 +199,7 @@ impl Remote {
                         return;
                     }
                 };
-                rt.block_on(run(cmd_tx, state, wake, stop_rx));
+                rt.block_on(run(cmd_tx, state, lyrics, wake, stop_rx));
             });
         if let Err(e) = spawned {
             log::warn!("remote control: {e}");
@@ -169,13 +214,27 @@ impl Remote {
         }
     }
 
-    /// Send `snap` to every client, if it differs from the last one.
+    /// Send `snap` to every client, if it differs from the last one by more than
+    /// `position_ms`.
     pub fn publish(&self, snap: Snapshot) {
         self.state.send_if_modified(|cur| {
-            if *cur == snap {
+            if (Snapshot { position_ms: snap.position_ms, ..cur.clone() }) == snap {
                 false
             } else {
                 *cur = snap;
+                true
+            }
+        });
+    }
+
+    /// Send the lyrics frame `json` (`{"lyrics":…}`) to the clients that asked for
+    /// lyrics, if it differs from the last one.
+    pub fn publish_lyrics(&self, json: String) {
+        self.lyrics.send_if_modified(|cur| {
+            if cur.as_deref() == Some(json.as_str()) {
+                false
+            } else {
+                *cur = Some(json.into());
                 true
             }
         });
@@ -195,26 +254,28 @@ impl Drop for Remote {
 async fn run(
     cmds: Sender<Cmd>,
     state: watch::Receiver<Snapshot>,
+    lyrics: watch::Receiver<Option<Arc<str>>>,
     wake: Arc<dyn Fn() + Send + Sync>,
     mut stop: oneshot::Receiver<()>,
 ) {
     let mut logged = false;
+    let port = port();
     loop {
         tokio::select! {
             _ = &mut stop => return,
-            bound = TcpListener::bind(("127.0.0.1", PORT)) => {
+            bound = TcpListener::bind(("127.0.0.1", port)) => {
                 match bound {
                     Ok(listener) => {
-                        log::info!("remote control on ws://127.0.0.1:{PORT}");
+                        log::info!("remote control on ws://127.0.0.1:{port}");
                         logged = false;
                         tokio::select! {
                             _ = &mut stop => return,
-                            _ = accept_loop(listener, state.clone(), cmds.clone(), wake.clone()) => {}
+                            _ = accept_loop(listener, state.clone(), lyrics.clone(), cmds.clone(), wake.clone()) => {}
                         }
                     }
                     Err(e) => {
                         if !logged {
-                            log::warn!("remote control on 127.0.0.1:{PORT}: {e}");
+                            log::warn!("remote control on 127.0.0.1:{port}: {e}");
                             logged = true;
                         }
                         tokio::select! {
@@ -250,6 +311,7 @@ fn reject_browser_origin(request: &Request, response: Response) -> Result<Respon
 async fn accept_loop(
     listener: TcpListener,
     state: watch::Receiver<Snapshot>,
+    lyrics: watch::Receiver<Option<Arc<str>>>,
     cmds: Sender<Cmd>,
     wake: Arc<dyn Fn() + Send + Sync>,
 ) {
@@ -258,10 +320,11 @@ async fn accept_loop(
             return;
         };
         let state = state.clone();
+        let lyrics = lyrics.clone();
         let cmds = cmds.clone();
         let wake = wake.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle(stream, state, cmds, wake).await {
+            if let Err(e) = handle(stream, state, lyrics, cmds, wake).await {
                 log::debug!("remote client: {e}");
             }
         });
@@ -271,6 +334,7 @@ async fn accept_loop(
 async fn handle(
     stream: tokio::net::TcpStream,
     mut state: watch::Receiver<Snapshot>,
+    mut lyrics: watch::Receiver<Option<Arc<str>>>,
     cmds: Sender<Cmd>,
     wake: Arc<dyn Fn() + Send + Sync>,
 ) -> Result<(), tokio_tungstenite::tungstenite::Error> {
@@ -283,6 +347,8 @@ async fn handle(
     let (mut write, mut read) = ws.split();
     let snap = state.borrow_and_update().clone();
     write.send(Message::text(snapshot_json(&snap))).await?;
+    // Lyrics only once this client asks for them.
+    let mut wants_lyrics = false;
     loop {
         tokio::select! {
             changed = state.changed() => {
@@ -292,11 +358,29 @@ async fn handle(
                 let snap = state.borrow_and_update().clone();
                 write.send(Message::text(snapshot_json(&snap))).await?;
             }
+            changed = lyrics.changed() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+                let frame = lyrics.borrow_and_update().clone();
+                if wants_lyrics && let Some(frame) = frame {
+                    write.send(Message::text(frame.to_string())).await?;
+                }
+            }
             msg = read.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         match parse_cmd(&text) {
                             Some(cmd) => {
+                                // What's there now; the app sends them again once it has
+                                // them in the language asked for.
+                                if matches!(cmd, Cmd::Lyrics(_)) && !wants_lyrics {
+                                    wants_lyrics = true;
+                                    let frame = lyrics.borrow_and_update().clone();
+                                    if let Some(frame) = frame {
+                                        write.send(Message::text(frame.to_string())).await?;
+                                    }
+                                }
                                 let _ = cmds.send(cmd);
                                 wake();
                             }
@@ -365,6 +449,12 @@ fn parse_cmd(text: &str) -> Option<Cmd> {
             }
             Cmd::Seek(n)
         }
+        "lyrics" => Cmd::Lyrics(match value {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(language(v)?),
+        }),
+        "show" => Cmd::Show,
+        "quit" => Cmd::Quit,
         _ => return None,
     })
 }
@@ -453,7 +543,35 @@ mod tests {
         assert_eq!(v["shuffle"], false);
         assert!(v["album"].is_null());
         assert!(v["video_id"].is_null());
-        assert_eq!(v["commands"], serde_json::json!(["play", "queue", "seek"]));
+        assert_eq!(v["commands"], serde_json::json!(["play", "queue", "seek", "lyrics", "show", "quit"]));
+        assert_eq!(v["position_ms"], 0);
+    }
+
+    #[test]
+    fn the_position_in_milliseconds_alone_sends_no_update() {
+        let remote = Remote::new();
+        let mut rx = remote.state.subscribe();
+        remote.publish(Snapshot { position: 3, position_ms: 3_020, ..Snapshot::default() });
+        assert!(rx.has_changed().unwrap());
+        rx.mark_unchanged();
+        remote.publish(Snapshot { position: 3, position_ms: 3_540, ..Snapshot::default() });
+        assert!(!rx.has_changed().unwrap());
+        remote.publish(Snapshot { position: 4, position_ms: 4_010, ..Snapshot::default() });
+        assert!(rx.has_changed().unwrap());
+        assert_eq!(rx.borrow_and_update().position_ms, 4_010);
+    }
+
+    #[test]
+    fn lyrics_show_and_quit_parse() {
+        assert_eq!(parse_cmd(r#"{"cmd":"lyrics"}"#), Some(Cmd::Lyrics(None)));
+        assert_eq!(parse_cmd(r#"{"cmd":"lyrics","value":null}"#), Some(Cmd::Lyrics(None)));
+        assert_eq!(parse_cmd(r#"{"cmd":"lyrics","value":"es"}"#), Some(Cmd::Lyrics(Some("es".into()))));
+        assert_eq!(parse_cmd(r#"{"cmd":"lyrics","value":"pt-BR"}"#), Some(Cmd::Lyrics(Some("pt-BR".into()))));
+        assert_eq!(parse_cmd(r#"{"cmd":"show"}"#), Some(Cmd::Show));
+        assert_eq!(parse_cmd(r#"{"cmd":"quit"}"#), Some(Cmd::Quit));
+        for bad in [r#"{"cmd":"lyrics","value":"e"}"#, r#"{"cmd":"lyrics","value":"es/../x"}"#, r#"{"cmd":"lyrics","value":"-es"}"#, r#"{"cmd":"lyrics","value":5}"#] {
+            assert_eq!(parse_cmd(bad), None, "{bad}");
+        }
     }
 
     #[tokio::test]
@@ -461,8 +579,9 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let (_tx, rx) = watch::channel(Snapshot::default());
+        let (_lyrics_tx, lyrics_rx) = watch::channel(None);
         let (cmd_tx, _cmd_rx) = unbounded();
-        tokio::spawn(accept_loop(listener, rx, cmd_tx, Arc::new(|| {})));
+        tokio::spawn(accept_loop(listener, rx, lyrics_rx, cmd_tx, Arc::new(|| {})));
 
         let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -486,8 +605,9 @@ mod tests {
             title: "Song".into(),
             ..Snapshot::default()
         });
+        let (_lyrics_tx, lyrics_rx) = watch::channel(None);
         let (cmd_tx, cmd_rx) = unbounded();
-        tokio::spawn(accept_loop(listener, rx, cmd_tx, Arc::new(|| {})));
+        tokio::spawn(accept_loop(listener, rx, lyrics_rx, cmd_tx, Arc::new(|| {})));
 
         let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}"))
             .await
@@ -504,5 +624,35 @@ mod tests {
             .unwrap();
         assert_eq!(cmd, Cmd::Next);
         drop(tx);
+    }
+
+    async fn next_text(ws: &mut (impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin)) -> String {
+        let msg = tokio::time::timeout(Duration::from_secs(2), ws.next()).await.expect("a frame").unwrap().unwrap();
+        let Message::Text(text) = msg else { panic!("expected text, got {msg:?}") };
+        text.to_string()
+    }
+
+    #[tokio::test]
+    async fn lyrics_go_only_to_a_client_that_asked() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (_tx, rx) = watch::channel(Snapshot::default());
+        let (lyrics_tx, lyrics_rx) = watch::channel::<Option<Arc<str>>>(Some(r#"{"lyrics":{"video_id":"a"}}"#.into()));
+        let (cmd_tx, cmd_rx) = unbounded();
+        tokio::spawn(accept_loop(listener, rx, lyrics_rx, cmd_tx, Arc::new(|| {})));
+
+        let (mut asks, _) = tokio_tungstenite::connect_async(format!("ws://{addr}")).await.unwrap();
+        let (mut other, _) = tokio_tungstenite::connect_async(format!("ws://{addr}")).await.unwrap();
+        assert!(next_text(&mut asks).await.contains("\"title\""));
+        assert!(next_text(&mut other).await.contains("\"title\""));
+
+        asks.send(Message::text(r#"{"cmd":"lyrics","value":"es"}"#)).await.unwrap();
+        assert_eq!(next_text(&mut asks).await, r#"{"lyrics":{"video_id":"a"}}"#);
+        let cmd = tokio::task::spawn_blocking(move || cmd_rx.recv_timeout(Duration::from_secs(2))).await.unwrap().unwrap();
+        assert_eq!(cmd, Cmd::Lyrics(Some("es".into())));
+
+        lyrics_tx.send(Some(r#"{"lyrics":{"video_id":"b"}}"#.into())).unwrap();
+        assert_eq!(next_text(&mut asks).await, r#"{"lyrics":{"video_id":"b"}}"#);
+        assert!(tokio::time::timeout(Duration::from_millis(300), other.next()).await.is_err(), "a client that didn't ask got lyrics");
     }
 }

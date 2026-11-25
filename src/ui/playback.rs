@@ -20,7 +20,7 @@ impl App {
     }
 
     /// The lyrics shown for the current song: the song's pick, then the listener's order.
-    fn lyric_choice(&self) -> Option<&Lyrics> {
+    pub(super) fn lyric_choice(&self) -> Option<&Lyrics> {
         let (id, set) = self.lyrics.as_ref()?;
         set.get(self.lyric_prefs.choose(id, set)?)
     }
@@ -565,6 +565,8 @@ impl App {
         self.lyrics = None;
         self.lyrics_extras = None;
         self.extras_asked = None;
+        self.remote_extras = None;
+        self.remote_extras_asked = None;
         self.lyric_view.reset();
         self.backend.request(Req::Lyrics(playing));
         self.segments = None;

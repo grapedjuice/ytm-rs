@@ -278,6 +278,8 @@ pub enum Action {
     DownloadMany(Option<Target>, String, Option<Vec<Track>>),
     /// Stop a download of many songs, by its `DownloadRun::key`.
     CancelDownload(String),
+    /// Keep a playlist downloaded (its songs, and those that join it), or stop.
+    KeepDownloaded(String, bool),
     NewPlaylist(Vec<Track>),
     EditPlaylist,
     /// Save one of your playlist's sort orders to it: (playlist id, what to send).
@@ -534,10 +536,15 @@ pub struct App {
     /// Files chosen in the upload dialog, handed over from its thread.
     picked_uploads: Arc<std::sync::Mutex<Option<Vec<std::path::PathBuf>>>>,
     liked: HashSet<String>,
-    /// Settings › Downloads › Download liked songs, and the liked songs queued for it
-    /// since launch (each once, so one that can't be downloaded doesn't fail on every load).
+    /// Settings › Downloads › Download liked songs: Liked Music kept downloaded.
     download_liked: bool,
-    liked_queued: HashSet<String>,
+    /// The other playlists kept downloaded (their page's More › Keep downloaded): songs
+    /// that join them are downloaded too.
+    kept_downloaded: Vec<String>,
+    /// The songs queued since launch for each list kept downloaded, by (list, song): each
+    /// once, so one that can't be downloaded doesn't fail on every load, and a song one
+    /// list didn't download (its large download declined) still goes for another.
+    kept_queued: HashSet<(String, String)>,
     ratings: ratings::Ratings,
     rating_settings: ratings::Settings,
     selection: Selection,
@@ -1017,7 +1024,8 @@ impl App {
             picked_uploads: Default::default(),
             liked: HashSet::new(),
             download_liked: get("download_liked").is_some_and(|v| v == "1"),
-            liked_queued: HashSet::new(),
+            kept_downloaded: get("kept_downloaded").and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
+            kept_queued: HashSet::new(),
             ratings: Default::default(),
             rating_settings: ratings::Settings::load(get),
             selection: Selection::default(),
@@ -1237,6 +1245,7 @@ impl App {
         app.find.hide_explicit = hide_explicit;
         app.find.sorts = get("list_sorts").and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
         app.request_liked(false);
+        app.load_kept_downloaded();
         // Settings › Open on: in place, not a visit (nothing to go back to), and without
         // the page transition.
         if start != Page::Home {
@@ -2304,6 +2313,7 @@ impl eframe::App for App {
         storage.set_string("time_left", b(self.time_left));
         storage.set_string("sponsorblock", b(self.sponsorblock));
         storage.set_string("download_liked", b(self.download_liked));
+        storage.set_string("kept_downloaded", serde_json::to_string(&self.kept_downloaded).unwrap_or_default());
         storage.set_string("gapless", b(self.gapless));
         storage.set_string("crossfade", b(self.crossfade));
         storage.set_string("crossfade_secs", self.crossfade_secs.to_string());

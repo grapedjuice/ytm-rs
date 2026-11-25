@@ -1014,6 +1014,8 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let rows = Rows::new(app, now);
     let downloaded = all_downloaded(app, id);
     let run = app.download_runs.iter().find(|r| r.key == id).map(|r| (r.done, r.total, r.cancelled));
+    // A playlist can be kept downloaded, signed in; an album doesn't change, so its Download is enough.
+    let kept = app.lists.get(id).filter(|o| app.logged_in && !o.c.is_album).map(|_| app.keeps_downloaded(id));
     let Some(o) = app.lists.get(id) else { return };
     // Sorted once all of it is here: until then it plays as it arrives.
     app.find.hold(&app.page, !o.complete);
@@ -1139,6 +1141,11 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                             && widgets::menu_action(ui, Some(icon::FOLDER_OPEN), tr!("widget-show-in-folder"))
                         {
                             crate::downloads::show_list(id, tracks);
+                        }
+                        if let Some(kept) = kept
+                            && widgets::menu_choice(ui, crate::tr!("ui-keep-downloaded"), kept)
+                        {
+                            acts.push(Action::KeepDownloaded(id.to_owned(), !kept));
                         }
                         if own {
                             if widgets::menu_action(ui, Some(icon::SETTINGS), crate::tr!("ui-edit")) { acts.push(Action::EditPlaylist); }
@@ -2194,7 +2201,7 @@ fn settings_downloads(app: &mut App, ui: &mut Ui) {
         divider(ui);
         setting_row(ui, tr!("settings-download-liked"), Some(tr!("settings-download-liked-desc")), |ui| {
             if toggle(ui, &mut app.download_liked, tr!("settings-download-liked")).changed() && app.download_liked {
-                app.download_all_liked();
+                app.download_all_kept(super::lists::LIKED_MUSIC);
             }
         });
         divider(ui);

@@ -1851,7 +1851,9 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
             ui.painter().rect_filled(track, 1.5, theme::glass(0.25 * alpha));
             let fill = Rect::from_min_max(pos2(track.left(), track.bottom() - track.height() * vol), track.max);
             ui.painter().rect_filled(fill, 1.5, theme::with_alpha(app.accent_color(), alpha));
-            ui.ctx().request_repaint_after(Duration::from_millis(100));
+            if !zresp.hovered() {
+                ui.ctx().request_repaint_after(Duration::from_millis(100));
+            }
         }
         return;
     }

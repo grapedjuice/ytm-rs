@@ -844,6 +844,14 @@ fn credit_gap(writers: &str, font: &FontId) -> f32 {
     if writers.is_empty() { 0.0 } else { font.size * 0.4 }
 }
 
+/// Unison's credit, a footnote to the songwriters: smaller and lighter than them.
+fn unison_font(writers: &FontId) -> FontId {
+    theme::regular((writers.size * 0.7).max(11.0))
+}
+
+/// How much dimmer Unison's credit is than the songwriters, till a link in it is hovered.
+const UNISON_DIM: f32 = 0.6;
+
 /// Unison's credit (its terms ask every app for it): "Lyrics from Unison", linked to the
 /// song's page there, and who submitted them, linked to theirs. One row when it fits,
 /// else a row each. Each part with its place under the songwriters and link; the height.
@@ -853,6 +861,7 @@ fn unison_credit(fonts: &mut FontsView<'_>, c: &UnisonCredit, font: &FontId, wra
         parts.push((" · ".to_owned(), None));
         parts.push((crate::tr!("player-lyrics-submitted-by", name = name.as_str()), Some(UnisonCredit::submitter_url(key))));
     }
+    let font = unison_font(font);
     let parts: Vec<_> = parts.into_iter().map(|(t, url)| (deco_galley(fonts, t, font.clone(), wrap, align), url)).collect();
     let rows = if parts.iter().map(|(g, _)| g.size().x).sum::<f32>() <= wrap { vec![parts] } else { parts.into_iter().filter(|(_, url)| url.is_some()).map(|p| vec![p]).collect() };
     let (mut out, mut y) = (Vec::new(), 0.0);
@@ -1516,14 +1525,15 @@ impl View {
                     let (parts, _) = ctx.fonts_mut(|fv| unison_credit(fv, c, font, wrap, b.align));
                     for (n, (g, at, url)) in parts.iter().enumerate() {
                         let at = pos2(at.x, y + at.y);
-                        paint_galley(&painter, g, at, &xf, color, atlas);
-                        let Some(url) = url else { continue };
+                        let dim = theme::with_alpha(Color32::WHITE, a * UNISON_DIM);
                         let r = xf.rect(Rect::from_min_size(at, g.size())).intersect(rect);
-                        if !r.is_positive() {
+                        let Some(url) = url.as_ref().filter(|_| r.is_positive()) else {
+                            paint_galley(&painter, g, at, &xf, dim, atlas);
                             continue;
-                        }
+                        };
                         let resp = ui.interact(r, ui.scope_id().with(("lyr-unison", f.key, n)), egui::Sense::click());
                         resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, true, g.text()));
+                        paint_galley(&painter, g, at, &xf, if resp.hovered() { color } else { dim }, atlas);
                         if resp.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             let base = at.y + g.size().y;

@@ -245,10 +245,10 @@ fn pill_now() -> bool {
 static PILL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 /// The experimental pill was asked for, instead of the strip. Saved beside the settings:
-/// it's needed before the window opens. A fresh profile starts with the pill; saving the
-/// strip turns it off.
+/// it's needed before the window opens. Without a saved choice the strip is used, so the
+/// pill stays opt-in for existing and fresh profiles alike.
 pub fn pill_saved(data_dir: &std::path::Path) -> bool {
-    std::fs::read_to_string(data_dir.join("mini_style")).map_or(true, |s| s.trim() == "pill")
+    std::fs::read_to_string(data_dir.join("mini_style")).is_ok_and(|s| s.trim() == "pill")
 }
 
 pub fn save_pill(data_dir: &std::path::Path, on: bool) -> std::io::Result<()> {
@@ -2313,15 +2313,15 @@ mod tests {
     }
 
     #[test]
-    fn a_fresh_profile_uses_the_pill_until_the_strip_is_saved() {
+    fn a_profile_without_a_saved_style_uses_the_strip() {
         let dir = std::env::temp_dir().join(format!("ytm-rs-pill-default-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        assert!(pill_saved(&dir));
-        save_pill(&dir, false).unwrap();
         assert!(!pill_saved(&dir));
         save_pill(&dir, true).unwrap();
         assert!(pill_saved(&dir));
+        save_pill(&dir, false).unwrap();
+        assert!(!pill_saved(&dir));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

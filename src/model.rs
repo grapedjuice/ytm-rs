@@ -83,6 +83,25 @@ pub fn pick_thumb(thumbs: &[Thumb], min_px: u32) -> Option<&Thumb> {
     thumbs.iter().filter(|t| t.width >= min_px).min_by_key(|t| t.width).or_else(|| thumbs.iter().max_by_key(|t| t.width))
 }
 
+/// The square region of a `w × h` image that [`Thumb::square_uv`] shows, as
+/// `(x, y, side)` in pixels: `None` when the image already is that square (or close
+/// enough that nothing shows). Image work that doesn't run through a texture's UV —
+/// the backdrop's colours — crops with this first, so what it reads matches the
+/// sleeve the sleeve crops in flight.
+pub fn square_crop_px(w: u32, h: u32) -> Option<(u32, u32, u32)> {
+    let ratio = if h > 0 { w as f32 / h as f32 } else { 1.0 };
+    let side = if ratio > 1.6 {
+        // A 16:9 picture: its middle square, the sides off.
+        h
+    } else if ratio > 1.2 {
+        // 16:9 picture inside a 4:3 frame: content is the middle 75% vertically.
+        (h as f32 * 0.75) as u32
+    } else {
+        return None;
+    };
+    Some(((w - side) / 2, (h - side) / 2, side.max(1)))
+}
+
 pub fn pick(thumbs: &[Thumb], min_px: u32) -> Option<&str> {
     pick_thumb(thumbs, min_px).map(|t| t.url.as_str())
 }

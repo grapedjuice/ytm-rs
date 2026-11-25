@@ -148,6 +148,9 @@ pub fn join(app: &mut App, code: &str) {
         return;
     }
     leave(app);
+    // A guest plays at the host's position: where the track playing here was left is noted now.
+    app.note_where_left();
+    app.left_from = None;
     fresh(app, false);
     app.jam.conn = Some(Jam::start(&app.backend, code, false, my_name(app)));
     app.play_listed_upload();

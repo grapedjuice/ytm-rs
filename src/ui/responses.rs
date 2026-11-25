@@ -31,8 +31,12 @@ impl App {
         while let Ok(ev) = self.ch.audio_rx.try_recv() {
             match ev {
                 AudioEvent::Finished { generation } if generation == self.generation && self.jam.guest() => {}
-                AudioEvent::Finished { generation } if generation == self.generation && self.sleep == Some(Sleep::SongEnd) => self.sleep_at_song_end(),
+                AudioEvent::Finished { generation } if generation == self.generation && self.sleep == Some(Sleep::SongEnd) => {
+                    self.left_at_end();
+                    self.sleep_at_song_end();
+                }
                 AudioEvent::Finished { generation } if generation == self.generation => {
+                    self.left_at_end();
                     if self.repeats_one() {
                         self.play_current();
                     } else {
@@ -96,6 +100,10 @@ impl App {
         }
         for cmd in self.remote.drain() {
             self.on_remote(cmd);
+        }
+        // Playing here (not at a jam host's position): where it's left is noted.
+        if self.left_from.is_none() && !self.jam.guest() && self.audio.status.started(self.generation) {
+            self.left_from = self.current().map(|t| t.id.clone());
         }
         if self.buffering && self.audio.status.started(self.generation) {
             self.buffering = false;

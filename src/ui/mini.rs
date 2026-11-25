@@ -38,6 +38,9 @@ const CLOSE: CloseButton = CloseButton::LikeFullWindow;
 /// From the work area's corner, the first time.
 const MARGIN: f32 = 16.0;
 const RATING_ICON_SIZE: f32 = 17.0;
+/// Unison's credit shows at least this long before a song's end (or its crossfade), even
+/// when the last line is timed to the very end.
+const CREDIT_SECS: f64 = 6.0;
 /// The open pill's button that grows it into a card with more of the song: only where the
 /// window can be clipped to a shape (Windows). Elsewhere a window big enough for the card
 /// would take the clicks meant for what's around the pill.
@@ -1265,7 +1268,9 @@ pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
     // Lyrics mode can keep the pill at its open width even while the pointer is away; the
     // controls still only slide out on hover.
     let extended = app.mini.lyrics && app.mini.pill_extended;
-    let open = theme::anim_bool(&ctx, "pill-open", active || toast.is_some() || extended, 0.18);
+    // Unison's credit opens it too, so the submitter's name fits.
+    let credit = app.mini.lyrics && pill_credit(app).is_some();
+    let open = theme::anim_bool(&ctx, "pill-open", active || toast.is_some() || extended || credit, 0.18);
     let reveal = theme::anim_bool(&ctx, "pill-buttons", active, 0.18);
     let width = egui::lerp(PILL_REST..=PILL_OPEN, open);
     ctx.data_mut(|d| d.insert_temp(width_id, width));
@@ -1406,12 +1411,14 @@ fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<S
     // The pill's lyric line: Lucid's look whatever theme the app uses, opening when the
     // lyrics are on and the pointer is away while the title and artists slide up out of it.
     let lyrics_on = app.mini.lyrics && !in_card;
-    let lyrics_show = lyrics_on && !active && toast.is_none() && app.mini.pill_lyric_live;
+    // Unison's credit takes the title's place once the lyrics are sung, pointer or not.
+    let credit = if lyrics_on { pill_credit(app) } else { None };
+    let lyrics_show = lyrics_on && !active && toast.is_none() && app.mini.pill_lyric_live && credit.is_none();
     let lyrics_k = theme::anim_bool(&ctx, "pill-lyrics", lyrics_show, 0.22).clamp(0.0, 1.0);
     // With the wide lyrics pill the line gets the extended text area even at rest.
     let lyric_rest = if lyrics_on && app.mini.pill_extended { PILL_OPEN } else { PILL_REST };
     let lyric_area = Rect::from_min_max(pos2(rect.right() - lyric_rest + 57.0, rect.top() + 1.0), pos2(rect.right() - 14.0, rect.bottom() - 1.0));
-    if lyrics_on && toast.is_none() && (lyrics_k > 0.001 || !active) {
+    if lyrics_on && toast.is_none() && credit.is_none() && (lyrics_k > 0.001 || !active) {
         let shifted = lyric_area.translate(vec2(0.0, (1.0 - lyrics_k) * 18.0));
         let mut lyric_ui = ui.new_child(egui::UiBuilder::new().max_rect(lyric_area));
         lyric_ui.set_clip_rect(lyric_area);
@@ -1426,8 +1433,15 @@ fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<S
         let mut detail_ui = ui.new_child(egui::UiBuilder::new().max_rect(rect));
         detail_ui.multiply_opacity(details_k);
         let dy = -lyrics_k * 18.0;
-        widgets::title_at(&detail_ui, pos2(x0, cy - 17.0 + dy), &title, explicit, theme::semibold(13.0), theme::text(), text_w);
-        text_at(&detail_ui, pos2(x0, cy + 2.0 + dy), &artists, theme::regular(11.5), theme::text_dim(), text_w);
+        if let Some(c) = &credit {
+            let links = super::karaoke::unison_parts(c).into_iter().filter_map(|(text, url)| Some((text, url?)));
+            for ((text, url), (y, font, color)) in links.zip([(cy - 17.0, theme::semibold(13.0), theme::text()), (cy + 2.0, theme::regular(11.5), theme::text_dim())]) {
+                credit_link(&detail_ui, pos2(x0, y + dy), &text, &url, font, color, text_w);
+            }
+        } else {
+            widgets::title_at(&detail_ui, pos2(x0, cy - 17.0 + dy), &title, explicit, theme::semibold(13.0), theme::text(), text_w);
+            text_at(&detail_ui, pos2(x0, cy + 2.0 + dy), &artists, theme::regular(11.5), theme::text_dim(), text_w);
+        }
     }
 
     // Clickable once most of the way out: a quick pass over the pill shouldn't press
@@ -1487,6 +1501,48 @@ fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<S
     if resp.clicked() && enabled {
         app.toggle();
     }
+}
+
+/// Unison's credit, when it's the pill's turn to show it.
+fn pill_credit(app: &App) -> Option<crate::lyrics::UnisonCredit> {
+    let (id, set) = app.lyrics.as_ref()?;
+    let lyrics = app.lyric_prefs.choose(id, set).and_then(|p| set.get(p))?;
+    if lyrics.sync == crate::lyrics::Sync::None {
+        return None;
+    }
+    let pos = app.audio.status.position_smooth().as_secs_f64() - app.audio.status.latency().as_secs_f64();
+    let t = pos - app.lyric_prefs.offset(id, lyrics.provider, lyrics.sync == crate::lyrics::Sync::Word);
+    credit_due(app, lyrics, t).and(lyrics.unison.clone())
+}
+
+/// Unison asks for its credit under the last line. The mini views show one line at a time,
+/// so it gets its own turn: after the last sung line, or [`CREDIT_SECS`] before the song
+/// ends or crossfades away if that comes first. Some: it's due, with the last line's end.
+fn credit_due(app: &App, lyrics: &crate::lyrics::Lyrics, t: f64) -> Option<f64> {
+    lyrics.unison.as_ref().filter(|_| lyrics.provider.is_unison())?;
+    let end = lyrics.lines.iter().filter(|l| !l.instrumental && !l.text.trim().is_empty()).map(|l| f64::from(l.start + l.dur) / 1000.0).fold(0.0, f64::max);
+    let len = f64::from(song_length(app, app.current()));
+    let fade = if app.crossfade { f64::from(app.crossfade_secs) } else { 0.0 };
+    let due = if len > 0.0 { end.min(len - fade - CREDIT_SECS) } else { end };
+    (t >= due).then_some(end)
+}
+
+/// One part of Unison's credit in the pill: a link, underlined on hover.
+fn credit_link(ui: &Ui, pos: Pos2, text: &str, url: &str, font: egui::FontId, color: Color32, width: f32) {
+    let g = widgets::galley(ui, text, font, color, width);
+    let r = Rect::from_min_size(pos, g.size());
+    let resp = ui.interact(r, ui.scope_id().with(("pill-unison", url)), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, true, text));
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        ui.painter().hline(r.x_range(), r.bottom() - 1.0, egui::Stroke::new(1.0, color));
+    }
+    if resp.clicked() {
+        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+    }
+    ui.painter().galley(pos, g.clone(), color);
+    // The buttons squeeze it while the pointer is on the pill: the whole credit as a tip.
+    widgets::tip_if_elided(ui, r, &g, text);
 }
 
 /// The pill's lyric line: Lucid's look and word sweep, always, whatever theme the rest of
@@ -1619,6 +1675,8 @@ fn card_lyrics(app: &mut App, ui: &mut Ui, area: Rect, open: f32, now: f64) {
     let pos = app.audio.status.position_smooth().as_secs_f64() - app.audio.status.latency().as_secs_f64();
     let pos = app.lyric_clock.tick(pos, playing, now, app.audio.status.speed() as f64);
     let t = pos - app.lyric_prefs.offset(id, lyrics.provider, lyrics.sync == crate::lyrics::Sync::Word);
+    // Unison's credit gets its turn before a crossfade can take the song away.
+    let t = credit_due(app, lyrics, t).map_or(t, |end| t.max(end + 0.05));
     // The whole lyrics are fed to the renderer, so its normal scroll runs between lines.
     // With the chrome showing, the band is only the line being sung: the next line rolls
     // through during the transition, but at rest only the active line is in the card. With

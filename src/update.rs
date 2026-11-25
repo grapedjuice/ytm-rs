@@ -165,29 +165,32 @@ pub fn appimage() -> bool {
 
 /// The AppImage file this copy was started from, which an update replaces: the binary
 /// itself sits in the image, mounted read-only while it runs. Its runtime says where it
-/// is in `APPIMAGE`. Without that (started from an unpacked image), or in a folder it
-/// can't write to (/opt), there's no file it can replace, and it only says a new version
-/// is out, as the .deb does.
+/// is in `APPIMAGE`. Without that (started from an unpacked image), or where it can't
+/// replace the file (someone else's, or in a folder it can't write to, such as /opt),
+/// it only says a new version is out, as the .deb does.
 pub fn appimage_file() -> Option<PathBuf> {
     static FILE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     FILE.get_or_init(|| {
         let file = appimage().then(|| std::env::var_os("APPIMAGE").map(PathBuf::from)).flatten()?;
-        (file.is_absolute() && file.is_file() && file.parent().is_some_and(writable)).then_some(file)
+        (file.is_absolute() && file.is_file() && replaceable(&file)).then_some(file)
     })
     .clone()
 }
 
-/// Whether this user can create and rename files in `dir`.
+/// Whether this user can put a new file in `file`'s place: it's theirs (which a folder
+/// like /tmp also asks), in a folder they can write to.
 #[cfg(unix)]
-fn writable(dir: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-    let Ok(dir) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else { return false };
+fn replaceable(file: &Path) -> bool {
+    use std::os::unix::{ffi::OsStrExt, fs::MetadataExt};
+    // SAFETY: no arguments, can't fail.
+    let mine = std::fs::symlink_metadata(file).is_ok_and(|m| m.uid() == unsafe { libc::geteuid() });
+    let Some(Ok(dir)) = file.parent().map(|d| std::ffi::CString::new(d.as_os_str().as_bytes())) else { return false };
     // SAFETY: a NUL-terminated path that outlives the call.
-    unsafe { libc::access(dir.as_ptr(), libc::W_OK) == 0 }
+    mine && unsafe { libc::access(dir.as_ptr(), libc::W_OK | libc::X_OK) == 0 }
 }
 
 #[cfg(not(unix))]
-fn writable(_: &Path) -> bool {
+fn replaceable(_: &Path) -> bool {
     false
 }
 

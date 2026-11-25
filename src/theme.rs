@@ -1569,6 +1569,11 @@ pub fn install_style(ctx: &egui::Context) {
         // egui fades a scrolled list's edges in its own panel colour, square: over the app's
         // own backgrounds that's a dark band, showing at the corners of a rounded row.
         s.spacing.scroll.fade.strength = 0.0;
+        // A page stops at its ends under a finger, as it does under the wheel and the
+        // touchpad, instead of pulling past them and springing back (#190). Not on macOS:
+        // there the trackpad's scrolling reaches egui untouched, and egui stretches it
+        // past the ends as macOS itself does. Macs have no touch screens.
+        s.spacing.scroll.kinetic.rubber_band = cfg!(target_os = "macos");
         if crate::preset::active().app.hide_scrollbars {
             let bar = &mut s.spacing.scroll;
             (bar.dormant_handle_opacity, bar.active_handle_opacity, bar.interact_handle_opacity) = (0.0, 0.0, 0.0);
@@ -1643,6 +1648,52 @@ fn visuals() -> egui::Visuals {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// How far past the top a page goes while a finger pulls it down from there and holds.
+    #[cfg(not(target_os = "macos"))]
+    fn pulled_past_top(styled: bool) -> f32 {
+        use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, TouchDeviceId, TouchId, TouchPhase, pos2, vec2};
+        let ctx = egui::Context::default();
+        install_fonts(&ctx, "", &[]);
+        if styled {
+            install_style(&ctx);
+        }
+        let (mut time, mut past) = (0.0, 0.0_f32);
+        let mut frame = |events: Vec<Event>| {
+            let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))), time: Some(time), predicted_dt: 1.0 / 60.0, events, ..Default::default() };
+            time += 1.0 / 60.0;
+            let mut out = ctx.run_ui(raw, |ui| {
+                let area = egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| ui.allocate_space(vec2(700.0, 3000.0)));
+                past = past.max(-area.state.overscroll().y);
+            });
+            out.textures_delta.clear();
+        };
+        let mut touch = |phase, p: Pos2| {
+            let t = Event::Touch { device_id: TouchDeviceId(1), id: TouchId(1), phase, pos: p, force: None };
+            let press = |pressed| Event::PointerButton { pos: p, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+            frame(match phase {
+                TouchPhase::Start => vec![t, Event::PointerMoved(p), press(true)],
+                TouchPhase::Move => vec![t, Event::PointerMoved(p)],
+                _ => vec![t, press(false), Event::PointerGone],
+            });
+        };
+        // A tap first: egui scrolls by dragging once it has seen a touch screen.
+        touch(TouchPhase::Start, pos2(400.0, 500.0));
+        touch(TouchPhase::End, pos2(400.0, 500.0));
+        touch(TouchPhase::Start, pos2(400.0, 100.0));
+        for s in 1..=10 {
+            touch(TouchPhase::Move, pos2(400.0, 100.0 + 30.0 * s as f32));
+        }
+        past
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn a_finger_doesnt_pull_a_page_past_its_top() {
+        assert_eq!(pulled_past_top(true), 0.0);
+        // egui's own default does, which is what the app turns off.
+        assert!(pulled_past_top(false) > 10.0);
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

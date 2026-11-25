@@ -558,7 +558,7 @@ pub struct App {
     // playback
     /// Where long tracks (podcast episodes, mixes) were left, to pick up from there.
     resume: resume::Points,
-    /// The track playing, for where it's left to be noted when another starts.
+    /// The track playing, once it has started, for where it's left to be noted when another starts.
     left_from: Option<String>,
     /// The track about to start was picked (clicked, a list played, one jumped to in the
     /// queue), rather than come to by Next, the queue running on or radio: only then

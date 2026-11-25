@@ -218,8 +218,6 @@ impl App {
         self.audio.status.duration_ms.store(dur, Ordering::Relaxed);
         self.audio.status.position_ms.store(s.position_ms, Ordering::Relaxed);
         self.resume_at = Some(Duration::from_millis(s.position_ms));
-        // Left for another without being played on, a long one still picks up here later.
-        self.left_from = Some(track.id.clone());
         self.listened_at = s.listened_at;
         self.request_art();
         self.show_in_media(&shown);
@@ -252,6 +250,8 @@ impl App {
             return;
         }
         log::info!("picking up {} from another device ({} in its queue)", track.id, q.tracks.len());
+        self.note_where_left();
+        self.left_from = None;
         self.queue.adopt(q.tracks, q.index, None);
         self.ended = false;
         // Not a new play: an old song version mustn't come back with its video.
@@ -472,10 +472,11 @@ impl App {
     /// `swap`: the same play going on as its song version or its music video, from `at`.
     fn start_current(&mut self, at: Duration, report: bool, swap: bool) {
         let swap = std::mem::take(&mut self.resume_as_song) || swap;
-        let picked = std::mem::take(&mut self.picked);
+        let picked = std::mem::take(&mut self.picked) && std::env::var_os("YTM_SMOKE").is_none();
         self.note_where_left();
+        // Noted again once it's playing: one that fails to start has got nowhere.
+        self.left_from = None;
         let Some(track) = self.current().cloned() else { return };
-        self.left_from = Some(track.id.clone());
         // A long track picked again picks up where it was left (not in a jam, which plays
         // at the host's position). Come to by Next, the queue or radio, it starts over.
         let resumed = (picked && at.is_zero() && report && !swap && !self.jam.active()).then(|| self.resume.at(&track.id)).flatten();
@@ -535,6 +536,13 @@ impl App {
             return;
         }
         self.resume.note(&id, at, duration);
+    }
+
+    /// The track playing played to its end: it starts from the top next time.
+    fn left_at_end(&mut self) {
+        if let Some(id) = self.left_from.take() {
+            self.resume.note(&id, 0, 0);
+        }
     }
 
     /// The playing track's title, artist and length for the system's media controls,
@@ -679,6 +687,7 @@ impl App {
             // to `generation` by itself (`wanted_gen == generation`). Catch up as if the
             // previous song had finished so UI and engine stay on the same generation.
             if self.audio.status.wanted_gen.load(Ordering::Relaxed) == generation {
+                self.left_at_end();
                 let before = self.generation;
                 if !self.jam.guest() {
                     if self.repeats_one() {
@@ -698,10 +707,7 @@ impl App {
             return;
         }
         self.queue.started();
-        // The one before played to its end: it starts from the top next time.
-        if let Some(id) = self.left_from.take() {
-            self.resume.note(&id, 0, 0);
-        }
+        self.left_at_end();
         self.left_from = self.current().map(|t| t.id.clone());
         self.generation = generation;
         self.recoveries = 0;

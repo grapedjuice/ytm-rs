@@ -99,6 +99,7 @@ impl App {
         }
         if self.buffering && self.audio.status.started(self.generation) {
             self.buffering = false;
+            self.left_from = self.current().map(|t| t.id.clone());
             self.skip_streak = 0;
             self.prefetch_next();
             // Dev hook: YTM_SEEK=<secs> jumps into the first track once it starts.

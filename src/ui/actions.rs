@@ -164,6 +164,7 @@ impl App {
                 self.drop_pending_play();
                 self.queue.index = Some(i);
                 self.queue.drop_explicit();
+                self.picked = true;
                 self.play_current();
             }
             Action::QueueRemove(i) => {

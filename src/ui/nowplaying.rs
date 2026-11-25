@@ -1872,11 +1872,7 @@ fn video_line_pill(app: &App, ui: &Ui, picture: Rect) {
     if !lyrics.lines.iter().rev().find(|l| !l.instrumental).is_some_and(|l| t >= l.end()) {
         return;
     }
-    let mut parts = vec![(crate::tr!("player-lyrics-from-unison").to_owned(), Some(c.song_url()))];
-    if let Some((name, key)) = &c.submitter {
-        parts.push((" · ".to_owned(), None));
-        parts.push((crate::tr!("player-lyrics-submitted-by", name = name.as_str()), Some(crate::lyrics::UnisonCredit::submitter_url(key))));
-    }
+    let parts = karaoke::unison_parts(c);
     let (color, dim) = (theme::with_alpha(Color32::WHITE, 0.85), theme::with_alpha(Color32::WHITE, 0.55));
     let parts: Vec<_> = parts.into_iter().map(|(text, url)| (widgets::galley(ui, &text, theme::regular(11.0), color, f32::INFINITY), url)).collect();
     let mut at = pill(vec2(parts.iter().map(|(g, _)| g.size().x).sum(), parts[0].0.size().y));
@@ -1886,6 +1882,8 @@ fn video_line_pill(app: &App, ui: &Ui, picture: Rect) {
         let mut tint = dim;
         if let Some(url) = url {
             let resp = ui.interact(r, ui.scope_id().with(("pill-unison", n)), Sense::click());
+            // Announced as the link it is, as the lyrics panel's are.
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, true, g.text()));
             if resp.hovered() {
                 tint = color;
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -2317,10 +2315,11 @@ fn unison_credit(ui: &mut Ui, c: &crate::lyrics::UnisonCredit) {
     let text = |t: String| egui::RichText::new(t).font(theme::regular(11.5)).color(theme::text_faint());
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        ui.add(egui::Hyperlink::from_label_and_url(text(crate::tr!("player-lyrics-from-unison").to_owned()), c.song_url()));
-        if let Some((name, key)) = &c.submitter {
-            ui.label(text(" · ".to_owned()));
-            ui.add(egui::Hyperlink::from_label_and_url(text(crate::tr!("player-lyrics-submitted-by", name = name.as_str())), crate::lyrics::UnisonCredit::submitter_url(key)));
+        for (part, url) in karaoke::unison_parts(c) {
+            match url {
+                Some(url) => ui.add(egui::Hyperlink::from_label_and_url(text(part), url)),
+                None => ui.label(text(part)),
+            };
         }
     });
 }

@@ -30,6 +30,7 @@ mod playback;
 mod queue;
 mod ratings;
 mod responses;
+mod resume;
 mod row_drag;
 mod seek_wheel;
 mod shell;
@@ -561,6 +562,14 @@ pub struct App {
     pinned: Vec<String>,
 
     // playback
+    /// Where long tracks (podcast episodes, mixes) were left, to pick up from there.
+    resume: resume::Points,
+    /// The track playing, once it has started, for where it's left to be noted when another starts.
+    left_from: Option<String>,
+    /// The track about to start was picked (clicked, a list played, one jumped to in the
+    /// queue), rather than come to by Next, the queue running on or radio: only then
+    /// does a long one pick up where it was left.
+    picked: bool,
     queue: Queue,
     generation: u64,
     /// Monotonic counter for assigning play and staged-gapless generation numbers without collisions.
@@ -1027,6 +1036,9 @@ impl App {
             switching_to: None,
             sidebar_cache: None,
             pinned: get("pinned_playlists").and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
+            resume: get("resume_points").and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
+            left_from: None,
+            picked: false,
             queue: Queue::new(match get("repeat").as_deref() {
                 Some("all") => Repeat::All,
                 Some("one") => Repeat::One,
@@ -2322,10 +2334,15 @@ impl eframe::App for App {
             self.lyric_prefs.save(storage);
         }
         storage.set_string("np_art", b(self.np_tab == NpTab::Art));
-        // Background test runs leave the user's real "last song" alone unless asked.
+        // Background test runs leave the user's real "last song" alone unless asked, and
+        // where long tracks were left.
         let test_run = std::env::var_os("YTM_BACKGROUND").is_some() && std::env::var_os("YTM_SAVE_SESSION").is_none();
         if let Some(s) = self.session_json().filter(|_| !test_run) {
             storage.set_string(SESSION_KEY, s);
+        }
+        if !test_run {
+            self.note_where_left();
+            storage.set_string("resume_points", serde_json::to_string(&self.resume).unwrap_or_default());
         }
     }
 

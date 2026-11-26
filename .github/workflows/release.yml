@@ -12,8 +12,9 @@ name: Release
 #
 # Nightly: at 11:47 PM Central, if main has changes to the app (its code, assets, build
 # or packaging) that no release or nightly was built from, the same
-# files are built from it as version <version>-nightly.<date> (YTM_NIGHTLY tells the app
-# it's a nightly) and published as a prerelease, tagged v<version>-nightly.<date>, with
+# files are built from it as version <version>-nightly.<date>, named after the version it
+# leads up to (see .github/scripts/nightly-version.sh; YTM_VERSION tells the app), and
+# published as a prerelease, tagged v<version>-nightly.<date>, with
 # the commits since the last release or nightly as its notes. The app's nightly channel
 # reads those; the latest release is never one of them. Only the newest few are kept.
 on:
@@ -56,36 +57,8 @@ jobs:
       - id: v
         env:
           NIGHTLY: ${{ github.event_name == 'schedule' || inputs.nightly == true }}
-        run: |
-          cargo_ver=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
-          if [ "$NIGHTLY" != true ]; then
-            echo "version=$cargo_ver" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ -n "$(git tag --points-at HEAD 'v*')" ]; then
-            echo "HEAD already has a release or nightly: $(git tag --points-at HEAD 'v*')"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # Nothing to build if nothing in the app changed (APP_PATHS).
-          read -ra app <<< "$APP_PATHS"
-          prev=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
-          if [ -n "$prev" ] && [ -z "$(git diff --name-only "$prev" HEAD -- "${app[@]}")" ]; then
-            echo "Nothing in the app changed since $prev"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # The date (Central, like the schedule), and a second number if there's already
-          # a nightly from that day.
-          day=$(TZ=America/Chicago date +%Y%m%d)
-          build=$day
-          n=1
-          while git rev-parse -q --verify "refs/tags/v$cargo_ver-nightly.$build" >/dev/null; do
-            n=$((n + 1)); build="$day.$n"
-          done
-          echo "Nightly $cargo_ver-nightly.$build"
-          echo "version=$cargo_ver-nightly.$build" >> "$GITHUB_OUTPUT"
-          echo "nightly=$build" >> "$GITHUB_OUTPUT"
+        # See the script for how the version is picked.
+        run: bash .github/scripts/nightly-version.sh
 
   # One job per architecture, side by side: each build takes most of the job.
   # ARM64 is cross-compiled on the x64 runner, whose Visual Studio has the ARM64 tools.
@@ -109,7 +82,7 @@ jobs:
     name: windows (${{ matrix.name }})
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
-      YTM_NIGHTLY: ${{ needs.prepare.outputs.nightly }}
+      YTM_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v5
 
@@ -169,7 +142,7 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
-      YTM_NIGHTLY: ${{ needs.prepare.outputs.nightly }}
+      YTM_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v5
 
@@ -202,7 +175,8 @@ jobs:
           chmod 755 "out/$dir/ytm-rs"
           tar -czf "out/$dir.tar.gz" -C out "$dir"
 
-      # The .deb (ytm-rs_<version>_amd64.deb, a nightly's as <version>+nightly.<date>),
+      # The .deb (ytm-rs_<version>_amd64.deb, a nightly's as <version>+nightly.<date>, the
+      # name copies before 0.4.1 look for; see linux/deb.sh),
       # which installs over the last one. It tells you about new versions rather than
       # updating itself.
       - name: Build the .deb
@@ -248,19 +222,20 @@ jobs:
     continue-on-error: true
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
-      YTM_NIGHTLY: ${{ needs.prepare.outputs.nightly }}
+      YTM_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v5
 
       # Build against Arch's current libraries, rather than repackaging the
       # Ubuntu binary. makepkg produces a pacman-installable .pkg.tar.zst
-      # (ytm-rs-<version>-1-x86_64.pkg.tar.zst, a nightly's as <version>.nightly.<date>),
+      # (ytm-rs-<version>-1-x86_64.pkg.tar.zst, a nightly's as <version>.nightly.<date>, the
+      # name copies before 0.4.1 look for; see linux/arch.sh),
       # which tells you about new versions rather than updating itself.
       - name: Build the Arch package
         run: |
           docker run --rm \
             -v "$PWD:/src" -w /src \
-            -e YTM_NIGHTLY \
+            -e YTM_VERSION \
             archlinux:latest bash linux/arch.sh "$VERSION"
 
       - uses: actions/upload-artifact@v5
@@ -283,7 +258,7 @@ jobs:
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
       VERSION: ${{ needs.prepare.outputs.version }}
-      YTM_NIGHTLY: ${{ needs.prepare.outputs.nightly }}
+      YTM_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v5
 

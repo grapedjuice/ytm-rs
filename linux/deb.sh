@@ -14,9 +14,12 @@ out=$3
 [ -f "$bin" ] && [ -n "$version" ] && [ -n "$out" ] || { echo "usage: $0 <binary> <version> <out dir>"; exit 1; }
 root=$(cd "$(dirname "$0")/.." && pwd)
 
-# A nightly (0.3.0-nightly.20261111) comes after its version, and before the next, as
-# in the app's own updater.
-debver=$(echo "$version" | sed 's/-nightly\./+nightly./')
+# A nightly is named after the version it leads up to (0.4.1-nightly.20261126): `~` puts
+# it before that version and after the one before, as in the app's own updater. The
+# file keeps the name copies before 0.4.1 look for, with `+` (0.4.1+nightly.20261126):
+# dpkg and apt go by the Version inside.
+debver=$(echo "$version" | sed 's/-nightly\./~nightly./')
+filever=$(echo "$version" | sed 's/-nightly\./+nightly./')
 # 2.0.x was a joke: from 0.4.0 on, an epoch (1:) puts a version after it,
 # as the app's updater does. The file's name leaves it out.
 case $version in
@@ -69,6 +72,6 @@ Description: Native YouTube Music client
 EOF
 
 mkdir -p "$out"
-deb="$out/ytm-rs_${debver}_$arch.deb"
+deb="$out/ytm-rs_${filever}_$arch.deb"
 dpkg-deb --build --root-owner-group "$pkg" "$deb"
 echo "Built $deb"

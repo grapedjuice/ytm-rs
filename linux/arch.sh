@@ -8,10 +8,15 @@
 set -euo pipefail
 
 version="${1:?usage: bash linux/arch.sh <version>}"
-# pkgver can't have a hyphen. A nightly (0.3.0-nightly.20261111) becomes
-# 0.3.0.nightly.20261111, which pacman puts after 0.3.0 and before the next version,
-# as in the app's own updater. The app looks for this name in the release.
-pkg_version="${version//-/.}"
+# pkgver can't have a hyphen. A nightly is named after the version it leads up to
+# (0.4.1-nightly.20261126): as 0.4.1nightly.20261126, with nothing between the version
+# and "nightly", pacman puts it before 0.4.1 and after the one before, as in the app's
+# own updater (a letter straight after the last number sorts before the end, as in
+# 1.0rc1; after a dot it would sort after). The file keeps the name copies before
+# 0.4.1 look for (ytm-rs-0.4.1.nightly.20261126-1-x86_64.pkg.tar.zst): pacman goes by
+# the version inside.
+pkg_version="${version/-nightly./nightly.}"
+file_version="${version//-/.}"
 
 if [[ ! "$pkg_version" =~ ^[0-9][0-9A-Za-z.+_]*$ ]]; then
   echo "Invalid Arch package version: $pkg_version" >&2
@@ -79,7 +84,7 @@ chown -R builder:builder _archpkg
 runuser -u builder -- bash -c \
   'cd /src/_archpkg && makepkg --force --noconfirm --nodeps'
 
-pkg="ytm-rs-$pkg_version-1-x86_64.pkg.tar.zst"
+pkg="ytm-rs-$file_version-1-x86_64.pkg.tar.zst"
 built="ytm-rs-${epoch:+$epoch:}$pkg_version-1-x86_64.pkg.tar.zst"
 cp "_archpkg/$built" "out/$pkg"
 ls -lh "out/$pkg"

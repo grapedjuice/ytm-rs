@@ -108,7 +108,7 @@ transfer-remaining = noch etwa { $time }
 transfer-readding = Wird erneut hinzugefügt
 transfer-readding-reason = Likes werden erneut gesetzt: YouTube Music hat sie verworfen
 transfer-checking-liked = gelikte Titel werden geprüft
-transfer-waiting-for-likes = warte, bis die Likes, die in der App gerade geändert werden, fertig sind
+transfer-waiting-for-likes = warten auf die Likes, die in der App gerade geändert werden
 transfer-adding = Wird hinzugefügt
 transfer-local-file = lokale Datei
 transfer-on-spotify-index = Auf Spotify · { $current } von { $total }
@@ -131,12 +131,12 @@ transfer-review-picked = Ausgewählt
 transfer-review-kept = Beibehalten
 transfer-error-save-sign-in = Die Spotify-Anmeldung konnte nicht gespeichert werden: { $error }
 transfer-error-read-library = Deine Spotify-Mediathek konnte nicht gelesen werden: { $error }
-transfer-error-progress-saved = { $error }. Dein Fortschritt ist gespeichert. Versuche es erneut, um dort weiterzumachen, wo es aufgehört hat.
+transfer-error-progress-saved = { $error }. Dein Fortschritt ist gespeichert. Versuche es erneut, um an derselben Stelle weiterzumachen.
 transfer-error-account-changed = Gestoppt: Das YouTube-Music-Konto oder der Kanal hat sich geändert
 transfer-error-liked-signed-out = Melde dich bei Spotify an, um deine gelikten Titel zu kopieren
 transfer-error-not-searched = { $count ->
-    [one] { $count } Titel konnte nicht gesucht werden (keine Verbindung, oder YouTube Music begrenzt die Anfragen)
-   *[other] { $count } Titel konnten nicht gesucht werden (keine Verbindung, oder YouTube Music begrenzt die Anfragen)
+    [one] Suche nach { $count } Titel fehlgeschlagen (keine Verbindung oder YouTube Music begrenzt die Anfragen)
+   *[other] Suche nach { $count } Titeln fehlgeschlagen (keine Verbindung oder YouTube Music begrenzt die Anfragen)
 }
 transfer-error-none-found = Keiner der Titel wurde auf YouTube Music gefunden
 transfer-error-signed-out = YouTube Music hat dich abgemeldet. Melde dich erneut an und versuche es noch einmal

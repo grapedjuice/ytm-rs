@@ -123,3 +123,31 @@ transfer-progress-searching = Searched
 transfer-reviewing-doubtful = checking the doubtful ones
 transfer-review-picked = Picked
 transfer-review-kept = Kept
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = Couldn't save the Spotify sign-in: { $error }
+transfer-error-read-library = Couldn't read your Spotify library: { $error }
+transfer-error-progress-saved = { $error }. Your progress is saved; try again to pick up where it stopped.
+transfer-error-account-changed = Stopped: the YouTube Music account or channel changed
+transfer-error-liked-signed-out = Sign in to Spotify to copy your Liked Songs
+transfer-error-not-searched = { $count ->
+    [one] { $count } song couldn't be searched (no connection, or YouTube Music is limiting requests)
+   *[other] { $count } songs couldn't be searched (no connection, or YouTube Music is limiting requests)
+}
+transfer-error-none-found = None of the songs were found on YouTube Music
+transfer-error-signed-out = YouTube Music signed you out; sign in again and try again
+transfer-error-create = Creating the playlist failed
+transfer-error-add = Adding songs to the playlist failed
+transfer-error-read-liked = Reading your Liked Music failed
+transfer-error-not-answering = Liking songs failed: YouTube Music stopped answering
+transfer-error-like = Liking songs failed
+transfer-error-not-spotify-link = That isn't an open.spotify.com link
+transfer-error-not-playlist-link = That isn't a playlist link
+transfer-error-not-spotify-playlist = That isn't a Spotify playlist link
+transfer-error-playlist-not-found = Spotify couldn't find that playlist. If it's private, sign in to Spotify first
+transfer-error-no-songs = That Spotify playlist has no songs
+transfer-error-library-sign-in = Spotify didn't return your library; sign in to Spotify again
+transfer-error-liked-sign-in = Spotify didn't return Liked Songs; sign in to Spotify again
+transfer-error-expired = Your Spotify sign-in has expired. Sign in to Spotify again

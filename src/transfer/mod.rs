@@ -289,7 +289,7 @@ impl Transfer {
         match sp_dc {
             Some(c) => {
                 if let Err(e) = crate::vault::set(VAULT, &self.data_dir, c.as_bytes()) {
-                    *self.account.lock().unwrap() = Account::Failed(format!("Couldn't save the Spotify sign-in: {e}"));
+                    *self.account.lock().unwrap() = Account::Failed(crate::tr!("transfer-error-save-sign-in", error = e.to_string()));
                     return;
                 }
                 self.load_account(rt);
@@ -339,7 +339,7 @@ impl Transfer {
                 }
                 Err(e) => {
                     log::warn!("spotify account: {e:#}");
-                    Account::Failed(format!("Couldn't read your Spotify library: {e}"))
+                    Account::Failed(crate::tr!("transfer-error-read-library", error = e.to_string()))
                 }
             };
             drop(account);
@@ -537,7 +537,7 @@ impl Transfer {
                     Err(e) => {
                         log::warn!("spotify transfer: {e:#}");
                         let saved = !job.tracks.is_empty();
-                        job.phase = Phase::Failed(if saved { format!("{e}. Your progress is saved; try again to pick up where it stopped.") } else { e.to_string() });
+                        job.phase = Phase::Failed(if saved { crate::tr!("transfer-error-progress-saved", error = e.to_string()) } else { e.to_string() });
                         drop(guard);
                         *this.resumable.lock().unwrap() = this.find_resumable();
                     }
@@ -612,7 +612,7 @@ impl Transfer {
             }
             // The rest would go to another account or channel than the part done.
             if self.pinned.lock().unwrap().as_ref().is_some_and(|(api, epoch)| api.epoch() != *epoch) {
-                bail!("Stopped: the YouTube Music account or channel changed");
+                bail!(crate::tr!("transfer-error-account-changed"));
             }
             if !self.with_job(|j| j.paused) {
                 return Ok(());
@@ -622,7 +622,7 @@ impl Transfer {
     }
 
     async fn run(&self, api: &Api) -> Result<()> {
-        anyhow::ensure!(api.account().is_some(), "Sign in to YouTube Music first");
+        anyhow::ensure!(api.account().is_some(), crate::tr!("transfer-youtube-sign-in"));
         let source = self.with_job(|j| j.source.clone());
 
         // ---- read the Spotify side, or pick up saved progress (for the same destination)
@@ -642,7 +642,7 @@ impl Transfer {
             None => {
                 let t = Instant::now();
                 let cookie = self.cookie();
-                anyhow::ensure!(cookie.is_some() || source != Source::Liked, "Sign in to Spotify to copy your Liked Songs");
+                anyhow::ensure!(cookie.is_some() || source != Source::Liked, crate::tr!("transfer-error-liked-signed-out"));
                 let client = spotify::Client::connect(cookie.as_deref(), &self.data_dir).await?;
                 let progress = |done: usize, total: usize| {
                     self.with_job(|j| j.read = (done, total));
@@ -681,7 +681,7 @@ impl Transfer {
             }
         }
         let pending = self.with_job(|j| j.count(|r| *r == Search::Pending));
-        anyhow::ensure!(pending == 0, "{pending} songs couldn't be searched (no connection, or YouTube Music is limiting requests)");
+        anyhow::ensure!(pending == 0, crate::tr!("transfer-error-not-searched", count = pending));
 
         // ---- search the doubtful songs again, with videos, for the review
         let doubtful: Vec<usize> = self.with_job(|j| {
@@ -752,13 +752,13 @@ impl Transfer {
         self.wake();
         let (ids, picked, dest) = self.with_job(|j| {
             if j.dest == Dest::Playlist(String::new()) {
-                j.dest = Dest::Playlist(format!("{} from Spotify", j.name));
+                j.dest = Dest::Playlist(crate::tr!("transfer-from-spotify", name = j.name.as_str()));
             }
             let mut seen = HashSet::new();
             let ids: Vec<String> = j.results.iter().filter_map(Search::track).filter(|t| seen.insert(t.id.clone())).map(|t| t.id.clone()).collect();
             (ids, j.results.iter().filter(|r| r.track().is_some()).count(), j.dest.clone())
         });
-        anyhow::ensure!(!ids.is_empty(), "None of the songs were found on YouTube Music");
+        anyhow::ensure!(!ids.is_empty(), crate::tr!("transfer-error-none-found"));
         let duplicates = picked - ids.len();
         // Dev hook: YTM_TRANSFER_DRY=1 does everything but add the songs.
         let dry = std::env::var_os("YTM_TRANSFER_DRY").is_some();
@@ -800,7 +800,7 @@ impl Transfer {
                 Ok(Some((t, true))) => Search::Found(t),
                 Ok(Some((t, false))) => Search::Unsure(t),
                 Ok(None) => Search::Missing,
-                Err(e) if signed_out(&e) => return Err(e.context("YouTube Music signed you out; sign in again and try again")),
+                Err(e) if signed_out(&e) => return Err(e.context(crate::tr!("transfer-error-signed-out"))),
                 Err(e) => {
                     log::debug!("transfer search: {e:#}");
                     failed += 1;
@@ -839,7 +839,7 @@ impl Transfer {
                     let part_title = if parts.len() > 1 { format!("{title} ({})", n + 1) } else { title.to_owned() };
                     let first = &part[..part.len().min(BATCH)];
                     // Not retried here: one that timed out may still have made the playlist.
-                    let id = ytm::create_playlist_with(api, &part_title, first).await.context("Creating the playlist failed")?;
+                    let id = ytm::create_playlist_with(api, &part_title, first).await.context(crate::tr!("transfer-error-create"))?;
                     self.with_job(|j| {
                         j.created.push(id.clone());
                         j.added = base + first.len();
@@ -858,7 +858,7 @@ impl Transfer {
                 self.checkpoint().await?;
                 let batch = &part[done..(done + BATCH).min(part.len())];
                 // Adding skips songs already in the playlist, so a repeated batch is harmless.
-                retry(|| ytm::add_videos(api, &id, batch, ytm::Duplicates::Skip)).await.context("Adding songs to the playlist failed")?;
+                retry(|| ytm::add_videos(api, &id, batch, ytm::Duplicates::Skip)).await.context(crate::tr!("transfer-error-add"))?;
                 self.with_job(|j| {
                     j.added = base + done + batch.len();
                     j.saving.0 = j.added;
@@ -886,7 +886,7 @@ impl Transfer {
             }
         };
         let read_liked = || async {
-            let lm = retry(|| ytm::playlist(api, "LM", true, Some(20_000))).await.context("Reading your Liked Music failed")?;
+            let lm = retry(|| ytm::playlist(api, "LM", true, Some(20_000))).await.context(crate::tr!("transfer-error-read-liked"))?;
             anyhow::Ok(lm.tracks.into_iter().map(|t| t.id).collect::<HashSet<String>>())
         };
         let liked = read_liked().await?;
@@ -949,19 +949,19 @@ impl Transfer {
                 log::debug!("like {id}: no answer in {:?}; sending it again", crate::backend::LIKE_WAIT);
                 hung += 1;
                 if hung == 10 {
-                    bail!("Liking songs failed: YouTube Music stopped answering");
+                    bail!(crate::tr!("transfer-error-not-answering"));
                 }
                 continue;
             };
             tries += 1;
             match sent {
                 Ok(()) => break,
-                Err(e) if signed_out(&e) => return Err(e.context("YouTube Music signed you out; sign in again and try again")),
+                Err(e) if signed_out(&e) => return Err(e.context(crate::tr!("transfer-error-signed-out"))),
                 Err(e) if tries < 4 => {
                     log::debug!("like {id}: {e:#}");
                     tokio::time::sleep(Duration::from_millis(800 * tries)).await;
                 }
-                Err(e) => return Err(e.context("Liking songs failed")),
+                Err(e) => return Err(e.context(crate::tr!("transfer-error-like"))),
             }
         }
         if count {

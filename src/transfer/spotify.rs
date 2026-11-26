@@ -82,17 +82,17 @@ impl Source {
             rest
         } else if let Some((_, rest)) = link.split_once("://") {
             let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
-            ensure!(matches!(host, "open.spotify.com" | "www.open.spotify.com"), "That isn't an open.spotify.com link");
+            ensure!(matches!(host, "open.spotify.com" | "www.open.spotify.com"), crate::tr!("transfer-error-not-spotify-link"));
             let path = path.split(['?', '#']).next().unwrap_or("");
             let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty() && !p.starts_with("intl-")).collect();
             match parts[..] {
                 ["playlist", id] => id,
-                _ => bail!("That isn't a playlist link"),
+                _ => bail!(crate::tr!("transfer-error-not-playlist-link")),
             }
         } else {
             link
         };
-        ensure!(id.len() == 22 && id.bytes().all(|b| b.is_ascii_alphanumeric()), "That isn't a Spotify playlist link");
+        ensure!(id.len() == 22 && id.bytes().all(|b| b.is_ascii_alphanumeric()), crate::tr!("transfer-error-not-spotify-playlist"));
         Ok(Self::Playlist(id.to_owned()))
     }
 
@@ -263,7 +263,7 @@ impl Client {
             });
             let body = self.query("libraryV3", variables).await?;
             let lib = body["data"]["me"]["libraryV3"].clone();
-            ensure!(lib.is_object(), "Spotify didn't return your library; sign in to Spotify again");
+            ensure!(lib.is_object(), crate::tr!("transfer-error-library-sign-in"));
             Ok::<_, anyhow::Error>(lib)
         };
         let first = page(0).await?;
@@ -283,7 +283,7 @@ impl Client {
         let body = self.query("fetchPlaylist", variables).await?;
         let playlist = &body["data"]["playlistV2"];
         if playlist.is_null() || playlist["__typename"] == "NotFound" {
-            bail!("Spotify couldn't find that playlist. If it's private, sign in to Spotify first");
+            bail!(crate::tr!("transfer-error-playlist-not-found"));
         }
         Ok(playlist.clone())
     }
@@ -306,7 +306,7 @@ impl Client {
         let page = |offset: usize| async move {
             let body = self.query("fetchLibraryTracks", json!({"offset": offset, "limit": LIBRARY_PAGE})).await?;
             let tracks = &body["data"]["me"]["library"]["tracks"];
-            ensure!(tracks.is_object(), "Spotify didn't return Liked Songs; sign in to Spotify again");
+            ensure!(tracks.is_object(), crate::tr!("transfer-error-liked-sign-in"));
             Ok::<_, anyhow::Error>((offset, tracks.clone()))
         };
         let (_, first) = page(0).await?;
@@ -401,7 +401,7 @@ fn to_playlist(name: String, items: &[Value]) -> Result<Playlist> {
             None => skipped += 1,
         }
     }
-    ensure!(!tracks.is_empty(), "That Spotify playlist has no songs");
+    ensure!(!tracks.is_empty(), crate::tr!("transfer-error-no-songs"));
     Ok(Playlist { name, tracks, skipped })
 }
 
@@ -468,7 +468,7 @@ pub struct SignedOut;
 
 impl std::fmt::Display for SignedOut {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Your Spotify sign-in has expired. Sign in to Spotify again")
+        f.write_str(crate::tr!("transfer-error-expired"))
     }
 }
 

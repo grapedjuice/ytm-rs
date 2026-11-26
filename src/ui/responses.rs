@@ -26,7 +26,7 @@ impl App {
             m.set_cover(&file);
         }
         while let Ok(r) = self.ch.resp_rx.try_recv() {
-            self.on_resp(r, now);
+            self.on_resp(ctx, r, now);
         }
         while let Ok(ev) = self.ch.audio_rx.try_recv() {
             match ev {
@@ -197,7 +197,7 @@ impl App {
         }
     }
 
-    fn on_resp(&mut self, r: Resp, now: f64) {
+    fn on_resp(&mut self, ctx: &egui::Context, r: Resp, now: f64) {
         match r {
             Resp::Home(page) => self.on_home(page),
             Resp::HomeMore(page) => {
@@ -359,7 +359,13 @@ impl App {
                 }
             }
             Resp::Downloads(runs) => self.on_download_runs(runs),
-            Resp::ConfirmDownload { target, title, tracks, count } => self.dialog = Some(Dialog::ConfirmDownload { target, title, tracks, count }),
+            Resp::ConfirmDownload { target, title, tracks, count } => {
+                // Edit playlist's picked picture isn't shown any more.
+                if let Some(Dialog::EditPlaylist { cover: Some(super::NewCover::Picked(uri, _)), .. }) = &self.dialog {
+                    ctx.forget_image(uri);
+                }
+                self.dialog = Some(Dialog::ConfirmDownload { target, title, tracks, count });
+            }
             Resp::Uploaded { done, failed } => {
                 self.toast(match (done, failed.len()) {
                     (_, 0) => crate::tr!("status-upload-complete", count = done),
@@ -712,7 +718,7 @@ impl App {
                         // with the same channels: only which one is used changed.
                         let channels = self.channels.take().map(|c| crate::backend::Channels { current: page_id, epoch, ..c });
                         let asked = self.channels_asked;
-                        self.on_resp(Resp::LoggedIn(true), now);
+                        self.on_resp(ctx, Resp::LoggedIn(true), now);
                         (self.channels, self.channels_asked) = (channels, asked);
                         self.toast(crate::tr!("status-switched-channel", name = name.as_str()));
                     }

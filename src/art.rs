@@ -25,6 +25,8 @@ pub fn playlist_cover(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
     use image::ImageDecoder;
     const COVER_PX: u32 = 1200;
     let mut decoder = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?.into_decoder()?;
+    // What `decode` checks before it allocates: a huge picture fails here, not in memory.
+    image::Limits::default().reserve(decoder.total_bytes())?;
     let orientation = decoder.orientation()?;
     let mut img = image::DynamicImage::from_decoder(decoder)?;
     img.apply_orientation(orientation);
@@ -292,6 +294,18 @@ mod tests {
         let (clear, solid) = (cover.get_pixel(1, 5), cover.get_pixel(8, 5));
         assert!(clear.0.iter().all(|&c| c < 30), "{clear:?}");
         assert!(solid[1] > 200 && solid[0] < 60, "{solid:?}");
+    }
+
+    /// A picture far too big to open is turned down before its pixels are made room for:
+    /// here a tiny JPEG whose header says 65535×65535 (about 13 GB of pixels).
+    #[test]
+    fn a_huge_playlist_cover_is_turned_down() {
+        let mut jpeg = Vec::new();
+        image::RgbImage::new(1, 1).write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
+        let sof = jpeg.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
+        jpeg[sof + 5..sof + 9].copy_from_slice(&[0xFF; 4]);
+        let err = super::playlist_cover(&jpeg).unwrap_err();
+        assert!(format!("{err:#}").to_lowercase().contains("limit"), "{err:#}");
     }
 
     #[test]

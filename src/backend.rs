@@ -1486,7 +1486,7 @@ impl Backend {
                 Req::EditPlaylist { id, title, description, privacy, cover } => {
                     ytm::edit_playlist(api, &id, &title, &description, privacy.as_deref()).await?;
                     // The name and description are saved by now: a picture that fails says
-                    // so on its own, and the playlist still reloads with them.
+                    // so after the playlist reloads with them, so "updated" doesn't hide it.
                     if let Some(cover) = cover {
                         let changed = async {
                             match cover {
@@ -1500,7 +1500,8 @@ impl Backend {
                         };
                         if let Err(e) = changed.await {
                             log::warn!("playlist picture failed: {e:#}");
-                            let _ = self.tx.send(Resp::Error(crate::tr!("backend-error", operation = crate::tr!("dialog-change-picture"), error = e.to_string())));
+                            let _ = self.tx.send(Resp::PlaylistChanged { id, change: PlaylistChange::Updated });
+                            return Ok(Some(Resp::Error(crate::tr!("backend-error", operation = crate::tr!("dialog-change-picture"), error = e.to_string()))));
                         }
                     }
                     Resp::PlaylistChanged { id, change: PlaylistChange::Updated }

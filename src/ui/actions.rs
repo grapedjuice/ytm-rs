@@ -335,8 +335,9 @@ impl App {
                 self.backend.request(Req::SortPlaylist { id, actions });
             }
             Action::EditPlaylist => {
-                // Not a picture picked for an Edit playlist that was closed since.
-                *self.picked_cover.lock().unwrap() = None;
+                // Not a picture picked for an Edit playlist that was closed since: a picker
+                // still open from then writes to the old slot.
+                self.picked_cover = Default::default();
                 if let Some(c) = self.current_collection().filter(|c| !c.is_album) {
                     self.dialog = Some(Dialog::EditPlaylist {
                         id: c.id.clone(), title: c.title.clone(), description: c.description.clone().unwrap_or_default(), privacy: None,

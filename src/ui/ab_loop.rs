@@ -5,9 +5,9 @@ use std::time::Duration;
 
 use super::App;
 
-/// The shortest stretch that loops: anything shorter would seek back before the seek
-/// had shown in the position.
-const MIN_LEN: f64 = 1.0;
+/// The shortest stretch that loops: long enough that going back shows as a seek to a
+/// jam's guests (a jump of over 1.5 s) and comes after SponsorBlock's 1.5 s between skips.
+const MIN_LEN: f64 = 2.0;
 
 /// A stretch of song `id`: from `start` (its beginning until one is set) to `end`, in
 /// seconds. It loops once it has an end.
@@ -65,7 +65,13 @@ impl App {
     }
 
     pub(super) fn loop_end_at(&mut self, at: f32) {
-        let at = self.loop_latest().map_or(at as f64, |l| (at as f64).min(l));
+        let wanted = at as f64;
+        let at = self.loop_latest().map_or(wanted, |l| wanted.min(l));
+        // Picked after the start but kept clear of the end too close to it: no loop to
+        // make, and the start stays where it was.
+        if at < wanted && self.ab_loop().is_some_and(|l| wanted >= l.start + MIN_LEN && at < l.start + MIN_LEN) {
+            return;
+        }
         if let Some(l) = self.loop_here() {
             l.end_at(at);
         }

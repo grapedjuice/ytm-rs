@@ -853,21 +853,18 @@ impl App {
         };
         self.segment_skipped = now;
         log::info!("sponsorblock: skipping {:.1}–{:.1} s", seg.start, seg.end);
-        // A skip to past A-B repeat's end goes back to its start, as reaching the end would
-        // (not on to the next song, for a segment that runs to the song's end).
-        if let Some((start, end)) = self.ab_stretch()
-            && pos < end
-            && seg.end >= end
-        {
-            self.loop_back(start, now);
-        } else if seg.end >= duration - 1.0 {
-            if self.repeats_one() {
-                self.play_current();
-            } else {
-                self.next();
+        match self.ab_stretch() {
+            // With A-B repeat, a skip to its end or past goes back to its start, as reaching
+            // the end would; any other stays in the song, which doesn't finish while it loops.
+            Some((start, end)) if pos >= end || seg.end >= end => self.loop_back(start, now),
+            None if seg.end >= duration - 1.0 => {
+                if self.repeats_one() {
+                    self.play_current();
+                } else {
+                    self.next();
+                }
             }
-        } else {
-            self.audio.send(AudioCmd::Seek(Duration::from_secs_f64(seg.end)));
+            _ => self.audio.send(AudioCmd::Seek(Duration::from_secs_f64(seg.end))),
         }
     }
 

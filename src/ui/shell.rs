@@ -1397,7 +1397,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     // Right-click: A-B repeat, from or to the point clicked. Not for a jam's guests, whose
     // playback is the host's.
     if total > 0.0 && !app.jam.guest() {
-        let at_id = ui.scope_id().with("loop-at");
+        // The point clicked, kept for the song it was clicked on.
+        let at_id = ui.scope_id().with(("loop-at", app.current_id()));
         if resp.secondary_clicked()
             && let Some(p) = resp.interact_pointer_pos()
         {

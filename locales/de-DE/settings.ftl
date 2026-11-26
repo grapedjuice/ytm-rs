@@ -95,6 +95,7 @@ settings-output-device-desc-system = Wo die Musik spielt: die Lautsprecher oder 
 settings-this-computer = Dieser Computer
 settings-on-your-network = In deinem Netzwerk
 settings-playing-on = Wiedergabe auf { $name }
+settings-play-on-picked = Wiedergabe auf: { $name }
 settings-connecting-to = Verbinden mit { $name }…
 settings-couldnt-play-on = Wiedergabe auf { $name } nicht möglich: Wiedergabe auf diesem Computer
 settings-windows-default = Windows-Standard
@@ -103,6 +104,10 @@ settings-not-connected = { $name } (nicht verbunden)
 settings-normalization-off-desc = Titel behalten ihre ursprüngliche Lautstärke. „Normal“ gleicht sie an, „Leise“ gleicht sie auf niedrigerem Niveau an.
 settings-normalization-normal-desc = Titel klingen gleich laut. Laute werden wie bei YouTube Music abgesenkt, leise um bis zu 6 dB angehoben.
 settings-normalization-quiet-desc = Titel klingen gleich laut auf niedrigerem Niveau. Laute werden stärker abgesenkt, sodass leise selten angehoben werden müssen.
+settings-normalization-song-no-figure = Dieser Titel: keine Lautheitsangabe von YouTube, er wird unverändert abgespielt.
+settings-normalization-song-level = Dieser Titel: bereits auf dem Zielpegel.
+settings-normalization-song-up = Dieser Titel: um { $db } dB lauter.
+settings-normalization-song-down = Dieser Titel: um { $db } dB leiser.
 settings-headphone-crossfeed = Crossfeed für Kopfhörer
 settings-headphone-crossfeed-desc = Mischt etwas Bass des jeweils anderen Kanals hinzu, ähnlich wie bei Lautsprechern vor dir. Das macht stark seitlich gemischte Titel über Kopfhörer angenehmer.
 settings-mono-audio = Mono-Audio
@@ -118,6 +123,16 @@ settings-equalizer-desc = Passt den Klang von tiefen Bässen bis zu den Höhen a
 settings-preset = Voreinstellung
 settings-custom = Benutzerdefiniert
 settings-equalizer-preset = Equalizer-Voreinstellung
+settings-eq-flat = Neutral
+settings-eq-bass-boost = Bass-Boost
+settings-eq-treble-boost = Höhen-Boost
+settings-eq-vocal = Gesang
+settings-eq-rock = Rock
+settings-eq-pop = Pop
+settings-eq-electronic = Elektronisch
+settings-eq-acoustic = Akustisch
+settings-eq-classical = Klassik
+settings-eq-late-night = Spätabends
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = Equalizer Bänder Bass Mitten Höhen Frequenz
 settings-prevent-clipping = Übersteuerung verhindern
@@ -280,6 +295,14 @@ settings-app-icon = App-Symbol
 settings-preview = Vorschau
 settings-preview-desc = So sieht das Symbol in der Taskleiste und im Infobereich aus.
 settings-app-icon-named = App-Symbol: { $name }
+settings-app-icon-classic = Klassisch
+settings-app-icon-smile-ring = Lächelnder Ring
+settings-app-icon-rust-gear = Rust-Zahnrad
+settings-app-icon-waveform = Wellenform
+settings-app-icon-record = Schallplatte
+settings-app-icon-lit-line = Leuchtlinie
+settings-app-icon-duet = Duett
+settings-app-icon-warp = Warp
 
 ## Connections
 
@@ -287,6 +310,7 @@ settings-stream-deck = Stream Deck
 settings-stream-deck-desc = Erlaubt einem Stream-Deck-Plug-in auf diesem Computer, die Wiedergabe zu steuern.
 settings-lastfm-connected = Deine Wiedergaben werden an das Profil von { $name } gescrobbelt.
 settings-lastfm-allow = Erlaube ytm-rs den Zugriff auf der Last.fm-Seite, die sich im Browser geöffnet hat.
+settings-lastfm-not-allowed = Der Zugriff wurde auf Last.fm nicht rechtzeitig erlaubt
 settings-lastfm-desc = Scrobbelt deine Wiedergaben an dein Last.fm-Profil.
 settings-disconnect = Verbindung trennen
 settings-connect = Verbinden
@@ -295,6 +319,8 @@ settings-listenbrainz-desc = Sendet deine Wiedergaben an dein ListenBrainz-Profi
 settings-user-token = Benutzertoken
 settings-listenbrainz-token-hint = ListenBrainz-Benutzertoken einfügen
 settings-listenbrainz-token-link = Token auf listenbrainz.org abrufen
+settings-listenbrainz-token-missing = füge zuerst dein Benutzertoken ein
+settings-listenbrainz-token-refused = ListenBrainz hat dieses Token nicht akzeptiert
 
 ## Language
 
@@ -323,6 +349,8 @@ settings-home = Startseite
 settings-close-to-tray-desc-linux = Behält ein Symbol im Infobereich. × blendet das Fenster aus, während die Musik weiterspielt. Über das Symbolmenü kannst du es anzeigen, ausblenden oder die App beenden. Ein Klick auf den Titel in der Mediensteuerung zeigt es ebenfalls an. Strg+Q beendet die App.
 settings-close-to-tray-desc = Behält ein Symbol im Infobereich. × blendet das Fenster aus, während die Musik weiterspielt. Klicke auf das Symbol zum Anzeigen oder mit der rechten Maustaste, um es aus- oder einzublenden oder die App zu beenden.
 settings-close-to-tray = In den Infobereich schließen
+settings-tray-no-gtk = Das Symbol im Infobereich braucht GTK, das nicht gestartet werden konnte ({ $error }).
+settings-tray-no-appindicator = Das Symbol im Infobereich braucht die AppIndicator-Bibliothek, die nicht installiert ist: libayatana-appindicator3-1 unter Debian und Ubuntu, libayatana-appindicator-gtk3 unter Fedora (unter Bazzite, Silverblue und anderen atomaren Systemen: rpm-ostree install libayatana-appindicator-gtk3, dann den Computer neu starten), libayatana-appindicator unter Arch.
 settings-song-notifications-desc = Meldet Titel, Interpret und Cover des neuen Songs, wenn das Fenster minimiert, im Infobereich oder hinter anderen Fenstern ist.
 settings-song-notifications-unavailable = Erfordert die installierte App. Windows zeigt nur Benachrichtigungen von Apps im Startmenü.
 settings-song-notifications = Titelbenachrichtigungen
@@ -391,11 +419,22 @@ settings-test-connection = Verbindung testen
 settings-test = Testen
 settings-test-working = Verbindung hergestellt. YouTube Music antwortete in { $ms } ms.
 settings-test-failed = Keine Verbindung: { $error }
+settings-proxy-not-an-address = das ist keine Proxyadresse, etwa http://127.0.0.1:8080
+settings-proxy-scheme = verwende eine Adresse mit http:// oder socks5://
+settings-proxy-no-host = die Adresse braucht einen Host
+settings-proxy-no-port = die Adresse braucht einen Port, etwa :8080
+settings-proxy-not-answering = unter { $address } antwortet nichts. Läuft der Proxy?
+settings-proxy-timed-out = der Proxy hat nicht rechtzeitig geantwortet.
+settings-proxy-sign-in-refused = der Proxy hat den Benutzernamen oder das Passwort nicht akzeptiert.
+settings-proxy-not-found = die Adresse dieses Proxys wurde nicht gefunden.
 settings-proxy-restart-desc = Die neue Proxy-Einstellung gilt beim nächsten Start.
 
 ## Storage
 
 settings-cache-cleared = Cache geleert. { $size } freigegeben.
+settings-size-mb = { $size } MB
+settings-size-gb = { $size } GB
+settings-size-under-mb = Weniger als 1 MB
 settings-storage = Speicher
 settings-clearing = Wird geleert…
 settings-measuring = Wird berechnet…
@@ -456,6 +495,8 @@ settings-download = Herunterladen
 settings-check-now = Jetzt prüfen
 settings-another-copy = Weitere Installation
 settings-another-copy-desc = ytm-rs wurde auch über { $kind } installiert. Befehl zum Entfernen dieser Installation: { $cmd }
+settings-another-copy-deb = das .deb-Paket
+settings-another-copy-arch = das Arch-Paket
 settings-whats-new = Neuerungen
 settings-whats-new-in = Neu in { $version }
 

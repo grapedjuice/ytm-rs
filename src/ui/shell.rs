@@ -1575,7 +1575,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             let turn = if playing { (now / secs.max(1.0) as f64 % 1.0) as f32 * std::f32::consts::TAU } else { 0.0 };
             // Out of its sleeve while playing, back in on pause, if the theme has it move.
             let slide = look.cover.disc_slide_secs;
-            let out = if slide > 0.0 { theme::ease_in_out(ui.ctx().animate_bool_with_time(egui::Id::unique("bar-disc-out"), playing, slide)) } else { 1.0 };
+            let out = if slide > 0.0 { theme::ease_in_out(ui.ctx().animate_bool_with_time(egui::Id::unique("bar-disc-out"), playing, slide / theme::anim_speed())) } else { 1.0 };
             let c = art.center().lerp(art.right_center(), out);
             ui.painter().circle_filled(c, art.height() * 0.46, Color32::from_gray(18));
             // Its edge, or on a dark bar only the label in the middle shows.

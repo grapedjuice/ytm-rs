@@ -1212,7 +1212,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     if let Some(f) = cs.fullscreen.filter(|f| f.enter.is_some() || f.leave.is_some()) {
         let (step, shift) = if app.fullscreen { (f.enter, f.enter_shift_vh) } else { (f.leave, f.leave_shift_vh) };
         let secs = step.map_or(0.0, |[_, s]| s).max(0.01);
-        let full = ui.ctx().animate_bool_with_time(egui::Id::unique("np-cover-full"), app.fullscreen, secs);
+        let full = ui.ctx().animate_bool_with_time(egui::Id::unique("np-cover-full"), app.fullscreen, secs / theme::anim_speed());
         let p = theme::ease_out(if app.fullscreen { full } else { 1.0 - full });
         if let Some([from, _]) = step {
             opening *= egui::lerp(from..=1.0, p);

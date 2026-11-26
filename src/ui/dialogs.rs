@@ -64,7 +64,7 @@ impl App {
         let accent = self.accent_color();
         let mut done = false;
         let heading = match &dialog {
-            Dialog::PickPlaylist(_) => crate::tr!("ui-add-playlist"),
+            Dialog::PickPlaylist { .. } => crate::tr!("ui-add-playlist"),
             Dialog::NewPlaylist { .. } => crate::tr!("ui-new-playlist"),
             Dialog::EditPlaylist { .. } => crate::tr!("dialog-edit-playlist"),
             Dialog::ConfirmDelete { .. } => crate::tr!("dialog-delete-playlist"),
@@ -81,7 +81,7 @@ impl App {
         let modal_id = egui::Id::unique((
             "playlist-dialog",
             match &dialog {
-                Dialog::PickPlaylist(_) => 0,
+                Dialog::PickPlaylist { .. } => 0,
                 Dialog::NewPlaylist { .. } => 1,
                 Dialog::EditPlaylist { .. } => 2,
                 Dialog::ConfirmAddDuplicates { .. } => 3,
@@ -99,7 +99,7 @@ impl App {
                 ui.label(egui::RichText::new(heading).font(theme::bold(22.0)).color(theme::text()));
                 ui.add_space(18.0);
                 match &mut dialog {
-                    Dialog::PickPlaylist(tracks) => {
+                    Dialog::PickPlaylist { tracks, query } => {
                         if dialog_row(ui, None, Some(theme::icon::LIST_PLUS), crate::tr!("ui-new-playlist")) {
                             self.actions.push(Action::NewPlaylist(tracks.clone()));
                             done = true;
@@ -109,17 +109,31 @@ impl App {
                         ui.add_space(6.0);
                         let cards = self.library.as_ref().map(|l| l.playlists.clone()).unwrap_or_default();
                         let order = super::collections::pinned_first(&self.pinned, &cards, 0..cards.len());
-                        egui::ScrollArea::vertical().max_height(340.0).auto_shrink([false, true]).show(ui, |ui| {
+                        let changed = search_field(ui, query);
+                        ui.add_space(6.0);
+                        let mut shown = 0;
+                        // As tall as the list, up to 340: the modal's last size caps the room
+                        // the list gets, so without a floor it stays one row high after a search.
+                        let mut list = egui::ScrollArea::vertical().max_height(340.0).min_scrolled_height(340.0).auto_shrink([false, true]);
+                        if changed { list = list.vertical_scroll_offset(0.0); }
+                        list.show(ui, |ui| {
                             for card in order.into_iter().map(|i| &cards[i]) {
                                 if let Target::Playlist(id) = &card.target {
-                                    if !id.starts_with("PL") { continue; }
-                                    if dialog_row(ui, Some(&card.thumbs), None, &card.title) {
+                                    if !id.starts_with("PL") || !(query.trim().is_empty() || super::find::has_words(&card.title, query)) { continue; }
+                                    shown += 1;
+                                    // Keyed by playlist, so a row the list shifts under a press
+                                    // isn't clicked in its place.
+                                    if ui.push_id(id, |ui| dialog_row(ui, Some(&card.thumbs), None, &card.title)).inner {
                                         self.add_to_playlist(id.clone(), tracks, Duplicates::Ask);
                                         done = true;
                                     }
                                 }
                             }
                         });
+                        if shown == 0 && !query.trim().is_empty() {
+                            ui.add_space(10.0);
+                            ui.label(egui::RichText::new(crate::tr!("nav-no-results")).font(theme::regular(14.0)).color(theme::text_dim()));
+                        }
                     }
                     Dialog::NewPlaylist { title, tracks } => {
                         let name = text_field(ui, crate::tr!("dialog-name"), title, false, crate::tr!("dialog-my-playlist"));
@@ -315,6 +329,29 @@ impl App {
 fn field_label(ui: &mut Ui, label: &str) {
     ui.label(egui::RichText::new(label).font(theme::semibold(13.0)).color(theme::text_dim()));
     ui.add_space(8.0);
+}
+
+/// The playlist picker's search box, focused as it opens so typing narrows the list at once.
+/// Whether the query changed.
+fn search_field(ui: &mut Ui, query: &mut String) -> bool {
+    use egui::{Sense, pos2, vec2};
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::hover());
+    ui.painter().rect_filled(rect, 19.0, theme::glass(0.08));
+    widgets::icon_at(ui, pos2(rect.left() + 18.0, rect.center().y), theme::icon::SEARCH, 15.0, theme::text_dim());
+    let inner = egui::Rect::from_min_max(pos2(rect.left() + 34.0, rect.top() + 3.0), pos2(rect.right() - 12.0, rect.bottom() - 3.0));
+    let edit = ui.put(
+        inner,
+        egui::TextEdit::singleline(query)
+            .hint_text(egui::RichText::new(crate::tr!("dialog-search-playlists")).color(theme::text_faint()))
+            .font(theme::regular(14.0))
+            .frame(egui::Frame::NONE)
+            .align(egui::Align2::LEFT_CENTER)
+            .desired_width(inner.width()),
+    );
+    if ui.memory(|m| m.focused().is_none()) {
+        edit.request_focus();
+    }
+    edit.changed()
 }
 
 /// A labelled text box on a glass fill, like the jam and transfer pages' inputs.

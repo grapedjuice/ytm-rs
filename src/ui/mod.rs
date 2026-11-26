@@ -310,7 +310,8 @@ enum Unlike {
 }
 
 enum Dialog {
-    PickPlaylist(Vec<Track>),
+    /// `query` narrows the list down to the playlists whose names have its words.
+    PickPlaylist { tracks: Vec<Track>, query: String },
     NewPlaylist { title: String, tracks: Vec<Track> },
     EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
     ConfirmDelete { id: String, title: String },

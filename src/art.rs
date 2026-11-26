@@ -30,6 +30,8 @@ const VIVID_SHARE: f32 = 0.015;
 /// The vivid bucket is split into this many hue sectors (30° each), and the accent
 /// comes from the strongest.
 const HUE_BINS: usize = 12;
+/// The least luma a lifted accent has: about 3:1 on the dark UI, even for pure blue.
+const ACCENT_LUMA: f32 = 90.0;
 /// Below this much colour a cover counts as greyscale: neutral accent, no tint.
 const GREYSCALE: f32 = 0.05;
 
@@ -210,8 +212,8 @@ fn analyse(img: &image::RgbImage) -> Look {
     let (mut sum, mut n) = ([0.0f32; 3], 0.0f32);
     // The vivid bucket, split by hue: averaging every vivid pixel together mixes the
     // sleeve's colours into one it doesn't show (blue and yellow make grey, green and
-    // purple a pale mint). Each bin holds score-weighted RGB and the weight.
-    let (mut chroma, mut bins, mut bucket_n) = (0.0f32, [[0.0f32; 4]; HUE_BINS], 0.0f32);
+    // purple a pale mint). Each bin holds score-weighted RGB, the weight and the count.
+    let (mut chroma, mut bins, mut bucket_n) = (0.0f32, [[0.0f32; 5]; HUE_BINS], 0.0f32);
     for p in img.pixels() {
         let rgb = [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0];
         for c in 0..3 {
@@ -233,6 +235,7 @@ fn analyse(img: &image::RgbImage) -> Look {
                 bin[c] += rgb[c] * score;
             }
             bin[3] += score;
+            bin[4] += 1.0;
             bucket_n += 1.0;
         }
     }
@@ -246,20 +249,24 @@ fn analyse(img: &image::RgbImage) -> Look {
     // mid grey; both read against the blurred backdrop.
     let luma = 0.299 * mean[0] + 0.587 * mean[1] + 0.114 * mean[2];
     let neutral = if luma > 0.6 { 140.0 } else { 210.0 };
-    let accent = if bucket_n / n >= VIVID_SHARE {
-        // A bright vivid area the sleeve really shows: the score-weighted colour of
-        // its strongest hue (with the bins either side, so a hue on a bin edge isn't
-        // split), lifted for the UI. Full strength, whatever the cover's overall
-        // greyness — this is the sleeve's identity, not its cast.
-        let top = (0..HUE_BINS).max_by(|&a, &b| bins[a][3].total_cmp(&bins[b][3])).unwrap_or(0);
-        let mut vivid = [0.0f32; 4];
+    // Each hue with the bins either side, so a hue on a bin edge isn't split; only a
+    // hue covering a real share of the sleeve can speak for it.
+    let group = |i: usize| {
+        let mut g = [0.0f32; 5];
         for d in [HUE_BINS - 1, 0, 1] {
-            let bin = bins[(top + d) % HUE_BINS];
-            for c in 0..4 {
-                vivid[c] += bin[c];
+            let bin = bins[(i + d) % HUE_BINS];
+            for c in 0..5 {
+                g[c] += bin[c];
             }
         }
-        lift([vivid[0] / vivid[3] * 255.0, vivid[1] / vivid[3] * 255.0, vivid[2] / vivid[3] * 255.0], 3.5)
+        g
+    };
+    let vivid = (0..HUE_BINS).map(group).filter(|g| g[4] / n >= VIVID_SHARE).max_by(|a, b| a[3].total_cmp(&b[3]));
+    let accent = if let Some(v) = vivid {
+        // A bright vivid area the sleeve really shows: the score-weighted colour of
+        // its strongest hue, lifted for the UI. Full strength, whatever the cover's
+        // overall greyness — this is the sleeve's identity, not its cast.
+        lift([v[0] / v[3] * 255.0, v[1] / v[3] * 255.0, v[2] / v[3] * 255.0], 3.5)
     } else if colour <= 0.0 {
         Color32::from_gray(neutral as u8)
     } else {
@@ -298,7 +305,13 @@ fn hue_bin(rgb: [f32; 3], max: f32, min: f32) -> usize {
 fn lift(c: [f32; 3], gain_cap: f32) -> Color32 {
     let max = c[0].max(c[1]).max(c[2]).max(1.0);
     let k = (220.0 / max).clamp(1.0, gain_cap);
-    Color32::from_rgb((c[0] * k).min(255.0) as u8, (c[1] * k).min(255.0) as u8, (c[2] * k).min(255.0) as u8)
+    let c = c.map(|v| (v * k).min(255.0));
+    // A colour bright in one channel can still be dark to the eye (pure blue is
+    // under 2:1 on the dark UI): wash it toward white until it reaches ACCENT_LUMA.
+    let l = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+    let t = ((ACCENT_LUMA - l) / (255.0 - l)).clamp(0.0, 1.0);
+    let c = c.map(|v| (v + (255.0 - v) * t) as u8);
+    Color32::from_rgb(c[0], c[1], c[2])
 }
 
 /// A neutral backdrop for when nothing is playing, with the accent and brightness the
@@ -489,8 +502,41 @@ mod tests {
         // About half blue, half yellow: averaged together they made a grey that
         // isn't on the sleeve. The accent is one of the two.
         let a = analyse(&patch([40, 60, 230], [230, 210, 30], 0, 23)).accent;
-        let (max, min) = (a.r().max(a.g()).max(a.b()), a.r().min(a.g()).min(a.b()));
-        assert!(max - min > 100, "accent {a:?} is a mix");
+        // The yellow, which scores higher.
+        assert!(a.r() > a.b() + 100 && a.g() > a.b() + 100, "accent {a:?} is a mix, or not the yellow");
+    }
+
+    #[test]
+    fn a_hue_on_a_bin_edge_isnt_split() {
+        // Two reds either side of 0°, together more than the green: split into
+        // their own bins, each lost to it.
+        let img = image::RgbImage::from_fn(32, 32, |_, y| image::Rgb(match y {
+            0..10 => [230, 0, 5],
+            10..20 => [230, 5, 0],
+            _ => [0, 200, 0],
+        }));
+        let a = analyse(&img).accent;
+        assert!(a.r() > a.g() + 100, "accent {a:?} lost the red");
+    }
+
+    #[test]
+    fn other_hues_dont_carry_a_speck_past_the_share() {
+        // A grey sleeve with 16 red pixels and 52 muted cyan ones: neither covers
+        // a real share alone, so the red speck must not take the accent.
+        let img = image::RgbImage::from_fn(64, 64, |x, y| image::Rgb(match (x, y) {
+            (0..4, 0..4) => [230, 30, 30],
+            (10..23, 10..14) => [110, 180, 180],
+            _ => [120, 120, 120],
+        }));
+        let a = analyse(&img).accent;
+        assert!(a.r() < a.g() + 30, "accent {a:?} followed the speck");
+    }
+
+    #[test]
+    fn a_blue_logo_gives_an_accent_that_reads_on_the_dark_ui() {
+        let a = analyse(&patch([12, 12, 14], [0, 0, 230], 13, 19)).accent;
+        assert!(a.b() > a.r() + 100, "accent {a:?} lost the blue");
+        assert!(luma(a) >= ACCENT_LUMA - 1.0, "accent {a:?} is too dark for the dark UI");
     }
 
     #[test]

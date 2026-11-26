@@ -631,6 +631,10 @@ impl App {
         if after != self.generation || !self.gapless || self.crossfade || self.jam.guest() || !self.audio.status.started(after) {
             return;
         }
+        // A-B repeat goes back before the end: no next song to fetch on every pass.
+        if self.ab_stretch().is_some() {
+            return;
+        }
         let repeat_one = self.repeats_one();
         let Some(track) = self.gapless_next(repeat_one).cloned() else { return };
         let song_of = self.song_of(&track);
@@ -849,14 +853,18 @@ impl App {
         };
         self.segment_skipped = now;
         log::info!("sponsorblock: skipping {:.1}–{:.1} s", seg.start, seg.end);
-        if seg.end >= duration - 1.0 {
-            if self.repeats_one() {
-                self.play_current();
-            } else {
-                self.next();
+        match self.ab_stretch() {
+            // With A-B repeat, a skip to its end or past goes back to its start, as reaching
+            // the end would; any other stays in the song, which doesn't finish while it loops.
+            Some((start, end)) if pos >= end || seg.end >= end => self.loop_back(start, now),
+            None if seg.end >= duration - 1.0 => {
+                if self.repeats_one() {
+                    self.play_current();
+                } else {
+                    self.next();
+                }
             }
-        } else {
-            self.audio.send(AudioCmd::Seek(Duration::from_secs_f64(seg.end)));
+            _ => self.audio.send(AudioCmd::Seek(Duration::from_secs_f64(seg.end))),
         }
     }
 

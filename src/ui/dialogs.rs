@@ -109,15 +109,21 @@ impl App {
                         ui.add_space(6.0);
                         let cards = self.library.as_ref().map(|l| l.playlists.clone()).unwrap_or_default();
                         let order = super::collections::pinned_first(&self.pinned, &cards, 0..cards.len());
-                        search_field(ui, query);
+                        let changed = search_field(ui, query);
                         ui.add_space(6.0);
                         let mut shown = 0;
-                        egui::ScrollArea::vertical().max_height(340.0).auto_shrink([false, true]).show(ui, |ui| {
+                        // As tall as the list, up to 340: the modal's last size caps the room
+                        // the list gets, so without a floor it stays one row high after a search.
+                        let mut list = egui::ScrollArea::vertical().max_height(340.0).min_scrolled_height(340.0).auto_shrink([false, true]);
+                        if changed { list = list.vertical_scroll_offset(0.0); }
+                        list.show(ui, |ui| {
                             for card in order.into_iter().map(|i| &cards[i]) {
                                 if let Target::Playlist(id) = &card.target {
-                                    if !id.starts_with("PL") || !super::find::has_words(&card.title, query) { continue; }
+                                    if !id.starts_with("PL") || !(query.trim().is_empty() || super::find::has_words(&card.title, query)) { continue; }
                                     shown += 1;
-                                    if dialog_row(ui, Some(&card.thumbs), None, &card.title) {
+                                    // Keyed by playlist, so a row the list shifts under a press
+                                    // isn't clicked in its place.
+                                    if ui.push_id(id, |ui| dialog_row(ui, Some(&card.thumbs), None, &card.title)).inner {
                                         self.add_to_playlist(id.clone(), tracks, Duplicates::Ask);
                                         done = true;
                                     }
@@ -326,7 +332,8 @@ fn field_label(ui: &mut Ui, label: &str) {
 }
 
 /// The playlist picker's search box, focused as it opens so typing narrows the list at once.
-fn search_field(ui: &mut Ui, query: &mut String) {
+/// Whether the query changed.
+fn search_field(ui: &mut Ui, query: &mut String) -> bool {
     use egui::{Sense, pos2, vec2};
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::hover());
     ui.painter().rect_filled(rect, 19.0, theme::glass(0.08));
@@ -344,6 +351,7 @@ fn search_field(ui: &mut Ui, query: &mut String) {
     if ui.memory(|m| m.focused().is_none()) {
         edit.request_focus();
     }
+    edit.changed()
 }
 
 /// A labelled text box on a glass fill, like the jam and transfer pages' inputs.

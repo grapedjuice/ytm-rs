@@ -1561,6 +1561,10 @@ pub fn apply_chrome(ctx: &egui::Context, p: &crate::preset::Preset, lyrics: &cra
 
 pub fn install_style(ctx: &egui::Context) {
     ctx.set_theme(egui::Theme::Dark);
+    // egui's theme is always Dark: the app draws light or dark itself (`Appearance`). Left
+    // on, egui would pin the window to that Dark too, and a pinned window hears nothing more
+    // from the system, so on macOS Mode: System stayed as it was at launch (#412).
+    ctx.options_mut(|o| o.sync_window_theme = false);
     ctx.global_style_mut(|s| {
         s.spacing.item_spacing = egui::vec2(8.0, 6.0);
         s.spacing.button_padding = egui::vec2(14.0, 7.0);
@@ -1648,6 +1652,18 @@ fn visuals() -> egui::Visuals {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The window isn't told a theme, so it keeps following the system's light or dark (#412).
+    #[test]
+    fn the_window_keeps_the_systems_theme() {
+        let ctx = egui::Context::default();
+        install_fonts(&ctx, "", &[]);
+        install_style(&ctx);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |_| {});
+        out.textures_delta.clear();
+        let sent = out.viewport_output.values().flat_map(|v| &v.commands).any(|c| matches!(c, egui::ViewportCommand::SetTheme(_)));
+        assert!(!sent);
+    }
 
     /// How far past the top a page goes while a finger pulls it down from there and holds.
     #[cfg(not(target_os = "macos"))]

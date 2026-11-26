@@ -3,6 +3,7 @@
 //! Layout: animated album-art background (shader.rs) → sidebar, top bar and page
 //! content → player bar → now-playing overlay (slides up) → toasts.
 
+mod ab_loop;
 mod account;
 mod actions;
 mod arrive;
@@ -251,6 +252,10 @@ pub enum Action {
     /// `Queue::insert_at`).
     QueueInsert { gap: usize, track: Track },
     Seek(f32),
+    /// A-B repeat: the playing song's loop starts, or ends, at this many seconds.
+    LoopStart(f32),
+    LoopEnd(f32),
+    LoopClear,
     /// Moving video or the picture, for music videos.
     ToggleVideo,
     /// The Song/Video switch on a song: its music video in its place (`true`), or the
@@ -739,6 +744,9 @@ pub struct App {
     /// SponsorBlock segments for a video, and when one was last skipped.
     segments: Option<(String, Vec<crate::sponsorblock::Segment>)>,
     segment_skipped: f64,
+    /// A-B repeat's stretch, and when it last went back to its start.
+    ab_loop: Option<ab_loop::AbLoop>,
+    loop_sought: f64,
     /// The system-wide media shortcuts.
     hotkeys: hotkeys::State,
     /// Background animation clock: advances only while music plays, so pausing
@@ -1201,6 +1209,8 @@ impl App {
             keep_pitch: get("keep_pitch").is_none_or(|v| v == "1"),
             segments: None,
             segment_skipped: f64::NEG_INFINITY,
+            ab_loop: None,
+            loop_sought: f64::NEG_INFINITY,
             hotkeys,
             bg_time: 0.0,
             layer_time: 0.0,
@@ -1714,6 +1724,7 @@ impl eframe::App for App {
             ctx.request_repaint_after(Duration::from_secs_f64((t - now).max(0.0)));
         }
         self.skip_segments(ctx, now);
+        self.keep_looping(ctx, now);
         hotkeys::poll(self, ctx, frame);
         // System media controls and taskbar buttons follow the player however it changed.
         let playing = self.playing() || self.buffering;

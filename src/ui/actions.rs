@@ -213,6 +213,9 @@ impl App {
                 self.seek_to(Duration::from_secs_f32(secs.max(0.0)));
                 self.lyric_view.resume();
             }
+            Action::LoopStart(secs) => self.loop_start_at(secs),
+            Action::LoopEnd(secs) => self.loop_end_at(secs),
+            Action::LoopClear => self.ab_loop = None,
             Action::Like(t, false) => self.request_unlike(Unlike::Track(t)),
             Action::Like(t, true) => {
                 if !self.logged_in {

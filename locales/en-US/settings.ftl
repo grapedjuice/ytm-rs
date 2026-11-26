@@ -95,6 +95,8 @@ settings-output-device-desc-system = Where the music plays: this computer's spea
 settings-this-computer = This computer
 settings-on-your-network = On your network
 settings-playing-on = Playing on { $name }
+# The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
+settings-play-on-picked = Play on: { $name }
 settings-connecting-to = Connecting to { $name }…
 settings-couldnt-play-on = Couldn't play on { $name }: playing on this computer
 settings-windows-default = Windows default

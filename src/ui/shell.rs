@@ -1893,7 +1893,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
                     crate::tr!("settings-playing-on", name = to).to_owned()
                 }
                 RemoteState::Failed(_) => crate::tr!("settings-couldnt-play-on", name = to).to_owned(),
-                RemoteState::Idle => format!("{}: {to}", crate::tr!("settings-output-device")),
+                RemoteState::Idle => crate::tr!("settings-play-on-picked", name = to).to_owned(),
             }
         }
     };

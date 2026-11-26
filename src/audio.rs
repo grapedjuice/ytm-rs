@@ -1326,7 +1326,6 @@ fn card(destination: &Destination) -> Option<&str> {
     }
 }
 
-/// The picked device if it's connected, else the system default.
 fn target(preferred: Option<&str>) -> Option<rodio::cpal::Device> {
     let host = rodio::cpal::default_host();
     if let Some(want) = preferred
@@ -1334,7 +1333,52 @@ fn target(preferred: Option<&str>) -> Option<rodio::cpal::Device> {
     {
         return Some(d);
     }
-    host.default_output_device()
+    let default = host.default_output_device();
+    let mut all: Vec<(String, rodio::cpal::Device)> = host.output_devices().ok()?.filter_map(|d| Some((d.id().ok()?.to_string(), d))).collect();
+    let key = (default.as_ref().and_then(|d| d.id().ok()).map(|i| i.to_string()), all.iter().map(|(id, _)| id.clone()).collect());
+    static RESOLVED: std::sync::Mutex<Option<(Probed, Option<String>)>> = std::sync::Mutex::new(None);
+    let chosen = resolved(&mut RESOLVED.lock().unwrap_or_else(std::sync::PoisonError::into_inner), key, |(default_id, ids)| {
+        let plays = |id: &str| {
+            let device = match default.as_ref().filter(|_| default_id.as_deref() == Some(id)) {
+                Some(d) => Some(d),
+                None => all.iter().find(|(i, _)| i == id).map(|(_, d)| d),
+            };
+            device.is_some_and(|d| d.default_output_config().is_ok())
+        };
+        default_id.iter().filter(|&id| plays(id)).cloned().chain(fallbacks(ids.clone()).into_iter().filter(|id| plays(id))).next()
+    })?;
+    if default.as_ref().and_then(|d| d.id().ok()).is_some_and(|i| i.to_string() == chosen) {
+        return default;
+    }
+    let at = all.iter().position(|(id, _)| *id == chosen)?;
+    Some(all.swap_remove(at).1)
+}
+
+type Probed = (Option<String>, Vec<String>);
+
+fn resolved(cache: &mut Option<(Probed, Option<String>)>, key: Probed, probe: impl FnOnce(&Probed) -> Option<String>) -> Option<String> {
+    if let Some((_, chosen)) = cache.as_ref().filter(|(cached, _)| *cached == key) {
+        return chosen.clone();
+    }
+    let chosen = probe(&key);
+    *cache = Some((key, chosen.clone()));
+    chosen
+}
+
+fn fallbacks(ids: Vec<String>) -> Vec<String> {
+    let mut ranked: Vec<(u8, String)> = ids
+        .into_iter()
+        .filter_map(|id| {
+            let rank = match id.as_str() {
+                "alsa:pipewire" => 0,
+                "alsa:pulse" => 1,
+                _ => alsa_rank(&id)? + 2,
+            };
+            Some((rank, id))
+        })
+        .collect();
+    ranked.sort_by_key(|(rank, _)| *rank);
+    ranked.into_iter().map(|(_, id)| id).collect()
 }
 
 /// An output device to offer in settings.
@@ -2389,6 +2433,33 @@ mod tests {
         // The default is the server already: not offered twice (`alsa_offers_each_output_once`).
         let pulse_default = no_pipewire(alsa_listing()).into_iter().map(|d| if d.id == "alsa:default" { OutputDevice { name: "Default ALSA Output (currently PulseAudio Sound Server)".into(), ..d } } else { d }).collect();
         assert!(!offered_ids(pulse_default).contains(&"alsa:pulse".to_owned()));
+    }
+
+    #[test]
+    fn a_resolved_default_is_probed_again_only_when_the_devices_change() {
+        let key = |default: &str, all: &[&str]| (Some(default.to_owned()), all.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        let probes = std::cell::Cell::new(0);
+        let mut cache = None;
+        let mut resolve = |k: Probed| {
+            resolved(&mut cache, k, |_| {
+                probes.set(probes.get() + 1);
+                Some("alsa:pipewire".to_owned())
+            })
+        };
+        assert_eq!(resolve(key("alsa:default", &["alsa:default", "alsa:pipewire"])), Some("alsa:pipewire".to_owned()));
+        assert_eq!(resolve(key("alsa:default", &["alsa:default", "alsa:pipewire"])), Some("alsa:pipewire".to_owned()));
+        assert_eq!(probes.get(), 1);
+        resolve(key("alsa:default", &["alsa:default", "alsa:pipewire", "alsa:pulse"]));
+        resolve(key("alsa:pulse", &["alsa:default", "alsa:pipewire", "alsa:pulse"]));
+        assert_eq!(probes.get(), 3);
+    }
+
+    #[test]
+    fn a_default_that_cant_play_gives_way_to_the_sound_server_then_a_card() {
+        let ids = |l: &[&str]| l.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let listed = ids(&["alsa:default", "alsa:hdmi:CARD=NVidia,DEV=1", "alsa:pulse", "alsa:pipewire", "alsa:hw:CARD=Generic,DEV=0", "alsa:sysdefault:CARD=Generic", "alsa:null"]);
+        assert_eq!(fallbacks(listed), ["alsa:pipewire", "alsa:pulse", "alsa:sysdefault:CARD=Generic", "alsa:hdmi:CARD=NVidia,DEV=1"]);
+        assert_eq!(fallbacks(ids(&["wasapi:{b}", "wasapi:{a}"])), ["wasapi:{b}", "wasapi:{a}"]);
     }
 
     #[test]

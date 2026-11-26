@@ -927,7 +927,8 @@ mod frame {
     use windows::Win32::UI::WindowsAndMessaging::{
         GWL_STYLE, GetClientRect, GetWindowLongW, GetWindowRect, HTMAXBUTTON, IsZoomed, MINMAXINFO, NCCALCSIZE_PARAMS, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
         SWP_NOZORDER, SetWindowLongW, SetWindowPos, WM_GETMINMAXINFO, WM_MOUSEMOVE, WM_NCACTIVATE, WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP,
-        WM_CANCELMODE, WM_CAPTURECHANGED, WM_DPICHANGED, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_NCPAINT, WM_SIZE, WM_STYLECHANGING, WS_CAPTION,
+        WM_CANCELMODE, WM_CAPTURECHANGED, WM_DPICHANGED, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_NCPAINT, WM_SIZE, WM_STYLECHANGING, WM_WINDOWPOSCHANGING, WINDOWPOS,
+        WS_CAPTION,
     };
 
     /// See `super::drop_caption`.
@@ -1091,7 +1092,7 @@ mod frame {
     unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM, _: usize, _: usize) -> LRESULT {
         // SAFETY: called by Windows with the window's own message; for WM_NCCALCSIZE with
         // wparam set, lparam points at an NCCALCSIZE_PARAMS; for WM_STYLECHANGING, at a
-        // STYLESTRUCT.
+        // STYLESTRUCT; for WM_WINDOWPOSCHANGING, at a WINDOWPOS.
         unsafe {
             if SNAP_LAYOUTS.load(Ordering::Relaxed)
                 && let Some(result) = snap_message(hwnd, msg, wparam, lparam)
@@ -1107,6 +1108,14 @@ mod frame {
                 if msg == WM_GETMINMAXINFO {
                     let result = DefSubclassProc(hwnd, msg, wparam, lparam);
                     to_work_area(hwnd, &mut *(lparam.0 as *mut MINMAXINFO));
+                    return result;
+                }
+                if msg == WM_WINDOWPOSCHANGING {
+                    let result = DefSubclassProc(hwnd, msg, wparam, lparam);
+                    let pos = &mut *(lparam.0 as *mut WINDOWPOS);
+                    if IsZoomed(hwnd).as_bool() && !pos.flags.contains(SWP_NOSIZE) {
+                        keep_to_work_area(hwnd, pos);
+                    }
                     return result;
                 }
                 // Activation still goes to winit, which tracks focus by it; lparam -1 asks
@@ -1169,6 +1178,38 @@ mod frame {
         mm.ptMaxSize = POINT { x: w.right - w.left, y: w.bottom - w.top };
     }
 
+    /// Windows takes the maximized size above as the main monitor's, and when it covers
+    /// that monitor in both directions it adds the difference between the two monitors.
+    /// On a monitor at least the main one's size, with a taskbar, no size given there
+    /// comes out as its work area: the window grew past it, over the taskbar and onto
+    /// the next monitor, all of it frame that nothing paints (#257). So a maximized
+    /// window bigger than its work area is put back to it as it's set.
+    fn keep_to_work_area(hwnd: HWND, pos: &mut WINDOWPOS) {
+        let r = RECT { left: pos.x, top: pos.y, right: pos.x + pos.cx, bottom: pos.y + pos.cy };
+        // SAFETY: the app's own window; `r` is ours. A resize alone stays on the window's
+        // monitor; a move goes where winit keeps a maximized window's area.
+        let monitor = unsafe { if pos.flags.contains(SWP_NOMOVE) { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) } else { MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST) } };
+        let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+        // SAFETY: `info` is ours and sized.
+        if unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
+            fit(pos, info.rcWork);
+        }
+    }
+
+    /// Keeps `pos` to the work area `w` when it's bigger: at it, or a resize alone to
+    /// its size, where the window is.
+    fn fit(pos: &mut WINDOWPOS, w: RECT) {
+        let (cx, cy) = (w.right - w.left, w.bottom - w.top);
+        if pos.cx <= cx && pos.cy <= cy {
+            return;
+        }
+        if pos.flags.contains(SWP_NOMOVE) {
+            (pos.cx, pos.cy) = (pos.cx.min(cx), pos.cy.min(cy));
+        } else {
+            (pos.x, pos.y, pos.cx, pos.cy) = (w.left, w.top, cx, cy);
+        }
+    }
+
     /// Whether `r` covers all of the monitor it's on: the one it's going to, while the
     /// window moves to another.
     fn fills_monitor(r: &RECT) -> bool {
@@ -1179,6 +1220,45 @@ mod frame {
         }
         let m = info.rcMonitor;
         r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use windows::Win32::Foundation::RECT;
+        use windows::Win32::UI::WindowsAndMessaging::{SWP_NOMOVE, SWP_NOZORDER, WINDOWPOS};
+
+        use super::fit;
+
+        /// #257's monitors: a 1920x1080 main one, and a 2560x1440 one above it whose
+        /// taskbar takes 48 pixels.
+        const WORK: RECT = RECT { left: 0, top: -1440, right: 2560, bottom: -48 };
+
+        /// Windows grows the work area's size by the difference between the two monitors:
+        /// 3200x1752 from the top left of the upper one.
+        #[test]
+        fn maximized_on_a_bigger_monitor_stays_on_its_work_area() {
+            let mut pos = WINDOWPOS { x: 0, y: -1440, cx: 3200, cy: 1752, flags: SWP_NOZORDER, ..Default::default() };
+            fit(&mut pos, WORK);
+            assert_eq!((pos.x, pos.y, pos.cx, pos.cy), (0, -1440, 2560, 1392));
+            assert_eq!(pos.flags, SWP_NOZORDER);
+        }
+
+        /// A resize alone doesn't move the window, to that monitor or any other.
+        #[test]
+        fn a_resize_alone_stays_where_it_is() {
+            let mut pos = WINDOWPOS { x: 0, y: 0, cx: 4000, cy: 1000, flags: SWP_NOZORDER | SWP_NOMOVE, ..Default::default() };
+            fit(&mut pos, WORK);
+            assert_eq!((pos.x, pos.y, pos.cx, pos.cy), (0, 0, 2560, 1000));
+            assert_eq!(pos.flags, SWP_NOZORDER | SWP_NOMOVE);
+        }
+
+        /// Already within the work area (a smaller or the same monitor): as it was.
+        #[test]
+        fn within_the_work_area_is_left_alone() {
+            let mut pos = WINDOWPOS { x: 0, y: -1440, cx: 2560, cy: 1392, flags: SWP_NOZORDER, ..Default::default() };
+            fit(&mut pos, WORK);
+            assert_eq!((pos.x, pos.y, pos.cx, pos.cy), (0, -1440, 2560, 1392));
+        }
     }
 }
 

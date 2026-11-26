@@ -282,7 +282,7 @@ impl App {
             Action::CancelDownload(key) => self.backend.cancel_downloads(&key),
             Action::KeepDownloaded(id, on) => self.keep_downloaded(&id, on),
             Action::AddToPlaylist(tracks) => {
-                if self.logged_in { self.dialog = Some(Dialog::PickPlaylist(tracks)); }
+                if self.logged_in { self.dialog = Some(Dialog::PickPlaylist { tracks, query: String::new() }); }
                 else { self.toast(crate::tr!("status-sign-in-edit")); }
             }
             Action::RemoveFromPlaylist(mut rows) => {

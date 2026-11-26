@@ -286,6 +286,13 @@ pub fn run(shown: Option<&[usize]>, from: usize, to: usize) -> Vec<usize> {
     }
 }
 
+/// Whether every word of `query` is somewhere in `text`, case and accents aside. An empty
+/// query matches everything.
+pub(super) fn has_words(text: &str, query: &str) -> bool {
+    let text = fold(text);
+    fold(query).split_whitespace().all(|w| text.contains(w))
+}
+
 /// Every word (folded) is somewhere in the song's title, artists or album, accents aside.
 fn matches(t: &Track, words: &[&str]) -> bool {
     let title = fold(&t.title);
@@ -296,8 +303,17 @@ fn matches(t: &Track, words: &[&str]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{KEEP_SORTS, LibTab, ListFind, Page, Sort, Track, run};
+    use super::{KEEP_SORTS, LibTab, ListFind, Page, Sort, Track, has_words, run};
     use crate::model::{Card, Link, Target};
+
+    /// The playlist picker's search: each word anywhere in the name, case and accents aside.
+    #[test]
+    fn a_playlist_is_found_by_any_of_its_words() {
+        assert!(has_words("Chill Évening Mix", ""));
+        assert!(has_words("Chill Évening Mix", "mix evening"));
+        assert!(has_words("Chill Évening Mix", "  CHILL  "));
+        assert!(!has_words("Chill Évening Mix", "chill morning"));
+    }
 
     fn link(name: &str) -> Link {
         Link { name: name.into(), id: None }

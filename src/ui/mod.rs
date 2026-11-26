@@ -318,7 +318,8 @@ enum NewCover {
 }
 
 enum Dialog {
-    PickPlaylist(Vec<Track>),
+    /// `query` narrows the list down to the playlists whose names have its words.
+    PickPlaylist { tracks: Vec<Track>, query: String },
     NewPlaylist { title: String, tracks: Vec<Track> },
     /// `thumbs`: its cover now; `cover`: what Save does to it.
     EditPlaylist { id: String, title: String, description: String, privacy: Option<String>, thumbs: Vec<crate::model::Thumb>, cover: Option<NewCover> },

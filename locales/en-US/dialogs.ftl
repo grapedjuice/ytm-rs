@@ -9,6 +9,7 @@ dialog-delete-upload-title = Delete upload?
 dialog-delete-upload = Delete upload
 dialog-name = Name
 dialog-my-playlist = My playlist
+dialog-search-playlists = Search your playlists
 dialog-private-desc = Private · only you can see it
 dialog-playlist-name = Playlist name
 dialog-description = Description

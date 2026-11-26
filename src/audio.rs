@@ -147,7 +147,7 @@ pub struct AudioStatus {
     /// crossfade's `Ending`), so it plays out and ends with `Finished`. Anything that would
     /// start the next song early has to check this.
     pub stop_at_end: AtomicBool,
-    /// Chain consecutive songs sample-accurately without a gap (Settings › Playback).
+    /// Chain consecutive songs sample-accurately without a gap (Settings â€º Playback).
     gapless: AtomicBool,
     /// Paused, or on the way there: songs fade to silence, and back up when it's cleared
     /// (see `Meter`).
@@ -159,9 +159,9 @@ pub struct AudioStatus {
     /// silence, whatever its fade had got to (a pause cut short by a stalled download, or
     /// by headphones unplugged).
     silenced: AtomicU32,
-    /// Pausing and playing again are instant, with no fade (Settings › Sound).
+    /// Pausing and playing again are instant, with no fade (Settings â€º Sound).
     instant_pause: AtomicBool,
-    /// A song ends where it goes silent for good (Settings › Playback).
+    /// A song ends where it goes silent for good (Settings â€º Playback).
     skip_silence: AtomicBool,
     /// The equalizer's settings, applied to everything on its way to the device.
     eq: Arc<eq::EqParams>,
@@ -297,13 +297,26 @@ const HOLD: u32 = 1 << 31;
 /// short enough not to hold anything up, long enough not to sound cut off.
 const PAUSE_FADE_MS: u32 = 200;
 
-/// With the fade off (Settings › Sound), pausing and playing again still ramp, this
+/// With the fade off (Settings â€º Sound), pausing and playing again still ramp, this
 /// briefly: too short to hear, but cutting off at full volume would click.
 const INSTANT_FADE_MS: u32 = 5;
 
 /// Time constant for smoothing normalization gain changes across gapless transitions
 /// (or when toggling normalization mid-song), preventing an audible step click.
 const NORM_GLIDE_TAU_MS: u32 = 5;
+
+/// How long a seek crossfades from where it was to where it's going. Cutting from one
+/// spot straight to another clicks; this is too short to hear as a fade, and nothing waits for it.
+const SEEK_FADE_MS: u32 = 10;
+
+/// What a seek in place read from the old spot before it went (`at` of them played): the
+/// first `from` as they are (the rest of a stereo frame, so the new spot starts on its left
+/// channel), the rest crossfaded into the new spot. All as they are if the seek failed.
+struct SeekTail {
+    old: Vec<f32>,
+    at: usize,
+    from: usize,
+}
 
 /// One-shot gate checked on sample #0 of a queued gapless track: aborts cleanly if
 /// cancelled, pausing, or the previous download failed; otherwise signals handoff.
@@ -344,6 +357,9 @@ struct Meter<S> {
     smooth: f32,
     /// Set up the first time the visualizer is on for this song.
     spectrum: Option<spectrum::Spectrum>,
+    tail: Option<SeekTail>,
+    /// Which channel of its frame the next sample out is.
+    phase: usize,
 }
 
 impl<S: rodio::Source> Meter<S> {
@@ -354,7 +370,7 @@ impl<S: rodio::Source> Meter<S> {
         let mut m = Self {
             inner, status, norm: Arc::new(AtomicU32::new(1f32.to_bits())), cur_norm: 1.0, norm_alpha: 1.0,
             fade_out, seen_out: 0, ramp: None, gate: None, aborted: false,
-            pause, pause_step: 0.0, instant_step: 0.0, seen_silenced, acc: 0.0, n: 0, smooth: 0.0, spectrum: None,
+            pause, pause_step: 0.0, instant_step: 0.0, seen_silenced, acc: 0.0, n: 0, smooth: 0.0, spectrum: None, tail: None, phase: 0,
         };
         m.pause_step = 1.0 / m.samples(PAUSE_FADE_MS) as f32;
         m.instant_step = 1.0 / m.samples(INSTANT_FADE_MS) as f32;
@@ -379,6 +395,24 @@ impl<S: rodio::Source> Meter<S> {
     fn samples(&self, ms: u32) -> u32 {
         let per_sec = self.inner.sample_rate().get() as u64 * self.inner.channels().get() as u64;
         (per_sec * ms as u64 / 1000).max(1) as u32
+    }
+
+    /// The next sample from `inner`, or from a seek's `SeekTail`.
+    fn raw(&mut self) -> Option<f32> {
+        let Some(t) = &mut self.tail else { return self.inner.next() };
+        let old = t.old[t.at];
+        t.at += 1;
+        let s = if t.at > t.from {
+            let g = (t.at - t.from) as f32 / (t.old.len() - t.from + 1) as f32;
+            // The new spot may be the song's last few ms: the old one still fades out.
+            self.inner.next().unwrap_or(0.0) * g + old * (1.0 - g)
+        } else {
+            old
+        };
+        if t.at == t.old.len() {
+            self.tail = None;
+        }
+        Some(s)
     }
 }
 
@@ -424,7 +458,7 @@ impl<S: rodio::Source> Iterator for Meter<S> {
         if self.seen_out == 0 {
             self.status.active_norm.store(self.cur_norm.to_bits(), Ordering::Relaxed);
         }
-        let mut s = self.inner.next()? * self.cur_norm;
+        let mut s = self.raw()? * self.cur_norm;
         if let Some(ramp) = &mut self.ramp {
             s *= ramp.gain();
             match ramp {
@@ -471,13 +505,17 @@ impl<S: rodio::Source> Iterator for Meter<S> {
             self.acc = 0.0;
             self.n = 0;
         }
+        self.phase = (self.phase + 1) % self.inner.channels().get() as usize;
         Some(s)
     }
 }
 
 impl<S: rodio::Source> rodio::Source for Meter<S> {
     fn current_span_len(&self) -> Option<usize> {
-        self.inner.current_span_len()
+        match &self.tail {
+            Some(t) if t.at < t.from => Some(t.from - t.at),
+            _ => self.inner.current_span_len(),
+        }
     }
     fn channels(&self) -> rodio::ChannelCount {
         self.inner.channels()
@@ -488,8 +526,17 @@ impl<S: rodio::Source> rodio::Source for Meter<S> {
     fn total_duration(&self) -> Option<Duration> {
         self.inner.total_duration()
     }
+    /// It reads on to the end of the stereo frame it's in first: rodio can seek between left
+    /// and right, and the new spot starts on the left. Heard, a few ms more, to crossfade into it.
     fn try_seek(&mut self, pos: Duration) -> Result<(), rodio::source::SeekError> {
-        self.inner.try_seek(pos)
+        let ch = self.inner.channels().get() as usize;
+        let pad = (ch - self.phase) % ch;
+        let n = pad + if self.pause > 0.0 { self.samples(SEEK_FADE_MS) as usize / ch * ch } else { 0 };
+        let old: Vec<f32> = std::iter::from_fn(|| self.raw()).take(n).collect();
+        let done = self.inner.try_seek(pos);
+        let from = if done.is_ok() { pad.min(old.len()) } else { old.len() };
+        self.tail = (!old.is_empty()).then_some(SeekTail { old, at: 0, from });
+        done
     }
 }
 
@@ -558,7 +605,7 @@ impl AudioHandle {
         }
     }
 
-    /// Whether the visualizer's bars are measured (Settings › Appearance › Visualizer).
+    /// Whether the visualizer's bars are measured (Settings â€º Appearance â€º Visualizer).
     pub fn set_spectrum(&self, on: bool) {
         self.status.spectrum_on.store(on, Ordering::Relaxed);
     }
@@ -1246,6 +1293,31 @@ fn clear(player: &mut Player, output: &Output) {
     *player = fresh;
 }
 
+/// Puts `song`, the playing song at another spot (a seek's new decoder), in place of what
+/// `player` has. `heard`: the old spot is still going out, so it crossfades into the new one.
+#[allow(clippy::too_many_arguments)]
+fn put_in<S: rodio::Source + Send + 'static>(player: &mut Player, mixer: &Mixer, fading: &mut Vec<Fading>, fade_out: &mut Arc<AtomicU32>, norm: &Arc<AtomicU32>, status: &Arc<AudioStatus>, song: S, heard: bool) {
+    let paused = player.is_paused();
+    let fade = heard && !paused;
+    // The song in before the mixer gets it: the mixer takes the format it starts with.
+    let (fresh, out) = Player::new();
+    fresh.set_volume(player.volume());
+    if paused {
+        fresh.pause();
+    }
+    let old_out = std::mem::replace(fade_out, Arc::new(AtomicU32::new(0)));
+    fresh.append(Meter::new(song, status.clone(), if fade { SEEK_FADE_MS } else { 0 }, fade_out.clone()).with_norm(norm.clone()));
+    let old = std::mem::replace(player, fresh);
+    mixer.add(out);
+    if fade {
+        old_out.store(SEEK_FADE_MS, Ordering::Relaxed);
+        // Its own `norm`: a volume change sets a fading song's from its `shared`, none here,
+        // which would turn the playing one's normalization off.
+        let norm = Arc::new(AtomicU32::new(norm.load(Ordering::Relaxed)));
+        fading.push(Fading { player: old, shared: None, norm, out: old_out, waiting: None, outro: false });
+    }
+}
+
 /// The sound card picked, if one is.
 fn card(destination: &Destination) -> Option<&str> {
     match destination {
@@ -1726,17 +1798,16 @@ fn run(
                 }
                 log::debug!("audio: seek to {at:?} via new decoder (seekable: {s})");
                 seekable = s;
-                let paused = player.is_paused();
+                // The next song may have started behind this one meanwhile: it goes with it.
+                if let Some(q) = &queued {
+                    q.fade_out.store(SEEK_FADE_MS, Ordering::Relaxed);
+                }
                 clear_queued(&mut queued, &mut prepare_sent, true);
-                clear(&mut player, &output);
                 // What went out from the old spot while the decoder was being built.
                 output.flush();
-                fade_out = Arc::new(AtomicU32::new(0));
                 song_ms = Arc::new(AtomicU64::new(0));
-                player.append(Meter::new(tempo(decoder, at, &song_ms), status.clone(), 0, fade_out.clone()).with_norm(norm.clone()));
-                if !paused {
-                    player.play();
-                }
+                let heard = output.pulled();
+                put_in(&mut player, &output.mixer, &mut fading, &mut fade_out, &norm, &status, tempo(decoder, at, &song_ms), heard);
                 // Paused, nothing else tells the UI (and the system media controls) where it is now.
                 status.set_position(at.as_millis() as u64);
                 wake();
@@ -2286,7 +2357,7 @@ mod tests {
     #[test]
     fn alsa_offers_each_output_once() {
         let offered = offered(alsa_listing(), None);
-        // By name: "HD-Audio …" before "HDA …".
+        // By name: "HD-Audio â€¦" before "HDA â€¦".
         assert_eq!(ids(&offered), ["alsa:sysdefault:CARD=Generic", "alsa:iec958:CARD=Generic,DEV=0", "alsa:hdmi:CARD=HDMI,DEV=1", "alsa:hdmi:CARD=HDMI,DEV=0"]);
         assert_eq!(offered[0].name, "HD-Audio Generic, ALC897 Analog");
     }
@@ -2884,5 +2955,82 @@ mod tests {
             assert!(rx.try_recv().is_err());
             assert!(player.empty());
         }
+    }
+
+    /// Two seconds of a 173.3 Hz stereo sine at 48 kHz: from one spot to another, its
+    /// samples don't line up, so cutting straight across would jump.
+    fn sine() -> rodio::buffer::SamplesBuffer {
+        use std::num::NonZero;
+        let wave = (0..96_000).flat_map(|i| [(i as f32 * 173.3 * std::f32::consts::TAU / 48_000.0).sin() * 0.5; 2]).collect::<Vec<f32>>();
+        rodio::buffer::SamplesBuffer::new(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap(), wave)
+    }
+
+    /// The largest step from a sample to the next one on its channel. The sine's own is about 0.011.
+    fn largest_step(out: &[f32]) -> f32 {
+        out.windows(3).map(|w| (w[2] - w[0]).abs()).fold(0.0, f32::max)
+    }
+
+    #[test]
+    fn a_seek_in_place_crossfades_instead_of_jumping() {
+        let mut m = Meter::new(sine(), Arc::new(AudioStatus::default()), 0, Arc::new(AtomicU32::new(0)));
+        let mut out: Vec<f32> = m.by_ref().take(48_000).collect();
+        rodio::Source::try_seek(&mut m, Duration::from_millis(213)).unwrap();
+        out.extend(m.by_ref().take(4_800));
+        assert!(largest_step(&out) < 0.03, "{}", largest_step(&out));
+        // Nothing's lost or added: the new spot's samples, one for one.
+        assert_eq!(out.len(), 52_800);
+    }
+
+    #[test]
+    fn a_seek_between_left_and_right_keeps_them_apart() {
+        // Left at 0.5, right at -0.5. At 44.1 kHz rodio seeks every 441 samples, so between
+        // a left and its right every other time.
+        use std::num::NonZero;
+        let wave = (0..88_200).flat_map(|_| [0.5, -0.5]).collect::<Vec<f32>>();
+        let buf = rodio::buffer::SamplesBuffer::new(NonZero::new(2).unwrap(), NonZero::new(44_100).unwrap(), wave);
+        // Through `Tempo`, as songs play: its seek starts the new spot on the left.
+        let t = tempo::Tempo::new(buf, Arc::new(tempo::Speed::default()), Duration::ZERO, Arc::new(AtomicU64::new(0)));
+        let mut m = Meter::new(t, Arc::new(AudioStatus::default()), 0, Arc::new(AtomicU32::new(0)));
+        let mut out: Vec<f32> = m.by_ref().take(441).collect();
+        rodio::Source::try_seek(&mut m, Duration::from_millis(500)).unwrap();
+        out.extend(m.by_ref().take(4_410));
+        for (i, s) in out.iter().enumerate() {
+            assert!((s - if i % 2 == 0 { 0.5 } else { -0.5 }).abs() < 1e-5, "sample {i}: {s}");
+        }
+    }
+
+    #[test]
+    fn a_failed_seek_in_place_plays_what_it_read_ahead() {
+        // Ones, then twos: what's read before seeking past the end must still come out, in order.
+        use std::num::NonZero;
+        let samples: Vec<f32> = (0..2000).map(|i| if i < 1000 { 1.0 } else { 2.0 }).collect();
+        let buf = rodio::buffer::SamplesBuffer::new(NonZero::new(1).unwrap(), NonZero::new(1000).unwrap(), samples.clone());
+        let mut m = Meter::new(rodio::Source::buffered(buf), Arc::new(AudioStatus::default()), 0, Arc::new(AtomicU32::new(0)));
+        let mut out: Vec<f32> = m.by_ref().take(995).collect();
+        // A buffered source can't seek.
+        assert!(rodio::Source::try_seek(&mut m, Duration::from_millis(10)).is_err());
+        out.extend(m.by_ref());
+        assert_eq!(out, samples);
+    }
+
+    #[test]
+    fn a_seek_to_a_new_decoder_crossfades_instead_of_jumping() {
+        use std::num::NonZero;
+        let (mixer, mut source) = rodio::mixer::mixer(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap());
+        let status = Arc::new(AudioStatus::default());
+        let norm = Arc::new(AtomicU32::new(1f32.to_bits()));
+        let mut fade_out = Arc::new(AtomicU32::new(0));
+        let mut fading = Vec::new();
+        let mut player = Player::connect_new(&mixer);
+        player.append(Meter::new(sine(), status.clone(), 0, fade_out.clone()).with_norm(norm.clone()));
+        player.play();
+        let mut out: Vec<f32> = source.by_ref().take(48_000).collect();
+        let mut later = sine();
+        rodio::Source::try_seek(&mut later, Duration::from_millis(213)).unwrap();
+        put_in(&mut player, &mixer, &mut fading, &mut fade_out, &norm, &status, later, true);
+        out.extend(source.by_ref().take(9_600));
+        assert!(largest_step(&out) < 0.03, "{}", largest_step(&out));
+        // The old spot has faded out and is done.
+        assert!(fading.iter().all(|f| f.player.empty()));
     }
 }

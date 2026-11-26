@@ -246,9 +246,7 @@ fn analyse(img: &image::RgbImage) -> Look {
     // mid grey; both read against the blurred backdrop.
     let luma = 0.299 * mean[0] + 0.587 * mean[1] + 0.114 * mean[2];
     let neutral = if luma > 0.6 { 140.0 } else { 210.0 };
-    let accent = if colour <= 0.0 {
-        Color32::from_gray(neutral as u8)
-    } else if bucket_n / n >= VIVID_SHARE {
+    let accent = if bucket_n / n >= VIVID_SHARE {
         // A bright vivid area the sleeve really shows: the score-weighted colour of
         // its strongest hue (with the bins either side, so a hue on a bin edge isn't
         // split), lifted for the UI. Full strength, whatever the cover's overall
@@ -262,6 +260,8 @@ fn analyse(img: &image::RgbImage) -> Look {
             }
         }
         lift([vivid[0] / vivid[3] * 255.0, vivid[1] / vivid[3] * 255.0, vivid[2] / vivid[3] * 255.0], 3.5)
+    } else if colour <= 0.0 {
+        Color32::from_gray(neutral as u8)
     } else {
         // Colourful overall but nothing bright and vivid to point at (a deep navy
         // sleeve, say): the mean, lifted gently. Amplifying a dark mean without
@@ -419,6 +419,16 @@ mod tests {
         assert!(accent.b() > accent.r() + 60, "accent {accent:?} missed the cyan");
         // But the backdrop stays near-black: the sleeve is black, and looks it.
         assert!(look.colour < 0.25, "colour {} tints the backdrop too far", look.colour);
+    }
+
+    #[test]
+    fn a_small_bright_logo_still_picks_the_accent() {
+        // A red mark on 3.5% of a black sleeve: too little colour to tint the
+        // backdrop, but enough to be the sleeve's identity — it was dropped as greyscale.
+        let look = analyse(&patch([12, 12, 14], [230, 30, 30], 13, 19));
+        let a = look.accent;
+        assert!(a.r() > a.g() + 100 && a.r() > a.b() + 100, "accent {a:?} lost the red");
+        assert_eq!(look.colour, 0.0, "a mostly black sleeve's backdrop stays untinted");
     }
 
     #[test]

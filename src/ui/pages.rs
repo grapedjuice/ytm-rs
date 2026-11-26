@@ -1054,6 +1054,8 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         let [sy, sb, sa] = look.app.header_art_shadow.unwrap_or([0.0, 40.0, 0.5]);
         widgets::soft_shadow(ui, img.translate(vec2(0.0, sy)), 10.0, sb, sa);
         paint_cover(ui, img, &c.thumbs, theme::card_radius() + 2.0, 1.0);
+        widgets::download_veil(ui, img, theme::card_radius() + 2.0, id);
+        // Over the download's veil, so the pencil isn't split by it.
         if editable {
             let resp = widgets::named(img_resp, tr!("dialog-edit-playlist")).on_hover_cursor(egui::CursorIcon::PointingHand);
             let h = theme::anim_bool(ui.ctx(), resp.id.with("edit"), resp.hovered() || resp.has_focus(), 0.15);
@@ -1065,7 +1067,6 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                 acts.push(Action::EditPlaylist);
             }
         }
-        widgets::download_veil(ui, img, theme::card_radius() + 2.0, id);
         ui.add_space(26.0);
         ui.vertical(|ui| {
             let full = ui.available_width();

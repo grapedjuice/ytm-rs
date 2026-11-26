@@ -122,7 +122,7 @@ impl Storage {
         std::thread::spawn(move || {
             let freed = clear(&dir, keep_updates);
             let left = size(&dir);
-            log::info!("storage: cleared the cache, {} freed, {} left", size_text(freed), size_text(left));
+            log::info!("storage: cleared the cache, {freed} bytes freed, {left} left");
             let mut g = inner.lock().unwrap();
             (g.size, g.freed, g.clearing) = (Some(left), Some(freed), false);
             drop(g);
@@ -136,16 +136,16 @@ impl Storage {
     }
 }
 
-/// `bytes` for people: "0 MB", "12 MB", "1.4 GB".
+/// `bytes` for people, in the app's language: "0 MB", "12 MB", "1.4 GB".
 pub fn size_text(bytes: u64) -> String {
     const MB: f64 = 1024.0 * 1024.0;
     let mb = bytes as f64 / MB;
     if mb >= 1024.0 {
-        format!("{:.1} GB", mb / 1024.0)
+        crate::tr!("settings-size-gb", size = format!("{:.1}", mb / 1024.0))
     } else if bytes > 0 && mb < 1.0 {
-        "Less than 1 MB".to_owned()
+        crate::tr!("settings-size-under-mb").to_owned()
     } else {
-        format!("{} MB", mb.round() as u64)
+        crate::tr!("settings-size-mb", size = (mb.round() as u64).to_string())
     }
 }
 

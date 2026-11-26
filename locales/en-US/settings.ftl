@@ -429,6 +429,10 @@ settings-proxy-restart-desc = The new proxy setting is used from the next start.
 ## Storage
 
 settings-cache-cleared = Cache cleared: { $size } freed
+# How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
+settings-size-mb = { $size } MB
+settings-size-gb = { $size } GB
+settings-size-under-mb = Less than 1 MB
 settings-storage = Storage
 settings-clearing = Clearing…
 settings-measuring = Measuring…

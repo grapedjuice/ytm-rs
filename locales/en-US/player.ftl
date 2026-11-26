@@ -4,6 +4,8 @@
 # click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }. Show time remaining
 player-time-show-length = { $time }. Show song length
+# For screen readers, a song marked E: { $title } is its title.
+player-song-explicit = { $title }, Explicit
 
 # From the interface-wide catalog (#228).
 player-full-screen = Full screen

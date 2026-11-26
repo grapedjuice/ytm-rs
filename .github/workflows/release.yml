@@ -19,6 +19,9 @@ name: Release
 on:
   push:
     tags: ["v*"]
+    # kywai's builds: a change to KYWAI_RELEASE on kywai's branch publishes the tag it names.
+    branches: [claude/project-thread-2ewuky]
+    paths: [KYWAI_RELEASE]
   schedule:
     # Off the hour: GitHub delays or drops scheduled runs near it.
     - cron: "47 23 * * *"
@@ -52,10 +55,25 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       nightly: ${{ steps.v.outputs.nightly }}
       skip: ${{ steps.v.outputs.skip }}
+      kywai_tag: ${{ steps.k.outputs.tag }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      # kywai's builds: the tag asked for by hand, or the one KYWAI_RELEASE names.
+      - id: k
+        env:
+          ASKED: ${{ inputs.kywai_tag }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          tag="$ASKED"
+          if [ -z "$tag" ] && [ "$EVENT" = push ] && [ -f KYWAI_RELEASE ]; then
+            tag=$(tr -d '[:space:]' < KYWAI_RELEASE)
+          fi
+          if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-kywai\.[0-9]+$ ]]; then
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          fi
 
       - id: v
         env:
@@ -344,7 +362,7 @@ jobs:
   # Waits for the Arch package, but goes ahead without it if it failed.
   attach:
     if: >-
-      !cancelled() && (github.ref_type == 'tag' || startsWith(inputs.kywai_tag, 'v')) && needs.prepare.outputs.nightly == '' &&
+      !cancelled() && (github.ref_type == 'tag' || needs.prepare.outputs.kywai_tag != '') && needs.prepare.outputs.nightly == '' &&
       needs.windows.result == 'success' && needs.linux.result == 'success' && needs.macos.result == 'success'
     needs: [prepare, windows, linux, arch, macos]
     runs-on: ubuntu-latest
@@ -359,7 +377,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           HOLD_LATEST: ${{ vars.HOLD_LATEST }}
-          KYWAI_TAG: ${{ inputs.kywai_tag }}
+          KYWAI_TAG: ${{ needs.prepare.outputs.kywai_tag }}
         run: |
           ls -l files
           if [[ "$KYWAI_TAG" == v*-kywai.* ]]; then

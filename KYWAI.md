@@ -12,7 +12,8 @@ be offered upstream:
 
 ## Releases
 
-Tags can't be pushed from where kywai's changes are made, so a release is made by hand: Actions › Release › Run
-workflow on this branch, with `kywai_tag` set to `v<version>-kywai.<n>`. It builds the usual files for every platform
+Tags can't be pushed from where kywai's changes are made, so a release is asked for from this branch: change
+`KYWAI_RELEASE` to the new tag (`v<version>-kywai.<n>`) and push, or run Actions › Release on this branch with
+`kywai_tag` set to it. It builds the usual files for every platform
 and publishes them as a prerelease with that tag (never the latest release). kywai pins that tag and the SHA-256 of
 each portable download.

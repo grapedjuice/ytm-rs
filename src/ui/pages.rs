@@ -2804,6 +2804,13 @@ fn settings_window(app: &mut App, ui: &mut Ui) {
             ui.label(RichText::new(e).font(theme::regular(12.5)).color(theme::RED));
             ui.add_space(8.0);
         }
+        // Linux tray icons can't tell a click from a menu request.
+        if app.close_to_tray && !cfg!(target_os = "linux") {
+            divider(ui);
+            setting_row(ui, tr!("settings-tray-click-plays"), Some(tr!("settings-tray-click-plays-desc")), |ui| {
+                toggle(ui, &mut app.tray_click_plays, tr!("settings-tray-click-plays"));
+            });
+        }
         if crate::notify::SUPPORTED {
             divider(ui);
             let ok = crate::notify::available();

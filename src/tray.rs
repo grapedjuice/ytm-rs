@@ -19,7 +19,9 @@ use tray_icon::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIc
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cmd {
-    Show,
+    /// A left click on the icon: brings the window back, or plays/pauses if the setting says
+    /// so. A double-click is two of these (on Windows, its own event between them is ignored).
+    Click,
     /// The menu's "Show"/"Hide" item: whichever it says.
     Toggle,
     PlayPause,
@@ -30,6 +32,15 @@ pub enum Cmd {
 }
 
 static PENDING: Mutex<Vec<Cmd>> = Mutex::new(Vec::new());
+
+/// How soon a second click makes a double-click: the system's on Windows, macOS's default there.
+pub fn double_click_time() -> std::time::Duration {
+    #[cfg(windows)]
+    // SAFETY: no arguments; it only reads a setting.
+    return std::time::Duration::from_millis(unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime() }.into());
+    #[cfg(not(windows))]
+    std::time::Duration::from_millis(500)
+}
 
 /// The tray can't work on this system (no AppIndicator library, or GTK won't start):
 /// the setting turns itself off and says why under it.
@@ -80,7 +91,7 @@ impl Tray {
             let w = wake.clone();
             TrayIconEvent::set_event_handler(Some(move |e: TrayIconEvent| {
                 if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {
-                    push(Cmd::Show, &w);
+                    push(Cmd::Click, &w);
                 }
             }));
             MenuEvent::set_event_handler(Some(move |e: MenuEvent| match e.id.as_ref() {

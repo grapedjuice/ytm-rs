@@ -355,6 +355,8 @@ settings-home = Home
 settings-close-to-tray-desc-linux = Keeps an icon in the tray. Clicking × hides the window there and keeps the music playing. The icon's menu brings it back, hides it or quits. Clicking the song in the system's media controls brings it back too, and Ctrl+Q quits.
 settings-close-to-tray-desc = Keeps an icon in the tray. Clicking × hides the window there and keeps the music playing. Click the icon to bring it back, or right-click it to hide, show or quit.
 settings-close-to-tray = Close to tray
+settings-tray-click-plays = Click the tray icon to play or pause
+settings-tray-click-plays-desc = A click on the icon plays or pauses, a moment later, instead of bringing the window back. A double-click brings it back, as does a click with nothing to play.
 # Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
 settings-tray-no-gtk = The tray icon needs GTK, which couldn't start ({ $error }).
 settings-tray-no-appindicator = The tray icon needs the AppIndicator library, which isn't installed: libayatana-appindicator3-1 on Debian and Ubuntu, libayatana-appindicator-gtk3 on Fedora (on Bazzite, Silverblue and other atomic systems: rpm-ostree install libayatana-appindicator-gtk3, then restart the computer), libayatana-appindicator on Arch.

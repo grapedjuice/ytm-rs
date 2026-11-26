@@ -2,12 +2,12 @@
 
 use egui::{Color32, Ui};
 
-use crate::backend::Req;
+use crate::backend::{CoverChange, Req};
 use crate::model::Target;
 use crate::theme;
 use crate::ytm::Duplicates;
 
-use super::{Action, App, Dialog, Page, BackupPrompt, notes, pages, widgets};
+use super::{Action, App, Dialog, NewCover, Page, BackupPrompt, notes, pages, widgets};
 
 impl App {
     pub(super) fn draw_dialog(&mut self, ctx: &egui::Context) {
@@ -149,7 +149,30 @@ impl App {
                         }
                         done |= cancel;
                     }
-                    Dialog::EditPlaylist { id, title, description, privacy } => {
+                    Dialog::EditPlaylist { id, title, description, privacy, thumbs, cover } => {
+                        let picked = {
+                            let mut slot = self.picked_cover.lock().unwrap();
+                            if slot.as_ref().is_some_and(|(of, _)| of == id) { slot.take().map(|(_, r)| r) } else { None }
+                        };
+                        match picked {
+                            Some(Ok(jpeg)) => {
+                                let uri = format!("bytes://playlist-cover-{}.jpg", PICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+                                if let Some(NewCover::Picked(old, _)) = cover.replace(NewCover::Picked(uri, jpeg.into())) { ui.ctx().forget_image(&old); }
+                            }
+                            Some(Err(e)) => {
+                                log::warn!("playlist picture: {e:#}");
+                                self.toast(crate::tr!("status-picture-unreadable"));
+                            }
+                            None => {}
+                        }
+                        match cover_picker(ui, thumbs, cover.as_ref()) {
+                            Some(CoverPick::Change) => self.pick_cover(ui.ctx(), id.clone()),
+                            Some(CoverPick::Remove) => {
+                                if let Some(NewCover::Picked(old, _)) = cover.replace(NewCover::Removed) { ui.ctx().forget_image(&old); }
+                            }
+                            None => {}
+                        }
+                        ui.add_space(16.0);
                         text_field(ui, crate::tr!("dialog-name"), title, false, crate::tr!("dialog-playlist-name"));
                         ui.add_space(16.0);
                         text_field(ui, crate::tr!("dialog-description"), description, true, crate::tr!("dialog-optional-description"));
@@ -159,7 +182,11 @@ impl App {
                         ui.add_space(26.0);
                         let (ok, _, cancel) = dialog_buttons(ui, crate::tr!("settings-save"), None, !title.trim().is_empty(), accent);
                         if ok {
-                            self.backend.request(Req::EditPlaylist { id: id.clone(), title: title.trim().to_owned(), description: description.clone(), privacy: privacy.clone() });
+                            let cover = cover.as_ref().map(|c| match c {
+                                NewCover::Picked(_, jpeg) => CoverChange::Set(jpeg.to_vec()),
+                                NewCover::Removed => CoverChange::Remove,
+                            });
+                            self.backend.request(Req::EditPlaylist { id: id.clone(), title: title.trim().to_owned(), description: description.clone(), privacy: privacy.clone(), cover });
                             done = true;
                         }
                         done |= cancel;
@@ -202,7 +229,11 @@ impl App {
             });
         });
         let dismissed = modal.should_close() || ctx.input(|i| i.key_pressed(egui::Key::Escape));
-        if !done && !dismissed { self.dialog = Some(dialog); }
+        if !done && !dismissed {
+            self.dialog = Some(dialog);
+        } else if let Dialog::EditPlaylist { cover: Some(NewCover::Picked(uri, _)), .. } = &dialog {
+            ctx.forget_image(uri);
+        }
     }
 
     fn backup_stream_dialog(&mut self, ctx: &egui::Context) {
@@ -329,6 +360,44 @@ impl App {
 fn field_label(ui: &mut Ui, label: &str) {
     ui.label(egui::RichText::new(label).font(theme::semibold(13.0)).color(theme::text_dim()));
     ui.add_space(8.0);
+}
+
+/// Pictures picked for Edit playlist so far: each gets an image URI of its own, so the
+/// one shown is never a picture picked before it.
+static PICKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A button under Edit playlist's picture.
+enum CoverPick {
+    Change,
+    Remove,
+}
+
+/// Edit playlist's picture: the cover now, the one picked to replace it, or none once
+/// it's to be removed; and the buttons to pick one or remove it.
+fn cover_picker(ui: &mut Ui, thumbs: &[crate::model::Thumb], change: Option<&NewCover>) -> Option<CoverPick> {
+    use egui::{Sense, pos2, vec2};
+    field_label(ui, crate::tr!("dialog-picture"));
+    let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 88.0), Sense::hover());
+    let art = egui::Rect::from_min_size(row.min, vec2(88.0, 88.0));
+    match change {
+        Some(NewCover::Picked(uri, jpeg)) => {
+            egui::Image::from_bytes(uri.clone(), egui::load::Bytes::Shared(jpeg.clone())).corner_radius(8).paint_at(ui, art);
+        }
+        // YouTube Music picks its own once Save is done; until then, no picture.
+        Some(NewCover::Removed) => widgets::paint_cover(ui, art, &[], 8.0, 1.0),
+        None => widgets::paint_cover(ui, art, thumbs, 8.0, 1.0),
+    }
+    let buttons = egui::Rect::from_min_max(pos2(art.right() + 18.0, row.top()), row.max);
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(buttons).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    child.spacing_mut().item_spacing.x = 8.0;
+    let mut pick = None;
+    if widgets::pill(&mut child, crate::tr!("dialog-change-picture"), Some(theme::icon::UPLOAD), false).clicked() {
+        pick = Some(CoverPick::Change);
+    }
+    if !matches!(change, Some(NewCover::Removed)) && widgets::pill(&mut child, crate::tr!("dialog-remove-picture"), None, false).clicked() {
+        pick = Some(CoverPick::Remove);
+    }
+    pick
 }
 
 /// The playlist picker's search box, focused as it opens so typing narrows the list at once.

@@ -18,6 +18,38 @@ pub struct Art {
     pub brightness: f32,
 }
 
+/// A picture as a playlist cover: its middle square (covers are square, and the sleeve
+/// would crop it anyway), at most `COVER_PX` across, as a JPEG. Turned the way the camera
+/// says (EXIF), and see-through parts on black: kept as stored, they could be any colour.
+pub fn playlist_cover(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+    use image::ImageDecoder;
+    const COVER_PX: u32 = 1200;
+    let mut decoder = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?.into_decoder()?;
+    // What `decode` checks before it allocates: a huge picture fails here, not in memory.
+    image::Limits::default().reserve(decoder.total_bytes())?;
+    let orientation = decoder.orientation()?;
+    let mut img = image::DynamicImage::from_decoder(decoder)?;
+    img.apply_orientation(orientation);
+    let img = match img.color().has_alpha() {
+        true => {
+            let rgba = img.to_rgba8();
+            image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
+                let [r, g, b, a] = rgba.get_pixel(x, y).0;
+                let on_black = |c: u8| (c as u16 * a as u16 / 255) as u8;
+                image::Rgb([on_black(r), on_black(g), on_black(b)])
+            })
+        }
+        false => img.to_rgb8(),
+    };
+    let side = img.width().min(img.height());
+    anyhow::ensure!(side > 0, "the picture is empty");
+    let square = image::imageops::crop_imm(&img, (img.width() - side) / 2, (img.height() - side) / 2, side, side).to_image();
+    let square = if side > COVER_PX { image::imageops::resize(&square, COVER_PX, COVER_PX, image::imageops::FilterType::Lanczos3) } else { square };
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90).encode_image(&square)?;
+    Ok(jpeg)
+}
+
 pub fn process(bytes: &[u8]) -> anyhow::Result<Art> {
     let img = image::load_from_memory(bytes)?.to_rgb8();
     Ok(process_rgb(&img))
@@ -210,6 +242,71 @@ pub fn readable_dim(shown: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{READABLE_CAP, READABLE_KNEE, from_cover_frame, process_rgb, readable_dim};
+
+    /// A wide picture becomes its middle square, scaled down to the cover size, as a JPEG.
+    #[test]
+    fn a_playlist_cover_is_the_pictures_middle_square() {
+        let mut img = image::RgbImage::from_pixel(3000, 1500, image::Rgb([0, 0, 255]));
+        for x in 750..2250 {
+            for y in 0..1500 {
+                img.put_pixel(x, y, image::Rgb([255, 0, 0]));
+            }
+        }
+        let mut png = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        let jpeg = super::playlist_cover(&png).unwrap();
+        assert_eq!(image::guess_format(&jpeg).unwrap(), image::ImageFormat::Jpeg);
+        let cover = image::load_from_memory(&jpeg).unwrap().to_rgb8();
+        assert_eq!(cover.dimensions(), (1200, 1200));
+        // All of it from the red middle, none of the blue sides.
+        for p in [cover.get_pixel(2, 2), cover.get_pixel(1197, 600), cover.get_pixel(600, 600)] {
+            assert!(p[0] > 200 && p[2] < 60, "{p:?}");
+        }
+        assert!(super::playlist_cover(b"not a picture").is_err());
+    }
+
+    /// A photo the camera marked as turned (EXIF orientation 6, a quarter turn clockwise)
+    /// comes out upright: its left half on top.
+    #[test]
+    fn a_playlist_cover_is_turned_the_way_the_photo_says() {
+        use image::ImageEncoder;
+        let img = image::RgbImage::from_fn(200, 100, |x, _| if x < 100 { image::Rgb([255, 0, 0]) } else { image::Rgb([0, 0, 255]) });
+        // A little-endian TIFF header and one IFD entry: Orientation (0x0112), SHORT, 6.
+        let exif = vec![b'I', b'I', 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0];
+        let mut jpeg = Vec::new();
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 95);
+        encoder.set_exif_metadata(exif).unwrap();
+        encoder.write_image(&img, 200, 100, image::ExtendedColorType::Rgb8).unwrap();
+        let cover = image::load_from_memory(&super::playlist_cover(&jpeg).unwrap()).unwrap().to_rgb8();
+        assert_eq!(cover.dimensions(), (100, 100));
+        let (top_right, bottom_left) = (cover.get_pixel(80, 20), cover.get_pixel(20, 80));
+        assert!(top_right[0] > 200 && top_right[2] < 60, "{top_right:?}");
+        assert!(bottom_left[2] > 200 && bottom_left[0] < 60, "{bottom_left:?}");
+    }
+
+    /// A see-through picture's clear parts come out black, not the colour stored under them.
+    #[test]
+    fn a_playlist_covers_see_through_parts_are_black() {
+        let img = image::RgbaImage::from_fn(10, 10, |x, _| if x < 5 { image::Rgba([255, 0, 0, 0]) } else { image::Rgba([0, 255, 0, 255]) });
+        let mut png = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        let cover = image::load_from_memory(&super::playlist_cover(&png).unwrap()).unwrap().to_rgb8();
+        let (clear, solid) = (cover.get_pixel(1, 5), cover.get_pixel(8, 5));
+        assert!(clear.0.iter().all(|&c| c < 30), "{clear:?}");
+        assert!(solid[1] > 200 && solid[0] < 60, "{solid:?}");
+    }
+
+    /// A picture far too big to open is turned down before its pixels are made room for:
+    /// here a tiny JPEG whose header says 65535×65535 (about 13 GB of pixels).
+    #[test]
+    fn a_huge_playlist_cover_is_turned_down() {
+        let mut jpeg = Vec::new();
+        image::RgbImage::new(1, 1).write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
+        let sof = jpeg.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
+        jpeg[sof + 5..sof + 9].copy_from_slice(&[0xFF; 4]);
+        let err = super::playlist_cover(&jpeg).unwrap_err();
+        assert!(format!("{err:#}").to_lowercase().contains("limit"), "{err:#}");
+    }
 
     #[test]
     fn a_cover_frame_gives_a_still_covers_colours() {

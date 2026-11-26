@@ -113,10 +113,10 @@ fn is_current(st: &State, session: &Arc<Session>) -> bool {
 /// Check the user token with ListenBrainz and keep it. Returns the account name.
 pub async fn connect(http: &reqwest::Client, token: &str) -> anyhow::Result<String> {
     let token = token.trim();
-    anyhow::ensure!(!token.is_empty(), "paste your user token first");
+    anyhow::ensure!(!token.is_empty(), crate::tr!("settings-listenbrainz-token-missing"));
     let v: Value = http.get(format!("{ROOT}validate-token")).header("Authorization", format!("Token {token}")).timeout(Duration::from_secs(20)).send().await?.json().await?;
     if !v["valid"].as_bool().unwrap_or(false) {
-        anyhow::bail!("ListenBrainz didn't accept that token");
+        anyhow::bail!(crate::tr!("settings-listenbrainz-token-refused"));
     }
     let name = v["user_name"].as_str().unwrap_or_default().to_owned();
     let session = Session { name: name.clone(), token: token.to_owned() };

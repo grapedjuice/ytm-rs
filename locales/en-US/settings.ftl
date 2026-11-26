@@ -305,6 +305,8 @@ settings-stream-deck = Stream Deck
 settings-stream-deck-desc = Let a Stream Deck plugin on this computer control playback.
 settings-lastfm-connected = Scrobbling what you play to { $name }'s profile.
 settings-lastfm-allow = Allow ytm-rs on the Last.fm page that opened in your browser.
+# After "Last.fm: ", when signing in wasn't allowed on that page in time.
+settings-lastfm-not-allowed = Last.fm wasn't allowed in time
 settings-lastfm-desc = Scrobble what you play to your Last.fm profile.
 settings-disconnect = Disconnect
 settings-connect = Connect
@@ -313,6 +315,9 @@ settings-listenbrainz-desc = Send what you play to your ListenBrainz profile.
 settings-user-token = User token
 settings-listenbrainz-token-hint = Paste your ListenBrainz user token
 settings-listenbrainz-token-link = Get your token on listenbrainz.org
+# After "ListenBrainz: ", when Connect is pressed.
+settings-listenbrainz-token-missing = paste your user token first
+settings-listenbrainz-token-refused = ListenBrainz didn't accept that token
 
 ## Language
 

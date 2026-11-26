@@ -1893,7 +1893,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
                     crate::tr!("settings-playing-on", name = to).to_owned()
                 }
                 RemoteState::Failed(_) => crate::tr!("settings-couldnt-play-on", name = to).to_owned(),
-                RemoteState::Idle => format!("{}: {to}", crate::tr!("settings-output-device")),
+                RemoteState::Idle => crate::tr!("settings-play-on-picked", name = to).to_owned(),
             }
         }
     };
@@ -1966,9 +1966,12 @@ pub(super) fn normalization_note(app: &App) -> Option<String> {
         return None;
     }
     Some(match app.audio.normalization() {
-        None => "no loudness figure from YouTube, so it plays as it is".to_owned(),
-        Some(db) if db.abs() < 0.05 => "already at the level".to_owned(),
-        Some(db) => format!("turned {} {:.1} dB", if db > 0.0 { "up" } else { "down" }, db.abs()),
+        None => crate::tr!("settings-normalization-song-no-figure").to_owned(),
+        Some(db) if db.abs() < 0.05 => crate::tr!("settings-normalization-song-level").to_owned(),
+        Some(db) => {
+            let by = format!("{:.1}", db.abs());
+            if db > 0.0 { crate::tr!("settings-normalization-song-up", db = by) } else { crate::tr!("settings-normalization-song-down", db = by) }
+        }
     })
 }
 

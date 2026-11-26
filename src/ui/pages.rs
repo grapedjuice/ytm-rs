@@ -3007,7 +3007,7 @@ fn settings_app_icon(app: &mut App, ui: &mut Ui) {
     } else {
         (tr!("settings-app-icon-note"), " A pinned taskbar icon can take a moment to catch up.")
     };
-    settings_section(ui, tr!("settings-app-icon"), Some(crate::appicon::get(app.app_icon).name), Some(&format!("{what}.{more}")), |ui| {
+    settings_section(ui, tr!("settings-app-icon"), Some(crate::appicon::get(app.app_icon).name()), Some(&format!("{what}.{more}")), |ui| {
         if filter_show(ui, what) {
             ui.add_space(14.0);
             app_icons(app, ui);
@@ -3449,7 +3449,7 @@ fn app_icons(app: &mut App, ui: &mut Ui) {
 
 fn app_icon_tile(ui: &mut Ui, v: &crate::appicon::Variant, w: f32, selected: bool, accent: Color32) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 112.0), Sense::click());
-    let resp = named(resp, &tr!("settings-app-icon-named", name = v.name)).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let resp = named(resp, &tr!("settings-app-icon-named", name = v.name())).on_hover_cursor(egui::CursorIcon::PointingHand);
     if !ui.is_rect_visible(rect) {
         return resp;
     }
@@ -3462,8 +3462,8 @@ fn app_icon_tile(ui: &mut Ui, v: &crate::appicon::Variant, w: f32, selected: boo
     icon_at(ui, v, Rect::from_center_size(pos2(rect.center().x, rect.top() + 46.0), Vec2::splat(56.0)));
     // Narrow tiles get a smaller label so "YouTube Music" still fits.
     let font = theme::semibold(if w >= 108.0 { 13.0 } else { 12.0 });
-    let label = widgets::galley(ui, v.name, font.clone(), theme::text(), w - 8.0);
-    widgets::text_at(ui, pos2(rect.center().x - label.size().x / 2.0, rect.top() + 84.0), v.name, font, theme::text(), w - 8.0);
+    let label = widgets::galley(ui, v.name(), font.clone(), theme::text(), w - 8.0);
+    widgets::text_at(ui, pos2(rect.center().x - label.size().x / 2.0, rect.top() + 84.0), v.name(), font, theme::text(), w - 8.0);
     resp
 }
 
@@ -3727,6 +3727,27 @@ fn hint_row(ui: &mut Ui, mark: char, label: &str, hint: &str) -> egui::Response 
     resp
 }
 
+/// An equalizer preset's name (`eq::PRESETS`'), in the app's language.
+fn eq_preset_label(name: &'static str) -> &'static str {
+    eq_preset_message(name).unwrap_or(name)
+}
+
+fn eq_preset_message(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "Flat" => tr!("settings-eq-flat"),
+        "Bass boost" => tr!("settings-eq-bass-boost"),
+        "Treble boost" => tr!("settings-eq-treble-boost"),
+        "Vocal" => tr!("settings-eq-vocal"),
+        "Rock" => tr!("settings-eq-rock"),
+        "Pop" => tr!("settings-eq-pop"),
+        "Electronic" => tr!("settings-eq-electronic"),
+        "Acoustic" => tr!("settings-eq-acoustic"),
+        "Classical" => tr!("settings-eq-classical"),
+        "Late night" => tr!("settings-eq-late-night"),
+        _ => return None,
+    })
+}
+
 /// Settings › Playback › Equalizer.
 fn settings_equalizer(app: &mut App, ui: &mut Ui) {
     use crate::audio::eq;
@@ -3739,13 +3760,13 @@ fn settings_equalizer(app: &mut App, ui: &mut Ui) {
         ui.add_enabled_ui(app.eq_on, |ui| {
             divider(ui);
             setting_row(ui, tr!("settings-preset"), None, |ui| {
-                let btn = dropdown_button(ui, eq::preset_name(&app.eq_gains).unwrap_or(tr!("settings-custom")), 180.0, tr!("settings-equalizer-preset"));
+                let btn = dropdown_button(ui, eq::preset_name(&app.eq_gains).map_or(tr!("settings-custom"), eq_preset_label), 180.0, tr!("settings-equalizer-preset"));
                 let mut pick = None;
                 widgets::menu_popup(&btn).show(|ui| {
                     widgets::menu_body(ui, 200.0);
                     dropdown_list(ui, 380.0, |ui| {
                         for (name, gains) in &eq::PRESETS {
-                            if option_row(ui, name, app.eq_gains == *gains).clicked() {
+                            if option_row(ui, eq_preset_label(name), app.eq_gains == *gains).clicked() {
                                 pick = Some(*gains);
                                 ui.close();
                             }
@@ -3888,7 +3909,7 @@ fn normalization_desc(app: &App) -> String {
         Normalize::Quiet => tr!("settings-normalization-quiet-desc"),
     };
     match (app.current().is_some(), super::shell::normalization_note(app)) {
-        (true, Some(note)) => format!("{what} This song: {note}."),
+        (true, Some(note)) => format!("{what} {note}"),
         _ => what.to_owned(),
     }
 }
@@ -4384,5 +4405,15 @@ mod settings_search_tests {
         // Jam and transfer use the same rows, with no search on their pages.
         assert!(!filtering());
         assert!(filter_hit("anything at all"));
+    }
+}
+
+#[cfg(test)]
+mod eq_preset_tests {
+    #[test]
+    fn every_equalizer_preset_has_a_message() {
+        for (name, _) in &crate::audio::eq::PRESETS {
+            assert!(super::eq_preset_message(name).is_some(), "{name}");
+        }
     }
 }

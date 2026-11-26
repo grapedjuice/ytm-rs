@@ -68,7 +68,7 @@ struct Unavailable;
 
 impl std::fmt::Display for Unavailable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("YouTube Music isn't available where your proxy connects from. Try another proxy or server (Settings › Network)")
+        f.write_str(crate::tr!("backend-proxy-region"))
     }
 }
 
@@ -560,9 +560,10 @@ pub struct ApiError {
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match (self.status, self.msg.is_empty()) {
-            (401, _) => f.write_str("YouTube Music signed this session out; sign in again"),
-            (_, true) => write!(f, "YouTube Music returned HTTP {}", self.status),
-            (_, false) => write!(f, "YouTube Music returned HTTP {}: {}", self.status, self.msg),
+            (401, _) => f.write_str(crate::tr!("backend-signed-out")),
+            // A string, so it isn't written as a number of the language (with separators).
+            (_, true) => f.write_str(&crate::tr!("backend-http-status", status = self.status.to_string())),
+            (_, false) => f.write_str(&crate::tr!("backend-http-status-message", status = self.status.to_string(), message = self.msg.as_str())),
         }
     }
 }

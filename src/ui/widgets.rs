@@ -336,7 +336,7 @@ fn badge_mask(side: usize) -> egui::ColorImage {
 
 /// What a screen reader calls a song: its title, and whether it's explicit.
 pub fn song_name(title: &str, explicit: bool) -> std::borrow::Cow<'_, str> {
-    if explicit { format!("{title}, Explicit").into() } else { title.into() }
+    if explicit { crate::tr!("player-song-explicit", title = title).into() } else { title.into() }
 }
 
 /// Single-line text whose artist names are links: underlined on hover, and a click

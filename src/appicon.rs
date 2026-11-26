@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 
 pub struct Variant {
     pub id: &'static str,
-    pub name: &'static str,
+    /// Its name in the app's language; looked up when shown, once the language is picked.
+    label: fn() -> &'static str,
     /// An ICO whose entries are PNGs, from 16 to 256 px.
     ico: &'static [u8],
     /// A 128 px square of it filled to the edges, for a badge cut to a circle (Discord's
@@ -19,24 +20,24 @@ pub struct Variant {
 }
 
 macro_rules! variant {
-    ($id:literal, $name:literal) => {
-        Variant { id: $id, name: $name, ico: include_bytes!(concat!("../assets/icon/variants/", $id, ".ico")), badge: include_bytes!(concat!("../site/badge/", $id, ".png")) }
+    ($id:literal, $label:expr) => {
+        Variant { id: $id, label: $label, ico: include_bytes!(concat!("../assets/icon/variants/", $id, ".ico")), badge: include_bytes!(concat!("../site/badge/", $id, ".png")) }
     };
 }
 
 pub const CLASSIC: &str = "classic";
 
 pub static ALL: &[Variant] = &[
-    Variant { id: CLASSIC, name: "Classic", ico: include_bytes!("../assets/icon/icon.ico"), badge: include_bytes!("../site/badge/classic.png") },
-    variant!("official", "YT Music"),
-    variant!("smilering", "Smile ring"),
-    variant!("gear", "Rust gear"),
-    variant!("wave", "Waveform"),
-    variant!("vinyl", "Record"),
-    variant!("lyrics", "Lit line"),
-    variant!("duet", "Duet"),
-    variant!("kawarp", "Warp"),
-    variant!("fluent", "Fluent"),
+    Variant { id: CLASSIC, label: || crate::tr!("settings-app-icon-classic"), ico: include_bytes!("../assets/icon/icon.ico"), badge: include_bytes!("../site/badge/classic.png") },
+    variant!("official", || "YT Music"),
+    variant!("smilering", || crate::tr!("settings-app-icon-smile-ring")),
+    variant!("gear", || crate::tr!("settings-app-icon-rust-gear")),
+    variant!("wave", || crate::tr!("settings-app-icon-waveform")),
+    variant!("vinyl", || crate::tr!("settings-app-icon-record")),
+    variant!("lyrics", || crate::tr!("settings-app-icon-lit-line")),
+    variant!("duet", || crate::tr!("settings-app-icon-duet")),
+    variant!("kawarp", || crate::tr!("settings-app-icon-warp")),
+    variant!("fluent", || "Fluent"),
 ];
 
 /// Where the website serves the icons' badges (`site/badge`).
@@ -47,6 +48,10 @@ pub fn get(id: &str) -> &'static Variant {
 }
 
 impl Variant {
+    pub fn name(&self) -> &'static str {
+        (self.label)()
+    }
+
     pub fn badge_url(&self) -> String {
         format!("{BADGE_BASE}{}.png", self.id)
     }

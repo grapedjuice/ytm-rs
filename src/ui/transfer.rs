@@ -95,8 +95,9 @@ fn radio(ui: &Ui, center: egui::Pos2, on: f32, accent: Color32) {
     }
 }
 
-fn small_caps(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).font(theme::bold(11.5)).color(theme::text_faint()));
+/// A numbered step's heading, in capitals.
+fn small_caps(ui: &mut Ui, step: u8, text: &str) {
+    ui.label(RichText::new(format!("{step} · {}", text.to_uppercase())).font(theme::bold(11.5)).color(theme::text_faint()));
     ui.add_space(8.0);
 }
 
@@ -275,7 +276,7 @@ fn setup(app: &mut App, ui: &mut Ui) {
         if col == 0 {
             settings_card(ui, |ui| {
                 ui.add_space(14.0);
-                small_caps(ui, "1 · WHAT TO COPY");
+                small_caps(ui, 1, crate::tr!("transfer-step-what"));
                 match &account {
                     Account::SignedIn { .. } if library.is_empty() => dim(ui, crate::tr!("transfer-empty-library")),
                     Account::SignedIn { .. } => {
@@ -345,7 +346,7 @@ fn setup(app: &mut App, ui: &mut Ui) {
         } else {
             settings_card(ui, |ui| {
                 ui.add_space(14.0);
-                small_caps(ui, "2 · SPOTIFY ACCOUNT");
+                small_caps(ui, 2, crate::tr!("transfer-spotify-account"));
                 spotify_account_row(app, ui, &account, true);
                 ui.add_space(10.0);
             });
@@ -513,7 +514,7 @@ fn destination(app: &mut App, ui: &mut Ui, chosen: Option<&Entry>, accent: Color
     }
     let liked_offer = chosen.is_some_and(likes_like);
     if liked_offer {
-        small_caps(ui, "3 · WHERE SHOULD THEY GO?");
+        small_caps(ui, 3, crate::tr!("transfer-step-where"));
         for (to_liked, title, desc) in [
             (true, crate::tr!("transfer-dest-liked"), crate::tr!("transfer-dest-liked-desc")),
             (false, crate::tr!("transfer-dest-new"), crate::tr!("transfer-private-playlist")),
@@ -538,7 +539,7 @@ fn destination(app: &mut App, ui: &mut Ui, chosen: Option<&Entry>, accent: Color
         }
         ui.add_space(10.0);
     } else {
-        small_caps(ui, "3 · NEW YOUTUBE MUSIC PLAYLIST");
+        small_caps(ui, 3, crate::tr!("transfer-step-new-playlist"));
     }
     dim(ui, crate::tr!("dialog-name"));
     ui.add_space(6.0);
@@ -615,12 +616,12 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
     let searched = job.searched();
     let (big, of, frac, eta) = match job.phase {
         Phase::Reading => (fmt_n(job.read.0), progress_of(job.read.1, crate::tr!("transfer-read-from-spotify")), job.read.0 as f32 / job.read.1.max(1) as f32, None),
-        Phase::Saving if job.waiting => ("…".to_owned(), "waiting for the likes being changed in the app to finish".to_owned(), 0.0, None),
+        Phase::Saving if job.waiting => ("…".to_owned(), crate::tr!("transfer-waiting-for-likes").to_owned(), 0.0, None),
         Phase::Saving if let Some((done, of)) = job.redo => (
             fmt_n(done),
             progress_of(of, crate::tr!("transfer-readding-reason")),
             done as f32 / of.max(1) as f32,
-            Some("checking Liked Music".to_owned()),
+            Some(crate::tr!("transfer-checking-liked").to_owned()),
         ),
         Phase::Saving => (
             fmt_n(job.saving.0),
@@ -637,7 +638,7 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
     };
     let limited = app.backend.api().limited();
     let eta = if paused {
-        Some("paused".to_owned())
+        Some(crate::tr!("transfer-paused").to_owned())
     } else if limited && job.phase.running() {
         // YouTube Music refused requests: everything waits a little, then carries on.
         Some(crate::tr!("transfer-rate-limited").to_owned())

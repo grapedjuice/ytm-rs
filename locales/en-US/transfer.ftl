@@ -22,6 +22,12 @@ transfer-estimate = Search time for { $count } tracks: about { $time }. You can 
 transfer-listen-while-running = You can keep listening while it runs.
 transfer-pick-playlist = Pick a playlist to copy.
 transfer-playlist = Playlist
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = Liked Songs
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = What to copy
+transfer-step-where = Where should they go?
+transfer-step-new-playlist = New YouTube Music playlist
 transfer-spotify-account = Spotify account
 transfer-signed-in-plan = Signed in · works with Free and Premium
 transfer-signed-in-as = Signed in as { $name }
@@ -103,6 +109,10 @@ transfer-progress-of = of { $count } · { $state }
 transfer-remaining = about { $time } left
 transfer-readding = Re-adding
 transfer-readding-reason = Liking again: YouTube Music dropped these likes
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = checking Liked Music
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = waiting for the likes being changed in the app to finish
 transfer-adding = Adding
 transfer-local-file = local file
 transfer-on-spotify-index = On Spotify · { $current } of { $total }
@@ -123,3 +133,31 @@ transfer-progress-searching = Searched
 transfer-reviewing-doubtful = checking the doubtful ones
 transfer-review-picked = Picked
 transfer-review-kept = Kept
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = Couldn't save the Spotify sign-in: { $error }
+transfer-error-read-library = Couldn't read your Spotify library: { $error }
+transfer-error-progress-saved = { $error }. Your progress is saved; try again to pick up where it stopped.
+transfer-error-account-changed = Stopped: the YouTube Music account or channel changed
+transfer-error-liked-signed-out = Sign in to Spotify to copy your Liked Songs
+transfer-error-not-searched = { $count ->
+    [one] { $count } song couldn't be searched (no connection, or YouTube Music is limiting requests)
+   *[other] { $count } songs couldn't be searched (no connection, or YouTube Music is limiting requests)
+}
+transfer-error-none-found = None of the songs were found on YouTube Music
+transfer-error-signed-out = YouTube Music signed you out; sign in again and try again
+transfer-error-create = Creating the playlist failed
+transfer-error-add = Adding songs to the playlist failed
+transfer-error-read-liked = Reading your Liked Music failed
+transfer-error-not-answering = Liking songs failed: YouTube Music stopped answering
+transfer-error-like = Liking songs failed
+transfer-error-not-spotify-link = That isn't an open.spotify.com link
+transfer-error-not-playlist-link = That isn't a playlist link
+transfer-error-not-spotify-playlist = That isn't a Spotify playlist link
+transfer-error-playlist-not-found = Spotify couldn't find that playlist. If it's private, sign in to Spotify first
+transfer-error-no-songs = That Spotify playlist has no songs
+transfer-error-library-sign-in = Spotify didn't return your library; sign in to Spotify again
+transfer-error-liked-sign-in = Spotify didn't return Liked Songs; sign in to Spotify again
+transfer-error-expired = Your Spotify sign-in has expired. Sign in to Spotify again

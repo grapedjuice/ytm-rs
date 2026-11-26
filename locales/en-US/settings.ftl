@@ -95,6 +95,8 @@ settings-output-device-desc-system = Where the music plays: this computer's spea
 settings-this-computer = This computer
 settings-on-your-network = On your network
 settings-playing-on = Playing on { $name }
+# The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
+settings-play-on-picked = Play on: { $name }
 settings-connecting-to = Connecting to { $name }…
 settings-couldnt-play-on = Couldn't play on { $name }: playing on this computer
 settings-windows-default = Windows default
@@ -103,6 +105,11 @@ settings-not-connected = { $name } (not connected)
 settings-normalization-off-desc = Songs play as loud as they were made. Normal brings them all to the same level, and Quiet to the same, lower one.
 settings-normalization-normal-desc = Songs play at the same level: loud ones turned down, as on YouTube Music, and quiet ones up by as much as 6 dB.
 settings-normalization-quiet-desc = Songs play at the same, lower level: loud ones turned down further, so quiet ones rarely need turning up.
+# After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
+settings-normalization-song-no-figure = This song: no loudness figure from YouTube, so it plays as it is.
+settings-normalization-song-level = This song: already at the level.
+settings-normalization-song-up = This song: turned up { $db } dB.
+settings-normalization-song-down = This song: turned down { $db } dB.
 settings-headphone-crossfeed = Headphone crossfeed
 settings-headphone-crossfeed-desc = Let each ear hear a little of the other side's bass, as from speakers in front of you, so songs panned hard to one side are easier on the ears over headphones.
 settings-mono-audio = Mono audio
@@ -118,6 +125,17 @@ settings-equalizer-desc = Shape the sound from deep bass to treble. Only what yo
 settings-preset = Preset
 settings-custom = Custom
 settings-equalizer-preset = Equalizer preset
+# The equalizer's presets.
+settings-eq-flat = Flat
+settings-eq-bass-boost = Bass boost
+settings-eq-treble-boost = Treble boost
+settings-eq-vocal = Vocal
+settings-eq-rock = Rock
+settings-eq-pop = Pop
+settings-eq-electronic = Electronic
+settings-eq-acoustic = Acoustic
+settings-eq-classical = Classical
+settings-eq-late-night = Late night
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = Equalizer bands bass mids treble frequency
 settings-prevent-clipping = Prevent clipping
@@ -280,6 +298,15 @@ settings-app-icon = App icon
 settings-preview = Preview
 settings-preview-desc = How it looks on the taskbar and in the tray.
 settings-app-icon-named = App icon: { $name }
+# The app icons' names. "YT Music" and "Fluent" stay as they are.
+settings-app-icon-classic = Classic
+settings-app-icon-smile-ring = Smile ring
+settings-app-icon-rust-gear = Rust gear
+settings-app-icon-waveform = Waveform
+settings-app-icon-record = Record
+settings-app-icon-lit-line = Lit line
+settings-app-icon-duet = Duet
+settings-app-icon-warp = Warp
 
 ## Connections
 
@@ -287,6 +314,8 @@ settings-stream-deck = Stream Deck
 settings-stream-deck-desc = Let a Stream Deck plugin on this computer control playback.
 settings-lastfm-connected = Scrobbling what you play to { $name }'s profile.
 settings-lastfm-allow = Allow ytm-rs on the Last.fm page that opened in your browser.
+# After "Last.fm: ", when signing in wasn't allowed on that page in time.
+settings-lastfm-not-allowed = Last.fm wasn't allowed in time
 settings-lastfm-desc = Scrobble what you play to your Last.fm profile.
 settings-disconnect = Disconnect
 settings-connect = Connect
@@ -295,6 +324,9 @@ settings-listenbrainz-desc = Send what you play to your ListenBrainz profile.
 settings-user-token = User token
 settings-listenbrainz-token-hint = Paste your ListenBrainz user token
 settings-listenbrainz-token-link = Get your token on listenbrainz.org
+# After "ListenBrainz: ", when Connect is pressed.
+settings-listenbrainz-token-missing = paste your user token first
+settings-listenbrainz-token-refused = ListenBrainz didn't accept that token
 
 ## Language
 
@@ -323,6 +355,9 @@ settings-home = Home
 settings-close-to-tray-desc-linux = Keeps an icon in the tray. Clicking × hides the window there and keeps the music playing. The icon's menu brings it back, hides it or quits. Clicking the song in the system's media controls brings it back too, and Ctrl+Q quits.
 settings-close-to-tray-desc = Keeps an icon in the tray. Clicking × hides the window there and keeps the music playing. Click the icon to bring it back, or right-click it to hide, show or quit.
 settings-close-to-tray = Close to tray
+# Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
+settings-tray-no-gtk = The tray icon needs GTK, which couldn't start ({ $error }).
+settings-tray-no-appindicator = The tray icon needs the AppIndicator library, which isn't installed: libayatana-appindicator3-1 on Debian and Ubuntu, libayatana-appindicator-gtk3 on Fedora (on Bazzite, Silverblue and other atomic systems: rpm-ostree install libayatana-appindicator-gtk3, then restart the computer), libayatana-appindicator on Arch.
 settings-song-notifications-desc = When a new song starts while the window is minimized, in the tray or behind other windows, show its title, artist and cover in a notification.
 settings-song-notifications-unavailable = Needs the installed app: Windows only shows notifications from apps in the Start menu.
 settings-song-notifications = Song notifications
@@ -391,11 +426,25 @@ settings-test-connection = Test connection
 settings-test = Test
 settings-test-working = Working: YouTube Music answered in { $ms } ms.
 settings-test-failed = Didn't connect: { $error }
+# Under the proxy address, when it isn't one.
+settings-proxy-not-an-address = that isn't a proxy address, like http://127.0.0.1:8080
+settings-proxy-scheme = use an http:// or socks5:// address
+settings-proxy-no-host = the address needs a host
+settings-proxy-no-port = the address needs a port, like :8080
+# After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
+settings-proxy-not-answering = nothing is answering at { $address }. Is the proxy running?
+settings-proxy-timed-out = the proxy didn't answer in time.
+settings-proxy-sign-in-refused = the proxy didn't accept the username or password.
+settings-proxy-not-found = couldn't find that proxy's address.
 settings-proxy-restart-desc = The new proxy setting is used from the next start.
 
 ## Storage
 
 settings-cache-cleared = Cache cleared: { $size } freed
+# How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
+settings-size-mb = { $size } MB
+settings-size-gb = { $size } GB
+settings-size-under-mb = Less than 1 MB
 settings-storage = Storage
 settings-clearing = Clearing…
 settings-measuring = Measuring…
@@ -456,6 +505,9 @@ settings-download = Download
 settings-check-now = Check now
 settings-another-copy = Another copy
 settings-another-copy-desc = ytm-rs is also installed from { $kind }. To remove that copy, run { $cmd }
+# { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
+settings-another-copy-deb = the .deb
+settings-another-copy-arch = the Arch package
 settings-whats-new = What's new
 settings-whats-new-in = What's new in { $version }
 

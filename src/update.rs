@@ -243,9 +243,9 @@ pub fn other_copy() -> Option<(&'static str, &'static str)> {
     } else if !installed() {
         None
     } else if Path::new("/usr/lib/ytm-rs/deb.txt").exists() {
-        Some(("the .deb", "sudo apt remove ytm-rs"))
+        Some((crate::tr!("settings-another-copy-deb"), "sudo apt remove ytm-rs"))
     } else {
-        Path::new("/usr/lib/ytm-rs/pacman.txt").exists().then_some(("the Arch package", "sudo pacman -R ytm-rs"))
+        Path::new("/usr/lib/ytm-rs/pacman.txt").exists().then(|| (crate::tr!("settings-another-copy-arch"), "sudo pacman -R ytm-rs"))
     }
 }
 

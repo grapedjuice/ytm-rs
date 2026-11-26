@@ -139,7 +139,7 @@ pub async fn sign_in(http: &reqwest::Client) -> anyhow::Result<String> {
             }
             // 14: not allowed yet.
             Err(e) if code(&e) == Some(14) && t0.elapsed() < SIGN_IN_WAIT => {}
-            Err(e) if code(&e) == Some(14) => anyhow::bail!("Last.fm wasn't allowed in time"),
+            Err(e) if code(&e) == Some(14) => anyhow::bail!(crate::tr!("settings-lastfm-not-allowed")),
             Err(e) => return Err(e),
         }
     }

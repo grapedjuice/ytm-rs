@@ -1224,8 +1224,9 @@ impl Output {
             Ok(s) => s,
             Err(e) => {
                 log::warn!("audio: couldn't open the output device: {e}");
-                // A picked device failing isn't the default's.
-                forget_stand_in(id.as_deref().filter(|_| card(&self.destination).is_none()));
+                // A picked device failing isn't the default's (but the default standing in
+                // for a picked device that's gone is).
+                forget_stand_in(id.as_deref().filter(|&i| card(&self.destination) != Some(i)));
                 return false;
             }
         };
@@ -1443,7 +1444,12 @@ fn resolve<D: Clone + PartialEq + AsRef<str>>(state: &mut StandIn<D>, now: Insta
         state.resolved = Some(Resolved { stand_in: None, since: now });
         return Some(default);
     }
-    let found = stand_ins().into_iter().find(|d| kept.as_ref() == Some(d) || (!failed(d) && plays(d)));
+    let found = stand_ins().into_iter().find(|d| match &kept {
+        Some(k) if k == d => true,
+        // Only for a better one: another card as good would switch cards mid-song.
+        Some(k) if stand_in_rank(d.as_ref()) >= stand_in_rank(k.as_ref()) => false,
+        _ => !failed(d) && plays(d),
+    });
     state.resolved = found.clone().map(|d| Resolved { stand_in: Some(d), since: now });
     found
 }
@@ -1451,19 +1457,18 @@ fn resolve<D: Clone + PartialEq + AsRef<str>>(state: &mut StandIn<D>, now: Insta
 /// What can stand in for ALSA's default, best first: the sound server (PipeWire, else
 /// PulseAudio), then the cards' outputs as settings ranks them (`alsa_rank`).
 fn fallbacks(ids: Vec<String>) -> Vec<String> {
-    let mut ranked: Vec<(u8, String)> = ids
-        .into_iter()
-        .filter_map(|id| {
-            let rank = match id.as_str() {
-                "alsa:pipewire" => 0,
-                "alsa:pulse" => 1,
-                _ => alsa_rank(&id)? + 2,
-            };
-            Some((rank, id))
-        })
-        .collect();
+    let mut ranked: Vec<(u8, String)> = ids.into_iter().filter_map(|id| Some((stand_in_rank(&id)?, id))).collect();
     ranked.sort_by_key(|(rank, _)| *rank);
     ranked.into_iter().map(|(_, id)| id).collect()
+}
+
+/// Where an output comes in `fallbacks`, lower better; `None`: it can't stand in.
+fn stand_in_rank(id: &str) -> Option<u8> {
+    match id {
+        "alsa:pipewire" => Some(0),
+        "alsa:pulse" => Some(1),
+        _ => Some(alsa_rank(id)? + 2),
+    }
 }
 
 /// An output device to offer in settings.
@@ -2565,6 +2570,21 @@ mod tests {
         // The server's not up yet at the next check; the card in use isn't tried.
         assert_eq!(resolve_with(&mut state, now + STAND_IN_FOR, &[card]), (Some(card), vec!["alsa:default", "alsa:pipewire"]));
         assert_eq!(resolve_with(&mut state, now + STAND_IN_FOR * 2, &["alsa:pipewire"]), (Some("alsa:pipewire"), vec!["alsa:default", "alsa:pipewire"]));
+    }
+
+    #[test]
+    fn a_card_isnt_swapped_for_another_as_good() {
+        let mut state = stand_in();
+        let (now, first, kept) = (Instant::now(), "alsa:sysdefault:CARD=USB", "alsa:sysdefault:CARD=Generic");
+        state.resolved = Some(Resolved { stand_in: Some(kept), since: now });
+        let tried = std::cell::RefCell::new(Vec::new());
+        let plays = |d: &&'static str| {
+            tried.borrow_mut().push(*d);
+            true
+        };
+        let later = now + STAND_IN_FOR;
+        assert_eq!(resolve(&mut state, later, "alsa:default", |d| *d != "alsa:default" && plays(d), || vec![first, kept]), Some(kept));
+        assert!(tried.borrow().is_empty());
     }
 
     #[test]

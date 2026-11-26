@@ -55,12 +55,12 @@ pub fn process(bytes: &[u8]) -> anyhow::Result<Art> {
 fn process_rgb(img: &image::RgbImage) -> Art {
     // The sleeve shows the thumbnail's square crop (`Thumb::square_uv`); a raw one is
     // letterboxed 4:3 for many videos, and the backdrop's bars would tint toward the
-    // accent as bands of colour nothing else shows. Crop first, like the sleeve does.
-    let img = match crate::model::square_crop_px(img.width(), img.height()) {
-        Some((x, y, side)) => image::imageops::crop_imm(img, x, y, side, side).to_image(),
-        None => img.clone(),
-    };
-    process_small(&image::imageops::resize(&img, SIZE, SIZE, image::imageops::FilterType::Triangle))
+    // accent as bands of colour nothing else shows. Crop first, like the sleeve does
+    // (a view, not a copy: an embedded cover can be thousands of pixels across).
+    let (w, h) = img.dimensions();
+    let (x, y, cw, ch) = crate::model::square_crop_px(w, h).map_or((0, 0, w, h), |(x, y, side)| (x, y, side, side));
+    let view = image::imageops::crop_imm(img, x, y, cw, ch);
+    process_small(&image::imageops::resize(&*view, SIZE, SIZE, image::imageops::FilterType::Triangle))
 }
 
 /// The accent, tint and blur of a cover already SIZE×SIZE.
@@ -461,6 +461,17 @@ mod tests {
         // grey, which read at under 2:1 on the dark UI.
         let accent = analyse(&patch([10, 16, 26], [10, 16, 26], 0, 0)).accent;
         assert!(luma(accent) > 150.0, "{accent:?}");
+    }
+
+    #[test]
+    fn a_wide_picture_is_read_by_its_middle_square() {
+        // 16:9, blue in the middle square and red at the sides the sleeve cuts off.
+        let img = image::RgbImage::from_fn(160, 90, |x, _| image::Rgb(if (35..125).contains(&x) { [60, 80, 200] } else { [240, 20, 20] }));
+        let a = process_rgb(&img).accent;
+        assert!(a.b() > a.r() + 60, "accent {a:?} read the cut-off sides");
+        for (w, h) in [(1, 1), (1, 300), (300, 1), (5, 4), (2, 1)] {
+            process_rgb(&image::RgbImage::new(w, h));
+        }
     }
 
     #[test]

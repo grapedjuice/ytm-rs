@@ -42,12 +42,12 @@ status-episodes = { $count ->
    *[other] { $count } episodios
 }
 status-plays = { $count ->
-    [one] { $count } reproducción
-   *[other] { $count } reproducciones
+    [one] { $shown } reproducción
+   *[other] { $shown } reproducciones
 }
 status-subscribers = { $count ->
-    [one] { $count } suscriptor
-   *[other] { $count } suscriptores
+    [one] { $shown } suscriptor
+   *[other] { $shown } suscriptores
 }
 status-download-quoted-title = «{ $title }»
 discord-view-artist = Ir al artista

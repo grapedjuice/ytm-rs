@@ -42,12 +42,12 @@ status-episodes = { $count ->
    *[other] { $count } afleveringen
 }
 status-plays = { $count ->
-    [one] { $count } weergave
-   *[other] { $count } weergaven
+    [one] { $shown } weergave
+   *[other] { $shown } weergaven
 }
 status-subscribers = { $count ->
-    [one] { $count } abonnee
-   *[other] { $count } abonnees
+    [one] { $shown } abonnee
+   *[other] { $shown } abonnees
 }
 status-download-quoted-title = ‘{ $title }’
 discord-view-artist = Naar artiest

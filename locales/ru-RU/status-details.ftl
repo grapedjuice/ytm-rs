@@ -46,16 +46,16 @@ status-episodes = { $count ->
    *[other] { $count } выпуска
 }
 status-plays = { $count ->
-    [one] { $count } прослушивание
-    [few] { $count } прослушивания
-    [many] { $count } прослушиваний
-   *[other] { $count } прослушивания
+    [one] { $shown } прослушивание
+    [few] { $shown } прослушивания
+    [many] { $shown } прослушиваний
+   *[other] { $shown } прослушивания
 }
 status-subscribers = { $count ->
-    [one] { $count } подписчик
-    [few] { $count } подписчика
-    [many] { $count } подписчиков
-   *[other] { $count } подписчика
+    [one] { $shown } подписчик
+    [few] { $shown } подписчика
+    [many] { $shown } подписчиков
+   *[other] { $shown } подписчика
 }
 status-download-quoted-title = «{ $title }»
 discord-view-artist = К исполнителю

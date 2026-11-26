@@ -39,6 +39,7 @@ window-installed-when-closed = Versi { $version } udah siap. Terpasang pas kamu 
 window-notes-status = Kamu pakai { $version }. { $step }
 window-package-instructions = Unduh paket barunya, terus pasang pakai sudo pacman -U.
 window-package-download = Unduh file .deb yang baru, terus buka buat memasangnya di atas versi ini.
+window-package-appimage = Unduh AppImage baru dan pakai itu sebagai ganti yang ini.
 window-package-flatpak = Salinan ini diperbarui lewat Flatpak: jalankan flatpak update, atau cek di toko aplikasi kamu.
 window-keyboard-volume-up = Volume naik
 window-keyboard-volume-down = Volume turun

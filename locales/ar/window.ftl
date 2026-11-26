@@ -39,6 +39,7 @@ window-installed-when-closed = الإصدار { $version } جاهز، وسيُث
 window-notes-status = أنت تستخدم الإصدار { $version }. { $step }
 window-package-instructions = نزّل الحزمة الجديدة وثبّتها باستخدام sudo pacman -U.
 window-package-download = نزّل ملف ‎.deb الجديد وافتحه لتثبيته فوق الإصدار الحالي.
+window-package-appimage = نزّل ملف AppImage الجديد واستخدمه بدل هذا.
 window-package-flatpak = تُحدَّث هذه النسخة عبر Flatpak: شغّل flatpak update، أو راجع متجر البرامج.
 window-keyboard-volume-up = رفع مستوى الصوت
 window-keyboard-volume-down = خفض مستوى الصوت

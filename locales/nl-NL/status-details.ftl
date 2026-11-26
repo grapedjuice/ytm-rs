@@ -41,6 +41,17 @@ status-episodes = { $count ->
     [one] { $count } aflevering
    *[other] { $count } afleveringen
 }
+status-plays = { $count ->
+    [one] { $count } weergave
+   *[other] { $count } weergaven
+}
+status-subscribers = { $count ->
+    [one] { $count } abonnee
+   *[other] { $count } abonnees
+}
 status-download-quoted-title = ‘{ $title }’
 discord-view-artist = Naar artiest
 discord-view-album = Naar album
+status-kept-downloaded = Gedownload houden: nummers die aan deze afspeellijst worden toegevoegd, worden ook gedownload
+status-not-kept-downloaded = Wordt niet meer gedownload gehouden. Nummers die al gedownload zijn, blijven
+status-resumed-at = Verder waar je was gebleven, bij { $time }

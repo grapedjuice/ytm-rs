@@ -39,6 +39,7 @@ window-installed-when-closed = バージョン { $version } をダウンロー�
 window-notes-status = 現在のバージョンは { $version } です。{ $step }
 window-package-instructions = 新しいパッケージをダウンロードし、sudo pacman -U でインストールしてください。
 window-package-download = 新しい .deb をダウンロードして開き、上書きインストールしてください。
+window-package-appimage = 新しい AppImage をダウンロードし、これの代わりに使ってください。
 window-package-flatpak = この版は Flatpak で更新します。flatpak update を実行するか、ソフトウェアストアを確認してください。
 window-keyboard-volume-up = 音量を上げる
 window-keyboard-volume-down = 音量を下げる

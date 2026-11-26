@@ -39,6 +39,11 @@ status-songs = { $count ->
 status-episodes = { $count ->
    *[other] { $count } episode
 }
+status-plays = { $count } pemutaran
+status-subscribers = { $count } pelanggan
 status-download-quoted-title = “{ $title }”
 discord-view-artist = Lihat artis
 discord-view-album = Lihat album
+status-kept-downloaded = Tetap terunduh: lagu yang ditambahkan ke playlist ini juga diunduh
+status-not-kept-downloaded = Nggak lagi tetap terunduh. Lagu yang sudah diunduh tetap ada
+status-resumed-at = Lanjut dari tadi, di { $time }

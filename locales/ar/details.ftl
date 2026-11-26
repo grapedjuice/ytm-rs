@@ -31,4 +31,4 @@ backend-channel-account-changed = تغيّر الحساب في هذه الأثن
 backend-channel-not-saved = تعذّر حفظ اختيار القناة
 status-another-channel = قناة أخرى
 audio-no-device = لا يوجد جهاز إخراج صوت
-audio-seek-failed = فشل التقديم: { $error }
+audio-seek-failed = فشل الانتقال إلى الموضع: { $error }

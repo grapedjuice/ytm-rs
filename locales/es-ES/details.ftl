@@ -31,4 +31,4 @@ backend-channel-account-changed = La cuenta cambió mientras tanto; elige el can
 backend-channel-not-saved = No se pudo guardar la elección de canal
 status-another-channel = otro canal
 audio-no-device = Ningún dispositivo de salida de audio
-audio-seek-failed = Error al buscar: { $error }
+audio-seek-failed = No se pudo cambiar la posición: { $error }

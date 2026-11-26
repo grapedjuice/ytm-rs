@@ -31,4 +31,4 @@ backend-channel-account-changed = Het account is intussen veranderd; kies het ka
 backend-channel-not-saved = De kanaalkeuze kon niet worden opgeslagen
 status-another-channel = een ander kanaal
 audio-no-device = Geen audio-uitvoerapparaat
-audio-seek-failed = Zoeken mislukt: { $error }
+audio-seek-failed = Spoelen mislukt: { $error }

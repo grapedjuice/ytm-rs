@@ -398,6 +398,12 @@ pub fn not_listed(tracks: &[Track]) -> Vec<Track> {
     tracks.iter().filter(|t| !listed_now(&st, &videos, t)).cloned().collect()
 }
 
+/// Whether this song is downloaded (or, a music video, its song version), as last looked
+/// (see `all_listed`): for the mark on its row.
+pub fn is_listed(t: &Track) -> bool {
+    entry_for(&STATE.read().unwrap(), t).is_some()
+}
+
 /// Whether any of these songs are downloaded, as last looked (see `all_listed`).
 pub fn any_listed(tracks: &[Track]) -> bool {
     let st = STATE.read().unwrap();
@@ -1049,6 +1055,10 @@ mod tests {
         assert_eq!((written["c"].list.as_deref(), written["a"].list.as_deref()), (Some("PL1"), None));
         assert!(any_listed(&[song("x", "X"), song("c", "C")]) && !all_listed(&[song("x", "X"), song("c", "C")]));
         assert_eq!(not_listed(&[song("x", "X"), song("c", "C")]).iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["x"]);
+        // A row's mark: the song itself, or a music video whose song version is downloaded.
+        let video = |id: &str| Track { music_video: true, ..song(id, "V") };
+        assert!(is_listed(&song("c", "C")) && is_listed(&video("vc")));
+        assert!(!is_listed(&song("x", "X")) && !is_listed(&video("vx")));
 
         // A cover tagged the way a download is, read back: a file with no audio, just the
         // boxes the tags need.

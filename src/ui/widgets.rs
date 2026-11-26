@@ -924,7 +924,12 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, pin: Option<bool>, a
     let title_pos = pos2(rect.left(), img.bottom() + 10.0);
     galley_tipped(ui, title_pos, title, tcolor, &c.title);
     let sub_y = img.bottom() + 14.0 + title_h;
-    linked_text(ui, pos2(rect.left(), sub_y), &c.subtitle, &c.links, theme::regular(13.0), theme::with_alpha(theme::text_dim(), cl.subtitle_alpha), width - 36.0, acts);
+    // A playlist kept downloaded is marked at the start of its subtitle.
+    let mark_w = if kept_downloaded(ui, &c.target) { DOWNLOAD_MARK_W } else { 0.0 };
+    if mark_w > 0.0 {
+        download_mark(ui, rect.left(), sub_y + 8.0);
+    }
+    linked_text(ui, pos2(rect.left() + mark_w, sub_y), &c.subtitle, &c.links, theme::regular(13.0), theme::with_alpha(theme::text_dim(), cl.subtitle_alpha), width - 36.0 - mark_w, acts);
     // On the subtitle line, whose width leaves room for it, so a two-line title never sits under it.
     let more_rect = Rect::from_center_size(pos2(rect.right() - 16.0, sub_y + 8.0), Vec2::splat(30.0));
     let more = more_button(ui, more_rect, resp.id.with("more"), crate::tr!("ui-options"));
@@ -948,6 +953,28 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, pin: Option<bool>, a
 /// While the album or playlist `id` downloads, its whole cover darkens, then the darkness
 /// recedes from the bottom with the progress, so more and more of the picture shows in its
 /// true colours. When the download ends what's left of it fades away.
+/// Whether the album or playlist `target` is kept downloaded (Library's Keep downloaded).
+pub fn kept_downloaded(ui: &Ui, target: &Target) -> bool {
+    let Target::Playlist(id) = target else { return false };
+    ui.ctx().data(|d| d.get_temp::<std::sync::Arc<Vec<String>>>(egui::Id::unique("kept-downloaded"))).is_some_and(|k| k.contains(id))
+}
+
+/// Room the download mark takes at the start of a line, its gap after included.
+pub const DOWNLOAD_MARK_W: f32 = 18.0;
+
+/// The mark of a downloaded song or a playlist kept downloaded, at the start of a line
+/// whose middle is `y`: an arrow down in a filled circle, as other music apps show it.
+pub fn download_mark(ui: &Ui, x: f32, y: f32) {
+    let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
+    let c = pos2(x + 6.5, y);
+    ui.painter().circle_filled(c, 6.5, accent);
+    // Dark on a pale accent, white on the rest.
+    let luma = 0.299 * accent.r() as f32 + 0.587 * accent.g() as f32 + 0.114 * accent.b() as f32;
+    let ink = egui::Stroke::new(1.4, if luma > 160.0 { Color32::from_gray(15) } else { Color32::WHITE });
+    ui.painter().line_segment([c + vec2(0.0, -3.5), c + vec2(0.0, 3.2)], ink);
+    ui.painter().line(vec![c + vec2(-2.8, 0.6), c + vec2(0.0, 3.4), c + vec2(2.8, 0.6)], ink);
+}
+
 pub fn download_veil(ui: &Ui, img: Rect, radius: f32, id: &str) {
     let ctx = ui.ctx();
     let runs = ctx.data(|d| d.get_temp::<std::sync::Arc<Vec<(String, f32)>>>(egui::Id::unique("download-progress")));
@@ -1642,9 +1669,16 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         (sub, _) => sub,
     };
     let title_y = if sub.is_some() { cy - 18.0 } else { cy - 9.0 };
-    title_at(ui, pos2(x, title_y), &t.title, t.explicit, theme::semibold(14.5), title_col, title_w);
+    // A downloaded song is marked at the start of its second line (of its only one, with none).
+    let marked = crate::downloads::is_listed(t);
+    let mark_w = if marked { DOWNLOAD_MARK_W } else { 0.0 };
+    let (title_x, title_room) = if sub.is_none() { (x + mark_w, title_w - mark_w) } else { (x, title_w) };
+    if marked {
+        download_mark(ui, x, if sub.is_some() { cy + 10.0 } else { cy });
+    }
+    title_at(ui, pos2(title_x, title_y), &t.title, t.explicit, theme::semibold(14.5), title_col, title_room);
     if let Some(sub) = &sub {
-        linked_text(ui, pos2(x, cy + 2.0), sub, &t.artists, theme::regular(13.0), dim, title_w, acts);
+        linked_text(ui, pos2(x + mark_w, cy + 2.0), sub, &t.artists, theme::regular(13.0), dim, title_w - mark_w, acts);
     }
     if let (Some(px), Some(p)) = (plays_x, &plays) {
         ui.painter().text(pos2(px, cy), Align2::LEFT_CENTER, p, theme::regular(13.5), dim);

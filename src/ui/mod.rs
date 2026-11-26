@@ -1934,6 +1934,12 @@ impl eframe::App for App {
         // How far each album or playlist being downloaded has got, for its cover's veil.
         let progress: Arc<Vec<(String, f32)>> = Arc::new(self.download_runs.iter().filter(|r| !r.title.is_empty()).map(|r| (r.key.clone(), r.done as f32 / r.total.max(1) as f32)).collect());
         ctx.data_mut(|d| d.insert_temp(egui::Id::unique("download-progress"), progress));
+        // The playlists kept downloaded, for the mark on their rows and cards.
+        let kept: Arc<Vec<String>> = Arc::new(match self.logged_in {
+            true => self.kept_downloaded.iter().cloned().chain(self.download_liked.then(|| lists::LIKED_MUSIC.to_owned())).collect(),
+            false => Vec::new(),
+        });
+        ctx.data_mut(|d| d.insert_temp(egui::Id::unique("kept-downloaded"), kept));
         // The file can change with nothing else going on here.
         if self.accent_source == AccentSource::File {
             ctx.request_repaint_after(Duration::from_secs(2));

@@ -1466,7 +1466,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         let x = |s: f64| line.left() + line.width() * (s as f32 / total).clamp(0.0, 1.0);
         let mark = theme::with_alpha(theme::text(), 0.9);
         let tick = |at: f32| Rect::from_center_size(pos2(at, line.center().y), vec2(2.0, thick + 8.0));
-        if let Some(end) = l.end {
+        // The end it goes back from, kept clear of a crossfade.
+        if let Some((_, end)) = app.ab_stretch() {
             let band = Rect::from_min_max(pos2(x(l.start), line.top()), pos2(x(end), line.bottom()));
             ui.painter().rect_filled(band, progress_r, theme::with_alpha(theme::text(), 0.35));
             ui.painter().rect_filled(tick(x(end)), 1.0, mark);

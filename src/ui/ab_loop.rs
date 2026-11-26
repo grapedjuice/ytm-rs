@@ -37,6 +37,7 @@ impl AbLoop {
     }
 
     /// Where to go back to at `pos`: the start, once the end is reached.
+    #[cfg(test)]
     fn back_to(&self, pos: f64) -> Option<f64> {
         self.end.filter(|&e| pos >= e).map(|_| self.start)
     }
@@ -64,38 +65,57 @@ impl App {
     }
 
     pub(super) fn loop_end_at(&mut self, at: f32) {
-        // Clear of where a crossfade would start the next song before the end is reached.
-        let latest = self.audio.status.duration().map(|d| d.as_secs_f64() - if self.crossfade { self.crossfade_secs as f64 + 1.0 } else { 0.5 });
-        let at = latest.map_or(at as f64, |l| (at as f64).min(l));
+        let at = self.loop_latest().map_or(at as f64, |l| (at as f64).min(l));
         if let Some(l) = self.loop_here() {
             l.end_at(at);
         }
     }
 
+    /// The latest a loop can end: clear of where a crossfade would start the next song
+    /// (the engine's fade is in real time, so more of the song when faster), and of the
+    /// end itself, with half a second to spare for a frame that comes late.
+    fn loop_latest(&self) -> Option<f64> {
+        let fade = if self.crossfade { self.crossfade_secs as f64 } else { 0.0 };
+        let speed = self.audio.status.speed() as f64;
+        self.audio.status.duration().map(|d| d.as_secs_f64() - (fade + 0.5) * speed)
+    }
+
+    /// The playing song's loop as it plays now, start and end: its end kept clear of a
+    /// crossfade or speed set since it was picked.
+    pub(super) fn ab_stretch(&self) -> Option<(f64, f64)> {
+        let l = self.ab_loop()?;
+        let end = l.end?.min(self.loop_latest().unwrap_or(f64::INFINITY));
+        (end >= l.start + MIN_LEN).then_some((l.start, end))
+    }
+
     /// Back to the start at the end, as `skip_segments` skips: checked each frame, and
     /// woken for the end when nothing else draws.
     pub(super) fn keep_looping(&mut self, ctx: &egui::Context, now: f64) {
-        if self.ab_loop.is_some() && self.ab_loop().is_none() {
-            // Another song plays: the loop was the last one's.
+        // Another song plays: the loop was the last one's. A jam guest plays the host's.
+        if self.ab_loop.is_some() && (self.ab_loop().is_none() || self.jam.guest()) {
             self.ab_loop = None;
         }
-        if self.jam.guest() || self.resume_at.is_some() || self.buffering || !self.playing() {
+        if self.resume_at.is_some() || self.buffering || !self.playing() {
             return;
         }
         // A seek takes a moment to show in the position: don't send it twice.
         if now - self.loop_sought < 0.5 {
             return;
         }
-        let Some(l) = self.ab_loop() else { return };
+        let Some((start, end)) = self.ab_stretch() else { return };
         let pos = self.audio.status.position().as_secs_f64();
-        match (l.back_to(pos), l.end) {
-            (Some(start), _) => {
-                self.loop_sought = now;
-                self.seek_to(Duration::from_secs_f64(start));
-            }
-            (None, Some(end)) => ctx.request_repaint_after(Duration::from_secs_f64((end - pos).max(0.0) + 0.02)),
-            (None, None) => {}
+        if pos >= end {
+            self.loop_back(start, now);
+        } else {
+            // The position moves at the song's speed, the clock in real time.
+            let speed = (self.audio.status.speed() as f64).max(0.1);
+            ctx.request_repaint_after(Duration::from_secs_f64((end - pos) / speed + 0.02));
         }
+    }
+
+    pub(super) fn loop_back(&mut self, start: f64, now: f64) {
+        self.loop_sought = now;
+        self.seek_to(Duration::from_secs_f64(start));
     }
 }
 

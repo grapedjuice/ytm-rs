@@ -1485,14 +1485,23 @@ impl Backend {
                 }
                 Req::EditPlaylist { id, title, description, privacy, cover } => {
                     ytm::edit_playlist(api, &id, &title, &description, privacy.as_deref()).await?;
-                    match cover {
-                        Some(CoverChange::Set(jpeg)) => {
-                            let session = api.account().ok_or_else(|| anyhow::anyhow!("sign in to change the picture"))?;
-                            let blob = session.upload_playlist_cover(&self.http(), &id, jpeg).await?;
-                            ytm::set_playlist_cover(api, &id, &blob).await?;
+                    // The name and description are saved by now: a picture that fails says
+                    // so on its own, and the playlist still reloads with them.
+                    if let Some(cover) = cover {
+                        let changed = async {
+                            match cover {
+                                CoverChange::Set(jpeg) => {
+                                    let session = api.account().ok_or_else(|| anyhow::anyhow!("sign in to change the picture"))?;
+                                    let blob = session.upload_playlist_cover(&self.http(), &id, jpeg).await?;
+                                    ytm::set_playlist_cover(api, &id, &blob).await
+                                }
+                                CoverChange::Remove => ytm::remove_playlist_cover(api, &id).await,
+                            }
+                        };
+                        if let Err(e) = changed.await {
+                            log::warn!("playlist picture failed: {e:#}");
+                            let _ = self.tx.send(Resp::Error(crate::tr!("backend-error", operation = crate::tr!("dialog-change-picture"), error = e.to_string())));
                         }
-                        Some(CoverChange::Remove) => ytm::remove_playlist_cover(api, &id).await?,
-                        None => {}
                     }
                     Resp::PlaylistChanged { id, change: PlaylistChange::Updated }
                 }

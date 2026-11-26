@@ -409,6 +409,7 @@ pub struct Channels {
 /// Settings › Network's connection test: not run (`None`), running (`Some(None)`), or
 /// its answer (works, message).
 type ProxyTest = Option<Option<(bool, String)>>;
+type PickedCover = (String, anyhow::Result<Vec<u8>>);
 
 pub struct App {
     backend: Backend,
@@ -545,8 +546,8 @@ pub struct App {
     /// Files chosen in the upload dialog, handed over from its thread.
     picked_uploads: Arc<std::sync::Mutex<Option<Vec<std::path::PathBuf>>>>,
     /// A picture chosen for Edit playlist, made a cover (`art::playlist_cover`) on the
-    /// picker's thread.
-    picked_cover: Arc<std::sync::Mutex<Option<anyhow::Result<Vec<u8>>>>>,
+    /// picker's thread, with the playlist it's for.
+    picked_cover: Arc<std::sync::Mutex<Option<PickedCover>>>,
     liked: HashSet<String>,
     /// Settings › Downloads › Download liked songs: Liked Music kept downloaded.
     download_liked: bool,

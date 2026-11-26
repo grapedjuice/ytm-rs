@@ -136,9 +136,15 @@ impl App {
                         done |= cancel;
                     }
                     Dialog::EditPlaylist { id, title, description, privacy, thumbs, cover } => {
-                        let picked = self.picked_cover.lock().unwrap().take();
+                        let picked = {
+                            let mut slot = self.picked_cover.lock().unwrap();
+                            if slot.as_ref().is_some_and(|(of, _)| of == id) { slot.take().map(|(_, r)| r) } else { None }
+                        };
                         match picked {
-                            Some(Ok(jpeg)) => *cover = Some(NewCover::Picked(format!("bytes://playlist-cover-{}.jpg", PICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)), jpeg.into())),
+                            Some(Ok(jpeg)) => {
+                                let uri = format!("bytes://playlist-cover-{}.jpg", PICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+                                if let Some(NewCover::Picked(old, _)) = cover.replace(NewCover::Picked(uri, jpeg.into())) { ui.ctx().forget_image(&old); }
+                            }
                             Some(Err(e)) => {
                                 log::warn!("playlist picture: {e:#}");
                                 self.toast(crate::tr!("status-picture-unreadable"));
@@ -146,8 +152,10 @@ impl App {
                             None => {}
                         }
                         match cover_picker(ui, thumbs, cover.as_ref()) {
-                            Some(CoverPick::Change) => self.pick_cover(ui.ctx()),
-                            Some(CoverPick::Remove) => *cover = Some(NewCover::Removed),
+                            Some(CoverPick::Change) => self.pick_cover(ui.ctx(), id.clone()),
+                            Some(CoverPick::Remove) => {
+                                if let Some(NewCover::Picked(old, _)) = cover.replace(NewCover::Removed) { ui.ctx().forget_image(&old); }
+                            }
                             None => {}
                         }
                         ui.add_space(16.0);
@@ -207,7 +215,11 @@ impl App {
             });
         });
         let dismissed = modal.should_close() || ctx.input(|i| i.key_pressed(egui::Key::Escape));
-        if !done && !dismissed { self.dialog = Some(dialog); }
+        if !done && !dismissed {
+            self.dialog = Some(dialog);
+        } else if let Dialog::EditPlaylist { cover: Some(NewCover::Picked(uri, _)), .. } = &dialog {
+            ctx.forget_image(uri);
+        }
     }
 
     fn backup_stream_dialog(&mut self, ctx: &egui::Context) {

@@ -20,13 +20,14 @@ impl App {
     }
 
     /// Open the system file picker for a playlist's new picture; it runs on its own thread,
-    /// which also makes the picture a cover, for Edit playlist to show and send.
-    pub(super) fn pick_cover(&self, ctx: &egui::Context) {
+    /// which also makes the picture a cover, for Edit playlist to show and send. Marked
+    /// with the playlist it's for, so it never lands in another one's dialog.
+    pub(super) fn pick_cover(&self, ctx: &egui::Context, playlist: String) {
         let (slot, ctx) = (self.picked_cover.clone(), ctx.clone());
         std::thread::spawn(move || {
             let file = rfd::FileDialog::new().set_title(crate::tr!("dialog-change-picture")).add_filter("Images", &["jpg", "jpeg", "png", "webp"]).pick_file();
             if let Some(file) = file {
-                *slot.lock().unwrap() = Some(std::fs::read(file).map_err(Into::into).and_then(|b| crate::art::playlist_cover(&b)));
+                *slot.lock().unwrap() = Some((playlist, std::fs::read(file).map_err(Into::into).and_then(|b| crate::art::playlist_cover(&b))));
                 ctx.request_repaint();
             }
         });

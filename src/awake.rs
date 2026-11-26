@@ -32,9 +32,12 @@ impl Keep {
 /// player stops only for a moment.
 const GRACE: Duration = Duration::from_secs(3);
 
-/// What playing reads as in the OS's list of what keeps it awake.
+/// What playing reads as in the OS's list of what keeps it awake. Looked up when a hold
+/// is taken, which the window's frames ask for, so once the language is picked.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-const REASON: &str = "Playing music";
+fn reason() -> &'static str {
+    crate::tr!("status-keeping-awake")
+}
 
 pub struct Awake {
     tx: Sender<Keep>,
@@ -112,7 +115,7 @@ mod os {
 mod os {
     use std::ffi::{CStr, c_char, c_void};
 
-    use super::{Keep, REASON};
+    use super::{Keep, reason};
 
     type CFStringRef = *const c_void;
     const UTF8: u32 = 0x0800_0100;
@@ -154,7 +157,7 @@ mod os {
     }
 
     fn assert(kind: &CStr) -> Option<u32> {
-        let reason = std::ffi::CString::new(REASON).ok()?;
+        let reason = std::ffi::CString::new(reason()).ok()?;
         unsafe {
             let kind = CFStringCreateWithCString(std::ptr::null(), kind.as_ptr(), UTF8);
             let name = CFStringCreateWithCString(std::ptr::null(), reason.as_ptr(), UTF8);
@@ -184,7 +187,7 @@ mod os {
     use dbus::blocking::Connection;
     use dbus::message::MatchRule;
 
-    use super::{Keep, REASON};
+    use super::{Keep, reason};
 
     const TIMEOUT: Duration = Duration::from_secs(5);
     const NO_ANSWER: u32 = u32::MAX;
@@ -233,7 +236,7 @@ mod os {
                 }
                 if keep == Keep::Display {
                     let screensaver = bus.with_proxy(SCREENSAVER, "/org/freedesktop/ScreenSaver", TIMEOUT);
-                    match screensaver.method_call(SCREENSAVER, "Inhibit", ("YT Music", REASON)) {
+                    match screensaver.method_call(SCREENSAVER, "Inhibit", ("YT Music", reason())) {
                         Ok((cookie,)) => self.screensaver = Some(cookie),
                         Err(e) => log::debug!("keep awake: no screensaver: {e}"),
                     }
@@ -241,7 +244,7 @@ mod os {
             }
             let logind = Connection::new_system().and_then(|c| {
                 c.with_proxy("org.freedesktop.login1", "/org/freedesktop/login1", TIMEOUT)
-                    .method_call("org.freedesktop.login1.Manager", "Inhibit", ("idle", "YT Music", REASON, "block"))
+                    .method_call("org.freedesktop.login1.Manager", "Inhibit", ("idle", "YT Music", reason(), "block"))
                     .map(|(fd,)| fd)
             });
             match logind {
@@ -258,7 +261,7 @@ mod os {
     fn portal(bus: &Connection, keep: Keep) -> Result<Path<'static>, dbus::Error> {
         let flags: u32 = if keep == Keep::Display { 4 | 8 } else { 4 };
         let mut options = PropMap::new();
-        options.insert("reason".into(), Variant(Box::new(REASON.to_owned())));
+        options.insert("reason".into(), Variant(Box::new(reason().to_owned())));
         let (handle,): (Path<'static>,) =
             bus.with_proxy(PORTAL, "/org/freedesktop/portal/desktop", TIMEOUT).method_call("org.freedesktop.portal.Inhibit", "Inhibit", ("", flags, options))?;
         let answer = Arc::new(AtomicU32::new(NO_ANSWER));

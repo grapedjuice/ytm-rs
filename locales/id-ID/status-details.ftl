@@ -39,8 +39,8 @@ status-songs = { $count ->
 status-episodes = { $count ->
    *[other] { $count } episode
 }
-status-plays = { $count } pemutaran
-status-subscribers = { $count } pelanggan
+status-plays = { $shown } pemutaran
+status-subscribers = { $shown } pelanggan
 status-download-quoted-title = “{ $title }”
 discord-view-artist = Lihat artis
 discord-view-album = Lihat album

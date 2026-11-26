@@ -39,12 +39,12 @@ status-songs = { $count ->
 }
 status-episodes = { $count } एपिसोड
 status-plays = { $count ->
-    [one] { $count } बार चला
-   *[other] { $count } बार चला
+    [one] { $shown } बार चला
+   *[other] { $shown } बार चला
 }
 status-subscribers = { $count ->
-    [one] { $count } सदस्य
-   *[other] { $count } सदस्य
+    [one] { $shown } सदस्य
+   *[other] { $shown } सदस्य
 }
 status-download-quoted-title = “{ $title }”
 discord-view-artist = कलाकार देखें

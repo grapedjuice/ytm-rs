@@ -136,12 +136,12 @@ impl Storage {
     }
 }
 
-/// `bytes` for people, in the app's language: "0 MB", "12 MB", "1.4 GB".
+/// `bytes` for people, in the app's language: "0 MB", "12 MB", "1.4 GB" ("1,4 GB" in German).
 pub fn size_text(bytes: u64) -> String {
     const MB: f64 = 1024.0 * 1024.0;
     let mb = bytes as f64 / MB;
     if mb >= 1024.0 {
-        crate::tr!("settings-size-gb", size = format!("{:.1}", mb / 1024.0))
+        crate::tr!("settings-size-gb", size = crate::i18n::decimal(&format!("{:.1}", mb / 1024.0)))
     } else if bytes > 0 && mb < 1.0 {
         crate::tr!("settings-size-under-mb").to_owned()
     } else {

@@ -36,12 +36,12 @@ status-age-restricted = yaş sınırlaması var
 status-songs = { $count } şarkı
 status-episodes = { $count } bölüm
 status-plays = { $count ->
-    [one] { $count } çalma
-   *[other] { $count } çalma
+    [one] { $shown } çalma
+   *[other] { $shown } çalma
 }
 status-subscribers = { $count ->
-    [one] { $count } abone
-   *[other] { $count } abone
+    [one] { $shown } abone
+   *[other] { $shown } abone
 }
 status-download-quoted-title = “{ $title }”
 discord-view-artist = Sanatçıyı görüntüle

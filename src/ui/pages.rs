@@ -1307,7 +1307,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let base = hero.left_bottom() + vec2(28.0, -30.0);
     ui.painter().text(base - vec2(0.0, 44.0), Align2::LEFT_BOTTOM, &a.name, theme::bold(58.0), Color32::WHITE);
     if let Some(s) = a.subscribers {
-        ui.painter().text(base - vec2(0.0, 18.0), Align2::LEFT_BOTTOM, crate::tr!("status-subscribers", count = compact(s)), theme::regular(14.0), theme::text_dim());
+        ui.painter().text(base - vec2(0.0, 18.0), Align2::LEFT_BOTTOM, crate::tr!("status-subscribers", count = s, shown = crate::i18n::decimal(&compact(s))), theme::regular(14.0), theme::text_dim());
     }
     ui.add_space(18.0);
     ui.horizontal(|ui| {

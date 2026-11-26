@@ -2058,8 +2058,8 @@ impl View {
             let names = &lyrics.songwriters;
             let text = match names.len() {
                 0 => String::new(),
-                1 => format!("Written by {}", names[0]),
-                n => format!("Written by {} & {}", names[..n - 1].join(", "), names[n - 1]),
+                1 => crate::tr!("player-lyrics-written-by", name = names[0].as_str()),
+                n => crate::tr!("player-lyrics-written-by-several", names = names[..n - 1].join(", "), last = names[n - 1].as_str()),
             };
             let font = theme::weighted(cfg.credits_weight, (cfg.size * 0.4).max(12.0));
             let wrap = width - cfg.size * 0.5;

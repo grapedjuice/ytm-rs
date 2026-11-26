@@ -27,6 +27,10 @@ player-only-lyrics-source = Lyrics source · only one found
 player-lyrics-source-name = Lyrics source: { $name }
 player-lyrics-from-unison = Lyrics from Unison
 player-lyrics-submitted-by = submitted by { $name }
+# Under the lyrics, who wrote the song.
+player-lyrics-written-by = Written by { $name }
+# { $names } is all but the last of them, between commas.
+player-lyrics-written-by-several = Written by { $names } & { $last }
 player-timing = Timing
 player-lyrics-later = Lyrics later (+0.1 s)
 player-lyrics-earlier = Lyrics earlier (−0.1 s)

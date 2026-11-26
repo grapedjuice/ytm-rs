@@ -15,7 +15,9 @@ use crossbeam_channel::{RecvTimeoutError, Sender};
 use rquickjs::{Context, Runtime, qjs};
 use tokio::sync::oneshot;
 
-/// yt-dlp/ejs 0.8.0 (Unlicense; bundles meriyah, ISC, and astring, MIT).
+/// yt-dlp/ejs 0.8.0 (Unlicense; bundles meriyah, ISC, and astring, MIT), with the core
+/// rebuilt with ejs's 40b7a7d (#81) until a release has it: newer players (92eef845,
+/// 05a4ffc0) failed with "not a function" without it.
 const LIB: &str = include_str!("../assets/ejs/yt.solver.lib.min.js");
 const CORE: &str = include_str!("../assets/ejs/yt.solver.core.min.js");
 /// A song's resolve and the next one's prefetch solve within seconds of each other.

@@ -25,6 +25,15 @@ nav-refresh-shortcut = 刷新 (F5)
 nav-search-music = 搜索歌曲、专辑或歌手
 nav-search-podcasts = 搜索歌曲、专辑、歌手或播客
 nav-clear-search = 清除搜索
+
+# A YouTube Music or YouTube link pasted into the search box.
+link-open = 打开链接
+link-not-found = 这个链接背后什么也没找到
+link-play-song = 播放这首歌
+link-open-album = 打开这张专辑
+link-open-playlist = 打开这个播放列表
+link-open-artist = 打开这位艺人
+link-queue-hint = Shift+Enter 将其加入队列
 nav-remove-recent-search = 从最近的搜索中删除
 nav-new-releases-for-you = 为您准备的新版本
 nav-new-releases = 热门新版本

@@ -49,6 +49,25 @@ status-episodes = { $count ->
     [many] { $count } حلقة
    *[other] { $count } حلقة
 }
+status-plays = { $count ->
+    [zero] { $count } استماع
+    [one] استماع واحد
+    [two] استماعان
+    [few] { $count } استماعات
+    [many] { $count } استماعاً
+   *[other] { $count } استماع
+}
+status-subscribers = { $count ->
+    [zero] { $count } مشترك
+    [one] مشترك واحد
+    [two] مشتركان
+    [few] { $count } مشتركين
+    [many] { $count } مشتركاً
+   *[other] { $count } مشترك
+}
 status-download-quoted-title = «{ $title }»
 discord-view-artist = عرض الفنّان
 discord-view-album = عرض الألبوم
+status-kept-downloaded = يبقى منزَّلاً: الأغاني التي تُضاف إلى قائمة التشغيل هذه تُنزَّل أيضاً
+status-not-kept-downloaded = لم يعد يبقى منزَّلاً. الأغاني المنزَّلة من قبل تبقى
+status-resumed-at = المتابعة من حيث توقفت، عند { $time }

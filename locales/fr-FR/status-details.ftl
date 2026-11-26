@@ -41,6 +41,17 @@ status-episodes = { $count ->
     [one] { $count } épisode
    *[other] { $count } épisodes
 }
+status-plays = { $count ->
+    [one] { $count } lecture
+   *[other] { $count } lectures
+}
+status-subscribers = { $count ->
+    [one] { $count } abonné
+   *[other] { $count } abonnés
+}
 status-download-quoted-title = « { $title } »
 discord-view-artist = Aller à l’artiste
 discord-view-album = Aller à l’album
+status-kept-downloaded = Conservée téléchargée : les titres ajoutés à cette playlist sont aussi téléchargés
+status-not-kept-downloaded = N’est plus conservée téléchargée. Les titres déjà téléchargés restent
+status-resumed-at = Reprise là où vous vous étiez arrêté, à { $time }

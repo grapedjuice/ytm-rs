@@ -25,6 +25,15 @@ nav-refresh-shortcut = 刷新 (F5)
 nav-search-music = 搜尋歌曲、專輯或藝人
 nav-search-podcasts = 搜尋歌曲、專輯、藝人或 Podcast
 nav-clear-search = 清除搜尋
+
+# A YouTube Music or YouTube link pasted into the search box.
+link-open = 開啟連結
+link-not-found = 這個連結背後什麼也沒找到
+link-play-song = 播放這首歌
+link-open-album = 開啟這張專輯
+link-open-playlist = 開啟這個播放清單
+link-open-artist = 開啟這位藝人
+link-queue-hint = Shift+Enter 將其加入佇列
 nav-remove-recent-search = 從最近的搜尋中刪除
 nav-new-releases-for-you = 為您準備的新版本
 nav-new-releases = 熱門新版本

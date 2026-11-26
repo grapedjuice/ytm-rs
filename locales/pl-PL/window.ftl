@@ -39,6 +39,7 @@ window-installed-when-closed = Wersja { $version } jest gotowa. Zainstaluje się
 window-notes-status = Używasz wersji { $version }. { $step }
 window-package-instructions = Pobierz nowy pakiet i zainstaluj go poleceniem sudo pacman -U.
 window-package-download = Pobierz i otwórz nowy plik .deb, aby go zainstalować.
+window-package-appimage = Pobierz nowy AppImage i użyj go zamiast tego.
 window-package-flatpak = Ta kopia aktualizuje się przez Flatpak: uruchom flatpak update albo sprawdź w sklepie z oprogramowaniem.
 window-keyboard-volume-up = Zwiększ głośność
 window-keyboard-volume-down = Zmniejsz głośność

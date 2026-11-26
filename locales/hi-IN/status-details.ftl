@@ -38,6 +38,17 @@ status-songs = { $count ->
    *[other] { $count } गाने
 }
 status-episodes = { $count } एपिसोड
+status-plays = { $count ->
+    [one] { $count } बार चला
+   *[other] { $count } बार चला
+}
+status-subscribers = { $count ->
+    [one] { $count } सदस्य
+   *[other] { $count } सदस्य
+}
 status-download-quoted-title = “{ $title }”
 discord-view-artist = कलाकार देखें
 discord-view-album = एल्बम देखें
+status-kept-downloaded = डाउनलोड रखा: इस प्लेलिस्ट में जोड़े गाने भी डाउनलोड होते हैं
+status-not-kept-downloaded = अब डाउनलोड नहीं रखा जाता। जो गाने डाउनलोड हो चुके हैं, वे रहते हैं
+status-resumed-at = जहाँ छोड़ा था, वहीं से, { $time } पर

@@ -41,6 +41,17 @@ status-episodes = { $count ->
     [one] { $count } episodio
    *[other] { $count } episodios
 }
+status-plays = { $count ->
+    [one] { $count } reproducción
+   *[other] { $count } reproducciones
+}
+status-subscribers = { $count ->
+    [one] { $count } suscriptor
+   *[other] { $count } suscriptores
+}
 status-download-quoted-title = «{ $title }»
 discord-view-artist = Ir al artista
 discord-view-album = Ir al álbum
+status-kept-downloaded = Se mantiene descargada: las canciones que se añadan a esta lista también se descargan
+status-not-kept-downloaded = Ya no se mantiene descargada. Las canciones ya descargadas siguen
+status-resumed-at = Retomando donde lo dejaste, en { $time }

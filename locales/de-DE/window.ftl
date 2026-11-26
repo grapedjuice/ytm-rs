@@ -32,6 +32,10 @@ window-loading-notes = Versionshinweise werden geladen…
 window-later = Später
 window-updated = Auf { $version } aktualisiert
 window-what-changed = Das hat sich geändert.
+window-more-changes = { $count ->
+    [one] + { $count } weitere Änderung
+   *[other] + { $count } weitere Änderungen
+}
 window-dismiss = Ausblenden
 window-all-notes = Alle Hinweise anzeigen
 window-got-it = Verstanden

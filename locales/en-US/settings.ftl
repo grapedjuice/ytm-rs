@@ -105,6 +105,11 @@ settings-not-connected = { $name } (not connected)
 settings-normalization-off-desc = Songs play as loud as they were made. Normal brings them all to the same level, and Quiet to the same, lower one.
 settings-normalization-normal-desc = Songs play at the same level: loud ones turned down, as on YouTube Music, and quiet ones up by as much as 6 dB.
 settings-normalization-quiet-desc = Songs play at the same, lower level: loud ones turned down further, so quiet ones rarely need turning up.
+# After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
+settings-normalization-song-no-figure = This song: no loudness figure from YouTube, so it plays as it is.
+settings-normalization-song-level = This song: already at the level.
+settings-normalization-song-up = This song: turned up { $db } dB.
+settings-normalization-song-down = This song: turned down { $db } dB.
 settings-headphone-crossfeed = Headphone crossfeed
 settings-headphone-crossfeed-desc = Let each ear hear a little of the other side's bass, as from speakers in front of you, so songs panned hard to one side are easier on the ears over headphones.
 settings-mono-audio = Mono audio

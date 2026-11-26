@@ -3909,7 +3909,7 @@ fn normalization_desc(app: &App) -> String {
         Normalize::Quiet => tr!("settings-normalization-quiet-desc"),
     };
     match (app.current().is_some(), super::shell::normalization_note(app)) {
-        (true, Some(note)) => format!("{what} This song: {note}."),
+        (true, Some(note)) => format!("{what} {note}"),
         _ => what.to_owned(),
     }
 }

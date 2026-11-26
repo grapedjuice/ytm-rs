@@ -401,6 +401,8 @@ pub fn icon_at(ui: &Ui, center: Pos2, glyph: char, size: f32, color: Color32) {
     let g = ui.painter().layout_no_wrap(glyph.to_string(), theme::icon_font(size), color);
     let ink = g.mesh_bounds;
     let pos = if ink.is_positive() { center - ink.center().to_vec2() } else { center - g.size() / 2.0 };
+    // Play is a triangle: centred on its box, its weight sits left. Centre its centroid.
+    let pos = if glyph == theme::icon::PLAY { pos + vec2(0.083 * size, 0.0) } else { pos };
     ui.painter().galley(pos, g, color);
 }
 
@@ -1426,11 +1428,13 @@ pub fn play_pause_glyph(ui: &Ui, center: Pos2, r: f32, color: Color32, playing: 
     }
 }
 
+/// A play triangle `r` tall each way from `center`, with its centroid (not its box) there,
+/// so in a round button it looks centred rather than leaning left.
 pub fn play_triangle(ui: &Ui, center: Pos2, r: f32, color: Color32) {
     let pts = vec![
-        center + vec2(-r * 0.6, -r),
-        center + vec2(r * 1.0, 0.0),
-        center + vec2(-r * 0.6, r),
+        center + vec2(-r * 0.6 + r / 15.0, -r),
+        center + vec2(r + r / 15.0, 0.0),
+        center + vec2(-r * 0.6 + r / 15.0, r),
     ];
     ui.painter().add(egui::Shape::convex_polygon(pts, color, egui::Stroke::NONE));
 }

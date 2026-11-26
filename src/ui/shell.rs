@@ -398,7 +398,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         let (r, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
         ui.painter().circle_filled(r.center(), 16.0, theme::RED);
         ui.painter().circle_stroke(r.center(), 9.5, egui::Stroke::new(1.6, Color32::WHITE));
-        widgets::play_triangle(ui, r.center() + vec2(0.8, 0.0), 4.6, Color32::WHITE);
+        widgets::play_triangle(ui, r.center() + vec2(0.5, 0.0), 4.6, Color32::WHITE);
         ui.add_space(8.0);
         let logo = app.look().app.top_bar.clone();
         let text_r = if logo.logo_text.is_empty() {
@@ -1834,7 +1834,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     } else if morph > 0.5 {
         widgets::pause_bars(ui, center, 8.0 * (2.0 * morph - 1.0).max(0.4), glyph);
     } else {
-        widgets::play_triangle(ui, center + vec2(1.5, 0.0), 8.5 * (1.0 - 2.0 * morph).max(0.4), glyph);
+        widgets::play_triangle(ui, center, 8.5 * (1.0 - 2.0 * morph).max(0.4), glyph);
     }
     if presp.clicked() {
         app.toggle();

@@ -1224,7 +1224,8 @@ impl Output {
             Ok(s) => s,
             Err(e) => {
                 log::warn!("audio: couldn't open the output device: {e}");
-                forget_stand_in();
+                // A picked device failing isn't the default's.
+                forget_stand_in(id.as_deref().filter(|_| card(&self.destination).is_none()));
                 return false;
             }
         };
@@ -1335,72 +1336,115 @@ fn target(preferred: Option<&str>) -> Option<rodio::cpal::Device> {
     {
         return Some(d);
     }
-    let default = host.default_output_device()?;
     // Only ALSA's default can point at an output that can't open (`hw:0` where the sound
     // server's ALSA plugin isn't set as the default). Other systems' default is what they
-    // play on, so it's kept even while it fails, as before.
-    if !default.id().is_ok_and(|i| i.to_string() == "alsa:default") {
-        return Some(default);
+    // play on, so it's kept even while it fails, as before. (By the host's id: a device's
+    // `id` leaks a string on Windows.)
+    if host.id().name() != "Alsa" {
+        return host.default_output_device();
     }
-    let mut cache = STAND_IN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let default = Pcm::new(host.default_output_device()?)?;
     let stand_ins = || {
-        let mut all: Vec<(String, rodio::cpal::Device)> = host
-            .output_devices()
-            .map(|list| list.filter_map(|d| Some((d.id().ok()?.to_string(), d))).collect())
-            .unwrap_or_default();
-        let ids = all.iter().map(|(id, _)| id.clone()).collect();
+        let mut all: Vec<Pcm> = host.output_devices().map(|list| list.filter_map(Pcm::new).collect()).unwrap_or_default();
+        let ids = all.iter().map(|p| p.id.clone()).collect();
         fallbacks(ids)
             .into_iter()
             .filter_map(|id| {
-                let at = all.iter().position(|(i, _)| *i == id)?;
-                Some(all.swap_remove(at).1)
+                let at = all.iter().position(|p| p.id == id)?;
+                Some(all.swap_remove(at))
             })
             .collect()
     };
-    resolve(&mut cache, Instant::now(), default, |d| d.default_output_config().is_ok(), stand_ins)
+    let mut state = STAND_IN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let plays = |p: &Pcm| p.device.default_output_config().is_ok();
+    resolve(&mut state, Instant::now(), default, plays, stand_ins).map(|p| p.device)
 }
 
-/// What ALSA's default resolved to: `None` while it plays itself, else what stands in
-/// for it (`fallbacks`) and since when. Nothing's kept while nothing plays.
-static STAND_IN: std::sync::Mutex<Option<Resolved<rodio::cpal::Device>>> = std::sync::Mutex::new(None);
+/// An ALSA output, told apart by its id.
+#[derive(Clone)]
+struct Pcm {
+    id: String,
+    device: rodio::cpal::Device,
+}
 
-/// How long a stand-in plays before the default is tried again: it may only have failed
-/// for a while (the sound server not up yet at login, or restarting). Each try of a
-/// default that can't open prints an ALSA error.
+impl Pcm {
+    fn new(device: rodio::cpal::Device) -> Option<Self> {
+        Some(Self { id: device.id().ok()?.to_string(), device })
+    }
+}
+
+impl PartialEq for Pcm {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl AsRef<str> for Pcm {
+    fn as_ref(&self) -> &str {
+        &self.id
+    }
+}
+
+static STAND_IN: std::sync::Mutex<StandIn<Pcm>> = std::sync::Mutex::new(StandIn { resolved: None, failed: Vec::new() });
+
+/// How long a stand-in plays before what's better is tried again: the default, or the
+/// sound server, may only have failed for a while (not up yet at login, or restarting).
+/// Each try of a default that can't open prints an ALSA error.
 const STAND_IN_FOR: Duration = Duration::from_secs(30);
 
+/// How long an output that opened for `resolve`'s try but then couldn't play is passed
+/// over: else it'd be picked again every time, and what plays never would.
+const FAILED_FOR: Duration = Duration::from_secs(300);
+
+/// What ALSA's default resolved to (`resolve`), and the outputs that lately couldn't play.
+struct StandIn<D> {
+    resolved: Option<Resolved<D>>,
+    failed: Vec<(String, Instant)>,
+}
+
+/// `None` in `stand_in`: the default plays itself. Since when, for `STAND_IN_FOR`.
 struct Resolved<D> {
     stand_in: Option<D>,
     since: Instant,
 }
 
-/// Forgets what ALSA's default resolved to, for the next `target` to try it again: the
-/// device it gave couldn't open.
-fn forget_stand_in() {
-    *STAND_IN.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+/// The device "System default" gave, `id`, couldn't play: the next `target` tries again,
+/// passing it over for `FAILED_FOR`.
+fn forget_stand_in(id: Option<&str>) {
+    forget(&mut STAND_IN.lock().unwrap_or_else(std::sync::PoisonError::into_inner), id, Instant::now());
 }
 
-/// The default if it `plays`, else the first of `stand_ins` that does, with `cache` sparing
-/// the tries `default_changed` would make every second. A default that played is kept
-/// till `forget_stand_in`, so the device in use isn't opened again (a card's `hw` would
-/// be busy). A stand-in gives way to the default once it plays again, tried each
-/// `STAND_IN_FOR`; the stand-in itself isn't tried again then, being in use.
-fn resolve<D: Clone>(cache: &mut Option<Resolved<D>>, now: Instant, default: D, plays: impl Fn(&D) -> bool, stand_ins: impl FnOnce() -> Vec<D>) -> Option<D> {
-    match cache {
+fn forget<D>(state: &mut StandIn<D>, id: Option<&str>, now: Instant) {
+    state.resolved = None;
+    state.failed.retain(|(_, at)| now.duration_since(*at) < FAILED_FOR);
+    if let Some(id) = id {
+        state.failed.push((id.to_owned(), now));
+    }
+}
+
+/// The default if it `plays`, else the first of `stand_ins` (best first) that does, with
+/// `state` sparing the tries `default_changed` would make every second. Nothing's kept
+/// while nothing plays.
+///
+/// A default that played is kept till `forget`, so the device in use isn't opened again
+/// (a card's `hw` would be busy). Each `STAND_IN_FOR`, a stand-in gives way to the default
+/// or a better stand-in that plays now (the sound server come up after a card took over);
+/// the stand-in itself isn't tried again then, being in use.
+fn resolve<D: Clone + PartialEq + AsRef<str>>(state: &mut StandIn<D>, now: Instant, default: D, plays: impl Fn(&D) -> bool, stand_ins: impl FnOnce() -> Vec<D>) -> Option<D> {
+    let kept = match &state.resolved {
         Some(Resolved { stand_in: None, .. }) => return Some(default),
         Some(Resolved { stand_in: Some(d), since }) if now.duration_since(*since) < STAND_IN_FOR => return Some(d.clone()),
-        _ => {}
-    }
-    if plays(&default) {
-        *cache = Some(Resolved { stand_in: None, since: now });
+        Some(Resolved { stand_in, .. }) => stand_in.clone(),
+        None => None,
+    };
+    state.failed.retain(|(_, at)| now.duration_since(*at) < FAILED_FOR);
+    let failed = |d: &D| state.failed.iter().any(|(id, _)| id == d.as_ref());
+    if !failed(&default) && plays(&default) {
+        state.resolved = Some(Resolved { stand_in: None, since: now });
         return Some(default);
     }
-    if let Some(Resolved { stand_in: Some(d), since }) = cache {
-        *since = now;
-        return Some(d.clone());
-    }
-    let found = stand_ins().into_iter().find(|d| plays(d));
-    *cache = found.clone().map(|d| Resolved { stand_in: Some(d), since: now });
+    let found = stand_ins().into_iter().find(|d| kept.as_ref() == Some(d) || (!failed(d) && plays(d)));
+    state.resolved = found.clone().map(|d| Resolved { stand_in: Some(d), since: now });
     found
 }
 
@@ -2477,47 +2521,72 @@ mod tests {
     }
 
     /// `resolve` with `up` the outputs that play, returning what it picked and what it tried.
-    fn resolve_with(cache: &mut Option<Resolved<&'static str>>, now: Instant, up: &[&str]) -> (Option<&'static str>, Vec<&'static str>) {
+    fn resolve_with(state: &mut StandIn<&'static str>, now: Instant, up: &[&str]) -> (Option<&'static str>, Vec<&'static str>) {
         let tried = std::cell::RefCell::new(Vec::new());
         let plays = |d: &&'static str| {
             tried.borrow_mut().push(*d);
             up.contains(d)
         };
-        let picked = resolve(cache, now, "alsa:default", plays, || vec!["alsa:pipewire", "alsa:sysdefault:CARD=Generic"]);
+        let picked = resolve(state, now, "alsa:default", plays, || vec!["alsa:pipewire", "alsa:sysdefault:CARD=Generic"]);
         (picked, tried.into_inner())
+    }
+
+    fn stand_in() -> StandIn<&'static str> {
+        StandIn { resolved: None, failed: Vec::new() }
     }
 
     #[test]
     fn a_default_that_cant_play_is_tried_again_while_nothing_plays() {
-        let (mut cache, now) = (None, Instant::now());
+        let (mut state, now) = (stand_in(), Instant::now());
         // At login, before the sound server is up: nothing plays, and nothing's kept.
-        assert_eq!(resolve_with(&mut cache, now, &[]).0, None);
-        assert!(cache.is_none());
-        assert_eq!(resolve_with(&mut cache, now, &["alsa:pipewire"]), (Some("alsa:pipewire"), vec!["alsa:default", "alsa:pipewire"]));
+        assert_eq!(resolve_with(&mut state, now, &[]).0, None);
+        assert!(state.resolved.is_none());
+        assert_eq!(resolve_with(&mut state, now, &["alsa:pipewire"]), (Some("alsa:pipewire"), vec!["alsa:default", "alsa:pipewire"]));
     }
 
     #[test]
     fn a_stand_in_gives_way_to_the_default_once_it_plays_again() {
-        let (mut cache, now) = (None, Instant::now());
-        assert_eq!(resolve_with(&mut cache, now, &["alsa:pipewire"]).0, Some("alsa:pipewire"));
+        let (mut state, now) = (stand_in(), Instant::now());
+        assert_eq!(resolve_with(&mut state, now, &["alsa:pipewire"]).0, Some("alsa:pipewire"));
         // Kept without trying anything for a while, though the default plays again.
-        assert_eq!(resolve_with(&mut cache, now + STAND_IN_FOR / 2, &["alsa:default", "alsa:pipewire"]), (Some("alsa:pipewire"), vec![]));
+        assert_eq!(resolve_with(&mut state, now + STAND_IN_FOR / 2, &["alsa:default", "alsa:pipewire"]), (Some("alsa:pipewire"), vec![]));
         // Then the default's tried, not the stand-in in use (a card's `hw` would be busy).
         let later = now + STAND_IN_FOR;
-        assert_eq!(resolve_with(&mut cache, later, &["alsa:pipewire"]), (Some("alsa:pipewire"), vec!["alsa:default"]));
-        assert_eq!(resolve_with(&mut cache, later + STAND_IN_FOR / 2, &["alsa:default"]), (Some("alsa:pipewire"), vec![]));
-        assert_eq!(resolve_with(&mut cache, later + STAND_IN_FOR, &["alsa:default"]), (Some("alsa:default"), vec!["alsa:default"]));
+        assert_eq!(resolve_with(&mut state, later, &["alsa:pipewire"]), (Some("alsa:pipewire"), vec!["alsa:default"]));
+        assert_eq!(resolve_with(&mut state, later + STAND_IN_FOR / 2, &["alsa:default"]), (Some("alsa:pipewire"), vec![]));
+        assert_eq!(resolve_with(&mut state, later + STAND_IN_FOR, &["alsa:default"]), (Some("alsa:default"), vec!["alsa:default"]));
+    }
+
+    #[test]
+    fn a_card_gives_way_to_the_sound_server_come_up() {
+        let (mut state, now) = (stand_in(), Instant::now());
+        let card = "alsa:sysdefault:CARD=Generic";
+        assert_eq!(resolve_with(&mut state, now, &[card]).0, Some(card));
+        // The server's not up yet at the next check; the card in use isn't tried.
+        assert_eq!(resolve_with(&mut state, now + STAND_IN_FOR, &[card]), (Some(card), vec!["alsa:default", "alsa:pipewire"]));
+        assert_eq!(resolve_with(&mut state, now + STAND_IN_FOR * 2, &["alsa:pipewire"]), (Some("alsa:pipewire"), vec!["alsa:default", "alsa:pipewire"]));
     }
 
     #[test]
     fn a_default_that_plays_is_kept_till_forgotten() {
-        let (mut cache, now) = (None, Instant::now());
-        assert_eq!(resolve_with(&mut cache, now, &["alsa:default"]).0, Some("alsa:default"));
+        let (mut state, now) = (stand_in(), Instant::now());
+        assert_eq!(resolve_with(&mut state, now, &["alsa:default"]).0, Some("alsa:default"));
         // In use, so not opened again, even long after.
-        assert_eq!(resolve_with(&mut cache, now + STAND_IN_FOR * 10, &[]), (Some("alsa:default"), vec![]));
-        // It couldn't open (`forget_stand_in`): tried again, and the first that plays stands in.
-        cache = None;
-        assert_eq!(resolve_with(&mut cache, now, &["alsa:sysdefault:CARD=Generic"]).0, Some("alsa:sysdefault:CARD=Generic"));
+        assert_eq!(resolve_with(&mut state, now + STAND_IN_FOR * 10, &[]), (Some("alsa:default"), vec![]));
+        // It couldn't open: tried again, and the first that plays stands in.
+        forget(&mut state, None, now);
+        assert_eq!(resolve_with(&mut state, now, &["alsa:sysdefault:CARD=Generic"]).0, Some("alsa:sysdefault:CARD=Generic"));
+    }
+
+    #[test]
+    fn an_output_that_passed_the_try_but_couldnt_play_is_passed_over_for_a_while() {
+        let (mut state, now) = (stand_in(), Instant::now());
+        let up = ["alsa:default", "alsa:pipewire"];
+        assert_eq!(resolve_with(&mut state, now, &up).0, Some("alsa:default"));
+        // It opened for the try, but no stream could be built on it.
+        forget(&mut state, Some("alsa:default"), now);
+        assert_eq!(resolve_with(&mut state, now, &up), (Some("alsa:pipewire"), vec!["alsa:pipewire"]));
+        assert_eq!(resolve_with(&mut state, now + FAILED_FOR, &up), (Some("alsa:default"), vec!["alsa:default"]));
     }
 
     #[test]

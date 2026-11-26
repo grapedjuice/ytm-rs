@@ -233,13 +233,13 @@ fn analyse(img: &image::RgbImage) -> Look {
     // share — nine-tenths black around one bright red rose should still tint a little.
     let raw = (chroma / n + bucket_n / n * 0.35).clamp(0.0, 1.0);
     let colour = smoothstep(GREYSCALE, 0.26, raw);
+    // A greyscale sleeve's accent follows its tone rather than inventing a hue: a
+    // dark one inverts to near-white (the sleeve's own ink), a pale one settles at
+    // mid grey; both read against the blurred backdrop.
+    let luma = 0.299 * mean[0] + 0.587 * mean[1] + 0.114 * mean[2];
+    let neutral = if luma > 0.6 { 140.0 } else { 210.0 };
     let accent = if colour <= 0.0 {
-        // A greyscale sleeve: the accent follows its tone rather than inventing a
-        // hue. A dark one inverts to near-white (the sleeve's own ink), a pale one
-        // settles at mid grey; both read against the blurred backdrop.
-        let luma = 0.299 * mean[0] + 0.587 * mean[1] + 0.114 * mean[2];
-        let g = (if luma > 0.6 { 140.0 } else { 210.0 }) as u8;
-        Color32::from_rgb(g, g, g)
+        Color32::from_gray(neutral as u8)
     } else if bucket_n / n >= VIVID_SHARE {
         // A bright vivid area the sleeve really shows: its score-weighted colour,
         // lifted for the UI. Full strength, whatever the cover's overall greyness —
@@ -255,17 +255,13 @@ fn analyse(img: &image::RgbImage) -> Look {
         // sleeve, say): the mean, lifted gently. Amplifying a dark mean without
         // bound is the other way a whisper of colour became a bright wash.
         let mut c = lift([mean[0] * 255.0, mean[1] * 255.0, mean[2] * 255.0], 3.0);
-        // The hue here is a wash, not a choice, so fade it toward its own grey as
-        // the colour drains: the boundary to greyscale is a fade, not a cliff.
+        // The hue here is a wash, not a choice, so fade it toward the greyscale
+        // accent as the colour drains: the boundary to greyscale is a fade, not a
+        // cliff (fading to its own grey left a dim, hard-to-read accent there).
         let keep = (colour * 2.0).min(1.0);
         if keep < 1.0 {
-            let a = [c.r() as f32, c.g() as f32, c.b() as f32];
-            let l = 0.299 * a[0] + 0.587 * a[1] + 0.114 * a[2];
-            c = Color32::from_rgb(
-                (l + (a[0] - l) * keep) as u8,
-                (l + (a[1] - l) * keep) as u8,
-                (l + (a[2] - l) * keep) as u8,
-            );
+            let fade = |v: u8| (neutral + (f32::from(v) - neutral) * keep) as u8;
+            c = Color32::from_rgb(fade(c.r()), fade(c.g()), fade(c.b()));
         }
         c
     };
@@ -422,18 +418,24 @@ mod tests {
 
     #[test]
     fn tint_aims_below_the_ui_accent() {
-        // The colour the backdrop is pulled toward is dimmed, so a dark sleeve's
-        // backdrop stays dark; only the UI accent itself is lifted.
-        let img = sleeve([200, 40, 60], [220, 60, 40]);
-        let look = analyse(&img);
-        let mut tint = [look.accent.r() as f32, look.accent.g() as f32, look.accent.b() as f32];
-        let l = 0.299 * tint[0] + 0.587 * tint[1] + 0.114 * tint[2];
-        if l > TINT_LUMA {
-            for c in &mut tint {
-                *c *= TINT_LUMA / l;
-            }
-        }
-        assert!(0.299 * tint[0] + 0.587 * tint[1] + 0.114 * tint[2] <= TINT_LUMA + 0.01);
+        // Half bright yellow, half black: the UI accent is the yellow at full brightness,
+        // but the black is pulled only toward a dimmed accent, so it stays dark.
+        let img = patch([0, 0, 0], [230, 220, 40], 0, 23);
+        assert!(luma(analyse(&img).accent) > TINT_LUMA, "needs an accent the tint has to dim");
+        let art = process_rgb(&img);
+        let corner = &art.rgba[art.rgba.len() - 4..];
+        let l = 0.299 * corner[0] as f32 + 0.587 * corner[1] as f32 + 0.114 * corner[2] as f32;
+        // 49 with the dimming, 89 without it.
+        assert!(l < 70.0, "the black corner glows: luma {l}");
+    }
+
+    #[test]
+    fn a_faint_cast_keeps_a_readable_accent() {
+        // Near-black with a faint blue cast: just past greyscale, so its mean hue is
+        // faded out. It fades toward the greyscale accent, not toward its own dim
+        // grey, which read at under 2:1 on the dark UI.
+        let accent = analyse(&patch([10, 16, 26], [10, 16, 26], 0, 0)).accent;
+        assert!(luma(accent) > 150.0, "{accent:?}");
     }
 
     #[test]

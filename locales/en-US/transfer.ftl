@@ -22,6 +22,10 @@ transfer-estimate = Search time for { $count } tracks: about { $time }. You can 
 transfer-listen-while-running = You can keep listening while it runs.
 transfer-pick-playlist = Pick a playlist to copy.
 transfer-playlist = Playlist
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = What to copy
+transfer-step-where = Where should they go?
+transfer-step-new-playlist = New YouTube Music playlist
 transfer-spotify-account = Spotify account
 transfer-signed-in-plan = Signed in · works with Free and Premium
 transfer-signed-in-as = Signed in as { $name }

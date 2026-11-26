@@ -95,8 +95,9 @@ fn radio(ui: &Ui, center: egui::Pos2, on: f32, accent: Color32) {
     }
 }
 
-fn small_caps(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).font(theme::bold(11.5)).color(theme::text_faint()));
+/// A numbered step's heading, in capitals.
+fn small_caps(ui: &mut Ui, step: u8, text: &str) {
+    ui.label(RichText::new(format!("{step} · {}", text.to_uppercase())).font(theme::bold(11.5)).color(theme::text_faint()));
     ui.add_space(8.0);
 }
 
@@ -275,7 +276,7 @@ fn setup(app: &mut App, ui: &mut Ui) {
         if col == 0 {
             settings_card(ui, |ui| {
                 ui.add_space(14.0);
-                small_caps(ui, "1 · WHAT TO COPY");
+                small_caps(ui, 1, crate::tr!("transfer-step-what"));
                 match &account {
                     Account::SignedIn { .. } if library.is_empty() => dim(ui, crate::tr!("transfer-empty-library")),
                     Account::SignedIn { .. } => {
@@ -345,7 +346,7 @@ fn setup(app: &mut App, ui: &mut Ui) {
         } else {
             settings_card(ui, |ui| {
                 ui.add_space(14.0);
-                small_caps(ui, "2 · SPOTIFY ACCOUNT");
+                small_caps(ui, 2, crate::tr!("transfer-spotify-account"));
                 spotify_account_row(app, ui, &account, true);
                 ui.add_space(10.0);
             });
@@ -513,7 +514,7 @@ fn destination(app: &mut App, ui: &mut Ui, chosen: Option<&Entry>, accent: Color
     }
     let liked_offer = chosen.is_some_and(likes_like);
     if liked_offer {
-        small_caps(ui, "3 · WHERE SHOULD THEY GO?");
+        small_caps(ui, 3, crate::tr!("transfer-step-where"));
         for (to_liked, title, desc) in [
             (true, crate::tr!("transfer-dest-liked"), crate::tr!("transfer-dest-liked-desc")),
             (false, crate::tr!("transfer-dest-new"), crate::tr!("transfer-private-playlist")),
@@ -538,7 +539,7 @@ fn destination(app: &mut App, ui: &mut Ui, chosen: Option<&Entry>, accent: Color
         }
         ui.add_space(10.0);
     } else {
-        small_caps(ui, "3 · NEW YOUTUBE MUSIC PLAYLIST");
+        small_caps(ui, 3, crate::tr!("transfer-step-new-playlist"));
     }
     dim(ui, crate::tr!("dialog-name"));
     ui.add_space(6.0);

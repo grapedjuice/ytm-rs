@@ -120,6 +120,17 @@ settings-equalizer-desc = Shape the sound from deep bass to treble. Only what yo
 settings-preset = Preset
 settings-custom = Custom
 settings-equalizer-preset = Equalizer preset
+# The equalizer's presets.
+settings-eq-flat = Flat
+settings-eq-bass-boost = Bass boost
+settings-eq-treble-boost = Treble boost
+settings-eq-vocal = Vocal
+settings-eq-rock = Rock
+settings-eq-pop = Pop
+settings-eq-electronic = Electronic
+settings-eq-acoustic = Acoustic
+settings-eq-classical = Classical
+settings-eq-late-night = Late night
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = Equalizer bands bass mids treble frequency
 settings-prevent-clipping = Prevent clipping

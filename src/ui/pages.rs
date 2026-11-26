@@ -3727,6 +3727,27 @@ fn hint_row(ui: &mut Ui, mark: char, label: &str, hint: &str) -> egui::Response 
     resp
 }
 
+/// An equalizer preset's name (`eq::PRESETS`'), in the app's language.
+fn eq_preset_label(name: &'static str) -> &'static str {
+    eq_preset_message(name).unwrap_or(name)
+}
+
+fn eq_preset_message(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "Flat" => tr!("settings-eq-flat"),
+        "Bass boost" => tr!("settings-eq-bass-boost"),
+        "Treble boost" => tr!("settings-eq-treble-boost"),
+        "Vocal" => tr!("settings-eq-vocal"),
+        "Rock" => tr!("settings-eq-rock"),
+        "Pop" => tr!("settings-eq-pop"),
+        "Electronic" => tr!("settings-eq-electronic"),
+        "Acoustic" => tr!("settings-eq-acoustic"),
+        "Classical" => tr!("settings-eq-classical"),
+        "Late night" => tr!("settings-eq-late-night"),
+        _ => return None,
+    })
+}
+
 /// Settings › Playback › Equalizer.
 fn settings_equalizer(app: &mut App, ui: &mut Ui) {
     use crate::audio::eq;
@@ -3739,13 +3760,13 @@ fn settings_equalizer(app: &mut App, ui: &mut Ui) {
         ui.add_enabled_ui(app.eq_on, |ui| {
             divider(ui);
             setting_row(ui, tr!("settings-preset"), None, |ui| {
-                let btn = dropdown_button(ui, eq::preset_name(&app.eq_gains).unwrap_or(tr!("settings-custom")), 180.0, tr!("settings-equalizer-preset"));
+                let btn = dropdown_button(ui, eq::preset_name(&app.eq_gains).map_or(tr!("settings-custom"), eq_preset_label), 180.0, tr!("settings-equalizer-preset"));
                 let mut pick = None;
                 widgets::menu_popup(&btn).show(|ui| {
                     widgets::menu_body(ui, 200.0);
                     dropdown_list(ui, 380.0, |ui| {
                         for (name, gains) in &eq::PRESETS {
-                            if option_row(ui, name, app.eq_gains == *gains).clicked() {
+                            if option_row(ui, eq_preset_label(name), app.eq_gains == *gains).clicked() {
                                 pick = Some(*gains);
                                 ui.close();
                             }
@@ -4384,5 +4405,15 @@ mod settings_search_tests {
         // Jam and transfer use the same rows, with no search on their pages.
         assert!(!filtering());
         assert!(filter_hit("anything at all"));
+    }
+}
+
+#[cfg(test)]
+mod eq_preset_tests {
+    #[test]
+    fn every_equalizer_preset_has_a_message() {
+        for (name, _) in &crate::audio::eq::PRESETS {
+            assert!(super::eq_preset_message(name).is_some(), "{name}");
+        }
     }
 }

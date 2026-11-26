@@ -236,6 +236,19 @@ impl Shared {
         self.inner.lock().unwrap().blocks.iter().all(Option::is_some)
     }
 
+    /// How much of the song's start is in memory, unbroken: reading that far won't wait
+    /// on the download. (Estimated from its bytes, outside HLS.)
+    pub fn head_in_memory(&self) -> Duration {
+        let inner = self.inner.lock().unwrap();
+        let n = inner.blocks.iter().take_while(|b| b.is_some()).count();
+        let secs = match &self.segments {
+            _ if n == inner.blocks.len() => self.duration_ms as f64 / 1000.0,
+            Some(starts) => starts.get(n).copied().unwrap_or(0.0),
+            None => block_start(n) as f64 / self.total.max(1) as f64 * self.duration_ms as f64 / 1000.0,
+        };
+        Duration::from_secs_f64(secs.max(0.0))
+    }
+
     /// Wait up to `max_wait` for the first `HEAD_BLOCKS` (~320 KB / ~10 s at 256 kbps, or
     /// two HLS segments) to land in memory, so a staged gapless track doesn't stall the
     /// audio callback on the network right after handoff.

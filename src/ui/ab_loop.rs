@@ -62,10 +62,12 @@ impl App {
         self.ab_loop.as_mut()
     }
 
+    /// Start at `at`, and play from there.
     pub(super) fn loop_start_at(&mut self, at: f32) {
-        if let Some(l) = self.loop_here() {
-            l.start_at(at as f64);
-        }
+        let Some(l) = self.loop_here() else { return };
+        l.start_at(at as f64);
+        let start = l.start;
+        self.loop_back(start);
     }
 
     pub(super) fn loop_end_at(&mut self, at: f32) {
@@ -78,6 +80,12 @@ impl App {
         }
         if let Some(l) = self.loop_here() {
             l.end_at(at);
+        }
+        // Already past it: back to the start now.
+        if let Some((start, end)) = self.ab_stretch()
+            && self.audio.status.position_smooth().as_secs_f64() >= end
+        {
+            self.loop_back(start);
         }
     }
 
@@ -151,6 +159,8 @@ pub(super) fn loop_menu(app: &mut App, ui: &Ui, resp: &Response, line: Rect, tot
     }
     let looping = app.ab_loop().is_some();
     widgets::right_click_menu(resp).show(|ui| {
+        // Its own width: a menu is otherwise as wide as what it's on, here the whole bar.
+        widgets::menu_body(ui, 190.0);
         let t = ui.ctx().data(|d| d.get_temp::<f32>(at_id)).unwrap_or(pos);
         if widgets::menu_action(ui, Some(icon::REPEAT), crate::tr!("ui-loop-start")) {
             app.actions.push(Action::LoopStart(t));
@@ -166,7 +176,8 @@ pub(super) fn loop_menu(app: &mut App, ui: &Ui, resp: &Response, line: Rect, tot
 
 /// The loop's stretch on a seek bar's `line`: lit along it in `mark`, with a tick at each
 /// end it has. The ticks have a dark edge, to show on a played part filled in `mark` too.
-pub(super) fn paint_loop(app: &App, ui: &Ui, line: Rect, total: f32, radius: f32, mark: Color32) {
+/// While it loops, the part played before its start (at `pos`) is dimmed: not the loop's.
+pub(super) fn paint_loop(app: &App, ui: &Ui, line: Rect, total: f32, pos: f32, radius: f32, mark: Color32) {
     let Some(l) = app.ab_loop().filter(|_| total > 0.0) else { return };
     let x = |s: f64| line.left() + line.width() * (s as f32 / total).clamp(0.0, 1.0);
     let tick = |at: f32| {
@@ -174,8 +185,12 @@ pub(super) fn paint_loop(app: &App, ui: &Ui, line: Rect, total: f32, radius: f32
         ui.painter().rect_filled(r, 1.0, theme::with_alpha(mark, 0.9));
         ui.painter().rect_stroke(r, 1.0, egui::Stroke::new(1.0, theme::shade(0.35)), egui::StrokeKind::Outside);
     };
-    // The end it goes back from, kept clear of a crossfade.
+    // Looping: to the end it goes back from, kept clear of a crossfade.
     if let Some((_, end)) = app.ab_stretch() {
+        let before = Rect::from_min_max(line.min, pos2(x(l.start).min(x(pos as f64)), line.bottom()));
+        if before.width() > 0.0 {
+            ui.painter().rect_filled(before, radius, theme::shade(0.55));
+        }
         let band = Rect::from_min_max(pos2(x(l.start), line.top()), pos2(x(end), line.bottom()));
         ui.painter().rect_filled(band, radius, theme::with_alpha(mark, 0.35));
         tick(x(end));

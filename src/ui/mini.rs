@@ -2048,7 +2048,7 @@ fn card_seek(app: &mut App, ui: &mut Ui, line: Rect, track: Option<&crate::model
     let frac = if total > 0.0 { pos / total } else { 0.0 };
     let fill = Rect::from_min_size(bar.min, vec2(bar.width() * frac, thick));
     ui.painter().rect_filled(fill, thick / 2.0, app.accent_color());
-    super::ab_loop::paint_loop(app, ui, bar, total, thick / 2.0, theme::text());
+    super::ab_loop::paint_loop(app, ui, bar, total, pos, thick / 2.0, theme::text());
     super::ab_loop::loop_menu(app, ui, &resp, bar, total, pos);
     if h > 0.0 {
         ui.painter().circle_filled(pos2(fill.right(), bar.center().y), 6.0 * h, theme::text());
@@ -2211,7 +2211,7 @@ fn seek_line(app: &mut App, ui: &mut Ui, r: Rect, track: Option<&crate::model::T
     ui.painter().rect_filled(line, 0.0, theme::glass(0.2));
     let frac = if total > 0.0 { pos / total } else { 0.0 };
     ui.painter().rect_filled(Rect::from_min_size(line.min, vec2(line.width() * frac, thick)), 0.0, app.accent_color());
-    super::ab_loop::paint_loop(app, ui, line, total, 0.0, theme::text());
+    super::ab_loop::paint_loop(app, ui, line, total, pos, 0.0, theme::text());
     super::ab_loop::loop_menu(app, ui, &resp, line, total, pos);
     let at = |p: Pos2| ((p.x - r.left()) / r.width()).clamp(0.0, 1.0) * total;
     if h > 0.0

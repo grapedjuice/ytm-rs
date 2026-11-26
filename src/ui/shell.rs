@@ -1446,7 +1446,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     } else {
         ui.painter().rect_filled(filled, progress_r, progress_color);
     }
-    super::ab_loop::paint_loop(app, ui, line, total, progress_r, theme::text());
+    super::ab_loop::paint_loop(app, ui, line, total, pos, progress_r, theme::text());
     if (h > 0.0 || always) && total > 0.0 {
         if progress_thumb {
             // It sticks out above the bar, over now playing (a higher layer than the bar), so

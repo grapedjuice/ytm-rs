@@ -95,7 +95,6 @@ settings-output-device-desc-system = Где играет музыка: дина�
 settings-windows-default = По умолчанию в Windows
 settings-system-default = По умолчанию в системе
 settings-not-connected = { $name } (не подключено)
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Треки играют с исходной громкостью. Обычный режим выравнивает громкость, а тихий выравнивает её на более низком уровне.
 settings-normalization-normal-desc = Треки звучат на одном уровне. Как в YouTube Music, громкие треки приглушаются, а тихие усиливаются до 6 дБ.
 settings-normalization-quiet-desc = Треки звучат на одном пониженном уровне. Громкие приглушаются сильнее, поэтому тихие почти не нужно усиливать.

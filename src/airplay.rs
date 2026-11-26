@@ -23,7 +23,8 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 mod ap2;
 mod pair;
 
-/// Output device ids of AirPlay speakers start with this; sound cards' are cpal's.
+/// What a speaker picked was saved as before "Play on": this and its mDNS name (see
+/// `destination::Destination::parse`).
 pub const PREFIX: &str = "airplay:";
 
 pub const RATE: u32 = 44_100;
@@ -46,7 +47,7 @@ const SERVICE: &str = "_raop._tcp.local.";
 /// A speaker found on the network.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Speaker {
-    /// `PREFIX` and its mDNS name: stable, as that starts with the speaker's MAC address.
+    /// The device's own id, its MAC address (see `device_id`): the same however it's found.
     pub id: String,
     pub name: String,
     addr: SocketAddr,
@@ -60,7 +61,7 @@ pub struct Speaker {
 
 static SPEAKERS: LazyLock<Mutex<HashMap<String, Speaker>>> = LazyLock::new(Default::default);
 static BROWSING: AtomicBool = AtomicBool::new(false);
-/// Settings › Network › Allow local network scan. Off, nothing here listens on the network,
+/// Settings › Playback › Find speakers on your network. Off, nothing here listens on the network,
 /// so Windows never asks to let the app through its firewall.
 static ALLOWED: AtomicBool = AtomicBool::new(false);
 /// The mDNS listener while it runs, to stop it with the setting.
@@ -112,7 +113,7 @@ pub fn discover() {
                         .then(|| s.get_addresses_v4().into_iter().min())
                         .flatten()
                         .map(|ip| Speaker {
-                            id: format!("{PREFIX}{}", s.fullname),
+                            id: device_id(&s.fullname),
                             name: speaker_name(&instance).to_owned(),
                             addr: SocketAddr::new(IpAddr::V4(ip), s.port),
                             pair: txt("pk").is_some(),
@@ -159,9 +160,16 @@ pub fn speakers() -> Vec<Speaker> {
     all
 }
 
-/// The speaker with this output device id, if it's on the network.
-pub fn find(id: &str) -> Option<Speaker> {
-    SPEAKERS.lock().unwrap().get(id.strip_prefix(PREFIX)?).cloned()
+/// A device's id from its mDNS name, "AABBCCDDEEFF@Kitchen._raop._tcp.local.": its MAC
+/// address, in lowercase hex, which Sonos (`RINCON_<MAC>`) and Chromecast give too. A name
+/// without one is its own id.
+pub fn device_id(fullname: &str) -> String {
+    let instance = fullname.strip_suffix(SERVICE).map_or(fullname, |i| i.trim_end_matches('.'));
+    match instance.split_once('@') {
+        Some((mac, _)) if mac.len() == 12 && mac.chars().all(|c| c.is_ascii_hexdigit()) => mac.to_ascii_lowercase(),
+        // No commas: a group's members are saved with them in between.
+        _ => instance.to_lowercase().replace(',', " "),
+    }
 }
 
 /// "AABBCCDDEEFF@Kitchen" → "Kitchen".
@@ -1022,7 +1030,7 @@ mod tests {
                 }
             }
         });
-        (Speaker { id: format!("{PREFIX}test"), name: "Test".into(), addr, pair: false, buffered: false, auth_setup: false }, rx, audio)
+        (Speaker { id: "test".into(), name: "Test".into(), addr, pair: false, buffered: false, auth_setup: false }, rx, audio)
     }
 
     #[test]
@@ -1095,6 +1103,15 @@ mod tests {
         });
         let e = Session::connect(&Speaker { id: String::new(), name: "Odd".into(), addr, pair: false, buffered: false, auth_setup: false }).err().unwrap();
         assert!(format!("{e:#}").contains("too long"), "{e:#}");
+    }
+
+    #[test]
+    fn a_speakers_id_is_its_mac_address() {
+        assert_eq!(device_id("5C:AA@x"), "5c:aa@x");
+        assert_eq!(device_id("5CAAFD0A1B2C@Living Room._raop._tcp.local."), "5caafd0a1b2c");
+        assert_eq!(device_id("5CAAFD0A1B2C@Living\\032Room._raop._tcp.local."), "5caafd0a1b2c");
+        assert_eq!(device_id("Kitchen._raop._tcp.local."), "kitchen");
+        assert_eq!(device_id("Kitchen, Dining._raop._tcp.local."), "kitchen  dining");
     }
 
     #[test]

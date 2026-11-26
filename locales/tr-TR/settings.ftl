@@ -95,7 +95,6 @@ settings-output-device-desc-system = Müziğin çaldığı yer: bu bilgisayarın
 settings-windows-default = Windows varsayılan
 settings-system-default = Sistem varsayılanı
 settings-not-connected = { $name } (bağlı değil)
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Şarkılar, yapıldıkları kadar yüksek sesle çalınır. Normal hepsini aynı seviyeye, Sessiz ise aynı, daha düşük seviyeye getirir.
 settings-normalization-normal-desc = Şarkılar aynı seviyede çalınır: YouTube Music'de olduğu gibi yüksek sesli şarkılar kısılır, sessiz şarkılar ise 6 dB'e kadar yükseltilir.
 settings-normalization-quiet-desc = Şarkılar aynı, daha düşük seviyede çalınır: yüksek sesli olanların sesi daha da kısılır, dolayısıyla sessiz olanların sesinin yükseltilmesine nadiren ihtiyaç duyulur.

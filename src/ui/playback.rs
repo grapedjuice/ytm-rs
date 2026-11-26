@@ -756,16 +756,18 @@ impl App {
         self.queue.repeat == Repeat::One && !self.current().is_some_and(|t| self.hide_explicit && t.explicit)
     }
 
-    /// Applies Settings › Network › Allow local network scan: on, AirPlay speakers are
-    /// looked for; off, they're forgotten, and one playing hands the music back to the
-    /// system's default device.
+    /// Applies Settings › Playback › Find speakers on your network: on, speakers are looked
+    /// for; off, they're forgotten, and ones playing hand the music back to Windows' default
+    /// device.
     pub(super) fn set_local_network(&mut self) {
-        crate::airplay::set_allowed(self.local_network);
+        use crate::destination::{self, Destination};
+        destination::set_allowed(self.local_network);
         if self.local_network {
-            crate::airplay::discover();
-        } else if self.output_device.as_ref().is_some_and(|(id, _)| id.starts_with(crate::airplay::PREFIX)) {
-            self.output_device = None;
-            self.audio.send(crate::audio::AudioCmd::SetDevice(None));
+            destination::discover();
+        } else if self.destination.is_remote() {
+            self.destination = Destination::default();
+            self.destination_name.clear();
+            self.audio.send(crate::audio::AudioCmd::SetDestination(Destination::default()));
         }
     }
 

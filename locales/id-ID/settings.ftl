@@ -95,7 +95,6 @@ settings-output-device-desc-system = Tempat musik diputar: speaker atau headphon
 settings-windows-default = Default Windows
 settings-system-default = Default sistem
 settings-not-connected = { $name } (tidak tersambung)
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Lagu diputar dengan volume aslinya. Normal menyamakan semua lagu ke level yang sama, dan Pelan ke level yang sama tapi lebih rendah.
 settings-normalization-normal-desc = Semua lagu diputar di level yang sama: yang keras dikecilin, kayak di YouTube Music, dan yang pelan dinaikin sampai 6 dB.
 settings-normalization-quiet-desc = Semua lagu diputar di level yang sama tapi lebih rendah: yang keras dikecilin lebih jauh, jadi yang pelan jarang perlu dinaikin.

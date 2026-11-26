@@ -95,7 +95,6 @@ settings-output-device-desc-system = Wo die Musik spielt: die Lautsprecher oder 
 settings-windows-default = Windows-Standard
 settings-system-default = Systemstandard
 settings-not-connected = { $name } (nicht verbunden)
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Titel behalten ihre ursprüngliche Lautstärke. „Normal“ gleicht sie an, „Leise“ gleicht sie auf niedrigerem Niveau an.
 settings-normalization-normal-desc = Titel klingen gleich laut. Laute werden wie bei YouTube Music abgesenkt, leise um bis zu 6 dB angehoben.
 settings-normalization-quiet-desc = Titel klingen gleich laut auf niedrigerem Niveau. Laute werden stärker abgesenkt, sodass leise selten angehoben werden müssen.

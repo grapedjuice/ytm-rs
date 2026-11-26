@@ -95,7 +95,6 @@ settings-output-device-desc-system = 음악이 나오는 곳입니다. 이 컴�
 settings-windows-default = Windows 기본값
 settings-system-default = 시스템 기본값
 settings-not-connected = { $name }(연결되지 않음)
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = 노래는 만들어진 만큼 크게 연주됩니다. Normal은 모든 항목을 동일한 수준으로 가져오고 Quiet은 동일하고 낮은 수준으로 가져옵니다.
 settings-normalization-normal-desc = 노래는 동일한 수준으로 재생됩니다. YouTube Music에서와 같이 큰 노래는 줄어들고 조용한 노래는 최대 6dB까지 올라갑니다.
 settings-normalization-quiet-desc = 노래는 동일하고 낮은 레벨에서 재생됩니다. 큰 노래는 더 많이 줄여서 조용한 노래는 높일 필요가 거의 없습니다.

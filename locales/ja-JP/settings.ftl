@@ -95,7 +95,6 @@ settings-output-device-desc-system = 音楽の出力先です。このパソコ�
 settings-windows-default = Windows の既定
 settings-system-default = システムの既定
 settings-not-connected = { $name }（未接続）
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = 曲を元の音量で再生します。「ノーマル」で音量をそろえ、「静か」でさらに低い音量にそろえます。
 settings-normalization-normal-desc = 曲の音量をそろえます。YouTube Music と同様に大きな音は抑え、小さな音は最大 6 dB 上げます。
 settings-normalization-quiet-desc = 曲の音量を低いレベルでそろえます。大きな音をさらに抑えるので、小さな音を上げる必要がほとんどありません。

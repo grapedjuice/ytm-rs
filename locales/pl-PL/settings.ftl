@@ -95,7 +95,6 @@ settings-output-device-desc-system = Gdzie gra muzyka: głośniki lub słuchawki
 settings-windows-default = Domyślne w Windows
 settings-system-default = Domyślne w systemie
 settings-not-connected = { $name } (niepodłączone)
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Utwory zachowują oryginalną głośność. Tryb normalny wyrównuje ją, a cichy wyrównuje ją do niższego poziomu.
 settings-normalization-normal-desc = Utwory grają z jednakową głośnością. Głośniejsze są ściszane jak w YouTube Music, a cichsze wzmacniane maksymalnie o 6 dB.
 settings-normalization-quiet-desc = Utwory grają na tym samym, niższym poziomie. Głośniejsze są mocniej ściszane, więc cichsze rzadko wymagają wzmocnienia.

@@ -2492,7 +2492,7 @@ fn submenu_row(ui: &mut Ui, label: &str, value: &str, dot: Option<Color32>, open
     }
 }
 
-fn menu_caption(ui: &mut Ui, text: &str) {
+pub(super) fn menu_caption(ui: &mut Ui, text: &str) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
     ui.painter().text(pos2(r.left() + 12.0, r.center().y + 2.0), egui::Align2::LEFT_CENTER, text.to_uppercase(), theme::semibold(11.0), theme::text_faint());
 }

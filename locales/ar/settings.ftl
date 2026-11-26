@@ -95,7 +95,6 @@ settings-output-device-desc-system = أين تُشغَّل الموسيقى: م�
 settings-windows-default = الافتراضي في Windows
 settings-system-default = الافتراضي في النظام
 settings-not-connected = { $name } (غير متصل)
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = تُشغَّل الأغاني بمستوى الصوت الذي صُنعت به. يوحّد وضع عادي مستواها جميعًا، ويوحّد وضع هادئ مستواها عند مستوى أخفض.
 settings-normalization-normal-desc = تُشغَّل الأغاني بالمستوى نفسه: تُخفَّض الأغاني العالية كما في YouTube Music، وتُرفع الأغاني الهادئة بما يصل إلى 6 dB.
 settings-normalization-quiet-desc = تُشغَّل الأغاني بمستوى أخفض موحّد: تُخفَّض الأغاني العالية بشكل أكبر، فلا تحتاج الأغاني الهادئة غالبًا إلى رفع الصوت.

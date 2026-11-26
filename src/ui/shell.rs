@@ -1872,12 +1872,35 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             app.actions.push(Action::OpenNowPlaying(true));
         }
     }
-    // Where the music plays: lit while that's an AirPlay speaker.
-    let on_airplay = app.output_device.as_ref().is_some_and(|(id, _)| id.starts_with(crate::airplay::PREFIX));
-    let out = right_btn(ui, icon::MONITOR_SPEAKER, crate::tr!("settings-output-device"), on_airplay);
+    // Where the music plays: network speakers' kind, its name saying which, lit only while
+    // the music goes (or is on its way) to them. Not found yet, or let go of while nothing
+    // plays, they're only what's picked.
+    let kind = app.destination.kind();
+    let mut lit = false;
+    let name = match kind {
+        None => crate::tr!("settings-output-device").to_owned(),
+        Some(_) => {
+            use crate::audio::RemoteState;
+            let to = super::pages::destination_label(app);
+            let to = to.as_str();
+            match app.audio.remote_state() {
+                RemoteState::Connecting => {
+                    lit = true;
+                    crate::tr!("settings-connecting-to", name = to).to_owned()
+                }
+                RemoteState::Playing => {
+                    lit = true;
+                    crate::tr!("settings-playing-on", name = to).to_owned()
+                }
+                RemoteState::Failed(_) => crate::tr!("settings-couldnt-play-on", name = to).to_owned(),
+                RemoteState::Idle => format!("{}: {to}", crate::tr!("settings-output-device")),
+            }
+        }
+    };
+    let out = right_btn(ui, kind.map_or(icon::MONITOR_SPEAKER, crate::destination::Kind::icon), &name, lit);
+    let opened = out.clicked();
     let popup = widgets::menu_popup(&out).align(egui::RectAlign::TOP_END).align_alternatives(&[egui::RectAlign::BOTTOM_END]);
-    // Found on the network in the background, so read afresh each frame.
-    super::pages::output_device_menu(app, &out, popup, 300.0, &crate::airplay::speakers());
+    super::pages::play_on_menu(app, opened, popup, 320.0);
     if app.tempo_on {
         tempo_button(app, ui, Rect::from_center_size(pos2(rx - 20.0, cy), vec2(40.0, 18.0 * bar_scale + 16.0)), bar_rest, accent, dot_floor);
         rx -= 44.0;

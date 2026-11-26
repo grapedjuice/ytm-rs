@@ -32,6 +32,11 @@ window-loading-notes = Loading release notes…
 window-later = Later
 window-updated = Updated to { $version }
 window-what-changed = Here's what changed.
+# Last in the card shown after updating, for the changes it leaves out.
+window-more-changes = { $count ->
+    [one] + { $count } more change
+   *[other] + { $count } more changes
+}
 window-dismiss = Dismiss
 window-all-notes = See all notes
 window-got-it = Got it

@@ -396,7 +396,7 @@ pub fn card(app: &mut App, ctx: &egui::Context) {
                 ui.add_space(10.0);
                 let mut lines: Vec<String> = items.clone();
                 if more > 0 {
-                    lines.push(if more == 1 { "+ 1 more change".to_owned() } else { format!("+ {more} more changes") });
+                    lines.push(crate::tr!("window-more-changes", count = more));
                 }
                 for (i, l) in lines.iter().enumerate() {
                     let faint = more > 0 && i == lines.len() - 1;

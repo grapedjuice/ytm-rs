@@ -124,7 +124,7 @@ pub(super) fn tick(app: &mut App, ctx: &egui::Context) {
         _ if matches!(phase, Phase::Listening { .. } | Phase::Identifying) => {}
         None => answer(app, phase, now),
         // Played or added: gone once faded, the app coming up for the picker or not.
-        Some(_) if r.acted.is_some_and(|at| now - at > ACTED_HOLD + FADE) => app.recognize.close(),
+        Some(_) if r.acted.is_some_and(|at| now - at > ACTED_HOLD + theme::secs(FADE)) => app.recognize.close(),
         Some(_) if r.acted.is_some() => ctx.request_repaint(),
         // Seen in the app now, as the search it opened.
         Some(_) if back => app.recognize.close(),

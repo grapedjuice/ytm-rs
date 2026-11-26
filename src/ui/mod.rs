@@ -1871,7 +1871,7 @@ impl eframe::App for App {
             playing: self.playing() || self.buffering,
         };
         ctx.data_mut(|d| d.insert_temp(widgets::NowPlaying::id(), np));
-        let hold = f64::from(self.toast_hold()) + 0.4;
+        let hold = f64::from(self.toast_hold()) + theme::secs(0.4);
         let toast_hovered = !self.window_hidden && shell::toast_hovered(ctx);
         if let Some((_, t)) = &mut self.toast {
             if *t < 0.0 {

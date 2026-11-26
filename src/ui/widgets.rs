@@ -1082,7 +1082,7 @@ fn popup_extras(ctx: &egui::Context, id: egui::Id) {
     }
     let scale = match look.menu_look.pop {
         Some([from, secs]) => {
-            let t = ((now - since) as f32 / secs.max(0.01)).clamp(0.0, 1.0);
+            let t = ((now - since) / theme::secs(f64::from(secs.max(0.01)))).clamp(0.0, 1.0) as f32;
             if t < 1.0 {
                 ctx.request_repaint();
             }
@@ -1091,10 +1091,9 @@ fn popup_extras(ctx: &egui::Context, id: egui::Id) {
         None => 1.0,
     };
     let Some(rect) = ctx.memory(|m| m.area_rect(id)) else { return };
-    if scale < 1.0 {
-        let c = rect.center().to_vec2();
-        ctx.set_transform_layer(egui::LayerId::new(egui::Order::Foreground, id), egui::emath::TSTransform::from_translation(c) * egui::emath::TSTransform::from_scaling(scale) * egui::emath::TSTransform::from_translation(-c));
-    }
+    // Set every frame, so the zoom's last frame leaves the menu at full size.
+    let c = rect.center().to_vec2();
+    ctx.set_transform_layer(egui::LayerId::new(egui::Order::Foreground, id), egui::emath::TSTransform::from_translation(c) * egui::emath::TSTransform::from_scaling(scale) * egui::emath::TSTransform::from_translation(-c));
     if let Some(glass) = look.glass.menu {
         // On a layer of its own just under the popups.
         let layer = egui::LayerId::new(egui::Order::Middle, egui::Id::unique("menu-frost"));

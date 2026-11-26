@@ -2299,9 +2299,9 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
         app.actions.push(Action::Undo);
     }
     // Frames only while it fades in or out; in between it just waits.
-    if (0.25..hold).contains(&age) {
+    if (theme::secs(0.25) as f32..hold).contains(&age) {
         ctx.request_repaint_after(std::time::Duration::from_secs_f32(hold - age));
-    } else if age < hold + 0.4 {
+    } else if age < hold + theme::secs(0.4) as f32 {
         ctx.request_repaint();
     }
 }

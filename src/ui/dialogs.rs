@@ -275,7 +275,8 @@ impl App {
         }
         if open {
             self.settings_query.clear();
-            self.settings_tab = pages::SettingsTab::General;
+            self.settings_tab = pages::SettingsTab::Advanced;
+            self.settings_page = true;
             self.reveal_backup_setting = true;
             self.go(Page::Settings);
         }

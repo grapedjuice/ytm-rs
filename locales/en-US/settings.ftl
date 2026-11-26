@@ -15,10 +15,24 @@ settings-account = Account
 settings-general = General
 settings-keyboard-shortcuts = Keyboard shortcuts
 settings-about = About
+settings-content-and-ratings = Content & ratings
+settings-advanced = Advanced
+# The headings the categories are grouped under, down the side.
+settings-group-listening = Listening
+settings-group-look = Look
+settings-group-accounts = Accounts
+settings-group-app = App
+# Above the settings a search finds, where a category's name goes otherwise.
+settings-search-results = Search results
+# Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
+settings-content = Content
+settings-colours = Colours
 settings-no-match = No settings match "{ $query }"
 settings-title = Settings
 settings-search-box = Search settings
 settings-clear = Clear
+# A button above the settings, there while one changed here waits for the next start.
+settings-restart-to-apply = Restart to apply
 
 ## Account
 
@@ -334,9 +348,7 @@ settings-listenbrainz-token-refused = ListenBrainz didn't accept that token
 settings-language-system = System ({ $language })
 settings-language = Language
 settings-language-desc = The app's own words. Song titles, names and YouTube Music's shelves come in the Song info language below.
-settings-restart-to-apply = Restart to apply
 settings-language-restart-desc = The app changes language from the next start.
-settings-restart-now = Restart now
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
 

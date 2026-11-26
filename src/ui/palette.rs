@@ -93,32 +93,28 @@ struct Entry {
 /// Settings' categories and sections, by their titles. One named as its category opens
 /// that; any other is looked for with Settings' own search.
 /// As Settings titles them, in this run's language: a search for one finds it there.
-fn sections() -> [(&'static str, SettingsTab); 22] {
+fn sections() -> [(&'static str, SettingsTab); 30] {
     use SettingsTab::*;
-    [
-        (tr!("settings-account"), Account),
-        (tr!("settings-connections"), Connections),
-        (tr!("settings-playback"), Playback),
-        (tr!("settings-sound"), Playback),
-        (tr!("settings-music-videos"), Playback),
-        (tr!("settings-equalizer"), Playback),
+    let mut all = [("", Account); 30];
+    // Each category as itself, then the sections that aren't named as theirs.
+    for (slot, tab) in all.iter_mut().zip(SettingsTab::ALL) {
+        *slot = (tab.label(), tab);
+    }
+    all[18..].copy_from_slice(&[
         (tr!("settings-playback-speed"), Playback),
-        (tr!("settings-lyrics"), Lyrics),
         (tr!("settings-lyrics-timing"), Lyrics),
         (tr!("settings-lyrics-sources"), Lyrics),
-        (tr!("settings-appearance"), Appearance),
-        (tr!("settings-mini-player"), Appearance),
-        (tr!("settings-app-icon"), Appearance),
-        (tr!("settings-general"), General),
+        (tr!("settings-content"), Content),
+        (tr!("settings-song-ratings"), Content),
+        (tr!("settings-colours"), Themes),
+        (crate::tr!("transfer-import"), Connections),
         (tr!("settings-window"), General),
-        (tr!("settings-downloads"), General),
-        (tr!("settings-network"), General),
-        (crate::tr!("transfer-import"), General),
-        (tr!("settings-keyboard-shortcuts"), Shortcuts),
         (crate::tr!("extra-system-shortcuts"), Shortcuts),
+        (tr!("settings-network"), Advanced),
+        (tr!("settings-storage"), Advanced),
         (tr!("settings-updates"), About),
-        (tr!("settings-about"), About),
-    ]
+    ]);
+    all
 }
 
 impl Palette {
@@ -469,6 +465,7 @@ fn run_command(app: &mut App, ctx: &egui::Context, cmd: Command) {
             // Going there clears Settings' search, so this comes after.
             app.go(Page::Settings);
             app.settings_tab = tab;
+            app.settings_page = true;
             if name != tab.label() {
                 app.settings_query = name.to_owned();
             }

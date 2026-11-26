@@ -304,7 +304,6 @@ settings-language = Bahasa
 settings-language-desc = Teks di dalam aplikasi. Judul lagu, nama, dan rak YouTube Music tampil dalam bahasa Info lagu di bawah.
 settings-restart-to-apply = Mulai ulang buat menerapkan
 settings-language-restart-desc = Bahasa aplikasi berubah mulai dari peluncuran berikutnya.
-settings-restart-now = Mulai ulang sekarang
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
 

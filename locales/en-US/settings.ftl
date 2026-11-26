@@ -414,6 +414,16 @@ settings-test-connection = Test connection
 settings-test = Test
 settings-test-working = Working: YouTube Music answered in { $ms } ms.
 settings-test-failed = Didn't connect: { $error }
+# Under the proxy address, when it isn't one.
+settings-proxy-not-an-address = that isn't a proxy address, like http://127.0.0.1:8080
+settings-proxy-scheme = use an http:// or socks5:// address
+settings-proxy-no-host = the address needs a host
+settings-proxy-no-port = the address needs a port, like :8080
+# After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
+settings-proxy-not-answering = nothing is answering at { $address }. Is the proxy running?
+settings-proxy-timed-out = the proxy didn't answer in time.
+settings-proxy-sign-in-refused = the proxy didn't accept the username or password.
+settings-proxy-not-found = couldn't find that proxy's address.
 settings-proxy-restart-desc = The new proxy setting is used from the next start.
 
 ## Storage

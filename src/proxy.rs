@@ -116,12 +116,36 @@ pub fn parse(s: &str) -> anyhow::Result<url::Url> {
     let s = s.trim();
     // "host:port" alone means an HTTP proxy, as Windows writes it.
     let full = if s.contains("://") { s.to_owned() } else { format!("http://{s}") };
-    let u = url::Url::parse(&full).map_err(|_| anyhow::anyhow!("that isn't a proxy address, like http://127.0.0.1:8080"))?;
-    anyhow::ensure!(matches!(u.scheme(), "http" | "https" | "socks5" | "socks5h"), "use an http:// or socks5:// address");
-    anyhow::ensure!(u.host_str().is_some_and(|h| !h.is_empty()), "the address needs a host");
-    anyhow::ensure!(u.port_or_known_default().is_some(), "the address needs a port, like :8080");
+    let u = url::Url::parse(&full).map_err(|_| BadAddress::NotOne)?;
+    anyhow::ensure!(matches!(u.scheme(), "http" | "https" | "socks5" | "socks5h"), BadAddress::Scheme);
+    anyhow::ensure!(u.host_str().is_some_and(|h| !h.is_empty()), BadAddress::NoHost);
+    anyhow::ensure!(u.port_or_known_default().is_some(), BadAddress::NoPort);
     Ok(u)
 }
+
+/// Why an address isn't a proxy's, said in the app's language only once it's shown:
+/// `parse` also runs at launch (`init`, and the environment's proxy), before the language
+/// is picked, and a message looked up then would pick English for the whole run.
+#[derive(Debug, PartialEq)]
+pub enum BadAddress {
+    NotOne,
+    Scheme,
+    NoHost,
+    NoPort,
+}
+
+impl std::fmt::Display for BadAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::NotOne => crate::tr!("settings-proxy-not-an-address"),
+            Self::Scheme => crate::tr!("settings-proxy-scheme"),
+            Self::NoHost => crate::tr!("settings-proxy-no-host"),
+            Self::NoPort => crate::tr!("settings-proxy-no-port"),
+        })
+    }
+}
+
+impl std::error::Error for BadAddress {}
 
 /// The URL with any password hidden, for logs and the settings page.
 pub fn redact(u: &url::Url) -> String {
@@ -540,13 +564,13 @@ fn plain(e: reqwest::Error, proxy: Option<&url::Url>) -> String {
     let chain = chain.to_lowercase();
     let at = proxy.map(|p| format!("{}:{}", p.host_str().unwrap_or_default(), p.port_or_known_default().unwrap_or(0))).unwrap_or_default();
     if chain.contains("10061") || chain.contains("refused") {
-        format!("nothing is answering at {at}. Is the proxy running?")
+        crate::tr!("settings-proxy-not-answering", address = at)
     } else if e.is_timeout() || chain.contains("timed out") {
-        "the proxy didn't answer in time.".to_owned()
+        crate::tr!("settings-proxy-timed-out").to_owned()
     } else if chain.contains("407") || chain.contains("authentication") || chain.contains("auth") {
-        "the proxy didn't accept the username or password.".to_owned()
+        crate::tr!("settings-proxy-sign-in-refused").to_owned()
     } else if chain.contains("dns") || chain.contains("resolve") || chain.contains("11001") {
-        "couldn't find that proxy's address.".to_owned()
+        crate::tr!("settings-proxy-not-found").to_owned()
     } else {
         e.to_string()
     }
@@ -560,9 +584,11 @@ mod tests {
     fn parses_proxy_addresses() {
         assert_eq!(parse("127.0.0.1:8080").unwrap().as_str(), "http://127.0.0.1:8080/");
         assert_eq!(parse("socks5://u:p@10.0.0.2:1080").unwrap().username(), "u");
-        assert!(parse("ftp://x:1").is_err());
-        assert!(parse("http://").is_err());
-        assert!(parse("not a url at all").is_err());
+        let why = |s: &str| parse(s).unwrap_err().downcast::<BadAddress>().unwrap();
+        assert_eq!(why("ftp://x:1"), BadAddress::Scheme);
+        assert_eq!(why("http://"), BadAddress::NotOne);
+        assert_eq!(why("not a url at all"), BadAddress::NotOne);
+        assert_eq!(why("socks5://"), BadAddress::NoHost);
         let u = parse("http://me:secret@host:3128").unwrap();
         assert_eq!(redact(&u), "http://me:•••@host:3128");
     }

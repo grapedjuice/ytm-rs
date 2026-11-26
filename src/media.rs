@@ -203,8 +203,15 @@ impl Media {
     /// player's position is still the last one's.
     pub fn sync(&mut self, playing: bool, loading: bool, pos: Duration) {
         let now = Instant::now();
-        if let Some(pos) = due(self.sent.as_ref(), self.resend, playing, loading, pos, now, MOVES_ON) {
+        // MPRIS widgets count on from the last position by themselves, so a jump goes out
+        // at once, with `Seeked`: one shorter than STILL_DRIFT wouldn't otherwise count.
+        let jumped = MPRIS && jumped(self.sent.as_ref(), loading, pos, now);
+        if let Some(pos) = due(self.sent.as_ref(), self.resend, playing, loading, pos, now, MOVES_ON).or(jumped.then_some(pos)) {
             self.send(playing, pos, now);
+            #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+            if jumped {
+                let _ = self.controls.seeked(pos);
+            }
         }
     }
 
@@ -347,6 +354,13 @@ fn stale(sent: Option<&Sent>, playing: bool, pos: Duration, now: Instant, moves_
     })
 }
 
+/// Whether `pos` is away from where the song would be by now (a seek, a skip, a stall, a
+/// song slow to start), not the song going on: what MPRIS's `Seeked` is for. Not while
+/// a song is loading, when the player's position is still the last one's.
+fn jumped(sent: Option<&Sent>, loading: bool, pos: Duration, now: Instant) -> bool {
+    !loading && sent.is_some_and(|s| pos.abs_diff(s.shown(now, true)) > DRIFT)
+}
+
 /// How long until `volume`, unchanged `since`, is to be reported (zero: now). `None` if
 /// the OS has it already.
 fn volume_wait(reported: Option<f32>, volume: f32, since: Instant, now: Instant) -> Option<Duration> {
@@ -473,6 +487,26 @@ mod tests {
         // Play and pause always go.
         assert!(stale(Some(&paused), true, s(10), t, true));
         assert!(stale(Some(&playing), false, s(10), t, true));
+    }
+
+    #[test]
+    fn only_a_jump_in_the_position_is_seeked() {
+        let t = Instant::now();
+        let playing = Sent { playing: true, pos: s(10), at: t };
+        let paused = Sent { playing: false, pos: s(10), at: t };
+        // The song going on, or near enough, and play or pause where it was.
+        assert!(!jumped(Some(&playing), false, s(15), t + s(5)));
+        assert!(!jumped(Some(&playing), false, Duration::from_millis(15_500), t + s(5)));
+        assert!(!jumped(Some(&paused), false, s(10), t + s(60)));
+        assert!(!jumped(Some(&playing), false, s(12), t + s(2)));
+        // A seek either way, short ones too, a stall, a seek while paused.
+        assert!(jumped(Some(&playing), false, s(13), t + s(1)));
+        assert!(jumped(Some(&playing), false, s(5), t + s(1)));
+        assert!(jumped(Some(&playing), false, s(10), t + s(5)));
+        assert!(jumped(Some(&paused), false, s(30), t + s(60)));
+        // Not while a song loads, nor before anything was sent.
+        assert!(!jumped(Some(&playing), true, s(0), t + s(1)));
+        assert!(!jumped(None, false, s(30), t));
     }
 
     #[test]

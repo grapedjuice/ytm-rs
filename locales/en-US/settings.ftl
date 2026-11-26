@@ -298,6 +298,15 @@ settings-app-icon = App icon
 settings-preview = Preview
 settings-preview-desc = How it looks on the taskbar and in the tray.
 settings-app-icon-named = App icon: { $name }
+# The app icons' names. "YT Music" and "Fluent" stay as they are.
+settings-app-icon-classic = Classic
+settings-app-icon-smile-ring = Smile ring
+settings-app-icon-rust-gear = Rust gear
+settings-app-icon-waveform = Waveform
+settings-app-icon-record = Record
+settings-app-icon-lit-line = Lit line
+settings-app-icon-duet = Duet
+settings-app-icon-warp = Warp
 
 ## Connections
 

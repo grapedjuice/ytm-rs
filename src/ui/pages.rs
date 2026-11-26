@@ -3007,7 +3007,7 @@ fn settings_app_icon(app: &mut App, ui: &mut Ui) {
     } else {
         (tr!("settings-app-icon-note"), " A pinned taskbar icon can take a moment to catch up.")
     };
-    settings_section(ui, tr!("settings-app-icon"), Some(crate::appicon::get(app.app_icon).name), Some(&format!("{what}.{more}")), |ui| {
+    settings_section(ui, tr!("settings-app-icon"), Some(crate::appicon::get(app.app_icon).name()), Some(&format!("{what}.{more}")), |ui| {
         if filter_show(ui, what) {
             ui.add_space(14.0);
             app_icons(app, ui);
@@ -3449,7 +3449,7 @@ fn app_icons(app: &mut App, ui: &mut Ui) {
 
 fn app_icon_tile(ui: &mut Ui, v: &crate::appicon::Variant, w: f32, selected: bool, accent: Color32) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 112.0), Sense::click());
-    let resp = named(resp, &tr!("settings-app-icon-named", name = v.name)).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let resp = named(resp, &tr!("settings-app-icon-named", name = v.name())).on_hover_cursor(egui::CursorIcon::PointingHand);
     if !ui.is_rect_visible(rect) {
         return resp;
     }
@@ -3462,8 +3462,8 @@ fn app_icon_tile(ui: &mut Ui, v: &crate::appicon::Variant, w: f32, selected: boo
     icon_at(ui, v, Rect::from_center_size(pos2(rect.center().x, rect.top() + 46.0), Vec2::splat(56.0)));
     // Narrow tiles get a smaller label so "YouTube Music" still fits.
     let font = theme::semibold(if w >= 108.0 { 13.0 } else { 12.0 });
-    let label = widgets::galley(ui, v.name, font.clone(), theme::text(), w - 8.0);
-    widgets::text_at(ui, pos2(rect.center().x - label.size().x / 2.0, rect.top() + 84.0), v.name, font, theme::text(), w - 8.0);
+    let label = widgets::galley(ui, v.name(), font.clone(), theme::text(), w - 8.0);
+    widgets::text_at(ui, pos2(rect.center().x - label.size().x / 2.0, rect.top() + 84.0), v.name(), font, theme::text(), w - 8.0);
     resp
 }
 

@@ -45,6 +45,11 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+      # How the release workflow names a nightly, against a throwaway repo's tags.
+      - name: Test the nightly version
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/nightly-version.test.sh
+
       # Also when a test failed, so one run shows both.
       - name: Clippy
         if: ${{ !cancelled() }}

@@ -858,6 +858,9 @@ struct Output {
     /// meanwhile goes on till they're ready.
     /// Each attempt has its own number (`AudioCmd::Connected`'s).
     connecting: Option<(String, u64)>,
+    /// The last handshake started, till it's back. Still theirs if the speakers are picked
+    /// again meanwhile (another picked, then them): a second one would find them busy with it.
+    handshake: Option<(String, u64)>,
     /// Whether to try the network speakers picked. Off once they failed or hung up, so the
     /// check for a new device doesn't keep taking them back (from another device playing
     /// on them); on again when the music's asked for.
@@ -896,6 +899,7 @@ impl Output {
             sink: None,
             remote: None,
             connecting: None,
+            handshake: None,
             remote_retry: true,
             notice: None,
             speaker_level: None,
@@ -1029,13 +1033,18 @@ impl Output {
             if self.connecting.as_ref().is_some_and(|(k, _)| *k == key) {
                 return true;
             }
-            static ATTEMPTS: AtomicU64 = AtomicU64::new(0);
-            let attempt = ATTEMPTS.fetch_add(1, Ordering::Relaxed);
             // A sound card playing goes on till the speakers are ready (`connected`).
             self.remote = None;
             self.device = Some(key.clone());
-            self.connecting = Some((key, attempt));
             *status.remote.lock().unwrap() = RemoteState::Connecting;
+            if let Some(going) = self.handshake.clone().filter(|(k, _)| *k == key) {
+                self.connecting = Some(going);
+                return true;
+            }
+            static ATTEMPTS: AtomicU64 = AtomicU64::new(0);
+            let attempt = ATTEMPTS.fetch_add(1, Ordering::Relaxed);
+            self.connecting = Some((key, attempt));
+            self.handshake = self.connecting.clone();
             let back = tx.clone();
             let spawned = std::thread::Builder::new().name("speaker-connect".into()).spawn(move || {
                 let name = members.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join(", ");
@@ -1045,6 +1054,7 @@ impl Output {
             if let Err(e) = spawned {
                 log::warn!("audio: couldn't start connecting to {}: {e}", kind.label());
                 self.connecting = None;
+                self.handshake = None;
                 self.remote_retry = false;
                 *status.remote.lock().unwrap() = RemoteState::Failed(destination::describe(kind, &e.into()));
             } else {
@@ -1865,6 +1875,9 @@ fn run(
                 }
             }
             Ok(AudioCmd::Connected { attempt, name, kind, session }) => {
+                if output.handshake.as_ref().is_some_and(|(_, a)| *a == attempt) {
+                    output.handshake = None;
+                }
                 // Let go of (or another picked) meanwhile: its session goes.
                 if output.connecting.as_ref().map(|(_, a)| *a) != Some(attempt) {
                     continue;
@@ -2422,7 +2435,7 @@ mod tests {
         use std::num::NonZero;
         let (mixer, source) = rodio::mixer::mixer(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap());
         // Let go of while paused: nothing pulls the mixer.
-        let output = Output { mixer, slot: Arc::new(std::sync::Mutex::new(Some(source))), sink: None, remote: None, connecting: None, remote_retry: true, notice: None, speaker_level: None, device: None, destination: Destination::default(), lost: Default::default(), checked: Instant::now() };
+        let output = Output { mixer, slot: Arc::new(std::sync::Mutex::new(Some(source))), sink: None, remote: None, connecting: None, handshake: None, remote_retry: true, notice: None, speaker_level: None, device: None, destination: Destination::default(), lost: Default::default(), checked: Instant::now() };
         let mut player = Player::connect_new(&output.mixer);
         player.set_volume(0.5);
         player.append(rodio::buffer::SamplesBuffer::new(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap(), vec![0.0; 96_000]));
@@ -2440,7 +2453,7 @@ mod tests {
         use std::num::NonZero;
         let (mixer, source) = rodio::mixer::mixer(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap());
         // Playing, through a device that stopped pulling before it reported itself gone.
-        let output = Output { mixer, slot: Arc::new(std::sync::Mutex::new(None)), sink: None, remote: None, connecting: None, remote_retry: true, notice: None, speaker_level: None, device: None, destination: Destination::default(), lost: Default::default(), checked: Instant::now() };
+        let output = Output { mixer, slot: Arc::new(std::sync::Mutex::new(None)), sink: None, remote: None, connecting: None, handshake: None, remote_retry: true, notice: None, speaker_level: None, device: None, destination: Destination::default(), lost: Default::default(), checked: Instant::now() };
         let mut player = Player::connect_new(&output.mixer);
         player.set_volume(0.25);
         player.append(rodio::buffer::SamplesBuffer::new(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap(), vec![0.5; 96_000]));

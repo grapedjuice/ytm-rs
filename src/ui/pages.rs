@@ -987,8 +987,7 @@ fn top_result(ui: &mut Ui, c: &Card, liked: bool, pick: bool, acts: &mut Vec<Act
         let label = if playing { tr!("player-pause-item", title = c.title.as_str()) } else { tr!("player-play-item", title = c.title.as_str()) };
         let p = named(ui.interact(pr, resp.id.with("play"), Sense::click()), &label).on_hover_cursor(egui::CursorIcon::PointingHand);
         ui.painter().circle_filled(pc, 26.0, theme::with_alpha(Color32::WHITE, 0.4 + 0.6 * h));
-        let nudge = if playing { 0.0 } else { 1.5 };
-        widgets::play_pause_glyph(ui, pc + vec2(nudge, 0.0), 10.0, Color32::from_gray(15), playing);
+        widgets::play_pause_glyph(ui, pc, 10.0, Color32::from_gray(15), playing);
         let behavior = if matches!(c.target, Target::Song(_)) { egui::PopupCloseBehavior::CloseOnClickOutside } else { egui::PopupCloseBehavior::CloseOnClick };
         // Right-click anywhere on the card opens its menu, even over the play button or a linked name.
         widgets::right_click_menu(&resp)

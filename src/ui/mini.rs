@@ -1209,7 +1209,7 @@ fn play_glyph(app: &App, ui: &Ui, c: Pos2, k: f32, glyph: Color32, now: f64) {
     } else if morph > 0.5 {
         widgets::pause_bars(ui, c, 6.5 * k * (2.0 * morph - 1.0).max(0.4), glyph);
     } else {
-        widgets::play_triangle(ui, c + vec2(1.2 * k, 0.0), 7.0 * k * (1.0 - 2.0 * morph).max(0.4), glyph);
+        widgets::play_triangle(ui, c, 7.0 * k * (1.0 - 2.0 * morph).max(0.4), glyph);
     }
 }
 

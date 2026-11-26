@@ -117,7 +117,7 @@ fn backdrop(mut px: Vec<[f32; 3]>, look: &Look) -> Art {
         px = box_blur(&px, SIZE as usize, 6);
     }
     let rgba = px.iter().flat_map(|p| [p[0] as u8, p[1] as u8, p[2] as u8, 255]).collect();
-    Art { rgba, accent: look.accent, brightness }
+    Art { rgba, accent: readable(look.accent), brightness }
 }
 
 /// `passes` more of the art's blur (a theme's `blurPasses` over the usual).
@@ -249,8 +249,11 @@ fn analyse(img: &image::RgbImage) -> Look {
     // mid grey; both read against the blurred backdrop.
     let luma = 0.299 * mean[0] + 0.587 * mean[1] + 0.114 * mean[2];
     let neutral = if luma > 0.6 { 140.0 } else { 210.0 };
-    // Each hue with the bins either side, so a hue on a bin edge isn't split; only a
-    // hue covering a real share of the sleeve can speak for it.
+    // Each hue with the bins either side, so a hue on a bin edge isn't split — centred
+    // only on a bin that's a peak, so an empty bin can't join two hues on either side
+    // into one between them. Only a hue covering a real share of the sleeve can speak for it.
+    let w = |i: usize| bins[i % HUE_BINS][3];
+    let peak = |&i: &usize| w(i) > 0.0 && w(i) >= w(i + HUE_BINS - 1) && w(i) >= w(i + 1);
     let group = |i: usize| {
         let mut g = [0.0f32; 5];
         for d in [HUE_BINS - 1, 0, 1] {
@@ -261,7 +264,7 @@ fn analyse(img: &image::RgbImage) -> Look {
         }
         g
     };
-    let vivid = (0..HUE_BINS).map(group).filter(|g| g[4] / n >= VIVID_SHARE).max_by(|a, b| a[3].total_cmp(&b[3]));
+    let vivid = (0..HUE_BINS).filter(peak).map(group).filter(|g| g[4] / n >= VIVID_SHARE).max_by(|a, b| a[3].total_cmp(&b[3]));
     let accent = if let Some(v) = vivid {
         // A bright vivid area the sleeve really shows: the score-weighted colour of
         // its strongest hue, lifted for the UI. Full strength, whatever the cover's
@@ -305,9 +308,14 @@ fn hue_bin(rgb: [f32; 3], max: f32, min: f32) -> usize {
 fn lift(c: [f32; 3], gain_cap: f32) -> Color32 {
     let max = c[0].max(c[1]).max(c[2]).max(1.0);
     let k = (220.0 / max).clamp(1.0, gain_cap);
-    let c = c.map(|v| (v * k).min(255.0));
-    // A colour bright in one channel can still be dark to the eye (pure blue is
-    // under 2:1 on the dark UI): wash it toward white until it reaches ACCENT_LUMA.
+    Color32::from_rgb((c[0] * k).min(255.0) as u8, (c[1] * k).min(255.0) as u8, (c[2] * k).min(255.0) as u8)
+}
+
+/// The accent as the UI shows it. A colour bright in one channel can still be dark to
+/// the eye (pure blue is under 2:1 on the dark UI): it's washed toward white until it
+/// reaches [`ACCENT_LUMA`]. Only the UI's copy: the backdrop tint aims at the colour itself.
+fn readable(c: Color32) -> Color32 {
+    let c = [c.r(), c.g(), c.b()].map(f32::from);
     let l = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
     let t = ((ACCENT_LUMA - l) / (255.0 - l)).clamp(0.0, 1.0);
     let c = c.map(|v| (v + (255.0 - v) * t) as u8);
@@ -529,14 +537,33 @@ mod tests {
             _ => [120, 120, 120],
         }));
         let a = analyse(&img).accent;
-        assert!(a.r() < a.g() + 30, "accent {a:?} followed the speck");
+        let (max, min) = (a.r().max(a.g()).max(a.b()), a.r().min(a.g()).min(a.b()));
+        assert!(max - min < 30, "accent {a:?} followed the speck or the cyan");
     }
 
     #[test]
     fn a_blue_logo_gives_an_accent_that_reads_on_the_dark_ui() {
-        let a = analyse(&patch([12, 12, 14], [0, 0, 230], 13, 19)).accent;
+        let a = process_rgb(&patch([12, 12, 14], [0, 0, 230], 13, 19)).accent;
         assert!(a.b() > a.r() + 100, "accent {a:?} lost the blue");
         assert!(luma(a) >= ACCENT_LUMA - 1.0, "accent {a:?} is too dark for the dark UI");
+    }
+
+    #[test]
+    fn the_backdrop_tint_isnt_washed_for_the_ui() {
+        // A navy sleeve: its UI accent is washed lighter to read, but the backdrop
+        // is tinted toward the navy itself, not toward that grey-blue.
+        let art = process_rgb(&patch([0, 0, 90], [0, 0, 90], 0, 0));
+        let [r, g, b, _] = [art.rgba[0], art.rgba[1], art.rgba[2], art.rgba[3]];
+        assert!(r < 10 && g < 10 && b > 100, "backdrop {r},{g},{b} took the washed accent");
+    }
+
+    #[test]
+    fn two_hues_apart_dont_make_one_between_them() {
+        // Red and a yellow-green two bins apart: a window centred on the empty bin
+        // between them made an orange the sleeve doesn't have.
+        let img = image::RgbImage::from_fn(64, 64, |_, y| image::Rgb(if y < 33 { [230, 0, 0] } else { [120, 230, 0] }));
+        let a = analyse(&img).accent;
+        assert!(a.r() > a.g() + 100, "accent {a:?} is a hue between the two");
     }
 
     #[test]

@@ -505,6 +505,9 @@ settings-download = Download
 settings-check-now = Check now
 settings-another-copy = Another copy
 settings-another-copy-desc = ytm-rs is also installed from { $kind }. To remove that copy, run { $cmd }
+# { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
+settings-another-copy-deb = the .deb
+settings-another-copy-arch = the Arch package
 settings-whats-new = What's new
 settings-whats-new-in = What's new in { $version }
 

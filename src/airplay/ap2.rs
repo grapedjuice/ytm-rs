@@ -16,7 +16,7 @@
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow, bail};
@@ -56,6 +56,8 @@ pub struct Buffered {
 
 impl Buffered {
     pub fn connect(speaker: &Speaker) -> anyhow::Result<Self> {
+        // Before saying anything to the speaker, not halfway through.
+        let ports = Ports::take()?;
         let sid = random() as u32;
         let mut rtsp = Rtsp::open(speaker, sid)?;
         let local = rtsp.tcp.local_addr()?.ip();
@@ -94,7 +96,7 @@ impl Buffered {
 
         // Listening before SETPEERS: the speaker starts on its clock the moment it hears
         // where to send it.
-        let clock = Clock::listen(remote)?;
+        let clock = Clock::listen(remote, ports)?;
         let peers = Value::Array(vec![Value::String(local.to_string())]);
         rtsp.request("SETPEERS", None, &[], Some(("/peer-list-changed", &binary(&peers)?)))?;
         let identity = clock.wait(CLOCK_WAIT)?;
@@ -440,6 +442,38 @@ fn request(plain: &[u8]) -> Option<(String, usize)> {
 struct Clock {
     state: Arc<Mutex<ClockState>>,
     _worker: Worker,
+    /// Last, so they're given back once the worker, and its sockets, are gone.
+    _ports: Ports,
+}
+
+/// The clock's ports, which only one session at a time can have: one let go of (another
+/// speaker picked, then this one again) keeps them till it's dropped, which a new one
+/// waits for rather than fail at once. Another app on them still fails it.
+struct Ports;
+
+static PORTS: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
+
+/// As long as a handshake let go of can still take to be done with.
+const PORTS_WAIT: Duration = Duration::from_secs(20);
+
+impl Ports {
+    fn take() -> anyhow::Result<Self> {
+        let (held, freed) = &PORTS;
+        let (mut held, _) = freed.wait_timeout_while(held.lock().unwrap(), PORTS_WAIT, |h| *h).unwrap();
+        if *held {
+            return Err(anyhow!("another connection to a speaker still has them").context(Failure::ClockPorts));
+        }
+        *held = true;
+        Ok(Self)
+    }
+}
+
+impl Drop for Ports {
+    fn drop(&mut self) {
+        let (held, freed) = &PORTS;
+        *held.lock().unwrap() = false;
+        freed.notify_all();
+    }
 }
 
 #[derive(Default)]
@@ -450,7 +484,7 @@ struct ClockState {
 }
 
 impl Clock {
-    fn listen(from: IpAddr) -> anyhow::Result<Self> {
+    fn listen(from: IpAddr, ports: Ports) -> anyhow::Result<Self> {
         let bind = |port| {
             let s = UdpSocket::bind(("0.0.0.0", port)).map_err(|e| anyhow::Error::new(e).context(format!("port {port}")).context(Failure::ClockPorts))?;
             s.set_read_timeout(Some(Duration::from_millis(20)))?;
@@ -473,7 +507,7 @@ impl Clock {
                 }
             }
         })?;
-        Ok(Self { state, _worker: worker })
+        Ok(Self { state, _worker: worker, _ports: ports })
     }
 
     /// Waits for the speaker to say who its clock is and what it reads.
@@ -526,6 +560,20 @@ fn heard(state: &mut ClockState, msg: &[u8], at: Instant) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_session_waits_for_the_clock_ports_one_let_go_of_has() {
+        let old = Ports::take().unwrap();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        std::thread::spawn(move || {
+            let new = Ports::take();
+            let _ = tx.send(new.is_ok());
+        });
+        // Still held: the new one waits rather than fail.
+        assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
+        drop(old);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(true));
+    }
 
     #[test]
     fn an_event_is_whole_once_its_body_is_in() {

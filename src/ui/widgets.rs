@@ -1627,7 +1627,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         (true, false, true) => (avail * 0.78, Some(x + avail * 0.82), None),
         _ => (avail, None, None),
     };
-    let plays = t.plays.map(|n| format!("{} plays", crate::backend::compact(n)));
+    let plays = t.plays.map(|n| crate::tr!("status-plays", count = crate::backend::compact(n)));
     let title_col = if dimmed { theme::with_alpha(theme::text_dim(), opacity) } else if o.current { o.accent } else { theme::text() };
     let sub = match (album_row, &plays, plays_x) {
         (true, Some(p), None) => Some(p.clone()),
@@ -2239,6 +2239,8 @@ mod shelf_touch_tests {
         arrows: (bool, bool),
         /// How wide its cards are.
         card: f32,
+        /// The top shelf's key: the page it's on, as `pages` gives it.
+        key: String,
         /// Each shelf's first card, as last drawn, and where it started.
         cards: [Rect; 2],
         start: [Pos2; 2],
@@ -2262,7 +2264,7 @@ mod shelf_touch_tests {
 
     impl Page {
         fn new(touch_screen: bool) -> Self {
-            let mut p = Self { ctx: egui::Context::default(), time: 0.0, above: 100.0, nudge: 0, count: 20, more: false, arrows: (false, false), card: 150.0, cards: [Rect::NOTHING; 2], start: [Pos2::ZERO; 2], clicks: 0 };
+            let mut p = Self { ctx: egui::Context::default(), time: 0.0, above: 100.0, nudge: 0, count: 20, more: false, arrows: (false, false), card: 150.0, key: "shelf-a".into(), cards: [Rect::NOTHING; 2], start: [Pos2::ZERO; 2], clicks: 0 };
             if touch_screen {
                 // A touch elsewhere first, so the page knows there's a touch screen.
                 p.frame(vec![touch(TouchPhase::Start, pos2(790.0, 590.0)), touch(TouchPhase::End, pos2(790.0, 590.0))]);
@@ -2276,6 +2278,7 @@ mod shelf_touch_tests {
             let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))), time: Some(self.time), predicted_dt: 1.0 / 60.0, events, ..Default::default() };
             self.time += 1.0 / 60.0;
             let ctx = self.ctx.clone();
+            let key = self.key.clone();
             let (above, nudge, count, more, width) = (self.above, std::mem::take(&mut self.nudge), self.count, self.more, self.card);
             let mut arrows = (false, false);
             let mut cards = [Rect::NOTHING; 2];
@@ -2284,7 +2287,7 @@ mod shelf_touch_tests {
                 egui::ScrollArea::vertical().id_salt("page").auto_shrink(false).show(ui, |ui| {
                     ui.add_space(above);
                     for (s, card) in cards.iter_mut().enumerate() {
-                        let (id, nudge, count, width) = if s == 0 { ("shelf-a", nudge, count, width) } else { ("shelf-b", 0, 20, 150.0) };
+                        let (id, nudge, count, width) = if s == 0 { (key.as_str(), nudge, count, width) } else { ("shelf-b", 0, 20, 150.0) };
                         if s == 0 {
                             arrows = super::shelf_arrows(ui, id, more);
                         }
@@ -2515,6 +2518,27 @@ mod shelf_touch_tests {
         p.nudge = -1;
         p.idle(90);
         assert_eq!(p.arrows, (false, false), "sent back");
+    }
+
+    #[test]
+    fn a_shelf_on_another_page_starts_at_its_beginning() {
+        let mut p = Page::new(false);
+        p.nudge = 1;
+        p.idle(90);
+        // Let go while it coasts, then open the next artist.
+        p.drag(LEFT, p.on(0, 600.0), vec2(-300.0, 0.0), 3);
+        let scrolled = p.seen().shelf[0];
+        assert!(scrolled > 0.0);
+        p.key = "shelf-a-next".into();
+        p.idle(90);
+        assert_eq!((p.seen().shelf[0], p.arrows), (0.0, (false, true)), "the next page's shelf");
+        // It scrolls on its own, by arrow and by drag.
+        p.nudge = 1;
+        p.idle(90);
+        assert_eq!(p.arrows, (true, true));
+        p.drag(LEFT, p.on(0, 600.0), vec2(-200.0, 0.0), 4);
+        p.idle(90);
+        assert!(p.seen().shelf[0] > 0.0);
     }
 
     #[test]

@@ -4,17 +4,19 @@ use std::{
     time::Duration,
 };
 
-use dbus::Path;
+use dbus::{MethodErr, Path};
 use dbus_crossroads::{Crossroads, IfaceBuilder};
 
-use crate::{MediaControlEvent, MediaPlayback, MediaPosition, SeekDirection};
+use crate::{LoopStatus, MediaControlEvent, MediaPlayback, MediaPosition, SeekDirection};
 
 use super::controls::{create_metadata_dict, ServiceState};
 
 // TODO: This type is super messed up, but it's the only way to get seeking working properly
 // on graphical media controls using dbus-crossroads.
+// ytm-rs: `Seeked` carries the new position (an i64 of microseconds, MPRIS's `x`), and the
+// service loop sends it when the app says the position jumped (`MediaControls::seeked`).
 pub type SeekedSignal =
-    Arc<Mutex<Option<Box<dyn Fn(&Path<'_>, &(String,)) -> dbus::Message + Send + Sync>>>>;
+    Arc<Mutex<Option<Box<dyn Fn(&Path<'_>, &(i64,)) -> dbus::Message + Send + Sync>>>>;
 
 pub fn register_methods<F>(
     state: &Arc<Mutex<ServiceState>>,
@@ -73,7 +75,7 @@ where
         b.method("Seek", ("Offset",), (), {
             let event_handler = event_handler.clone();
 
-            move |ctx, _, (offset,): (i64,)| {
+            move |_, _, (offset,): (i64,)| {
                 let abs_offset = offset.unsigned_abs();
                 let direction = if offset > 0 {
                     SeekDirection::Forward
@@ -85,7 +87,8 @@ where
                     direction,
                     Duration::from_micros(abs_offset),
                 ));
-                ctx.push_msg(ctx.make_signal("Seeked", ()));
+                // ytm-rs: no `Seeked` here, empty and before the app has moved: it comes
+                // with the new position once the app has (see `SeekedSignal`).
                 Ok(())
             }
         });
@@ -131,7 +134,7 @@ where
             }
         });
 
-        *seeked_signal.lock().unwrap() = Some(b.signal::<(String,), _>("Seeked", ("x",)).msg_fn());
+        *seeked_signal.lock().unwrap() = Some(b.signal::<(i64,), _>("Seeked", ("Position",)).msg_fn());
 
         b.property("PlaybackStatus")
             .get({
@@ -165,6 +168,39 @@ where
                 move |_, _, volume: f64| {
                     (event_handler.lock().unwrap())(MediaControlEvent::SetVolume(volume));
                     Ok(Some(volume))
+                }
+            })
+            .emits_changed_true();
+
+        // ytm-rs: shuffle and repeat, for media widgets that show and set them (Noctalia's,
+        // KDE's). A set only asks the app, which may say no (a jam guest can't shuffle):
+        // the new value goes out once the app sends it back, never just because it was
+        // asked for.
+        b.property("Shuffle")
+            .get({
+                let state = state.clone();
+                move |_, _| Ok(state.lock().unwrap().shuffle)
+            })
+            .set({
+                let event_handler = event_handler.clone();
+                move |_, _, shuffle: bool| {
+                    (event_handler.lock().unwrap())(MediaControlEvent::SetShuffle(shuffle));
+                    Ok(None)
+                }
+            })
+            .emits_changed_true();
+
+        b.property("LoopStatus")
+            .get({
+                let state = state.clone();
+                move |_, _| Ok(state.lock().unwrap().loop_status.as_str().to_string())
+            })
+            .set({
+                let event_handler = event_handler.clone();
+                move |_, _, name: String| {
+                    let status = LoopStatus::from_name(&name).ok_or_else(|| MethodErr::invalid_arg(&name))?;
+                    (event_handler.lock().unwrap())(MediaControlEvent::SetLoopStatus(status));
+                    Ok(None)
                 }
             })
             .emits_changed_true();

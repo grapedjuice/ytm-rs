@@ -11,6 +11,9 @@
 //! On Windows the app draws the strip's window buttons itself (see `titlebar`). Elsewhere
 //! the system's frame stays, with its own close button, so the strip leaves its out.
 //! Keeping on top is up to the window manager (Wayland has no way to ask).
+//!
+//! The card's top row has a lyrics button: its body then shows only the line being sung,
+//! with the same word-by-word look as Now playing. The cover is the card's play/pause.
 
 use std::time::Duration;
 
@@ -35,6 +38,9 @@ const CLOSE: CloseButton = CloseButton::LikeFullWindow;
 /// From the work area's corner, the first time.
 const MARGIN: f32 = 16.0;
 const RATING_ICON_SIZE: f32 = 17.0;
+/// Unison's credit shows at least this long before a song's end (or its crossfade), even
+/// when the last line is timed to the very end.
+const CREDIT_SECS: f64 = 6.0;
 /// The open pill's button that grows it into a card with more of the song: only where the
 /// window can be clipped to a shape (Windows). Elsewhere a window big enough for the card
 /// would take the clicks meant for what's around the pill.
@@ -45,6 +51,9 @@ const PILL_HEIGHT: f32 = 56.0;
 /// As wide as the open pill, so it only grows up or down.
 const CARD_SIZE: Vec2 = vec2(PILL_OPEN, 252.0);
 const CARD_RADIUS: f32 = 22.0;
+/// The card header's height: where its lyrics begin while the top bar shows, and how far
+/// the bar slides to leave the card.
+const HEADER_H: f32 = 46.0;
 /// The pill's window: always big enough for the open pill, which is only painted as far
 /// as it has grown, so hovering never has to resize a window. Just the pill's, so what
 /// Windows snaps (and shows it snapping) is the pill.
@@ -239,7 +248,8 @@ fn pill_now() -> bool {
 static PILL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 /// The experimental pill was asked for, instead of the strip. Saved beside the settings:
-/// it's needed before the window opens.
+/// it's needed before the window opens. Without a saved choice the strip is used, so the
+/// pill stays opt-in for existing and fresh profiles alike.
 pub fn pill_saved(data_dir: &std::path::Path) -> bool {
     std::fs::read_to_string(data_dir.join("mini_style")).is_ok_and(|s| s.trim() == "pill")
 }
@@ -459,6 +469,43 @@ pub struct Mini {
     /// The strip is showing.
     on: bool,
     pub pinned: bool,
+    /// The card's lyrics button is on: its body is the lyrics.
+    lyrics: bool,
+    /// In lyrics mode, the card's top bar and player controls hide until it's pointed at.
+    pub lyrics_autohide: bool,
+    /// The card shows the song's cover art, dimmed, as its background.
+    pub cover_bg: bool,
+    /// The collapsed pill keeps its hover width while lyrics are showing.
+    pub pill_extended: bool,
+    /// How blurred the card's cover background is, 0–10 (0: sharp).
+    pub cover_blur: f32,
+    /// How visible the card's cover background is, in percent.
+    pub cover_opacity: f32,
+    /// The blurred cover texture currently made for the card's background.
+    cover_tex: Option<(String, egui::TextureHandle)>,
+    /// The collapsed pill's lyric view: Lucid's look, at the pill's small size.
+    pill_lyric_view: super::karaoke::View,
+    /// The frame key that pill view was laid out for.
+    pill_lyric_key: u64,
+    /// The full lyrics the pill shows, credits cleared, for that song and source.
+    pill_lyric_lines: Option<crate::lyrics::Lyrics>,
+    /// The line being sung's block height, for the pill's one-line window.
+    pill_lyric_h: f32,
+    /// The pill has the line being sung to show right now.
+    pill_lyric_live: bool,
+    /// The card's lyrics view, kept apart from Now playing's.
+    lyric_view: super::karaoke::View,
+    /// The frame key that view was laid out for, so another song starts afresh.
+    lyric_key: u64,
+    /// The full lyrics the card shows, credits cleared, for that song and source.
+    lyric_lines: Option<crate::lyrics::Lyrics>,
+    /// The line being sung's block height, for the card's one-line window.
+    lyric_h: f32,
+    /// When the right-edge volume hint last showed (app time, s).
+    volume_at: f64,
+    /// When the card last had the pointer: its chrome shows while it does, and a moment
+    /// after it leaves (app time, s).
+    chrome_at: f64,
     /// The strip's (or the pill's) last place.
     place: Option<Place>,
     /// Picture in picture's.
@@ -506,6 +553,24 @@ impl Mini {
         Mini {
             on: false,
             pinned: get("mini_pinned").map_or(PINNED_BY_DEFAULT, |v| v == "1"),
+            lyrics: get("mini_lyrics").is_some_and(|v| v == "1"),
+            lyrics_autohide: get("mini_lyrics_autohide").is_none_or(|v| v == "1"),
+            cover_bg: get("mini_cover_bg").is_none_or(|v| v == "1"),
+            pill_extended: get("mini_pill_extended").is_some_and(|v| v == "1"),
+            cover_blur: get("mini_cover_blur").and_then(|v| v.parse::<f32>().ok()).unwrap_or(3.0).clamp(0.0, 10.0),
+            cover_opacity: get("mini_cover_opacity").and_then(|v| v.parse::<f32>().ok()).unwrap_or(69.0).clamp(0.0, 100.0),
+            cover_tex: None,
+            pill_lyric_view: Default::default(),
+            pill_lyric_key: 0,
+            pill_lyric_lines: None,
+            pill_lyric_h: 0.0,
+            pill_lyric_live: false,
+            lyric_view: Default::default(),
+            lyric_key: 0,
+            lyric_lines: None,
+            lyric_h: 0.0,
+            volume_at: f64::NEG_INFINITY,
+            chrome_at: f64::NEG_INFINITY,
             place: get(place_key()).and_then(|v| serde_json::from_str::<Place>(&v).ok()).map(|p| {
                 // A pill saved narrower (before it had the card's button) keeps its right
                 // edge, so one in the corner doesn't reopen partly off the screen.
@@ -533,6 +598,10 @@ impl Mini {
             sized: None,
             asked_from: None,
         }
+    }
+
+    pub(super) fn cover_changed(&mut self) {
+        self.cover_tex = None;
     }
 
     /// Picture in picture takes the video's shape: Windows keeps it while an edge is
@@ -656,6 +725,12 @@ impl Mini {
 
     pub fn save(&self, storage: &mut dyn eframe::Storage) {
         storage.set_string("mini_pinned", if self.pinned { "1" } else { "0" }.into());
+        storage.set_string("mini_lyrics", if self.lyrics { "1" } else { "0" }.into());
+        storage.set_string("mini_lyrics_autohide", if self.lyrics_autohide { "1" } else { "0" }.into());
+        storage.set_string("mini_cover_bg", if self.cover_bg { "1" } else { "0" }.into());
+        storage.set_string("mini_pill_extended", if self.pill_extended { "1" } else { "0" }.into());
+        storage.set_string("mini_cover_blur", self.cover_blur.to_string());
+        storage.set_string("mini_cover_opacity", self.cover_opacity.to_string());
         let strip_key = if pill_active() { "mini_pill_window" } else { "mini_window" };
         for (key, place) in [(strip_key, &self.place), (VIDEO_KEY, &self.video_place)] {
             if let Some(p) = place {
@@ -1183,14 +1258,19 @@ pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
     let was = ctx.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(PILL_REST);
     let over = ctx.input(|i| i.pointer.hover_pos()).is_some_and(|p| pill_rect(r, was, low).contains(p));
     // The keyboard opens it too, or Tab would land on buttons nobody can see.
-    let focused = ctx.memory(|m| m.focused()).is_some_and(|f| ["prev", "play", "next", "card", "close"].iter().any(|k| pill_btn(k) == f));
+    let focused = ctx.memory(|m| m.focused()).is_some_and(|f| ["prev", "play", "next", "lyrics", "card", "close"].iter().any(|k| pill_btn(k) == f));
     let active = over || focused || card_on;
     // A toast takes the text's place, with the pill opened for the room, until it's pointed at.
     let toast = app.toast.as_ref().filter(|_| !active).map(|(msg, _)| msg.clone());
     if app.toast.is_some() {
         ctx.request_repaint_after(Duration::from_millis(500));
     }
-    let open = theme::anim_bool(&ctx, "pill-open", active || toast.is_some(), 0.18);
+    // Lyrics mode can keep the pill at its open width even while the pointer is away; the
+    // controls still only slide out on hover.
+    let extended = app.mini.lyrics && app.mini.pill_extended;
+    // Unison's credit opens it too, so the submitter's name fits.
+    let credit = app.mini.lyrics && pill_credit(app).is_some();
+    let open = theme::anim_bool(&ctx, "pill-open", active || toast.is_some() || extended || credit, 0.18);
     let reveal = theme::anim_bool(&ctx, "pill-buttons", active, 0.18);
     let width = egui::lerp(PILL_REST..=PILL_OPEN, open);
     ctx.data_mut(|d| d.insert_temp(width_id, width));
@@ -1218,6 +1298,51 @@ pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
         app.actions.push(Action::Mini(false));
     }
     ui.painter().rect_filled(rect, radius, super::shell::base_color(app));
+    // The cover, full-bleed under everything the card draws: cropped to fill, dimmed the
+    // theme's way so the normal lyrics and controls keep their colours over it. The blur
+    // index blends the sharp cover with the app's blurred cover art.
+    if app.mini.cover_bg && grow > 0.5 {
+        // Use the still cover behind the card. The blur slider blends two layers at
+        // paint time, so all its positions share the same blurred texture.
+        let covered = app.art_key.as_deref().filter(|id| Some(*id) == app.current_id()).zip(app.track_art.as_ref());
+        match covered {
+            Some((id, art)) if app.mini.cover_tex.as_ref().is_none_or(|(key, _)| key != id) => {
+                let image = egui::ColorImage::from_rgba_unmultiplied([crate::art::SIZE as usize; 2], &art.rgba);
+                let tex = ui.ctx().load_texture("mini-cover-blur", image, egui::TextureOptions::LINEAR);
+                app.mini.cover_tex = Some((id.to_owned(), tex));
+            }
+            None => app.mini.cover_changed(),
+            _ => {}
+        };
+        if let Some(t) = app.current() {
+            let fade = ((grow - 0.5) * 2.0).clamp(0.0, 1.0);
+            let alpha = (app.mini.cover_opacity / 100.0).clamp(0.0, 1.0) * fade;
+            let blur = (app.mini.cover_blur / 10.0).clamp(0.0, 1.0);
+            if alpha > 0.001 {
+                let mut art = ui.new_child(egui::UiBuilder::new().max_rect(card));
+                art.set_clip_rect(rect.intersect(ui.clip_rect()));
+                if let Some((_, tex)) = &app.mini.cover_tex {
+                    // The 64×64 backdrop art, cropped to the card's shape like the cover.
+                    let aspect = card.width() / card.height().max(1.0);
+                    let size = if aspect >= 1.0 { vec2(1.0, 1.0 / aspect) } else { vec2(aspect, 1.0) };
+                    let uv = Rect::from_center_size(pos2(0.5, 0.5), size);
+                    egui::Image::from_texture(tex).uv(uv).tint(Color32::WHITE).paint_at(&art, card);
+                }
+                // The sharp cover over it: at blur 0 it covers the blurred layer whole;
+                // higher indices let more of the blur through.
+                let sharp = if app.mini.cover_tex.is_some() { 1.0 - blur } else { 1.0 };
+                if sharp > 0.001 {
+                    let tint = if theme::light() { Color32::from_gray(224) } else { Color32::from_gray(140) };
+                    widgets::paint_cover_fill(&art, card, &t.thumbs, tint.gamma_multiply(sharp));
+                }
+                let scrim = if theme::light() { theme::with_alpha(Color32::WHITE, 0.5) } else { theme::shade(0.3) };
+                ui.painter().rect_filled(rect, radius, scrim);
+                // Fade the whole backdrop (art and scrim) into the card's own colour, so
+                // the opacity is the share of the art in the final background.
+                ui.painter().rect_filled(rect, radius, super::shell::base_color(app).gamma_multiply(1.0 - alpha));
+            }
+        }
+    }
     ui.painter().rect_stroke(rect, radius, egui::Stroke::new(1.0, theme::glass(0.18)), egui::StrokeKind::Inside);
 
     // One fades out before the other fades in, inside the shape as it grows.
@@ -1230,7 +1355,7 @@ pub fn pill(app: &mut App, ui: &mut Ui, now: f64) {
     }
     if grow < 0.5 {
         inside.multiply_opacity(1.0 - grow * 2.0);
-        pill_row(app, &mut inside, small, reveal, toast, now);
+        pill_row(app, &mut inside, small, reveal, toast, now, false, active);
     } else {
         inside.multiply_opacity(grow * 2.0 - 1.0);
         card_body(app, &mut inside, card, now);
@@ -1243,8 +1368,9 @@ fn pill_btn(key: &str) -> egui::Id {
 }
 
 /// What's in the pill: the cover in a progress ring, title and artists or a toast, and the
-/// buttons that slide out.
-fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<String>, now: f64) {
+/// buttons that slide out. `in_card`: the same row sits at the bottom of the card's lyrics.
+#[allow(clippy::too_many_arguments)]
+fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<String>, now: f64, in_card: bool, active: bool) {
     let ctx = ui.ctx().clone();
     // The cover, with how far the song has got around it.
     let track = app.current().cloned();
@@ -1270,30 +1396,64 @@ fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<S
         }
     }
 
-    // Title and artists, making room for the buttons as they slide out.
+    // Title and artists, making room for the buttons as they slide out. The collapsed
+    // pill's mic takes one more button's room there (the card's capsule has its own).
     let shift = if CARD { 26.0 } else { 0.0 };
+    let extra = if in_card { 0.0 } else { 26.0 };
     let x0 = c.x + 30.0;
-    let text_w = (rect.right() - 14.0 - (126.0 + shift) * reveal - x0).max(10.0);
+    let text_w = (rect.right() - 14.0 - (126.0 + shift + extra) * reveal - x0).max(10.0);
     let cy = rect.center().y;
     let (title, artists) = match &track {
         Some(t) => (t.title.clone(), t.artist_line()),
         None => (crate::tr!("player-nothing-playing").to_owned(), String::new()),
     };
     let explicit = track.as_ref().is_some_and(|t| t.explicit);
+    // The pill's lyric line: Lucid's look whatever theme the app uses, opening when the
+    // lyrics are on and the pointer is away while the title and artists slide up out of it.
+    let lyrics_on = app.mini.lyrics && !in_card;
+    // Unison's credit takes the title's place once the lyrics are sung, pointer or not.
+    let credit = if lyrics_on { pill_credit(app) } else { None };
+    let lyrics_show = lyrics_on && !active && toast.is_none() && app.mini.pill_lyric_live && credit.is_none();
+    let lyrics_k = theme::anim_bool(&ctx, "pill-lyrics", lyrics_show, 0.22).clamp(0.0, 1.0);
+    // With the wide lyrics pill the line gets the extended text area even at rest.
+    let lyric_rest = if lyrics_on && app.mini.pill_extended { PILL_OPEN } else { PILL_REST };
+    let lyric_area = Rect::from_min_max(pos2(rect.right() - lyric_rest + 57.0, rect.top() + 1.0), pos2(rect.right() - 14.0, rect.bottom() - 1.0));
+    if lyrics_on && toast.is_none() && credit.is_none() && (lyrics_k > 0.001 || !active) {
+        let shifted = lyric_area.translate(vec2(0.0, (1.0 - lyrics_k) * 18.0));
+        let mut lyric_ui = ui.new_child(egui::UiBuilder::new().max_rect(lyric_area));
+        lyric_ui.set_clip_rect(lyric_area);
+        lyric_ui.multiply_opacity(lyrics_k);
+        pill_lyrics(app, &mut lyric_ui, shifted, lyric_area, now);
+    }
+    let details_k = 1.0 - lyrics_k;
     if let Some(msg) = toast {
         let g = ui.painter().layout(msg, theme::semibold(13.0), theme::text(), text_w);
         ui.painter().galley(pos2(x0, cy - g.size().y / 2.0), g, theme::text());
-    } else {
-        widgets::title_at(ui, pos2(x0, cy - 17.0), &title, explicit, theme::semibold(13.0), theme::text(), text_w);
-        text_at(ui, pos2(x0, cy + 2.0), &artists, theme::regular(11.5), theme::text_dim(), text_w);
+    } else if details_k > 0.001 {
+        let mut detail_ui = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+        detail_ui.multiply_opacity(details_k);
+        let dy = -lyrics_k * 18.0;
+        if let Some(c) = &credit {
+            let links = super::karaoke::unison_parts(c).into_iter().filter_map(|(text, url)| Some((text, url?)));
+            for ((text, url), (y, font, color)) in links.zip([(cy - 17.0, theme::semibold(13.0), theme::text()), (cy + 2.0, theme::regular(11.5), theme::text_dim())]) {
+                credit_link(&detail_ui, pos2(x0, y + dy), &text, &url, font, color, text_w);
+            }
+        } else {
+            widgets::title_at(&detail_ui, pos2(x0, cy - 17.0 + dy), &title, explicit, theme::semibold(13.0), theme::text(), text_w);
+            text_at(&detail_ui, pos2(x0, cy + 2.0 + dy), &artists, theme::regular(11.5), theme::text_dim(), text_w);
+        }
     }
 
     // Clickable once most of the way out: a quick pass over the pill shouldn't press
-    // anything. Until then Tab can still get to them, which opens the pill.
-    let live = reveal > 0.5 && !app.mini.card;
+    // anything. Until then Tab can still get to them, which opens the pill. In the card's
+    // lyrics the row is already out and its buttons are live.
+    let live = reveal > 0.5 && (!app.mini.card || in_card);
     let button = |ui: &mut Ui, center: Pos2, key: &str, name: &str| -> egui::Response {
         let sense = if live { Sense::click() } else { Sense::focusable_noninteractive() };
-        let resp = named(ui.interact(Rect::from_center_size(center, Vec2::splat(28.0)), pill_btn(key), sense), name);
+        // The collapsed pill's mic fits in the gap before the card button with a
+        // slightly smaller hit target; the card's capsule keeps the roomier one.
+        let hit = if in_card { 28.0 } else { 24.0 };
+        let resp = named(ui.interact(Rect::from_center_size(center, Vec2::splat(hit)), pill_btn(key), sense), name);
         if resp.has_focus() {
             ui.painter().circle_stroke(center, 14.0, egui::Stroke::new(1.5, theme::text()));
         }
@@ -1303,9 +1463,15 @@ fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<S
     let right = rect.right();
     // Which way it'll open from here, while the window is the pill's.
     let up = if app.mini.tall { app.mini.up } else { app.mini.opens_up(&ctx) };
-    let mut buttons = vec![(113.0 + shift, icon::SKIP_BACK, "prev", crate::tr!("ui-previous")), (47.0 + shift, icon::SKIP_FORWARD, "next", crate::tr!("ui-next")), (21.0, icon::X, "close", crate::tr!("ui-close"))];
+    let mut buttons = vec![(113.0 + shift + extra, icon::SKIP_BACK, "prev", crate::tr!("ui-previous")), (47.0 + shift + extra, icon::SKIP_FORWARD, "next", crate::tr!("ui-next")), (21.0, icon::X, "close", crate::tr!("ui-close"))];
     if CARD {
-        buttons.push((47.0, if up { icon::CHEVRON_UP } else { icon::CHEVRON_DOWN }, "card", crate::tr!("player-more")));
+        let (glyph, name) = if in_card { (icon::CHEVRON_UP, crate::tr!("player-less")) } else if up { (icon::CHEVRON_UP, crate::tr!("player-more")) } else { (icon::CHEVRON_DOWN, crate::tr!("player-more")) };
+        buttons.push((47.0, glyph, "card", name));
+    }
+    if !in_card {
+        // Left of the expand chevron: prev, play, next, lyrics, more, close. The mic
+        // takes the card button's slot where there is no card button (Linux/macOS).
+        buttons.push((47.0 + shift, icon::MIC_VOCAL, "lyrics", crate::tr!("settings-lyrics")));
     }
     for (dx, glyph, key, name) in buttons {
         let center = pos2(right - dx, cy);
@@ -1314,23 +1480,268 @@ fn pill_row(app: &mut App, ui: &mut Ui, rect: Rect, reveal: f32, toast: Option<S
         if hot {
             ui.painter().circle_filled(center, 13.0, theme::glass(0.12));
         }
-        icon_at(ui, center, glyph, if key == "close" { 13.0 } else { 16.0 }, if hot { theme::text() } else { theme::text_dim() }.gamma_multiply(reveal));
+        let active_lyrics = key == "lyrics" && app.mini.lyrics;
+        let color = if active_lyrics { app.accent_color() } else if hot { theme::text() } else { theme::text_dim() };
+        icon_at(ui, center, glyph, if key == "close" { 13.0 } else { 16.0 }, color.gamma_multiply(reveal));
         if resp.clicked() {
             match key {
                 "prev" if enabled => app.prev(),
                 "next" if enabled => app.next(),
-                "card" => app.mini.set_card(&ctx, true),
+                "lyrics" => app.mini.lyrics = !app.mini.lyrics,
+                "card" => app.mini.set_card(&ctx, !in_card),
                 "close" => close_window(app, &ctx),
                 _ => {}
             }
         }
     }
-    let center = pos2(right - 80.0 - shift, cy);
+    let center = pos2(right - 80.0 - shift - extra, cy);
     let resp = button(ui, center, "play", if app.playing() { crate::tr!("ui-pause") } else { crate::tr!("ui-play") });
     ui.painter().circle_filled(center, 15.0, if theme::light() { theme::text() } else { Color32::WHITE }.gamma_multiply(reveal));
     play_glyph(app, ui, center, 0.82, theme::on_text().gamma_multiply(reveal), now);
     if resp.clicked() && enabled {
         app.toggle();
+    }
+}
+
+/// Unison's credit, when it's the pill's turn to show it.
+fn pill_credit(app: &App) -> Option<crate::lyrics::UnisonCredit> {
+    let (id, set) = app.lyrics.as_ref()?;
+    let lyrics = app.lyric_prefs.choose(id, set).and_then(|p| set.get(p))?;
+    if lyrics.sync == crate::lyrics::Sync::None {
+        return None;
+    }
+    let pos = app.audio.status.position_smooth().as_secs_f64() - app.audio.status.latency().as_secs_f64();
+    let off = app.lyric_prefs.offset(id, lyrics.provider, lyrics.sync == crate::lyrics::Sync::Word);
+    credit_due(app, lyrics, pos - off, off).and(lyrics.unison.clone())
+}
+
+/// Unison asks for its credit under the last line. The mini views show one line at a time,
+/// so it gets its own turn: after the last sung line, or [`CREDIT_SECS`] before the song
+/// ends or crossfades away if that comes first. Some: it's due, with the last line's end.
+/// `t` is lyric time: the position less the lyrics' offset `off`.
+fn credit_due(app: &App, lyrics: &crate::lyrics::Lyrics, t: f64, off: f64) -> Option<f64> {
+    lyrics.unison.as_ref().filter(|_| lyrics.provider.is_unison())?;
+    // The renderer's last sung line, so the card's credits block is the one in focus.
+    let last = lyrics.lines.iter().rev().find(|l| !l.instrumental)?;
+    let (start, end) = (f64::from(last.start) / 1000.0, f64::from(last.end()) / 1000.0);
+    let len = f64::from(song_length(app, app.current()));
+    // As the audio engine crossfades: in real time (more of the song when faster), and
+    // only for songs longer than twice the fade.
+    let speed = f64::from(app.audio.status.speed());
+    let fade = if app.crossfade { f64::from(app.crossfade_secs) * speed } else { 0.0 };
+    let fade = if len > 2.0 * fade { fade } else { 0.0 };
+    let due = if len > 0.0 { end.min(len - fade - CREDIT_SECS * speed - off).max(start) } else { end };
+    (t >= due).then_some(end)
+}
+
+/// One part of Unison's credit in the pill: a link, underlined on hover.
+fn credit_link(ui: &Ui, pos: Pos2, text: &str, url: &str, font: egui::FontId, color: Color32, width: f32) {
+    let g = widgets::galley(ui, text, font, color, width);
+    let r = Rect::from_min_size(pos, g.size());
+    let resp = ui.interact(r, ui.scope_id().with(("pill-unison", url)), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, true, text));
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        ui.painter().hline(r.x_range(), r.bottom() - 1.0, egui::Stroke::new(1.0, color));
+    }
+    if resp.clicked() {
+        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+    }
+    ui.painter().galley(pos, g.clone(), color);
+    // The buttons squeeze it while the pointer is on the pill: the whole credit as a tip.
+    widgets::tip_if_elided(ui, r, &g, text);
+}
+
+/// The pill's lyric line: Lucid's look and word sweep, always, whatever theme the rest of
+/// the app uses. It gets the whole lyrics set so its normal scroll rolls the next line in.
+fn pill_lyrics(app: &mut App, ui: &mut Ui, area: Rect, clip: Rect, now: f64) {
+    let Some((id, set)) = app.lyrics.as_ref() else {
+        app.mini.pill_lyric_live = false;
+        return;
+    };
+    let Some(lyrics) = app.lyric_prefs.choose(id, set).and_then(|p| set.get(p)) else {
+        app.mini.pill_lyric_live = false;
+        return;
+    };
+    if lyrics.sync == crate::lyrics::Sync::None {
+        app.mini.pill_lyric_live = false;
+        return;
+    }
+    let playing = app.playing();
+    let pos = app.audio.status.position_smooth().as_secs_f64() - app.audio.status.latency().as_secs_f64();
+    let pos = app.lyric_clock.tick(pos, playing, now, app.audio.status.speed() as f64);
+    let t = pos - app.lyric_prefs.offset(id, lyrics.provider, lyrics.sync == crate::lyrics::Sync::Word);
+    let t_ms = (t * 1000.0) as i32;
+    let has_line = lyrics.lines.iter().any(|l| !l.instrumental && !l.text.trim().is_empty() && l.start <= t_ms);
+    if !has_line {
+        app.mini.pill_lyric_live = false;
+        return;
+    }
+    let key = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        id.hash(&mut h);
+        lyrics.provider.key().hash(&mut h);
+        "lucid".hash(&mut h);
+        13.0_f32.to_bits().hash(&mut h);
+        h.finish()
+    };
+    if app.mini.pill_lyric_key != key || app.mini.pill_lyric_lines.is_none() {
+        app.mini.pill_lyric_key = key;
+        app.mini.pill_lyric_view.reset();
+        app.mini.pill_lyric_h = 0.0;
+        // Keep the songwriters and Unison credit: the renderer appends them after the
+        // last line, and the lyrics must carry their attribution here too.
+        app.mini.pill_lyric_lines = Some(lyrics.clone());
+    }
+    let full = app.mini.pill_lyric_lines.as_ref().expect("the pill's lyrics were cached above");
+    let target_h = if app.mini.pill_lyric_h > 0.0 { (app.mini.pill_lyric_h + 12.0).min(area.height()) } else { area.height() };
+    let band_h = ui.ctx().animate_value_with_time(egui::Id::unique(("pill-lyric-band", key)), target_h, 0.2);
+    let band = Rect::from_center_size(area.center(), vec2(area.width(), band_h));
+    let mut line_ui = ui.new_child(egui::UiBuilder::new().max_rect(area));
+    line_ui.set_clip_rect(band.intersect(area).intersect(clip));
+    let lucid = crate::preset::get("lucid");
+    let frame = super::karaoke::Frame {
+        lyrics: full,
+        key,
+        roman: Vec::new(),
+        trans: Vec::new(),
+        t,
+        playing,
+        now,
+        rect: area,
+        style: &lucid.lyrics,
+        accent: crate::preset::hex(&lucid.accent).unwrap_or(Color32::WHITE),
+        centered: false,
+        own: super::karaoke::Own {
+            scale: 1.0,
+            weight: None,
+            deco_scale: 1.0,
+            size: Some(13.0),
+            anchor: Some(0.5),
+            padding: Some(0.0),
+            // Light mode gets black ink instead of a dark backdrop behind Lucid's white.
+            ink: theme::light().then_some(Color32::BLACK),
+            follow: true,
+            active_row: true,
+        },
+        fullscreen: false,
+        glass_chip: None,
+        quick_scroll: false,
+        soft: false,
+    };
+    let mut view = std::mem::take(&mut app.mini.pill_lyric_view);
+    let out = view.show(&mut line_ui, frame);
+    app.mini.pill_lyric_view = view;
+    if out.active_h > 0.0 {
+        app.mini.pill_lyric_h = out.active_h;
+    }
+    if out.animating {
+        super::pace::repaint_after(ui.ctx(), Duration::from_millis(16));
+    }
+    app.mini.pill_lyric_live = true;
+}
+
+/// The card's lyrics: the line being sung (and, with the chrome hidden, the lines around
+/// it), drawn by the same renderer Now playing uses so its word-by-word sweep is kept.
+fn card_lyrics(app: &mut App, ui: &mut Ui, area: Rect, open: f32, now: f64) {
+    let message = |ui: &Ui, msg: &str| {
+        let g = widgets::galley(ui, msg, theme::regular(13.0), theme::text_dim(), area.width() - 24.0);
+        ui.painter().galley(area.center() - g.size() / 2.0, g, theme::text_dim());
+    };
+    let Some((id, set)) = app.lyrics.as_ref() else {
+        app.mini.lyric_h = 0.0;
+        return message(ui, crate::tr!("player-loading-lyrics"));
+    };
+    let Some(lyrics) = app.lyric_prefs.choose(id, set).and_then(|p| set.get(p)) else {
+        app.mini.lyric_h = 0.0;
+        return message(ui, crate::tr!("player-no-lyrics"));
+    };
+    if lyrics.sync == crate::lyrics::Sync::None {
+        app.mini.lyric_h = 0.0;
+        return message(ui, crate::tr!("player-lyrics-unsynced"));
+    }
+    let key = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        id.hash(&mut h);
+        lyrics.provider.key().hash(&mut h);
+        // A download's submitter arrives after its lyrics.
+        lyrics.unison.hash(&mut h);
+        app.theme_id.hash(&mut h);
+        app.lyric_prefs.look.hash(&mut h);
+        h.finish()
+    };
+    if app.mini.lyric_key != key || app.mini.lyric_lines.is_none() {
+        app.mini.lyric_key = key;
+        app.mini.lyric_view.reset();
+        // Keep the songwriters and Unison credit: the renderer appends them after the
+        // last line, and the lyrics must carry their attribution here too.
+        app.mini.lyric_lines = Some(lyrics.clone());
+    }
+    let full = app.mini.lyric_lines.as_ref().expect("the lyrics were cached above");
+    let playing = app.playing();
+    let pos = app.audio.status.position_smooth().as_secs_f64() - app.audio.status.latency().as_secs_f64();
+    let pos = app.lyric_clock.tick(pos, playing, now, app.audio.status.speed() as f64);
+    let off = app.lyric_prefs.offset(id, lyrics.provider, lyrics.sync == crate::lyrics::Sync::Word);
+    let t = pos - off;
+    // Unison's credit gets its turn before a crossfade can take the song away.
+    let t = credit_due(app, lyrics, t, off).map_or(t, |end| t.max(end + 0.05));
+    // The whole lyrics are fed to the renderer, so its normal scroll runs between lines.
+    // With the chrome showing, the band is only the line being sung: the next line rolls
+    // through during the transition, but at rest only the active line is in the card. With
+    // the chrome hidden, the band opens to the whole card and the neighbours show, fading
+    // toward its edges like the normal player.
+    let target_h = if app.mini.lyric_h > 0.0 { (app.mini.lyric_h + 12.0).min(area.height()) } else { 96.0_f32.min(area.height()) };
+    let one_h = ui.ctx().animate_value_with_time(egui::Id::unique(("mini-lyric-band", key)), target_h, 0.2);
+    let band_h = egui::lerp(one_h..=area.height(), open.clamp(0.0, 1.0));
+    let band = Rect::from_center_size(area.center(), vec2(area.width(), band_h));
+    let mut line_ui = ui.new_child(egui::UiBuilder::new().max_rect(area));
+    line_ui.set_clip_rect(band.intersect(area));
+    let frame = super::karaoke::Frame {
+        lyrics: full,
+        key,
+        roman: Vec::new(),
+        trans: Vec::new(),
+        t,
+        playing,
+        now,
+        rect: area,
+        style: app.lyric_prefs.style(app.look()),
+        accent: app.accent_color(),
+        centered: true,
+        own: super::karaoke::Own {
+            scale: app.lyric_prefs.text_scale,
+            weight: app.lyric_prefs.weight,
+            deco_scale: app.lyric_prefs.deco_scale,
+            size: None,
+            anchor: None,
+            padding: None,
+            // The card goes light in light mode: its lyrics go black to stay readable.
+            ink: theme::light().then_some(Color32::BLACK),
+            follow: false,
+            active_row: false,
+        },
+        fullscreen: false,
+        glass_chip: app.look().app.glass.instrumental,
+        quick_scroll: app.quick_lyric_scroll,
+        soft: true,
+    };
+    let mut view = std::mem::take(&mut app.mini.lyric_view);
+    let out = view.show(&mut line_ui, frame);
+    app.mini.lyric_view = view;
+    if out.active_h > 0.0 {
+        app.mini.lyric_h = out.active_h;
+    }
+    if let Some(s) = out.seek {
+        // A line clicked in the card seeks like one in Now playing: leave any reader
+        // scrolling behind, and put the line's time on the player's clock.
+        let at = s + app.lyric_prefs.offset(id, full.provider, full.sync == crate::lyrics::Sync::Word) + app.audio.status.latency().as_secs_f64();
+        app.mini.lyric_view.resume();
+        app.actions.push(Action::Seek(at.max(0.0) as f32));
+    }
+    if out.animating {
+        super::pace::repaint_after(ui.ctx(), Duration::from_millis(16));
     }
 }
 
@@ -1346,63 +1757,156 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
         widgets::icon_button(&mut child, glyph, size, name, active).clicked()
     };
 
-    // Where it's playing from (its name opens it in the full window); keep on top, the full
-    // window and back to the pill beside it.
-    let head = top + 30.0;
-    if button(ui, pos2(rt - 8.0, head), if app.mini.up { icon::CHEVRON_DOWN } else { icon::CHEVRON_UP }, 16.0, crate::tr!("player-less"), false) {
-        app.mini.set_card(&ctx, false);
+    // In lyrics mode the card can be just the lyrics: its top bar and player controls
+    // slide away until the pointer comes back, and a moment after it leaves.
+    let lyrics_mode = app.mini.lyrics && enabled;
+    let wants_autohide = lyrics_mode && app.mini.lyrics_autohide && !ctx.input(|i| i.has_touch_screen());
+    // Only while a line is there to keep the card's company: messages and the lead-in
+    // before the first line keep the bars. A song change keeps the old answer for its
+    // first frame, so the chrome doesn't flash back in.
+    let autohide = wants_autohide && app.mini.lyric_h > 0.0;
+    let hovered = ctx.pointer_hover_pos().is_some_and(|p| cr.contains(p));
+    if hovered {
+        app.mini.chrome_at = now;
     }
-    if button(ui, pos2(rt - 42.0, head), icon::MAXIMIZE_2, 14.0, &crate::tr!("player-with-shortcut", action = crate::tr!("player-full-window"), key = "Ctrl+M"), false) {
-        app.actions.push(Action::Mini(false));
+    let lingering = now - app.mini.chrome_at < 0.35;
+    let target = !autohide || hovered || lingering || app.toast.is_some();
+    // One value drives both bars and the lyric area, so they leave and the line recentres
+    // as a single motion. Not auto-hiding, it's held fully out.
+    let chrome = theme::anim_bool(&ctx, "mini-chrome", target, if wants_autohide { 0.32 } else { 0.0 }).clamp(0.0, 1.0);
+    // With the chrome out of the way, the lyrics open from the active line to the whole
+    // card; hovering closes them again as the bars come back.
+    let open = if wants_autohide { 1.0 - chrome } else { 0.0 };
+    if autohide && !hovered && lingering {
+        ctx.request_repaint_after(Duration::from_secs_f64(0.35 - (now - app.mini.chrome_at)));
     }
-    let pinned = app.mini.pinned;
-    if button(ui, pos2(rt - 76.0, head), if pinned { icon::PIN } else { icon::PIN_OFF }, 14.0, if pinned { crate::tr!("ui-unpin-window") } else { crate::tr!("settings-keep-on-top") }, pinned) {
-        app.mini.set_pinned(&ctx, !pinned);
-    }
-    let head_w = rt - 100.0 - l;
-    // A toast ("Only the host can shuffle the jam", "Sign in to like songs") takes the header's place while
-    // it lasts, kept through its fade-out.
-    let toast_id = egui::Id::unique("card-toast");
-    if let Some((msg, _)) = &app.toast {
-        ctx.data_mut(|d| d.insert_temp(toast_id, msg.clone()));
-    }
-    // Still opening: whatever the toast is now, without fading out an old one.
-    if !ui.is_enabled() {
-        ctx.animate_bool_with_time(egui::Id::unique(toast_id), app.toast.is_some(), 0.0);
-    }
-    let tt = theme::anim_bool(&ctx, toast_id, app.toast.is_some(), 0.2).clamp(0.0, 1.0);
-    if let Some(msg) = ctx.data(|d| d.get_temp::<String>(toast_id)).filter(|_| tt > 0.0) {
-        let g = ui.painter().layout(msg, theme::semibold(13.0), theme::text().gamma_multiply(tt), head_w);
-        ui.painter().galley(pos2(l, head - g.size().y / 2.0 + 4.0 * (1.0 - tt)), g, theme::text());
-    }
-    // Faded under the toast, and not clickable once it has mostly taken over.
-    let live = tt < 0.5;
-    {
-        let mut from_ui = ui.new_child(egui::UiBuilder::new().max_rect(cr));
-        from_ui.multiply_opacity(1.0 - tt);
-        let ui = &mut from_ui;
-        match app.playing_from() {
-            Some((label, name, target)) => {
-                text_at(ui, pos2(l, head - 16.0), label, theme::regular(11.0), theme::text_faint(), head_w);
-                let (nr, elided) = widgets::text_at_elided(ui, pos2(l, head - 1.0), &name, theme::semibold(13.0), theme::text(), head_w);
-                let sense = if live { Sense::click() } else { Sense::hover() };
-                let resp = named(ui.interact(nr, ui.scope_id().with("card-from"), sense), &name);
-                let resp = if live { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
-                let resp = if elided { resp.on_hover_text(&name) } else { resp };
-                if resp.hovered() && live {
-                    ui.painter().hline(nr.x_range(), nr.bottom(), egui::Stroke::new(1.0, theme::text()));
+
+    if chrome > 0.001 {
+        let mut header_ui = ui.new_child(egui::UiBuilder::new().max_rect(cr));
+        header_ui.set_clip_rect(cr.intersect(ui.clip_rect()));
+        header_ui.multiply_opacity(chrome);
+        // Faded out, its buttons mustn't take clicks meant for the lyrics.
+        if chrome < 0.5 {
+            header_ui.visuals_mut().disabled_alpha = 1.0;
+            header_ui.disable();
+        }
+        let ui = &mut header_ui;
+        // Where it's playing from (its name opens it in the full window); keep on top, the full
+        // window and back to the pill beside it.
+        let head = top + 30.0 - (1.0 - chrome) * HEADER_H;
+        if button(ui, pos2(rt - 8.0, head), if app.mini.up { icon::CHEVRON_DOWN } else { icon::CHEVRON_UP }, 16.0, crate::tr!("player-less"), false) {
+            app.mini.set_card(&ctx, false);
+        }
+        if button(ui, pos2(rt - 42.0, head), icon::MAXIMIZE_2, 14.0, &crate::tr!("player-with-shortcut", action = crate::tr!("player-full-window"), key = "Ctrl+M"), false) {
+            app.actions.push(Action::Mini(false));
+        }
+        let pinned = app.mini.pinned;
+        if button(ui, pos2(rt - 76.0, head), if pinned { icon::PIN } else { icon::PIN_OFF }, 14.0, if pinned { crate::tr!("ui-unpin-window") } else { crate::tr!("settings-keep-on-top") }, pinned) {
+            app.mini.set_pinned(&ctx, !pinned);
+        }
+        let lyrics = app.mini.lyrics;
+        let mic = pos2(rt - 110.0, head);
+        if button(ui, mic, icon::MIC_VOCAL, 14.0, crate::tr!("settings-lyrics"), lyrics) && enabled {
+            app.mini.lyrics = !lyrics;
+        }
+        let head_w = rt - 134.0 - l;
+        // A toast ("Only the host can shuffle the jam", "Sign in to like songs") takes the header's place while
+        // it lasts, kept through its fade-out.
+        let toast_id = egui::Id::unique("card-toast");
+        if let Some((msg, _)) = &app.toast {
+            ctx.data_mut(|d| d.insert_temp(toast_id, msg.clone()));
+        }
+        // Still opening: whatever the toast is now, without fading out an old one.
+        if !ui.is_enabled() {
+            ctx.animate_bool_with_time(egui::Id::unique(toast_id), app.toast.is_some(), 0.0);
+        }
+        let tt = theme::anim_bool(&ctx, toast_id, app.toast.is_some(), 0.2).clamp(0.0, 1.0);
+        if let Some(msg) = ctx.data(|d| d.get_temp::<String>(toast_id)).filter(|_| tt > 0.0) {
+            let g = ui.painter().layout(msg, theme::semibold(13.0), theme::text().gamma_multiply(tt), head_w);
+            ui.painter().galley(pos2(l, head - g.size().y / 2.0 + 4.0 * (1.0 - tt)), g, theme::text());
+        }
+        // Faded under the toast, and not clickable once it has mostly taken over.
+        let live = tt < 0.5;
+        {
+            let mut from_ui = ui.new_child(egui::UiBuilder::new().max_rect(cr));
+            from_ui.multiply_opacity(1.0 - tt);
+            let ui = &mut from_ui;
+            match app.playing_from() {
+                Some((label, name, target)) => {
+                    text_at(ui, pos2(l, head - 16.0), label, theme::regular(11.0), theme::text_faint(), head_w);
+                    let (nr, elided) = widgets::text_at_elided(ui, pos2(l, head - 1.0), &name, theme::semibold(13.0), theme::text(), head_w);
+                    let sense = if live { Sense::click() } else { Sense::hover() };
+                    let resp = named(ui.interact(nr, ui.scope_id().with("card-from"), sense), &name);
+                    let resp = if live { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
+                    let resp = if elided { resp.on_hover_text(&name) } else { resp };
+                    if resp.hovered() && live {
+                        ui.painter().hline(nr.x_range(), nr.bottom(), egui::Stroke::new(1.0, theme::text()));
+                    }
+                    if resp.clicked() {
+                        // Liked Music is Library › Songs, where it was played from.
+                        let liked = matches!(&target, crate::model::Target::Playlist(id) if id == super::lists::LIKED_MUSIC);
+                        app.actions.push(Action::Mini(false));
+                        app.actions.push(if liked { Action::Go(super::Page::Library(super::LibTab::Songs)) } else { Action::Open(target) });
+                    }
                 }
-                if resp.clicked() {
-                    // Liked Music is Library › Songs, where it was played from.
-                    let liked = matches!(&target, crate::model::Target::Playlist(id) if id == super::lists::LIKED_MUSIC);
-                    app.actions.push(Action::Mini(false));
-                    app.actions.push(if liked { Action::Go(super::Page::Library(super::LibTab::Songs)) } else { Action::Open(target) });
+                None => {
+                    text_at(ui, pos2(l, head - 8.0), crate::tr!("ui-now-playing"), theme::semibold(13.0), theme::text_dim(), head_w);
                 }
-            }
-            None => {
-                text_at(ui, pos2(l, head - 8.0), crate::tr!("ui-now-playing"), theme::semibold(13.0), theme::text_dim(), head_w);
             }
         }
+    }
+
+    if lyrics_mode {
+        let bar = Rect::from_min_max(pos2(cr.left() + 7.0, cr.bottom() - 12.0 - 56.0), pos2(cr.right() - 7.0, cr.bottom() - 12.0));
+        // The lyrics take the room the chrome leaves. With it out, equal insets top and
+        // bottom put the line being sung at the card's own centre.
+        let area_top = egui::lerp(top + HEADER_H..=top + 12.0, 1.0 - chrome);
+        let area_bottom = egui::lerp(bar.top() - 8.0..=cr.bottom() - 12.0, 1.0 - chrome);
+        let area = Rect::from_min_max(pos2(l, area_top), pos2(cr.right() - 38.0, area_bottom));
+        card_lyrics(app, ui, area, open, now);
+        // The same capsule as the collapsed pill, sliding out the bottom of the card.
+        if chrome > 0.001 {
+            let bar = bar.translate(vec2(0.0, (1.0 - chrome) * (bar.height() + 16.0)));
+            ui.painter().rect_filled(bar, bar.height() / 2.0, theme::panel(0.4).gamma_multiply(chrome));
+            ui.painter().rect_stroke(bar, bar.height() / 2.0, egui::Stroke::new(1.0, theme::glass(0.16).gamma_multiply(chrome)), egui::StrokeKind::Inside);
+            let mut bar_ui = ui.new_child(egui::UiBuilder::new().max_rect(bar));
+            bar_ui.set_clip_rect(bar.intersect(ui.clip_rect()));
+            bar_ui.multiply_opacity(chrome);
+            // Faded out, its buttons mustn't take clicks meant for the lyrics.
+            if chrome < 0.5 {
+                bar_ui.visuals_mut().disabled_alpha = 1.0;
+                bar_ui.disable();
+            }
+            pill_row(app, &mut bar_ui, bar, 1.0, None, now, true, true);
+        }
+        // The right edge sets the volume: no slider in the card's lyrics.
+        let zone = Rect::from_min_max(pos2(cr.right() - 36.0, area_top), pos2(cr.right() - 6.0, area_bottom));
+        let zresp = ui.interact(zone, ui.scope_id().with("card-vol"), Sense::hover());
+        let scroll = if zresp.hovered() { ui.input(|i| i.smooth_scroll_delta.y) } else { 0.0 };
+        if scroll != 0.0 {
+            let vol = (app.audio.volume() + scroll / 600.0).clamp(0.0, 1.0);
+            app.audio.set_volume(vol);
+            app.mini.volume_at = now + 1.2;
+        }
+        let show = zresp.hovered() || now < app.mini.volume_at;
+        if show {
+            let vol = app.audio.volume();
+            let alpha = if zresp.hovered() { 1.0 } else { ((app.mini.volume_at - now) / 1.2).clamp(0.0, 1.0) as f32 };
+            // A small percentage at the top of the strip, then the level itself.
+            let pct = format!("{}%", (vol * 100.0).round() as u32);
+            let g = widgets::galley(ui, &pct, theme::regular(10.0), theme::text().gamma_multiply(alpha), zone.width());
+            let tag = Rect::from_center_size(pos2(zone.center().x, zone.top() + g.size().y / 2.0 + 3.0), g.size() + vec2(6.0, 3.0));
+            ui.painter().rect_filled(tag, 3.0, theme::shade(0.75).gamma_multiply(alpha));
+            ui.painter().galley(pos2(tag.center().x - g.size().x / 2.0, tag.center().y - g.size().y / 2.0), g, theme::text().gamma_multiply(alpha));
+            let track = Rect::from_min_max(pos2(zone.center().x - 1.5, tag.bottom() + 6.0), pos2(zone.center().x + 1.5, zone.bottom() - 8.0));
+            ui.painter().rect_filled(track, 1.5, theme::glass(0.25 * alpha));
+            let fill = Rect::from_min_max(pos2(track.left(), track.bottom() - track.height() * vol), track.max);
+            ui.painter().rect_filled(fill, 1.5, theme::with_alpha(app.accent_color(), alpha));
+            if !zresp.hovered() {
+                ui.ctx().request_repaint_after(Duration::from_millis(100));
+            }
+        }
+        return;
     }
 
     // The cover, title, artists, album and rating controls.
@@ -1413,6 +1917,13 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
             ui.painter().rect_filled(art, theme::thumb_radius() + 4.0, theme::glass_panel(0.08));
             icon_at(ui, art.center(), icon::MUSIC, 26.0, theme::text_faint());
         }
+    }
+    // The cover is the card's play/pause: a click there, and again to carry on.
+    let art_hit = ui.interact(art, ui.scope_id().with("card-art"), Sense::click());
+    let art_hit = named(art_hit, if app.playing() { crate::tr!("ui-pause") } else { crate::tr!("ui-play") });
+    let art_hit = if enabled { art_hit.on_hover_cursor(egui::CursorIcon::PointingHand) } else { art_hit };
+    if art_hit.clicked() && enabled {
+        app.toggle();
     }
     let x0 = art.right() + 14.0;
     let show_dislike = app.rating_settings.player_button;
@@ -1832,5 +2343,32 @@ mod tests {
         assert_eq!(m.pinned, PINNED_BY_DEFAULT);
         let m = Mini::load(|k| (k == "mini_pinned").then(|| "0".to_owned()));
         assert!(!m.pinned && m.place.is_none() && !m.active());
+        // The lyrics' auto-hide and cover background are on unless turned off; the
+        // background starts slightly blurred and mostly visible.
+        let m = Mini::load(|_| None);
+        assert!(m.lyrics_autohide && m.cover_bg && !m.pill_extended);
+        assert_eq!((m.cover_blur, m.cover_opacity), (3.0, 69.0));
+        let m = Mini::load(|k| {
+            (k == "mini_lyrics_autohide" || k == "mini_cover_bg" || k == "mini_pill_extended").then(|| "1".to_owned()).or_else(|| match k {
+                "mini_cover_blur" => Some("6".to_owned()),
+                "mini_cover_opacity" => Some("45".to_owned()),
+                _ => None,
+            })
+        });
+        assert!(m.lyrics_autohide && m.cover_bg && m.pill_extended);
+        assert_eq!((m.cover_blur, m.cover_opacity), (6.0, 45.0));
+    }
+
+    #[test]
+    fn a_profile_without_a_saved_style_uses_the_strip() {
+        let dir = std::env::temp_dir().join(format!("ytm-rs-pill-default-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(!pill_saved(&dir));
+        save_pill(&dir, true).unwrap();
+        assert!(pill_saved(&dir));
+        save_pill(&dir, false).unwrap();
+        assert!(!pill_saved(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

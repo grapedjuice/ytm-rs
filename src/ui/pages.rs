@@ -558,8 +558,10 @@ fn home(app: &mut App, ui: &mut Ui, now: f64) {
     }
     let mut more_picks = None;
     let picks = crate::model::quick_picks(&h.shelves, app.locale.hl);
+    // Each chip's feed scrolls on its own.
+    let chip = h.chips.iter().find(|c| c.selected).map(|c| c.title.as_str());
     for (i, s) in h.shelves.iter().enumerate() {
-        let id = format!("home-{i}-{}", s.title);
+        let id = format!("{:?}", ("home", i, &s.title, chip));
         let title = match s.title.as_str() {
             "Listen again" => tr!("nav-listen-again"),
             "Quick picks" => tr!("nav-quick-picks"),
@@ -733,7 +735,7 @@ fn mood(app: &mut App, ui: &mut Ui, params: &str, now: f64) {
     page_title(ui, browse_label(&m.title));
     let rows = Rows::new(app, now);
     for (i, s) in m.shelves.iter().enumerate() {
-        let id = format!("mood-{i}-{}", s.title);
+        let id = format!("{:?}", ("mood", i, &s.title, params));
         match &s.kind {
             ShelfKind::Cards(cards) => {
                 let cards: Vec<&Card> = cards.iter().filter(|c| !matches!(&c.target, Target::Song(t) if !rows.shows(t))).collect();
@@ -784,6 +786,9 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     // Songs here can be dragged onto a playlist in the sidebar, but not into another order.
     let drag = &mut app.row_drag;
     let ids = |section: &str| egui::Id::unique(("search", section));
+    // Each search's shelves scroll on their own: one scrolled for an earlier query
+    // doesn't open scrolled here.
+    let shelf = |name: &str| format!("s-{name}-{scope:?}-{q}");
     let tracks: Vec<&Track> = r.tracks.iter().filter(|t| rows.shows(t)).collect();
     let videos: Vec<&Track> = r.videos.iter().filter(|t| rows.shows(t)).collect();
     let episodes: Vec<&Track> = r.episodes.iter().filter(|t| rows.shows(t)).collect();
@@ -817,7 +822,18 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     };
     let mut songs = |ui: &mut Ui, acts: &mut Vec<Action>| {
         ui.vertical(|ui| {
-            ui.label(RichText::new(crate::tr!("nav-songs")).font(theme::bold(24.0)));
+            ui.horizontal(|ui| {
+                // The pill's height from the start, so the heading is centred beside it.
+                if !pick && !tracks.is_empty() {
+                    ui.set_min_height(38.0);
+                }
+                ui.label(RichText::new(crate::tr!("nav-songs")).font(theme::bold(24.0)));
+                // A song played alone starts its radio; this plays the songs found, in order
+                // (these and More songs), as a list does.
+                if !pick && !tracks.is_empty() && pill(ui, crate::tr!("ui-play"), Some(icon::PLAY), true).clicked() {
+                    acts.push(Action::PlayFound(tracks.iter().map(|&t| t.clone()).collect(), 0));
+                }
+            });
             ui.add_space(8.0);
             let plays_col = tracks.iter().take(4).any(|t| t.plays.is_some());
             let g = arrive::group(ui, "search-songs");
@@ -848,8 +864,8 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
             songs(ui, acts);
         }
     }
-    card_row(ui, "s-artists", crate::tr!("nav-artists"), &r.artists, acts);
-    card_row(ui, "s-albums", crate::tr!("nav-albums"), &r.albums, acts);
+    card_row(ui, &shelf("artists"), crate::tr!("nav-artists"), &r.artists, acts);
+    card_row(ui, &shelf("albums"), crate::tr!("nav-albums"), &r.albums, acts);
     if !videos.is_empty() && !app.hide_search_videos {
         ui.add_space(26.0);
         ui.label(RichText::new(crate::tr!("nav-videos")).font(theme::bold(24.0)));
@@ -883,9 +899,9 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
         }
         row_drag::carry(ui, drag, ids("more"));
     }
-    card_row(ui, "s-pl", crate::tr!("nav-playlists"), &r.playlists, acts);
-    card_row(ui, "s-community", crate::tr!("nav-community-playlists"), &r.community, acts);
-    card_row(ui, "s-podcasts", crate::tr!("nav-podcasts"), &r.podcasts, acts);
+    card_row(ui, &shelf("pl"), crate::tr!("nav-playlists"), &r.playlists, acts);
+    card_row(ui, &shelf("community"), crate::tr!("nav-community-playlists"), &r.community, acts);
+    card_row(ui, &shelf("podcasts"), crate::tr!("nav-podcasts"), &r.podcasts, acts);
     if !episodes.is_empty() {
         ui.add_space(26.0);
         ui.label(RichText::new(crate::tr!("nav-episodes")).font(theme::bold(24.0)));
@@ -1003,6 +1019,8 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let rows = Rows::new(app, now);
     let downloaded = all_downloaded(app, id);
     let run = app.download_runs.iter().find(|r| r.key == id).map(|r| (r.done, r.total, r.cancelled));
+    // A playlist can be kept downloaded, signed in; an album doesn't change, so its Download is enough.
+    let kept = app.lists.get(id).filter(|o| app.logged_in && !o.c.is_album).map(|_| app.keeps_downloaded(id));
     let Some(o) = app.lists.get(id) else { return };
     // Sorted once all of it is here: until then it plays as it arrives.
     app.find.hold(&app.page, !o.complete);
@@ -1128,6 +1146,11 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
                             && widgets::menu_action(ui, Some(icon::FOLDER_OPEN), tr!("widget-show-in-folder"))
                         {
                             crate::downloads::show_list(id, tracks);
+                        }
+                        if let Some(kept) = kept
+                            && widgets::menu_choice(ui, crate::tr!("ui-keep-downloaded"), kept)
+                        {
+                            acts.push(Action::KeepDownloaded(id.to_owned(), !kept));
                         }
                         if own {
                             if widgets::menu_action(ui, Some(icon::SETTINGS), crate::tr!("ui-edit")) { acts.push(Action::EditPlaylist); }
@@ -1276,7 +1299,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let base = hero.left_bottom() + vec2(28.0, -30.0);
     ui.painter().text(base - vec2(0.0, 44.0), Align2::LEFT_BOTTOM, &a.name, theme::bold(58.0), Color32::WHITE);
     if let Some(s) = a.subscribers {
-        ui.painter().text(base - vec2(0.0, 18.0), Align2::LEFT_BOTTOM, format!("{} subscribers", compact(s)), theme::regular(14.0), theme::text_dim());
+        ui.painter().text(base - vec2(0.0, 18.0), Align2::LEFT_BOTTOM, crate::tr!("status-subscribers", count = compact(s)), theme::regular(14.0), theme::text_dim());
     }
     ui.add_space(18.0);
     ui.horizontal(|ui| {
@@ -1341,17 +1364,17 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         }
         row_drag::carry(ui, drag, list);
     }
-    card_row(ui, "a-albums", crate::tr!("nav-albums-singles"), &a.albums, acts);
+    card_row(ui, &format!("a-albums-{id}"), crate::tr!("nav-albums-singles"), &a.albums, acts);
     if !videos.is_empty() {
-        cards_shelf(ui, &app.liked, acts, "a-videos", crate::tr!("nav-videos"), None, None, &videos);
+        cards_shelf(ui, &app.liked, acts, &format!("a-videos-{id}"), crate::tr!("nav-videos"), None, None, &videos);
     }
     // Their songs you've saved, less those hidden as explicit.
     let library: Vec<&Card> = a.library.iter().filter(|c| !matches!(&c.target, Target::Song(t) if !rows.shows(t))).collect();
     if !library.is_empty() {
-        cards_shelf(ui, &app.liked, acts, "a-lib", crate::tr!("nav-from-library"), None, None, &library);
+        cards_shelf(ui, &app.liked, acts, &format!("a-lib-{id}"), crate::tr!("nav-from-library"), None, None, &library);
     }
-    card_row(ui, "a-pl", crate::tr!("nav-featured-on"), &a.playlists, acts);
-    card_row(ui, "a-sim", crate::tr!("nav-similar-artists"), &a.similar, acts);
+    card_row(ui, &format!("a-pl-{id}"), crate::tr!("nav-featured-on"), &a.playlists, acts);
+    card_row(ui, &format!("a-sim-{id}"), crate::tr!("nav-similar-artists"), &a.similar, acts);
     if let Some(d) = a.description.as_deref().filter(|d| !d.trim().is_empty()) {
         shelf_header(ui, crate::tr!("settings-about"), None, None, None);
         let trimmed = d.trim();
@@ -2116,7 +2139,14 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
         divider(ui);
         let desc = if cfg!(windows) { tr!("settings-output-device-desc") } else { tr!("settings-output-device-desc-system") };
         setting_row(ui, tr!("settings-output-device"), Some(desc), |ui| {
-            output_device_picker(app, ui);
+            play_on_picker(app, ui);
+        });
+        divider(ui);
+        let label = tr!("settings-local-network");
+        setting_row(ui, label, Some(tr!("settings-local-network-desc")), |ui| {
+            if toggle(ui, &mut app.local_network, label).changed() {
+                app.set_local_network();
+            }
         });
     });
     settings_equalizer(app, ui);
@@ -2183,7 +2213,7 @@ fn settings_downloads(app: &mut App, ui: &mut Ui) {
         divider(ui);
         setting_row(ui, tr!("settings-download-liked"), Some(tr!("settings-download-liked-desc")), |ui| {
             if toggle(ui, &mut app.download_liked, tr!("settings-download-liked")).changed() && app.download_liked {
-                app.download_all_liked();
+                app.download_all_kept(super::lists::LIKED_MUSIC);
             }
         });
         divider(ui);
@@ -2870,6 +2900,29 @@ fn settings_mini(app: &mut App, ui: &mut Ui) {
                     log::warn!("mini player: couldn't save the style: {e}");
                 }
             });
+            divider(ui);
+            setting_row(ui, tr!("settings-mini-autohide"), Some(tr!("settings-mini-autohide-desc")), |ui| {
+                toggle(ui, &mut app.mini.lyrics_autohide, tr!("settings-mini-autohide"));
+            });
+            divider(ui);
+            setting_row(ui, tr!("settings-mini-pill-extended"), Some(tr!("settings-mini-pill-extended-desc")), |ui| {
+                toggle(ui, &mut app.mini.pill_extended, tr!("settings-mini-pill-extended"));
+            });
+            divider(ui);
+            setting_row(ui, tr!("settings-mini-cover-bg"), Some(tr!("settings-mini-cover-bg-desc")), |ui| {
+                toggle(ui, &mut app.mini.cover_bg, tr!("settings-mini-cover-bg"));
+            });
+            if app.mini.cover_bg {
+                divider(ui);
+                setting_row_wide(ui, tr!("settings-mini-cover-blur"), None, SLIDER_W, |ui| {
+                    step_slider(ui, &mut app.mini.cover_blur, (0.0, 10.0, 1.0), Some(0.0), |v| format!("{}", v.round() as u32), tr!("settings-mini-cover-blur"));
+                });
+                divider(ui);
+                setting_row_wide(ui, tr!("settings-mini-cover-opacity"), None, SLIDER_W, |ui| {
+                    // Fills from the left like a level; a double-click still goes to 100%.
+                    step_slider_home(ui, &mut app.mini.cover_opacity, (0.0, 100.0, 1.0), Some(0.0), Some(100.0), |v| format!("{}%", v.round() as u32), tr!("settings-mini-cover-opacity"));
+                });
+            }
         });
         divider(ui);
         setting_row(ui, tr!("settings-keep-on-top"), Some(tr!("settings-keep-on-top-desc")), |ui| {
@@ -3253,13 +3306,6 @@ fn network(app: &mut App, ui: &mut Ui) {
         }
     });
     divider(ui);
-    let label = tr!("settings-local-network");
-    setting_row(ui, label, Some(tr!("settings-local-network-desc")), |ui| {
-        if toggle(ui, &mut app.local_network, label).changed() {
-            app.set_local_network();
-        }
-    });
-    divider(ui);
     let same = |a: &Setting, b: &Setting| std::mem::discriminant(a) == std::mem::discriminant(b);
     let mut pick = None;
     setting_row(ui, tr!("settings-proxy"), Some(tr!("settings-proxy-desc")), |ui| {
@@ -3505,73 +3551,180 @@ fn system_default() -> &'static str {
     if cfg!(windows) { tr!("settings-windows-default") } else { tr!("settings-system-default") }
 }
 
-/// A device's name in the list, AirPlay speakers marked as such.
-fn device_label(id: &str, name: &str) -> String {
-    if id.starts_with(crate::airplay::PREFIX) { tr!("settings-airplay-device", name = name) } else { name.to_owned() }
-}
-
-fn output_device_picker(app: &mut App, ui: &mut Ui) {
-    // Found on the network in the background, so read afresh each frame.
-    let speakers = crate::airplay::speakers();
-    let current = match &app.output_device {
-        None => system_default().to_owned(),
-        Some((id, name)) => match app.output_devices.iter().map(|d| (&d.id, &d.name)).chain(speakers.iter().map(|s| (&s.id, &s.name))).find(|(d, _)| *d == id) {
-            Some((_, n)) => device_label(id, n),
-            None if app.output_devices.is_empty() => device_label(id, name),
-            None => tr!("settings-not-connected", name = device_label(id, name)),
+/// Where the music plays, by name: the sound card's or the speakers', saying so if
+/// they're not there. Speakers are found in the background, so this is read afresh.
+pub(super) fn destination_label(app: &App) -> String {
+    use crate::destination::{self, Destination};
+    let missing = || if app.destination_name.is_empty() { tr!("settings-not-connected", name = "?") } else { tr!("settings-not-connected", name = app.destination_name.as_str()) };
+    match &app.destination {
+        Destination::Local(None) => system_default().to_owned(),
+        Destination::Local(Some(id)) => match app.output_devices.iter().find(|d| &d.id == id) {
+            Some(d) => d.name.clone(),
+            None if app.output_devices.is_empty() => app.destination_name.clone(),
+            None => missing(),
         },
-    };
-    let btn = dropdown_button(ui, &current, 210.0, tr!("settings-output-device"));
-    output_device_menu(app, &btn, widgets::menu_popup(&btn), 340.0, &speakers);
+        Destination::Remote { members, .. } => match destination::find_all(members) {
+            Some(found) => found.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join(", "),
+            None => missing(),
+        },
+    }
 }
 
-/// The output devices to pick from, in `popup` (opened by `btn`): sound cards, then AirPlay
-/// speakers with its mark. For Settings › Output device and the player bar's button.
-pub(super) fn output_device_menu(app: &mut App, btn: &egui::Response, popup: egui::Popup, width: f32, speakers: &[crate::airplay::Speaker]) {
+fn play_on_picker(app: &mut App, ui: &mut Ui) {
+    let btn = dropdown_button(ui, &destination_label(app), 210.0, tr!("settings-output-device"));
+    let popup = widgets::menu_popup(&btn);
+    play_on_menu(app, btn.clicked(), popup, 340.0);
+}
+
+/// "Play on", in `popup` (`opened` this frame): this computer's sound cards, then speakers
+/// on the network. For Settings › Playback and the player bar's button.
+pub(super) fn play_on_menu(app: &mut App, opened: bool, popup: egui::Popup, width: f32) {
+    use crate::destination::{self, Destination};
     // Listed when opened, so a device that just connected shows up. Only then: the player
     // bar draws this every frame, and listing asks the system each time.
-    if btn.clicked() {
-        app.output_devices = crate::audio::output_devices(app.output_device.as_ref().map(|(id, _)| id.as_str()));
-        crate::airplay::discover();
+    // When speakers began to be looked for, to say so for a while: they answer in seconds.
+    let since = egui::Id::unique("play-on-looking");
+    if opened {
+        let card = match &app.destination {
+            Destination::Local(id) => id.as_deref(),
+            Destination::Remote { .. } => None,
+        };
+        app.output_devices = crate::audio::output_devices(card);
+        destination::discover();
+        // The time first: reading it inside `data_mut` would wait on the lock it holds.
+        let now = popup.ctx().input(|i| i.time);
+        popup.ctx().data_mut(|d| d.insert_temp(since, now));
     }
-    let mut pick: Option<Option<(String, String)>> = None;
-    popup.show(|ui| {
-        // Speakers turn up as they answer.
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+    let mut pick: Option<(Destination, String)> = None;
+    // It stays open on a pick, to watch the speaker connect or pick again.
+    popup.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+        // Speakers turn up as they answer, and connect a while after they're picked.
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
         widgets::menu_body(ui, width);
-        dropdown_list(ui, 320.0, |ui| {
-            if option_row(ui, system_default(), app.output_device.is_none()).clicked() {
-                pick = Some(None);
+        // As tall as what's in it: it scrolls only past what the window has room for.
+        let room = ui.ctx().content_rect().height() - 140.0;
+        dropdown_list(ui, room.max(200.0), |ui| {
+            super::nowplaying::menu_caption(ui, tr!("settings-this-computer"));
+            let speaker = Some(theme::icon::MONITOR_SPEAKER);
+            // A sound card plays at once: nothing to watch, so the menu closes as it did.
+            if option_row_marked(ui, system_default(), speaker, app.destination == Destination::Local(None)).clicked() {
+                pick = Some((Destination::Local(None), String::new()));
                 ui.close();
             }
-            let cards = app.output_devices.iter().map(|d| (&d.id, &d.name, None));
-            let devices = cards.chain(speakers.iter().map(|s| (&s.id, &s.name, Some(theme::icon::AIRPLAY))));
-            for (id, name, mark) in devices {
-                if option_row_marked(ui, name, mark, app.output_device.as_ref().is_some_and(|(cur, _)| cur == id)).clicked() {
-                    pick = Some(Some((id.clone(), name.clone())));
+            for d in &app.output_devices {
+                if option_row_marked(ui, &d.name, speaker, app.destination == Destination::Local(Some(d.id.clone()))).clicked() {
+                    pick = Some((Destination::Local(Some(d.id.clone())), d.name.clone()));
                     ui.close();
                 }
             }
-            // AirPlay speakers need the network looked over, which Windows' firewall asks
-            // about: only once it's asked for. The menu stays open for them to turn up.
+            widgets::menu_divider(ui);
+            super::nowplaying::menu_caption(ui, tr!("settings-on-your-network"));
+            // Speakers need the network looked over, which Windows' firewall asks about:
+            // only once it's asked for. The menu stays open for them to turn up.
             if !app.local_network {
-                widgets::menu_divider(ui);
-                if option_row_marked(ui, tr!("settings-local-network"), Some(theme::icon::AIRPLAY), false).clicked() {
+                if hint_row(ui, theme::icon::AIRPLAY, tr!("settings-local-network"), tr!("settings-local-network-hint")).clicked() {
                     app.local_network = true;
                     app.set_local_network();
+                    let now = ui.input(|i| i.time);
+                    ui.data_mut(|d| d.insert_temp(since, now));
                 }
-            } else if speakers.is_empty() {
-                widgets::menu_divider(ui);
+                return;
+            }
+            let found = destination::receivers();
+            let state = app.audio.remote_state();
+            for r in &found {
+                if speaker_row(ui, r, app.destination.has(&r.id), &state).clicked() {
+                    pick = Some((Destination::speaker(r), r.name.clone()));
+                }
+            }
+            // Looking, for `LOOKING` after it's opened; then nothing, or that there's none.
+            const LOOKING: f64 = 8.0;
+            let now = ui.input(|i| i.time);
+            let looking = ui.data(|d| d.get_temp::<f64>(since)).is_some_and(|t| now - t < LOOKING);
+            let note = match (looking, found.is_empty()) {
+                (true, true) => Some(tr!("settings-airplay-searching")),
+                (true, false) => Some(tr!("settings-speakers-searching-more")),
+                (false, true) => Some(tr!("settings-speakers-none")),
+                (false, false) => None,
+            };
+            if let Some(note) = note {
                 let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
-                widgets::icon_at(ui, pos2(r.left() + 20.0, r.center().y), theme::icon::AIRPLAY, 15.0, theme::text_faint());
-                widgets::text_at(ui, pos2(r.left() + 38.0, r.center().y - 8.0), tr!("settings-airplay-searching"), theme::regular(13.0), theme::text_faint(), r.width() - 50.0);
+                if looking {
+                    spinner(ui, pos2(r.left() + 20.0, r.center().y), 5.0, theme::text_faint());
+                }
+                widgets::text_at(ui, pos2(r.left() + 38.0, r.center().y - 8.0), note, theme::regular(13.0), theme::text_faint(), r.width() - 50.0);
             }
         });
     });
-    if let Some(pick) = pick {
-        app.audio.send(crate::audio::AudioCmd::SetDevice(pick.as_ref().map(|(id, _)| id.clone())));
-        app.output_device = pick;
+    if let Some((to, name)) = pick {
+        app.audio.send(crate::audio::AudioCmd::SetDestination(to.clone()));
+        app.destination = to;
+        app.destination_name = name;
     }
+}
+
+/// A small circle going round, for something on its way.
+fn spinner(ui: &Ui, center: egui::Pos2, radius: f32, color: egui::Color32) {
+    let a = ui.input(|i| i.time) as f32 * 6.0;
+    let points = (0..16).map(|i| {
+        let t = a + i as f32 * 0.28;
+        center + vec2(t.cos(), t.sin()) * radius
+    });
+    ui.painter().add(egui::Shape::line(points.collect(), egui::Stroke::new(1.5, color)));
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
+}
+
+/// A speaker on the network in "Play on": its kind's icon, its name and kind, and on the
+/// one picked a check, a spinner while it connects, or why it isn't playing under it.
+fn speaker_row(ui: &mut Ui, r: &crate::destination::Receiver, selected: bool, state: &crate::audio::RemoteState) -> egui::Response {
+    use crate::audio::RemoteState;
+    let why = match state {
+        RemoteState::Failed(why) if selected => Some(why.as_str()),
+        _ => None,
+    };
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), if why.is_some() { 52.0 } else { 34.0 }), Sense::click());
+    let resp = widgets::named(resp, &r.name).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.12);
+    if h > 0.0 || selected {
+        ui.painter().rect_filled(rect, theme::menu_item_radius(), theme::glass(0.05 * selected as u8 as f32 + 0.08 * h));
+    }
+    let kind = r.best();
+    let y = rect.top() + 17.0;
+    let x = rect.left() + 38.0;
+    widgets::icon_at(ui, pos2(rect.left() + 20.0, y), kind.icon(), 15.0, theme::text_dim());
+    let label = ui.painter().layout_no_wrap(kind.label().to_owned(), theme::regular(12.0), theme::text_faint());
+    // At the edge, leaving room for the check only on the row that has it.
+    let label_x = rect.right() - if selected { 36.0 } else { 12.0 } - label.size().x;
+    ui.painter().galley(pos2(label_x, y - label.size().y / 2.0), label, theme::text_faint());
+    let font = if selected { theme::semibold(14.0) } else { theme::regular(14.0) };
+    widgets::text_at_elided(ui, pos2(x, y - 9.0), &r.name, font, theme::text(), label_x - 10.0 - x);
+    if selected {
+        let mark = pos2(rect.right() - 16.0, y);
+        if *state == RemoteState::Connecting {
+            spinner(ui, mark, 6.0, theme::text());
+        } else {
+            widgets::icon_at(ui, mark, theme::icon::CHECK, 15.0, theme::text());
+        }
+    }
+    if let Some(why) = why {
+        widgets::text_at_elided(ui, pos2(x, y + 10.0), why, theme::regular(12.0), theme::text_dim(), rect.right() - 16.0 - x);
+    }
+    resp
+}
+
+/// An option with an icon, and a line under it saying what it does.
+fn hint_row(ui: &mut Ui, mark: char, label: &str, hint: &str) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
+    let resp = widgets::named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.12);
+    if h > 0.0 {
+        ui.painter().rect_filled(rect, theme::menu_item_radius(), theme::glass(0.08 * h));
+    }
+    let x = rect.left() + 38.0;
+    widgets::icon_at(ui, pos2(rect.left() + 20.0, rect.top() + 17.0), mark, 15.0, theme::text_dim());
+    widgets::text_at(ui, pos2(x, rect.top() + 8.0), label, theme::regular(14.0), theme::text(), rect.right() - 12.0 - x);
+    widgets::text_at(ui, pos2(x, rect.top() + 27.0), hint, theme::regular(12.0), theme::text_faint(), rect.right() - 12.0 - x);
+    resp
 }
 
 /// Settings › Playback › Equalizer.
@@ -3816,7 +3969,7 @@ pub(super) fn option_row(ui: &mut Ui, label: &str, selected: bool) -> egui::Resp
     option_row_marked(ui, label, None, selected)
 }
 
-/// An option with an icon before it (an AirPlay speaker's).
+/// An option with an icon before it.
 fn option_row_marked(ui: &mut Ui, label: &str, mark: Option<char>, selected: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
     let resp = widgets::named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -4025,7 +4178,12 @@ fn seconds_slider(ui: &mut Ui, v: &mut u32, range: std::ops::RangeInclusive<u32>
 
 /// A slider over `lo..=hi` in steps of `step`, for a settings row: the value, then the
 /// track between its ends. It fills from `from` (`lo` when none) to the knob.
-fn step_slider(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), from: Option<f32>, text: impl Fn(f32) -> String, name: &str) -> egui::Response {
+fn step_slider(ui: &mut Ui, v: &mut f32, range: (f32, f32, f32), from: Option<f32>, text: impl Fn(f32) -> String, name: &str) -> egui::Response {
+    step_slider_home(ui, v, range, from, from, text, name)
+}
+
+/// [`step_slider`] with the fill's start and the double-click's home apart.
+fn step_slider_home(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), fill_from: Option<f32>, home: Option<f32>, text: impl Fn(f32) -> String, name: &str) -> egui::Response {
     let label = |ui: &mut Ui, g: std::sync::Arc<egui::Galley>, w: Option<f32>, color: Color32| {
         let (rect, _) = ui.allocate_exact_size(vec2(w.unwrap_or(g.size().x), 26.0), Sense::hover());
         ui.painter().galley(pos2(rect.right() - g.size().x, rect.center().y - g.size().y / 2.0), g, color);
@@ -4037,7 +4195,7 @@ fn step_slider(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), from: 
     label(ui, hi_g, None, theme::text_dim());
     // Shorter where the row hasn't the room (a narrow window), not over its description.
     let width = (ui.available_width() - lo_g.size().x - 2.0 * ui.spacing().item_spacing.x).clamp(60.0, 170.0);
-    let resp = slider_track(ui, v, (lo, hi, step), from, width, name);
+    let resp = slider_track_home(ui, v, (lo, hi, step), fill_from, home, width, name);
     label(ui, lo_g, None, theme::text_dim());
     resp
 }
@@ -4046,12 +4204,17 @@ fn step_slider(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), from: 
 const SLIDER_W: f32 = 310.0;
 
 /// Just the track and knob of a step slider, `width` wide.
-pub(super) fn slider_track(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), from: Option<f32>, width: f32, name: &str) -> egui::Response {
+pub(super) fn slider_track(ui: &mut Ui, v: &mut f32, range: (f32, f32, f32), from: Option<f32>, width: f32, name: &str) -> egui::Response {
+    slider_track_home(ui, v, range, from, from, width, name)
+}
+
+/// [`slider_track`] with the fill's start and the double-click's home apart.
+pub(super) fn slider_track_home(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, f32), fill_from: Option<f32>, home: Option<f32>, width: f32, name: &str) -> egui::Response {
     let (rect, mut resp) = ui.allocate_exact_size(vec2(width, 26.0), Sense::click_and_drag());
     let track = Rect::from_center_size(rect.center(), vec2(rect.width() - 16.0, 4.0));
     let old = *v;
     // Back home on a double-click, as the equalizer's bands go back to 0.
-    if let Some(home) = from.filter(|_| resp.double_clicked()) {
+    if let Some(home) = home.filter(|_| resp.double_clicked()) {
         *v = home;
     } else if let Some(p) = resp.interact_pointer_pos()
         && (resp.dragged() || resp.clicked())
@@ -4069,7 +4232,7 @@ pub(super) fn slider_track(ui: &mut Ui, v: &mut f32, (lo, hi, step): (f32, f32, 
     let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
     let x = |v: f32| egui::lerp(track.left()..=track.right(), (v - lo) / (hi - lo));
     let knob = pos2(x(value), track.center().y);
-    let from = x(from.unwrap_or(lo));
+    let from = x(fill_from.unwrap_or(lo));
     ui.painter().rect_filled(track, 2.0, theme::glass(0.15));
     ui.painter().rect_filled(Rect::from_min_max(pos2(from.min(knob.x), track.min.y), pos2(from.max(knob.x), track.max.y)), 2.0, accent);
     ui.painter().circle_filled(knob + vec2(0.0, 1.0), 7.0 + h, theme::shade(0.25));

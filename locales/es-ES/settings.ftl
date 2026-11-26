@@ -95,7 +95,6 @@ settings-output-device-desc-system = Dónde suena la música: los altavoces o lo
 settings-windows-default = Predeterminado de Windows
 settings-system-default = Predeterminado del sistema
 settings-not-connected = { $name } (no conectado)
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Las canciones suenan al volumen original. Normal las iguala, y Bajo las deja al mismo nivel, más bajo.
 settings-normalization-normal-desc = Las canciones suenan al mismo nivel: las altas bajan, como en YouTube Music, y las bajas suben hasta 6 dB.
 settings-normalization-quiet-desc = Las canciones suenan al mismo nivel, más bajo: las altas bajan más, para que las bajas casi nunca necesiten subir.

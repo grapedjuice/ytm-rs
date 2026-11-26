@@ -1872,11 +1872,7 @@ fn video_line_pill(app: &App, ui: &Ui, picture: Rect) {
     if !lyrics.lines.iter().rev().find(|l| !l.instrumental).is_some_and(|l| t >= l.end()) {
         return;
     }
-    let mut parts = vec![(crate::tr!("player-lyrics-from-unison").to_owned(), Some(c.song_url()))];
-    if let Some((name, key)) = &c.submitter {
-        parts.push((" · ".to_owned(), None));
-        parts.push((crate::tr!("player-lyrics-submitted-by", name = name.as_str()), Some(crate::lyrics::UnisonCredit::submitter_url(key))));
-    }
+    let parts = karaoke::unison_parts(c);
     let (color, dim) = (theme::with_alpha(Color32::WHITE, 0.85), theme::with_alpha(Color32::WHITE, 0.55));
     let parts: Vec<_> = parts.into_iter().map(|(text, url)| (widgets::galley(ui, &text, theme::regular(11.0), color, f32::INFINITY), url)).collect();
     let mut at = pill(vec2(parts.iter().map(|(g, _)| g.size().x).sum(), parts[0].0.size().y));
@@ -1886,6 +1882,8 @@ fn video_line_pill(app: &App, ui: &Ui, picture: Rect) {
         let mut tint = dim;
         if let Some(url) = url {
             let resp = ui.interact(r, ui.scope_id().with(("pill-unison", n)), Sense::click());
+            // Announced as the link it is, as the lyrics panel's are.
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, true, g.text()));
             if resp.hovered() {
                 tint = color;
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -2206,14 +2204,14 @@ fn synced(app: &mut App, ui: &mut Ui, rect: Rect, id: &str, lyrics: &Lyrics, now
         trans.hash(&mut h);
         h.finish()
     };
-    let own = karaoke::Own { scale: app.lyric_prefs.text_scale, weight: app.lyric_prefs.weight, deco_scale: app.lyric_prefs.deco_scale };
+    let own = karaoke::Own { scale: app.lyric_prefs.text_scale, weight: app.lyric_prefs.weight, deco_scale: app.lyric_prefs.deco_scale, size: None, anchor: None, padding: None, ink: None, follow: false, active_row: false };
     let fullscreen = app.fullscreen;
     let glass_chip = app.look().app.glass.instrumental;
     let quick_scroll = app.quick_lyric_scroll;
-    let frame = karaoke::Frame { lyrics, key, roman, trans, t, playing, now, rect, style, accent, centered, own, fullscreen, glass_chip, quick_scroll };
+    let frame = karaoke::Frame { lyrics, key, roman, trans, t, playing, now, rect, style, accent, centered, own, fullscreen, glass_chip, quick_scroll, soft: false };
     // The view lives in `app`; the frame borrows `app` for decorations, so swap it out.
     let mut view = std::mem::take(&mut app.lyric_view);
-    let out = if karaoke::dev_off("view") { karaoke::Out { seek: None, animating: true, user_scrolling: false } } else { view.show(ui, frame) };
+    let out = if karaoke::dev_off("view") { karaoke::Out { seek: None, animating: true, user_scrolling: false, active_h: 0.0 } } else { view.show(ui, frame) };
     app.lyric_view = view;
     if let Some(s) = out.seek {
         // The line's time on the player's clock: `t` above, the other way round.
@@ -2317,10 +2315,11 @@ fn unison_credit(ui: &mut Ui, c: &crate::lyrics::UnisonCredit) {
     let text = |t: String| egui::RichText::new(t).font(theme::regular(11.5)).color(theme::text_faint());
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        ui.add(egui::Hyperlink::from_label_and_url(text(crate::tr!("player-lyrics-from-unison").to_owned()), c.song_url()));
-        if let Some((name, key)) = &c.submitter {
-            ui.label(text(" · ".to_owned()));
-            ui.add(egui::Hyperlink::from_label_and_url(text(crate::tr!("player-lyrics-submitted-by", name = name.as_str())), crate::lyrics::UnisonCredit::submitter_url(key)));
+        for (part, url) in karaoke::unison_parts(c) {
+            match url {
+                Some(url) => ui.add(egui::Hyperlink::from_label_and_url(text(part), url)),
+                None => ui.label(text(part)),
+            };
         }
     });
 }
@@ -2493,7 +2492,7 @@ fn submenu_row(ui: &mut Ui, label: &str, value: &str, dot: Option<Color32>, open
     }
 }
 
-fn menu_caption(ui: &mut Ui, text: &str) {
+pub(super) fn menu_caption(ui: &mut Ui, text: &str) {
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
     ui.painter().text(pos2(r.left() + 12.0, r.center().y + 2.0), egui::Align2::LEFT_CENTER, text.to_uppercase(), theme::semibold(11.0), theme::text_faint());
 }

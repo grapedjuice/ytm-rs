@@ -355,7 +355,11 @@ impl Session {
         let resp = self.post(http, "https://music.youtube.com", "player", ("67", VERSION, UA), player_body(video_id, sts)).await?;
         let status = &resp["playabilityStatus"];
         if status["status"] != "OK" {
-            anyhow::bail!("{}: {}", status["status"].as_str().unwrap_or("UNPLAYABLE"), status["reason"].as_str().unwrap_or("no reason given"));
+            return Err(crate::innertube::Refused {
+                status: status["status"].as_str().unwrap_or("UNPLAYABLE").to_owned(),
+                reason: status["reason"].as_str().unwrap_or("no reason given").to_owned(),
+            }
+            .into());
         }
         Ok(resp)
     }

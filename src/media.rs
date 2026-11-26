@@ -9,7 +9,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::Sender;
-use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig, SeekDirection};
+use souvlaki::{LoopStatus, MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig, SeekDirection};
+
+use crate::ui::Repeat;
 
 /// How far a seek from the OS without an amount of its own goes (fast forward and rewind).
 const SEEK_STEP: Duration = Duration::from_secs(10);
@@ -89,6 +91,9 @@ pub struct Media {
     reported: Option<f32>,
     /// The song the OS was last told about.
     track: Option<Track>,
+    /// Shuffle and repeat as the OS was last told them (only MPRIS shows them).
+    shuffle: Option<bool>,
+    repeat: Option<LoopStatus>,
     #[cfg(windows)]
     thumbbar: Option<Box<std::cell::RefCell<Option<thumbbar::ThumbBar>>>>,
 }
@@ -129,6 +134,8 @@ impl Media {
             volume: None,
             reported: None,
             track: None,
+            shuffle: None,
+            repeat: None,
             #[cfg(windows)]
             thumbbar,
         })
@@ -196,8 +203,15 @@ impl Media {
     /// player's position is still the last one's.
     pub fn sync(&mut self, playing: bool, loading: bool, pos: Duration) {
         let now = Instant::now();
-        if let Some(pos) = due(self.sent.as_ref(), self.resend, playing, loading, pos, now, MOVES_ON) {
+        // MPRIS widgets count on from the last position by themselves, so a jump goes out
+        // at once, with `Seeked`: one shorter than STILL_DRIFT wouldn't otherwise count.
+        let jumped = MPRIS && jumped(self.sent.as_ref(), loading, pos, now);
+        if let Some(pos) = due(self.sent.as_ref(), self.resend, playing, loading, pos, now, MOVES_ON).or(jumped.then_some(pos)) {
             self.send(playing, pos, now);
+            #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+            if jumped {
+                let _ = self.controls.seeked(pos);
+            }
         }
     }
 
@@ -235,6 +249,53 @@ impl Media {
         #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
         let _ = self.controls.set_volume(volume as f64);
         None
+    }
+
+    /// The app's shuffle and repeat, where the OS shows them: only MPRIS does. Each goes
+    /// out when it changes.
+    pub fn sync_modes(&mut self, shuffle: bool, repeat: Repeat) {
+        if !MPRIS {
+            return;
+        }
+        let repeat = loop_status(repeat);
+        if self.shuffle.replace(shuffle) != Some(shuffle) {
+            #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+            let _ = self.controls.set_shuffle(shuffle);
+        }
+        if self.repeat.replace(repeat) != Some(repeat) {
+            #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+            let _ = self.controls.set_loop_status(repeat);
+        }
+    }
+
+    /// The OS asked for shuffle: it goes out again on the next sync, changed or not, so a
+    /// widget that showed it before the app said no (a jam guest) goes back to what the
+    /// app has.
+    pub fn resend_shuffle(&mut self) {
+        self.shuffle = None;
+    }
+
+    /// As `resend_shuffle`, for repeat.
+    pub fn resend_repeat(&mut self) {
+        self.repeat = None;
+    }
+}
+
+/// The app's repeat as MPRIS has it: Repeat all repeats the queue, MPRIS's "playlist".
+pub fn loop_status(repeat: Repeat) -> LoopStatus {
+    match repeat {
+        Repeat::Off => LoopStatus::None,
+        Repeat::One => LoopStatus::Track,
+        Repeat::All => LoopStatus::Playlist,
+    }
+}
+
+/// The app's repeat for one the OS asked for.
+pub fn repeat_from_os(status: LoopStatus) -> Repeat {
+    match status {
+        LoopStatus::None => Repeat::Off,
+        LoopStatus::Track => Repeat::One,
+        LoopStatus::Playlist => Repeat::All,
     }
 }
 
@@ -293,6 +354,13 @@ fn stale(sent: Option<&Sent>, playing: bool, pos: Duration, now: Instant, moves_
     })
 }
 
+/// Whether `pos` is away from where the song would be by now (a seek, a skip, a stall, a
+/// song slow to start), not the song going on: what MPRIS's `Seeked` is for. Not while
+/// a song is loading, when the player's position is still the last one's.
+fn jumped(sent: Option<&Sent>, loading: bool, pos: Duration, now: Instant) -> bool {
+    !loading && sent.is_some_and(|s| pos.abs_diff(s.shown(now, true)) > DRIFT)
+}
+
 /// How long until `volume`, unchanged `since`, is to be reported (zero: now). `None` if
 /// the OS has it already.
 fn volume_wait(reported: Option<f32>, volume: f32, since: Instant, now: Instant) -> Option<Duration> {
@@ -338,6 +406,20 @@ mod tests {
         assert_eq!(to(MediaControlEvent::SeekBy(SeekDirection::Forward, s(30)), 195), Some(s(200)));
         assert_eq!(to(MediaControlEvent::SeekBy(SeekDirection::Backward, s(30)), 100), Some(s(70)));
         assert_eq!(to(MediaControlEvent::Next, 100), None);
+    }
+
+    #[test]
+    fn repeat_maps_both_ways_onto_mpris_loop_status() {
+        for (repeat, status) in [(Repeat::Off, LoopStatus::None), (Repeat::One, LoopStatus::Track), (Repeat::All, LoopStatus::Playlist)] {
+            assert!(loop_status(repeat) == status);
+            assert!(repeat_from_os(status) == repeat);
+        }
+        // The names on the bus, and nothing else.
+        for status in [LoopStatus::None, LoopStatus::Track, LoopStatus::Playlist] {
+            assert_eq!(LoopStatus::from_name(status.as_str()), Some(status));
+        }
+        assert_eq!(LoopStatus::from_name("track"), None);
+        assert_eq!(LoopStatus::from_name(""), None);
     }
 
     #[test]
@@ -405,6 +487,26 @@ mod tests {
         // Play and pause always go.
         assert!(stale(Some(&paused), true, s(10), t, true));
         assert!(stale(Some(&playing), false, s(10), t, true));
+    }
+
+    #[test]
+    fn only_a_jump_in_the_position_is_seeked() {
+        let t = Instant::now();
+        let playing = Sent { playing: true, pos: s(10), at: t };
+        let paused = Sent { playing: false, pos: s(10), at: t };
+        // The song going on, or near enough, and play or pause where it was.
+        assert!(!jumped(Some(&playing), false, s(15), t + s(5)));
+        assert!(!jumped(Some(&playing), false, Duration::from_millis(15_500), t + s(5)));
+        assert!(!jumped(Some(&paused), false, s(10), t + s(60)));
+        assert!(!jumped(Some(&playing), false, s(12), t + s(2)));
+        // A seek either way, short ones too, a stall, a seek while paused.
+        assert!(jumped(Some(&playing), false, s(13), t + s(1)));
+        assert!(jumped(Some(&playing), false, s(5), t + s(1)));
+        assert!(jumped(Some(&playing), false, s(10), t + s(5)));
+        assert!(jumped(Some(&paused), false, s(30), t + s(60)));
+        // Not while a song loads, nor before anything was sent.
+        assert!(!jumped(Some(&playing), true, s(0), t + s(1)));
+        assert!(!jumped(None, false, s(30), t));
     }
 
     #[test]

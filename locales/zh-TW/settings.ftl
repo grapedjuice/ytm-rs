@@ -95,7 +95,6 @@ settings-output-device-desc-system = 音樂在哪裡播放：這台電腦的喇�
 settings-windows-default = Windows 預設
 settings-system-default = 系統預設
 settings-not-connected = { $name }（未連接）
-settings-airplay-device = { $name }（AirPlay）
 settings-normalization-off-desc = 歌曲播放時的聲音與製作時一樣大聲。 「正常」使它們全部達到同一水平，而「安靜」則使它們達到相同的較低水平。
 settings-normalization-normal-desc = 歌曲以相同的音量播放：大聲的歌曲被調低，如 YouTube Music，而安靜的歌曲則調高 6 dB。
 settings-normalization-quiet-desc = 歌曲以相同的較低音量播放：大聲的歌曲進一步降低，因此安靜的歌曲很少需要調高。

@@ -18,6 +18,7 @@ mod bidi;
 mod cache;
 mod canvas;
 mod deeplink;
+mod destination;
 mod discord;
 mod downloads;
 mod hotkeys;
@@ -239,9 +240,9 @@ fn main() -> eframe::Result {
             // Dev hook: YTM_MUTE starts silent and never persists the volume.
             let volume = if std::env::var_os("YTM_MUTE").is_some() { 0.0 } else { volume };
 
-            let device = cc.storage.and_then(|s| s.get_string("output_device")).filter(|d| !d.is_empty());
-            // Before the audio engine, which looks for a picked AirPlay speaker if it may.
-            airplay::set_allowed(cc.storage.and_then(|s| s.get_string("local_network")).is_some_and(|v| v == "1"));
+            let device = destination::Destination::parse(&cc.storage.and_then(|s| s.get_string("output_device")).unwrap_or_default());
+            // Before the audio engine, which looks for picked network speakers if it may.
+            destination::set_allowed(cc.storage.and_then(|s| s.get_string("local_network")).is_some_and(|v| v == "1"));
 
             let (audio_tx, audio_rx) = unbounded();
             let audio = audio::spawn(volume, log_volume, device, audio_tx, wake);

@@ -192,6 +192,7 @@ impl App {
             return;
         }
         self.drop_pending_play();
+        self.picked = true;
         self.play_current();
     }
 
@@ -249,6 +250,8 @@ impl App {
             return;
         }
         log::info!("picking up {} from another device ({} in its queue)", track.id, q.tracks.len());
+        self.note_where_left();
+        self.left_from = None;
         self.queue.adopt(q.tracks, q.index, None);
         self.ended = false;
         // Not a new play: an old song version mustn't come back with its video.
@@ -469,7 +472,15 @@ impl App {
     /// `swap`: the same play going on as its song version or its music video, from `at`.
     fn start_current(&mut self, at: Duration, report: bool, swap: bool) {
         let swap = std::mem::take(&mut self.resume_as_song) || swap;
+        let picked = std::mem::take(&mut self.picked) && std::env::var_os("YTM_SMOKE").is_none();
+        self.note_where_left();
+        // Noted again once it's playing: one that fails to start has got nowhere.
+        self.left_from = None;
         let Some(track) = self.current().cloned() else { return };
+        // A long track picked again picks up where it was left (not in a jam, which plays
+        // at the host's position). Come to by Next, the queue or radio, it starts over.
+        let resumed = (picked && at.is_zero() && report && !swap && !self.jam.active()).then(|| self.resume.at(&track.id)).flatten();
+        let at = resumed.unwrap_or(at);
         // Picking up mid-song (a resume, a download that broke off): the position is the
         // song version's when one was playing, so that goes on; a music video stays one.
         // Likewise a song's music video.
@@ -510,6 +521,29 @@ impl App {
         self.request_art();
         self.refresh_lyrics(shown);
         self.top_up();
+        if let Some(at) = resumed {
+            self.toast(crate::tr!("status-resumed-at", time = super::fmt_time(at.as_secs() as u32)));
+        }
+    }
+
+    /// Where the track playing was left, for a long one to pick up from there next time.
+    /// Not while it's still loading, which hasn't got anywhere yet, nor in a jam's guest,
+    /// which plays at the host's position.
+    pub(super) fn note_where_left(&mut self) {
+        let Some(id) = self.left_from.clone() else { return };
+        let at = self.current_at().as_secs() as u32;
+        let duration = (self.audio.status.duration_ms.load(Ordering::Relaxed) / 1000) as u32;
+        if self.buffering || duration == 0 || self.jam.guest() {
+            return;
+        }
+        self.resume.note(&id, at, duration);
+    }
+
+    /// The track playing played to its end: it starts from the top next time.
+    pub(super) fn left_at_end(&mut self) {
+        if let Some(id) = self.left_from.take() {
+            self.resume.forget(&id);
+        }
     }
 
     /// The playing track's title, artist and length for the system's media controls,
@@ -654,6 +688,7 @@ impl App {
             // to `generation` by itself (`wanted_gen == generation`). Catch up as if the
             // previous song had finished so UI and engine stay on the same generation.
             if self.audio.status.wanted_gen.load(Ordering::Relaxed) == generation {
+                self.left_at_end();
                 let before = self.generation;
                 if !self.jam.guest() {
                     if self.repeats_one() {
@@ -673,6 +708,8 @@ impl App {
             return;
         }
         self.queue.started();
+        self.left_at_end();
+        self.left_from = self.current().map(|t| t.id.clone());
         self.generation = generation;
         self.recoveries = 0;
         self.skip_streak = 0;
@@ -719,16 +756,18 @@ impl App {
         self.queue.repeat == Repeat::One && !self.current().is_some_and(|t| self.hide_explicit && t.explicit)
     }
 
-    /// Applies Settings › Network › Allow local network scan: on, AirPlay speakers are
-    /// looked for; off, they're forgotten, and one playing hands the music back to the
-    /// system's default device.
+    /// Applies Settings › Playback › Find speakers on your network: on, speakers are looked
+    /// for; off, they're forgotten, and ones playing hand the music back to Windows' default
+    /// device.
     pub(super) fn set_local_network(&mut self) {
-        crate::airplay::set_allowed(self.local_network);
+        use crate::destination::{self, Destination};
+        destination::set_allowed(self.local_network);
         if self.local_network {
-            crate::airplay::discover();
-        } else if self.output_device.as_ref().is_some_and(|(id, _)| id.starts_with(crate::airplay::PREFIX)) {
-            self.output_device = None;
-            self.audio.send(crate::audio::AudioCmd::SetDevice(None));
+            destination::discover();
+        } else if self.destination.is_remote() {
+            self.destination = Destination::default();
+            self.destination_name.clear();
+            self.audio.send(crate::audio::AudioCmd::SetDestination(Destination::default()));
         }
     }
 
@@ -855,6 +894,8 @@ impl App {
         if self.generation == generation {
             // Nothing to advance to yet. Cancel a buffered play too, and carry on
             // if more of the playlist or an autoplay queue arrives.
+            self.note_where_left();
+            self.left_from = None;
             self.clear_staged();
             self.generation = self.alloc_generation();
             self.audio.status.wanted_gen.store(self.generation, Ordering::Relaxed);

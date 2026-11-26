@@ -31,8 +31,12 @@ impl App {
         while let Ok(ev) = self.ch.audio_rx.try_recv() {
             match ev {
                 AudioEvent::Finished { generation } if generation == self.generation && self.jam.guest() => {}
-                AudioEvent::Finished { generation } if generation == self.generation && self.sleep == Some(Sleep::SongEnd) => self.sleep_at_song_end(),
+                AudioEvent::Finished { generation } if generation == self.generation && self.sleep == Some(Sleep::SongEnd) => {
+                    self.left_at_end();
+                    self.sleep_at_song_end();
+                }
                 AudioEvent::Finished { generation } if generation == self.generation => {
+                    self.left_at_end();
                     if self.repeats_one() {
                         self.play_current();
                     } else {
@@ -77,6 +81,22 @@ impl App {
                 // The window from the OS's media controls (KDE's, say; GNOME's use the .desktop file).
                 MediaControlEvent::Raise => self.show_window(ctx),
                 MediaControlEvent::Quit => self.quit(ctx),
+                // As the Shuffle and Repeat buttons do (a jam guest can't shuffle); either
+                // way the widget hears back what the app has now.
+                MediaControlEvent::SetShuffle(on) => {
+                    if on != self.queue.shuffled() {
+                        self.toggle_shuffle();
+                    }
+                    if let Some(m) = &mut self.media {
+                        m.resend_shuffle();
+                    }
+                }
+                MediaControlEvent::SetLoopStatus(status) => {
+                    self.queue.repeat = crate::media::repeat_from_os(status);
+                    if let Some(m) = &mut self.media {
+                        m.resend_repeat();
+                    }
+                }
                 MediaControlEvent::SetVolume(v) => {
                     if let Some(v) = crate::media::volume_from_os(v) {
                         self.audio.set_volume(v);
@@ -96,6 +116,10 @@ impl App {
         }
         for cmd in self.remote.drain() {
             self.on_remote(cmd);
+        }
+        // Playing here (not at a jam host's position): where it's left is noted.
+        if self.left_from.is_none() && !self.jam.guest() && self.audio.status.started(self.generation) {
+            self.left_from = self.current().map(|t| t.id.clone());
         }
         if self.buffering && self.audio.status.started(self.generation) {
             self.buffering = false;
@@ -359,6 +383,17 @@ impl App {
                     self.lyrics = Some((video_id, lyrics));
                 }
             }
+            Resp::UnisonCredit { video_id, credits } => {
+                if let Some((id, set)) = &mut self.lyrics
+                    && *id == video_id
+                {
+                    for (provider, credit) in credits {
+                        if let Some(l) = set.sources.iter_mut().find(|l| l.provider == provider && l.unison.as_ref().is_some_and(|c| c.submitter.is_none())) {
+                            l.unison = Some(credit);
+                        }
+                    }
+                }
+            }
             Resp::CommentsPage { token, page } => super::comments::on_page(&token, page),
             Resp::ArtistPicture { id, pic } => {
                 self.artist_pics.insert(id, pic);
@@ -382,6 +417,7 @@ impl App {
                     // No cover: the idle backdrop's colours, not the song before's (#356).
                     let mut art = art.unwrap_or_else(crate::art::idle);
                     crate::art::soften(&mut art, self.look().background.blur_passes.saturating_sub(6));
+                    self.mini.cover_changed();
                     self.track_art = Some(art);
                     self.art_key = Some(key);
                     // An animated cover on screen keeps its own colours.
@@ -668,7 +704,7 @@ impl App {
             }
             Resp::Channels(c) => self.channels = Some(c),
             Resp::SwitchedChannel { page_id, epoch, error } => {
-                let name = self.switching_to.take().unwrap_or_else(|| "another channel".to_owned());
+                let name = self.switching_to.take().unwrap_or_else(|| crate::tr!("status-another-channel").to_owned());
                 match error {
                     Some(e) => self.toast(e),
                     None => {
@@ -859,6 +895,8 @@ impl App {
         if change == PlaylistChange::Deleted {
             // Its load is dropped too, and the queue stops waiting for it.
             self.lists.forget(&id);
+            // Kept downloaded, it would be loaded at every launch, and fail each time.
+            self.kept_downloaded.retain(|k| *k != id);
             if self.queue.fill.as_ref().is_some_and(|f| f.id == id) {
                 self.queue.fill = None;
             }
@@ -957,6 +995,9 @@ impl App {
         self.lists.clear();
         self.lists.edits = Default::default();
         self.liked.clear();
+        // The playlists kept downloaded are the last account's (or channel's), maybe its
+        // private ones: they aren't loaded for this one. What's downloaded stays.
+        self.kept_downloaded.clear();
         self.queue.fill = None;
         self.play_pending = None;
         (self.link_pending, self.link_preview) = (None, None);

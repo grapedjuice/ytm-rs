@@ -443,6 +443,9 @@ pub enum Resp {
     ConfirmDownload { target: Option<Target>, title: String, tracks: Vec<Track>, count: usize },
     /// Every source's lyrics for a song (empty when nobody has them).
     Lyrics { video_id: String, lyrics: LyricsSet },
+    /// Who submitted a song's saved Unison lyrics, found after they were shown crediting
+    /// Unison alone: each source's credit.
+    UnisonCredit { video_id: String, credits: Vec<(lyrics::Provider, lyrics::UnisonCredit)> },
     Segments { video_id: String, segments: Vec<crate::sponsorblock::Segment> },
     /// `None`: none was found.
     ArtistPicture { id: String, pic: Option<crate::discord::Badge> },
@@ -1049,7 +1052,7 @@ impl Backend {
     /// Act as another of the account's channels. Not while likes of a selection or a
     /// transfer are running: they'd go on as the new channel.
     async fn switch_channel(&self, page_id: Option<String>, epoch: u64) -> anyhow::Result<u64> {
-        let _likes = LIKES.try_lock().map_err(|_| anyhow::anyhow!("Wait until the likes going through are done"))?;
+        let _likes = LIKES.try_lock().map_err(|_| anyhow::anyhow!(crate::tr!("backend-channel-wait-likes")))?;
         // A Premium check running now is for the old channel: let it finish, then forget it.
         let mut premium = self.premium.lock().await;
         let epoch = self.api.switch_channel(page_id, epoch)?;
@@ -1491,7 +1494,7 @@ impl Backend {
                         Ok(false) => Resp::AlreadyInPlaylist { id: playlist_id, tracks },
                         Err(e) => {
                             log::warn!("{what} failed: {e:#}");
-                            Resp::AddedToPlaylist { id: playlist_id, video_ids, error: Some(format!("{what} failed: {e}")) }
+                            Resp::AddedToPlaylist { id: playlist_id, video_ids, error: Some(crate::tr!("backend-error", operation = what, error = e.to_string())) }
                         }
                     }
                 }
@@ -1500,7 +1503,7 @@ impl Backend {
                         Ok(_) => Resp::PlaylistChanged { id: playlist_id, change: PlaylistChange::Removed },
                         Err(e) => {
                             log::warn!("removing from playlist {playlist_id}: {e:#}");
-                            Resp::RemoveFailed { id: playlist_id, error: format!("Couldn't remove from the playlist: {e}") }
+                            Resp::RemoveFailed { id: playlist_id, error: crate::tr!("backend-remove-failed", error = e.to_string()) }
                         }
                     }
                 }
@@ -1522,14 +1525,14 @@ impl Backend {
                     Ok(_) => Resp::PlaylistChanged { id, change: PlaylistChange::Deleted },
                     Err(e) => {
                         log::warn!("deleting playlist {id}: {e:#}");
-                        Resp::DeleteFailed { error: format!("Couldn't delete the playlist: {e}") }
+                        Resp::DeleteFailed { error: crate::tr!("backend-delete-playlist-failed", error = e.to_string()) }
                     }
                 },
                 Req::DeleteUpload { entity, title } => match ytm::delete_upload(api, &entity).await {
                     Ok(()) => Resp::UploadDeleted(ytm::uploads(api).await?),
                     Err(e) => {
                         log::warn!("deleting upload {entity}: {e:#}");
-                        Resp::DeleteFailed { error: format!("Couldn't delete \u{201c}{title}\u{201d}: {e}") }
+                        Resp::DeleteFailed { error: crate::tr!("backend-delete-upload-failed", title = title, error = e.to_string()) }
                     }
                 },
                 Req::Collaboration(id) => Resp::Collaboration(ytm::collaboration(api, &id).await?),
@@ -1763,19 +1766,33 @@ impl Backend {
             let _ = tokio::task::spawn_blocking(move || crate::downloads::save_lyrics(&t.id, &keep)).await;
             set
         });
-        // Unison lyrics saved before they carried its credit wait for a fresh look, which
-        // names who submitted them; offline they're shown crediting Unison alone.
-        let uncredited = |s: &LyricsSet| s.sources.iter().any(|l| l.provider.is_unison() && l.unison.is_none());
         match saved {
-            Some(saved) if !uncredited(&saved) => saved,
-            saved => {
-                let fresh = fresh.await.unwrap_or_default();
-                let Some(mut saved) = saved.filter(|_| fresh.sources.is_empty()) else { return fresh };
-                for l in saved.sources.iter_mut().filter(|l| l.provider.is_unison() && l.unison.is_none()) {
-                    l.unison = Some(lyrics::UnisonCredit { video_id: video_id.clone(), submitter: None });
+            // Unison lyrics saved before they carried its credit don't wait for the fresh
+            // look, which can take long on a poor connection: they credit Unison alone
+            // until it names who submitted the same lyrics.
+            Some(mut saved) => {
+                let uncredited: Vec<_> = saved.sources.iter().filter(|l| l.provider.is_unison() && l.unison.is_none()).cloned().collect();
+                if !uncredited.is_empty() {
+                    saved.credit_unison(&video_id);
+                    let this = self.clone();
+                    tokio::spawn(async move {
+                        let Ok(fresh) = fresh.await else { return };
+                        let credits: Vec<_> = uncredited
+                            .iter()
+                            .filter_map(|old| {
+                                let new = fresh.get(old.provider).filter(|new| new.lines == old.lines)?;
+                                new.unison.clone().filter(|c| c.submitter.is_some()).map(|c| (old.provider, c))
+                            })
+                            .collect();
+                        if !credits.is_empty() {
+                            let _ = this.tx.send(Resp::UnisonCredit { video_id, credits });
+                            this.wake();
+                        }
+                    });
                 }
                 saved
             }
+            None => fresh.await.unwrap_or_default(),
         }
     }
 
@@ -2551,6 +2568,8 @@ impl Backend {
             log::info!("{video_id}: solver not ready yet, standard quality for now");
             self.warm_signed_in();
         }
+        // The signed-in web player refused already: it isn't asked again below.
+        let mut web_refused = false;
         if hq
             && solver_ready
             && let Some(session) = self.api.account()
@@ -2559,7 +2578,10 @@ impl Backend {
             match self.resolve_from(Source::WebMusic, video_id, !best).await {
                 Ok(s) => return Ok((Source::WebMusic, s)),
                 // Not fatal: the usual 128 kbps stream still plays.
-                Err(e) => log::warn!("high quality stream failed for {video_id} ({e:#}); using standard quality"),
+                Err(e) => {
+                    web_refused = e.downcast_ref::<innertube::Refused>().is_some();
+                    log::warn!("high quality stream failed for {video_id} ({e:#}); using standard quality");
+                }
             }
         }
         // Downloads stay on the file stream: they're saved as the .m4a it is.
@@ -2598,18 +2620,39 @@ impl Backend {
                 let source = if blocked { Source::YtDlpAfterBotCheck } else { Source::YtDlp };
                 Ok((source, self.resolve_from(source, video_id, false).await?))
             }
-            // An episode of a podcast added by RSS: YouTube doesn't have its audio, and
-            // visionOS answers as for a video that's gone. Only the signed-in web player
-            // tells the two apart (Premium or not), and plays the episode from its feed.
-            Err(e) if not_available(&e) => match self.api.account() {
-                Some(session) => match self.rss_episode(&session, video_id).await? {
-                    Some(s) => Ok((Source::Feed, s)),
-                    None => Err(e),
-                },
-                None => Err(e),
-            },
+            // visionOS answers the same for a video that's gone, one blocked where the
+            // user is (#373), and an episode of a podcast added by RSS. The signed-in web
+            // player gets one try: it may play the first two, and has the episode's feed.
+            Err(e) if not_available(&e) => {
+                let Some(session) = self.api.account().filter(|_| !web_refused) else { return Err(e) };
+                match self.signed_in_retry(&session, video_id, best).await {
+                    Ok(found) => {
+                        log::info!("{video_id}: visionOS said {e}; {:?} plays it", found.0);
+                        Ok(found)
+                    }
+                    Err(web) if web.downcast_ref::<innertube::Refused>().is_some() => {
+                        log::info!("{video_id}: the signed-in web player says {web} too");
+                        Err(e)
+                    }
+                    Err(web) => {
+                        log::warn!("{video_id}: signed-in retry failed: {web:#}");
+                        Err(e)
+                    }
+                }
+            }
             Err(e) => Err(e),
         }
+    }
+
+    /// For a song visionOS says isn't available, ask the signed-in web player: an RSS
+    /// episode plays from its feed, and a song it plays comes from it with Premium, else
+    /// from yt-dlp. A video that's gone costs that one request, as it did before.
+    async fn signed_in_retry(&self, session: &webmusic::Session, video_id: &str, best: bool) -> anyhow::Result<(Source, ResolvedStream)> {
+        if let Some(feed) = session.feed(&self.http(), &self.jsc, video_id).await? {
+            return Ok((Source::Feed, self.feed_stream(feed).await?));
+        }
+        let source = if self.is_premium(session).await { Source::WebMusic } else { Source::YtDlp };
+        Ok((source, self.resolve_from(source, video_id, !best && source == Source::WebMusic).await?))
     }
 
     /// The feed's file when `video_id` is an episode of a podcast added by RSS, `None`
@@ -2951,15 +2994,27 @@ fn saved_playlist_visible(card: &Card) -> bool {
 }
 
 pub fn compact(n: u64) -> String {
-    let (v, unit) = match n {
-        0..1_000 => return n.to_string(),
-        1_000..1_000_000 => (n as f64 / 1e3, "K"),
-        1_000_000..1_000_000_000 => (n as f64 / 1e6, "M"),
-        _ => (n as f64 / 1e9, "B"),
+    if n < 1_000 {
+        return n.to_string();
+    }
+    let units = [(1e3, "K"), (1e6, "M"), (1e9, "B")];
+    // The unit the number rounds into: 999,950 is "1M", not "1000K".
+    let mut at = match n {
+        1_000..1_000_000 => 0,
+        1_000_000..1_000_000_000 => 1,
+        _ => 2,
     };
-    // "6M", not "6.0M"; three significant figures and up need no decimal.
-    let s = if v >= 100.0 { format!("{v:.0}") } else { format!("{v:.1}") };
-    format!("{}{unit}", s.strip_suffix(".0").unwrap_or(&s))
+    let rounded = |at: usize| {
+        let v = n as f64 / units[at].0;
+        // "6M", not "6.0M"; three significant figures and up need no decimal.
+        if v >= 99.95 { format!("{v:.0}") } else { format!("{v:.1}") }
+    };
+    let mut s = rounded(at);
+    if at + 1 < units.len() && s.parse::<f64>().is_ok_and(|v| v >= 1000.0) {
+        at += 1;
+        s = rounded(at);
+    }
+    format!("{}{}", s.strip_suffix(".0").unwrap_or(&s), units[at].1)
 }
 
 /// The picture of artist `id` among artists found by `name`: the one with that id, or else
@@ -3221,6 +3276,11 @@ mod resolve_tests {
         assert!(!bot_check(&refused("LOGIN_REQUIRED", "Sign in to confirm your age")));
         assert!(bot_check(&refused("LOGIN_REQUIRED", "Sign in to confirm you’re not a bot")));
         assert!(!needs_account(&refused("ERROR", "This video is not available")));
+        // Blocked where the user is: the signed-in player gets a try too (#373).
+        let region = refused("UNPLAYABLE", "The uploader has not made this video available in your country");
+        assert!(not_available(&region) && !needs_account(&region));
+        let premium = refused("UNPLAYABLE", "This video is only available to Music Premium members");
+        assert!(needs_account(&premium));
         // Only the player's own answer, not an error that reads like one.
         assert!(!not_available(&anyhow::anyhow!("ERROR: This video is not available")));
     }
@@ -3258,5 +3318,26 @@ mod resolve_tests {
         let (file, size) = stream::probe_feed(&http, &feed.url, webmusic::UA).await.unwrap();
         println!("  -> {file}: {size} bytes");
         assert!(size > 0);
+    }
+}
+
+#[cfg(test)]
+mod compact_tests {
+    use super::compact;
+
+    #[test]
+    fn counts_round_into_the_next_unit() {
+        assert_eq!(compact(999), "999");
+        assert_eq!(compact(1_000), "1K");
+        assert_eq!(compact(1_260), "1.3K");
+        assert_eq!(compact(99_960), "100K");
+        assert_eq!(compact(123_456), "123K");
+        assert_eq!(compact(999_499), "999K");
+        assert_eq!(compact(999_500), "1M");
+        assert_eq!(compact(999_950), "1M");
+        assert_eq!(compact(6_000_000), "6M");
+        assert_eq!(compact(999_960_000), "1B");
+        assert_eq!(compact(3_600_000_000), "3.6B");
+        assert_eq!(compact(1_234_000_000_000), "1234B");
     }
 }

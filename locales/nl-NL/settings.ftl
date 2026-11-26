@@ -95,7 +95,6 @@ settings-output-device-desc-system = Waar de muziek speelt: de speakers of kopte
 settings-windows-default = Windows-standaard
 settings-system-default = Systeemstandaard
 settings-not-connected = { $name } (niet verbonden)
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Nummers behouden hun oorspronkelijke volume. Normaal maakt ze even luid, Stil doet dat op een lager volume.
 settings-normalization-normal-desc = Nummers klinken even luid. Luide nummers worden zachter zoals bij YouTube Music, zachte nummers tot 6 dB harder.
 settings-normalization-quiet-desc = Nummers klinken even luid op een lager niveau. Luide nummers worden verder gedempt, zodat zachte nummers zelden harder hoeven.

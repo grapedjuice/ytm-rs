@@ -95,7 +95,6 @@ settings-output-device-desc-system = Où la musique est lue : les haut-parleurs 
 settings-windows-default = Par défaut (Windows)
 settings-system-default = Par défaut (système)
 settings-not-connected = { $name } (non connecté)
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Les titres gardent leur volume d’origine. Normal les égalise, et Faible les égalise à un niveau inférieur.
 settings-normalization-normal-desc = Les titres ont le même volume. Les plus forts sont atténués, comme sur YouTube Music, et les plus faibles sont amplifiés jusqu’à 6 dB.
 settings-normalization-quiet-desc = Les titres ont le même volume, à un niveau plus faible. Les titres forts sont davantage atténués, et les plus faibles ont rarement besoin d’être amplifiés.

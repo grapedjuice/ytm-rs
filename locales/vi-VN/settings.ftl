@@ -95,7 +95,6 @@ settings-output-device-desc-system = Nơi nhạc phát: loa hoặc tai nghe củ
 settings-windows-default = Windows mặc định
 settings-system-default = Mặc định của hệ thống
 settings-not-connected = { $name } (không được kết nối)
-settings-airplay-device = { $name } (AirPlay)
 settings-normalization-off-desc = Các bài hát phát ra âm lượng lớn như khi chúng được tạo ra. Bình thường đưa tất cả chúng về cùng một cấp độ, và Im lặng ở mức tương tự, thấp hơn.
 settings-normalization-normal-desc = Các bài hát phát ở cùng mức: những bài lớn được giảm âm lượng như trên YouTube Music và những bài yên tĩnh tăng lên tới 6 dB.
 settings-normalization-quiet-desc = Các bài hát phát ở mức tương tự, mức độ thấp hơn: những bài lớn được giảm âm lượng lớn hơn, nên những bài yên tĩnh hiếm khi cần tăng âm lượng.

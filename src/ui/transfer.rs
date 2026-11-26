@@ -615,12 +615,12 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
     let searched = job.searched();
     let (big, of, frac, eta) = match job.phase {
         Phase::Reading => (fmt_n(job.read.0), progress_of(job.read.1, crate::tr!("transfer-read-from-spotify")), job.read.0 as f32 / job.read.1.max(1) as f32, None),
-        Phase::Saving if job.waiting => ("…".to_owned(), "waiting for the likes being changed in the app to finish".to_owned(), 0.0, None),
+        Phase::Saving if job.waiting => ("…".to_owned(), crate::tr!("transfer-waiting-for-likes").to_owned(), 0.0, None),
         Phase::Saving if let Some((done, of)) = job.redo => (
             fmt_n(done),
             progress_of(of, crate::tr!("transfer-readding-reason")),
             done as f32 / of.max(1) as f32,
-            Some("checking Liked Music".to_owned()),
+            Some(crate::tr!("transfer-checking-liked").to_owned()),
         ),
         Phase::Saving => (
             fmt_n(job.saving.0),
@@ -637,7 +637,7 @@ fn running(app: &mut App, ui: &mut Ui, _now: f64) {
     };
     let limited = app.backend.api().limited();
     let eta = if paused {
-        Some("paused".to_owned())
+        Some(crate::tr!("transfer-paused").to_owned())
     } else if limited && job.phase.running() {
         // YouTube Music refused requests: everything waits a little, then carries on.
         Some(crate::tr!("transfer-rate-limited").to_owned())

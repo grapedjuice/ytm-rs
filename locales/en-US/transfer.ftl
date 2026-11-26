@@ -103,6 +103,10 @@ transfer-progress-of = of { $count } · { $state }
 transfer-remaining = about { $time } left
 transfer-readding = Re-adding
 transfer-readding-reason = Liking again: YouTube Music dropped these likes
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = checking Liked Music
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = waiting for the likes being changed in the app to finish
 transfer-adding = Adding
 transfer-local-file = local file
 transfer-on-spotify-index = On Spotify · { $current } of { $total }

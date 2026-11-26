@@ -1399,31 +1399,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let resp = ui.interact(bar_hit, ui.scope_id().with("progress"), Sense::click_and_drag());
     let resp = if total > 0.0 { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
     resp.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, crate::tr!("ui-seek")));
-    // Right-click: A-B repeat, from or to the point clicked. Not for a jam's guests, whose
-    // playback is the host's.
-    if total > 0.0 && !app.jam.guest() {
-        // The point clicked, kept for the song it was clicked on.
-        let at_id = ui.scope_id().with(("loop-at", app.current_id()));
-        if resp.secondary_clicked()
-            && let Some(p) = resp.interact_pointer_pos()
-        {
-            let t = ((p.x - track_rect.left()) / track_rect.width()).clamp(0.0, 1.0) * total;
-            ui.ctx().data_mut(|d| d.insert_temp(at_id, t));
-        }
-        let looping = app.ab_loop().is_some();
-        widgets::right_click_menu(&resp).show(|ui| {
-            let t = ui.ctx().data(|d| d.get_temp::<f32>(at_id)).unwrap_or(pos);
-            if widgets::menu_action(ui, Some(icon::REPEAT), crate::tr!("ui-loop-start")) {
-                app.actions.push(Action::LoopStart(t));
-            }
-            if widgets::menu_action(ui, Some(icon::REPEAT), crate::tr!("ui-loop-end")) {
-                app.actions.push(Action::LoopEnd(t));
-            }
-            if looping && widgets::menu_action(ui, Some(icon::X), crate::tr!("ui-loop-stop")) {
-                app.actions.push(Action::LoopClear);
-            }
-        });
-    }
+    // Right-click: A-B repeat, from or to the point clicked.
+    super::ab_loop::loop_menu(app, ui, &resp, track_rect, total, pos);
     // A knob shown all the time sticks out of the bar, past the clip that cuts the line's
     // target: it gets a target of its own, above now playing and under menus. Not where the
     // narrow window's queue floats over it.
@@ -1442,6 +1419,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     app.seek_wheel.hover(&resp);
     if let Some(k) = &knob_resp {
         app.seek_wheel.hover(k);
+        // Right on the knob, the same menu as on the line.
+        super::ab_loop::loop_menu(app, ui, k, track_rect, total, pos);
     }
     let h = theme::anim_bool(ui.ctx(), "progress-h", any(egui::Response::hovered) || any(egui::Response::dragged), 0.15);
     let thick = progress_px + if progress_thumb { 2.0 * h } else { 0.0 };
@@ -1467,19 +1446,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     } else {
         ui.painter().rect_filled(filled, progress_r, progress_color);
     }
-    // A-B repeat's stretch: lit along the line, with a tick at each end it has.
-    if let Some(l) = app.ab_loop().filter(|_| total > 0.0) {
-        let x = |s: f64| line.left() + line.width() * (s as f32 / total).clamp(0.0, 1.0);
-        let mark = theme::with_alpha(theme::text(), 0.9);
-        let tick = |at: f32| Rect::from_center_size(pos2(at, line.center().y), vec2(2.0, thick + 8.0));
-        // The end it goes back from, kept clear of a crossfade.
-        if let Some((_, end)) = app.ab_stretch() {
-            let band = Rect::from_min_max(pos2(x(l.start), line.top()), pos2(x(end), line.bottom()));
-            ui.painter().rect_filled(band, progress_r, theme::with_alpha(theme::text(), 0.35));
-            ui.painter().rect_filled(tick(x(end)), 1.0, mark);
-        }
-        ui.painter().rect_filled(tick(x(l.start)), 1.0, mark);
-    }
+    super::ab_loop::paint_loop(app, ui, line, total, pos, progress_r, theme::text());
     if (h > 0.0 || always) && total > 0.0 {
         if progress_thumb {
             // It sticks out above the bar, over now playing (a higher layer than the bar), so
@@ -1531,10 +1498,11 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         && let Some(p) = at(egui::Response::interact_pointer_pos)
     {
         let t = ((p.x - line.left()) / line.width()).clamp(0.0, 1.0) * total;
-        if any(egui::Response::dragged) {
+        // Dragged with the left button: a right-click held or moved a little is the menu's.
+        if any(|r| r.dragged_by(egui::PointerButton::Primary)) {
             app.seek_drag = Some(t);
         }
-        if any(egui::Response::drag_stopped) || any(egui::Response::clicked) {
+        if any(|r| r.drag_stopped_by(egui::PointerButton::Primary)) || any(egui::Response::clicked) {
             app.seek_drag = None;
             app.actions.push(Action::Seek(t));
         }

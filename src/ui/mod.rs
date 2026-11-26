@@ -746,7 +746,7 @@ pub struct App {
     segment_skipped: f64,
     /// A-B repeat's stretch, and when it last went back to its start.
     ab_loop: Option<ab_loop::AbLoop>,
-    loop_sought: f64,
+    loop_sought: Option<std::time::Instant>,
     /// The system-wide media shortcuts.
     hotkeys: hotkeys::State,
     /// Background animation clock: advances only while music plays, so pausing
@@ -1210,7 +1210,7 @@ impl App {
             segments: None,
             segment_skipped: f64::NEG_INFINITY,
             ab_loop: None,
-            loop_sought: f64::NEG_INFINITY,
+            loop_sought: None,
             hotkeys,
             bg_time: 0.0,
             layer_time: 0.0,
@@ -1724,7 +1724,7 @@ impl eframe::App for App {
             ctx.request_repaint_after(Duration::from_secs_f64((t - now).max(0.0)));
         }
         self.skip_segments(ctx, now);
-        self.keep_looping(ctx, now);
+        self.keep_looping(ctx);
         hotkeys::poll(self, ctx, frame);
         // System media controls and taskbar buttons follow the player however it changed.
         let playing = self.playing() || self.buffering;

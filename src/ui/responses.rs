@@ -39,7 +39,7 @@ impl App {
                 // fading out) inside its loop goes back to the loop's start.
                 AudioEvent::Finished { generation } if generation == self.generation && self.ab_stretch().is_some() => {
                     if let Some((start, _)) = self.ab_stretch() {
-                        self.loop_sought = now;
+                        self.loop_sought = Some(std::time::Instant::now());
                         self.play_current_at(Duration::from_secs_f64(start), false);
                     }
                 }

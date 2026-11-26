@@ -843,7 +843,9 @@ impl App {
         // where the video plays), and a segment marked on another cut skips wrong.
         let Some(duration) = self.audio.status.duration().map(|d| d.as_secs_f64()) else { return };
         let pos = self.audio.status.position().as_secs_f64();
-        let mut segs = segs.iter().filter(|s| s.fits(duration));
+        // Not one an A-B loop starts in: picked to be heard, and skipped it'd only go back there.
+        let from = self.ab_stretch().map(|(start, _)| start);
+        let mut segs = segs.iter().filter(|s| s.fits(duration) && !from.is_some_and(|a| a >= s.start && a < s.end));
         let Some(seg) = segs.clone().find(|s| pos >= s.start && pos < s.end - 0.3).copied() else {
             // Wake up for the next one even when nothing else repaints.
             if let Some(next) = segs.find(|s| s.start > pos) {
@@ -856,7 +858,7 @@ impl App {
         match self.ab_stretch() {
             // With A-B repeat, a skip to its end or past goes back to its start, as reaching
             // the end would; any other stays in the song, which doesn't finish while it loops.
-            Some((start, end)) if pos >= end || seg.end >= end => self.loop_back(start, now),
+            Some((start, end)) if pos >= end || seg.end >= end => self.loop_back(start),
             None if seg.end >= duration - 1.0 => {
                 if self.repeats_one() {
                     self.play_current();

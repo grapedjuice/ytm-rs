@@ -498,6 +498,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 nav(ui, icon::CIRCLE_USER, crate::tr!("nav-sign-in"), Page::Settings, false, &mut go_to);
                 if go_to.is_some() {
                     app.settings_tab = super::pages::SettingsTab::Account;
+                    app.settings_page = true;
                 }
             }
             return;
@@ -628,7 +629,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     };
     let mut restart = false;
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-        nav(ui, icon::SETTINGS, crate::tr!("settings-title"), Page::Settings, p == Page::Settings, &mut go_to);
+        nav(ui, icon::SETTINGS, crate::tr!("settings-title"), Page::Settings, app.settings_open, &mut go_to);
         if transferring {
             super::transfer::sidebar_card(app, ui, collapsed, a, icon_x);
         }
@@ -970,6 +971,7 @@ fn account_button(app: &mut App, ui: &mut Ui, r: Rect, resp: egui::Response, rad
     }
     if resp.clicked() {
         app.settings_tab = super::pages::SettingsTab::Account;
+        app.settings_page = true;
         app.actions.push(Action::Go(Page::Settings));
     }
 }

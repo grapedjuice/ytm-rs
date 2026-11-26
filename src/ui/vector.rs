@@ -324,15 +324,19 @@ const PENCIL: &str = "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0
 /// The pencil over a playlist's own cover, for editing it. The icon font's subset
 /// doesn't have it.
 pub fn pencil(ui: &Ui, center: Pos2, size: f32, color: Color32) {
-    static ICON: std::sync::OnceLock<crate::preset::VectorIcon> = std::sync::OnceLock::new();
-    let icon = ICON.get_or_init(|| crate::preset::VectorIcon {
-        view: [24.0, 24.0],
-        origin: [0.0, 0.0],
-        d: PENCIL.to_owned(),
-        flip: false,
-        stroke: 2.0,
+    lucide(ui, PENCIL, center, size, color);
+}
+
+/// A Lucide icon (ISC) the icon font hasn't got, by its path data, stroked as the font's are.
+pub fn lucide(ui: &Ui, d: &'static str, center: Pos2, size: f32, color: Color32) {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+
+    static ICONS: OnceLock<Mutex<HashMap<&'static str, &'static crate::preset::VectorIcon>>> = OnceLock::new();
+    let icon = *ICONS.get_or_init(Mutex::default).lock().unwrap().entry(d).or_insert_with(|| {
+        Box::leak(Box::new(crate::preset::VectorIcon { view: [24.0, 24.0], origin: [0.0, 0.0], d: d.to_owned(), flip: false, stroke: 2.0 }))
     });
-    paint_icon(ui, "pencil", icon, center, size, color);
+    paint_icon(ui, "lucide", icon, center, size, color);
 }
 
 fn paint_icon(ui: &Ui, name: &str, icon: &crate::preset::VectorIcon, center: Pos2, size: f32, color: Color32) {

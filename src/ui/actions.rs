@@ -576,6 +576,13 @@ impl App {
                 // Just the drag.
             } else if self.fullscreen {
                 self.set_fullscreen(ctx, false);
+            } else if self.settings_open && !self.np_open {
+                // A search first, then Settings itself.
+                if self.settings_query.is_empty() {
+                    self.settings_open = false;
+                } else {
+                    self.settings_query.clear();
+                }
             } else {
                 self.np_open = false;
             }

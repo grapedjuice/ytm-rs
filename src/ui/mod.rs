@@ -777,9 +777,13 @@ pub struct App {
     queue_float: Option<egui::Rect>,
     /// A song row being dragged.
     row_drag: Option<row_drag::RowDrag>,
-    /// Settings: the category on show, and what its search box is looking for.
+    /// Settings: open (a sheet over the page), the category on show, and what its search
+    /// box is looking for.
+    settings_open: bool,
     settings_tab: pages::SettingsTab,
     settings_query: String,
+    /// In a narrow window, a category rather than the list of them.
+    settings_page: bool,
     palette: palette::Palette,
     fullscreen: bool,
     /// Full screen is the video alone, its controls showing while the pointer moves.
@@ -1227,8 +1231,10 @@ impl App {
             queue_w: shell::load_queue_w(get("queue_width")),
             queue_float: None,
             row_drag: None,
+            settings_open: false,
             settings_tab: Default::default(),
             settings_query: String::new(),
+            settings_page: false,
             palette: Default::default(),
             // Dev hook: the full screen layout, leaving the window where it is.
             fullscreen: dev_var("YTM_FAKE_FULLSCREEN").is_some(),
@@ -1323,7 +1329,8 @@ impl App {
         }
         // Dev hook: YTM_PROXY_INPUT=<address> opens Settings › Network on Custom with it typed in.
         if let Some(v) = dev_var("YTM_PROXY_INPUT") {
-            app.settings_tab = pages::SettingsTab::General;
+            app.settings_tab = pages::SettingsTab::Advanced;
+            app.settings_page = true;
             app.proxy_mode = crate::proxy::Setting::Custom(String::new());
             app.proxy_url = v.to_owned();
         }
@@ -1385,6 +1392,13 @@ impl App {
             p => p,
         };
         self.np_open = false;
+        // Settings opens over the page, which stays where it is.
+        if page == Page::Settings {
+            self.settings_open = true;
+            self.settings_query.clear();
+            return;
+        }
+        self.settings_open = false;
         if page == self.page {
             // Clicking the page you're on refreshes it.
             self.refresh();
@@ -1402,6 +1416,8 @@ impl App {
             self.set_fullscreen(ctx, false);
         } else if self.np_open {
             self.np_open = false;
+        } else if self.settings_open {
+            self.settings_open = false;
         } else if let Some(p) = self.back.pop() {
             self.forward.push(std::mem::replace(&mut self.page, p));
             self.page_loaded();
@@ -2176,6 +2192,13 @@ impl eframe::App for App {
             shell::floating_bar(self, &mut bar, r, now);
             theme::set_mode(&ctx, pages);
         }
+        // Settings, over the pages; the player bar below it stays in reach. Now playing
+        // opening over it closes it.
+        if self.np_open {
+            self.settings_open = false;
+        }
+        let under_bar = if self.fullscreen { 0.0 } else { self.bar_height() };
+        pages::settings_sheet(self, &ctx, screen.with_max_y(screen.bottom() - under_bar));
         if np > 0.001 {
             theme::set_mode(&ctx, false);
             nowplaying::overlay(self, &ctx, now);

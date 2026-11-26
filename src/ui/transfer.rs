@@ -133,7 +133,8 @@ fn breadcrumb(app: &mut App, ui: &mut Ui) {
     let c = if resp.hovered() { theme::text() } else { theme::text_dim() };
     ui.painter().galley(rect.min, g, c);
     if resp.clicked() {
-        app.settings_tab = super::pages::SettingsTab::General;
+        app.settings_tab = super::pages::SettingsTab::Connections;
+        app.settings_page = true;
         app.actions.push(Action::Go(Page::Settings));
     }
 }
@@ -214,6 +215,7 @@ fn setup(app: &mut App, ui: &mut Ui) {
             setting_row(ui, crate::tr!("transfer-youtube-sign-in"), Some(crate::tr!("transfer-youtube-account")), |ui| {
                 if pill(ui, crate::tr!("transfer-go-settings"), None, true).clicked() {
                     app.settings_tab = super::pages::SettingsTab::Account;
+                    app.settings_page = true;
                     app.actions.push(Action::Go(Page::Settings));
                 }
             });

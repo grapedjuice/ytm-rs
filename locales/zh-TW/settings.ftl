@@ -304,7 +304,6 @@ settings-language = 語言
 settings-language-desc = 應用程式介面的語言。歌曲標題、名稱和 YouTube Music 內容區塊使用下方選擇的歌曲資訊語言。
 settings-restart-to-apply = 重新啟動以套用
 settings-language-restart-desc = 下次開啟應用程式時會使用新語言。
-settings-restart-now = 立即重新啟動
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
 

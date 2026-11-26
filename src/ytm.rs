@@ -1925,6 +1925,13 @@ pub async fn set_playlist_cover(api: &Api, id: &str, blob: &str) -> anyhow::Resu
     Ok(())
 }
 
+/// Take a playlist's own picture off, back to YouTube Music's cover.
+pub async fn remove_playlist_cover(api: &Api, id: &str) -> anyhow::Result<()> {
+    let image = json!({"type": "PLAYLIST_IMAGE_TYPE_CUSTOM_THUMBNAIL", "name": "studio_square_thumbnail"});
+    write(api, "browse/edit_playlist", json!({"playlistId": id, "actions": [{"action": "ACTION_REMOVE_CUSTOM_THUMBNAIL", "deletedCustomThumbnail": image}]})).await?;
+    Ok(())
+}
+
 /// Take entries out of a playlist, `(videoId, setVideoId)` pairs, in one request.
 pub async fn remove_videos(api: &Api, playlist_id: &str, items: &[(String, String)]) -> anyhow::Result<()> {
     let actions: Vec<Value> = items.iter().map(|(v, set)| json!({"action": "ACTION_REMOVE_VIDEO", "removedVideoId": v, "setVideoId": set})).collect();

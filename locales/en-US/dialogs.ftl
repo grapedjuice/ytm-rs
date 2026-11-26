@@ -37,6 +37,7 @@ dialog-download-count = Download ({ $count })
 dialog-edit-playlist = Edit playlist
 dialog-picture = Picture
 dialog-change-picture = Change picture
+dialog-remove-picture = Remove
 dialog-download-body = Tracks left to download: { $count }. Downloads run in the background and start with the current track.
 dialog-download-collection-body = Tracks left to download from “{ $title }”: { $count }. Downloads run in the background and start with the current track.
 dialog-add-duplicates-title = Already in the playlist

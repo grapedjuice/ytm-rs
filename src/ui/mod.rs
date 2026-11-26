@@ -309,11 +309,19 @@ enum Unlike {
     Rating(Track),
 }
 
+/// Edit playlist's picture, changed.
+enum NewCover {
+    /// A picture picked, with its image URI and the JPEG to send.
+    Picked(String, Arc<[u8]>),
+    /// Back to YouTube Music's own cover.
+    Removed,
+}
+
 enum Dialog {
     PickPlaylist(Vec<Track>),
     NewPlaylist { title: String, tracks: Vec<Track> },
-    /// `thumbs`: its cover now; `cover`: a new picture for it, with its image URI.
-    EditPlaylist { id: String, title: String, description: String, privacy: Option<String>, thumbs: Vec<crate::model::Thumb>, cover: Option<(String, Arc<[u8]>)> },
+    /// `thumbs`: its cover now; `cover`: what Save does to it.
+    EditPlaylist { id: String, title: String, description: String, privacy: Option<String>, thumbs: Vec<crate::model::Thumb>, cover: Option<NewCover> },
     ConfirmDelete { id: String, title: String },
     /// Deleting an uploaded song (`Track::upload`), asked about first.
     ConfirmDeleteUpload { entity: String, title: String },

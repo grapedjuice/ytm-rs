@@ -584,7 +584,7 @@ fn panel_motion(app: &App, ctx: &egui::Context, track_id: &str, no_lyrics: bool,
             next
         }
     };
-    let p = ctx.animate_bool_with_time(egui::Id::unique("np-panel"), state.want, 0.6 * theme::SPEED);
+    let p = ctx.animate_bool_with_time(egui::Id::unique("np-panel"), state.want, 0.6 * theme::speed());
     if p > 0.0 && p < 1.0 {
         // Every frame while sliding, not the now-playing view's usual 30 fps.
         ctx.request_repaint();
@@ -753,7 +753,7 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
     // Switching between Lyrics, Up next and Comments: the old one fades out over the first 55%,
     // the new one fades in and rises into place from a third of the way.
     for (tab, key) in [(NpTab::Lyrics, "np-tab-lyrics"), (NpTab::UpNext, "np-tab-upnext"), (NpTab::Comments, "np-tab-comments")] {
-        let w = ui.ctx().animate_bool_with_time(egui::Id::unique(key), panel_tab == tab, 0.45 * theme::SPEED);
+        let w = ui.ctx().animate_bool_with_time(egui::Id::unique(key), panel_tab == tab, 0.45 * theme::speed());
         if w > 0.0 && w < 1.0 {
             ui.ctx().request_repaint();
         }

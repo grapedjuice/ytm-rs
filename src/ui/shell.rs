@@ -334,7 +334,7 @@ pub fn is_rail(app: &App) -> bool {
 
 /// How collapsed the sidebar is, 0 (full) to 1 (icon rail), eased over the toggle.
 pub fn sidebar_collapse(app: &App, ctx: &egui::Context) -> f32 {
-    let t = ctx.animate_bool_with_time(egui::Id::unique("sidebar-collapse"), is_rail(app), 0.28 * theme::SPEED);
+    let t = ctx.animate_bool_with_time(egui::Id::unique("sidebar-collapse"), is_rail(app), 0.28 * theme::speed());
     // Ease in-out: starts and lands gently in both directions.
     t * t * (3.0 - 2.0 * t)
 }
@@ -2339,5 +2339,19 @@ mod tests {
         // Off its steps (an older or hand-edited save), it comes back onto them.
         assert_eq!(load_factor(Some("1.05".into()), BG_SPEED), 1.0);
         assert_eq!(load_factor(Some("0.93".into()), BG_BRIGHTNESS), 0.9);
+    }
+
+    /// Animation speed goes from the theme's own up to four times as fast, in quarters.
+    #[test]
+    fn a_saved_animation_speed_loads_on_its_steps_and_in_range() {
+        let load = |v: &str| load_factor(Some(v.to_owned()), crate::theme::ANIM_SPEED_RANGE);
+        assert_eq!(load_factor(None, crate::theme::ANIM_SPEED_RANGE), 1.0);
+        assert_eq!(load("2.00"), 2.0);
+        assert_eq!(load("1.3"), 1.25);
+        assert_eq!(load("0.5"), 1.0);
+        assert_eq!(load("9"), 4.0);
+        assert_eq!(load("0"), 1.0);
+        assert_eq!(load("fast"), 1.0);
+        assert_eq!(load("NaN"), 1.0);
     }
 }

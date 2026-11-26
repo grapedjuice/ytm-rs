@@ -1977,7 +1977,7 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
     if let Some(x) = held {
         area = area.horizontal_scroll_offset(x);
     } else if let Some(t) = target.or(coast) {
-        let v = ui.ctx().animate_value_with_time(anim_id, t, 0.35 * theme::SPEED);
+        let v = ui.ctx().animate_value_with_time(anim_id, t, 0.35 * theme::speed());
         area = area.horizontal_scroll_offset(v);
         if (v - t).abs() < 0.5 {
             stop_glide(ui.ctx());
@@ -2080,7 +2080,7 @@ pub fn shimmer_band(ui: &Ui, r: Rect, radius: f32, time: f64) {
 /// Paint a remote image into `rect`: the skeleton's shimmer while it downloads (not
 /// egui's spinner), then a quick fade-in. One already loaded just shows.
 pub fn paint_remote(ui: &Ui, url: &str, rect: Rect, radius: f32, uv: Rect, tint: Color32) {
-    const FADE: f64 = 0.22;
+    let fade = 0.22 / f64::from(theme::anim_speed());
     let ctx = ui.ctx();
     let now = ctx.input(|i| i.time);
     let id = egui::Id::unique(("img-fade", url));
@@ -2088,7 +2088,7 @@ pub fn paint_remote(ui: &Ui, url: &str, rect: Rect, radius: f32, uv: Rect, tint:
         Ok(egui::load::TexturePoll::Ready { texture }) => {
             // Fade only what was seen loading; Some(None) = waiting, Some(Some(t)) = fading since t.
             let a = match ctx.data(|d| d.get_temp::<Option<f64>>(id)) {
-                Some(Some(t0)) if now - t0 < FADE => ((now - t0) / FADE) as f32,
+                Some(Some(t0)) if now - t0 < fade => ((now - t0) / fade) as f32,
                 Some(None) => {
                     ctx.data_mut(|d| d.insert_temp(id, Some(now)));
                     0.0

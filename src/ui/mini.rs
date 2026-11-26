@@ -1596,7 +1596,7 @@ fn pill_lyrics(app: &mut App, ui: &mut Ui, area: Rect, clip: Rect, now: f64) {
     }
     let full = app.mini.pill_lyric_lines.as_ref().expect("the pill's lyrics were cached above");
     let target_h = if app.mini.pill_lyric_h > 0.0 { (app.mini.pill_lyric_h + 12.0).min(area.height()) } else { area.height() };
-    let band_h = ui.ctx().animate_value_with_time(egui::Id::unique(("pill-lyric-band", key)), target_h, 0.2);
+    let band_h = ui.ctx().animate_value_with_time(egui::Id::unique(("pill-lyric-band", key)), target_h, 0.2 / theme::anim_speed());
     let band = Rect::from_center_size(area.center(), vec2(area.width(), band_h));
     let mut line_ui = ui.new_child(egui::UiBuilder::new().max_rect(area));
     line_ui.set_clip_rect(band.intersect(area).intersect(clip));
@@ -1693,7 +1693,7 @@ fn card_lyrics(app: &mut App, ui: &mut Ui, area: Rect, open: f32, now: f64) {
     // the chrome hidden, the band opens to the whole card and the neighbours show, fading
     // toward its edges like the normal player.
     let target_h = if app.mini.lyric_h > 0.0 { (app.mini.lyric_h + 12.0).min(area.height()) } else { 96.0_f32.min(area.height()) };
-    let one_h = ui.ctx().animate_value_with_time(egui::Id::unique(("mini-lyric-band", key)), target_h, 0.2);
+    let one_h = ui.ctx().animate_value_with_time(egui::Id::unique(("mini-lyric-band", key)), target_h, 0.2 / theme::anim_speed());
     let band_h = egui::lerp(one_h..=area.height(), open.clamp(0.0, 1.0));
     let band = Rect::from_center_size(area.center(), vec2(area.width(), band_h));
     let mut line_ui = ui.new_child(egui::UiBuilder::new().max_rect(area));

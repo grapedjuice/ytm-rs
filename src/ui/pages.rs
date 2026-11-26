@@ -2604,6 +2604,10 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         });
         divider(ui);
         settings_zoom(ui);
+        divider(ui);
+        setting_row(ui, tr!("settings-animation-speed"), Some(tr!("settings-animation-speed-desc")), |ui| {
+            percent_stepper(ui, &mut app.anim_speed, theme::ANIM_SPEED_RANGE, tr!("settings-faster"), tr!("settings-slower"));
+        });
     });
 
     let current = crate::preset::get(&app.theme_id).name.clone();

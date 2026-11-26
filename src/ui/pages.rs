@@ -1055,7 +1055,7 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         widgets::soft_shadow(ui, img.translate(vec2(0.0, sy)), 10.0, sb, sa);
         paint_cover(ui, img, &c.thumbs, theme::card_radius() + 2.0, 1.0);
         if editable {
-            let resp = widgets::named(img_resp, tr!("ui-edit")).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let resp = widgets::named(img_resp, tr!("dialog-edit-playlist")).on_hover_cursor(egui::CursorIcon::PointingHand);
             let h = theme::anim_bool(ui.ctx(), resp.id.with("edit"), resp.hovered() || resp.has_focus(), 0.15);
             if h > 0.0 {
                 ui.painter().rect_filled(img, theme::card_radius() + 2.0, theme::shade(0.45 * h));

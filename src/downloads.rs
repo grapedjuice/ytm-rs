@@ -151,15 +151,21 @@ pub fn init(data_dir: &Path, folder: &str, per_list: bool, file_lyrics: FileLyri
     drop(st);
     // Which files are gone: disk work, off the UI thread.
     std::thread::spawn(|| {
-        let entries: Vec<(String, PathBuf)> = STATE.read().unwrap().index.iter().map(|(id, e)| (id.clone(), e.path.clone())).collect();
-        set_gone(entries.into_iter().filter(|(_, p)| !p.is_file()).collect());
+        let (entries, since) = {
+            let st = STATE.read().unwrap();
+            (st.index.iter().map(|(id, e)| (id.clone(), e.path.clone())).collect::<Vec<_>>(), st.saved.len())
+        };
+        set_gone(entries.into_iter().filter(|(_, p)| !p.is_file()).collect(), since);
     });
 }
 
-/// Remember these songs' files as gone (unless one's been saved again meanwhile).
-fn set_gone(missing: Vec<(String, PathBuf)>) {
+/// Remember these songs' files as gone, from a look begun when `since` songs had been
+/// saved this session: not one saved again meanwhile. No disk work here, with the lock
+/// held that every row's mark reads.
+fn set_gone(missing: Vec<(String, PathBuf)>, since: usize) {
     let mut st = STATE.write().unwrap();
-    let gone = missing.into_iter().filter(|(id, p)| st.index.get(id).is_some_and(|e| &e.path == p && !p.is_file())).map(|(id, _)| id).collect();
+    let saved_since = st.saved.get(since..).unwrap_or_default();
+    let gone = missing.into_iter().filter(|(id, p)| !saved_since.contains(id) && st.index.get(id).is_some_and(|e| &e.path == p)).map(|(id, _)| id).collect();
     st.gone = gone;
     LOOKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
@@ -398,6 +404,15 @@ pub fn path(video_id: &str) -> Option<PathBuf> {
     STATE.read().unwrap().index.get(video_id).map(|e| e.path.clone()).filter(|p| p.is_file())
 }
 
+/// The file of a downloaded song, or of a music video's song version: what its menu
+/// shows in the folder. Disk work.
+pub fn file_for(t: &Track) -> Option<PathBuf> {
+    path(&t.id).or_else(|| {
+        let p = entry_for(&STATE.read().unwrap(), t).map(|e| e.path.clone());
+        p.filter(|p| p.is_file())
+    })
+}
+
 /// Whether all these songs are downloaded, as last looked (no look at the files now, so
 /// it's quick enough for the UI thread; startup and Library › Downloads look).
 /// A music video counts when its song version is.
@@ -524,7 +539,10 @@ fn add_video(first: &mut Option<String>, videos: &mut Vec<String>, video_id: &st
 /// Every downloaded song whose file is still there, newest first: Library › Downloads.
 /// A song version is listed as the song (its file plays for the music video too).
 pub fn all() -> Vec<Track> {
-    let entries: Vec<(String, Entry)> = STATE.read().unwrap().index.iter().map(|(id, e)| (id.clone(), e.clone())).collect();
+    let (entries, since) = {
+        let st = STATE.read().unwrap();
+        (st.index.iter().map(|(id, e)| (id.clone(), e.clone())).collect::<Vec<_>>(), st.saved.len())
+    };
     let mut missing = Vec::new();
     let mut found: Vec<(std::time::SystemTime, Track)> = entries
         .into_iter()
@@ -537,7 +555,7 @@ pub fn all() -> Vec<Track> {
             Some((modified, listed(id, e)))
         })
         .collect();
-    set_gone(missing);
+    set_gone(missing, since);
     found.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
     found.into_iter().map(|(_, t)| t).collect()
 }

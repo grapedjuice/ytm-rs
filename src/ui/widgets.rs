@@ -1234,7 +1234,7 @@ pub fn song_actions(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, 
     if menu_action(ui, None, crate::tr!("ui-copy-link")) {
         acts.push(Action::Share(Target::Song(t.clone())));
     }
-    match crate::downloads::path(&t.id) {
+    match crate::downloads::file_for(t) {
         Some(path) => {
             if menu_action(ui, Some(icon::FOLDER_OPEN), crate::tr!("widget-show-in-folder")) {
                 crate::downloads::show_file(&path);
@@ -1303,7 +1303,7 @@ pub fn song_action_icons(ui: &mut Ui, t: &Track, liked: bool, acts: &mut Vec<Act
         if icon(ui, icon::LINK, crate::tr!("ui-copy-link")) {
             acts.push(Action::Share(Target::Song(t.clone())));
         }
-        match crate::downloads::path(&t.id) {
+        match crate::downloads::file_for(t) {
             Some(path) => {
                 if icon(ui, icon::FOLDER_OPEN, crate::tr!("widget-show-in-folder")) {
                     crate::downloads::show_file(&path);

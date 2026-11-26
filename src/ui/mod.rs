@@ -862,6 +862,11 @@ pub struct App {
     // window
     /// Clicking × hides the window to the tray instead of quitting.
     close_to_tray: bool,
+    /// A left click on the tray icon plays or pauses instead of bringing the window back
+    /// (Windows and macOS: on Linux a click always opens the icon's menu).
+    tray_click_plays: bool,
+    /// When a tray click that plays or pauses came, while it may still turn out a double-click.
+    tray_click: Option<std::time::Instant>,
     /// Linux, Wayland session: an X11 window from the next start, so the mini player can
     /// stay above other windows.
     mini_x11: bool,
@@ -1124,6 +1129,8 @@ impl App {
                 .filter(|_| !crate::update::flatpak())
                 .map_or_else(|| crate::update::is_nightly(&crate::update::build_version()), |v| v == "nightly"),
             close_to_tray: get("close_to_tray").is_some_and(|v| v == "1"),
+            tray_click_plays: get("tray_click_plays").is_some_and(|v| v == "1"),
+            tray_click: None,
             mini_x11: get("mini_x11").is_some_and(|v| v == "1"),
             wgpu_renderer,
             app_icon,
@@ -2333,6 +2340,7 @@ impl eframe::App for App {
             self.good_window = Some(w);
         }
         storage.set_string("close_to_tray", b(self.close_to_tray));
+        storage.set_string("tray_click_plays", b(self.tray_click_plays));
         storage.set_string("mini_x11", b(self.mini_x11));
         storage.set_string("song_notifications", b(self.song_notifications));
         let start = START_PAGES.iter().find(|(.., p)| *p == self.start_page).map_or("home", |(k, ..)| k);

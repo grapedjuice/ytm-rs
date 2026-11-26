@@ -34,6 +34,7 @@ enum InternalEvent {
     ChangeVolume(f64),
     ChangeShuffle(bool),
     ChangeLoopStatus(LoopStatus),
+    Seeked(Duration),
     Kill,
 }
 
@@ -208,6 +209,13 @@ impl MediaControls {
         self.send_internal_event(InternalEvent::ChangeLoopStatus(loop_status))
     }
 
+    /// ytm-rs: the position jumped (a seek, a skip, a stall), for MPRIS's `Seeked`. Media
+    /// widgets count on from the last position they had, so they'd stay wrong without
+    /// it. Send it after `set_playback` with the new position. (Only available on MPRIS)
+    pub fn seeked(&mut self, position: Duration) -> Result<(), Error> {
+        self.send_internal_event(InternalEvent::Seeked(position))
+    }
+
     fn send_internal_event(&mut self, event: InternalEvent) -> Result<(), Error> {
         let thread = &self.thread.as_ref().ok_or(Error::ThreadNotRunning)?;
         thread
@@ -239,7 +247,7 @@ where
     let seeked_signal = Arc::new(Mutex::new(None));
 
     let mut cr =
-        super::interfaces::register_methods(&state, &event_handler, friendly_name, desktop_entry, seeked_signal);
+        super::interfaces::register_methods(&state, &event_handler, friendly_name, desktop_entry, seeked_signal.clone());
 
     conn.start_receive(
         dbus::message::MatchRule::new_method_call(),
@@ -262,6 +270,7 @@ where
         };
 
         let mut changed_properties = HashMap::new();
+        let mut seeked = None;
 
         for event in std::iter::once(first).chain(event_channel.try_iter()) {
             let mut state = state.lock().unwrap();
@@ -298,19 +307,28 @@ where
                         Variant(Box::new(loop_status.as_str().to_string())),
                     );
                 }
+                InternalEvent::Seeked(position) => seeked = Some(position),
             }
         }
 
-        let properties_changed = PropertiesPropertiesChanged {
-            interface_name: "org.mpris.MediaPlayer2.Player".to_owned(),
-            changed_properties,
-            invalidated_properties: Vec::new(),
-        };
-
-        conn.send(
-            properties_changed.to_emit_message(&Path::new("/org/mpris/MediaPlayer2").unwrap()),
-        )
-        .ok();
+        let path = Path::new("/org/mpris/MediaPlayer2").unwrap();
+        // ytm-rs: nothing but a `Seeked` in this batch: no empty PropertiesChanged.
+        if !changed_properties.is_empty() {
+            let properties_changed = PropertiesPropertiesChanged {
+                interface_name: "org.mpris.MediaPlayer2.Player".to_owned(),
+                changed_properties,
+                invalidated_properties: Vec::new(),
+            };
+            conn.send(properties_changed.to_emit_message(&path)).ok();
+        }
+        // ytm-rs: after the new position, so a widget that reads Position on `Seeked` gets
+        // it. In microseconds, as MPRIS has it.
+        if let Some(position) = seeked {
+            if let Some(make) = seeked_signal.lock().unwrap().as_ref() {
+                let micros: i64 = position.as_micros().try_into().unwrap_or(i64::MAX);
+                conn.send(make(&path, &(micros,))).ok();
+            }
+        }
     }
 
     Ok(())

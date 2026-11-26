@@ -339,6 +339,13 @@ pub fn sidebar_collapse(app: &App, ctx: &egui::Context) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// Whether the top bar starts with the theme's name for the app. Only beside the rail: the
+/// open sidebar has the name at its top already, right next to it (#414). And not in a
+/// narrow row, which needs the room for the search box and the account button.
+fn logo_in_bar(tb: &crate::preset::TopBarLook, rail: bool, row_w: f32) -> bool {
+    tb.logo_in_bar && !tb.logo_text.is_empty() && rail && row_w >= 620.0
+}
+
 /// The theme's name for the app, its last word perhaps in a second colour.
 fn logo_name(ui: &mut Ui, logo: &crate::preset::TopBarLook, accent: Color32) -> Rect {
     let c = if logo.logo_color.is_empty() { theme::text() } else { crate::preset::paint(&logo.logo_color, accent) };
@@ -745,8 +752,7 @@ pub fn top_bar(app: &mut App, ui: &mut Ui) {
         if gap > 0.0 {
             ui.add_space(gap);
         }
-        // A narrow row needs the logo's room for the search box and the account button.
-        if tb.logo_in_bar && !tb.logo_text.is_empty() && ui.available_width() >= 620.0 {
+        if logo_in_bar(tb, is_rail(app), ui.available_width()) {
             ui.add_space(6.0);
             let accent = app.accent_color();
             let text_r = ui.allocate_ui_with_layout(vec2(136.0, app.look().app.search_look.height.max(30.0)), egui::Layout::left_to_right(egui::Align::Center), |ui| logo_name(ui, tb, accent)).inner;
@@ -2274,7 +2280,17 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{BG_BRIGHTNESS, BG_SPEED, QUEUE_W, autoplay_toggle, load_factor, load_queue_w};
+    use super::{BG_BRIGHTNESS, BG_SPEED, QUEUE_W, autoplay_toggle, load_factor, load_queue_w, logo_in_bar};
+
+    /// A theme with the app's name in the top bar shows it there only beside the rail: the
+    /// open sidebar has it at its top already (#414).
+    #[test]
+    fn the_apps_name_shows_once() {
+        let bar = crate::preset::all().iter().map(|p| &p.app.top_bar).find(|tb| tb.logo_in_bar).expect("a theme with the name in the bar");
+        assert!(logo_in_bar(bar, true, 1200.0));
+        assert!(!logo_in_bar(bar, false, 1200.0));
+        assert!(!logo_in_bar(bar, true, 500.0));
+    }
 
     /// A long translation of the autoplay toggle stays inside Up next: wider, it would push
     /// the drawer past the window and the page beside it into the drawer (#327).

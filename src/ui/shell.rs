@@ -591,10 +591,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                     // A playlist kept downloaded: marked at the start of its subtitle.
                     let mark_w = if widgets::kept_downloaded(ui, &c.target) { widgets::DOWNLOAD_MARK_W } else { 0.0 };
                     if mark_w > 0.0 {
-                        ui.scope(|ui| {
-                            ui.multiply_opacity(a);
-                            widgets::download_mark(ui, img.right() + 10.0, rect.top() + 33.0);
-                        });
+                        widgets::download_mark(ui, img.right() + 10.0, rect.top() + 33.0, a);
                     }
                     text_at(ui, pos2(img.right() + 10.0 + mark_w, rect.top() + 26.0), &c.subtitle, theme::regular(12.0), theme::with_alpha(theme::text_dim(), a), w - mark_w);
                 }

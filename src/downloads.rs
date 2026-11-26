@@ -75,10 +75,25 @@ struct State {
     /// The songs saved this session, in the order they were: Library › Downloads takes
     /// on the new ones (`saved_since`) without looking at every file again.
     saved: Vec<String>,
+    /// The music videos the files are song versions of, with the songs that stand in for
+    /// them: rows look a music video up each frame without going through every download.
+    by_video: HashMap<String, Vec<String>>,
+}
+
+impl State {
+    /// Work out `by_video` again, after the index changed.
+    fn relink(&mut self) {
+        self.by_video.clear();
+        for (id, e) in &self.index {
+            for v in e.stands_for.iter().chain(&e.videos) {
+                self.by_video.entry(v.clone()).or_default().push(id.clone());
+            }
+        }
+    }
 }
 
 static STATE: LazyLock<RwLock<State>> =
-    LazyLock::new(|| RwLock::new(State { index: HashMap::new(), file: PathBuf::new(), folder: default_folder(), per_list: false, file_lyrics: FileLyrics::Synced, gone: HashSet::new(), saved: Vec::new() }));
+    LazyLock::new(|| RwLock::new(State { index: HashMap::new(), file: PathBuf::new(), folder: default_folder(), per_list: false, file_lyrics: FileLyrics::Synced, gone: HashSet::new(), saved: Vec::new(), by_video: HashMap::new() }));
 
 /// Music\ytm-rs.
 pub fn default_folder() -> PathBuf {
@@ -128,6 +143,7 @@ pub fn init(data_dir: &Path, folder: &str, per_list: bool, file_lyrics: FileLyri
     };
     let mut st = STATE.write().unwrap();
     st.index = index;
+    st.relink();
     st.file = file;
     st.folder = if folder.is_empty() { default_folder() } else { PathBuf::from(folder) };
     st.per_list = per_list;
@@ -434,7 +450,7 @@ fn listed_now(st: &State, videos: &HashSet<&str>, t: &Track) -> bool {
 fn entry_for<'a>(st: &'a State, t: &Track) -> Option<&'a Entry> {
     let here = |(id, e): (&String, &'a Entry)| (!st.gone.contains(id)).then_some(e);
     st.index.get_key_value(&t.id).and_then(here).or_else(|| match t.music_video {
-        true => st.index.iter().filter(|(_, e)| e.stands_for(&t.id)).find_map(here),
+        true => st.by_video.get(&t.id).into_iter().flatten().filter_map(|id| st.index.get_key_value(id)).find_map(here),
         false => None,
     })
 }
@@ -477,6 +493,7 @@ pub fn link_video(song_id: &str, video_id: &str) {
         if e.song.is_none() {
             e.song = e.track.clone();
         }
+        st.relink();
     }
     write_index();
 }
@@ -753,6 +770,7 @@ pub fn save(t: &Track, audio: &[u8], duration_ms: u64, loudness_db: Option<f32>,
         st.gone.remove(&t.id);
         st.index.insert(t.id.clone(), Entry { path: path.clone(), duration_ms, loudness_db, stands_for: first, videos, song, track, list });
         st.saved.push(t.id.clone());
+        st.relink();
     }
     write_index();
     Ok(path)

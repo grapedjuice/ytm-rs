@@ -927,7 +927,7 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, pin: Option<bool>, a
     // A playlist kept downloaded is marked at the start of its subtitle.
     let mark_w = if kept_downloaded(ui, &c.target) { DOWNLOAD_MARK_W } else { 0.0 };
     if mark_w > 0.0 {
-        download_mark(ui, rect.left(), sub_y + 8.0);
+        download_mark(ui, rect.left(), sub_y + 8.0, 1.0);
     }
     linked_text(ui, pos2(rect.left() + mark_w, sub_y), &c.subtitle, &c.links, theme::regular(13.0), theme::with_alpha(theme::text_dim(), cl.subtitle_alpha), width - 36.0 - mark_w, acts);
     // On the subtitle line, whose width leaves room for it, so a two-line title never sits under it.
@@ -950,10 +950,7 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, pin: Option<bool>, a
     }
 }
 
-/// While the album or playlist `id` downloads, its whole cover darkens, then the darkness
-/// recedes from the bottom with the progress, so more and more of the picture shows in its
-/// true colours. When the download ends what's left of it fades away.
-/// Whether the album or playlist `target` is kept downloaded (Library's Keep downloaded).
+/// Whether the playlist `target` is kept downloaded (its menu's Keep downloaded).
 pub fn kept_downloaded(ui: &Ui, target: &Target) -> bool {
     let Target::Playlist(id) = target else { return false };
     ui.ctx().data(|d| d.get_temp::<std::sync::Arc<Vec<String>>>(egui::Id::unique("kept-downloaded"))).is_some_and(|k| k.contains(id))
@@ -964,17 +961,20 @@ pub const DOWNLOAD_MARK_W: f32 = 18.0;
 
 /// The mark of a downloaded song or a playlist kept downloaded, at the start of a line
 /// whose middle is `y`: an arrow down in a filled circle, as other music apps show it.
-pub fn download_mark(ui: &Ui, x: f32, y: f32) {
+/// `alpha` fades it with the line it's on.
+pub fn download_mark(ui: &Ui, x: f32, y: f32, alpha: f32) {
     let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
     let c = pos2(x + 6.5, y);
-    ui.painter().circle_filled(c, 6.5, accent);
-    // Dark on a pale accent, white on the rest.
-    let luma = 0.299 * accent.r() as f32 + 0.587 * accent.g() as f32 + 0.114 * accent.b() as f32;
-    let ink = egui::Stroke::new(1.4, if luma > 160.0 { Color32::from_gray(15) } else { Color32::WHITE });
+    ui.painter().circle_filled(c, 6.5, theme::with_alpha(accent, alpha));
+    // Dark or white, whichever reads better on the accent.
+    let ink = egui::Stroke::new(1.4, theme::with_alpha(theme::on_fill(accent), alpha));
     ui.painter().line_segment([c + vec2(0.0, -3.5), c + vec2(0.0, 3.2)], ink);
     ui.painter().line(vec![c + vec2(-2.8, 0.6), c + vec2(0.0, 3.4), c + vec2(2.8, 0.6)], ink);
 }
 
+/// While the album or playlist `id` downloads, its whole cover darkens, then the darkness
+/// recedes from the bottom with the progress, so more and more of the picture shows in its
+/// true colours. When the download ends what's left of it fades away.
 pub fn download_veil(ui: &Ui, img: Rect, radius: f32, id: &str) {
     let ctx = ui.ctx();
     let runs = ctx.data(|d| d.get_temp::<std::sync::Arc<Vec<(String, f32)>>>(egui::Id::unique("download-progress")));
@@ -1674,7 +1674,7 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
     let mark_w = if marked { DOWNLOAD_MARK_W } else { 0.0 };
     let (title_x, title_room) = if sub.is_none() { (x + mark_w, title_w - mark_w) } else { (x, title_w) };
     if marked {
-        download_mark(ui, x, if sub.is_some() { cy + 10.0 } else { cy });
+        download_mark(ui, x, if sub.is_some() { cy + 10.0 } else { cy }, opacity);
     }
     title_at(ui, pos2(title_x, title_y), &t.title, t.explicit, theme::semibold(14.5), title_col, title_room);
     if let Some(sub) = &sub {

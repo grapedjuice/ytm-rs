@@ -1898,6 +1898,8 @@ impl eframe::App for App {
         let layout = self.mini.layout(&ctx);
         // Only the player bar shows the window's material once the pages are covered.
         crate::backdrop::follow(crate::backdrop::shows() && !self.mini.pill_showing(), light && (np < 1.0 || layout != mini::Layout::Full));
+        #[cfg(target_os = "linux")]
+        theme::sync_window_theme(&ctx, self.light_pages(&ctx));
         // The installed fonts arrived: the theme's can be loaded now. Not the first frame,
         // which is applying anyway and adds a texture loader.
         if self.chrome_applied.is_some() && theme::fonts_became_ready() {

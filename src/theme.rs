@@ -1559,6 +1559,19 @@ pub fn apply_chrome(ctx: &egui::Context, p: &crate::preset::Preset, lyrics: &cra
     install_fonts(ctx, &p.app.font, &[&p.lyrics.font, &lyrics.font]);
 }
 
+/// Linux: tell the window the pages' light or dark, once a frame (only a change is sent). An
+/// X11 title bar the desktop draws takes it from the window (`_GTK_THEME_VARIANT`), and a
+/// window told nothing gets the desktop's default whatever Mode says. Not on macOS: a window
+/// told a theme hears no more of the system's, which Mode: System needs (#412).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn sync_window_theme(ctx: &egui::Context, light: bool) {
+    let id = egui::Id::unique("window-theme-light");
+    if ctx.data(|d| d.get_temp::<bool>(id)) != Some(light) {
+        ctx.data_mut(|d| d.insert_temp(id, light));
+        ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(if light { egui::SystemTheme::Light } else { egui::SystemTheme::Dark }));
+    }
+}
+
 pub fn install_style(ctx: &egui::Context) {
     ctx.set_theme(egui::Theme::Dark);
     // egui's theme is always Dark: the app draws light or dark itself (`Appearance`). Left
@@ -1663,6 +1676,23 @@ mod tests {
         out.textures_delta.clear();
         let sent = out.viewport_output.values().flat_map(|v| &v.commands).any(|c| matches!(c, egui::ViewportCommand::SetTheme(_)));
         assert!(!sent);
+    }
+
+    /// Linux tells the window the pages' mode, once per change.
+    #[test]
+    fn the_window_is_told_the_pages_mode_once_per_change() {
+        let ctx = egui::Context::default();
+        install_fonts(&ctx, "", &[]);
+        install_style(&ctx);
+        let sent = |light: bool| {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| sync_window_theme(ui.ctx(), light));
+            out.textures_delta.clear();
+            out.viewport_output.values().flat_map(|v| &v.commands).filter_map(|c| if let egui::ViewportCommand::SetTheme(t) = c { Some(*t) } else { None }).collect::<Vec<_>>()
+        };
+        assert_eq!(sent(false), [egui::SystemTheme::Dark]);
+        assert_eq!(sent(false), []);
+        assert_eq!(sent(true), [egui::SystemTheme::Light]);
+        assert_eq!(sent(true), []);
     }
 
     /// How far past the top a page goes while a finger pulls it down from there and holds.

@@ -22,6 +22,8 @@ transfer-estimate = Search time for { $count } tracks: about { $time }. You can 
 transfer-listen-while-running = You can keep listening while it runs.
 transfer-pick-playlist = Pick a playlist to copy.
 transfer-playlist = Playlist
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = Liked Songs
 # The steps' headings, shown in capitals after their number.
 transfer-step-what = What to copy
 transfer-step-where = Where should they go?

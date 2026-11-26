@@ -370,7 +370,7 @@ impl Transfer {
                 }
             };
             if source == Source::Liked {
-                let entry = spotify::Entry { source, name: "Liked Songs".into(), owner: String::new(), count: None, art: None };
+                let entry = spotify::Entry { source, name: crate::tr!("transfer-liked-songs").into(), owner: String::new(), count: None, art: None };
                 *slot = Some((link, Some(Ok(entry))));
                 return;
             }

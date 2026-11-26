@@ -229,7 +229,7 @@ impl Client {
                 .ok()
                 .and_then(|b| b["data"]["me"]["library"]["tracks"]["totalCount"].as_u64())
                 .map(|c| c as usize);
-            library.insert(0, Entry { source: Source::Liked, name: "Liked Songs".to_owned(), owner: String::new(), count, art: None });
+            library.insert(0, Entry { source: Source::Liked, name: crate::tr!("transfer-liked-songs").to_owned(), owner: String::new(), count, art: None });
         }
         Ok(Account { name, library })
     }
@@ -330,7 +330,7 @@ impl Client {
                 items.extend(page);
             }
         }
-        to_playlist("Liked Songs".to_owned(), &items)
+        to_playlist(crate::tr!("transfer-liked-songs").to_owned(), &items)
     }
 
     /// The whole playlist: one page for the name and total, then every other page at once.
@@ -364,7 +364,7 @@ fn library_entry(item: &Value) -> Option<Entry> {
     match data["__typename"].as_str()? {
         "PseudoPlaylist" if data["uri"].as_str().is_some_and(|u| u.ends_with(":collection")) || data["name"] == "Liked Songs" => Some(Entry {
             source: Source::Liked,
-            name: "Liked Songs".to_owned(),
+            name: crate::tr!("transfer-liked-songs").to_owned(),
             owner: String::new(),
             count: data["count"].as_u64().map(|c| c as usize),
             art: None,

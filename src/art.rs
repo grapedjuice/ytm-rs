@@ -27,6 +27,9 @@ const VIVID_SCORE: f32 = 0.05;
 /// The bucket only picks the accent if it holds this share of the cover: less is
 /// noise, even when the noise out-scores everything else on the sleeve.
 const VIVID_SHARE: f32 = 0.015;
+/// The vivid bucket is split into this many hue sectors (30° each), and the accent
+/// comes from the strongest.
+const HUE_BINS: usize = 12;
 /// Below this much colour a cover counts as greyscale: neutral accent, no tint.
 const GREYSCALE: f32 = 0.05;
 
@@ -195,16 +198,20 @@ struct Look {
 ///
 /// Vividness is scored only where colour is visible (a bright `max`): saturation
 /// divided by `max` explodes in the dark, and a black cover's warm compression
-/// noise out-scores every real colour on it. Scoring pixels go into a bucket that
-/// is averaged by score — one noisy pixel can't repaint the accent alone — and the
-/// bucket must hold a real share of the cover before it speaks for it. What's left
+/// noise out-scores every real colour on it. Scoring pixels go into a bucket split
+/// by hue; the strongest hue is averaged by score — one noisy pixel can't repaint
+/// the accent alone — and the bucket must hold a real share of the cover before it
+/// speaks for it. What's left
 /// is judged by how much colour the sleeve carries overall: a greyscale one gets a
 /// neutral accent (dark covers invert to near-white, like their own ink; pale ones
 /// settle at mid grey), and a cover whose colour is a diffuse cast rather than a
 /// vivid area gets its mean hue faded toward grey.
 fn analyse(img: &image::RgbImage) -> Look {
     let (mut sum, mut n) = ([0.0f32; 3], 0.0f32);
-    let (mut chroma, mut bucket, mut bucket_w, mut bucket_n) = (0.0f32, [0.0f32; 3], 0.0f32, 0.0f32);
+    // The vivid bucket, split by hue: averaging every vivid pixel together mixes the
+    // sleeve's colours into one it doesn't show (blue and yellow make grey, green and
+    // purple a pale mint). Each bin holds score-weighted RGB and the weight.
+    let (mut chroma, mut bins, mut bucket_n) = (0.0f32, [[0.0f32; 4]; HUE_BINS], 0.0f32);
     for p in img.pixels() {
         let rgb = [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0];
         for c in 0..3 {
@@ -221,10 +228,11 @@ fn analyse(img: &image::RgbImage) -> Look {
         let sat = (max - min) / max;
         let score = sat * sat * (1.0 - (max - 0.75).abs()) * smoothstep(0.45, 0.6, max);
         if score > VIVID_SCORE {
+            let bin = &mut bins[hue_bin(rgb, max, min)];
             for c in 0..3 {
-                bucket[c] += rgb[c] * score;
+                bin[c] += rgb[c] * score;
             }
-            bucket_w += score;
+            bin[3] += score;
             bucket_n += 1.0;
         }
     }
@@ -241,15 +249,19 @@ fn analyse(img: &image::RgbImage) -> Look {
     let accent = if colour <= 0.0 {
         Color32::from_gray(neutral as u8)
     } else if bucket_n / n >= VIVID_SHARE {
-        // A bright vivid area the sleeve really shows: its score-weighted colour,
-        // lifted for the UI. Full strength, whatever the cover's overall greyness —
-        // this is the sleeve's identity, not its cast.
-        let vivid = [
-            bucket[0] / bucket_w * 255.0,
-            bucket[1] / bucket_w * 255.0,
-            bucket[2] / bucket_w * 255.0,
-        ];
-        lift(vivid, 3.5)
+        // A bright vivid area the sleeve really shows: the score-weighted colour of
+        // its strongest hue (with the bins either side, so a hue on a bin edge isn't
+        // split), lifted for the UI. Full strength, whatever the cover's overall
+        // greyness — this is the sleeve's identity, not its cast.
+        let top = (0..HUE_BINS).max_by(|&a, &b| bins[a][3].total_cmp(&bins[b][3])).unwrap_or(0);
+        let mut vivid = [0.0f32; 4];
+        for d in [HUE_BINS - 1, 0, 1] {
+            let bin = bins[(top + d) % HUE_BINS];
+            for c in 0..4 {
+                vivid[c] += bin[c];
+            }
+        }
+        lift([vivid[0] / vivid[3] * 255.0, vivid[1] / vivid[3] * 255.0, vivid[2] / vivid[3] * 255.0], 3.5)
     } else {
         // Colourful overall but nothing bright and vivid to point at (a deep navy
         // sleeve, say): the mean, lifted gently. Amplifying a dark mean without
@@ -266,6 +278,19 @@ fn analyse(img: &image::RgbImage) -> Look {
         c
     };
     Look { accent, colour }
+}
+
+/// Which of [`HUE_BINS`] equal hue sectors a pixel with chroma (`max > min`) falls in.
+fn hue_bin(rgb: [f32; 3], max: f32, min: f32) -> usize {
+    let d = max - min;
+    let h = if max == rgb[0] {
+        ((rgb[1] - rgb[2]) / d).rem_euclid(6.0)
+    } else if max == rgb[1] {
+        (rgb[2] - rgb[0]) / d + 2.0
+    } else {
+        (rgb[0] - rgb[1]) / d + 4.0
+    };
+    ((h / 6.0 * HUE_BINS as f32) as usize).min(HUE_BINS - 1)
 }
 
 /// Raise brightness so the colour reads on a dark UI, but no further than
@@ -436,6 +461,15 @@ mod tests {
         // grey, which read at under 2:1 on the dark UI.
         let accent = analyse(&patch([10, 16, 26], [10, 16, 26], 0, 0)).accent;
         assert!(luma(accent) > 150.0, "{accent:?}");
+    }
+
+    #[test]
+    fn two_colours_give_one_of_them_not_their_mix() {
+        // About half blue, half yellow: averaged together they made a grey that
+        // isn't on the sleeve. The accent is one of the two.
+        let a = analyse(&patch([40, 60, 230], [230, 210, 30], 0, 23)).accent;
+        let (max, min) = (a.r().max(a.g()).max(a.b()), a.r().min(a.g()).min(a.b()));
+        assert!(max - min > 100, "accent {a:?} is a mix");
     }
 
     #[test]

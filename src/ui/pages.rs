@@ -1046,13 +1046,27 @@ fn collection(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
         }
     }
     ui.add_space(18.0);
+    // Your own playlist's cover opens Edit playlist, where its picture changes too.
+    let editable = app.logged_in && !is_album && c.owned && !matches!(id, "LM" | "SE");
     ui.horizontal_top(|ui| {
-        let (img, img_resp) = ui.allocate_exact_size(Vec2::splat(232.0), Sense::hover());
+        let (img, img_resp) = ui.allocate_exact_size(Vec2::splat(232.0), if editable { Sense::click() } else { Sense::hover() });
         let img = if look.app.header_art_hover != 1.0 { Rect::from_center_size(img.center(), img.size() * (1.0 + (look.app.header_art_hover - 1.0) * theme::anim_bool(ui.ctx(), "header-art-h", img_resp.hovered(), 0.2))) } else { img };
         let [sy, sb, sa] = look.app.header_art_shadow.unwrap_or([0.0, 40.0, 0.5]);
         widgets::soft_shadow(ui, img.translate(vec2(0.0, sy)), 10.0, sb, sa);
         paint_cover(ui, img, &c.thumbs, theme::card_radius() + 2.0, 1.0);
         widgets::download_veil(ui, img, theme::card_radius() + 2.0, id);
+        // Over the download's veil, so the pencil isn't split by it.
+        if editable {
+            let resp = widgets::named(img_resp, tr!("dialog-edit-playlist")).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let h = theme::anim_bool(ui.ctx(), resp.id.with("edit"), resp.hovered() || resp.has_focus(), 0.15);
+            if h > 0.0 {
+                ui.painter().rect_filled(img, theme::card_radius() + 2.0, theme::shade(0.45 * h));
+                super::vector::pencil(ui, img.center(), 36.0, theme::with_alpha(Color32::WHITE, h));
+            }
+            if resp.clicked() {
+                acts.push(Action::EditPlaylist);
+            }
+        }
         ui.add_space(26.0);
         ui.vertical(|ui| {
             let full = ui.available_width();

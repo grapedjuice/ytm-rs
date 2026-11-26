@@ -275,18 +275,23 @@ impl AudioStatus {
 #[derive(Clone, Copy)]
 enum Ramp {
     In { at: u32, len: u32 },
-    /// Down from `from` (a fade-in may have been cut short) to silence, then the source ends.
-    Out { from: f32, at: u32, len: u32 },
+    /// Down from `from` (a fade-in may have been cut short) to silence, then the source
+    /// ends. Held at `from` for the first `hold` samples.
+    Out { from: f32, at: u32, len: u32, hold: u32 },
 }
 
 impl Ramp {
     fn gain(self) -> f32 {
         match self {
             Ramp::In { at, len } => at as f32 / len as f32,
-            Ramp::Out { from, at, len } => from * (1.0 - at as f32 / len as f32),
+            Ramp::Out { from, at, len, hold } => from * (1.0 - at.saturating_sub(hold) as f32 / (len - hold) as f32),
         }
     }
 }
+
+/// In a fade-out's length: keep full volume and fade only over its last
+/// `QUICK_FADE_MS`, for a song that's already fading out by itself.
+const HOLD: u32 = 1 << 31;
 
 /// How long pausing fades out, and resuming fades back in, like foobar2000 and Spotify:
 /// short enough not to hold anything up, long enough not to sound cut off.
@@ -312,8 +317,8 @@ struct GaplessGate {
 
 /// Pass-through source that tracks loudness (RMS over ~23 ms windows, smoothed) and
 /// applies per-song normalization gain and crossfade ramps. `fade_out` is set by the audio
-/// thread to the fade-out length in ms (0 = keep playing); a new value restarts it from
-/// the current gain. On top of that, it fades to silence while `hushed`, and back up from
+/// thread to the fade-out length in ms (0 = keep playing, maybe with `HOLD`); a new value
+/// restarts it from the current gain. On top of that, it fades to silence while `hushed`, and back up from
 /// wherever it got to when that's cleared, so pausing and playing again quickly never jumps.
 struct Meter<S> {
     inner: S,
@@ -402,7 +407,9 @@ impl<S: rodio::Source> Iterator for Meter<S> {
         if out != self.seen_out {
             self.seen_out = out;
             let from = self.ramp.map_or(1.0, Ramp::gain);
-            self.ramp = Some(Ramp::Out { from, at: 0, len: self.samples(out) });
+            let len = self.samples(out & !HOLD);
+            let hold = if out & HOLD != 0 { len.saturating_sub(self.samples(QUICK_FADE_MS)) } else { 0 };
+            self.ramp = Some(Ramp::Out { from, at: 0, len, hold });
         }
         if let Some(Ramp::Out { at, len, .. }) = self.ramp
             && at >= len
@@ -659,6 +666,8 @@ struct Fading {
     /// Still at full volume, waiting for the next song to start (as Morphe does): when
     /// that was asked for, and how much of this song was left then.
     waiting: Option<(Instant, Option<Duration>)>,
+    /// It was already fading out by itself (its outro) when the next song was asked for.
+    outro: bool,
 }
 
 /// A song queued right behind the playing one in `player` for gapless handoff.
@@ -677,13 +686,103 @@ struct Queued {
 const GAPLESS_STAGE_BEFORE: Duration = Duration::from_secs(10);
 
 impl Fading {
-    /// Start the fade-out, over what's left of the song if that's shorter. Returns its length.
+    /// Start the fade-out, over what's left of the song's music if that's shorter.
+    /// Returns its length. A song fading out by itself isn't faded again on top: it
+    /// plays out to where its music ends.
     fn start(&mut self, crossfade: u32) -> u32 {
         let left = self.waiting.take().and_then(|(at, left)| Some(left?.saturating_sub(at.elapsed())));
-        let len = crossfade.min(left.map_or(u32::MAX, |l| l.as_millis() as u32)).max(QUICK_FADE_MS);
-        self.out.store(len, Ordering::Relaxed);
+        let left = left.map_or(u32::MAX, |l| l.as_millis() as u32);
+        let len = crossfade.min(left).max(QUICK_FADE_MS);
+        self.out.store(if self.outro && left <= crossfade { len | HOLD } else { len }, Ordering::Relaxed);
         len
     }
+}
+
+/// How a song ends, from its last `TAIL`: the silence after its music, and how long
+/// its music was fading out before that (since it was last near its loudest).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Tail {
+    silence: Duration,
+    fade: Duration,
+}
+
+/// How much of a song's end is looked at for where its music ends.
+const TAIL: Duration = Duration::from_secs(30);
+const TAIL_WINDOW: Duration = Duration::from_millis(50);
+/// Silence is at least this quiet (dBFS).
+const SILENT_DB: f32 = -60.0;
+/// The longest silence skipped at the start of a song crossfaded into.
+const MAX_LEAD: Duration = Duration::from_secs(8);
+/// Kept clear of the end of a song's start in memory, when skipping its silence: room
+/// for what the decoder and `Tempo` read ahead.
+const LEAD_MARGIN: Duration = Duration::from_secs(2);
+
+impl Tail {
+    /// From the loudness of each `window` of the tail (`levels`). The music ends after
+    /// its last window above both `SILENT_DB` and 50 dB under the tail's loud level
+    /// (its 95th percentile, past any stray peak): a quiet song's last decay is still
+    /// music. Its fade-out starts after its last window within 6 dB of that level.
+    fn measure(levels: &[f32], window: Duration) -> Self {
+        let mut sorted = levels.to_vec();
+        sorted.sort_by(f32::total_cmp);
+        let Some(&loud) = sorted.get(sorted.len() * 95 / 100) else { return Self::default() };
+        let quiet = (loud - 50.0).min(SILENT_DB);
+        let end = levels.iter().rposition(|&l| l > quiet).map_or(0, |i| i + 1);
+        let fade_from = levels[..end].iter().rposition(|&l| l >= loud - 6.0).map_or(0, |i| i + 1);
+        Self { silence: window * (levels.len() - end) as u32, fade: window * (end - fade_from) as u32 }
+    }
+
+    /// How `shared`'s song (`length` long) ends. Only its tail is decoded, by a second
+    /// decoder over the same buffer.
+    fn scan(shared: Arc<Shared>, length: Duration) -> Option<Self> {
+        let mut d = stream::decoder(shared, true).ok()?;
+        let from = length.saturating_sub(TAIL);
+        if !from.is_zero() {
+            rodio::Source::try_seek(&mut d, from).ok()?;
+        }
+        let (ch, rate) = (rodio::Source::channels(&d).get() as usize, rodio::Source::sample_rate(&d).get());
+        Some(Self::measure(&levels(&mut d, ch, rate), TAIL_WINDOW))
+    }
+
+    /// It's fading out by itself through at least half of what's `left` of its music.
+    fn outro(self, left: Duration) -> bool {
+        self.fade * 2 >= left
+    }
+}
+
+/// Where a song `length` long has its music end: its silence at the end trimmed, once known.
+fn music_end(length: Option<Duration>, tail: Option<Tail>) -> Option<Duration> {
+    Some(length?.saturating_sub(tail.map_or(Duration::ZERO, |t| t.silence)))
+}
+
+/// The loudness of each `TAIL_WINDOW` of `src`, to its end.
+fn levels(src: &mut impl Iterator<Item = f32>, channels: usize, rate: u32) -> Vec<f32> {
+    let n = ((TAIL_WINDOW.as_secs_f64() * rate as f64) as usize).max(1) * channels;
+    std::iter::from_fn(|| window_db(src, n)).collect()
+}
+
+/// Loudness (dB of the RMS) of the next `n` samples of `src`; None once it's over.
+fn window_db(src: &mut impl Iterator<Item = f32>, n: usize) -> Option<f32> {
+    let (sum, count) = src.take(n).fold((0.0, 0), |(sum, count), s| (sum + s * s, count + 1));
+    (count > 0).then(|| 10.0 * (sum / count as f32).log10())
+}
+
+/// Drops `src`'s leading silence, up to `max`, 10 ms at a time (whole frames, so the
+/// channels stay in step). Returns how much went. The first 10 ms with sound in them go
+/// too: they're under the very start of a fade-in, from silence.
+fn skip_lead(src: &mut impl Iterator<Item = f32>, channels: usize, rate: u32, max: Duration) -> Duration {
+    let frames = (rate as usize / 100).max(1);
+    let most = (max.as_secs_f64() * rate as f64) as usize;
+    let mut skipped = 0;
+    while skipped < most
+        && let Some(db) = window_db(src, frames * channels)
+    {
+        skipped += frames;
+        if db > SILENT_DB {
+            break;
+        }
+    }
+    Duration::from_secs(1) * skipped as u32 / rate
 }
 
 impl Drop for Fading {
@@ -1384,6 +1483,9 @@ fn run(
     // The playing song's length. Not `status.duration()` at a handoff: the UI has
     // already put the next song's there.
     let mut length: Option<Duration> = None;
+    // How the playing song ends, once its tail is scanned (None: not asked for yet).
+    let mut tail: Option<Arc<std::sync::OnceLock<Tail>>> = None;
+    let tail_known = |t: &Option<Arc<std::sync::OnceLock<Tail>>>| t.as_ref().and_then(|t| t.get().copied());
 
     // Generation of the source currently in the player (0 = nothing loaded).
     let mut current: u64 = 0;
@@ -1462,7 +1564,7 @@ fn run(
         };
         let timeout = [pause_at, sleep.map(|t| t.at)].into_iter().flatten().fold(timeout, |t, at| t.min(at.saturating_duration_since(Instant::now())));
         match rx.recv_timeout(timeout) {
-            Ok(AudioCmd::Start { generation, decoder, shared: s, at }) => {
+            Ok(AudioCmd::Start { generation, mut decoder, shared: s, at }) => {
                 if generation != status.wanted_gen.load(Ordering::Relaxed) {
                     log::debug!("audio: dropping stale generation {generation}");
                     continue;
@@ -1505,16 +1607,25 @@ fn run(
                 player.set_volume(bar_gain(&status, &output, f32::from_bits(status.volume.load(Ordering::Relaxed))) * sleep_vol);
                 // Fade in only over a song still playing, both over the same length.
                 fading.retain(|f| !f.player.empty());
+                // Crossfaded into from its start, a song's silence before its music is
+                // skipped, so the fade lands on the music. Only as far as its start is in
+                // memory (a prefetched song's is): this thread mustn't wait on the download.
+                let lead = if at.is_zero() && !s.feed && fading.iter().any(|f| f.waiting.is_some()) {
+                    let (ch, rate) = (rodio::Source::channels(&decoder).get() as usize, rodio::Source::sample_rate(&decoder).get());
+                    skip_lead(&mut decoder, ch, rate, s.head_in_memory().saturating_sub(LEAD_MARGIN).min(MAX_LEAD))
+                } else {
+                    Duration::ZERO
+                };
                 let crossfade = status.crossfade_ms.load(Ordering::Relaxed);
                 let mut fade_in = 0;
                 for f in fading.iter_mut().filter(|f| f.waiting.is_some()) {
                     fade_in = f.start(crossfade);
-                    log::debug!("audio: crossfade into generation {generation} over {fade_in} ms");
+                    log::debug!("audio: crossfade into generation {generation} over {fade_in} ms, {lead:?} of silence skipped");
                 }
                 fade_out = Arc::new(AtomicU32::new(0));
                 norm = Arc::new(AtomicU32::new(gain.to_bits()));
                 song_ms = Arc::new(AtomicU64::new(0));
-                player.append(Meter::new(tempo(decoder, at, &song_ms), status.clone(), fade_in, fade_out.clone()).with_norm(norm.clone()));
+                player.append(Meter::new(tempo(decoder, at + lead, &song_ms), status.clone(), fade_in, fade_out.clone()).with_norm(norm.clone()));
                 player.play();
                 // 0 means the stream didn't say; keep the length the UI already knows.
                 if s.duration_ms > 0 {
@@ -1522,6 +1633,7 @@ fn run(
                 }
                 length = status.duration();
                 quiet_from = None;
+                tail = None;
                 if let Some(old) = shared.replace(s.clone())
                     && !Arc::ptr_eq(&old, &s)
                 {
@@ -1594,6 +1706,7 @@ fn run(
                 seekable = false;
                 prepared_seek = start_prepared_seek(&q.shared, false);
                 quiet_from = None;
+                tail = None;
                 ending_sent = false;
                 prepare_sent = false;
                 let dur_ms = if q.shared.duration_ms > 0 { q.shared.duration_ms } else { q.fallback_duration_ms };
@@ -1707,11 +1820,14 @@ fn run(
                 // Cancel any staged gapless track before handing the old player over to fade out.
                 clear_queued(&mut queued, &mut prepare_sent, true);
                 // Keeps playing at full volume until the next song starts (see `Start`).
-                // In real time, at the speed it's playing.
-                let left = length.map(|d| d.saturating_sub(song_pos(&song_ms)).div_f32(status.speed()));
-                log::debug!("audio: handing off from generation {current}, {left:?} left");
+                // Left: of its music, in real time, at the speed it's playing.
+                let (pos, known) = (song_pos(&song_ms), tail_known(&tail));
+                let end = music_end(length, known);
+                let left = end.map(|e| e.saturating_sub(pos).div_f32(status.speed()));
+                let outro = known.zip(end).is_some_and(|(t, e)| t.outro(e.saturating_sub(pos)));
+                log::debug!("audio: handing off from generation {current}, {left:?} left (ends {known:?}, in its outro: {outro})");
                 let old = std::mem::replace(&mut player, Player::connect_new(&output.mixer));
-                fading.push(Fading { player: old, shared: shared.take(), norm: norm.clone(), out: fade_out.clone(), waiting: Some((Instant::now(), left)) });
+                fading.push(Fading { player: old, shared: shared.take(), norm: norm.clone(), out: fade_out.clone(), waiting: Some((Instant::now(), left)), outro });
                 current = 0;
                 prepared_seek = Prepared::default();
                 status.playing.store(false, Ordering::Relaxed);
@@ -1737,7 +1853,7 @@ fn run(
                     if current != 0 && !player.is_paused() && !player.empty() {
                         fade_out.store(QUICK_FADE_MS, Ordering::Relaxed);
                         let old = std::mem::replace(&mut player, Player::connect_new(&output.mixer));
-                        fading.push(Fading { player: old, shared: shared.take(), norm: norm.clone(), out: fade_out.clone(), waiting: None });
+                        fading.push(Fading { player: old, shared: shared.take(), norm: norm.clone(), out: fade_out.clone(), waiting: None, outro: false });
                     } else {
                         clear(&mut player, &output);
                     }
@@ -1767,6 +1883,9 @@ fn run(
                 // Silence before the seek isn't silence after it (a hidden track's start).
                 quiet_from = None;
                 clear_queued(&mut queued, &mut prepare_sent, false);
+                // Back from the end (an A-B loop going round, say): the crossfade into the
+                // next song is due again when it gets there.
+                ending_sent = false;
                 // A seek while paused is where to carry on from.
                 rewind = None;
                 output.flush();
@@ -2028,20 +2147,42 @@ fn run(
         if current != 0 {
             let pos = song_pos(&song_ms);
             status.set_position(pos.as_millis() as u64);
-            // Start the next song early, to crossfade into it. Not for songs barely
-            // longer than the fade, nor while a pause fades out (it'd start the next one
-            // playing). (The fade's in real time: more of the song when faster.)
+            // Start the next song early, to crossfade into it, ending where its music
+            // does. Not for songs barely longer than the fade, nor while a pause fades out
+            // (it'd start the next one playing; and the end can come closer then, once
+            // it's known). (The fade's in real time: more of the song when faster.) Not a
+            // podcast feed's file: the ads its host puts in make it run longer than YouTube
+            // Music's length, so it plays to its real end.
             let crossfade = Duration::from_millis(status.crossfade_ms.load(Ordering::Relaxed) as u64).mul_f32(status.speed());
+            let fades = !crossfade.is_zero() && shared.as_ref().is_some_and(|s| s.error().is_none() && !s.feed);
+            // Where its music ends is looked for a while before, once it's all here: a
+            // second decoder then never waits on (or steers) the download. (Long mixes,
+            // never kept whole, end as before.)
+            if fades
+                && tail.is_none()
+                && let (Some(d), Some(s)) = (length, &shared)
+                && pos + TAIL * 2 >= d
+                && s.is_complete()
+            {
+                let (slot, s) = (Arc::new(std::sync::OnceLock::new()), s.clone());
+                tail = Some(slot.clone());
+                std::thread::spawn(move || {
+                    let found = Tail::scan(s, d);
+                    log::debug!("audio: song ends {found:?}");
+                    if let Some(t) = found {
+                        let _ = slot.set(t);
+                    }
+                });
+            }
             if !ending_sent
-                && !crossfade.is_zero()
+                && fades
                 && !status.hushed.load(Ordering::Relaxed)
                 && !status.stop_at_end.load(Ordering::Relaxed)
-                && let Some(d) = length
-                && d > crossfade * 2
-                && pos + crossfade >= d
-                // Not a podcast feed's file: the ads its host puts in make it run longer
-                // than YouTube Music's length, so it plays to its real end.
-                && shared.as_ref().is_some_and(|s| s.error().is_none() && !s.feed)
+                // A song with hardly any music before its silence crossfades from its
+                // end, as before.
+                && let Some(end) = music_end(length, tail_known(&tail)).filter(|e| *e > crossfade * 2).or(length)
+                && end > crossfade * 2
+                && pos + crossfade >= end
             {
                 ending_sent = true;
                 let _ = events.send(AudioEvent::Ending { generation: current });
@@ -2428,6 +2569,123 @@ mod tests {
         let (a, b) = both(1).unwrap();
         assert!((a + b - 1.0).abs() < 1e-4);
         assert!((a - 0.501).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_held_fade_out_keeps_full_volume_until_its_last_moment() {
+        use std::num::NonZero;
+        let ones = rodio::buffer::SamplesBuffer::new(NonZero::new(1).unwrap(), NonZero::new(1000).unwrap(), vec![1.0; 1000]);
+        let out = Arc::new(AtomicU32::new(100 | HOLD));
+        let gains: Vec<f32> = Meter::new(ones, Arc::new(AudioStatus::default()), 0, out).collect();
+        assert_eq!(gains.len(), 100);
+        assert!(gains[..60].iter().all(|g| *g == 1.0));
+        assert!((gains[80] - 0.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_song_in_its_outro_isnt_faded_again() {
+        use std::num::NonZero;
+        let (mixer, _source) = rodio::mixer::mixer(NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap());
+        let fading = |left: u64, outro| Fading {
+            player: Player::connect_new(&mixer),
+            shared: None,
+            norm: Arc::new(AtomicU32::new(1f32.to_bits())),
+            out: Arc::new(AtomicU32::new(0)),
+            waiting: Some((Instant::now(), Some(Duration::from_secs(left)))),
+            outro,
+        };
+        // (Less a moment: the time since the handoff.)
+        let about = |ms: u32| ms - 100..=ms;
+        let mut f = fading(3, true);
+        assert!(about(3000).contains(&f.start(5000)));
+        let out = f.out.load(Ordering::Relaxed);
+        assert!(out & HOLD != 0 && about(3000).contains(&(out & !HOLD)));
+        // A skip in the middle of a long outro fades it as usual, over the crossfade.
+        let mut f = fading(10, true);
+        assert_eq!(f.start(5000), 5000);
+        assert_eq!(f.out.load(Ordering::Relaxed), 5000);
+        let mut f = fading(3, false);
+        f.start(5000);
+        assert!(about(3000).contains(&f.out.load(Ordering::Relaxed)));
+    }
+
+    /// `secs` of a level (dB) per `TAIL_WINDOW`.
+    fn flat(db: f32, secs: f32) -> Vec<f32> {
+        vec![db; (secs / TAIL_WINDOW.as_secs_f32()).round() as usize]
+    }
+
+    fn close(a: Duration, secs: f32) -> bool {
+        (a.as_secs_f32() - secs).abs() <= 2.0 * TAIL_WINDOW.as_secs_f32()
+    }
+
+    #[test]
+    fn the_silence_after_a_songs_music_is_found() {
+        let levels = [flat(-12.0, 20.0), flat(f32::NEG_INFINITY, 4.0), flat(-75.0, 1.0)].concat();
+        assert_eq!(Tail::measure(&levels, TAIL_WINDOW), Tail { silence: Duration::from_secs(5), fade: Duration::ZERO });
+        // Music to its last moment.
+        assert_eq!(Tail::measure(&flat(-12.0, 30.0), TAIL_WINDOW), Tail::default());
+        // A quiet song's quiet end is still music.
+        let levels = [flat(-30.0, 20.0), flat(-55.0, 5.0), flat(-80.0, 5.0)].concat();
+        let t = Tail::measure(&levels, TAIL_WINDOW);
+        assert!(close(t.silence, 5.0) && close(t.fade, 5.0), "{t:?}");
+        // All silence: all of it goes; nothing to measure, nothing does.
+        assert_eq!(Tail::measure(&flat(f32::NEG_INFINITY, 30.0), TAIL_WINDOW).silence, TAIL);
+        assert_eq!(Tail::measure(&[], TAIL_WINDOW), Tail::default());
+    }
+
+    #[test]
+    fn a_songs_own_fade_out_is_found() {
+        // Loud, a drum hit, then 10 s fading from -10 to -70 dB, then 2 s of silence.
+        let fade: Vec<f32> = (0..200).map(|i| -10.0 - 60.0 * i as f32 / 200.0).collect();
+        let mut levels = [flat(-10.0, 15.0), fade, flat(f32::NEG_INFINITY, 2.0)].concat();
+        levels[50] = 0.0;
+        let t = Tail::measure(&levels, TAIL_WINDOW);
+        // The music ends 50 dB down, 5/6 of the way; the fade starts 6 dB down.
+        assert!(close(t.silence, 10.0 / 6.0 + 2.0), "{t:?}");
+        assert!(close(t.fade, 10.0 * 44.0 / 60.0), "{t:?}");
+    }
+
+    #[test]
+    fn a_fade_out_is_an_outro_and_a_hard_ending_isnt() {
+        let db = |a: f32| 20.0 * a.log10();
+        // 10 s fading linearly in amplitude, as most editors' fades do.
+        let linear: Vec<f32> = (0..200).map(|i| db(1.0 - i as f32 / 200.0)).collect();
+        let t = Tail::measure(&[flat(0.0, 15.0), linear, flat(f32::NEG_INFINITY, 2.0)].concat(), TAIL_WINDOW);
+        assert!(t.outro(Duration::from_secs(5)) && t.outro(Duration::from_secs(8)), "{t:?}");
+        // Loud to the end, then a second of reverb dying away.
+        let reverb: Vec<f32> = (0..20).map(|i| -2.0 * i as f32).collect();
+        let t = Tail::measure(&[flat(0.0, 25.0), reverb, flat(f32::NEG_INFINITY, 4.0)].concat(), TAIL_WINDOW);
+        assert!(!t.outro(Duration::from_secs(2)), "{t:?}");
+    }
+
+    #[test]
+    fn levels_come_from_the_samples() {
+        // 1 kHz stereo: a second of music, then half a second of silence.
+        let music = (0..1000).flat_map(|i| {
+            let s = 0.5 * (i as f32 * 0.3).sin();
+            [s, -s]
+        });
+        let samples: Vec<f32> = music.chain(std::iter::repeat_n(0.0, 1000)).collect();
+        let levels = levels(&mut samples.into_iter(), 2, 1000);
+        assert_eq!(levels.len(), 30);
+        assert!((levels[0] + 9.0).abs() < 0.5, "{}", levels[0]);
+        assert_eq!(Tail::measure(&levels, TAIL_WINDOW).silence, Duration::from_millis(500));
+    }
+
+    #[test]
+    fn leading_silence_is_skipped_in_whole_frames() {
+        // 1 kHz stereo: 1.5 s of silence (or near it), then left 0.5 and right 0.25.
+        let song = |quiet: usize| std::iter::repeat_n(1e-4, quiet * 2).chain([0.5, 0.25].into_iter().cycle().take(2000));
+        let mut s = song(1500);
+        assert_eq!(skip_lead(&mut s, 2, 1000, MAX_LEAD), Duration::from_millis(1510));
+        assert_eq!(s.next(), Some(0.5));
+        // No longer than the most.
+        let mut s = song(10_000);
+        assert_eq!(skip_lead(&mut s, 2, 1000, MAX_LEAD), MAX_LEAD);
+        // Music from the start: only what's under the very start of the fade-in.
+        let mut s = song(0);
+        assert_eq!(skip_lead(&mut s, 2, 1000, MAX_LEAD), Duration::from_millis(10));
+        assert_eq!(s.next(), Some(0.5));
     }
 
     #[test]

@@ -151,7 +151,7 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64) {
     painter.rect_filled(screen, 0.0, base_color(app));
     let art = matches!(mode, BgMode::Kawarp | BgMode::CoverStatic | BgMode::CoverFullbleed);
     if let Some(bg) = app.bg.as_ref().filter(|_| art) {
-        let blend = theme::ease_in_out(((now - app.art_changed - b.crossfade_delay as f64) / b.crossfade_secs.max(0.05) as f64) as f32);
+        let blend = theme::ease_in_out(((now - app.art_changed - theme::secs(b.crossfade_delay.into())) / theme::secs(b.crossfade_secs.max(0.05).into())) as f32);
         if blend < 1.0 {
             // The crossfade to new art finishes even while paused.
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
@@ -1030,7 +1030,7 @@ pub fn suggestions(app: &mut App, ctx: &egui::Context) {
                         let term = s.text;
                         // The removed one folds away, and the rows below slide up into its place.
                         if let Some((_, at)) = app.forgetting.as_ref().filter(|(t, _)| s.forget.as_deref() == Some(t.as_str())) {
-                            let p = ((now - at) / 0.18).clamp(0.0, 1.0) as f32;
+                            let p = ((now - at) / theme::secs(0.18)).clamp(0.0, 1.0) as f32;
                             let e = 1.0 - (1.0 - p).powi(3);
                             let gap = ui.spacing().item_spacing.y;
                             // Its spacing folds away with it, so nothing jumps at the end.
@@ -1094,7 +1094,7 @@ pub fn suggestions(app: &mut App, ctx: &egui::Context) {
                     if !picked {
                         suggested_hits(ui, app);
                     }
-                    if let Some((t, _)) = app.forgetting.take_if(|(_, at)| now - *at >= 0.18) {
+                    if let Some((t, _)) = app.forgetting.take_if(|(_, at)| now - *at >= theme::secs(0.18)) {
                         app.suggestions.1.retain(|s| s.forget.as_deref() != Some(t.as_str()));
                         // The rows below moved up: a pick made while it folded away would
                         // now be another one, maybe a song where it was a search.
@@ -2249,7 +2249,7 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
     let tl = app.look().app.toast_look.clone();
     let hold = app.toast_hold();
     let undo = app.undo.is_some();
-    let t = theme::ease_out(age / 0.25) * (1.0 - ((age - hold) / 0.4).clamp(0.0, 1.0));
+    let t = theme::ease_out(age / theme::secs(0.25) as f32) * (1.0 - ((age - hold) / theme::secs(0.4) as f32).clamp(0.0, 1.0));
     let screen = ctx.content_rect();
     let mut clicked = false;
     egui::Area::new(egui::Id::unique("toast"))

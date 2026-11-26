@@ -1077,7 +1077,7 @@ fn popup_extras(ctx: &egui::Context, id: egui::Id) {
     let now = ctx.input(|i| i.time);
     let since = ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(opened, || now));
     ctx.data_mut(|d| d.insert_temp(egui::Id::unique("menu-opened"), since));
-    if look.menu_look.item_slide > 0.0 && now - since < 0.2 {
+    if look.menu_look.item_slide > 0.0 && now - since < theme::secs(0.2) {
         ctx.request_repaint();
     }
     let scale = match look.menu_look.pop {
@@ -1188,7 +1188,7 @@ fn menu_row(ui: &mut Ui, glyph: Option<char>, label: &str, arrow: bool, unlike: 
     // Rows slide in as the menu opens.
     let slide = if m.item_slide > 0.0 {
         let since = ui.ctx().input(|i| i.time) - ui.ctx().data(|d| d.get_temp::<f64>(egui::Id::unique("menu-opened"))).unwrap_or(0.0);
-        m.item_slide * (1.0 - theme::ease_out(since as f32 / 0.2))
+        m.item_slide * (1.0 - theme::ease_out((since / theme::secs(0.2)) as f32))
     } else {
         0.0
     };
@@ -2096,7 +2096,7 @@ pub(super) fn shelf_drag(ui: &Ui, resp: &Response, state_id: egui::Id) -> ShelfD
                 // With the last move, when it came in with the letting go.
                 out = ShelfDrag::Coast(speed + ui.input(|i| i.pointer.delta().x));
             } else if speed.abs() > 1.0 {
-                ui.scroll_with_delta_animation(vec2(0.0, speed), ScrollAnimation::duration(0.6));
+                ui.scroll_with_delta_animation(vec2(0.0, speed), ScrollAnimation::duration(theme::secs(0.6) as f32));
             }
         }
         (moved, axis) = (Vec2::ZERO, None);

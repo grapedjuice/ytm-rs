@@ -828,13 +828,24 @@ pub fn speed() -> f32 {
 pub fn set_anim_speed(ctx: &egui::Context, factor: f32) {
     let factor = factor.clamp(ANIM_SPEED_RANGE.0, ANIM_SPEED_RANGE.1);
     if ANIM_SPEED.swap(factor.to_bits(), std::sync::atomic::Ordering::Relaxed) != factor.to_bits() {
-        ctx.global_style_mut(|s| s.animation_time = egui_animation_time());
+        ctx.global_style_mut(egui_timings);
     }
 }
 
-/// egui's own transitions (collapsing headers, scroll bars and the like).
-fn egui_animation_time() -> f32 {
-    0.18 * speed() * fade()
+/// A transition timed by hand from when it started rather than through [`anim`] (a toast,
+/// a menu's items, a crossfade): its written length, shortened by the listener's animation
+/// speed. These already run at their own pace, so [`SPEED`] isn't applied on top.
+pub fn secs(written: f64) -> f64 {
+    written / f64::from(anim_speed())
+}
+
+/// egui's own transitions (collapsing headers, scroll bars and the like), and its scrolls
+/// to a spot (jumping to the playing song, a search hit).
+fn egui_timings(s: &mut egui::Style) {
+    s.animation_time = 0.18 * speed() * fade();
+    let d = egui::style::ScrollAnimation::default();
+    let k = anim_speed();
+    s.scroll_animation = egui::style::ScrollAnimation { points_per_second: d.points_per_second * k, duration: egui::Rangef::new(d.duration.min / k, d.duration.max / k) };
 }
 
 /// Animate toward `target` (eased), keyed by `id`. Requests repaints while moving.
@@ -1644,7 +1655,7 @@ pub fn install_style(ctx: &egui::Context) {
         s.text_styles.insert(egui::TextStyle::Small, regular(12.0));
         s.visuals = visuals();
         s.interaction.selectable_labels = false;
-        s.animation_time = egui_animation_time();
+        egui_timings(s);
     });
 }
 
@@ -1707,6 +1718,11 @@ mod tests {
         // Nothing else sets it in tests: the listener's speed starts at the theme's own.
         assert_eq!(anim_speed(), 1.0);
         assert_eq!(speed(), SPEED);
+        assert_eq!(secs(0.32), 0.32);
+        let mut s = egui::Style::default();
+        egui_timings(&mut s);
+        let d = egui::style::ScrollAnimation::default();
+        assert_eq!((s.scroll_animation.points_per_second, s.scroll_animation.duration), (d.points_per_second, d.duration));
     }
 
     /// The window isn't told a theme, so it keeps following the system's light or dark (#412).

@@ -159,7 +159,7 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
     if themed && b.mode == BgMode::CoverFullbleed {
         painter.rect_filled(rect, 0.0, look.solid());
     } else if themed && let Some(bg) = app.bg.as_ref().filter(|_| art) {
-        let blend = theme::ease_in_out(((now - app.art_changed - b.crossfade_delay as f64) / b.crossfade_secs.max(0.05) as f64) as f32);
+        let blend = theme::ease_in_out(((now - app.art_changed - theme::secs(b.crossfade_delay.into())) / theme::secs(b.crossfade_secs.max(0.05).into())) as f32);
         let level = if app.reactive_bg && app.playing() && b.mode != BgMode::CoverStatic { (app.audio.status.level() - b.beat_threshold).max(0.0) * b.reactive } else { 0.0 };
         // Over a layer the dim is the canvas's opacity (the theme's `opacity`): the
         // layer shows through instead of black, so only `auto_dim` darkens it.
@@ -800,7 +800,7 @@ fn fullbleed_fade(ui: &Ui, id: &str, thumbs: &[crate::model::Thumb], now: f64, d
     } else if f.at == f64::MIN {
         ui.ctx().data_mut(|d| d.insert_temp(key, f.clone()));
     }
-    let k = theme::ease_in_out(((now - f.at - delay) / secs.max(0.05)) as f32);
+    let k = theme::ease_in_out(((now - f.at - theme::secs(delay)) / theme::secs(secs.max(0.05))) as f32);
     if k >= 1.0 || f.old.is_empty() {
         return None;
     }
@@ -2017,7 +2017,7 @@ fn cover_clip(app: &mut App, ctx: &egui::Context, track: &crate::model::Track, p
             None => c.frame = Some((ctx.load_texture("cover-clip", f.image, egui::TextureOptions::LINEAR), now)),
         }
     }
-    let shown = c.frame.as_ref().map_or(0.0, |(_, at)| ((now - at) / 0.32).clamp(0.0, 1.0)) as f32;
+    let shown = c.frame.as_ref().map_or(0.0, |(_, at)| ((now - at) / theme::secs(0.32)).clamp(0.0, 1.0)) as f32;
     // Now playing runs at 30 fps while the music plays; paused, only the first frame and
     // its fade need drawing.
     if c.frame.is_none() {

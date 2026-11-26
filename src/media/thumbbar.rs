@@ -87,8 +87,8 @@ impl ThumbBar {
     }
 
     fn buttons(&self) -> [THUMBBUTTON; 3] {
-        let (toggle, tip) = if self.playing { (self.pause, "Pause") } else { (self.play, "Play") };
-        [button(PREV, self.prev, "Previous"), button(TOGGLE, toggle, tip), button(NEXT, self.next, "Next")]
+        let (toggle, tip) = if self.playing { (self.pause, crate::tr!("ui-pause")) } else { (self.play, crate::tr!("ui-play")) };
+        [button(PREV, self.prev, crate::tr!("ui-previous")), button(TOGGLE, toggle, tip), button(NEXT, self.next, crate::tr!("ui-next"))]
     }
 
     fn add(&self) {

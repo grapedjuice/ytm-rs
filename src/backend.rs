@@ -125,7 +125,8 @@ pub enum Req {
     Dislike { video_id: String, skip_generation: Option<u64> },
     RemoveRating { video_id: String, was_disliked: bool },
     CreatePlaylist { title: String, video_ids: Vec<String> },
-    EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
+    /// `cover`: a new picture for it, a square JPEG (`art::playlist_cover`).
+    EditPlaylist { id: String, title: String, description: String, privacy: Option<String>, cover: Option<Vec<u8>> },
     /// Save one of your playlist's sort orders to it ([`PlaylistSort::actions`]).
     SortPlaylist { id: String, actions: serde_json::Value },
     AddToPlaylist { playlist_id: String, tracks: Vec<Track>, duplicates: ytm::Duplicates },
@@ -1474,8 +1475,13 @@ impl Backend {
                     };
                     Resp::PlaylistCreated { id, songs: video_ids.len() }
                 }
-                Req::EditPlaylist { id, title, description, privacy } => {
+                Req::EditPlaylist { id, title, description, privacy, cover } => {
                     ytm::edit_playlist(api, &id, &title, &description, privacy.as_deref()).await?;
+                    if let Some(jpeg) = cover {
+                        let session = api.account().ok_or_else(|| anyhow::anyhow!("sign in to change the picture"))?;
+                        let blob = session.upload_playlist_cover(&self.http(), &id, jpeg).await?;
+                        ytm::set_playlist_cover(api, &id, &blob).await?;
+                    }
                     Resp::PlaylistChanged { id, change: PlaylistChange::Updated }
                 }
                 // A failure is answered too, so the Sort button comes back.

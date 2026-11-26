@@ -283,22 +283,37 @@ impl Session {
     }
 
     /// Upload an audio file to the account's library, like "Upload music" on
-    /// music.youtube.com: a resumable upload, started and then sent in one go.
+    /// music.youtube.com.
     pub async fn upload(&self, http: &reqwest::Client, path: &Path) -> anyhow::Result<()> {
-        const ORIGIN: &str = "https://music.youtube.com";
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let p = path.to_owned();
         let bytes = tokio::task::spawn_blocking(move || std::fs::read(p)).await??;
         anyhow::ensure!(bytes.len() <= 300 * 1024 * 1024, "{name} is larger than 300 MB");
-        // On both requests: the web client's headers, the visitor ID, and the upload
-        // protocol and length.
+        let start = format!("https://upload.youtube.com/upload/usermusic/http?authuser={}", self.session_index);
+        self.resumable(http, &start, "https://music.youtube.com/", format!("filename={name}"), bytes, 600).await?;
+        Ok(())
+    }
+
+    /// Upload a picture as a playlist's cover, as the pencil on its artwork does on
+    /// music.youtube.com: the id of the uploaded image, for `ytm::set_playlist_cover`.
+    pub async fn upload_playlist_cover(&self, http: &reqwest::Client, playlist_id: &str, jpeg: Vec<u8>) -> anyhow::Result<String> {
+        let referer = format!("https://music.youtube.com/playlist?list={playlist_id}");
+        let done = self.resumable(http, "https://music.youtube.com/playlist_image_upload/playlist_custom_thumbnail", &referer, String::new(), jpeg, 60).await?;
+        let answer: Value = done.json().await?;
+        answer["encryptedBlobId"].as_str().map(str::to_owned).ok_or_else(|| anyhow::anyhow!("YouTube Music didn't take the picture"))
+    }
+
+    /// A resumable upload, started at `start` and then sent in one go, with the web
+    /// client's headers and the visitor ID on both requests. The finishing response.
+    async fn resumable(&self, http: &reqwest::Client, start: &str, referer: &str, start_body: String, bytes: Vec<u8>, send_secs: u64) -> anyhow::Result<reqwest::Response> {
+        const ORIGIN: &str = "https://music.youtube.com";
         let req = |url: &str| -> anyhow::Result<reqwest::RequestBuilder> {
             let mut req = http
                 .post(url)
                 .header("User-Agent", UA)
                 .header("Origin", ORIGIN)
                 .header("X-Origin", ORIGIN)
-                .header("Referer", "https://music.youtube.com/")
+                .header("Referer", referer)
                 .header("X-YouTube-Client-Name", "67")
                 .header("X-YouTube-Client-Version", VERSION)
                 .header("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
@@ -309,32 +324,17 @@ impl Session {
             }
             self.sign(req, ORIGIN)
         };
-        let start = checked(
-            req(&format!("https://upload.youtube.com/upload/usermusic/http?authuser={}", self.session_index))?
-                .header("X-Goog-Upload-Command", "start")
-                .body(format!("filename={name}"))
-                .timeout(std::time::Duration::from_secs(20))
-                .send()
-                .await?,
-        )
-        .await?;
-        let url = start
+        // Said outright: an empty body goes without a length, which Google refuses (411).
+        let start = req(start)?.header("X-Goog-Upload-Command", "start").header(reqwest::header::CONTENT_LENGTH, start_body.len());
+        let started = checked(start.body(start_body).timeout(std::time::Duration::from_secs(20)).send().await?).await?;
+        let url = started
             .headers()
             .get("X-Goog-Upload-URL")
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| anyhow::anyhow!("YouTube Music didn't accept the upload"))?
             .to_owned();
-        checked(
-            req(&url)?
-                .header("X-Goog-Upload-Command", "upload, finalize")
-                .header("X-Goog-Upload-Offset", "0")
-                .body(bytes)
-                .timeout(std::time::Duration::from_secs(600))
-                .send()
-                .await?,
-        )
-        .await?;
-        Ok(())
+        let send = req(&url)?.header("X-Goog-Upload-Command", "upload, finalize").header("X-Goog-Upload-Offset", "0").body(bytes);
+        checked(send.timeout(std::time::Duration::from_secs(send_secs)).send().await?).await
     }
 
     /// Whether the account has YouTube Premium, read from the YouTube top bar logo

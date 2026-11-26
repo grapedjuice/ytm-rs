@@ -312,7 +312,8 @@ enum Unlike {
 enum Dialog {
     PickPlaylist(Vec<Track>),
     NewPlaylist { title: String, tracks: Vec<Track> },
-    EditPlaylist { id: String, title: String, description: String, privacy: Option<String> },
+    /// `thumbs`: its cover now; `cover`: a new picture for it, with its image URI.
+    EditPlaylist { id: String, title: String, description: String, privacy: Option<String>, thumbs: Vec<crate::model::Thumb>, cover: Option<(String, Arc<[u8]>)> },
     ConfirmDelete { id: String, title: String },
     /// Deleting an uploaded song (`Track::upload`), asked about first.
     ConfirmDeleteUpload { entity: String, title: String },
@@ -535,6 +536,9 @@ pub struct App {
     all_downloaded: HashMap<String, (u64, bool)>,
     /// Files chosen in the upload dialog, handed over from its thread.
     picked_uploads: Arc<std::sync::Mutex<Option<Vec<std::path::PathBuf>>>>,
+    /// A picture chosen for Edit playlist, made a cover (`art::playlist_cover`) on the
+    /// picker's thread.
+    picked_cover: Arc<std::sync::Mutex<Option<anyhow::Result<Vec<u8>>>>>,
     liked: HashSet<String>,
     /// Settings › Downloads › Download liked songs: Liked Music kept downloaded.
     download_liked: bool,
@@ -1023,6 +1027,7 @@ impl App {
             download_runs: Vec::new(),
             all_downloaded: HashMap::new(),
             picked_uploads: Default::default(),
+            picked_cover: Default::default(),
             liked: HashSet::new(),
             download_liked: get("download_liked").is_some_and(|v| v == "1"),
             kept_downloaded: get("kept_downloaded").and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),

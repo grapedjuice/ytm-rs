@@ -10,6 +10,7 @@ status-playlist-created = Playlist created
 status-new-playlist-tracks = Tracks added to new playlist: { $count }
 status-playlist-added = Added to playlist
 status-playlist-updated = Playlist updated
+status-picture-unreadable = Couldn't read that picture. Try a JPEG, PNG or WebP.
 status-playlist-sorted = Playlist sorted
 status-playlist-sort-failed = Couldn't sort the playlist
 status-playlist-move-failed = YouTube Music didn't take that move

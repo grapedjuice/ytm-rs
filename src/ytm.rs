@@ -1918,6 +1918,13 @@ pub async fn edit_playlist(api: &Api, id: &str, title: &str, description: &str, 
     Ok(())
 }
 
+/// Make an uploaded picture (`Session::upload_playlist_cover`'s id) a playlist's cover.
+pub async fn set_playlist_cover(api: &Api, id: &str, blob: &str) -> anyhow::Result<()> {
+    let image = json!({"imageKey": {"type": "PLAYLIST_IMAGE_TYPE_CUSTOM_THUMBNAIL", "name": "studio_square_thumbnail"}, "playlistScottyEncryptedBlobId": blob});
+    write(api, "browse/edit_playlist", json!({"playlistId": id, "actions": [{"action": "ACTION_SET_CUSTOM_THUMBNAIL", "addedCustomThumbnail": image}]})).await?;
+    Ok(())
+}
+
 /// Take entries out of a playlist, `(videoId, setVideoId)` pairs, in one request.
 pub async fn remove_videos(api: &Api, playlist_id: &str, items: &[(String, String)]) -> anyhow::Result<()> {
     let actions: Vec<Value> = items.iter().map(|(v, set)| json!({"action": "ACTION_REMOVE_VIDEO", "removedVideoId": v, "setVideoId": set})).collect();

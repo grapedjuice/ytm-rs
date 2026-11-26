@@ -338,6 +338,7 @@ impl App {
                 if let Some(c) = self.current_collection().filter(|c| !c.is_album) {
                     self.dialog = Some(Dialog::EditPlaylist {
                         id: c.id.clone(), title: c.title.clone(), description: c.description.clone().unwrap_or_default(), privacy: None,
+                        thumbs: c.thumbs.clone(), cover: None,
                     });
                 }
             }

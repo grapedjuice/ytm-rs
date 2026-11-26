@@ -18,6 +18,20 @@ pub struct Art {
     pub brightness: f32,
 }
 
+/// A picture as a playlist cover: its middle square (covers are square, and the sleeve
+/// would crop it anyway), at most `COVER_PX` across, as a JPEG.
+pub fn playlist_cover(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+    const COVER_PX: u32 = 1200;
+    let img = image::load_from_memory(bytes)?.to_rgb8();
+    let side = img.width().min(img.height());
+    anyhow::ensure!(side > 0, "the picture is empty");
+    let square = image::imageops::crop_imm(&img, (img.width() - side) / 2, (img.height() - side) / 2, side, side).to_image();
+    let square = if side > COVER_PX { image::imageops::resize(&square, COVER_PX, COVER_PX, image::imageops::FilterType::Lanczos3) } else { square };
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90).encode_image(&square)?;
+    Ok(jpeg)
+}
+
 pub fn process(bytes: &[u8]) -> anyhow::Result<Art> {
     let img = image::load_from_memory(bytes)?.to_rgb8();
     Ok(process_rgb(&img))
@@ -210,6 +224,28 @@ pub fn readable_dim(shown: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{READABLE_CAP, READABLE_KNEE, from_cover_frame, process_rgb, readable_dim};
+
+    /// A wide picture becomes its middle square, scaled down to the cover size, as a JPEG.
+    #[test]
+    fn a_playlist_cover_is_the_pictures_middle_square() {
+        let mut img = image::RgbImage::from_pixel(3000, 1500, image::Rgb([0, 0, 255]));
+        for x in 750..2250 {
+            for y in 0..1500 {
+                img.put_pixel(x, y, image::Rgb([255, 0, 0]));
+            }
+        }
+        let mut png = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        let jpeg = super::playlist_cover(&png).unwrap();
+        assert_eq!(image::guess_format(&jpeg).unwrap(), image::ImageFormat::Jpeg);
+        let cover = image::load_from_memory(&jpeg).unwrap().to_rgb8();
+        assert_eq!(cover.dimensions(), (1200, 1200));
+        // All of it from the red middle, none of the blue sides.
+        for p in [cover.get_pixel(2, 2), cover.get_pixel(1197, 600), cover.get_pixel(600, 600)] {
+            assert!(p[0] > 200 && p[2] < 60, "{p:?}");
+        }
+        assert!(super::playlist_cover(b"not a picture").is_err());
+    }
 
     #[test]
     fn a_cover_frame_gives_a_still_covers_colours() {

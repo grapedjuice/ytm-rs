@@ -25,12 +25,8 @@ const CHALLENGE: &str = "https://lyrics.api.dacubeking.com/challenge";
 const SHOW_AFTER: Duration = Duration::from_secs(15);
 /// Give up if nothing happens (e.g. the user ignores a shown challenge).
 const GIVE_UP_AFTER: Duration = Duration::from_secs(120);
-/// Set in the environment to keep the window hidden for the whole run: the challenge
-/// still runs and can pass invisibly, and an interaction it can't get still ends
-/// through the give-up timer. Only the visual is suppressed.
-const HIDE_ENV: &str = "YTM_HIDE_CHALLENGE";
-/// The size the window is created and shown with (and centered on the side screen
-/// with). It must not change later: show() resizing it would keep the frame's top-left
+/// The size the window is created and shown with (and centered with). It must not
+/// change later: show() resizing it would keep the frame's top-left
 /// fixed on macOS and knock the window off-center.
 const WINDOW_SIZE: tao::dpi::LogicalSize<f64> = tao::dpi::LogicalSize::new(360.0, 160.0);
 
@@ -107,18 +103,10 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
         .with_focused(false)
         .build(&event_loop)?;
 
-    // A challenge that ends up needing an interaction shouldn't land in the middle of
-    // the screen the user is working on: with more than one screen, put the window on a
-    // side screen right away, centered there. Only when it stays on the primary (or
-    // only) screen does it later float above the user's work. Physical pixels
-    // throughout: monitor position/size and the window size on that monitor are all
-    // physical, with the window's logical size scaled by that monitor's scale factor.
-    let mut float_on_top = true;
-    let primary = window.primary_monitor();
-    let side = primary
-        .as_ref()
-        .and_then(|primary| window.available_monitors().find(|monitor| monitor != primary));
-    if let Some(monitor) = side {
+    // Centered on the main screen. Physical pixels throughout: monitor position/size
+    // and the window size on that monitor are all physical, with the window's logical
+    // size scaled by that monitor's scale factor.
+    if let Some(monitor) = window.primary_monitor() {
         let size: tao::dpi::PhysicalSize<u32> = WINDOW_SIZE.to_physical(monitor.scale_factor());
         // Center the frame, not just the content: set_outer_position pins the frame's
         // top-left, so sizing from the content alone leaves the title bar pushing the
@@ -142,7 +130,6 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
             origin.x + (monitor.size().width.saturating_sub(frame.width) / 2) as i32,
             origin.y + (monitor.size().height.saturating_sub(frame.height) / 2) as i32,
         ));
-        float_on_top = false;
     }
 
     let proxy = event_loop.create_proxy();
@@ -188,7 +175,7 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
                         result = Err(anyhow::anyhow!("challenge timed out"));
                         *flow = ControlFlow::Exit;
                     }
-                    Some("turnstile-interactive") => show(&window, float_on_top),
+                    Some("turnstile-interactive") => show(&window),
                     Some("loaded") => {
                         loaded.get_or_insert_with(Instant::now);
                     }
@@ -205,7 +192,7 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
                     result = Err(anyhow::anyhow!("timed out waiting for verification"));
                     *flow = ControlFlow::Exit;
                 } else if loaded.is_some_and(|t| t.elapsed() > SHOW_AFTER) {
-                    show(&window, float_on_top);
+                    show(&window);
                 }
             }
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => *flow = ControlFlow::Exit,
@@ -220,21 +207,12 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
 /// around a song change while the user is typing in another app, so it must be visible
 /// and floating but must not take the keyboard. Showing alone would on Windows (and with
 /// some X11 window managers), so it's shown unfocusable, then made focusable again so a
-/// click on it works as usual. It floats above the user's work only when it sits on
-/// the primary (or only) screen; on a side screen it's out of the way and never floats.
-/// With `YTM_HIDE_CHALLENGE=1` in the environment nothing here runs at all: the window
-/// never becomes visible, the challenge keeps running (it can pass invisibly, and a
-/// required interaction still ends through the give-up timer).
-fn show(window: &tao::window::Window, float_on_top: bool) {
-    if std::env::var(HIDE_ENV).is_ok_and(|v| v == "1") {
-        return;
-    }
+/// click on it works as usual.
+fn show(window: &tao::window::Window) {
     if !window.is_visible() {
         window.set_focusable(false);
         window.set_visible(true);
-        if float_on_top {
-            window.set_always_on_top(true);
-        }
+        window.set_always_on_top(true);
         window.set_focusable(true);
     }
 }

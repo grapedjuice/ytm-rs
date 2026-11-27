@@ -800,7 +800,7 @@ fn fullbleed_fade(ui: &Ui, id: &str, thumbs: &[crate::model::Thumb], now: f64, d
     } else if f.at == f64::MIN {
         ui.ctx().data_mut(|d| d.insert_temp(key, f.clone()));
     }
-    let k = theme::ease_in_out(((now - f.at - theme::secs(delay)) / theme::secs(secs.max(0.05))) as f32);
+    let k = theme::ease_in_out(((now - f.at - delay) / secs.max(0.05)) as f32);
     if k >= 1.0 || f.old.is_empty() {
         return None;
     }

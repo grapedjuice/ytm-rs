@@ -20,9 +20,11 @@ const MAX_SEQ: usize = 14;
 /// under two seconds.
 const SLOWEST: f64 = 1.5;
 
-/// [`theme::motion`], as far as the cascade follows it.
+/// [`theme::motion`], as far as the cascade follows it: a slow theme is capped first, so
+/// Animation speed still shortens it from there.
 fn speed() -> f64 {
-    f64::from(theme::motion()).min(SLOWEST)
+    let fast = f64::from(theme::anim_speed());
+    (f64::from(theme::motion()) * fast).min(SLOWEST) / fast
 }
 
 /// When each group first showed, since the page was last navigated to.

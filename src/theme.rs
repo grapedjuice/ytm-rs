@@ -873,6 +873,12 @@ pub fn anim_bool_song(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::
     eased(ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED * fade()))
 }
 
+/// [`anim`] for a change the song's timing starts (the credits brightening once the last line
+/// is sung), left alone by Animation speed like [`anim_bool_song`].
+pub fn anim_song(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, target: f32, secs: f32) -> f32 {
+    ctx.animate_value_with_time(egui::Id::unique(id), target, secs * SPEED * fade())
+}
+
 /// [`anim_bool`] for a transition whose length the theme sets itself, so `ui_fade_secs` leaves it alone.
 pub fn anim_bool_timed(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, on: bool, secs: f32) -> f32 {
     eased(ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * speed()))

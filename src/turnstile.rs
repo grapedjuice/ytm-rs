@@ -164,11 +164,15 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
     result
 }
 
-/// Cloudflare wants an interaction; let the user see the widget.
+/// Cloudflare wants an interaction; let the user see the widget. The window can appear
+/// around a song change while the user is typing in another app, so it must be visible
+/// and floating but must not take the keyboard: set_focus() on macOS activates this app
+/// behind the user's back, while set_visible() alone shows the window front-most and it
+/// becomes interactive only when clicked.
 fn show(window: &tao::window::Window) {
     if !window.is_visible() {
         window.set_inner_size(tao::dpi::LogicalSize::new(360.0, 160.0));
         window.set_visible(true);
-        window.set_focus();
+        window.set_always_on_top(true);
     }
 }

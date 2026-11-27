@@ -84,14 +84,14 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 - **Last.fm, ListenBrainz and Discord:** scrobbling and Rich Presence.
 
 **Desktop**
-- System media controls with a seekable timeline, taskbar thumbnail buttons, close to tray (Wayland too) with a click on the tray icon to play or pause (Windows and macOS), song notifications while the window is in the background, a choice of page to open on, a collapsible sidebar and screen-reader-accessible controls.
+- System media controls with a seekable timeline, taskbar thumbnail buttons, close to tray (Wayland too) with a setting for a click on the tray icon to play or pause (Windows and macOS), song notifications while the window is in the background, a choice of page to open on, a collapsible sidebar and screen-reader-accessible controls.
 - The app draws its own title bar on Windows, so the window is one surface, and on Linux desktops that draw none. On Windows 11, Mica or Acrylic can show behind the window.
 - **Your language:** the interface comes in 21 languages, and song titles, shelves and charts can follow your language and country.
 - **Touch screens:** swipe to scroll pages and lyrics, and swipe the player bar up to open Now playing.
 - **Mini player:** shrink the window to a small strip with the song and controls (Ctrl+M), or try the experimental pill that sits in a corner and opens on hover.
   On Wayland, turn on Settings › Mini player › Keep on top on Wayland for the pin to keep the window above others (it opens through XWayland).
 - **System-wide media shortcuts:** play/pause, next, previous, volume and Recognize song work while another app is in front or the window is in the tray. Change them in Settings › Keyboard shortcuts.
-- **Network:** your system's proxy or one of your own (HTTP, HTTPS or SOCKS5) for everything the app fetches, and, signed in, a Backup stream for when YouTube stops songs on a VPN, both in Settings › Advanced.
+- **Network:** your system's proxy or one of your own (HTTP, HTTPS or SOCKS5), and, signed in, a Backup stream for when YouTube stops songs on a VPN, both in Settings › Advanced.
 - Automatic updates in the background for both the installed and portable versions, with release notes when an update is ready. Pick the Nightly channel for builds of the newest changes.
 
 ## Screenshots

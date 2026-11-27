@@ -309,7 +309,8 @@ pub fn open_folder() {
     open_dir(&dir);
 }
 
-fn open_dir(dir: &Path) {
+/// Open a folder in the file manager.
+pub fn open_dir(dir: &Path) {
     // Quoted: unquoted, explorer reads a comma in it as the end of the folder.
     #[cfg(windows)]
     {

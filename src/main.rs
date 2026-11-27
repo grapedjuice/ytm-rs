@@ -525,7 +525,7 @@ fn settle_window_system() {
     let _ = WAYLAND.set((wayland, wayland && !x11));
 }
 
-fn data_dir() -> std::path::PathBuf {
+pub fn data_dir() -> std::path::PathBuf {
     if let Some(d) = std::env::var_os("YTM_DATA_DIR") {
         return d.into();
     }

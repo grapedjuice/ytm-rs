@@ -2057,7 +2057,7 @@ fn settings_tab(app: &mut App, ui: &mut Ui, tab: SettingsTab) {
         }
         SettingsTab::About => {
             settings_updates(app, ui);
-            settings_about(ui);
+            settings_about(app, ui);
             if !filtering() {
                 settings_sign_off(app, ui);
             }
@@ -3475,9 +3475,47 @@ fn settings_shortcuts(ui: &mut Ui) {
 }
 
 /// Settings › About.
-fn settings_about(ui: &mut Ui) {
+fn settings_about(app: &mut App, ui: &mut Ui) {
     settings_section(ui, tr!("settings-about"), None, None, |ui| {
-        setting_row(ui, &format!("ytm-rs {}", crate::update::build_version()), Some(tr!("settings-about-tagline")), |_| {});
+        // Text can't be selected in the app: the version for a bug report is copied
+        // with the button, or a double-click on the row.
+        // The bare version, as the bug report's "ytm-rs version" field wants it.
+        let version = crate::update::build_version();
+        // The row only senses hover, so it's no extra Tab stop: the pill is the one for
+        // the keyboard and screen readers.
+        let (mut copy, mut on_pill) = (false, false);
+        let row = setting_row_response(ui, &format!("ytm-rs {version}"), Some(tr!("settings-about-tagline")), 210.0, |ui| {
+            let p = pill(ui, tr!("settings-copy"), Some(icon::COPY), false);
+            (copy, on_pill) = (p.clicked(), p.contains_pointer());
+        });
+        let twice = row.filter(|r| r.contains_pointer() && !on_pill).is_some_and(|r| {
+            r.on_hover_text(tr!("settings-copy-version-tip"));
+            let (click, double, now) = ui.input(|i| {
+                let p = &i.pointer;
+                (p.primary_clicked(), p.button_double_clicked(egui::PointerButton::Primary), i.time)
+            });
+            let delay = ui.ctx().options(|o| o.input_options.max_double_click_delay);
+            // Both clicks have to land on the row: a first click that closed a popup over it doesn't count.
+            let id = egui::Id::unique("about-version-click");
+            let last = ui.data_mut(|d| {
+                let last = d.get_temp::<f64>(id);
+                if click {
+                    d.insert_temp(id, now);
+                }
+                last
+            });
+            click && double && last.is_some_and(|t| now - t <= delay)
+        });
+        if copy || twice {
+            ui.ctx().copy_text(version);
+            app.toast(tr!("settings-version-copied"));
+        }
+        divider(ui);
+        setting_row(ui, tr!("settings-log-files"), Some(tr!("settings-log-files-desc")), |ui| {
+            if pill(ui, tr!("settings-open"), Some(icon::FOLDER_OPEN), false).clicked() {
+                crate::downloads::open_dir(&crate::data_dir());
+            }
+        });
         for (title, desc) in [
             (tr!("settings-lyrics"), tr!("settings-about-lyrics-sources")),
             (tr!("settings-themes"), tr!("settings-about-themes-credit")),
@@ -4338,8 +4376,13 @@ pub(super) fn setting_row(ui: &mut Ui, title: &str, desc: Option<&str>, control:
 
 /// A settings row whose controls take `control_w` rather than one control's 210.
 pub(super) fn setting_row_wide(ui: &mut Ui, title: &str, desc: Option<&str>, control_w: f32, control: impl FnOnce(&mut Ui)) {
+    setting_row_response(ui, title, desc, control_w, control);
+}
+
+/// A settings row, and its hover response; `None` when a search leaves it out.
+fn setting_row_response(ui: &mut Ui, title: &str, desc: Option<&str>, control_w: f32, control: impl FnOnce(&mut Ui)) -> Option<egui::Response> {
     if !filter_show(ui, &format!("{title} {}", desc.unwrap_or_default())) {
-        return;
+        return None;
     }
     let w = ui.available_width();
     // A control wider than its room (a long button label, in some languages) takes
@@ -4353,7 +4396,7 @@ pub(super) fn setting_row_wide(ui: &mut Ui, title: &str, desc: Option<&str>, con
     let desc_g = desc.map(|d| widgets::galley_wrapped_based(ui, d, theme::regular(12.5), theme::text_dim(), text_w, 3 * (1 + d.matches('\n').count()), base));
     let text_h = title_g.size().y + desc_g.as_ref().map_or(0.0, |g| g.size().y + 3.0);
     let h = (text_h + 26.0).max(58.0);
-    let (rect, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
+    let (rect, row) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
     let fade = if ui.is_enabled() { 1.0 } else { 0.45 };
     let top = rect.center().y - text_h / 2.0;
     // In a right-to-left language, the text starts at the right of its column.
@@ -4372,6 +4415,7 @@ pub(super) fn setting_row_wide(ui: &mut Ui, title: &str, desc: Option<&str>, con
         ui.data_mut(|d| d.insert_temp(drawn, used));
         ui.ctx().request_repaint();
     }
+    Some(row)
 }
 
 pub(super) fn divider(ui: &mut Ui) {

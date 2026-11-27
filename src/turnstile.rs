@@ -90,16 +90,21 @@ pub fn child_main(profile_dir: PathBuf) {
 
 fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
     let mut event_loop = EventLoopBuilder::<String>::with_user_event().build();
-    // macOS: no Dock icon for a window that's usually never shown.
+    // macOS: no Dock icon for a window that's usually never shown, and no taking over
+    // from the app the user is in when this starts (tao activates ignoring it otherwise,
+    // on every run, even one that passes invisibly).
     #[cfg(target_os = "macos")]
     {
         use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
         event_loop.set_activation_policy(ActivationPolicy::Accessory);
+        event_loop.set_activate_ignoring_other_apps(false);
     }
     let window = WindowBuilder::new()
         .with_title(crate::tr!("login-lyrics"))
         .with_inner_size(WINDOW_SIZE)
         .with_visible(false)
+        // Nothing here takes the keyboard: not the window, not the page in it.
+        .with_focused(false)
         .build(&event_loop)?;
 
     // A challenge that ends up needing an interaction shouldn't land in the middle of
@@ -146,6 +151,7 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
     let webview = crate::login::build_in(
         crate::proxy::webview(WebViewBuilder::new_with_web_context(&mut context), false)
             .with_initialization_script(BRIDGE)
+            .with_focused(false)
             .with_ipc_handler(move |req| {
                 let _ = proxy.send_event(req.body().clone());
             })
@@ -212,9 +218,9 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
 
 /// Cloudflare wants an interaction; let the user see the widget. The window can appear
 /// around a song change while the user is typing in another app, so it must be visible
-/// but must not take the keyboard: set_focus() on macOS activates this app behind the
-/// user's back, while set_visible() alone shows the window front-most and it becomes
-/// interactive only when clicked. It floats above the user's work only when it sits on
+/// and floating but must not take the keyboard. Showing alone would on Windows (and with
+/// some X11 window managers), so it's shown unfocusable, then made focusable again so a
+/// click on it works as usual. It floats above the user's work only when it sits on
 /// the primary (or only) screen; on a side screen it's out of the way and never floats.
 /// With `YTM_HIDE_CHALLENGE=1` in the environment nothing here runs at all: the window
 /// never becomes visible, the challenge keeps running (it can pass invisibly, and a
@@ -224,9 +230,11 @@ fn show(window: &tao::window::Window, float_on_top: bool) {
         return;
     }
     if !window.is_visible() {
+        window.set_focusable(false);
         window.set_visible(true);
         if float_on_top {
             window.set_always_on_top(true);
         }
+        window.set_focusable(true);
     }
 }

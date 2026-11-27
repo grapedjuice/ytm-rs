@@ -82,16 +82,21 @@ pub fn child_main(profile_dir: PathBuf) {
 
 fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
     let mut event_loop = EventLoopBuilder::<String>::with_user_event().build();
-    // macOS: no Dock icon for a window that's usually never shown.
+    // macOS: no Dock icon for a window that's usually never shown, and no taking over
+    // from the app the user is in when this starts (tao activates ignoring it otherwise,
+    // on every run, even one that passes invisibly).
     #[cfg(target_os = "macos")]
     {
         use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
         event_loop.set_activation_policy(ActivationPolicy::Accessory);
+        event_loop.set_activate_ignoring_other_apps(false);
     }
     let window = WindowBuilder::new()
         .with_title(crate::tr!("login-lyrics"))
         .with_inner_size(tao::dpi::LogicalSize::new(360.0, 120.0))
         .with_visible(false)
+        // Nothing here takes the keyboard: not the window, not the page in it.
+        .with_focused(false)
         .build(&event_loop)?;
 
     let proxy = event_loop.create_proxy();
@@ -100,6 +105,7 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
     let webview = crate::login::build_in(
         crate::proxy::webview(WebViewBuilder::new_with_web_context(&mut context), false)
             .with_initialization_script(BRIDGE)
+            .with_focused(false)
             .with_ipc_handler(move |req| {
                 let _ = proxy.send_event(req.body().clone());
             })
@@ -164,11 +170,17 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
     result
 }
 
-/// Cloudflare wants an interaction; let the user see the widget.
+/// Cloudflare wants an interaction; let the user see the widget. The window can appear
+/// around a song change while the user is typing in another app, so it must be visible
+/// and floating but must not take the keyboard. Showing alone would on Windows (and with
+/// some X11 window managers), so it's shown unfocusable, then made focusable again so a
+/// click on it works as usual.
 fn show(window: &tao::window::Window) {
     if !window.is_visible() {
         window.set_inner_size(tao::dpi::LogicalSize::new(360.0, 160.0));
+        window.set_focusable(false);
         window.set_visible(true);
-        window.set_focus();
+        window.set_always_on_top(true);
+        window.set_focusable(true);
     }
 }

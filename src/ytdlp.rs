@@ -198,7 +198,8 @@ fn run(bin: &Path, runtime: Option<&str>, data_dir: &Path, video_id: &str, cooki
             "worst[protocol^=m3u8][acodec=mp4a.40.2]"
         }
     };
-    cmd.args(["--js-runtimes", "node", "--no-playlist", "--no-cache-dir", "-f", selector, "-j", "--cookies"])
+    // No colours, even if its own config asks for them: `warnings` reads its stderr.
+    cmd.args(["--js-runtimes", "node", "--no-playlist", "--no-cache-dir", "--color", "never", "-f", selector, "-j", "--cookies"])
         .arg(&jar)
         .args(runtime.into_iter().flat_map(|r| ["--js-runtimes", r]))
         .args(crate::proxy::ytdlp_args())
@@ -284,31 +285,28 @@ fn run(bin: &Path, runtime: Option<&str>, data_dir: &Path, video_id: &str, cooki
     })
 }
 
-/// yt-dlp's warnings in what it wrote to stderr, without their "WARNING: " prefix, and
-/// with what they quote left out: what yt-dlp quotes can be a secret, like a line of the
-/// cookie file it skipped, a po_token or a .netrc password from its own config.
-fn warnings(stderr: &str) -> impl Iterator<Item = String> {
-    stderr.lines().filter_map(|l| l.strip_prefix("WARNING: ")).map(|w| unquoted(w.trim()))
-}
+/// yt-dlp's warnings about a song not playing, in its own words, which quote nothing back.
+/// Others can quote a secret from its config or the cookie file (a skipped cookie line,
+/// a po_token, a .netrc password), so they only get counted.
+const TOLD: [&str; 8] = [
+    "cookies are no longer valid",
+    "Login with password is not supported",
+    "No supported JavaScript runtime could be found",
+    "Some formats may be missing",
+    "PO Token which was not provided",
+    "Unable to fetch GVS PO Token",
+    "formats have been skipped as they are",
+    "formats are possibly damaged",
+];
 
-/// `s` with each quoted part ('…' or "…") emptied to `'…'`. A quote inside a word, as in
-/// "isn't", isn't one.
-fn unquoted(s: &str) -> String {
-    let word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
-    let mut out = String::with_capacity(s.len());
-    let mut rest = s;
-    while let Some(c) = rest.chars().next() {
-        let after = &rest[c.len_utf8()..];
-        if matches!(c, '\'' | '"') && !word(out.chars().next_back()) {
-            let close = after.match_indices(c).map(|(i, _)| i).find(|&i| !word(after[i + 1..].chars().next()));
-            if let Some(i) = close {
-                out.extend([c, '…', c]);
-                rest = &after[i + 1..];
-                continue;
-            }
-        }
-        out.push(c);
-        rest = after;
+/// The warnings in what yt-dlp wrote to stderr that are in `TOLD`, without their
+/// "WARNING: " prefix, then how many others there were.
+fn warnings(stderr: &str) -> Vec<String> {
+    let (told, others): (Vec<&str>, Vec<&str>) =
+        stderr.lines().filter_map(|l| l.strip_prefix("WARNING: ")).map(str::trim).partition(|w| TOLD.iter().any(|t| w.contains(t)));
+    let mut out: Vec<String> = told.into_iter().map(str::to_owned).collect();
+    if !others.is_empty() {
+        out.push(format!("{} other warning(s), not shown: they can quote a secret", others.len()));
     }
     out
 }
@@ -320,17 +318,20 @@ mod tests {
     #[test]
     fn its_warnings_are_picked_out_of_stderr() {
         let stderr = "[youtube] Extracting URL\nWARNING: [youtube] The provided YouTube account cookies are no longer valid.\nERROR: [youtube] x: Video unavailable\n";
-        assert_eq!(warnings(stderr).collect::<Vec<_>>(), ["[youtube] The provided YouTube account cookies are no longer valid."]);
-        assert_eq!(warnings("").count(), 0);
-        let skipped = "WARNING: skipping cookie file entry due to invalid length 8: '.youtube.com\\tTRUE\\t/\\tTRUE\\t0\\tSAPISID\\tsec\\tret\\n'\n";
-        assert_eq!(warnings(skipped).collect::<Vec<_>>(), ["skipping cookie file entry due to invalid length 8: '…'"]);
-        let token = "WARNING: [youtube] Invalid po_token configuration format. Expected \"CLIENT.CONTEXT+PO_TOKEN\", got \"secret\"\n";
-        assert_eq!(warnings(token).collect::<Vec<_>>(), ["[youtube] Invalid po_token configuration format. Expected \"…\", got \"…\""]);
-        let netrc = "WARNING: [youtube] parsing .netrc: bad follower token 'hunter2' (/home/u/.netrc, line 3)\n";
-        assert_eq!(warnings(netrc).collect::<Vec<_>>(), ["[youtube] parsing .netrc: bad follower token '…' (/home/u/.netrc, line 3)"]);
-        // A quote inside a word isn't one, and one that isn't closed stays.
-        assert_eq!(unquoted("it isn't the users' 'x'"), "it isn't the users' '…'");
-        assert_eq!(unquoted("a 'b"), "a 'b");
+        assert_eq!(warnings(stderr), ["[youtube] The provided YouTube account cookies are no longer valid."]);
+        assert!(warnings("").is_empty());
+        let challenge = "WARNING: [youtube] abc: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime\n";
+        assert_eq!(warnings(challenge), ["[youtube] abc: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime"]);
+        // What can quote a secret is only counted: a skipped cookie line, a po_token,
+        // a .netrc password, a storyboard's signature, and a value's second line.
+        let secrets = concat!(
+            "WARNING: skipping cookie file entry due to invalid length 8: '.youtube.com\\tTRUE\\t/\\tTRUE\\t0\\tSAPISID\\tsecret\\n'\n",
+            "WARNING: [youtube] Invalid po_token configuration format. Expected \"CLIENT.CONTEXT+PO_TOKEN\", got \"x=\"&pot=secret\"\n",
+            "secret\"\n",
+            "WARNING: [youtube] parsing .netrc: bad follower token 'pa\\'!ss\"secret' (/home/u/.netrc, line 3)\n",
+            "WARNING: [youtube] Malformed storyboard 1: 48#27#100#10#10#0#default#rs$secret\n",
+        );
+        assert_eq!(warnings(secrets), ["4 other warning(s), not shown: they can quote a secret"]);
     }
 
     #[test]

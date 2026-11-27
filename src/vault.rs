@@ -150,14 +150,14 @@ mod file {
 
     pub fn delete(key: &str, dir: &Path) -> anyhow::Result<()> {
         let _one = one_at_a_time();
-        // And one a crash left half saved beside it.
-        for p in [path(key, dir).with_extension("secret.tmp"), path(key, dir)] {
-            match std::fs::remove_file(p) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
-                _ => {}
-            }
-        }
-        Ok(())
+        // And one a crash left half saved beside it. Both go, whichever fails.
+        let gone = |p: PathBuf| match std::fs::remove_file(p) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+        let file = gone(path(key, dir));
+        let half = gone(path(key, dir).with_extension("secret.tmp"));
+        Ok(file.and(half)?)
     }
 
     /// One save or delete at a time: two saves would write the same file beside it,

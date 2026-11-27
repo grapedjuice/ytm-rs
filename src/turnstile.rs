@@ -126,10 +126,16 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
             (size.height as f64 + frame_delta_h * monitor_scale) as u32,
         );
         let origin = monitor.position();
-        window.set_outer_position(tao::dpi::PhysicalPosition::new(
+        let at = tao::dpi::PhysicalPosition::new(
             origin.x + (monitor.size().width.saturating_sub(frame.width) / 2) as i32,
             origin.y + (monitor.size().height.saturating_sub(frame.height) / 2) as i32,
-        ));
+        );
+        // macOS reports a screen in its own scale's pixels but turns a window position
+        // back into points with the window's scale, which differs when the window starts
+        // on another screen: hand it points.
+        let at: tao::dpi::Position =
+            if cfg!(target_os = "macos") { at.to_logical::<f64>(monitor_scale).into() } else { at.into() };
+        window.set_outer_position(at);
     }
 
     let proxy = event_loop.create_proxy();

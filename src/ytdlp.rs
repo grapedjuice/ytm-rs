@@ -198,7 +198,7 @@ fn run(bin: &Path, runtime: Option<&str>, data_dir: &Path, video_id: &str, cooki
             "worst[protocol^=m3u8][acodec=mp4a.40.2]"
         }
     };
-    cmd.args(["--js-runtimes", "node", "--no-warnings", "--no-playlist", "--no-cache-dir", "-f", selector, "-j", "--cookies"])
+    cmd.args(["--js-runtimes", "node", "--no-playlist", "--no-cache-dir", "-f", selector, "-j", "--cookies"])
         .arg(&jar)
         .args(runtime.into_iter().flat_map(|r| ["--js-runtimes", r]))
         .args(crate::proxy::ytdlp_args())
@@ -247,8 +247,14 @@ fn run(bin: &Path, runtime: Option<&str>, data_dir: &Path, video_id: &str, cooki
     let out = child.wait_with_output();
     done.store(true, std::sync::atomic::Ordering::Relaxed);
     let out = out?;
+    let err = String::from_utf8_lossy(&out.stderr);
+    // What yt-dlp warns about goes in the log: a sign-in it doesn't accept is only a
+    // warning, and then it carries on signed out, so a song of the account's own then
+    // reads as unavailable (#455).
+    for w in warnings(&err) {
+        log::info!("yt-dlp: {w}");
+    }
     if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
         let line = err.lines().rfind(|l| l.contains("ERROR")).unwrap_or("yt-dlp failed");
         // No runtime to solve the challenges with: only the video's preview images were left.
         if line.contains("Requested format is not available") && runtime.is_none() && !has_runtime() {
@@ -278,9 +284,21 @@ fn run(bin: &Path, runtime: Option<&str>, data_dir: &Path, video_id: &str, cooki
     })
 }
 
+/// yt-dlp's warnings in what it wrote to stderr, without their "WARNING: " prefix.
+fn warnings(stderr: &str) -> impl Iterator<Item = &str> {
+    stderr.lines().filter_map(|l| l.strip_prefix("WARNING: ")).map(str::trim)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn its_warnings_are_picked_out_of_stderr() {
+        let stderr = "[youtube] Extracting URL\nWARNING: [youtube] The provided YouTube account cookies are no longer valid.\nERROR: [youtube] x: Video unavailable\n";
+        assert_eq!(warnings(stderr).collect::<Vec<_>>(), ["[youtube] The provided YouTube account cookies are no longer valid."]);
+        assert_eq!(warnings("").count(), 0);
+    }
 
     #[test]
     fn a_release_says_where_its_asset_is_and_its_hash() {

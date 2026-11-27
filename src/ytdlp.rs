@@ -256,12 +256,12 @@ fn run(bin: &Path, runtime: Option<&str>, data_dir: &Path, video_id: &str, cooki
         log::info!("yt-dlp: {w}");
     }
     if !out.status.success() {
-        let line = err.lines().rfind(|l| l.contains("ERROR")).unwrap_or("yt-dlp failed");
+        let line = error(&err);
         // No runtime to solve the challenges with: only the video's preview images were left.
         if line.contains("Requested format is not available") && runtime.is_none() && !has_runtime() {
             anyhow::bail!("this song needs Node.js (nodejs.org) installed to play");
         }
-        anyhow::bail!("{}", line.trim_start_matches("ERROR: ").trim());
+        anyhow::bail!("{}", line.trim());
     }
     let v: Value = serde_json::from_slice(&out.stdout)?;
     // yt-dlp writes the cookies back, with any Google replaced while it ran.
@@ -285,28 +285,42 @@ fn run(bin: &Path, runtime: Option<&str>, data_dir: &Path, video_id: &str, cooki
     })
 }
 
-/// yt-dlp's warnings about a song not playing, in its own words, which quote nothing back.
-/// Others can quote a secret from its config or the cookie file (a skipped cookie line,
-/// a po_token, a .netrc password), so they only get counted.
-const TOLD: [&str; 8] = [
-    "cookies are no longer valid",
+/// yt-dlp's last error line in its stderr, without its "ERROR: " prefix. Only its own:
+/// a warning can quote a secret, "ERROR" and all.
+fn error(stderr: &str) -> &str {
+    stderr.lines().rev().find_map(|l| l.strip_prefix("ERROR: ")).unwrap_or("yt-dlp failed")
+}
+
+/// What yt-dlp warns about a song not playing, in its words. A warning is logged as the
+/// one of these it has, never as itself: any of them can quote a secret from its config
+/// or the cookie file (a skipped cookie line, a po_token, a .netrc password).
+const TOLD: [&str; 11] = [
+    "The provided YouTube account cookies are no longer valid",
     "Login with password is not supported",
     "No supported JavaScript runtime could be found",
-    "Some formats may be missing",
-    "PO Token which was not provided",
+    "n challenge solving failed",
+    "Signature solving failed",
+    "require a GVS PO Token which was not provided",
     "Unable to fetch GVS PO Token",
-    "formats have been skipped as they are",
+    "but missing Data Sync ID for account",
+    "formats have been skipped as they are DRM protected",
+    "formats have been skipped as they are missing a URL",
     "formats are possibly damaged",
 ];
 
-/// The warnings in what yt-dlp wrote to stderr that are in `TOLD`, without their
-/// "WARNING: " prefix, then how many others there were.
+/// For each warning in what yt-dlp wrote to stderr, the `TOLD` it has, then how many
+/// others there were.
 fn warnings(stderr: &str) -> Vec<String> {
-    let (told, others): (Vec<&str>, Vec<&str>) =
-        stderr.lines().filter_map(|l| l.strip_prefix("WARNING: ")).map(str::trim).partition(|w| TOLD.iter().any(|t| w.contains(t)));
-    let mut out: Vec<String> = told.into_iter().map(str::to_owned).collect();
-    if !others.is_empty() {
-        out.push(format!("{} other warning(s), not shown: they can quote a secret", others.len()));
+    let all = stderr.lines().filter_map(|l| l.strip_prefix("WARNING: "));
+    let (mut out, mut others) = (Vec::new(), 0);
+    for w in all {
+        match TOLD.iter().find(|t| w.contains(*t)) {
+            Some(t) => out.push(format!("…{t}…")),
+            None => others += 1,
+        }
+    }
+    if others > 0 {
+        out.push(format!("{others} other warning(s), not shown: they can quote a secret"));
     }
     out
 }
@@ -318,10 +332,13 @@ mod tests {
     #[test]
     fn its_warnings_are_picked_out_of_stderr() {
         let stderr = "[youtube] Extracting URL\nWARNING: [youtube] The provided YouTube account cookies are no longer valid.\nERROR: [youtube] x: Video unavailable\n";
-        assert_eq!(warnings(stderr), ["[youtube] The provided YouTube account cookies are no longer valid."]);
+        assert_eq!(warnings(stderr), ["…The provided YouTube account cookies are no longer valid…"]);
         assert!(warnings("").is_empty());
         let challenge = "WARNING: [youtube] abc: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime\n";
-        assert_eq!(warnings(challenge), ["[youtube] abc: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime"]);
+        assert_eq!(warnings(challenge), ["…n challenge solving failed…"]);
+        // A value that quotes one is logged as that, and no more.
+        let netrc = "WARNING: [youtube] parsing .netrc: bad follower token 'n challenge solving failed secret' (/home/u/.netrc, line 3)\n";
+        assert_eq!(warnings(netrc), ["…n challenge solving failed…"]);
         // What can quote a secret is only counted: a skipped cookie line, a po_token,
         // a .netrc password, a storyboard's signature, and a value's second line.
         let secrets = concat!(
@@ -332,6 +349,9 @@ mod tests {
             "WARNING: [youtube] Malformed storyboard 1: 48#27#100#10#10#0#default#rs$secret\n",
         );
         assert_eq!(warnings(secrets), ["4 other warning(s), not shown: they can quote a secret"]);
+        // The error is its own line, not a warning that quotes "ERROR".
+        assert_eq!(error(stderr), "[youtube] x: Video unavailable");
+        assert_eq!(error("WARNING: parsing .netrc: bad follower token 'ERROR secret'\n"), "yt-dlp failed");
     }
 
     #[test]

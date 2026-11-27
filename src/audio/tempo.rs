@@ -83,6 +83,11 @@ impl Speed {
     fn stages(&self) -> (f32, f32) {
         let speed = self.get();
         let resample = if self.keeps_pitch() { 1.0 } else { speed } * self.pitch();
+        // The stretch skips over the song past the top speed: each window would come from
+        // further on than the last one's end, dropping what's between (a drum hit, even).
+        // Fast and transposed down, the tempo wins and the pitch drops only as far as that
+        // allows: none at 2x, five semitones at 1.5x.
+        let resample = resample.max(speed / MAX_SPEED);
         (speed / resample, resample)
     }
 }
@@ -732,6 +737,28 @@ mod tests {
         assert!((pitch_ratio(7) - 1.498_307).abs() < 1e-5);
         // Clamped to an octave either way.
         assert_eq!(pitch_ratio(40), 2.0);
+    }
+
+    #[test]
+    fn the_stretch_never_goes_past_the_top_speed_and_the_tempo_holds() {
+        for keep in [true, false] {
+            for at in [0.5, 1.0, 1.5, 2.0] {
+                for semitones in -12..=12 {
+                    let speed = Speed::default();
+                    speed.set(at);
+                    speed.set_keep_pitch(keep);
+                    speed.set_pitch(semitones);
+                    let (stretch, resample) = speed.stages();
+                    assert!(stretch <= MAX_SPEED + 1e-6, "{at}x {keep} {semitones:+}: {stretch}");
+                    assert!((stretch * resample - at).abs() < 1e-5, "{at}x {keep} {semitones:+}");
+                }
+            }
+        }
+        // As far down as the stretch allows: none at 2x.
+        let speed = Speed::default();
+        speed.set(2.0);
+        speed.set_pitch(-12);
+        assert_eq!(speed.stages(), (2.0, 1.0));
     }
 
     #[test]

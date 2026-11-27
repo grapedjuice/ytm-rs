@@ -537,6 +537,11 @@ settings-whats-new-in = What's new in { $version }
 ## About
 
 settings-about-tagline = A fast, native YouTube Music client.
+settings-copy = Copy
+settings-copy-version-tip = Double-click to copy the version
+settings-version-copied = Version copied
+settings-log-files = Log files
+settings-log-files-desc = This run's ytm-rs.log and the last run's ytm-rs.prev.log, to attach to a bug report.
 settings-about-lyrics-sources = Better Lyrics API: Musixmatch, LRCLIB, QQ, KuGou and Better Lyrics TTML
 settings-about-themes-credit = Adapted from the Better Lyrics theme store; each card credits its creators
 settings-background = Background

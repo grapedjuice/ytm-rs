@@ -2912,6 +2912,10 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         setting_row(ui, tr!("settings-animation-speed"), Some(tr!("settings-animation-speed-desc")), |ui| {
             anim_speed_stepper(ui, &mut app.anim_speed);
         });
+        divider(ui);
+        setting_row(ui, tr!("settings-smooth-scrolling"), Some(tr!("settings-smooth-scrolling-desc")), |ui| {
+            toggle(ui, &mut app.smooth_scroll, tr!("settings-smooth-scrolling"));
+        });
     });
 }
 

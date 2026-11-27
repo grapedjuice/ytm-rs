@@ -25,6 +25,12 @@ const CHALLENGE: &str = "https://lyrics.api.dacubeking.com/challenge";
 const SHOW_AFTER: Duration = Duration::from_secs(15);
 /// Give up if nothing happens (e.g. the user ignores a shown challenge).
 const GIVE_UP_AFTER: Duration = Duration::from_secs(120);
+/// Set in the environment to keep the window hidden for the whole run: the challenge
+/// still runs and can pass invisibly, and an interaction it can't get still ends
+/// through the give-up timer. Only the visual is suppressed.
+const HIDE_ENV: &str = "YTM_HIDE_CHALLENGE";
+/// The size the window is created with (and centered on the side screen with).
+const WINDOW_SIZE: tao::dpi::LogicalSize<f64> = tao::dpi::LogicalSize::new(360.0, 120.0);
 
 /// The challenge page posts to `window.parent`; at top level that is the page itself,
 /// so forward those messages to the native side. The page doesn't say when the widget
@@ -90,9 +96,30 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
     }
     let window = WindowBuilder::new()
         .with_title(crate::tr!("login-lyrics"))
-        .with_inner_size(tao::dpi::LogicalSize::new(360.0, 120.0))
+        .with_inner_size(WINDOW_SIZE)
         .with_visible(false)
         .build(&event_loop)?;
+
+    // A challenge that ends up needing an interaction shouldn't land in the middle of
+    // the screen the user is working on: with more than one screen, put the window on a
+    // side screen right away, centered there. Only when it stays on the primary (or
+    // only) screen does it later float above the user's work. Physical pixels
+    // throughout: monitor position/size and the window size on that monitor are all
+    // physical, with the window's logical size scaled by that monitor's scale factor.
+    let mut float_on_top = true;
+    let primary = window.primary_monitor();
+    let side = primary
+        .as_ref()
+        .and_then(|primary| window.available_monitors().find(|monitor| monitor != primary));
+    if let Some(monitor) = side {
+        let size = WINDOW_SIZE.to_physical(monitor.scale_factor());
+        let origin = monitor.position();
+        window.set_outer_position(tao::dpi::PhysicalPosition::new(
+            origin.x + (monitor.size().width.saturating_sub(size.width) / 2) as i32,
+            origin.y + (monitor.size().height.saturating_sub(size.height) / 2) as i32,
+        ));
+        float_on_top = false;
+    }
 
     let proxy = event_loop.create_proxy();
     let loaded_proxy = proxy.clone();
@@ -136,7 +163,7 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
                         result = Err(anyhow::anyhow!("challenge timed out"));
                         *flow = ControlFlow::Exit;
                     }
-                    Some("turnstile-interactive") => show(&window),
+                    Some("turnstile-interactive") => show(&window, float_on_top),
                     Some("loaded") => {
                         loaded.get_or_insert_with(Instant::now);
                     }
@@ -153,7 +180,7 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
                     result = Err(anyhow::anyhow!("timed out waiting for verification"));
                     *flow = ControlFlow::Exit;
                 } else if loaded.is_some_and(|t| t.elapsed() > SHOW_AFTER) {
-                    show(&window);
+                    show(&window, float_on_top);
                 }
             }
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => *flow = ControlFlow::Exit,
@@ -166,13 +193,22 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
 
 /// Cloudflare wants an interaction; let the user see the widget. The window can appear
 /// around a song change while the user is typing in another app, so it must be visible
-/// and floating but must not take the keyboard: set_focus() on macOS activates this app
-/// behind the user's back, while set_visible() alone shows the window front-most and it
-/// becomes interactive only when clicked.
-fn show(window: &tao::window::Window) {
+/// but must not take the keyboard: set_focus() on macOS activates this app behind the
+/// user's back, while set_visible() alone shows the window front-most and it becomes
+/// interactive only when clicked. It floats above the user's work only when it sits on
+/// the primary (or only) screen; on a side screen it's out of the way and never floats.
+/// With `YTM_HIDE_CHALLENGE=1` in the environment nothing here runs at all: the window
+/// never becomes visible, the challenge keeps running (it can pass invisibly, and a
+/// required interaction still ends through the give-up timer).
+fn show(window: &tao::window::Window, float_on_top: bool) {
+    if std::env::var(HIDE_ENV).is_ok_and(|v| v == "1") {
+        return;
+    }
     if !window.is_visible() {
         window.set_inner_size(tao::dpi::LogicalSize::new(360.0, 160.0));
         window.set_visible(true);
-        window.set_always_on_top(true);
+        if float_on_top {
+            window.set_always_on_top(true);
+        }
     }
 }

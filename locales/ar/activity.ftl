@@ -4,6 +4,8 @@ status-link-copied = تم نسخ الرابط
 status-starting-playback = جارٍ بدء التشغيل…
 status-playing-next = التشغيل التالي
 status-added-queue = تمت الإضافة إلى قائمة الانتظار
+# In the system's list of what keeps the computer awake, while music plays.
+status-keeping-awake = تشغيل الموسيقى
 status-removed-queue = تمت إزالته من قائمة الانتظار
 status-cleared-queue = تم مسح قائمة الانتظار
 status-removed-playlist = تمت الإزالة من قائمة التشغيل

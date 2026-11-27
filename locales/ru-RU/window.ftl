@@ -32,6 +32,13 @@ window-loading-notes = Загрузка списка изменений…
 window-later = Позже
 window-updated = Обновлено до { $version }
 window-what-changed = Что изменилось в этой версии.
+# Last in the card shown after updating, for the changes it leaves out.
+window-more-changes = { $count ->
+    [one] + ещё { $count } изменение
+    [few] + ещё { $count } изменения
+    [many] + ещё { $count } изменений
+   *[other] + ещё { $count } изменения
+}
 window-dismiss = Закрыть
 window-all-notes = Все изменения
 window-got-it = Понятно

@@ -15,10 +15,24 @@ settings-account = บัญชี
 settings-general = ทั่วไป
 settings-keyboard-shortcuts = แป้นพิมพ์ลัด
 settings-about = เกี่ยวกับ
+settings-content-and-ratings = เนื้อหาและการจัดอันดับ
+settings-advanced = ขั้นสูง
+# The headings the categories are grouped under, down the side.
+settings-group-listening = การฟัง
+settings-group-look = รูปลักษณ์
+settings-group-accounts = บัญชี
+settings-group-app = แอป
+# Above the settings a search finds, where a category's name goes otherwise.
+settings-search-results = ผลการค้นหา
+# Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
+settings-content = เนื้อหา
+settings-colours = สี
 settings-no-match = ไม่มีการตั้งค่าที่ตรงกับ "{ $query }"
 settings-title = การตั้งค่า
 settings-search-box = ค้นหาการตั้งค่า
 settings-clear = ล้าง
+# A button above the settings, there while one changed here waits for the next start.
+settings-restart-to-apply = เปิดแอปใหม่เพื่อใช้การตั้งค่า
 
 ## Account
 
@@ -95,6 +109,8 @@ settings-output-device-desc-system = ที่ที่เพลงเล่น:
 settings-this-computer = คอมพิวเตอร์นี้
 settings-on-your-network = บนเครือข่ายของคุณ
 settings-playing-on = กำลังเล่นบน { $name }
+# The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
+settings-play-on-picked = เล่นบน: { $name }
 settings-connecting-to = กำลังเชื่อมต่อกับ { $name }…
 settings-couldnt-play-on = เล่นบน { $name } ไม่ได้: เล่นบนคอมพิวเตอร์นี้
 settings-windows-default = ค่าเริ่มต้นของ Windows
@@ -103,6 +119,11 @@ settings-not-connected = { $name } (ไม่ได้เชื่อมต่�
 settings-normalization-off-desc = เพลงเล่นดังเท่าที่ทำ ปกติจะนำทั้งหมดมาสู่ระดับเดียวกัน และเงียบไปในระดับเดียวกันและต่ำกว่า
 settings-normalization-normal-desc = เพลงเล่นในระดับเดียวกัน: เพลงที่ดังลงดังเช่น YouTube Music และเพลงที่เบาขึ้นมากถึง 6 dB
 settings-normalization-quiet-desc = เพลงเล่นในระดับเดียวกัน ระดับที่ต่ำกว่า: เพลงที่ดังลดลงอีก เพลงที่เงียบจึงแทบไม่ต้องเปิดเพลง
+# After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
+settings-normalization-song-no-figure = เพลงนี้: ไม่มีค่าความดังจาก YouTube จึงเล่นตามเดิม
+settings-normalization-song-level = เพลงนี้: อยู่ในระดับที่เหมาะสมแล้ว
+settings-normalization-song-up = เพลงนี้: เพิ่มขึ้น { $db } dB
+settings-normalization-song-down = เพลงนี้: ลดลง { $db } dB
 settings-headphone-crossfeed = ครอสฟีดของหูฟัง
 settings-headphone-crossfeed-desc = ให้หูแต่ละข้างได้ยินเสียงเบสของอีกฝ่ายเล็กน้อย เช่นเดียวกับจากลำโพงที่อยู่ข้างหน้าคุณ ดังนั้นเพลงที่แพนอย่างหนักไปด้านใดด้านหนึ่งจึงง่ายกว่าในการฟังผ่านหูฟัง
 settings-mono-audio = เสียงโมโน
@@ -118,6 +139,17 @@ settings-equalizer-desc = ปรับเสียงจากเสียงเ
 settings-preset = ตั้งค่าล่วงหน้า
 settings-custom = กำหนดเอง
 settings-equalizer-preset = อีควอไลเซอร์ที่ตั้งไว้ล่วงหน้า
+# The equalizer's presets.
+settings-eq-flat = ปกติ
+settings-eq-bass-boost = เพิ่มเบส
+settings-eq-treble-boost = เพิ่มเสียงแหลม
+settings-eq-vocal = เสียงร้อง
+settings-eq-rock = ร็อก
+settings-eq-pop = ป๊อป
+settings-eq-electronic = อิเล็กทรอนิกส์
+settings-eq-acoustic = อะคูสติก
+settings-eq-classical = คลาสสิก
+settings-eq-late-night = ดึก
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = อีควอไลเซอร์วงดนตรีเสียงเบสกลางความถี่เสียงแหลม
 settings-prevent-clipping = ป้องกันการตัดภาพ
@@ -127,10 +159,13 @@ settings-0-db = 0 เดซิเบล
 ## Playback speed
 
 settings-playback-speed = ความเร็วในการเล่น
-settings-playback-speed-desc = เล่นเพลงเร็วขึ้นหรือช้าลงจากปุ่มในแถบเครื่องเล่น เสียงเร็วขึ้นและช้าลงต่ำเหมือนแผ่นเสียง เนื้อเพลงคงอยู่ในกาลเวลา กลับไปที่ 1× แต่ละครั้งที่ ytm-rs เริ่มทำงาน
+settings-playback-speed-desc = เล่นเพลงให้เร็วขึ้นหรือช้าลง หรือเปลี่ยนคีย์ได้ รวมถึงจากปุ่มบนแถบเครื่องเล่น เนื้อเพลงยังคงตรงจังหวะ กลับเป็นปกติทุกครั้งที่เริ่ม ytm-rs
 settings-speed = ความเร็ว
 settings-keep-pitch = คงระดับเสียง
 settings-keep-pitch-desc = เร็วขึ้นหรือช้าลงโดยไม่สูงหรือต่ำลง เมื่อปิด ระดับเสียงจะเปลี่ยนตามความเร็ว เหมือนแผ่นเสียง
+settings-speed-pitch = ความเร็วและระดับเสียง
+settings-transpose = เปลี่ยนคีย์
+settings-transpose-desc = สูงขึ้นหรือต่ำลงเป็นครึ่งเสียงด้วยความเร็วเดิม 12 คือหนึ่งอ็อกเทฟ
 settings-playback-speed-jam-note = กลับมาเป็นปกติในขณะที่คุณติดขัด ทุกคนจึงได้ยินเพลงเดียวกัน
 
 ## Music videos
@@ -224,6 +259,8 @@ settings-background-brightness = ความสว่างพื้นหล�
 settings-background-brightness-desc = ทำให้ปกหลังกำลังเล่นและหน้าต่าง ๆ สว่างขึ้นหรือมืดลง 100% คือค่าของธีม
 settings-brighter = สว่างขึ้น
 settings-darker = มืดลง
+settings-animation-speed = ความเร็วแอนิเมชัน
+settings-animation-speed-desc = ความเร็วในการเคลื่อนไหวและปรากฏของหน้า เมนู และแผง เนื้อเพลงยังคงตรงจังหวะเพลง 100% คือค่าของธีม
 settings-flat-background = พื้นหลังสีเรียบ
 settings-flat-background-desc = สีเดียวหลังหน้าและกำลังเล่น โดยไม่มีปกอัลบั้มและไม่มีไล่สี
 settings-flat-background-colour = สีพื้นหลัง
@@ -280,6 +317,15 @@ settings-app-icon = ไอคอนแอป
 settings-preview = ดูตัวอย่าง
 settings-preview-desc = ลักษณะที่ปรากฏบนทาสก์บาร์และในถาด
 settings-app-icon-named = ไอคอนแอป: { $name }
+# The app icons' names. "YT Music" and "Fluent" stay as they are.
+settings-app-icon-classic = คลาสสิก
+settings-app-icon-smile-ring = วงแหวนยิ้ม
+settings-app-icon-rust-gear = เฟือง Rust
+settings-app-icon-waveform = รูปคลื่นเสียง
+settings-app-icon-record = แผ่นเสียง
+settings-app-icon-lit-line = เส้นเรืองแสง
+settings-app-icon-duet = ดูเอต
+settings-app-icon-warp = วาร์ป
 
 ## Connections
 
@@ -287,6 +333,8 @@ settings-stream-deck = Stream Deck
 settings-stream-deck-desc = ให้ปลั๊กอิน Stream Deck บนคอมพิวเตอร์เครื่องนี้ควบคุมการเล่น
 settings-lastfm-connected = กำลังเล่นสิ่งที่คุณเล่นในโปรไฟล์ของ { $name }
 settings-lastfm-allow = อนุญาต ytm-rs บนเพจ Last.fm ที่เปิดในเบราว์เซอร์ของคุณ
+# After "Last.fm: ", when signing in wasn't allowed on that page in time.
+settings-lastfm-not-allowed = ไม่ได้รับอนุญาต Last.fm ภายในเวลาที่กำหนด
 settings-lastfm-desc = เลื่อนสิ่งที่คุณเล่นไปยังโปรไฟล์ Last.fm ของคุณ
 settings-disconnect = ตัดการเชื่อมต่อ
 settings-connect = เชื่อมต่อ
@@ -295,6 +343,9 @@ settings-listenbrainz-desc = ส่งสิ่งที่คุณเล่น
 settings-user-token = โทเค็นผู้ใช้
 settings-listenbrainz-token-hint = วางโทเค็นผู้ใช้ ListenBrainz ของคุณ
 settings-listenbrainz-token-link = รับโทเค็นของคุณบน Listenbrainz.org
+# After "ListenBrainz: ", when Connect is pressed.
+settings-listenbrainz-token-missing = วางโทเค็นผู้ใช้ของคุณก่อน
+settings-listenbrainz-token-refused = ListenBrainz ไม่ยอมรับโทเค็นนั้น
 
 ## Language
 
@@ -302,7 +353,6 @@ settings-listenbrainz-token-link = รับโทเค็นของคุณ
 settings-language-system = ตามระบบ ({ $language })
 settings-language = ภาษา
 settings-language-desc = ภาษาของแอป ชื่อเพลง ชื่อศิลปิน และหมวดหมู่ YouTube Music ใช้ภาษาของข้อมูลเพลงที่เลือกด้านล่าง
-settings-restart-to-apply = เปิดแอปใหม่เพื่อใช้การตั้งค่า
 settings-language-restart-desc = ภาษาจะเปลี่ยนเมื่อเปิดแอปครั้งถัดไป
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
@@ -322,6 +372,11 @@ settings-home = หน้าแรก
 settings-close-to-tray-desc-linux = เก็บไอคอนไว้ในถาด การคลิก × จะซ่อนหน้าต่างตรงนั้นและเล่นเพลงต่อไป เมนูของไอคอนจะนำกลับมา ซ่อน หรือออก การคลิกเพลงในตัวควบคุมสื่อของระบบจะเป็นการนำเพลงนั้นกลับมาด้วย และ Ctrl+Q จะหยุดทำงาน
 settings-close-to-tray-desc = เก็บไอคอนไว้ในถาด การคลิก × จะซ่อนหน้าต่างตรงนั้นและเล่นเพลงต่อไป คลิกที่ไอคอนเพื่อนำกลับมา หรือคลิกขวาเพื่อซ่อน แสดง หรือออก
 settings-close-to-tray = ซ่อนไปที่ถาดระบบเมื่อปิด
+settings-tray-click-plays = คลิกไอคอนถาดระบบเพื่อเล่นหรือหยุดชั่วคราว
+settings-tray-click-plays-desc = คลิกที่ไอคอนจะเล่นหรือหยุดชั่วคราวในอีกสักครู่ แทนการดึงหน้าต่างกลับมา ดับเบิลคลิกจะดึงหน้าต่างกลับมา เช่นเดียวกับการคลิกเมื่อไม่มีอะไรกำลังเล่น
+# Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
+settings-tray-no-gtk = ไอคอนถาดระบบต้องใช้ GTK ซึ่งไม่สามารถเริ่มต้นได้ ({ $error })
+settings-tray-no-appindicator = ไอคอนถาดระบบต้องใช้ไลบรารี AppIndicator ซึ่งยังไม่ได้ติดตั้ง: libayatana-appindicator3-1 บน Debian และ Ubuntu, libayatana-appindicator-gtk3 บน Fedora (บน Bazzite, Silverblue และระบบอะตอมมิกอื่นๆ: rpm-ostree install libayatana-appindicator-gtk3 แล้วรีสตาร์ทคอมพิวเตอร์), libayatana-appindicator บน Arch
 settings-song-notifications-desc = เมื่อเพลงใหม่เริ่มเล่นในขณะที่หน้าต่างย่อเล็กสุด ในถาดหรือหลังหน้าต่างอื่นๆ ให้แสดงชื่อเพลง ศิลปิน และเพลงคัฟเวอร์ในการแจ้งเตือน
 settings-song-notifications-unavailable = ต้องการแอปที่ติดตั้ง: Windows แสดงเฉพาะการแจ้งเตือนจากแอปในเมนู Start
 settings-song-notifications = การแจ้งเตือนเพลง
@@ -390,11 +445,25 @@ settings-test-connection = ทดสอบการเชื่อมต่อ
 settings-test = ทดสอบ
 settings-test-working = ทำงาน: YouTube Music ตอบเป็น { $ms } ms
 settings-test-failed = ไม่ได้เชื่อมต่อ: { $error }
+# Under the proxy address, when it isn't one.
+settings-proxy-not-an-address = นั่นไม่ใช่ที่อยู่พร็อกซี เช่น http://127.0.0.1:8080
+settings-proxy-scheme = ใช้ที่อยู่ http:// หรือ socks5://
+settings-proxy-no-host = ที่อยู่ต้องมีโฮสต์
+settings-proxy-no-port = ที่อยู่ต้องมีพอร์ต เช่น :8080
+# After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
+settings-proxy-not-answering = ไม่มีการตอบกลับที่ { $address } พร็อกซีกำลังทำงานอยู่หรือไม่?
+settings-proxy-timed-out = พร็อกซีไม่ตอบกลับภายในเวลาที่กำหนด
+settings-proxy-sign-in-refused = พร็อกซีไม่ยอมรับชื่อผู้ใช้หรือรหัสผ่าน
+settings-proxy-not-found = ไม่พบที่อยู่ของพร็อกซีนั้น
 settings-proxy-restart-desc = การตั้งค่าพร็อกซีใหม่จะถูกใช้ตั้งแต่การเริ่มต้นครั้งถัดไป
 
 ## Storage
 
 settings-cache-cleared = ล้างแคชแล้ว: ปล่อย { $size } แล้ว
+# How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
+settings-size-mb = { $size } MB
+settings-size-gb = { $size } GB
+settings-size-under-mb = น้อยกว่า 1 MB
 settings-storage = ที่เก็บข้อมูล
 settings-clearing = กำลังเคลียร์...
 settings-measuring = กำลังวัด...
@@ -452,6 +521,9 @@ settings-download = ดาวน์โหลด
 settings-check-now = ตรวจสอบเลย
 settings-another-copy = อีกฉบับหนึ่ง
 settings-another-copy-desc = ytm-rs ได้รับการติดตั้งจาก { $kind } ด้วย หากต้องการลบสำเนานั้น ให้รัน { $cmd }
+# { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
+settings-another-copy-deb = แพ็กเกจ .deb
+settings-another-copy-arch = แพ็กเกจ Arch
 settings-whats-new = มีอะไรใหม่
 settings-whats-new-in = มีอะไรใหม่ใน { $version }
 

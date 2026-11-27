@@ -10,6 +10,7 @@ status-playlist-created = Đã tạo danh sách phát
 status-new-playlist-tracks = Các bản nhạc được thêm vào danh sách phát mới: { $count }
 status-playlist-added = Đã thêm vào danh sách phát
 status-playlist-updated = Đã cập nhật danh sách phát
+status-picture-unreadable = Không thể đọc hình ảnh đó. Hãy thử JPEG, PNG hoặc WebP.
 status-playlist-sorted = Danh sách phát được sắp xếp
 status-playlist-sort-failed = Không thể sắp xếp danh sách phát
 status-playlist-move-failed = YouTube Music đã không thực hiện động thái đó

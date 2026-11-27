@@ -18,6 +18,11 @@ backend-offline = Nggak bisa menghubungi YouTube Music. Lagu yang sudah diunduh 
 backend-offline-in-downloads = Nggak bisa menghubungi YouTube Music. Lagu yang sudah diunduh tetap bisa diputar.
 backend-offline-proxy = Nggak bisa menghubungi YouTube Music lewat proxy (Pengaturan › Jaringan › Proxy). Lagu yang sudah diunduh tetap bisa diputar.
 backend-unreachable = nggak bisa menghubungi YouTube Music
+backend-proxy-region = YouTube Music tidak tersedia dari lokasi koneksi proxy Anda. Coba proxy atau server lain (Pengaturan › Jaringan)
+backend-signed-out = YouTube Music mengeluarkan sesi ini; masuk lagi
+# { $status } is an HTTP status code, like 500; { $message } is what YouTube Music said, as it said it.
+backend-http-status = YouTube Music mengembalikan HTTP { $status }
+backend-http-status-message = YouTube Music mengembalikan HTTP { $status }: { $message }
 backend-session-expired = Sesi masuk YouTube kamu udah habis. Masuk lagi biar koleksimu balik.
 backend-empty-download = “{ $title }” nggak punya lagu buat diunduh
 backend-rating = Penilaian lagu

@@ -10,6 +10,7 @@ status-playlist-created = 재생목록이 생성되었습니다.
 status-new-playlist-tracks = 새 재생 목록에 트랙이 추가되었습니다: { $count }
 status-playlist-added = 재생목록에 추가되었습니다
 status-playlist-updated = 재생목록이 업데이트되었습니다.
+status-picture-unreadable = 해당 이미지를 읽을 수 없습니다. JPEG, PNG 또는 WebP를 사용해 보세요.
 status-playlist-sorted = 재생목록이 정렬되었습니다.
 status-playlist-sort-failed = 재생목록을 정렬할 수 없습니다.
 status-playlist-move-failed = YouTube Music는 그런 움직임을 취하지 않았습니다

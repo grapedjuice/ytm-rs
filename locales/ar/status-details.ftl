@@ -10,6 +10,7 @@ status-playlist-created = تم إنشاء قائمة التشغيل
 status-new-playlist-tracks = المقاطع المضافة إلى قائمة التشغيل الجديدة: { $count }
 status-playlist-added = تمت الإضافة إلى قائمة التشغيل
 status-playlist-updated = تم تحديث قائمة التشغيل
+status-picture-unreadable = تعذّرت قراءة تلك الصورة. جرّب JPEG أو PNG أو WebP.
 status-playlist-sorted = تم فرز قائمة التشغيل
 status-playlist-sort-failed = تعذّر فرز قائمة التشغيل
 status-playlist-move-failed = لم يقبل YouTube Music هذا النقل

@@ -18,6 +18,11 @@ backend-offline = Không kết nối được YouTube Music. Bài đã tải v�
 backend-offline-in-downloads = Không kết nối được YouTube Music. Bài đã tải vẫn phát.
 backend-offline-proxy = Không kết nối được YouTube Music qua proxy (Cài đặt › Mạng › Ủy nhiệm). Bài đã tải vẫn phát.
 backend-unreachable = không kết nối được YouTube Music
+backend-proxy-region = YouTube Music không khả dụng tại khu vực proxy của bạn kết nối. Hãy thử proxy hoặc máy chủ khác (Cài đặt › Mạng)
+backend-signed-out = YouTube Music đã đăng xuất phiên này; hãy đăng nhập lại
+# { $status } is an HTTP status code, like 500; { $message } is what YouTube Music said, as it said it.
+backend-http-status = YouTube Music trả về HTTP { $status }
+backend-http-status-message = YouTube Music trả về HTTP { $status }: { $message }
 backend-session-expired = Đăng nhập YouTube của bạn đã hết hạn. Đăng nhập lại để lấy lại thư viện của bạn.
 backend-empty-download = “{ $title }” không có bài hát nào để tải xuống
 backend-rating = Xếp hạng bài hát

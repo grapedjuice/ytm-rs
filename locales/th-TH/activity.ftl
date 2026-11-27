@@ -4,6 +4,8 @@ status-link-copied = คัดลอกลิงก์แล้ว
 status-starting-playback = กำลังเริ่มเล่น...
 status-playing-next = กำลังเล่นถัดไป
 status-added-queue = เพิ่มลงในคิวแล้ว
+# In the system's list of what keeps the computer awake, while music plays.
+status-keeping-awake = กำลังเล่นเพลง
 status-removed-queue = ลบออกจากคิว
 status-cleared-queue = ล้างคิวแล้ว
 status-removed-playlist = ลบออกจากเพลย์ลิสต์

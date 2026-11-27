@@ -4,6 +4,8 @@
 # click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }. แสดงเวลาที่เหลือ
 player-time-show-length = { $time }. แสดงความยาวเพลง
+# For screen readers, a song marked E: { $title } is its title.
+player-song-explicit = { $title }, เนื้อหาไม่เหมาะสม
 
 # From the interface-wide catalog (#228).
 player-full-screen = เต็มหน้าจอ
@@ -27,6 +29,10 @@ player-only-lyrics-source = แหล่งที่มาของเนื้�
 player-lyrics-source-name = แหล่งที่มาของเนื้อเพลง: { $name }
 player-lyrics-from-unison = เนื้อเพลงจาก Unison
 player-lyrics-submitted-by = ส่งโดย { $name }
+# Under the lyrics, who wrote the song.
+player-lyrics-written-by = แต่งโดย { $name }
+# { $names } is all but the last of them, between commas.
+player-lyrics-written-by-several = แต่งโดย { $names } และ { $last }
 player-timing = จังหวะเวลา
 player-lyrics-later = เนื้อเพลงภายหลัง (+0.1 วิ)
 player-lyrics-earlier = เนื้อเพลงก่อนหน้า (−0.1 วินาที)

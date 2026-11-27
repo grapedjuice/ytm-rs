@@ -4,6 +4,8 @@ status-link-copied = Skopiowano link
 status-starting-playback = Uruchamianie odtwarzania…
 status-playing-next = Odtworzy się jako następne
 status-added-queue = Dodano do kolejki
+# In the system's list of what keeps the computer awake, while music plays.
+status-keeping-awake = Odtwarzanie muzyki
 status-removed-queue = Usunięto z kolejki
 status-cleared-queue = Wyczyszczono kolejkę
 status-removed-playlist = Usunięto z playlisty

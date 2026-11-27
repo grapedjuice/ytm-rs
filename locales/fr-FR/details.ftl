@@ -18,6 +18,11 @@ backend-offline = Impossible de joindre YouTube Music. Les titres téléchargés
 backend-offline-in-downloads = Impossible de joindre YouTube Music. Les titres téléchargés continuent d’être lus.
 backend-offline-proxy = Impossible de joindre YouTube Music via le proxy (Paramètres › Réseau › Proxy). Les titres téléchargés continuent d’être lus.
 backend-unreachable = impossible de joindre YouTube Music
+backend-proxy-region = YouTube Music n’est pas disponible depuis l’emplacement de votre proxy. Essayez un autre proxy ou serveur (Paramètres › Réseau)
+backend-signed-out = YouTube Music a déconnecté cette session ; reconnectez-vous
+# { $status } is an HTTP status code, like 500; { $message } is what YouTube Music said, as it said it.
+backend-http-status = YouTube Music a renvoyé HTTP { $status }
+backend-http-status-message = YouTube Music a renvoyé HTTP { $status } : { $message }
 backend-session-expired = Votre session YouTube a expiré. Reconnectez-vous pour retrouver votre bibliothèque.
 backend-empty-download = « { $title } » ne contient aucun titre à télécharger
 backend-rating = Évaluation du titre

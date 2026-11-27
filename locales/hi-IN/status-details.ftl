@@ -10,6 +10,7 @@ status-playlist-created = प्लेलिस्ट बनाई गई
 status-new-playlist-tracks = नई प्लेलिस्ट में ट्रैक जोड़े गए: { $count }
 status-playlist-added = प्लेलिस्ट में जोड़ा गया
 status-playlist-updated = प्लेलिस्ट अपडेट की गई
+status-picture-unreadable = वह चित्र पढ़ा नहीं जा सका। JPEG, PNG या WebP आज़माएँ।
 status-playlist-sorted = प्लेलिस्ट क्रमबद्ध
 status-playlist-sort-failed = प्लेलिस्ट को सॉर्ट नहीं किया जा सका
 status-playlist-move-failed = YouTube Music ने वह कदम नहीं उठाया

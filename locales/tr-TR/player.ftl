@@ -4,6 +4,8 @@
 # click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }. Kalan süreyi göster
 player-time-show-length = { $time }. Şarkı süresini göster
+# For screen readers, a song marked E: { $title } is its title.
+player-song-explicit = { $title }, Müstehcen
 
 # From the interface-wide catalog (#228).
 player-full-screen = Tam ekran
@@ -27,6 +29,10 @@ player-only-lyrics-source = Şarkı sözü kaynağı · yalnızca bir tane bulun
 player-lyrics-source-name = Şarkı sözü kaynağı: { $name }
 player-lyrics-from-unison = Unison şarkı sözleri
 player-lyrics-submitted-by = { $name } tarafından gönderildi
+# Under the lyrics, who wrote the song.
+player-lyrics-written-by = Söz yazarı: { $name }
+# { $names } is all but the last of them, between commas.
+player-lyrics-written-by-several = Söz yazarları: { $names } ve { $last }
 player-timing = Zamanlama
 player-lyrics-later = Şarkı sözleri daha sonra (+0,1 sn)
 player-lyrics-earlier = Şarkı sözleri daha erken (−0,1 sn)

@@ -10,6 +10,7 @@ status-playlist-created = สร้างเพลย์ลิสต์แล้
 status-new-playlist-tracks = เพิ่มเพลงในเพลย์ลิสต์ใหม่: { $count }
 status-playlist-added = เพิ่มไปยังเพลย์ลิสต์แล้ว
 status-playlist-updated = อัปเดตเพลย์ลิสต์แล้ว
+status-picture-unreadable = ไม่สามารถอ่านรูปภาพนั้นได้ ลองใช้ JPEG, PNG หรือ WebP
 status-playlist-sorted = จัดเรียงเพลย์ลิสต์แล้ว
 status-playlist-sort-failed = ไม่สามารถจัดเรียงเพลย์ลิสต์ได้
 status-playlist-move-failed = YouTube Music ไม่ได้ทำท่านั้น

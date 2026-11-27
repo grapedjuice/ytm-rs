@@ -18,6 +18,11 @@ backend-offline = 无法连接 YouTube Music。已下载的歌曲仍可播放，
 backend-offline-in-downloads = 无法连接 YouTube Music。已下载的歌曲仍可播放。
 backend-offline-proxy = 无法通过代理连接 YouTube Music（设置 › 网络 › 代理）。已下载的歌曲仍可播放。
 backend-unreachable = 无法连接 YouTube Music
+backend-proxy-region = 您的代理所在地区无法使用 YouTube Music。请尝试其他代理或服务器（设置 › 网络）
+backend-signed-out = YouTube Music 已退出此会话；请重新登录
+# { $status } is an HTTP status code, like 500; { $message } is what YouTube Music said, as it said it.
+backend-http-status = YouTube Music 返回了 HTTP { $status }
+backend-http-status-message = YouTube Music 返回了 HTTP { $status }：{ $message }
 backend-session-expired = 您的 YouTube 登录已过期。再次登录即可恢复您的图书馆。
 backend-empty-download = “{ $title }”没有歌曲可供下载
 backend-rating = 歌曲评级

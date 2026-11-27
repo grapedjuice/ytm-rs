@@ -18,6 +18,11 @@ backend-offline = YouTube Music is niet bereikbaar. Gedownloade nummers blijven 
 backend-offline-in-downloads = YouTube Music is niet bereikbaar. Gedownloade nummers blijven spelen.
 backend-offline-proxy = YouTube Music is via de proxy niet bereikbaar (Instellingen › Netwerk › Proxy). Gedownloade nummers blijven spelen.
 backend-unreachable = YouTube Music is niet bereikbaar
+backend-proxy-region = YouTube Music is niet beschikbaar vanaf de locatie van je proxy. Probeer een andere proxy of server (Instellingen › Netwerk)
+backend-signed-out = YouTube Music heeft deze sessie afgemeld; meld je opnieuw aan
+# { $status } is an HTTP status code, like 500; { $message } is what YouTube Music said, as it said it.
+backend-http-status = YouTube Music gaf HTTP { $status } terug
+backend-http-status-message = YouTube Music gaf HTTP { $status } terug: { $message }
 backend-session-expired = Je YouTube-aanmelding is verlopen. Log opnieuw in voor je bibliotheek.
 backend-empty-download = ‘{ $title }’ bevat geen nummers om te downloaden
 backend-rating = Nummerbeoordeling

@@ -10,6 +10,7 @@ status-playlist-created = Utworzono playlistę
 status-new-playlist-tracks = Dodano do nowej playlisty: { $count }
 status-playlist-added = Dodano do playlisty
 status-playlist-updated = Zaktualizowano playlistę
+status-picture-unreadable = Nie udało się odczytać tego obrazu. Spróbuj JPEG, PNG lub WebP.
 status-playlist-sorted = Posortowano playlistę
 status-playlist-sort-failed = Nie udało się posortować playlisty
 status-playlist-move-failed = YouTube Music nie zapisał przeniesienia

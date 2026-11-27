@@ -18,6 +18,11 @@ backend-offline = تعذّر الوصول إلى YouTube Music. الأغاني �
 backend-offline-in-downloads = تعذّر الوصول إلى YouTube Music. الأغاني المنزَّلة ما زالت تُشغَّل.
 backend-offline-proxy = تعذّر الوصول إلى YouTube Music عبر الوكيل (الإعدادات › الشبكة › الوكيل). الأغاني المنزَّلة ما زالت تُشغَّل.
 backend-unreachable = تعذّر الوصول إلى YouTube Music
+backend-proxy-region = YouTube Music غير متاح من الموقع الذي يتصل منه الوكيل. جرّب وكيلاً أو خادماً آخر (الإعدادات › الشبكة)
+backend-signed-out = قام YouTube Music بتسجيل خروج هذه الجلسة؛ سجّل الدخول مجدداً
+# { $status } is an HTTP status code, like 500; { $message } is what YouTube Music said, as it said it.
+backend-http-status = أعاد YouTube Music رمز HTTP { $status }
+backend-http-status-message = أعاد YouTube Music رمز HTTP { $status }: { $message }
 backend-session-expired = انتهت صلاحية تسجيل دخولك إلى YouTube. سجّل الدخول مجدداً لاستعادة مكتبتك.
 backend-empty-download = لا يحتوي «{ $title }» على أغانٍ للتحميل
 backend-rating = تقييم الأغنية

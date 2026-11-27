@@ -4,6 +4,8 @@
 # click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }. बचा हुआ समय दिखाएँ
 player-time-show-length = { $time }. गाने की लंबाई दिखाएँ
+# For screen readers, a song marked E: { $title } is its title.
+player-song-explicit = { $title }, स्पष्ट
 
 # From the interface-wide catalog (#228).
 player-full-screen = पूर्ण स्क्रीन
@@ -27,6 +29,10 @@ player-only-lyrics-source = गीत स्रोत · केवल एक ह
 player-lyrics-source-name = गीत स्रोत: { $name }
 player-lyrics-from-unison = Unison के बोल
 player-lyrics-submitted-by = { $name } ने भेजा
+# Under the lyrics, who wrote the song.
+player-lyrics-written-by = लेखक: { $name }
+# { $names } is all but the last of them, between commas.
+player-lyrics-written-by-several = लेखक: { $names } और { $last }
 player-timing = समय
 player-lyrics-later = गीत बाद में (+0.1 सेकेंड)
 player-lyrics-earlier = पहले के बोल (−0.1 सेकंड)

@@ -20,6 +20,7 @@ backend-offline-proxy = YouTube Music ist über den Proxy nicht erreichbar (Eins
 backend-unreachable = YouTube Music ist nicht erreichbar
 backend-proxy-region = YouTube Music ist am Standort deines Proxys nicht verfügbar. Versuche einen anderen Proxy oder Server (Einstellungen › Netzwerk)
 backend-signed-out = YouTube Music hat diese Sitzung abgemeldet. Melde dich erneut an
+# { $status } is an HTTP status code, like 500; { $message } is what YouTube Music said, as it said it.
 backend-http-status = YouTube Music hat HTTP { $status } zurückgegeben
 backend-http-status-message = YouTube Music hat HTTP { $status } zurückgegeben: { $message }
 backend-session-expired = Deine YouTube-Anmeldung ist abgelaufen. Melde dich erneut an, um deine Mediathek zu sehen.

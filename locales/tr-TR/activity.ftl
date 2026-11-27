@@ -4,6 +4,8 @@ status-link-copied = Bağlantı kopyalandı
 status-starting-playback = Oynatma başlatılıyor…
 status-playing-next = Sıradaki oynatılıyor
 status-added-queue = Sıraya eklendi
+# In the system's list of what keeps the computer awake, while music plays.
+status-keeping-awake = Müzik çalınıyor
 status-removed-queue = Sıradan kaldırıldı
 status-cleared-queue = Sıra temizlendi
 status-removed-playlist = Oynatma listesinden kaldırıldı

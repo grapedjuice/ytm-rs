@@ -32,6 +32,15 @@ window-loading-notes = جارٍ تحميل ملاحظات الإصدار…
 window-later = لاحقاً
 window-updated = تم التحديث إلى { $version }
 window-what-changed = إليك ما تغيّر.
+# Last in the card shown after updating, for the changes it leaves out.
+window-more-changes = { $count ->
+    [zero] + { $count } تغيير إضافي
+    [one] + تغيير واحد إضافي
+    [two] + تغييران إضافيان
+    [few] + { $count } تغييرات إضافية
+    [many] + { $count } تغييراً إضافياً
+   *[other] + { $count } تغيير إضافي
+}
 window-dismiss = تجاهل
 window-all-notes = عرض كل الملاحظات
 window-got-it = حسناً

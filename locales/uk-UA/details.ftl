@@ -18,6 +18,11 @@ backend-offline = Не вдається зв’язатися з YouTube Music. 
 backend-offline-in-downloads = Не вдається зв’язатися з YouTube Music. Завантажені треки грають далі.
 backend-offline-proxy = Не вдається зв’язатися з YouTube Music через проксі (Налаштування › Мережа › Проксі). Завантажені треки грають далі.
 backend-unreachable = не вдається зв’язатися з YouTube Music
+backend-proxy-region = YouTube Music недоступний у регіоні вашого проксі. Спробуйте інший проксі або сервер (Налаштування › Мережа)
+backend-signed-out = YouTube Music завершив цю сесію; увійдіть знову
+# { $status } is an HTTP status code, like 500; { $message } is what YouTube Music said, as it said it.
+backend-http-status = YouTube Music повернув HTTP { $status }
+backend-http-status-message = YouTube Music повернув HTTP { $status }: { $message }
 backend-session-expired = Сеанс YouTube сплив. Увійдіть знову, щоб відкрити бібліотеку.
 backend-empty-download = У «{ $title }» немає треків для завантаження
 backend-rating = Оцінка треку

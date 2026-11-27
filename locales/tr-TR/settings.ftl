@@ -15,10 +15,24 @@ settings-account = Hesap
 settings-general = Genel
 settings-keyboard-shortcuts = Klavye kısayolları
 settings-about = Hakkında
+settings-content-and-ratings = İçerik ve derecelendirmeler
+settings-advanced = Gelişmiş
+# The headings the categories are grouped under, down the side.
+settings-group-listening = Dinleme
+settings-group-look = Görünüm
+settings-group-accounts = Hesaplar
+settings-group-app = Uygulama
+# Above the settings a search finds, where a category's name goes otherwise.
+settings-search-results = Arama sonuçları
+# Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
+settings-content = İçerik
+settings-colours = Renkler
 settings-no-match = "{ $query }" ile eşleşen ayar yok
 settings-title = Ayarlar
 settings-search-box = Ayarlarda ara
 settings-clear = Temizle
+# A button above the settings, there while one changed here waits for the next start.
+settings-restart-to-apply = Değişikliği uygulamak için yeniden başlat
 
 ## Account
 
@@ -95,6 +109,8 @@ settings-output-device-desc-system = Müziğin çaldığı yer: bu bilgisayarın
 settings-this-computer = Bu bilgisayar
 settings-on-your-network = Ağınızda
 settings-playing-on = { $name } üzerinde çalıyor
+# The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
+settings-play-on-picked = Şurada çal: { $name }
 settings-connecting-to = { $name } bağlantısı kuruluyor…
 settings-couldnt-play-on = { $name } üzerinde çalınamadı: bu bilgisayarda çalıyor
 settings-windows-default = Windows varsayılan
@@ -103,6 +119,11 @@ settings-not-connected = { $name } (bağlı değil)
 settings-normalization-off-desc = Şarkılar, yapıldıkları kadar yüksek sesle çalınır. Normal hepsini aynı seviyeye, Sessiz ise aynı, daha düşük seviyeye getirir.
 settings-normalization-normal-desc = Şarkılar aynı seviyede çalınır: YouTube Music'de olduğu gibi yüksek sesli şarkılar kısılır, sessiz şarkılar ise 6 dB'e kadar yükseltilir.
 settings-normalization-quiet-desc = Şarkılar aynı, daha düşük seviyede çalınır: yüksek sesli olanların sesi daha da kısılır, dolayısıyla sessiz olanların sesinin yükseltilmesine nadiren ihtiyaç duyulur.
+# After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
+settings-normalization-song-no-figure = Bu şarkı: YouTube’dan ses yüksekliği bilgisi yok, olduğu gibi çalınıyor.
+settings-normalization-song-level = Bu şarkı: zaten hedef seviyede.
+settings-normalization-song-up = Bu şarkı: { $db } dB yükseltildi.
+settings-normalization-song-down = Bu şarkı: { $db } dB düşürüldü.
 settings-headphone-crossfeed = Kulaklık çapraz beslemesi
 settings-headphone-crossfeed-desc = Her kulağın, önünüzdeki hoparlörlerden olduğu gibi diğer tarafın bas sesini biraz duymasına izin verin, böylece bir tarafa sert bir şekilde kaydırılan şarkılar, kulaklar için kulaklıklara göre daha kolay olur.
 settings-mono-audio = Mono ses
@@ -118,6 +139,17 @@ settings-equalizer-desc = Sesi derin bastan tize doğru şekillendirin. Yalnızc
 settings-preset = Ön Ayar
 settings-custom = Özel
 settings-equalizer-preset = Ekolayzer ön ayarı
+# The equalizer's presets.
+settings-eq-flat = Düz
+settings-eq-bass-boost = Bas artırma
+settings-eq-treble-boost = Tiz artırma
+settings-eq-vocal = Vokal
+settings-eq-rock = Rock
+settings-eq-pop = Pop
+settings-eq-electronic = Elektronik
+settings-eq-acoustic = Akustik
+settings-eq-classical = Klasik
+settings-eq-late-night = Gece
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = Ekolayzer bantları bas orta tiz frekansı
 settings-prevent-clipping = Kırpmayı önle
@@ -127,10 +159,13 @@ settings-0-db = 0 dB
 ## Playback speed
 
 settings-playback-speed = Oynatma hızı
-settings-playback-speed-desc = Oynatıcı çubuğundaki bir düğmeyi kullanarak şarkıları daha hızlı veya daha yavaş çalın. Bir plak gibi, daha hızlı daha yüksek, daha yavaş ise daha alçak ses çıkarır. Şarkı sözleri, zamanın içinde kalıyor. ytm-rs her başlatıldığında 1×'e geri döner.
+settings-playback-speed-desc = Şarkıları daha hızlı veya daha yavaş ya da başka bir tonda çalın; oynatıcı çubuğundaki düğmeden de erişilebilir. Şarkı sözleri senkronize kalır. ytm-rs her başladığında normale döner.
 settings-speed = Hız
 settings-keep-pitch = Perdeyi koru
 settings-keep-pitch-desc = Daha tiz veya daha pes olmadan hızlanır ya da yavaşlar. Kapalıyken perde hıza göre değişir, plak gibi.
+settings-speed-pitch = Hız ve perde
+settings-transpose = Transpoze
+settings-transpose-desc = Aynı hızda yarım tonlarla daha tiz veya daha pes. 12 bir oktavdır.
 settings-playback-speed-jam-note = Sıkışıklık içindeyken normale dönün, böylece herkes aynı şarkıyı duyar.
 
 ## Music videos
@@ -224,6 +259,8 @@ settings-background-brightness = Arka plan parlaklığı
 settings-background-brightness-desc = Şimdi oynatılıyor ekranının ve sayfaların arkasındaki kapağı açar veya koyulaştırır. %100 temanın kendi parlaklığıdır.
 settings-brighter = Daha parlak
 settings-darker = Daha koyu
+settings-animation-speed = Animasyon hızı
+settings-animation-speed-desc = Sayfaların, menülerin ve panellerin hareket ve belirme hızı. Şarkı sözleri şarkıyla senkronize kalır. %100 temanın kendi hızıdır.
 settings-flat-background = Düz arka plan
 settings-flat-background-desc = Sayfaların ve Şimdi çalıyor'un arkasında tek renk. Kapak ve geçiş yok.
 settings-flat-background-colour = Arka plan rengi
@@ -280,6 +317,15 @@ settings-app-icon = Uygulama simgesi
 settings-preview = Önizleme
 settings-preview-desc = Görev çubuğunda ve tepside nasıl göründüğü.
 settings-app-icon-named = Uygulama simgesi: { $name }
+# The app icons' names. "YT Music" and "Fluent" stay as they are.
+settings-app-icon-classic = Klasik
+settings-app-icon-smile-ring = Gülümseyen halka
+settings-app-icon-rust-gear = Rust dişlisi
+settings-app-icon-waveform = Dalga formu
+settings-app-icon-record = Plak
+settings-app-icon-lit-line = Işıklı çizgi
+settings-app-icon-duet = Düet
+settings-app-icon-warp = Warp
 
 ## Connections
 
@@ -287,6 +333,8 @@ settings-stream-deck = Stream Deck
 settings-stream-deck-desc = Bu bilgisayardaki bir Stream Deck eklentisinin oynatmayı kontrol etmesine izin verin.
 settings-lastfm-connected = Oynadığınız içerik { $name }'nin profiline aktarılıyor.
 settings-lastfm-allow = Tarayıcınızda açılan Last.fm sayfasında ytm-rs'ye izin verin.
+# After "Last.fm: ", when signing in wasn't allowed on that page in time.
+settings-lastfm-not-allowed = Last.fm için zamanında izin verilmedi
 settings-lastfm-desc = Oynattığınız şeyi Last.fm profilinize scrobble yapın.
 settings-disconnect = Bağlantıyı kes
 settings-connect = Bağlan
@@ -295,6 +343,9 @@ settings-listenbrainz-desc = Oynadıklarınızı ListenBrainz profilinize gönde
 settings-user-token = Kullanıcı jetonu
 settings-listenbrainz-token-hint = ListenBrainz kullanıcı belirtecinizi yapıştırın
 settings-listenbrainz-token-link = Listenbrainz.org'dan jetonunuzu alın
+# After "ListenBrainz: ", when Connect is pressed.
+settings-listenbrainz-token-missing = önce kullanıcı belirtecinizi yapıştırın
+settings-listenbrainz-token-refused = ListenBrainz bu belirteci kabul etmedi
 
 ## Language
 
@@ -302,7 +353,6 @@ settings-listenbrainz-token-link = Listenbrainz.org'dan jetonunuzu alın
 settings-language-system = Sistem ({ $language })
 settings-language = Dil
 settings-language-desc = Uygulama arayüzünün dili. Şarkı adları, isimler ve YouTube Music bölümleri aşağıda seçilen şarkı bilgisi dilinde gösterilir.
-settings-restart-to-apply = Değişikliği uygulamak için yeniden başlat
 settings-language-restart-desc = Dil değişikliği, uygulamayı yeniden açtığınızda uygulanır.
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
@@ -322,6 +372,11 @@ settings-home = Ana Sayfa
 settings-close-to-tray-desc-linux = Tepside bir simge tutar. × öğesine tıklamak oradaki pencereyi gizler ve müziğin çalmaya devam etmesini sağlar. Simgenin menüsü onu geri getirir, gizler veya çıkar. Sistemin medya kontrollerinde şarkıya tıklamak da şarkıyı geri getirir ve Ctrl+Q sonlandırılır.
 settings-close-to-tray-desc = Tepside bir simge tutar. × öğesine tıklamak oradaki pencereyi gizler ve müziğin çalmaya devam etmesini sağlar. Geri getirmek için simgeye tıklayın veya gizlemek, göstermek veya çıkmak için sağ tıklayın.
 settings-close-to-tray = Kapatınca sistem tepsisine küçült
+settings-tray-click-plays = Oynatmak veya duraklatmak için tepsi simgesine tıklayın
+settings-tray-click-plays-desc = Simgeye tıklamak pencereyi öne getirmek yerine kısa bir an sonra oynatır veya duraklatır. Çift tıklama pencereyi öne getirir; çalacak bir şey yokken tıklamak da öyle.
+# Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
+settings-tray-no-gtk = Tepsi simgesi GTK gerektirir, ancak başlatılamadı ({ $error }).
+settings-tray-no-appindicator = Tepsi simgesi yüklü olmayan AppIndicator kitaplığını gerektirir: Debian ve Ubuntu’da libayatana-appindicator3-1, Fedora’da libayatana-appindicator-gtk3 (Bazzite, Silverblue ve diğer atomik sistemlerde: rpm-ostree install libayatana-appindicator-gtk3, ardından bilgisayarı yeniden başlatın), Arch’ta libayatana-appindicator.
 settings-song-notifications-desc = Pencere simge durumuna küçültülmüş haldeyken, tepside veya diğer pencerelerin arkasında yeni bir şarkı başladığında, bir bildirimde şarkının başlığını, sanatçısını ve kapağını gösterin.
 settings-song-notifications-unavailable = Yüklü uygulamaya ihtiyaç var: Windows yalnızca Başlat menüsündeki uygulamalardan gelen bildirimleri gösterir.
 settings-song-notifications = Şarkı bildirimleri
@@ -390,11 +445,25 @@ settings-test-connection = Bağlantıyı test edin
 settings-test = Test
 settings-test-working = Çalışıyor: YouTube Music, { $ms } ms'de yanıtlandı.
 settings-test-failed = Bağlanmadı: { $error }
+# Under the proxy address, when it isn't one.
+settings-proxy-not-an-address = bu bir proxy adresi değil, örneğin http://127.0.0.1:8080
+settings-proxy-scheme = http:// veya socks5:// adresi kullanın
+settings-proxy-no-host = adres için bir ana bilgisayar gerekiyor
+settings-proxy-no-port = adres için bir bağlantı noktası gerekiyor, örneğin :8080
+# After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
+settings-proxy-not-answering = { $address } adresinde yanıt yok. Proxy çalışıyor mu?
+settings-proxy-timed-out = proxy zamanında yanıt vermedi.
+settings-proxy-sign-in-refused = proxy kullanıcı adını veya parolayı kabul etmedi.
+settings-proxy-not-found = bu proxy’nin adresi bulunamadı.
 settings-proxy-restart-desc = Yeni proxy ayarı bir sonraki başlangıçtan itibaren kullanılır.
 
 ## Storage
 
 settings-cache-cleared = Önbellek temizlendi: { $size } serbest bırakıldı
+# How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
+settings-size-mb = { $size } MB
+settings-size-gb = { $size } GB
+settings-size-under-mb = 1 MB’tan az
 settings-storage = Depolama
 settings-clearing = Temizleniyor…
 settings-measuring = Ölçülüyor…
@@ -452,6 +521,9 @@ settings-download = İndir
 settings-check-now = Şimdi kontrol et
 settings-another-copy = Başka bir kopya
 settings-another-copy-desc = ytm-rs ayrıca { $kind }'den yüklenir. Bu kopyayı kaldırmak için { $cmd } komutunu çalıştırın
+# { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
+settings-another-copy-deb = .deb paketi
+settings-another-copy-arch = Arch paketi
 settings-whats-new = Yenilikler
 settings-whats-new-in = { $version }'deki yenilikler
 

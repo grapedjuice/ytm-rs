@@ -10,6 +10,7 @@ status-playlist-created = プレイリストを作成しました
 status-new-playlist-tracks = 新しいプレイリストに { $count } 曲を追加しました
 status-playlist-added = プレイリストに追加しました
 status-playlist-updated = プレイリストを更新しました
+status-picture-unreadable = その画像を読み込めませんでした。JPEG、PNG、または WebP をお試しください。
 status-playlist-sorted = プレイリストを並べ替えました
 status-playlist-sort-failed = プレイリストを並べ替えられませんでした
 status-playlist-move-failed = 曲の移動を YouTube Music が保存しませんでした

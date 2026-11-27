@@ -4,6 +4,8 @@ status-link-copied = 連結已複製
 status-starting-playback = 開始播放...
 status-playing-next = 下一個播放
 status-added-queue = 已新增至佇列
+# In the system's list of what keeps the computer awake, while music plays.
+status-keeping-awake = 正在播放音樂
 status-removed-queue = 已從佇列中刪除
 status-cleared-queue = 佇列已清除
 status-removed-playlist = 已從播放清單中刪除

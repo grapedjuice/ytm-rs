@@ -22,6 +22,12 @@ transfer-estimate = { $count } 曲の検索に約 { $time } かかります。�
 transfer-listen-while-running = 移行中も音楽を聴けます。
 transfer-pick-playlist = コピーするプレイリストを選んでください。
 transfer-playlist = プレイリスト
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = お気に入りの曲
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = コピーする内容
+transfer-step-where = コピー先
+transfer-step-new-playlist = 新しい YouTube Music プレイリスト
 transfer-spotify-account = Spotify アカウント
 transfer-signed-in-plan = ログイン済み · Free と Premium に対応
 transfer-signed-in-as = { $name } でログイン済み
@@ -103,6 +109,10 @@ transfer-progress-of = / { $count } · { $state }
 transfer-remaining = 残り約 { $time }
 transfer-readding = 再追加中
 transfer-readding-reason = YouTube Music が保存しなかった高評価を再度付けています
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = 高く評価した音楽を確認中
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = アプリ内の高評価の変更が完了するのを待機中
 transfer-adding = 追加中
 transfer-local-file = ローカル ファイル
 transfer-on-spotify-index = Spotify · { $current } / { $total }
@@ -123,3 +133,28 @@ transfer-progress-searching = 検索済み
 transfer-reviewing-doubtful = 曖昧な候補を確認中
 transfer-review-picked = 選択済み
 transfer-review-kept = 維持
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = Spotify のサインインを保存できませんでした: { $error }
+transfer-error-read-library = Spotify ライブラリを読み込めませんでした: { $error }
+transfer-error-progress-saved = { $error }。進行状況は保存されています。再試行すると中断した箇所から再開します。
+transfer-error-account-changed = 停止しました: YouTube Music のアカウントまたはチャンネルが変更されました
+transfer-error-liked-signed-out = お気に入りの曲をコピーするには Spotify にサインインしてください
+transfer-error-not-searched = { $count } 曲を検索できませんでした（接続なし、または YouTube Music がリクエストを制限しています）
+transfer-error-none-found = YouTube Music で曲が見つかりませんでした
+transfer-error-signed-out = YouTube Music からサインアウトされました。もう一度サインインして再試行してください
+transfer-error-create = プレイリストの作成に失敗しました
+transfer-error-add = プレイリストへの曲の追加に失敗しました
+transfer-error-read-liked = 高く評価した音楽の読み込みに失敗しました
+transfer-error-not-answering = 高評価の追加に失敗しました: YouTube Music からの応答が停止しました
+transfer-error-like = 曲の高評価に失敗しました
+transfer-error-not-spotify-link = open.spotify.com のリンクではありません
+transfer-error-not-playlist-link = プレイリストのリンクではありません
+transfer-error-not-spotify-playlist = Spotify プレイリストのリンクではありません
+transfer-error-playlist-not-found = Spotify でそのプレイリストが見つかりませんでした。非公開の場合は先に Spotify にサインインしてください
+transfer-error-no-songs = その Spotify プレイリストには曲がありません
+transfer-error-library-sign-in = Spotify からライブラリが返されませんでした。Spotify にもう一度サインインしてください
+transfer-error-liked-sign-in = Spotify からお気に入りの曲が返されませんでした。Spotify にもう一度サインインしてください
+transfer-error-expired = Spotify のサインイン期限が切れました。Spotify にもう一度サインインしてください

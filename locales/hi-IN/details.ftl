@@ -18,6 +18,11 @@ backend-offline = YouTube Music तक नहीं पहुँच पा र�
 backend-offline-in-downloads = YouTube Music तक नहीं पहुँच पा रहे। डाउनलोड किए गाने चलते रहते हैं।
 backend-offline-proxy = प्रॉक्सी के ज़रिए YouTube Music तक नहीं पहुँच पा रहे (सेटिंग › नेटवर्क › प्रॉक्सी)। डाउनलोड किए गाने चलते रहते हैं।
 backend-unreachable = YouTube Music तक नहीं पहुँच पा रहे
+backend-proxy-region = जहाँ से आपका प्रॉक्सी जुड़ता है वहाँ YouTube Music उपलब्ध नहीं है। कोई अन्य प्रॉक्सी या सर्वर आज़माएँ (सेटिंग्स › नेटवर्क)
+backend-signed-out = YouTube Music ने इस सत्र को साइन आउट कर दिया है; फिर से साइन इन करें
+# { $status } is an HTTP status code, like 500; { $message } is what YouTube Music said, as it said it.
+backend-http-status = YouTube Music ने HTTP { $status } लौटाया
+backend-http-status-message = YouTube Music ने HTTP { $status } लौटाया: { $message }
 backend-session-expired = आपका YouTube साइन-इन समाप्त हो गया है। अपनी लाइब्रेरी वापस पाने के लिए फिर से साइन इन करें।
 backend-empty-download = “{ $title }” में डाउनलोड करने के लिए कोई गाना नहीं है
 backend-rating = गाने की रेटिंग

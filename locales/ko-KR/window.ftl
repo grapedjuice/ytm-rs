@@ -32,6 +32,8 @@ window-loading-notes = 릴리스 노트 로드 중…
 window-later = 나중에
 window-updated = { $version }로 업데이트됨
 window-what-changed = 변경된 사항은 다음과 같습니다.
+# Last in the card shown after updating, for the changes it leaves out.
+window-more-changes = + { $count }개 변경 사항 더 있음
 window-dismiss = 닫기
 window-all-notes = 모든 노트 보기
 window-got-it = 알았어요

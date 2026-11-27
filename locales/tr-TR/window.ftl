@@ -32,6 +32,8 @@ window-loading-notes = Sürüm notları yükleniyor…
 window-later = Daha sonra
 window-updated = { $version }'ye güncellendi
 window-what-changed = İşte değişenler.
+# Last in the card shown after updating, for the changes it leaves out.
+window-more-changes = + { $count } değişiklik daha
 window-dismiss = Reddet
 window-all-notes = Tüm notları görün
 window-got-it = Anladım

@@ -4,6 +4,8 @@
 # click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }。残り時間を表示
 player-time-show-length = { $time }。曲の長さを表示
+# For screen readers, a song marked E: { $title } is its title.
+player-song-explicit = { $title }、露骨な表現
 
 # From the interface-wide catalog (#228).
 player-full-screen = 全画面表示
@@ -27,6 +29,10 @@ player-only-lyrics-source = 歌詞の配信元 · 1 件のみ
 player-lyrics-source-name = 歌詞の配信元：{ $name }
 player-lyrics-from-unison = Unison の歌詞
 player-lyrics-submitted-by = { $name } が提出
+# Under the lyrics, who wrote the song.
+player-lyrics-written-by = 作詞: { $name }
+# { $names } is all but the last of them, between commas.
+player-lyrics-written-by-several = 作詞: { $names }・{ $last }
 player-timing = タイミング
 player-lyrics-later = 歌詞を遅らせる（+0.1 秒）
 player-lyrics-earlier = 歌詞を早める（−0.1 秒）

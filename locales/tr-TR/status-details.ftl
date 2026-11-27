@@ -10,6 +10,7 @@ status-playlist-created = Oynatma listesi oluşturuldu
 status-new-playlist-tracks = Yeni çalma listesine eklenen parçalar: { $count }
 status-playlist-added = Çalma listesine eklendi
 status-playlist-updated = Oynatma listesi güncellendi
+status-picture-unreadable = Bu resim okunamadı. JPEG, PNG veya WebP deneyin.
 status-playlist-sorted = Oynatma listesi sıralandı
 status-playlist-sort-failed = Çalma listesi sıralanamadı
 status-playlist-move-failed = YouTube Music bu hamleyi yapmadı

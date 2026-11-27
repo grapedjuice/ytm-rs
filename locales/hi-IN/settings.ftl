@@ -15,10 +15,24 @@ settings-account = खाता
 settings-general = सामान्य
 settings-keyboard-shortcuts = कीबोर्ड शॉर्टकट
 settings-about = ऐप के बारे में
+settings-content-and-ratings = सामग्री और रेटिंग
+settings-advanced = उन्नत
+# The headings the categories are grouped under, down the side.
+settings-group-listening = सुनना
+settings-group-look = दिखावट
+settings-group-accounts = खाते
+settings-group-app = ऐप
+# Above the settings a search finds, where a category's name goes otherwise.
+settings-search-results = खोज परिणाम
+# Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
+settings-content = सामग्री
+settings-colours = रंग
 settings-no-match = कोई भी सेटिंग “{ $query }” से मेल नहीं खाती
 settings-title = सेटिंग
 settings-search-box = सेटिंग में खोजें
 settings-clear = साफ़ करें
+# A button above the settings, there while one changed here waits for the next start.
+settings-restart-to-apply = लागू करने के लिए ऐप फिर से शुरू करें
 
 ## Account
 
@@ -95,6 +109,8 @@ settings-output-device-desc-system = संगीत कहाँ बजता �
 settings-this-computer = यह कंप्यूटर
 settings-on-your-network = आपके नेटवर्क पर
 settings-playing-on = { $name } पर चल रहा है
+# The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
+settings-play-on-picked = इस पर चलाएँ: { $name }
 settings-connecting-to = { $name } से जुड़ रहा है…
 settings-couldnt-play-on = { $name } पर नहीं चला सके: इस कंप्यूटर पर चल रहा है
 settings-windows-default = Windows डिफ़ॉल्ट
@@ -103,6 +119,11 @@ settings-not-connected = { $name } (कनेक्टेड नहीं)
 settings-normalization-off-desc = गाने उतनी ही तेज़ आवाज़ में बजते हैं जितनी ऊँची आवाज़ में बजते हैं। सामान्य उन सभी को एक ही स्तर पर लाता है, और शांत एक समान, निचले स्तर पर लाता है।
 settings-normalization-normal-desc = गाने समान स्तर पर बजते हैं: तेज़ आवाज़ वाले गाने कम कर दिए जाते हैं, जैसे YouTube Music पर, और शांत गाने 6 डीबी तक तेज़ कर दिए जाते हैं।
 settings-normalization-quiet-desc = गाने उसी स्तर पर, निचले स्तर पर बजते हैं: ऊंचे स्तर के गाने और नीचे बजते हैं, इसलिए शांत गानों को शायद ही कभी बजने की जरूरत पड़ती है।
+# After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
+settings-normalization-song-no-figure = यह गाना: YouTube से लाउडनेस मान नहीं मिला, इसलिए यह जैसा है वैसा ही चलता है।
+settings-normalization-song-level = यह गाना: पहले से सही स्तर पर है।
+settings-normalization-song-up = यह गाना: { $db } dB बढ़ाया गया।
+settings-normalization-song-down = यह गाना: { $db } dB घटाया गया।
 settings-headphone-crossfeed = हेडफोन क्रॉसफ़ीड
 settings-headphone-crossfeed-desc = प्रत्येक कान को दूसरी तरफ के बास को थोड़ा-थोड़ा सुनने दें, जैसे कि आपके सामने वाले स्पीकर से, ताकि एक तरफ जोर से चलाए गए गाने हेडफ़ोन पर कानों पर आसानी से सुनाई दें।
 settings-mono-audio = मोनो ऑडियो
@@ -118,6 +139,17 @@ settings-equalizer-desc = ध्वनि को गहरे बास से �
 settings-preset = प्रीसेट
 settings-custom = कस्टम
 settings-equalizer-preset = इक्वलाइज़र प्रीसेट
+# The equalizer's presets.
+settings-eq-flat = समतल
+settings-eq-bass-boost = बास बूस्ट
+settings-eq-treble-boost = ट्रेबल बूस्ट
+settings-eq-vocal = वोकल
+settings-eq-rock = रॉक
+settings-eq-pop = पॉप
+settings-eq-electronic = इलेक्ट्रॉनिक
+settings-eq-acoustic = अकॉस्टिक
+settings-eq-classical = शास्त्रीय
+settings-eq-late-night = देर रात
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = इक्वलाइज़र बैंड बास मध्य तिगुना आवृत्ति
 settings-prevent-clipping = क्लिपिंग रोकें
@@ -127,10 +159,13 @@ settings-0-db = 0 डीबी
 ## Playback speed
 
 settings-playback-speed = प्लेबैक गति
-settings-playback-speed-desc = प्लेयर बार के एक बटन से भी गाने तेज या धीमी गति से चलाएं। तेज़ ध्वनि ऊँची और धीमी धीमी, एक रिकॉर्ड की तरह। गीत समय में रहते हैं. हर बार ytm-rs प्रारंभ होने पर 1× पर वापस जाएँ।
+settings-playback-speed-desc = गानों को तेज़ या धीमा, या किसी अन्य स्वर में चलाएँ, प्लेयर बार के बटन से भी। बोल समय के साथ सिंक रहते हैं। ytm-rs हर बार शुरू होने पर सामान्य हो जाता है।
 settings-speed = गति
 settings-keep-pitch = पिच बनाए रखें
 settings-keep-pitch-desc = तेज़ या धीमा, बिना ऊँचा या नीचा सुनाई दिए। बंद होने पर पिच गति के साथ बदलती है, रिकॉर्ड की तरह।
+settings-speed-pitch = गति और पिच
+settings-transpose = ट्रांसपोज़
+settings-transpose-desc = उसी गति पर सेमीटोन से ऊपर या नीचे। 12 एक ऑक्टेव है।
 settings-playback-speed-jam-note = जब आप जाम में हों तो वापस सामान्य हो जाएं, ताकि हर कोई एक ही गाना सुन सके।
 
 ## Music videos
@@ -224,6 +259,8 @@ settings-background-brightness = पृष्ठभूमि की चमक
 settings-background-brightness-desc = अभी चल रहा है और पन्नों के पीछे कवर को हल्का या गहरा करता है। 100% थीम की अपनी चमक है।
 settings-brighter = अधिक चमकीला
 settings-darker = अधिक गहरा
+settings-animation-speed = एनीमेशन गति
+settings-animation-speed-desc = पेज, मेनू और पैनल कितनी तेज़ी से चलते और दिखते हैं। बोल गाने के साथ समय पर रहते हैं। 100% थीम की अपनी गति है।
 settings-flat-background = सपाट पृष्ठभूमि
 settings-flat-background-desc = पृष्ठों और अभी चल रहा है के पीछे एक ही रंग, बिना कवर और बिना ग्रेडिएंट.
 settings-flat-background-colour = पृष्ठभूमि का रंग
@@ -280,6 +317,15 @@ settings-app-icon = ऐप आइकन
 settings-preview = पूर्वावलोकन
 settings-preview-desc = यह टास्कबार और ट्रे में कैसा दिखता है।
 settings-app-icon-named = ऐप आइकन: { $name }
+# The app icons' names. "YT Music" and "Fluent" stay as they are.
+settings-app-icon-classic = क्लासिक
+settings-app-icon-smile-ring = स्माइल रिंग
+settings-app-icon-rust-gear = रस्ट गियर
+settings-app-icon-waveform = वेवफ़ॉर्म
+settings-app-icon-record = रिकॉर्ड
+settings-app-icon-lit-line = लिट लाइन
+settings-app-icon-duet = डुएट
+settings-app-icon-warp = वार्प
 
 ## Connections
 
@@ -287,6 +333,8 @@ settings-stream-deck = Stream Deck
 settings-stream-deck-desc = इस कंप्यूटर पर एक Stream Deck प्लगइन को प्लेबैक नियंत्रित करने दें।
 settings-lastfm-connected = आप जो भी खेलते हैं उसे { $name } की प्रोफ़ाइल पर स्क्रॉल करें।
 settings-lastfm-allow = अपने ब्राउज़र में खुले Last.fm पेज पर ytm-rs को अनुमति दें।
+# After "Last.fm: ", when signing in wasn't allowed on that page in time.
+settings-lastfm-not-allowed = Last.fm को समय पर अनुमति नहीं मिली
 settings-lastfm-desc = आप अपनी Last.fm प्रोफ़ाइल पर जो भी खेलते हैं उसे स्क्रोबल करें।
 settings-disconnect = डिस्कनेक्ट करें
 settings-connect = कनेक्ट करें
@@ -295,6 +343,9 @@ settings-listenbrainz-desc = आप जो भी खेलते हैं उ�
 settings-user-token = उपयोगकर्ता टोकन
 settings-listenbrainz-token-hint = अपना ListenBrainz उपयोगकर्ता टोकन चिपकाएँ
 settings-listenbrainz-token-link = listenbrainz.org पर अपना टोकन प्राप्त करें
+# After "ListenBrainz: ", when Connect is pressed.
+settings-listenbrainz-token-missing = पहले अपना उपयोगकर्ता टोकन पेस्ट करें
+settings-listenbrainz-token-refused = ListenBrainz ने उस टोकन को स्वीकार नहीं किया
 
 ## Language
 
@@ -302,7 +353,6 @@ settings-listenbrainz-token-link = listenbrainz.org पर अपना टो�
 settings-language-system = सिस्टम की भाषा ({ $language })
 settings-language = भाषा
 settings-language-desc = ऐप के इंटरफ़ेस की भाषा। गानों के शीर्षक, नाम और YouTube Music के सेक्शन नीचे चुनी गई गानों की जानकारी की भाषा में दिखते हैं।
-settings-restart-to-apply = लागू करने के लिए ऐप फिर से शुरू करें
 settings-language-restart-desc = अगली बार ऐप खोलने पर नई भाषा लागू होगी।
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
@@ -322,6 +372,11 @@ settings-home = होम
 settings-close-to-tray-desc-linux = ट्रे में एक आइकन रखता है। × क्लिक करने से विंडो छिप जाती है और संगीत बजता रहता है। आइकन का मेनू इसे वापस लाता है, छुपाता है या छोड़ देता है। सिस्टम के मीडिया नियंत्रण में गाने पर क्लिक करने से वह भी वापस आ जाता है, और Ctrl+Q बंद हो जाता है।
 settings-close-to-tray-desc = ट्रे में एक आइकन रखता है। × क्लिक करने से विंडो छिप जाती है और संगीत बजता रहता है। इसे वापस लाने के लिए आइकन पर क्लिक करें, या छिपाने, दिखाने या छोड़ने के लिए राइट-क्लिक करें।
 settings-close-to-tray = बंद करने पर सिस्टम ट्रे में रखें
+settings-tray-click-plays = चलाने या रोकने के लिए ट्रे आइकन पर क्लिक करें
+settings-tray-click-plays-desc = आइकन पर एक क्लिक विंडो को सामने लाने के बजाय थोड़ी देर बाद चलाता या रोकता है। डबल-क्लिक विंडो को सामने लाता है, और जब कुछ न चल रहा हो तब क्लिक भी।
+# Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
+settings-tray-no-gtk = ट्रे आइकन को GTK की आवश्यकता है, जो शुरू नहीं हो सका ({ $error })।
+settings-tray-no-appindicator = ट्रे आइकन को AppIndicator लाइब्रेरी की आवश्यकता है, जो इंस्टॉल नहीं है: Debian और Ubuntu पर libayatana-appindicator3-1, Fedora पर libayatana-appindicator-gtk3 (Bazzite, Silverblue और अन्य एटॉमिक सिस्टम पर: rpm-ostree install libayatana-appindicator-gtk3, फिर कंप्यूटर रीस्टार्ट करें), Arch पर libayatana-appindicator।
 settings-song-notifications-desc = जब कोई नया गाना विंडो के छोटा होने पर, ट्रे में या अन्य विंडो के पीछे शुरू होता है, तो एक अधिसूचना में उसका शीर्षक, कलाकार और कवर दिखाएं।
 settings-song-notifications-unavailable = इंस्टॉल किए गए ऐप की आवश्यकता है: Windows केवल स्टार्ट मेनू में ऐप्स से सूचनाएं दिखाता है।
 settings-song-notifications = गाने की सूचनाएं
@@ -390,11 +445,25 @@ settings-test-connection = परीक्षण कनेक्शन
 settings-test = परीक्षण
 settings-test-working = कार्य: YouTube Music ने { $ms } एमएस में उत्तर दिया।
 settings-test-failed = कनेक्ट नहीं हुआ: { $error }
+# Under the proxy address, when it isn't one.
+settings-proxy-not-an-address = यह प्रॉक्सी पता नहीं है, जैसे http://127.0.0.1:8080
+settings-proxy-scheme = http:// या socks5:// पता उपयोग करें
+settings-proxy-no-host = पते में होस्ट होना चाहिए
+settings-proxy-no-port = पते में पोर्ट होना चाहिए, जैसे :8080
+# After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
+settings-proxy-not-answering = { $address } पर कोई उत्तर नहीं दे रहा है। क्या प्रॉक्सी चल रहा है?
+settings-proxy-timed-out = प्रॉक्सी ने समय पर उत्तर नहीं दिया।
+settings-proxy-sign-in-refused = प्रॉक्सी ने उपयोगकर्ता नाम या पासवर्ड स्वीकार नहीं किया।
+settings-proxy-not-found = उस प्रॉक्सी का पता नहीं मिल सका।
 settings-proxy-restart-desc = नई प्रॉक्सी सेटिंग का उपयोग अगली शुरुआत से किया जाएगा।
 
 ## Storage
 
 settings-cache-cleared = कैश साफ़ किया गया: { $size } मुक्त किया गया
+# How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
+settings-size-mb = { $size } MB
+settings-size-gb = { $size } GB
+settings-size-under-mb = 1 MB से कम
 settings-storage = भंडारण
 settings-clearing = समाशोधन…
 settings-measuring = मापना...
@@ -455,6 +524,9 @@ settings-download = डाउनलोड करें
 settings-check-now = अभी जांचें
 settings-another-copy = एक और प्रति
 settings-another-copy-desc = { $kind } से ytm-rs भी इंस्टॉल किया गया है। उस प्रतिलिपि को हटाने के लिए, { $cmd } चलाएँ
+# { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
+settings-another-copy-deb = .deb पैकेज
+settings-another-copy-arch = Arch पैकेज
 settings-whats-new = नया क्या है
 settings-whats-new-in = { $version } में नया क्या है
 

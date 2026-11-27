@@ -18,6 +18,11 @@ backend-offline = YouTube Music에 연결할 수 없습니다. 다운로드한 �
 backend-offline-in-downloads = YouTube Music에 연결할 수 없습니다. 다운로드한 곡은 계속 재생됩니다.
 backend-offline-proxy = 프록시를 통해 YouTube Music에 연결할 수 없습니다(설정 › 회로망 › 대리). 다운로드한 곡은 계속 재생됩니다.
 backend-unreachable = YouTube Music에 연결할 수 없습니다
+backend-proxy-region = 프록시가 연결된 지역에서는 YouTube Music을 사용할 수 없습니다. 다른 프록시나 서버를 사용해 보세요(설정 › 네트워크)
+backend-signed-out = YouTube Music에서 이 세션이 로그아웃되었습니다. 다시 로그인하세요
+# { $status } is an HTTP status code, like 500; { $message } is what YouTube Music said, as it said it.
+backend-http-status = YouTube Music이 HTTP { $status } 상태를 반환했습니다
+backend-http-status-message = YouTube Music이 HTTP { $status } 상태를 반환했습니다: { $message }
 backend-session-expired = YouTube 로그인이 만료되었습니다. 라이브러리를 다시 가져오려면 다시 로그인하세요.
 backend-empty-download = “{ $title }”에는 다운로드할 노래가 없습니다.
 backend-rating = 노래등급

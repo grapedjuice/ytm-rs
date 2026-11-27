@@ -32,6 +32,8 @@ window-loading-notes = กำลังโหลดบันทึกประจ
 window-later = ต่อมา
 window-updated = อัปเดตเป็น { $version }
 window-what-changed = นี่คือสิ่งที่เปลี่ยนแปลงไป
+# Last in the card shown after updating, for the changes it leaves out.
+window-more-changes = + การเปลี่ยนแปลงเพิ่มเติม { $count } รายการ
 window-dismiss = ยกเลิก
 window-all-notes = ดูหมายเหตุทั้งหมด
 window-got-it = เข้าใจแล้ว

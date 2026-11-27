@@ -32,6 +32,8 @@ window-loading-notes = Đang tải ghi chú phát hành…
 window-later = Sau này
 window-updated = Đã cập nhật lên { $version }
 window-what-changed = Đây là những gì đã thay đổi.
+# Last in the card shown after updating, for the changes it leaves out.
+window-more-changes = + { $count } thay đổi khác
 window-dismiss = Loại bỏ
 window-all-notes = Xem tất cả ghi chú
 window-got-it = Hiểu rồi

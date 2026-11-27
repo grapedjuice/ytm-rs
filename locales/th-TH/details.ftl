@@ -18,6 +18,11 @@ backend-offline = ติดต่อ YouTube Music ไม่ได้ เพล�
 backend-offline-in-downloads = ติดต่อ YouTube Music ไม่ได้ เพลงที่ดาวน์โหลดไว้ยังเล่นได้
 backend-offline-proxy = ติดต่อ YouTube Music ผ่านพร็อกซีไม่ได้ (การตั้งค่า › เครือข่าย › หนังสือมอบฉันทะ) เพลงที่ดาวน์โหลดไว้ยังเล่นได้
 backend-unreachable = ติดต่อ YouTube Music ไม่ได้
+backend-proxy-region = YouTube Music ไม่พร้อมใช้งานในภูมิภาคที่พร็อกซีของคุณเชื่อมต่อ ลองใช้พร็อกซีหรือเซิร์ฟเวอร์อื่น (การตั้งค่า › เครือข่าย)
+backend-signed-out = YouTube Music ออกจากระบบเซสชันนี้แล้ว โปรดลงชื่อเข้าใช้อีกครั้ง
+# { $status } is an HTTP status code, like 500; { $message } is what YouTube Music said, as it said it.
+backend-http-status = YouTube Music ส่งคืน HTTP { $status }
+backend-http-status-message = YouTube Music ส่งคืน HTTP { $status }: { $message }
 backend-session-expired = การลงชื่อเข้าใช้ YouTube ของคุณหมดอายุแล้ว ลงชื่อเข้าใช้อีกครั้งเพื่อรับห้องสมุดของคุณกลับมา
 backend-empty-download = “{ $title }” ไม่มีเพลงให้ดาวน์โหลด
 backend-rating = เรตติ้งเพลง

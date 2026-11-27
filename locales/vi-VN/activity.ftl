@@ -4,6 +4,8 @@ status-link-copied = Đã sao chép liên kết
 status-starting-playback = Đang bắt đầu phát lại…
 status-playing-next = Đang phát tiếp theo
 status-added-queue = Đã thêm vào hàng đợi
+# In the system's list of what keeps the computer awake, while music plays.
+status-keeping-awake = Đang phát nhạc
 status-removed-queue = Đã xóa khỏi hàng đợi
 status-cleared-queue = Đã xóa hàng đợi
 status-removed-playlist = Đã xóa khỏi danh sách phát

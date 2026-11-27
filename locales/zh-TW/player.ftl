@@ -4,6 +4,8 @@
 # click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }。顯示剩餘時間
 player-time-show-length = { $time }。顯示歌曲長度
+# For screen readers, a song marked E: { $title } is its title.
+player-song-explicit = { $title }，兒童不宜
 
 # From the interface-wide catalog (#228).
 player-full-screen = 全螢幕
@@ -27,6 +29,10 @@ player-only-lyrics-source = 歌詞來源·只找到一首
 player-lyrics-source-name = 歌詞來源：{ $name }
 player-lyrics-from-unison = 來自 Unison 的歌詞
 player-lyrics-submitted-by = 由 { $name } 提交
+# Under the lyrics, who wrote the song.
+player-lyrics-written-by = 作詞：{ $name }
+# { $names } is all but the last of them, between commas.
+player-lyrics-written-by-several = 作詞：{ $names } 與 { $last }
 player-timing = 時機
 player-lyrics-later = 稍後歌詞（+0.1 秒）
 player-lyrics-earlier = 較早的歌詞（−0.1 秒）

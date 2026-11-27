@@ -4,6 +4,8 @@
 # click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }. عرض الوقت المتبقي
 player-time-show-length = { $time }. عرض مدة الأغنية
+# For screen readers, a song marked E: { $title } is its title.
+player-song-explicit = { $title }، محتوى صريح
 
 # From the interface-wide catalog (#228).
 player-full-screen = ملء الشاشة
@@ -27,6 +29,10 @@ player-only-lyrics-source = مصدر الكلمات · تم العثور على 
 player-lyrics-source-name = مصدر الكلمات: { $name }
 player-lyrics-from-unison = كلمات من Unison
 player-lyrics-submitted-by = أرسلها { $name }
+# Under the lyrics, who wrote the song.
+player-lyrics-written-by = كلمات { $name }
+# { $names } is all but the last of them, between commas.
+player-lyrics-written-by-several = كلمات { $names } و{ $last }
 player-timing = التوقيت
 player-lyrics-later = تأخير الكلمات (+0.1 ث)
 player-lyrics-earlier = تقديم الكلمات (−0.1 ث)

@@ -22,6 +22,12 @@ transfer-estimate = Thời gian tìm kiếm các bản nhạc { $count }: khoả
 transfer-listen-while-running = Bạn có thể tiếp tục nghe trong khi nó chạy.
 transfer-pick-playlist = Chọn danh sách phát để sao chép.
 transfer-playlist = Danh sách phát
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = Bài hát đã thích
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = Nội dung cần sao chép
+transfer-step-where = Lưu vào đâu?
+transfer-step-new-playlist = Danh sách phát YouTube Music mới
 transfer-spotify-account = Tài khoản Spotify
 transfer-signed-in-plan = Đã đăng nhập · hoạt động với Miễn phí và Cao cấp
 transfer-signed-in-as = Đã đăng nhập với tên { $name }
@@ -103,6 +109,10 @@ transfer-progress-of = của { $count } · { $state }
 transfer-remaining = còn khoảng { $time }
 transfer-readding = Thêm lại
 transfer-readding-reason = Thích lại: YouTube Music bỏ lượt thích này
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = đang kiểm tra Nhạc đã thích
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = đang chờ hoàn tất các thay đổi lượt thích trong ứng dụng
 transfer-adding = Thêm
 transfer-local-file = tệp cục bộ
 transfer-on-spotify-index = Trên Spotify · { $current } của { $total }
@@ -123,3 +133,28 @@ transfer-progress-searching = Đã tìm kiếm
 transfer-reviewing-doubtful = kiểm tra những cái còn nghi ngờ
 transfer-review-picked = Đã chọn
 transfer-review-kept = Đã giữ
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = Không thể lưu đăng nhập Spotify: { $error }
+transfer-error-read-library = Không thể đọc thư viện Spotify của bạn: { $error }
+transfer-error-progress-saved = { $error }. Tiến trình của bạn đã được lưu; hãy thử lại để tiếp tục từ chỗ dừng.
+transfer-error-account-changed = Đã dừng: tài khoản hoặc kênh YouTube Music đã thay đổi
+transfer-error-liked-signed-out = Đăng nhập Spotify để sao chép Bài hát đã thích của bạn
+transfer-error-not-searched = Không thể tìm { $count } bài hát (không có kết nối hoặc YouTube Music đang giới hạn yêu cầu)
+transfer-error-none-found = Không tìm thấy bài hát nào trên YouTube Music
+transfer-error-signed-out = YouTube Music đã đăng xuất bạn; hãy đăng nhập lại rồi thử lại
+transfer-error-create = Tạo danh sách phát thất bại
+transfer-error-add = Thêm bài hát vào danh sách phát thất bại
+transfer-error-read-liked = Đọc Nhạc đã thích của bạn thất bại
+transfer-error-not-answering = Thích bài hát thất bại: YouTube Music ngừng phản hồi
+transfer-error-like = Thích bài hát thất bại
+transfer-error-not-spotify-link = Đó không phải liên kết open.spotify.com
+transfer-error-not-playlist-link = Đó không phải liên kết danh sách phát
+transfer-error-not-spotify-playlist = Đó không phải liên kết danh sách phát Spotify
+transfer-error-playlist-not-found = Spotify không tìm thấy danh sách phát đó. Nếu là riêng tư, hãy đăng nhập Spotify trước
+transfer-error-no-songs = Danh sách phát Spotify đó không có bài hát nào
+transfer-error-library-sign-in = Spotify không trả về thư viện của bạn; hãy đăng nhập lại Spotify
+transfer-error-liked-sign-in = Spotify không trả về Bài hát đã thích; hãy đăng nhập lại Spotify
+transfer-error-expired = Phiên đăng nhập Spotify của bạn đã hết hạn. Hãy đăng nhập lại Spotify

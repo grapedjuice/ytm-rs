@@ -15,10 +15,24 @@ settings-account = アカウント
 settings-general = 一般
 settings-keyboard-shortcuts = キーボード ショートカット
 settings-about = アプリについて
+settings-content-and-ratings = コンテンツとレーティング
+settings-advanced = 詳細設定
+# The headings the categories are grouped under, down the side.
+settings-group-listening = リスニング
+settings-group-look = 外観
+settings-group-accounts = アカウント
+settings-group-app = アプリ
+# Above the settings a search finds, where a category's name goes otherwise.
+settings-search-results = 検索結果
+# Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
+settings-content = コンテンツ
+settings-colours = カラー
 settings-no-match = 「{ $query }」に一致する設定はありません
 settings-title = 設定
 settings-search-box = 設定を検索
 settings-clear = クリア
+# A button above the settings, there while one changed here waits for the next start.
+settings-restart-to-apply = 再起動して適用
 
 ## Account
 
@@ -95,6 +109,8 @@ settings-output-device-desc-system = 音楽の出力先です。このパソコ�
 settings-this-computer = このパソコン
 settings-on-your-network = ネットワーク上
 settings-playing-on = { $name } で再生中
+# The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
+settings-play-on-picked = 再生先: { $name }
 settings-connecting-to = { $name } に接続しています…
 settings-couldnt-play-on = { $name } では再生できませんでした: このパソコンで再生しています
 settings-windows-default = Windows の既定
@@ -103,6 +119,11 @@ settings-not-connected = { $name }（未接続）
 settings-normalization-off-desc = 曲を元の音量で再生します。「ノーマル」で音量をそろえ、「静か」でさらに低い音量にそろえます。
 settings-normalization-normal-desc = 曲の音量をそろえます。YouTube Music と同様に大きな音は抑え、小さな音は最大 6 dB 上げます。
 settings-normalization-quiet-desc = 曲の音量を低いレベルでそろえます。大きな音をさらに抑えるので、小さな音を上げる必要がほとんどありません。
+# After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
+settings-normalization-song-no-figure = この曲: YouTube からラウドネス値が取得できないため、そのまま再生します。
+settings-normalization-song-level = この曲: すでに目標レベルです。
+settings-normalization-song-up = この曲: { $db } dB 上げました。
+settings-normalization-song-down = この曲: { $db } dB 下げました。
 settings-headphone-crossfeed = ヘッドホンのクロスフィード
 settings-headphone-crossfeed-desc = 正面にスピーカーがあるときのように、反対側の低音を少し混ぜます。左右どちらかに偏った曲をヘッドホンで聴きやすくします。
 settings-mono-audio = モノラル音声
@@ -118,6 +139,17 @@ settings-equalizer-desc = 低音から高音まで音質を調整します。効
 settings-preset = プリセット
 settings-custom = カスタム
 settings-equalizer-preset = イコライザーのプリセット
+# The equalizer's presets.
+settings-eq-flat = フラット
+settings-eq-bass-boost = 低音ブースト
+settings-eq-treble-boost = 高音ブースト
+settings-eq-vocal = ボーカル
+settings-eq-rock = ロック
+settings-eq-pop = ポップ
+settings-eq-electronic = エレクトロニック
+settings-eq-acoustic = アコースティック
+settings-eq-classical = クラシック
+settings-eq-late-night = レイトナイト
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = イコライザー バンド 低音 中音 高音 周波数
 settings-prevent-clipping = クリッピングを防ぐ
@@ -127,10 +159,13 @@ settings-0-db = 0 dB
 ## Playback speed
 
 settings-playback-speed = 再生速度
-settings-playback-speed-desc = 曲の再生速度を変えます。プレーヤーバーからも操作できます。レコードのように、速くすると音程が上がり、遅くすると下がります。歌詞は同期したままです。ytm-rs の起動時に 1× に戻ります。
+settings-playback-speed-desc = 曲を速くまたは遅く、あるいは別のキーで再生します。プレーヤーバーのボタンからも操作できます。歌詞は同期したままです。ytm-rs を起動するたびに通常に戻ります。
 settings-speed = 速度
 settings-keep-pitch = 音程を保つ
 settings-keep-pitch-desc = 高くも低くもならずに速く、または遅くします。オフだとレコードのように速さと一緒に音程が変わります。
+settings-speed-pitch = 速度とピッチ
+settings-transpose = トランスポーズ
+settings-transpose-desc = 速度を変えずに半音単位で高くまたは低くします。12 で 1 オクターブです。
 settings-playback-speed-jam-note = 一緒に聴くセッション中は通常の速度に戻り、全員が同じ曲を同じ速度で聴きます。
 
 ## Music videos
@@ -224,6 +259,8 @@ settings-background-brightness = 背景の明るさ
 settings-background-brightness-desc = 再生中の画面と各ページのうしろのジャケットを明るく、または暗くします。100% はテーマの明るさです。
 settings-brighter = 明るく
 settings-darker = 暗く
+settings-animation-speed = アニメーション速度
+settings-animation-speed-desc = ページ、メニュー、パネルの動きやフェードインの速さ。歌詞は曲に合わせて同期します。100% がテーマ本来の速度です。
 settings-flat-background = 単色の背景
 settings-flat-background-desc = ページと再生画面の背後を一色にする。ジャケットもグラデーションも出さない。
 settings-flat-background-colour = 背景色
@@ -280,6 +317,15 @@ settings-app-icon = アプリアイコン
 settings-preview = プレビュー
 settings-preview-desc = タスクバーと通知領域での表示です。
 settings-app-icon-named = アプリアイコン：{ $name }
+# The app icons' names. "YT Music" and "Fluent" stay as they are.
+settings-app-icon-classic = クラシック
+settings-app-icon-smile-ring = スマイルリング
+settings-app-icon-rust-gear = Rust ギア
+settings-app-icon-waveform = 波形
+settings-app-icon-record = レコード
+settings-app-icon-lit-line = ライトライン
+settings-app-icon-duet = デュエット
+settings-app-icon-warp = ワープ
 
 ## Connections
 
@@ -287,6 +333,8 @@ settings-stream-deck = Stream Deck
 settings-stream-deck-desc = この PC の Stream Deck プラグインから再生を操作できるようにします。
 settings-lastfm-connected = 再生履歴を { $name } のプロフィールに Scrobble しています。
 settings-lastfm-allow = ブラウザーで開いた Last.fm のページで ytm-rs を許可してください。
+# After "Last.fm: ", when signing in wasn't allowed on that page in time.
+settings-lastfm-not-allowed = Last.fm の承認が時間内に完了しませんでした
 settings-lastfm-desc = 再生履歴を Last.fm のプロフィールに Scrobble します。
 settings-disconnect = 接続を解除
 settings-connect = 接続
@@ -295,6 +343,9 @@ settings-listenbrainz-desc = 再生履歴を ListenBrainz のプロフィール�
 settings-user-token = ユーザー トークン
 settings-listenbrainz-token-hint = ListenBrainz のユーザー トークンを貼り付け
 settings-listenbrainz-token-link = listenbrainz.org でトークンを取得
+# After "ListenBrainz: ", when Connect is pressed.
+settings-listenbrainz-token-missing = 先にユーザートークンを貼り付けてください
+settings-listenbrainz-token-refused = ListenBrainz でそのトークンが拒否されました
 
 ## Language
 
@@ -302,7 +353,6 @@ settings-listenbrainz-token-link = listenbrainz.org でトークンを取得
 settings-language-system = システム（{ $language }）
 settings-language = 言語
 settings-language-desc = アプリの表示言語です。曲名やアーティスト名、YouTube Musicのコンテンツは、下の曲情報の言語で表示されます。
-settings-restart-to-apply = 再起動して適用
 settings-language-restart-desc = 次回の起動時から選んだ言語に切り替わります。
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
@@ -322,6 +372,11 @@ settings-home = ホーム
 settings-close-to-tray-desc-linux = 通知領域にアイコンを表示します。× を押すとウィンドウを隠し、再生は続きます。アイコンのメニューで表示、非表示、終了を選べます。システムのメディア コントロールで曲をクリックしても戻れます。Ctrl+Q で終了します。
 settings-close-to-tray-desc = 通知領域にアイコンを表示します。× を押すとウィンドウを隠し、再生は続きます。アイコンをクリックするとウィンドウが戻ります。右クリックで表示、非表示、終了を選べます。
 settings-close-to-tray = 閉じると通知領域に格納
+settings-tray-click-plays = トレイアイコンをクリックして再生または一時停止
+settings-tray-click-plays-desc = アイコンをクリックすると、ウィンドウを前面に出す代わりに少し遅れて再生または一時停止します。ダブルクリック、または再生中の曲がないときのクリックでウィンドウを前面に出します。
+# Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
+settings-tray-no-gtk = トレイアイコンには GTK が必要ですが、起動できませんでした（{ $error }）。
+settings-tray-no-appindicator = トレイアイコンには AppIndicator ライブラリが必要ですがインストールされていません: Debian/Ubuntu では libayatana-appindicator3-1、Fedora では libayatana-appindicator-gtk3（Bazzite、Silverblue などのアトミック系では rpm-ostree install libayatana-appindicator-gtk3 を実行後に再起動）、Arch では libayatana-appindicator。
 settings-song-notifications-desc = ウィンドウが最小化されている、通知領域にある、またはほかのウィンドウの背後にあるとき、次の曲のタイトル、アーティスト、カバーを通知します。
 settings-song-notifications-unavailable = インストール版が必要です。Windows はスタート メニューにあるアプリの通知だけを表示します。
 settings-song-notifications = 曲の通知
@@ -390,11 +445,25 @@ settings-test-connection = 接続をテスト
 settings-test = テスト
 settings-test-working = 接続できました。YouTube Music は { $ms } ミリ秒で応答しました。
 settings-test-failed = 接続できませんでした：{ $error }
+# Under the proxy address, when it isn't one.
+settings-proxy-not-an-address = http://127.0.0.1:8080 のようなプロキシアドレスではありません
+settings-proxy-scheme = http:// または socks5:// のアドレスを使用してください
+settings-proxy-no-host = アドレスにはホストが必要です
+settings-proxy-no-port = アドレスには :8080 のようなポートが必要です
+# After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
+settings-proxy-not-answering = { $address } から応答がありません。プロキシは起動していますか？
+settings-proxy-timed-out = プロキシが時間内に応答しませんでした。
+settings-proxy-sign-in-refused = プロキシがユーザー名またはパスワードを受け入れませんでした。
+settings-proxy-not-found = そのプロキシのアドレスが見つかりませんでした。
 settings-proxy-restart-desc = 新しいプロキシ設定は次回の起動時から使われます。
 
 ## Storage
 
 settings-cache-cleared = キャッシュを削除し、{ $size } を解放しました。
+# How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
+settings-size-mb = { $size } MB
+settings-size-gb = { $size } GB
+settings-size-under-mb = 1 MB 未満
 settings-storage = ストレージ
 settings-clearing = 削除中…
 settings-measuring = 計算中…
@@ -452,6 +521,9 @@ settings-download = ダウンロード
 settings-check-now = 今すぐ確認
 settings-another-copy = 別のインストール
 settings-another-copy-desc = ytm-rs は { $kind } からもインストールされています。削除コマンド：{ $cmd }
+# { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
+settings-another-copy-deb = .deb パッケージ
+settings-another-copy-arch = Arch パッケージ
 settings-whats-new = 新機能
 settings-whats-new-in = { $version } の新機能
 

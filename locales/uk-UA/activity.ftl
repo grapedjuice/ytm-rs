@@ -4,6 +4,8 @@ status-link-copied = Посилання скопійовано
 status-starting-playback = Запуск відтворення…
 status-playing-next = Гратиме наступним
 status-added-queue = Додано до черги
+# In the system's list of what keeps the computer awake, while music plays.
+status-keeping-awake = Відтворення музики
 status-removed-queue = Вилучено з черги
 status-cleared-queue = Чергу очищено
 status-removed-playlist = Вилучено зі списку відтворення

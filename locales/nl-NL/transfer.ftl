@@ -22,6 +22,12 @@ transfer-estimate = Zoeken naar { $count } nummers duurt ongeveer { $time }. Je 
 transfer-listen-while-running = Je kunt tijdens het overzetten blijven luisteren.
 transfer-pick-playlist = Kies een afspeellijst om te kopiëren.
 transfer-playlist = Afspeellijst
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = Nummers die je leuk vindt
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = Wat te kopiëren
+transfer-step-where = Waar moeten ze naartoe?
+transfer-step-new-playlist = Nieuwe YouTube Music-afspeellijst
 transfer-spotify-account = Spotify-account
 transfer-signed-in-plan = Ingelogd · werkt met Free en Premium
 transfer-signed-in-as = Ingelogd als { $name }
@@ -103,6 +109,10 @@ transfer-progress-of = van { $count } · { $state }
 transfer-remaining = nog ongeveer { $time }
 transfer-readding = Opnieuw toevoegen
 transfer-readding-reason = Opnieuw liken: YouTube Music heeft deze likes niet bewaard
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = Leuk gevonden muziek controleren
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = wachten tot de gewijzigde likes in de app klaar zijn
 transfer-adding = Toevoegen
 transfer-local-file = lokaal bestand
 transfer-on-spotify-index = Op Spotify · { $current } van { $total }
@@ -123,3 +133,31 @@ transfer-progress-searching = Gezocht
 transfer-reviewing-doubtful = twijfelgevallen controleren
 transfer-review-picked = Gekozen
 transfer-review-kept = Behouden
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = Kan Spotify-aanmelding niet opslaan: { $error }
+transfer-error-read-library = Kan je Spotify-bibliotheek niet lezen: { $error }
+transfer-error-progress-saved = { $error }. Je voortgang is opgeslagen; probeer opnieuw om verder te gaan waar het stopte.
+transfer-error-account-changed = Gestopt: het YouTube Music-account of -kanaal is gewijzigd
+transfer-error-liked-signed-out = Meld je aan bij Spotify om je Nummers die je leuk vindt te kopiëren
+transfer-error-not-searched = { $count ->
+    [one] { $count } nummer kon niet worden gezocht (geen verbinding, of YouTube Music beperkt verzoeken)
+   *[other] { $count } nummers konden niet worden gezocht (geen verbinding, of YouTube Music beperkt verzoeken)
+}
+transfer-error-none-found = Geen van de nummers is gevonden op YouTube Music
+transfer-error-signed-out = YouTube Music heeft je afgemeld; meld je opnieuw aan en probeer het nog eens
+transfer-error-create = Maken van de afspeellijst is mislukt
+transfer-error-add = Toevoegen van nummers aan de afspeellijst is mislukt
+transfer-error-read-liked = Lezen van je Leuk gevonden muziek is mislukt
+transfer-error-not-answering = Liken van nummers mislukt: YouTube Music reageert niet meer
+transfer-error-like = Liken van nummers is mislukt
+transfer-error-not-spotify-link = Dat is geen open.spotify.com-link
+transfer-error-not-playlist-link = Dat is geen afspeellijstlink
+transfer-error-not-spotify-playlist = Dat is geen Spotify-afspeellijstlink
+transfer-error-playlist-not-found = Spotify kon die afspeellijst niet vinden. Als deze privé is, meld je dan eerst aan bij Spotify
+transfer-error-no-songs = Die Spotify-afspeellijst bevat geen nummers
+transfer-error-library-sign-in = Spotify gaf je bibliotheek niet terug; meld je opnieuw aan bij Spotify
+transfer-error-liked-sign-in = Spotify gaf Nummers die je leuk vindt niet terug; meld je opnieuw aan bij Spotify
+transfer-error-expired = Je Spotify-aanmelding is verlopen. Meld je opnieuw aan bij Spotify

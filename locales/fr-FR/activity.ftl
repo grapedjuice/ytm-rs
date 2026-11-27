@@ -4,6 +4,8 @@ status-link-copied = Lien copié
 status-starting-playback = Démarrage de la lecture…
 status-playing-next = Sera lu ensuite
 status-added-queue = Ajouté à la file d’attente
+# In the system's list of what keeps the computer awake, while music plays.
+status-keeping-awake = Lecture de musique
 status-removed-queue = Retiré de la file d’attente
 status-cleared-queue = File d’attente vidée
 status-removed-playlist = Retiré de la playlist

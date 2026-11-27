@@ -22,6 +22,12 @@ transfer-estimate = Recherche de { $count } titres : environ { $time }. Vous pou
 transfer-listen-while-running = Vous pouvez continuer à écouter pendant le transfert.
 transfer-pick-playlist = Choisissez une playlist à copier.
 transfer-playlist = Playlist
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = Titres likés
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = Quoi copier
+transfer-step-where = Où doivent-ils aller ?
+transfer-step-new-playlist = Nouvelle playlist YouTube Music
 transfer-spotify-account = Compte Spotify
 transfer-signed-in-plan = Connecté · compatible Free et Premium
 transfer-signed-in-as = Connecté en tant que { $name }
@@ -103,6 +109,10 @@ transfer-progress-of = sur { $count } · { $state }
 transfer-remaining = environ { $time } restantes
 transfer-readding = Nouvel ajout
 transfer-readding-reason = Nouvelle tentative : YouTube Music a perdu ces « J’aime »
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = vérification de Musique « J’aime »
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = en attente de la fin des modifications de « J’aime » dans l’application
 transfer-adding = Ajout
 transfer-local-file = fichier local
 transfer-on-spotify-index = Sur Spotify · { $current } sur { $total }
@@ -123,3 +133,31 @@ transfer-progress-searching = Recherchés
 transfer-reviewing-doubtful = vérification des correspondances incertaines
 transfer-review-picked = Sélectionné
 transfer-review-kept = Conservé
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = Impossible d’enregistrer la connexion Spotify : { $error }
+transfer-error-read-library = Impossible de lire votre bibliothèque Spotify : { $error }
+transfer-error-progress-saved = { $error }. Votre progression est enregistrée ; réessayez pour reprendre là où cela s’est arrêté.
+transfer-error-account-changed = Arrêté : le compte ou la chaîne YouTube Music a changé
+transfer-error-liked-signed-out = Connectez-vous à Spotify pour copier vos Titres likés
+transfer-error-not-searched = { $count ->
+    [one] { $count } titre n’a pas pu être recherché (pas de connexion, ou YouTube Music limite les requêtes)
+   *[other] { $count } titres n’ont pas pu être recherchés (pas de connexion, ou YouTube Music limite les requêtes)
+}
+transfer-error-none-found = Aucun des titres n’a été trouvé sur YouTube Music
+transfer-error-signed-out = YouTube Music vous a déconnecté ; reconnectez-vous et réessayez
+transfer-error-create = Échec de la création de la playlist
+transfer-error-add = Échec de l’ajout des titres à la playlist
+transfer-error-read-liked = Échec de la lecture de vos titres aimés
+transfer-error-not-answering = Échec de l’ajout aux « J’aime » : YouTube Music ne répond plus
+transfer-error-like = Échec de l’ajout des titres aux « J’aime »
+transfer-error-not-spotify-link = Ce n’est pas un lien open.spotify.com
+transfer-error-not-playlist-link = Ce n’est pas un lien de playlist
+transfer-error-not-spotify-playlist = Ce n’est pas un lien de playlist Spotify
+transfer-error-playlist-not-found = Spotify n’a pas trouvé cette playlist. Si elle est privée, connectez-vous d’abord à Spotify
+transfer-error-no-songs = Cette playlist Spotify ne contient aucun titre
+transfer-error-library-sign-in = Spotify n’a pas renvoyé votre bibliothèque ; reconnectez-vous à Spotify
+transfer-error-liked-sign-in = Spotify n’a pas renvoyé vos Titres likés ; reconnectez-vous à Spotify
+transfer-error-expired = Votre connexion Spotify a expiré. Reconnectez-vous à Spotify

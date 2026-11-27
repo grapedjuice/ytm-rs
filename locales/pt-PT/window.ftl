@@ -32,6 +32,11 @@ window-loading-notes = A carregar notas da versão…
 window-later = Mais tarde
 window-updated = Atualizado para { $version }
 window-what-changed = Veja o que mudou.
+# Last in the card shown after updating, for the changes it leaves out.
+window-more-changes = { $count ->
+    [one] + { $count } outra alteração
+   *[other] + { $count } outras alterações
+}
 window-dismiss = Dispensar
 window-all-notes = Ver todas as notas
 window-got-it = Entendi

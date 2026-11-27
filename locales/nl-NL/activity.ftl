@@ -4,6 +4,8 @@ status-link-copied = Link gekopieerd
 status-starting-playback = Afspelen starten…
 status-playing-next = Speelt hierna
 status-added-queue = Toegevoegd aan wachtrij
+# In the system's list of what keeps the computer awake, while music plays.
+status-keeping-awake = Muziek afspelen
 status-removed-queue = Uit wachtrij verwijderd
 status-cleared-queue = Wachtrij gewist
 status-removed-playlist = Uit afspeellijst verwijderd

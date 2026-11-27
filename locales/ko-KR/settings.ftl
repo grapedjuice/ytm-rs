@@ -15,10 +15,24 @@ settings-account = 계정
 settings-general = 일반
 settings-keyboard-shortcuts = 키보드 단축키
 settings-about = 정보
+settings-content-and-ratings = 콘텐츠 및 등급
+settings-advanced = 고급
+# The headings the categories are grouped under, down the side.
+settings-group-listening = 감상
+settings-group-look = 모양
+settings-group-accounts = 계정
+settings-group-app = 앱
+# Above the settings a search finds, where a category's name goes otherwise.
+settings-search-results = 검색 결과
+# Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
+settings-content = 콘텐츠
+settings-colours = 색상
 settings-no-match = “{ $query }”와 일치하는 설정이 없습니다.
 settings-title = 설정
 settings-search-box = 설정 검색
 settings-clear = 지우기
+# A button above the settings, there while one changed here waits for the next start.
+settings-restart-to-apply = 다시 시작하여 적용
 
 ## Account
 
@@ -95,6 +109,8 @@ settings-output-device-desc-system = 음악이 나오는 곳입니다. 이 컴�
 settings-this-computer = 이 컴퓨터
 settings-on-your-network = 네트워크에서
 settings-playing-on = { $name }에서 재생 중
+# The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
+settings-play-on-picked = 재생 기기: { $name }
 settings-connecting-to = { $name }에 연결하는 중…
 settings-couldnt-play-on = { $name }에서 재생하지 못했습니다. 이 컴퓨터에서 재생합니다
 settings-windows-default = Windows 기본값
@@ -103,6 +119,11 @@ settings-not-connected = { $name }(연결되지 않음)
 settings-normalization-off-desc = 노래는 만들어진 만큼 크게 연주됩니다. Normal은 모든 항목을 동일한 수준으로 가져오고 Quiet은 동일하고 낮은 수준으로 가져옵니다.
 settings-normalization-normal-desc = 노래는 동일한 수준으로 재생됩니다. YouTube Music에서와 같이 큰 노래는 줄어들고 조용한 노래는 최대 6dB까지 올라갑니다.
 settings-normalization-quiet-desc = 노래는 동일하고 낮은 레벨에서 재생됩니다. 큰 노래는 더 많이 줄여서 조용한 노래는 높일 필요가 거의 없습니다.
+# After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
+settings-normalization-song-no-figure = 이 곡: YouTube의 음량 정보가 없어 그대로 재생합니다.
+settings-normalization-song-level = 이 곡: 이미 기준 음량입니다.
+settings-normalization-song-up = 이 곡: { $db } dB 높였습니다.
+settings-normalization-song-down = 이 곡: { $db } dB 낮췄습니다.
 settings-headphone-crossfeed = 헤드폰 크로스피드
 settings-headphone-crossfeed-desc = 앞에 있는 스피커에서 나오는 것처럼 양쪽 귀에 상대방의 저음을 조금씩 듣게 하여 한쪽으로 세게 패닝된 노래가 헤드폰을 통해 귀에 더 편안하게 들립니다.
 settings-mono-audio = 모노 오디오
@@ -118,6 +139,17 @@ settings-equalizer-desc = 깊은 저음부터 고음까지 사운드를 형성�
 settings-preset = 프리셋
 settings-custom = 커스텀
 settings-equalizer-preset = 이퀄라이저 프리셋
+# The equalizer's presets.
+settings-eq-flat = 플랫
+settings-eq-bass-boost = 저음 강조
+settings-eq-treble-boost = 고음 강조
+settings-eq-vocal = 보컬
+settings-eq-rock = 록
+settings-eq-pop = 팝
+settings-eq-electronic = 일렉트로닉
+settings-eq-acoustic = 어쿠스틱
+settings-eq-classical = 클래식
+settings-eq-late-night = 심야
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = 이퀄라이저 밴드 베이스 중음 고음 주파수
 settings-prevent-clipping = 클리핑 방지
@@ -127,10 +159,13 @@ settings-0-db = 0dB
 ## Playback speed
 
 settings-playback-speed = 재생 속도
-settings-playback-speed-desc = 플레이어 바에 있는 버튼으로도 노래를 더 빠르게 또는 느리게 재생할 수 있습니다. 레코드처럼 빠르게 들릴수록 높고 느리게 들립니다. 가사는 제 시간에 머물러 있습니다. ytm-rs가 시작될 때마다 1×로 돌아갑니다.
+settings-playback-speed-desc = 플레이어 바의 버튼으로도 곡을 더 빠르거나 느리게, 또는 다른 키로 재생할 수 있습니다. 가사는 박자에 맞게 유지됩니다. ytm-rs를 시작할 때마다 기본값으로 돌아갑니다.
 settings-speed = 속도
 settings-keep-pitch = 음정 유지
 settings-keep-pitch-desc = 더 높거나 낮아지지 않고 빠르게 또는 느리게 재생합니다. 끄면 레코드처럼 속도에 따라 음정이 바뀝니다.
+settings-speed-pitch = 속도 및 음높이
+settings-transpose = 조옮김
+settings-transpose-desc = 같은 속도로 반음 단위로 높이거나 낮춥니다. 12는 한 옥타브입니다.
 settings-playback-speed-jam-note = 잼 중에도 정상으로 돌아가서 모두가 같은 노래를 듣게 됩니다.
 
 ## Music videos
@@ -224,6 +259,8 @@ settings-background-brightness = 배경 밝기
 settings-background-brightness-desc = 지금 재생 중 화면과 페이지 뒤의 표지를 더 밝거나 어둡게 합니다. 100%는 테마 기본 밝기입니다.
 settings-brighter = 더 밝게
 settings-darker = 더 어둡게
+settings-animation-speed = 애니메이션 속도
+settings-animation-speed-desc = 페이지, 메뉴, 패널이 움직이고 나타나는 속도입니다. 가사는 곡에 맞춰 동기화됩니다. 100%는 테마 기본값입니다.
 settings-flat-background = 단색 배경
 settings-flat-background-desc = 페이지와 지금 재생 뒤를 한 색으로 채웁니다. 앨범 표지와 그라데이션은 나오지 않습니다.
 settings-flat-background-colour = 배경색
@@ -280,6 +317,15 @@ settings-app-icon = 앱 아이콘
 settings-preview = 시사
 settings-preview-desc = 작업 표시줄과 트레이에 표시되는 모습입니다.
 settings-app-icon-named = 앱 아이콘: { $name }
+# The app icons' names. "YT Music" and "Fluent" stay as they are.
+settings-app-icon-classic = 클래식
+settings-app-icon-smile-ring = 스마일 링
+settings-app-icon-rust-gear = Rust 기어
+settings-app-icon-waveform = 파형
+settings-app-icon-record = 레코드
+settings-app-icon-lit-line = 빛나는 선
+settings-app-icon-duet = 듀엣
+settings-app-icon-warp = 워프
 
 ## Connections
 
@@ -287,6 +333,8 @@ settings-stream-deck = Stream Deck
 settings-stream-deck-desc = 이 컴퓨터의 Stream Deck 플러그인으로 재생을 제어할 수 있습니다.
 settings-lastfm-connected = 플레이하는 내용을 { $name }의 프로필로 스크롤합니다.
 settings-lastfm-allow = 브라우저에서 열린 Last.fm 페이지에서 ytm-rs를 허용합니다.
+# After "Last.fm: ", when signing in wasn't allowed on that page in time.
+settings-lastfm-not-allowed = 시간 내에 Last.fm 권한이 허용되지 않았습니다
 settings-lastfm-desc = 연주하는 내용을 Last.fm 프로필로 스크롤하세요.
 settings-disconnect = 연결 끊기
 settings-connect = 연결하다
@@ -295,6 +343,9 @@ settings-listenbrainz-desc = 플레이한 내용을 ListenBrainz 프로필로 �
 settings-user-token = 사용자 토큰
 settings-listenbrainz-token-hint = ListenBrainz 사용자 토큰을 붙여넣으세요.
 settings-listenbrainz-token-link = Listenbrainz.org에서 토큰을 받으세요.
+# After "ListenBrainz: ", when Connect is pressed.
+settings-listenbrainz-token-missing = 먼저 사용자 토큰을 붙여넣으세요
+settings-listenbrainz-token-refused = ListenBrainz가 해당 토큰을 거부했습니다
 
 ## Language
 
@@ -302,7 +353,6 @@ settings-listenbrainz-token-link = Listenbrainz.org에서 토큰을 받으세요
 settings-language-system = 시스템 언어 ({ $language })
 settings-language = 언어
 settings-language-desc = 앱 인터페이스의 언어입니다. 노래 제목, 이름, YouTube Music 콘텐츠는 아래에서 선택한 노래 정보 언어로 표시됩니다.
-settings-restart-to-apply = 다시 시작하여 적용
 settings-language-restart-desc = 앱을 다시 시작하면 새 언어가 적용됩니다.
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
@@ -322,6 +372,11 @@ settings-home = 홈
 settings-close-to-tray-desc-linux = 트레이에 아이콘을 유지합니다. ×를 클릭하면 창이 숨겨지고 음악이 계속 재생됩니다. 아이콘 메뉴는 아이콘을 다시 가져오거나 숨기거나 종료합니다. 시스템의 미디어 컨트롤에서 노래를 클릭하면 노래도 다시 표시되고 Ctrl+Q는 종료됩니다.
 settings-close-to-tray-desc = 트레이에 아이콘을 유지합니다. ×를 클릭하면 창이 숨겨지고 음악이 계속 재생됩니다. 다시 가져오려면 아이콘을 클릭하고, 숨기거나 표시하거나 종료하려면 마우스 오른쪽 버튼을 클릭하세요.
 settings-close-to-tray = 닫을 때 시스템 트레이로 숨기기
+settings-tray-click-plays = 트레이 아이콘을 클릭하여 재생 또는 일시정지
+settings-tray-click-plays-desc = 아이콘을 클릭하면 창을 띄우는 대신 잠시 후 재생하거나 일시정지합니다. 더블클릭하거나 재생할 곡이 없을 때 클릭하면 창이 나타납니다.
+# Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
+settings-tray-no-gtk = 트레이 아이콘에는 GTK가 필요하지만 시작하지 못했습니다({ $error }).
+settings-tray-no-appindicator = 트레이 아이콘에는 AppIndicator 라이브러리가 필요하지만 설치되어 있지 않습니다: Debian/Ubuntu에서는 libayatana-appindicator3-1, Fedora에서는 libayatana-appindicator-gtk3(Bazzite, Silverblue 등 아토믹 시스템: rpm-ostree install libayatana-appindicator-gtk3 실행 후 재시작), Arch에서는 libayatana-appindicator.
 settings-song-notifications-desc = 창이 최소화된 상태에서 새 노래가 시작되면 트레이나 다른 창 뒤에 제목, 아티스트, 커버가 알림으로 표시됩니다.
 settings-song-notifications-unavailable = 설치된 앱 필요: Windows는 시작 메뉴의 앱 알림만 표시합니다.
 settings-song-notifications = 노래 알림
@@ -390,11 +445,25 @@ settings-test-connection = 테스트 연결
 settings-test = 시험
 settings-test-working = 작업 중: YouTube Music가 { $ms } ms로 응답했습니다.
 settings-test-failed = 연결되지 않음: { $error }
+# Under the proxy address, when it isn't one.
+settings-proxy-not-an-address = http://127.0.0.1:8080 같은 프록시 주소가 아닙니다
+settings-proxy-scheme = http:// 또는 socks5:// 주소를 사용하세요
+settings-proxy-no-host = 주소에 호스트가 필요합니다
+settings-proxy-no-port = 주소에 :8080 같은 포트가 필요합니다
+# After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
+settings-proxy-not-answering = { $address }에서 응답이 없습니다. 프록시가 실행 중인가요?
+settings-proxy-timed-out = 프록시가 시간 내에 응답하지 않았습니다.
+settings-proxy-sign-in-refused = 프록시가 사용자 이름 또는 비밀번호를 거부했습니다.
+settings-proxy-not-found = 해당 프록시 주소를 찾을 수 없습니다.
 settings-proxy-restart-desc = 다음 시작부터 새 프록시 설정이 사용됩니다.
 
 ## Storage
 
 settings-cache-cleared = 캐시가 삭제됨: { $size }가 해제됨
+# How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
+settings-size-mb = { $size } MB
+settings-size-gb = { $size } GB
+settings-size-under-mb = 1 MB 미만
 settings-storage = 보관
 settings-clearing = 지우는 중…
 settings-measuring = 측정 중…
@@ -452,6 +521,9 @@ settings-download = 다운로드
 settings-check-now = 지금 확인하세요
 settings-another-copy = 또 다른 사본
 settings-another-copy-desc = ytm-rs는 { $kind }에서도 설치됩니다. 해당 복사본을 제거하려면 { $cmd }를 실행하세요.
+# { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
+settings-another-copy-deb = .deb 패키지
+settings-another-copy-arch = Arch 패키지
 settings-whats-new = 새로운 소식
 settings-whats-new-in = { $version }의 새로운 기능
 

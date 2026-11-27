@@ -1220,7 +1220,7 @@ impl Output {
         let Some(device) = target(card(&self.destination)) else {
             return false;
         };
-        let id = device.id().map(|i| i.to_string()).ok();
+        let id = device_id(&device);
         let on_error = move |e: rodio::cpal::StreamError| {
             log::warn!("audio: output device error: {e}");
             report();
@@ -1267,7 +1267,7 @@ impl Output {
         }
         let want = match self.remote_target() {
             Some((key, ..)) => Some(key),
-            None => target(card(&self.destination)).and_then(|d| d.id().ok()).map(|i| i.to_string()),
+            None => target(card(&self.destination)).and_then(|d| device_id(&d)),
         };
         want.is_some() && want != self.device
     }
@@ -1338,14 +1338,13 @@ fn card(destination: &Destination) -> Option<&str> {
 fn target(preferred: Option<&str>) -> Option<rodio::cpal::Device> {
     let host = rodio::cpal::default_host();
     if let Some(want) = preferred
-        && let Some(d) = host.output_devices().ok().and_then(|mut all| all.find(|d| d.id().is_ok_and(|i| i.to_string() == want)))
+        && let Some(d) = host.output_devices().ok().and_then(|mut all| all.find(|d| device_id(d).is_some_and(|i| i == want)))
     {
         return Some(d);
     }
     // Only ALSA's default can point at an output that can't open (`hw:0` where the sound
     // server's ALSA plugin isn't set as the default). Other systems' default is what they
-    // play on, so it's kept even while it fails, as before. (By the host's id: a device's
-    // `id` leaks a string on Windows.)
+    // play on, so it's kept even while it fails, as before. (By the host's id: see `device_id`.)
     if host.id().name() != "Alsa" {
         return host.default_output_device();
     }
@@ -1364,6 +1363,35 @@ fn target(preferred: Option<&str>) -> Option<rodio::cpal::Device> {
     let mut state = STAND_IN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let plays = |p: &Pcm| p.device.default_output_config().is_ok();
     resolve(&mut state, Instant::now(), default, plays, stand_ins).map(|p| p.device)
+}
+
+/// cpal's id of `d`, as settings keep the device picked. On Windows cpal 0.17 leaks the
+/// string the system gives it for each one it's asked (cpal#1389, fixed after 0.17), and
+/// `default_changed` asks every second while music plays: there each device's id is asked
+/// once and kept, and found again by comparing devices, which frees theirs.
+fn device_id(d: &rodio::cpal::Device) -> Option<String> {
+    #[cfg(windows)]
+    {
+        use rodio::cpal::platform::DeviceInner;
+        static KNOWN: std::sync::Mutex<Vec<(rodio::cpal::Device, String)>> = std::sync::Mutex::new(Vec::new());
+        let same = |a: &rodio::cpal::Device, b: &rodio::cpal::Device| match (a.as_inner(), b.as_inner()) {
+            (DeviceInner::Wasapi(a), DeviceInner::Wasapi(b)) => a == b,
+            // ASIO or JACK, where cpal has them turned on: asked as they are.
+            #[allow(unreachable_patterns)]
+            _ => false,
+        };
+        let mut known = KNOWN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((_, id)) = known.iter().find(|(k, _)| same(k, d)) {
+            return Some(id.clone());
+        }
+        let id = d.id().ok()?.to_string();
+        if matches!(d.as_inner(), DeviceInner::Wasapi(_)) {
+            known.push((d.clone(), id.clone()));
+        }
+        Some(id)
+    }
+    #[cfg(not(windows))]
+    d.id().ok().map(|i| i.to_string())
 }
 
 /// An ALSA output, told apart by its id.
@@ -1490,7 +1518,7 @@ pub fn output_devices(picked: Option<&str>) -> Vec<OutputDevice> {
     let Ok(all) = rodio::cpal::default_host().output_devices() else { return Vec::new() };
     let all = all
         .filter_map(|d| {
-            let id = d.id().ok()?.to_string();
+            let id = device_id(&d)?;
             let desc = d.description().ok()?;
             // "Speakers (Realtek(R) Audio)" rather than just "Speakers".
             let name = desc.extended().first().cloned().unwrap_or_else(|| desc.name().to_owned());

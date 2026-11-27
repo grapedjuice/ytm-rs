@@ -822,6 +822,12 @@ pub fn anim_speed() -> f32 {
     f32::from_bits(ANIM_SPEED.load(std::sync::atomic::Ordering::Relaxed))
 }
 
+/// Whether animations are Off: what's timed from when it started is drawn finished from its
+/// first frame, which at any speed would still start from nothing.
+pub fn anim_off() -> bool {
+    anim_speed() >= ANIM_OFF
+}
+
 /// The fraction of its written time a UI transition runs for: [`SPEED`], shortened by the
 /// listener's animation speed.
 pub fn speed() -> f32 {

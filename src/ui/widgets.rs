@@ -1077,6 +1077,8 @@ fn popup_extras(ctx: &egui::Context, id: egui::Id) {
     let now = ctx.input(|i| i.time);
     let since = ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(opened, || now));
     ctx.data_mut(|d| d.insert_temp(egui::Id::unique("menu-opened"), since));
+    // Off: the menu is open at full size from its first frame.
+    let since = if theme::anim_off() { f64::NEG_INFINITY } else { since };
     if look.menu_look.item_slide > 0.0 && now - since < theme::secs(0.2) {
         ctx.request_repaint();
     }
@@ -1185,7 +1187,7 @@ fn menu_row(ui: &mut Ui, glyph: Option<char>, label: &str, arrow: bool, unlike: 
     }
     let color = if response.hovered() { theme::text() } else { theme::text_dim() };
     // Rows slide in as the menu opens.
-    let slide = if m.item_slide > 0.0 {
+    let slide = if m.item_slide > 0.0 && !theme::anim_off() {
         let since = ui.ctx().input(|i| i.time) - ui.ctx().data(|d| d.get_temp::<f64>(egui::Id::unique("menu-opened"))).unwrap_or(0.0);
         m.item_slide * (1.0 - theme::ease_out(since as f32 / theme::secs(0.2) as f32))
     } else {

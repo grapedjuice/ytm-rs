@@ -10,7 +10,8 @@
 //! life of the process (it can't be started twice); the icon is made and dropped there.
 //!
 //! The menu shows the song and has play/pause, next and previous, which do what the
-//! media keys do, and Recognize song.
+//! media keys do, and Recognize song. A badge at the icon's corner says whether the song
+//! plays or is paused.
 
 use std::sync::{Mutex, Once};
 
@@ -75,6 +76,10 @@ struct Now {
 /// The icon and the menu items that change.
 struct Icon {
     icon: TrayIcon,
+    /// The app icon as it is, for each badge to be drawn on.
+    base: image::RgbaImage,
+    /// The badge on it now, so the picture is only replaced when that changes.
+    badge: std::cell::Cell<Option<Badge>>,
     song: MenuItem,
     play: MenuItem,
     next: MenuItem,
@@ -155,7 +160,73 @@ impl Icon {
             item.set_enabled(now.song.is_some());
         }
         let _ = self.icon.set_tooltip(Some(tooltip(now.song.as_deref())));
+        let badge = now.song.is_some().then_some(if now.playing { Badge::Playing } else { Badge::Paused });
+        if self.badge.replace(badge) != badge {
+            let img = badge.map_or_else(|| self.base.clone(), |b| badged(&self.base, b));
+            let (w, h) = img.dimensions();
+            if let Ok(icon) = tray_icon::Icon::from_rgba(img.into_raw(), w, h) {
+                let _ = self.icon.set_icon(Some(icon));
+            }
+        }
     }
+}
+
+/// What the badge at the icon's corner shows: what the music is doing, as a play or a
+/// pause sign. None while nothing's playing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Badge {
+    Playing,
+    Paused,
+}
+
+/// `base` with a badge in its bottom right corner: a dark disc a little under half its
+/// size, with a white rim to stand out on a dark or a light panel, and the sign in white.
+/// Each pixel is sampled 4×4 times, for smooth edges at a tray's few pixels.
+fn badged(base: &image::RgbaImage, badge: Badge) -> image::RgbaImage {
+    const N: u32 = 4;
+    const DARK: f32 = 30.0;
+    let mut img = base.clone();
+    let size = img.width().min(img.height()) as f32;
+    let r = size * 0.24;
+    let rim = size / 32.0;
+    let (cx, cy) = (img.width() as f32 - r - 0.5, img.height() as f32 - r - 0.5);
+    // In units of the disc's radius, from its centre.
+    let sign = |x: f32, y: f32| match badge {
+        // Pointing right, from x -0.35 to its tip at 0.5.
+        Badge::Playing => x >= -0.35 && y.abs() <= 0.45 * (0.5 - x) / 0.85,
+        Badge::Paused => y.abs() <= 0.42 && ((-0.42..=-0.12).contains(&x) || (0.12..=0.42).contains(&x)),
+    };
+    let (x0, y0) = ((cx - r).floor().max(0.0) as u32, (cy - r).floor().max(0.0) as u32);
+    for py in y0..img.height() {
+        for px in x0..img.width() {
+            // How much of the pixel the disc covers, and of that how much is white.
+            let (mut disc, mut white) = (0.0, 0.0);
+            for sy in 0..N {
+                for sx in 0..N {
+                    let x = px as f32 + (sx as f32 + 0.5) / N as f32 - cx;
+                    let y = py as f32 + (sy as f32 + 0.5) / N as f32 - cy;
+                    let d = (x * x + y * y).sqrt();
+                    if d <= r {
+                        disc += 1.0;
+                        if d > r - rim || sign(x / r, y / r) {
+                            white += 1.0;
+                        }
+                    }
+                }
+            }
+            if disc == 0.0 {
+                continue;
+            }
+            let n = (N * N) as f32;
+            let (disc, white) = (disc / n, white / n);
+            let p = img.get_pixel_mut(px, py);
+            for c in p.0.iter_mut().take(3) {
+                *c = (f32::from(*c) * (1.0 - disc) + DARK * (disc - white) + 255.0 * white).round() as u8;
+            }
+            p.0[3] = (f32::from(p.0[3]) * (1.0 - disc) + 255.0 * disc).round() as u8;
+        }
+    }
+    img
 }
 
 /// "YT Music", with the song under it. Windows cuts a tooltip off at 127 characters
@@ -220,7 +291,7 @@ fn build(png: image::RgbaImage) -> anyhow::Result<Icon> {
     let (w, h) = png.dimensions();
     #[allow(unused_mut)]
     let mut builder = TrayIconBuilder::new()
-        .with_icon(tray_icon::Icon::from_rgba(png.into_raw(), w, h)?)
+        .with_icon(tray_icon::Icon::from_rgba(png.clone().into_raw(), w, h)?)
         .with_tooltip("YT Music")
         .with_menu(Box::new(menu))
         .with_menu_on_left_click(false);
@@ -231,7 +302,7 @@ fn build(png: image::RgbaImage) -> anyhow::Result<Icon> {
         builder = builder.with_temp_dir_path(dir);
     }
     let icon = builder.build()?;
-    Ok(Icon { icon, song, play, next, prev, toggle })
+    Ok(Icon { icon, base: png, badge: std::cell::Cell::new(None), song, play, next, prev, toggle })
 }
 
 /// Where a Flatpak keeps the icon's picture. The tray, outside the sandbox, reads it from
@@ -416,6 +487,25 @@ mod tests {
         assert_eq!(menu_song(&e.repeat(100)), format!("{}…", e.repeat(59)));
         // No space left hanging before the "…".
         assert_eq!(menu_song(&format!("{} b{}", "a".repeat(58), "c".repeat(50))), format!("{}…", "a".repeat(58)));
+    }
+
+    /// The badge sits in the bottom right corner, opaque there, and leaves the rest of the
+    /// icon as it was; playing and paused look different.
+    #[test]
+    fn a_badge_marks_only_the_corner() {
+        let base = image::RgbaImage::from_pixel(32, 32, image::Rgba([200, 0, 0, 128]));
+        let (play, pause) = (badged(&base, Badge::Playing), badged(&base, Badge::Paused));
+        for img in [&play, &pause] {
+            assert_eq!(img.get_pixel(0, 0), base.get_pixel(0, 0), "top left untouched");
+            assert_eq!(img.get_pixel(8, 24), base.get_pixel(8, 24), "left of the badge untouched");
+            // Opaque at the disc's centre; its rim lighter than the dark disc inside it.
+            assert_eq!(img.get_pixel(24, 24).0[3], 255);
+            let (rim, inside) = (img.get_pixel(31, 24).0[1], img.get_pixel(24, 18).0[1]);
+            assert!(inside < 60 && rim > inside + 40, "rim {rim}, inside {inside}");
+        }
+        assert_ne!(play, pause);
+        // Where the pause sign has its gap, the play sign is white.
+        assert!(pause.get_pixel(24, 24).0[0] < 100 && play.get_pixel(24, 24).0[0] > 150);
     }
 
     /// `gtk_thread::APPINDICATOR` is libappindicator-sys 0.9.0's list of names: another

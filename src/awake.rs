@@ -1,5 +1,6 @@
 //! Keeps the computer awake while something plays: no sleep while music plays, and no
-//! screen blanking or lock either while a music video is on show (#111).
+//! screen blanking or lock either while a music video is on show (#111), or for any
+//! song with Settings › Playback › Keep the screen on while music plays.
 //!
 //! A worker thread holds the request: on Linux it's a D-Bus call that can take a while,
 //! and on Windows the request belongs to the thread that made it.
@@ -14,13 +15,14 @@ pub enum Keep {
     Nothing,
     /// No sleep: music.
     System,
-    /// No sleep, and the screen stays on and unlocked: a video.
+    /// No sleep, and the screen stays on and unlocked: a video, or any song with
+    /// `screen_on`.
     Display,
 }
 
 impl Keep {
-    pub fn of(playing: bool, video: bool) -> Self {
-        match (playing, video) {
+    pub fn of(playing: bool, video: bool, screen_on: bool) -> Self {
+        match (playing, video || screen_on) {
             (false, _) => Self::Nothing,
             (true, false) => Self::System,
             (true, true) => Self::Display,
@@ -330,9 +332,14 @@ mod tests {
 
     #[test]
     fn playing_and_videos_keep_it_awake() {
-        assert_eq!(Keep::of(false, true), Keep::Nothing);
-        assert_eq!(Keep::of(true, false), Keep::System);
-        assert_eq!(Keep::of(true, true), Keep::Display);
+        assert_eq!(Keep::of(false, true, false), Keep::Nothing);
+        assert_eq!(Keep::of(true, false, false), Keep::System);
+        assert_eq!(Keep::of(true, true, false), Keep::Display);
+        // Keep the screen on: a song keeps it on too, and nothing when paused.
+        assert_eq!(Keep::of(true, false, true), Keep::Display);
+        assert_eq!(Keep::of(true, true, true), Keep::Display);
+        assert_eq!(Keep::of(false, false, true), Keep::Nothing);
+        assert_eq!(Keep::of(false, true, true), Keep::Nothing);
     }
 
     #[test]

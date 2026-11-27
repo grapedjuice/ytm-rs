@@ -610,6 +610,8 @@ pub struct App {
     pause_fade: bool,
     /// Songs end where they go silent for good.
     skip_silence: bool,
+    /// Music keeps the screen on and unlocked too, not only a video.
+    keep_screen_on: bool,
     high_quality: bool,
     backup_stream: bool,
     /// Settings › Playback › Find speakers on your network, which network speakers need.
@@ -1096,6 +1098,7 @@ impl App {
             log_volume: get("log_volume").is_none_or(|v| v == "1"),
             pause_fade: get("pause_fade").is_none_or(|v| v == "1"),
             skip_silence: get("skip_silence").is_some_and(|v| v == "1"),
+            keep_screen_on: get("keep_screen_on").is_some_and(|v| v == "1"),
             high_quality: get("high_quality").is_none_or(|v| v == "1"),
             backup_stream,
             local_network: get("local_network").is_some_and(|v| v == "1"),
@@ -1778,12 +1781,13 @@ impl eframe::App for App {
             m.sync_modes(self.queue.shuffled(), self.queue.repeat);
         }
         // No sleep while playing, and the screen stays on for a video on show: this song's
-        // (picture in picture keeps the last one's player for a song after it).
+        // (picture in picture keeps the last one's player for a song after it), or for
+        // any song with Settings › Playback › Keep the screen on while music plays.
         let video = self.shown_video().is_some_and(|t| {
             self.video.as_ref().is_some_and(|(id, p)| *id == t.id && p.as_ref().is_some_and(|p| !p.failed()))
         });
         if let Some(a) = &mut self.awake {
-            a.set(crate::awake::Keep::of(playing, video));
+            a.set(crate::awake::Keep::of(playing, video, self.keep_screen_on));
         }
         self.request_lyric_extras();
         // Upload: files from the picker, or dropped onto the window.
@@ -2309,6 +2313,7 @@ impl eframe::App for App {
         storage.set_string("log_volume", b(self.log_volume));
         storage.set_string("pause_fade", b(self.pause_fade));
         storage.set_string("skip_silence", b(self.skip_silence));
+        storage.set_string("keep_screen_on", b(self.keep_screen_on));
         storage.set_string("high_quality", b(self.high_quality));
         storage.set_string("backup_stream", b(self.backup_stream));
         storage.set_string("local_network", b(self.local_network));

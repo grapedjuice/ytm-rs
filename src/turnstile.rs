@@ -29,8 +29,10 @@ const GIVE_UP_AFTER: Duration = Duration::from_secs(120);
 /// still runs and can pass invisibly, and an interaction it can't get still ends
 /// through the give-up timer. Only the visual is suppressed.
 const HIDE_ENV: &str = "YTM_HIDE_CHALLENGE";
-/// The size the window is created with (and centered on the side screen with).
-const WINDOW_SIZE: tao::dpi::LogicalSize<f64> = tao::dpi::LogicalSize::new(360.0, 120.0);
+/// The size the window is created and shown with (and centered on the side screen
+/// with). It must not change later: show() resizing it would keep the frame's top-left
+/// fixed on macOS and knock the window off-center.
+const WINDOW_SIZE: tao::dpi::LogicalSize<f64> = tao::dpi::LogicalSize::new(360.0, 160.0);
 
 /// The challenge page posts to `window.parent`; at top level that is the page itself,
 /// so forward those messages to the native side. The page doesn't say when the widget
@@ -112,11 +114,28 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
         .as_ref()
         .and_then(|primary| window.available_monitors().find(|monitor| monitor != primary));
     if let Some(monitor) = side {
-        let size = WINDOW_SIZE.to_physical(monitor.scale_factor());
+        let size: tao::dpi::PhysicalSize<u32> = WINDOW_SIZE.to_physical(monitor.scale_factor());
+        // Center the frame, not just the content: set_outer_position pins the frame's
+        // top-left, so sizing from the content alone leaves the title bar pushing the
+        // whole window half a title bar low. The window is still hidden, but tao's
+        // outer_size() reads NSWindow::frame, which exists from creation, so the
+        // measured title-bar delta is real, not an estimate. The delta comes back in
+        // the building screen's physical pixels; points are screen-independent, so
+        // rescale it for this monitor, which may run at a different scale.
+        let build_scale = window.scale_factor();
+        let frame_delta_w =
+            (window.outer_size().width - window.inner_size().width) as f64 / build_scale;
+        let frame_delta_h =
+            (window.outer_size().height - window.inner_size().height) as f64 / build_scale;
+        let monitor_scale = monitor.scale_factor();
+        let frame = tao::dpi::PhysicalSize::new(
+            (size.width as f64 + frame_delta_w * monitor_scale) as u32,
+            (size.height as f64 + frame_delta_h * monitor_scale) as u32,
+        );
         let origin = monitor.position();
         window.set_outer_position(tao::dpi::PhysicalPosition::new(
-            origin.x + (monitor.size().width.saturating_sub(size.width) / 2) as i32,
-            origin.y + (monitor.size().height.saturating_sub(size.height) / 2) as i32,
+            origin.x + (monitor.size().width.saturating_sub(frame.width) / 2) as i32,
+            origin.y + (monitor.size().height.saturating_sub(frame.height) / 2) as i32,
         ));
         float_on_top = false;
     }
@@ -205,7 +224,6 @@ fn show(window: &tao::window::Window, float_on_top: bool) {
         return;
     }
     if !window.is_visible() {
-        window.set_inner_size(tao::dpi::LogicalSize::new(360.0, 160.0));
         window.set_visible(true);
         if float_on_top {
             window.set_always_on_top(true);

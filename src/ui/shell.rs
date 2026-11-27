@@ -2263,7 +2263,9 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
     let tl = app.look().app.toast_look.clone();
     let hold = app.toast_hold();
     let undo = app.undo.is_some();
-    let t = theme::ease_out(age / theme::secs(0.25) as f32) * (1.0 - ((age - hold) / theme::secs(0.4) as f32).clamp(0.0, 1.0));
+    // With animations off it's there from its first frame, not a frame later.
+    let shown = if theme::anim_off() { 1.0 } else { theme::ease_out(age / theme::secs(0.25) as f32) };
+    let t = shown * (1.0 - ((age - hold) / theme::secs(0.4) as f32).clamp(0.0, 1.0));
     let screen = ctx.content_rect();
     let mut clicked = false;
     egui::Area::new(egui::Id::unique("toast"))

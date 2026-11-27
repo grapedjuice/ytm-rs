@@ -166,8 +166,6 @@ settings-keep-pitch-desc = Faster or slower without sounding higher or lower. Of
 settings-speed-pitch = Speed and pitch
 settings-transpose = Transpose
 settings-transpose-desc = Higher or lower by semitones, at the same speed. 12 is an octave.
-settings-tuning = Pitch
-settings-tuning-desc = The note A's frequency the song is tuned to, at the same speed. 440 Hz is standard.
 settings-playback-speed-jam-note = Back to normal while you're in a jam, so everyone hears the same song.
 
 ## Music videos

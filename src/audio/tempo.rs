@@ -7,7 +7,7 @@
 //! resampled, like a record played faster: the pitch goes with it, and a band-limited
 //! filter keeps it clean at any speed. At 1x, samples come out unchanged either way.
 //!
-//! Transpose and tuning move the pitch without the tempo, the two together: the song is
+//! Transpose moves the pitch without the tempo: the song is
 //! stretched by the speed over the pitch's shift, then resampled by the shift, which
 //! brings the tempo back to the speed and takes the pitch up or down by it. Two
 //! semitones up at 1x: stretched to 0.89x, then resampled 1.12x faster.
@@ -23,21 +23,16 @@ pub const MIN_SPEED: f32 = 0.5;
 pub const MAX_SPEED: f32 = 2.0;
 /// Transpose, in semitones either way: an octave.
 pub const MAX_SEMITONES: i32 = 12;
-/// Tuning: the A above middle C, in Hz. 440 is standard pitch; 415 to 466 is a semitone
-/// either side of it.
-pub const A4: f32 = 440.0;
-pub const MIN_TUNING: f32 = 415.0;
-pub const MAX_TUNING: f32 = 466.0;
 /// The most the resampler ever shifts by: the top speed without keeping the pitch,
-/// transposed an octave up and tuned all the way up.
-const MAX_RATIO: f32 = MAX_SPEED * 2.0 * (MAX_TUNING / A4);
+/// transposed an octave up.
+const MAX_RATIO: f32 = MAX_SPEED * 2.0;
 
 /// The listener's speed and pitch, read by every song's `Tempo`.
 pub struct Speed {
     /// f32 bits.
     bits: AtomicU32,
     keep_pitch: AtomicBool,
-    /// The pitch's shift, transpose and tuning together, as a ratio (f32 bits): 1 leaves it.
+    /// The transpose, as a ratio (f32 bits): 1 leaves it.
     pitch: AtomicU32,
 }
 
@@ -47,15 +42,10 @@ impl Default for Speed {
     }
 }
 
-/// How much higher (above 1) or lower `semitones` and a tuning of A = `tuning` Hz make
-/// the song: exactly 1 at 0 and 440, which costs nothing.
-pub fn pitch_ratio(semitones: i32, tuning: f32) -> f32 {
-    let semitones = semitones.clamp(-MAX_SEMITONES, MAX_SEMITONES);
-    let tuning = tuning.clamp(MIN_TUNING, MAX_TUNING);
-    if semitones == 0 && tuning == A4 {
-        return 1.0;
-    }
-    (2f64.powf(semitones as f64 / 12.0) * tuning as f64 / A4 as f64) as f32
+/// How much higher (above 1) or lower `semitones` make the song: exactly 1 at 0, which
+/// costs nothing.
+pub fn pitch_ratio(semitones: i32) -> f32 {
+    2f64.powf(semitones.clamp(-MAX_SEMITONES, MAX_SEMITONES) as f64 / 12.0) as f32
 }
 
 impl Speed {
@@ -78,9 +68,9 @@ impl Speed {
         self.keep_pitch.load(Ordering::Relaxed)
     }
 
-    /// Higher or lower by `semitones`, tuned to A = `tuning` Hz, at any speed.
-    pub fn set_pitch(&self, semitones: i32, tuning: f32) {
-        self.pitch.store(pitch_ratio(semitones, tuning).to_bits(), Ordering::Relaxed);
+    /// Higher or lower by `semitones`, at any speed.
+    pub fn set_pitch(&self, semitones: i32) {
+        self.pitch.store(pitch_ratio(semitones).to_bits(), Ordering::Relaxed);
     }
 
     pub fn pitch(&self) -> f32 {
@@ -724,33 +714,31 @@ mod tests {
         assert!(worst < step * 1.5, "{worst} vs {step}");
     }
 
-    /// A song at `at` speed, `semitones` up (or down) and tuned to A = `tuning` Hz.
-    fn shifted(src: rodio::buffer::SamplesBuffer, at: f32, keep_pitch: bool, semitones: i32, tuning: f32) -> (Tempo<rodio::buffer::SamplesBuffer>, Arc<Speed>, Arc<AtomicU64>) {
+    /// A song at `at` speed, `semitones` up (or down).
+    fn shifted(src: rodio::buffer::SamplesBuffer, at: f32, keep_pitch: bool, semitones: i32) -> (Tempo<rodio::buffer::SamplesBuffer>, Arc<Speed>, Arc<AtomicU64>) {
         let speed = Arc::new(Speed::default());
         speed.set(at);
         speed.set_keep_pitch(keep_pitch);
-        speed.set_pitch(semitones, tuning);
+        speed.set_pitch(semitones);
         let pos = Arc::new(AtomicU64::new(0));
         (Tempo::new(src, speed.clone(), Duration::ZERO, pos.clone()), speed, pos)
     }
 
     #[test]
     fn pitch_ratio_is_exactly_one_untouched_and_an_octave_doubles() {
-        assert_eq!(pitch_ratio(0, A4), 1.0);
-        assert_eq!(pitch_ratio(12, A4), 2.0);
-        assert_eq!(pitch_ratio(-12, A4), 0.5);
-        assert!((pitch_ratio(0, 432.0) - 432.0 / 440.0).abs() < 1e-6);
-        assert!((pitch_ratio(7, A4) - 1.498_307).abs() < 1e-5);
-        // Clamped to an octave and a semitone's tuning either way.
-        assert_eq!(pitch_ratio(40, A4), 2.0);
-        assert_eq!(pitch_ratio(0, 1000.0), MAX_TUNING / A4);
+        assert_eq!(pitch_ratio(0), 1.0);
+        assert_eq!(pitch_ratio(12), 2.0);
+        assert_eq!(pitch_ratio(-12), 0.5);
+        assert!((pitch_ratio(7) - 1.498_307).abs() < 1e-5);
+        // Clamped to an octave either way.
+        assert_eq!(pitch_ratio(40), 2.0);
     }
 
     #[test]
     fn transposing_moves_the_pitch_and_keeps_the_tempo() {
         for semitones in [12, -12, 7, -5, 1, -1] {
             let secs = 2.0;
-            let (t, _, pos) = shifted(sine(440.0, secs), 1.0, true, semitones, A4);
+            let (t, _, pos) = shifted(sine(440.0, secs), 1.0, true, semitones);
             let out: Vec<f32> = t.collect();
             let played = out.len() as f32 / 2.0 / RATE as f32;
             assert!((played - secs).abs() < 0.03, "{semitones:+}: {played} s");
@@ -760,18 +748,6 @@ mod tests {
             assert!((hz(mid) - want).abs() < want * 0.01, "{semitones:+}: {} Hz, want {want}", hz(mid));
             assert!(pos.load(Ordering::Relaxed) as f32 >= secs * 1000.0 - 30.0, "{semitones:+}: {}", pos.load(Ordering::Relaxed));
             assert!(mid.iter().all(|s| s.abs() < 0.55), "{semitones:+}: louder");
-        }
-    }
-
-    #[test]
-    fn tuning_moves_a_to_the_hz_asked_for() {
-        for tuning in [432.0, 415.0, 466.0] {
-            let (t, _, _) = shifted(sine(440.0, 2.0), 1.0, true, 0, tuning);
-            let out: Vec<f32> = t.collect();
-            assert!((out.len() as f32 / 2.0 / RATE as f32 - 2.0).abs() < 0.03);
-            let left = left(&out);
-            let mid = &left[left.len() / 4..left.len() * 3 / 4];
-            assert!((hz(mid) - tuning).abs() < tuning * 0.01, "{tuning}: {} Hz", hz(mid));
         }
     }
 
@@ -789,7 +765,7 @@ mod tests {
         ];
         for (at, keep, semitones, want) in cases {
             let secs = 3.0;
-            let (t, _, pos) = shifted(sine(440.0, secs), at, keep, semitones, A4);
+            let (t, _, pos) = shifted(sine(440.0, secs), at, keep, semitones);
             let out: Vec<f32> = t.collect();
             let played = out.len() as f32 / 2.0 / RATE as f32;
             assert!((played - secs / at).abs() < 0.04, "{at}x {semitones:+}: {played} s");
@@ -802,17 +778,17 @@ mod tests {
 
     #[test]
     fn transposing_mid_song_keeps_the_clock_and_doesnt_click() {
-        let (mut t, speed, pos) = shifted(sine(440.0, 4.0), 1.0, true, 0, A4);
+        let (mut t, speed, pos) = shifted(sine(440.0, 4.0), 1.0, true, 0);
         let mut out: Vec<f32> = t.by_ref().take(RATE as usize).collect();
-        speed.set_pitch(4, A4);
+        speed.set_pitch(4);
         out.extend(t.by_ref().take(RATE as usize));
-        speed.set_pitch(-3, A4);
+        speed.set_pitch(-3);
         out.extend(t.by_ref().take(RATE as usize));
         // A second and a half in (stereo: `RATE` samples is half a second), a second and a
         // half of song: the tempo stayed 1x throughout.
         let at = pos.load(Ordering::Relaxed);
         assert!((1480..=1510).contains(&at), "{at}");
-        speed.set_pitch(0, A4);
+        speed.set_pitch(0);
         out.extend(t);
         let played = out.len() as f32 / 2.0 / RATE as f32;
         assert!((played - 4.0).abs() < 0.04, "{played} s");
@@ -824,7 +800,7 @@ mod tests {
     #[test]
     fn a_seek_while_transposed_moves_the_clock_there() {
         use rodio::Source;
-        let (mut t, _, pos) = shifted(sine(440.0, 3.0), 1.0, true, 5, A4);
+        let (mut t, _, pos) = shifted(sine(440.0, 3.0), 1.0, true, 5);
         let _: Vec<f32> = t.by_ref().take(20_000).collect();
         t.try_seek(Duration::from_secs(2)).unwrap();
         assert_eq!(pos.load(Ordering::Relaxed), 2000);

@@ -1256,7 +1256,7 @@ pub fn floating_bar(app: &mut App, ui: &mut Ui, slot: Rect, now: f64) {
 }
 
 /// The player bar's speed button: the speed it's at, lit (with the dot under it) when
-/// it isn't 1× (or the pitch is moved). Opens sliders for transpose, pitch and speed.
+/// it isn't 1× (or it's transposed). Opens sliders for the speed and the transpose.
 fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32, dot_floor: f32) {
     let jam = app.jam.active();
     let changed = !jam && app.tempo_changed();
@@ -1277,13 +1277,12 @@ fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32,
     if changed {
         ui.painter().circle_filled(pos2(r.center().x, (r.bottom() + 3.0).min(dot_floor)), 2.0, accent);
     }
-    // A small card over the button: transpose, pitch and speed, each a slider.
+    // A small card over the button: the speed and the transpose, each a slider.
     let popup = widgets::menu_popup(&resp).align(egui::RectAlign::TOP_END).align_alternatives(&[egui::RectAlign::BOTTOM_END]);
     popup.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         use super::pages as p;
-        use crate::audio::tempo::{A4, MAX_SEMITONES, MAX_SPEED, MAX_TUNING, MIN_SPEED, MIN_TUNING};
-        widgets::menu_body(ui, 290.0);
-        ui.spacing_mut().item_spacing = vec2(0.0, 6.0);
+        use crate::audio::tempo::{MAX_SEMITONES, MAX_SPEED, MIN_SPEED};
+        widgets::menu_body(ui, 248.0);
         let pad = 10.0;
         ui.add_space(6.0);
         if jam {
@@ -1294,14 +1293,11 @@ fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32,
             ui.add_space(6.0);
         }
         ui.add_enabled_ui(!jam, |ui| {
+            tempo_slider(ui, crate::tr!("settings-speed"), &p::times(speed), &mut app.speed, (MIN_SPEED, MAX_SPEED, 0.05), 1.0);
             let mut transpose = app.transpose as f32;
-            let text = p::semitones(app.transpose);
-            tempo_control(ui, crate::tr!("settings-transpose"), &text, crate::tr!("settings-transpose-desc"), &mut transpose, (-(MAX_SEMITONES as f32), MAX_SEMITONES as f32, 1.0), 0.0);
+            let max = MAX_SEMITONES as f32;
+            tempo_slider(ui, crate::tr!("settings-transpose"), &p::semitones(app.transpose), &mut transpose, (-max, max, 1.0), 0.0);
             app.transpose = transpose.round() as i32;
-            let text = p::hz(app.tuning);
-            tempo_control(ui, crate::tr!("settings-tuning"), &text, crate::tr!("settings-tuning-desc"), &mut app.tuning, (MIN_TUNING, MAX_TUNING, 1.0), A4);
-            let text = p::times(speed);
-            tempo_control(ui, crate::tr!("settings-speed"), &text, crate::tr!("settings-playback-speed-desc"), &mut app.speed, (MIN_SPEED, MAX_SPEED, 0.05), 1.0);
             // Always there, so the card keeps its size while the sliders move.
             widgets::menu_divider(ui);
             let normal = !app.tempo_changed();
@@ -1310,7 +1306,7 @@ fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32,
                     ui.multiply_opacity(0.4);
                 }
                 if widgets::menu_action(ui, Some(icon::HISTORY), crate::tr!("ui-back-normal")) {
-                    (app.speed, app.transpose, app.tuning) = (1.0, 0, A4);
+                    (app.speed, app.transpose) = (1.0, 0);
                 }
             });
         });
@@ -1318,62 +1314,21 @@ fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32,
     });
 }
 
-/// One of the speed card's controls, in a tile of its own: its name and value with a
-/// reset at the end, over its slider with − and + either side.
-fn tempo_control(ui: &mut Ui, name: &str, value: &str, about: &str, v: &mut f32, (lo, hi, step): (f32, f32, f32), home: f32) {
-    let moved = (*v - home).abs() > step / 2.0;
-    let text = if moved { theme::text() } else { theme::text_dim() };
-    egui::Frame::new().fill(theme::glass(0.05)).corner_radius(12.0).inner_margin(egui::Margin { left: 12, right: 6, top: 2, bottom: 4 }).show(ui, |ui| {
-        // The card's full width, so every tile's ends line up whatever its value.
-        ui.set_width(ui.available_width());
-        ui.spacing_mut().item_spacing = vec2(6.0, 0.0);
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(name).font(theme::semibold(14.0)).color(text)).on_hover_text(about);
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new(value).font(theme::semibold(14.0)).color(text));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_enabled_ui(moved, |ui| {
-                    if !moved {
-                        ui.multiply_opacity(0.4);
-                    }
-                    if icon_button(ui, icon::HISTORY, 14.0, crate::tr!("ui-back-normal"), false).clicked() {
-                        *v = home;
-                    }
-                });
-            });
-        });
-        ui.horizontal(|ui| {
-            let snap = |x: f32| ((x / step).round() * step).clamp(lo, hi);
-            if step_button(ui, false, &crate::tr!("ui-step-down", name = name), *v > lo).clicked() {
-                *v = snap(*v - step);
-            }
-            let w = ui.available_width() - 28.0;
-            super::pages::slider_track(ui, v, (lo, hi, step), Some(home), w, name);
-            if step_button(ui, true, &crate::tr!("ui-step-up", name = name), *v < hi).clicked() {
-                *v = snap(*v + step);
-            }
+/// One of the speed card's sliders: its name and value over it.
+fn tempo_slider(ui: &mut Ui, name: &str, value: &str, v: &mut f32, range: (f32, f32, f32), home: f32) {
+    let pad = 10.0;
+    ui.horizontal(|ui| {
+        ui.add_space(pad);
+        ui.label(egui::RichText::new(name).font(theme::semibold(13.5)).color(theme::text()));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add_space(pad);
+            ui.label(egui::RichText::new(value).font(theme::regular(13.0)).color(theme::text_dim()));
         });
     });
-}
-
-/// A − or + to step a slider by one, drawn as lines (the icon font has neither).
-fn step_button(ui: &mut Ui, plus: bool, name: &str, enabled: bool) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(26.0), if enabled { Sense::click() } else { Sense::hover() });
-    let resp = named(resp, name).on_hover_text(name);
-    let resp = if enabled { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
-    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), enabled && resp.hovered(), 0.15);
-    if h > 0.0 {
-        ui.painter().circle_filled(rect.center(), 13.0, theme::glass(0.10 * h));
-    }
-    widgets::focus_ring(ui, &resp, rect, 13.0);
-    let color = if enabled { theme::lerp_color(theme::text_dim(), theme::text(), h) } else { theme::with_alpha(theme::text_dim(), 0.35) };
-    let (c, arm) = (rect.center(), 6.5);
-    let stroke = egui::Stroke::new(1.8, color);
-    ui.painter().line_segment([c - vec2(arm, 0.0), c + vec2(arm, 0.0)], stroke);
-    if plus {
-        ui.painter().line_segment([c - vec2(0.0, arm), c + vec2(0.0, arm)], stroke);
-    }
-    resp
+    ui.horizontal(|ui| {
+        ui.add_space(pad - 8.0);
+        super::pages::slider_track(ui, v, range, Some(home), ui.available_width() - pad + 8.0, name);
+    });
 }
 
 pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {

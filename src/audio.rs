@@ -647,10 +647,9 @@ impl AudioHandle {
         self.status.speed.set_keep_pitch(on);
     }
 
-    /// Transpose (semitones) and tuning (A in Hz), without changing the tempo. Takes
-    /// effect at once.
-    pub fn set_pitch(&self, semitones: i32, tuning: f32) {
-        self.status.speed.set_pitch(semitones, tuning);
+    /// Transpose, in semitones, without changing the tempo. Takes effect at once.
+    pub fn set_pitch(&self, semitones: i32) {
+        self.status.speed.set_pitch(semitones);
     }
 }
 

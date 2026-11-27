@@ -592,13 +592,12 @@ impl App {
         let normal = self.jam.active() || !self.tempo_on;
         self.audio.set_speed(if normal { 1.0 } else { self.speed });
         self.audio.set_keep_pitch(self.keep_pitch);
-        let (semitones, tuning) = if normal { (0, crate::audio::tempo::A4) } else { (self.transpose, self.tuning) };
-        self.audio.set_pitch(semitones, tuning);
+        self.audio.set_pitch(if normal { 0 } else { self.transpose });
     }
 
-    /// Speed, transpose or tuning moved off normal.
+    /// Speed or transpose moved off normal.
     pub(super) fn tempo_changed(&self) -> bool {
-        (self.speed - 1.0).abs() > 0.001 || self.transpose != 0 || self.tuning != crate::audio::tempo::A4
+        (self.speed - 1.0).abs() > 0.001 || self.transpose != 0
     }
 
     pub(crate) fn set_crossfade(&mut self) {

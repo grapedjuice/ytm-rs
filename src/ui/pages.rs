@@ -4007,17 +4007,12 @@ fn settings_tempo(app: &mut App, ui: &mut Ui) {
             setting_row(ui, tr!("settings-keep-pitch"), Some(tr!("settings-keep-pitch-desc")), |ui| {
                 toggle(ui, &mut app.keep_pitch, tr!("settings-keep-pitch"));
             });
-            use crate::audio::tempo::{A4, MAX_SEMITONES, MAX_TUNING, MIN_TUNING};
             divider(ui);
             setting_row_wide(ui, tr!("settings-transpose"), Some(tr!("settings-transpose-desc")), SLIDER_W, |ui| {
                 let mut v = app.transpose as f32;
-                let max = MAX_SEMITONES as f32;
+                let max = crate::audio::tempo::MAX_SEMITONES as f32;
                 step_slider(ui, &mut v, (-max, max, 1.0), Some(0.0), |v| semitones(v.round() as i32), tr!("settings-transpose"));
                 app.transpose = v.round() as i32;
-            });
-            divider(ui);
-            setting_row_wide(ui, tr!("settings-tuning"), Some(tr!("settings-tuning-desc")), SLIDER_W, |ui| {
-                step_slider(ui, &mut app.tuning, (MIN_TUNING, MAX_TUNING, 1.0), Some(A4), hz, tr!("settings-tuning"));
             });
         });
     });
@@ -4039,11 +4034,6 @@ pub(super) fn semitones(n: i32) -> String {
         n if n > 0 => format!("+{n}"),
         n => format!("\u{2212}{}", -n),
     }
-}
-
-/// A tuning as it's shown: 440 Hz.
-pub(super) fn hz(v: f32) -> String {
-    format!("{} Hz", v.round())
 }
 
 /// The equalizer's bands as vertical sliders, over the curve they make together.

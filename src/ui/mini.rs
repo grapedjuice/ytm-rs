@@ -814,7 +814,7 @@ impl Mini {
     /// The new layout fades in from `base` (the background's own colour): drawn over
     /// everything, since pages and popups paint on layers of their own.
     pub fn fade_in(&self, ctx: &egui::Context, now: f64, base: Color32) {
-        let t = ((now - self.shown_at) / 0.18).clamp(0.0, 1.0) as f32;
+        let t = ((now - self.shown_at) / theme::secs(0.18)).clamp(0.0, 1.0) as f32;
         if t >= 1.0 {
             return;
         }
@@ -1886,12 +1886,12 @@ fn card_body(app: &mut App, ui: &mut Ui, cr: Rect, now: f64) {
         if scroll != 0.0 {
             let vol = (app.audio.volume() + scroll / 600.0).clamp(0.0, 1.0);
             app.audio.set_volume(vol);
-            app.mini.volume_at = now + 1.2;
+            app.mini.volume_at = now + theme::secs(1.2);
         }
         let show = zresp.hovered() || now < app.mini.volume_at;
         if show {
             let vol = app.audio.volume();
-            let alpha = if zresp.hovered() { 1.0 } else { ((app.mini.volume_at - now) / 1.2).clamp(0.0, 1.0) as f32 };
+            let alpha = if zresp.hovered() { 1.0 } else { ((app.mini.volume_at - now) / theme::secs(1.2)).clamp(0.0, 1.0) as f32 };
             // A small percentage at the top of the strip, then the level itself.
             let pct = format!("{}%", (vol * 100.0).round() as u32);
             let g = widgets::galley(ui, &pct, theme::regular(10.0), theme::text().gamma_multiply(alpha), zone.width());

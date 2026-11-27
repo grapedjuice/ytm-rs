@@ -699,6 +699,8 @@ pub struct App {
     /// The animated background's speed and brightness, as multiples of the theme's.
     bg_speed: f32,
     bg_brightness: f32,
+    /// How fast the interface animates, as a multiple of the theme's.
+    anim_speed: f32,
     /// One colour behind the pages and Now playing, instead of the album art or gradient.
     flat_bg: bool,
     /// The colour, once picked. None uses the theme's own flat colour.
@@ -1194,6 +1196,7 @@ impl App {
             anim_bg: get("anim_bg").is_none_or(|v| v == "1"),
             bg_speed: shell::load_factor(get("bg_speed"), shell::BG_SPEED),
             bg_brightness: shell::load_factor(get("bg_brightness"), shell::BG_BRIGHTNESS),
+            anim_speed: shell::load_factor(get("anim_speed"), theme::ANIM_SPEED_RANGE),
             flat_bg: get("flat_bg").is_some_and(|v| v == "1"),
             flat_color: get("flat_color").as_deref().and_then(crate::preset::hex),
             glass_on: get("glass_on").is_none_or(|v| v == "1"),
@@ -1734,6 +1737,8 @@ impl eframe::App for App {
 
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         pace::frame(ctx);
+        // Before anything is timed this frame: toasts and the recognize window expire here.
+        theme::set_anim_speed(ctx, self.anim_speed);
         self.lyric_view.release_hidden(ctx.cumulative_pass_nr());
         let now = ctx.input(|i| i.time);
         let focused = ctx.input(|i| i.focused);
@@ -1868,7 +1873,7 @@ impl eframe::App for App {
             playing: self.playing() || self.buffering,
         };
         ctx.data_mut(|d| d.insert_temp(widgets::NowPlaying::id(), np));
-        let hold = f64::from(self.toast_hold()) + 0.4;
+        let hold = f64::from(self.toast_hold()) + theme::secs(0.4);
         let toast_hovered = !self.window_hidden && shell::toast_hovered(ctx);
         if let Some((_, t)) = &mut self.toast {
             if *t < 0.0 {
@@ -2376,6 +2381,7 @@ impl eframe::App for App {
         storage.set_string("queue_width", format!("{:.0}", self.queue_w));
         storage.set_string("bg_speed", format!("{:.2}", self.bg_speed));
         storage.set_string("bg_brightness", format!("{:.2}", self.bg_brightness));
+        storage.set_string("anim_speed", format!("{:.2}", self.anim_speed));
         storage.set_string("flat_bg", b(self.flat_bg));
         if let Some(c) = self.flat_color {
             storage.set_string("flat_color", format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()));

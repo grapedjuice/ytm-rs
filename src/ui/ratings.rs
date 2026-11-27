@@ -121,7 +121,7 @@ impl UnlikeHold {
                 self.phase = HoldPhase::Returning { since: now, from: 1.0 };
             }
             HoldPhase::Returning { since, from } => {
-                self.progress = from * (1.0 - (now - since).clamp(0.0, 1.0) as f32);
+                self.progress = from * (1.0 - ((now - since) / theme::secs(1.0)).clamp(0.0, 1.0) as f32);
                 if clicked {
                     self.hint_until = now + 3.0;
                 }

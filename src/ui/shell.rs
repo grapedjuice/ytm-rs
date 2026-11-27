@@ -334,7 +334,7 @@ pub fn is_rail(app: &App) -> bool {
 
 /// How collapsed the sidebar is, 0 (full) to 1 (icon rail), eased over the toggle.
 pub fn sidebar_collapse(app: &App, ctx: &egui::Context) -> f32 {
-    let t = ctx.animate_bool_with_time(egui::Id::unique("sidebar-collapse"), is_rail(app), 0.28 * theme::SPEED);
+    let t = ctx.animate_bool_with_time(egui::Id::unique("sidebar-collapse"), is_rail(app), 0.28 * theme::speed());
     // Ease in-out: starts and lands gently in both directions.
     t * t * (3.0 - 2.0 * t)
 }
@@ -1030,7 +1030,7 @@ pub fn suggestions(app: &mut App, ctx: &egui::Context) {
                         let term = s.text;
                         // The removed one folds away, and the rows below slide up into its place.
                         if let Some((_, at)) = app.forgetting.as_ref().filter(|(t, _)| s.forget.as_deref() == Some(t.as_str())) {
-                            let p = ((now - at) / 0.18).clamp(0.0, 1.0) as f32;
+                            let p = ((now - at) / theme::secs(0.18)).clamp(0.0, 1.0) as f32;
                             let e = 1.0 - (1.0 - p).powi(3);
                             let gap = ui.spacing().item_spacing.y;
                             // Its spacing folds away with it, so nothing jumps at the end.
@@ -1094,7 +1094,7 @@ pub fn suggestions(app: &mut App, ctx: &egui::Context) {
                     if !picked {
                         suggested_hits(ui, app);
                     }
-                    if let Some((t, _)) = app.forgetting.take_if(|(_, at)| now - *at >= 0.18) {
+                    if let Some((t, _)) = app.forgetting.take_if(|(_, at)| now - *at >= theme::secs(0.18)) {
                         app.suggestions.1.retain(|s| s.forget.as_deref() != Some(t.as_str()));
                         // The rows below moved up: a pick made while it folded away would
                         // now be another one, maybe a song where it was a search.
@@ -1600,7 +1600,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
             let turn = if playing { (now / secs.max(1.0) as f64 % 1.0) as f32 * std::f32::consts::TAU } else { 0.0 };
             // Out of its sleeve while playing, back in on pause, if the theme has it move.
             let slide = look.cover.disc_slide_secs;
-            let out = if slide > 0.0 { theme::ease_in_out(ui.ctx().animate_bool_with_time(egui::Id::unique("bar-disc-out"), playing, slide)) } else { 1.0 };
+            let out = if slide > 0.0 { theme::ease_in_out(ui.ctx().animate_bool_with_time(egui::Id::unique("bar-disc-out"), playing, slide / theme::anim_speed())) } else { 1.0 };
             let c = art.center().lerp(art.right_center(), out);
             ui.painter().circle_filled(c, art.height() * 0.46, Color32::from_gray(18));
             // Its edge, or on a dark bar only the label in the middle shows.
@@ -2249,7 +2249,7 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
     let tl = app.look().app.toast_look.clone();
     let hold = app.toast_hold();
     let undo = app.undo.is_some();
-    let t = theme::ease_out(age / 0.25) * (1.0 - ((age - hold) / 0.4).clamp(0.0, 1.0));
+    let t = theme::ease_out(age / theme::secs(0.25) as f32) * (1.0 - ((age - hold) / theme::secs(0.4) as f32).clamp(0.0, 1.0));
     let screen = ctx.content_rect();
     let mut clicked = false;
     egui::Area::new(egui::Id::unique("toast"))
@@ -2299,9 +2299,9 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
         app.actions.push(Action::Undo);
     }
     // Frames only while it fades in or out; in between it just waits.
-    if (0.25..hold).contains(&age) {
+    if (theme::secs(0.25) as f32..hold).contains(&age) {
         ctx.request_repaint_after(std::time::Duration::from_secs_f32(hold - age));
-    } else if age < hold + 0.4 {
+    } else if age < hold + theme::secs(0.4) as f32 {
         ctx.request_repaint();
     }
 }
@@ -2364,5 +2364,19 @@ mod tests {
         // Off its steps (an older or hand-edited save), it comes back onto them.
         assert_eq!(load_factor(Some("1.05".into()), BG_SPEED), 1.0);
         assert_eq!(load_factor(Some("0.93".into()), BG_BRIGHTNESS), 0.9);
+    }
+
+    /// Animation speed goes from the theme's own up to four times as fast, in quarters.
+    #[test]
+    fn a_saved_animation_speed_loads_on_its_steps_and_in_range() {
+        let load = |v: &str| load_factor(Some(v.to_owned()), crate::theme::ANIM_SPEED_RANGE);
+        assert_eq!(load_factor(None, crate::theme::ANIM_SPEED_RANGE), 1.0);
+        assert_eq!(load("2.00"), 2.0);
+        assert_eq!(load("1.3"), 1.25);
+        assert_eq!(load("0.5"), 1.0);
+        assert_eq!(load("9"), 4.0);
+        assert_eq!(load("0"), 1.0);
+        assert_eq!(load("fast"), 1.0);
+        assert_eq!(load("NaN"), 1.0);
     }
 }

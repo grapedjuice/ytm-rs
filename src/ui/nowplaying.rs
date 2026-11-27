@@ -584,7 +584,7 @@ fn panel_motion(app: &App, ctx: &egui::Context, track_id: &str, no_lyrics: bool,
             next
         }
     };
-    let p = ctx.animate_bool_with_time(egui::Id::unique("np-panel"), state.want, 0.6 * theme::SPEED);
+    let p = ctx.animate_bool_with_time(egui::Id::unique("np-panel"), state.want, 0.6 * theme::speed());
     if p > 0.0 && p < 1.0 {
         // Every frame while sliding, not the now-playing view's usual 30 fps.
         ctx.request_repaint();
@@ -753,7 +753,7 @@ fn np_content(app: &mut App, ui: &mut Ui, content: Rect, track: &crate::model::T
     // Switching between Lyrics, Up next and Comments: the old one fades out over the first 55%,
     // the new one fades in and rises into place from a third of the way.
     for (tab, key) in [(NpTab::Lyrics, "np-tab-lyrics"), (NpTab::UpNext, "np-tab-upnext"), (NpTab::Comments, "np-tab-comments")] {
-        let w = ui.ctx().animate_bool_with_time(egui::Id::unique(key), panel_tab == tab, 0.45 * theme::SPEED);
+        let w = ui.ctx().animate_bool_with_time(egui::Id::unique(key), panel_tab == tab, 0.45 * theme::speed());
         if w > 0.0 && w < 1.0 {
             ui.ctx().request_repaint();
         }
@@ -1214,7 +1214,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
     if let Some(f) = cs.fullscreen.filter(|f| f.enter.is_some() || f.leave.is_some()) {
         let (step, shift) = if app.fullscreen { (f.enter, f.enter_shift_vh) } else { (f.leave, f.leave_shift_vh) };
         let secs = step.map_or(0.0, |[_, s]| s).max(0.01);
-        let full = ui.ctx().animate_bool_with_time(egui::Id::unique("np-cover-full"), app.fullscreen, secs);
+        let full = ui.ctx().animate_bool_with_time(egui::Id::unique("np-cover-full"), app.fullscreen, secs / theme::anim_speed());
         let p = theme::ease_out(if app.fullscreen { full } else { 1.0 - full });
         if let Some([from, _]) = step {
             opening *= egui::lerp(from..=1.0, p);
@@ -1448,7 +1448,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         // A brief note, faded out after a few seconds.
         let since = ui.ctx().memory_mut(|m| *m.data.get_temp_mut_or_insert_with(egui::Id::unique(("no-lyrics", &track.id)), || now));
         let nl = np.no_lyrics;
-        let a = if nl.stays { 1.0 } else { (1.0 - ((now - since - 3.0) / 1.0) as f32).clamp(0.0, 1.0) };
+        let a = if nl.stays { 1.0 } else { (1.0 - ((now - since - 3.0) / theme::secs(1.0)) as f32).clamp(0.0, 1.0) };
         if a > 0.0 {
             let c = theme::with_alpha(theme::text_dim(), a * 0.8);
             let y = title_y + title_px * 1.4 + artist_px * 1.6;
@@ -2017,7 +2017,7 @@ fn cover_clip(app: &mut App, ctx: &egui::Context, track: &crate::model::Track, p
             None => c.frame = Some((ctx.load_texture("cover-clip", f.image, egui::TextureOptions::LINEAR), now)),
         }
     }
-    let shown = c.frame.as_ref().map_or(0.0, |(_, at)| ((now - at) / 0.32).clamp(0.0, 1.0)) as f32;
+    let shown = c.frame.as_ref().map_or(0.0, |(_, at)| ((now - at) / theme::secs(0.32)).clamp(0.0, 1.0)) as f32;
     // Now playing runs at 30 fps while the music plays; paused, only the first frame and
     // its fade need drawing.
     if c.frame.is_none() {

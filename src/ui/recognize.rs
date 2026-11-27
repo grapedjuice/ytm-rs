@@ -124,7 +124,7 @@ pub(super) fn tick(app: &mut App, ctx: &egui::Context) {
         _ if matches!(phase, Phase::Listening { .. } | Phase::Identifying) => {}
         None => answer(app, phase, now),
         // Played or added: gone once faded, the app coming up for the picker or not.
-        Some(_) if r.acted.is_some_and(|at| now - at > ACTED_HOLD + FADE) => app.recognize.close(),
+        Some(_) if r.acted.is_some_and(|at| now - at > ACTED_HOLD + theme::secs(FADE)) => app.recognize.close(),
         Some(_) if r.acted.is_some() => ctx.request_repaint(),
         // Seen in the app now, as the search it opened.
         Some(_) if back => app.recognize.close(),
@@ -161,7 +161,7 @@ fn answer(app: &mut App, phase: Phase, now: f64) {
 /// The card's opacity: 1 until it fades after Play or Add to playlist.
 fn opacity(app: &App, ctx: &egui::Context) -> f32 {
     let Some(at) = app.recognizing.acted else { return 1.0 };
-    let t = ((ctx.input(|i| i.time) - at - ACTED_HOLD) / FADE).clamp(0.0, 1.0) as f32;
+    let t = ((ctx.input(|i| i.time) - at - ACTED_HOLD) / theme::secs(FADE)).clamp(0.0, 1.0) as f32;
     1.0 - t * t * (3.0 - 2.0 * t)
 }
 

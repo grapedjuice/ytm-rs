@@ -20,7 +20,7 @@ const CARD: f32 = 180.0;
 
 pub fn page(app: &mut App, ui: &mut Ui, now: f64) {
     arrive::page(ui.ctx(), app.page_changed);
-    let t = theme::ease_out(((now - app.page_changed) / 0.32) as f32);
+    let t = theme::ease_out(((now - app.page_changed) / theme::secs(0.32)) as f32);
     let rise = app.look().app.page_rise_px * (1.0 - t);
     if rise > 0.0 {
         ui.add_space(rise);
@@ -2002,7 +2002,7 @@ fn settle_room(ctx: &egui::Context, needed: f32, fill: f32, h: f32) -> f32 {
     }
     s.h = h;
     ctx.data_mut(|d| d.insert_temp(id, s));
-    let t = ((now - s.since) / SECS) as f32;
+    let t = ((now - s.since) / theme::secs(SECS)) as f32;
     // Scrolling back up meanwhile gives it back sooner.
     let room = (fill + s.scroll * (1.0 - theme::ease_in_out(t.clamp(0.0, 1.0)))).min(needed);
     if t < 1.0 && s.scroll > 0.0 {
@@ -2892,6 +2892,10 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         });
         divider(ui);
         settings_zoom(ui);
+        divider(ui);
+        setting_row(ui, tr!("settings-animation-speed"), Some(tr!("settings-animation-speed-desc")), |ui| {
+            percent_stepper(ui, &mut app.anim_speed, theme::ANIM_SPEED_RANGE, tr!("settings-faster"), tr!("settings-slower"));
+        });
     });
 }
 
@@ -3502,7 +3506,7 @@ fn network(app: &mut App, ui: &mut Ui) {
         if remaining > 0.0 {
             let elapsed = (HIGHLIGHT_SECS - remaining) as f32;
             let pulse = 0.5 + 0.5 * (elapsed * std::f32::consts::TAU).cos();
-            let fade = (remaining / 0.25).min(1.0) as f32;
+            let fade = (remaining / theme::secs(0.25)).min(1.0) as f32;
             let color = theme::with_alpha(app.accent_color(), (0.2 + 0.8 * pulse) * fade);
             let stroke = egui::Stroke::new(2.0, color);
             ui.painter().rect_stroke(response.rect.expand(4.0), response.rect.height() / 2.0 + 4.0, stroke, egui::StrokeKind::Outside);

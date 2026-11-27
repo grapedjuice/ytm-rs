@@ -1077,12 +1077,12 @@ fn popup_extras(ctx: &egui::Context, id: egui::Id) {
     let now = ctx.input(|i| i.time);
     let since = ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(opened, || now));
     ctx.data_mut(|d| d.insert_temp(egui::Id::unique("menu-opened"), since));
-    if look.menu_look.item_slide > 0.0 && now - since < 0.2 {
+    if look.menu_look.item_slide > 0.0 && now - since < theme::secs(0.2) {
         ctx.request_repaint();
     }
     let scale = match look.menu_look.pop {
         Some([from, secs]) => {
-            let t = ((now - since) as f32 / secs.max(0.01)).clamp(0.0, 1.0);
+            let t = ((now - since) as f32 / theme::secs(f64::from(secs.max(0.01))) as f32).clamp(0.0, 1.0);
             if t < 1.0 {
                 ctx.request_repaint();
             }
@@ -1091,10 +1091,9 @@ fn popup_extras(ctx: &egui::Context, id: egui::Id) {
         None => 1.0,
     };
     let Some(rect) = ctx.memory(|m| m.area_rect(id)) else { return };
-    if scale < 1.0 {
-        let c = rect.center().to_vec2();
-        ctx.set_transform_layer(egui::LayerId::new(egui::Order::Foreground, id), egui::emath::TSTransform::from_translation(c) * egui::emath::TSTransform::from_scaling(scale) * egui::emath::TSTransform::from_translation(-c));
-    }
+    // Set every frame, so the zoom's last frame leaves the menu at full size.
+    let c = rect.center().to_vec2();
+    ctx.set_transform_layer(egui::LayerId::new(egui::Order::Foreground, id), egui::emath::TSTransform::from_translation(c) * egui::emath::TSTransform::from_scaling(scale) * egui::emath::TSTransform::from_translation(-c));
     if let Some(glass) = look.glass.menu {
         // On a layer of its own just under the popups.
         let layer = egui::LayerId::new(egui::Order::Middle, egui::Id::unique("menu-frost"));
@@ -1188,7 +1187,7 @@ fn menu_row(ui: &mut Ui, glyph: Option<char>, label: &str, arrow: bool, unlike: 
     // Rows slide in as the menu opens.
     let slide = if m.item_slide > 0.0 {
         let since = ui.ctx().input(|i| i.time) - ui.ctx().data(|d| d.get_temp::<f64>(egui::Id::unique("menu-opened"))).unwrap_or(0.0);
-        m.item_slide * (1.0 - theme::ease_out(since as f32 / 0.2))
+        m.item_slide * (1.0 - theme::ease_out(since as f32 / theme::secs(0.2) as f32))
     } else {
         0.0
     };
@@ -2015,7 +2014,7 @@ pub fn h_scroll<R>(ui: &mut Ui, id: &str, nudge: i32, count: usize, item_width: 
     if let Some(x) = held {
         area = area.horizontal_scroll_offset(x);
     } else if let Some(t) = target.or(coast) {
-        let v = ui.ctx().animate_value_with_time(anim_id, t, 0.35 * theme::SPEED);
+        let v = ui.ctx().animate_value_with_time(anim_id, t, 0.35 * theme::speed());
         area = area.horizontal_scroll_offset(v);
         if (v - t).abs() < 0.5 {
             stop_glide(ui.ctx());
@@ -2096,7 +2095,7 @@ pub(super) fn shelf_drag(ui: &Ui, resp: &Response, state_id: egui::Id) -> ShelfD
                 // With the last move, when it came in with the letting go.
                 out = ShelfDrag::Coast(speed + ui.input(|i| i.pointer.delta().x));
             } else if speed.abs() > 1.0 {
-                ui.scroll_with_delta_animation(vec2(0.0, speed), ScrollAnimation::duration(0.6));
+                ui.scroll_with_delta_animation(vec2(0.0, speed), ScrollAnimation::duration(theme::secs(0.6) as f32));
             }
         }
         (moved, axis) = (Vec2::ZERO, None);
@@ -2118,7 +2117,7 @@ pub fn shimmer_band(ui: &Ui, r: Rect, radius: f32, time: f64) {
 /// Paint a remote image into `rect`: the skeleton's shimmer while it downloads (not
 /// egui's spinner), then a quick fade-in. One already loaded just shows.
 pub fn paint_remote(ui: &Ui, url: &str, rect: Rect, radius: f32, uv: Rect, tint: Color32) {
-    const FADE: f64 = 0.22;
+    let fade = 0.22 / f64::from(theme::anim_speed());
     let ctx = ui.ctx();
     let now = ctx.input(|i| i.time);
     let id = egui::Id::unique(("img-fade", url));
@@ -2126,7 +2125,7 @@ pub fn paint_remote(ui: &Ui, url: &str, rect: Rect, radius: f32, uv: Rect, tint:
         Ok(egui::load::TexturePoll::Ready { texture }) => {
             // Fade only what was seen loading; Some(None) = waiting, Some(Some(t)) = fading since t.
             let a = match ctx.data(|d| d.get_temp::<Option<f64>>(id)) {
-                Some(Some(t0)) if now - t0 < FADE => ((now - t0) / FADE) as f32,
+                Some(Some(t0)) if now - t0 < fade => ((now - t0) / fade) as f32,
                 Some(None) => {
                     ctx.data_mut(|d| d.insert_temp(id, Some(now)));
                     0.0

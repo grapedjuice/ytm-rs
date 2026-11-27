@@ -62,10 +62,10 @@ fn fade() -> f32 {
     f32::from_bits(FADE.load(std::sync::atomic::Ordering::Relaxed))
 }
 
-/// How long a UI transition written as 1 second runs: [`SPEED`] and the theme's fades
+/// How long a UI transition written as 1 second runs: [`speed`] and the theme's fades
 /// (never 0: a theme's fades go down to 0.3 of the usual).
 pub fn motion() -> f32 {
-    SPEED * fade()
+    speed() * fade()
 }
 
 /// Text and icons on a fill of the main text colour (a primary button, a selected chip).
@@ -802,13 +802,55 @@ pub fn ease_in_out(t: f32) -> f32 {
     if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0 }
 }
 
-/// Every UI transition runs at this fraction of the time it's written with: one knob
-/// for how snappy the app feels. (Lyrics keep their own timing.)
-pub const SPEED: f32 = 0.65;
+/// Every UI transition runs at this fraction of the time it's written with, at the
+/// listener's usual animation speed: how snappy the app feels. (Lyrics keep their own timing.)
+const SPEED: f32 = 0.65;
+
+/// Settings › Appearance › Animation speed, as a multiple of the theme's own (f32 bits).
+static ANIM_SPEED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f80_0000);
+
+/// Range and step of Settings › Appearance › Animation speed (1: the theme's own).
+pub const ANIM_SPEED_RANGE: (f32, f32, f32) = (1.0, 4.0, 0.25);
+
+/// The listener's animation speed, never below the theme's own: 2 runs every transition in
+/// half the time.
+pub fn anim_speed() -> f32 {
+    f32::from_bits(ANIM_SPEED.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// The fraction of its written time a UI transition runs for: [`SPEED`], shortened by the
+/// listener's animation speed.
+pub fn speed() -> f32 {
+    SPEED / anim_speed()
+}
+
+/// Set the listener's animation speed, and egui's own transitions with it.
+pub fn set_anim_speed(ctx: &egui::Context, factor: f32) {
+    let factor = factor.clamp(ANIM_SPEED_RANGE.0, ANIM_SPEED_RANGE.1);
+    if ANIM_SPEED.swap(factor.to_bits(), std::sync::atomic::Ordering::Relaxed) != factor.to_bits() {
+        ctx.global_style_mut(egui_timings);
+    }
+}
+
+/// A transition timed by hand from when it started rather than through [`anim`] (a toast,
+/// a menu's items, a crossfade): its written length, shortened by the listener's animation
+/// speed. These already run at their own pace, so [`SPEED`] isn't applied on top.
+pub fn secs(written: f64) -> f64 {
+    written / f64::from(anim_speed())
+}
+
+/// egui's own transitions (collapsing headers, scroll bars and the like), and its scrolls
+/// to a spot (jumping to the playing song, a search hit).
+fn egui_timings(s: &mut egui::Style) {
+    s.animation_time = 0.18 * speed() * fade();
+    let d = egui::style::ScrollAnimation::default();
+    let k = anim_speed();
+    s.scroll_animation = egui::style::ScrollAnimation { points_per_second: d.points_per_second * k, duration: egui::Rangef::new(d.duration.min / k, d.duration.max / k) };
+}
 
 /// Animate toward `target` (eased), keyed by `id`. Requests repaints while moving.
 pub fn anim(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, target: f32, secs: f32) -> f32 {
-    ctx.animate_value_with_time(egui::Id::unique(id), target, secs * SPEED * fade())
+    ctx.animate_value_with_time(egui::Id::unique(id), target, secs * speed() * fade())
 }
 
 pub fn anim_bool(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, on: bool, secs: f32) -> f32 {
@@ -817,17 +859,29 @@ pub fn anim_bool(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug
 
 /// [`anim_bool`] uneased: a fade that leaves at once rather than lingering on the way out.
 pub fn anim_bool_linear(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, on: bool, secs: f32) -> f32 {
-    ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED * fade())
+    ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * speed() * fade())
 }
 
 /// [`anim_bool`] eased in and out, never overshooting: for a slow, gentle change such as a dimming.
 pub fn anim_bool_soft(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, on: bool, secs: f32) -> f32 {
-    ease_in_out(ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED * fade()))
+    ease_in_out(ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * speed() * fade()))
+}
+
+/// [`anim_bool`] for a fade the song's timing starts (a lyric line lighting up), which
+/// Animation speed leaves alone as it does the lyrics.
+pub fn anim_bool_song(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, on: bool, secs: f32) -> f32 {
+    eased(ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED * fade()))
+}
+
+/// [`anim`] for a change the song's timing starts (the credits brightening once the last line
+/// is sung), left alone by Animation speed like [`anim_bool_song`].
+pub fn anim_song(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, target: f32, secs: f32) -> f32 {
+    ctx.animate_value_with_time(egui::Id::unique(id), target, secs * SPEED * fade())
 }
 
 /// [`anim_bool`] for a transition whose length the theme sets itself, so `ui_fade_secs` leaves it alone.
 pub fn anim_bool_timed(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug, on: bool, secs: f32) -> f32 {
-    eased(ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * SPEED))
+    eased(ctx.animate_bool_with_time(egui::Id::unique(id), on, secs * speed()))
 }
 
 fn eased(t: f32) -> f32 {
@@ -1613,7 +1667,7 @@ pub fn install_style(ctx: &egui::Context) {
         s.text_styles.insert(egui::TextStyle::Small, regular(12.0));
         s.visuals = visuals();
         s.interaction.selectable_labels = false;
-        s.animation_time = 0.18 * SPEED * fade();
+        egui_timings(s);
     });
 }
 
@@ -1670,6 +1724,18 @@ fn visuals() -> egui::Visuals {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn at_the_usual_animation_speed_transitions_run_as_they_always_have() {
+        // Nothing else sets it in tests: the listener's speed starts at the theme's own.
+        assert_eq!(anim_speed(), 1.0);
+        assert_eq!(speed(), SPEED);
+        assert_eq!(secs(0.32), 0.32);
+        let mut s = egui::Style::default();
+        egui_timings(&mut s);
+        let d = egui::style::ScrollAnimation::default();
+        assert_eq!((s.scroll_animation.points_per_second, s.scroll_animation.duration), (d.points_per_second, d.duration));
+    }
 
     /// The window isn't told a theme, so it keeps following the system's light or dark (#412).
     #[test]

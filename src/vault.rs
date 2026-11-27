@@ -130,6 +130,9 @@ mod file {
         // or half file, which loads as signed out.
         let path = path(key, dir);
         let tmp = path.with_extension("secret.tmp");
+        // One save at a time: two at once would write the same file beside it.
+        static SAVING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _saving = SAVING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let saved = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -148,6 +151,8 @@ mod file {
     }
 
     pub fn delete(key: &str, dir: &Path) -> anyhow::Result<()> {
+        // And one a crash left half saved beside it.
+        let _ = std::fs::remove_file(path(key, dir).with_extension("secret.tmp"));
         match std::fs::remove_file(path(key, dir)) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
             _ => Ok(()),

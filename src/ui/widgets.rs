@@ -401,6 +401,8 @@ pub fn icon_at(ui: &Ui, center: Pos2, glyph: char, size: f32, color: Color32) {
     let g = ui.painter().layout_no_wrap(glyph.to_string(), theme::icon_font(size), color);
     let ink = g.mesh_bounds;
     let pos = if ink.is_positive() { center - ink.center().to_vec2() } else { center - g.size() / 2.0 };
+    // Play is a triangle: centred on its box, its weight sits left. Centre its centroid.
+    let pos = if glyph == theme::icon::PLAY { pos + vec2(0.083 * size, 0.0) } else { pos };
     ui.painter().galley(pos, g, color);
 }
 
@@ -924,7 +926,12 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, pin: Option<bool>, a
     let title_pos = pos2(rect.left(), img.bottom() + 10.0);
     galley_tipped(ui, title_pos, title, tcolor, &c.title);
     let sub_y = img.bottom() + 14.0 + title_h;
-    linked_text(ui, pos2(rect.left(), sub_y), &c.subtitle, &c.links, theme::regular(13.0), theme::with_alpha(theme::text_dim(), cl.subtitle_alpha), width - 36.0, acts);
+    // A playlist kept downloaded is marked at the start of its subtitle.
+    let mark_w = if kept_downloaded(ui, &c.target) { DOWNLOAD_MARK_W } else { 0.0 };
+    if mark_w > 0.0 {
+        download_mark(ui, rect.left(), sub_y + 8.0, 1.0);
+    }
+    linked_text(ui, pos2(rect.left() + mark_w, sub_y), &c.subtitle, &c.links, theme::regular(13.0), theme::with_alpha(theme::text_dim(), cl.subtitle_alpha), width - 36.0 - mark_w, acts);
     // On the subtitle line, whose width leaves room for it, so a two-line title never sits under it.
     let more_rect = Rect::from_center_size(pos2(rect.right() - 16.0, sub_y + 8.0), Vec2::splat(30.0));
     let more = more_button(ui, more_rect, resp.id.with("more"), crate::tr!("ui-options"));
@@ -943,6 +950,28 @@ pub fn card(ui: &mut Ui, c: &Card, width: f32, liked: bool, pin: Option<bool>, a
     } else if resp.clicked() && !more.clicked() {
         acts.push(Action::Open(c.target.clone()));
     }
+}
+
+/// Whether the playlist `target` is kept downloaded (its menu's Keep downloaded).
+pub fn kept_downloaded(ui: &Ui, target: &Target) -> bool {
+    let Target::Playlist(id) = target else { return false };
+    ui.ctx().data(|d| d.get_temp::<std::sync::Arc<Vec<String>>>(egui::Id::unique("kept-downloaded"))).is_some_and(|k| k.contains(id))
+}
+
+/// Room the download mark takes at the start of a line, its gap after included.
+pub const DOWNLOAD_MARK_W: f32 = 18.0;
+
+/// The mark of a downloaded song or a playlist kept downloaded, at the start of a line
+/// whose middle is `y`: an arrow down in a filled circle, as other music apps show it.
+/// `alpha` fades it with the line it's on.
+pub fn download_mark(ui: &Ui, x: f32, y: f32, alpha: f32) {
+    let accent = ui.ctx().data(|d| d.get_temp::<Color32>(egui::Id::unique("accent"))).unwrap_or(theme::RED);
+    let c = pos2(x + 6.5, y);
+    ui.painter().circle_filled(c, 6.5, theme::with_alpha(accent, alpha));
+    // Dark or white, whichever reads better on the accent.
+    let ink = egui::Stroke::new(1.4, theme::with_alpha(theme::on_fill(accent), alpha));
+    ui.painter().line_segment([c + vec2(0.0, -3.5), c + vec2(0.0, 3.2)], ink);
+    ui.painter().line(vec![c + vec2(-2.8, 0.6), c + vec2(0.0, 3.4), c + vec2(2.8, 0.6)], ink);
 }
 
 /// While the album or playlist `id` downloads, its whole cover darkens, then the darkness
@@ -1207,7 +1236,7 @@ pub fn song_actions(ui: &mut Ui, t: &Track, liked: bool, remove: Option<usize>, 
     if menu_action(ui, None, crate::tr!("ui-copy-link")) {
         acts.push(Action::Share(Target::Song(t.clone())));
     }
-    match crate::downloads::path(&t.id) {
+    match crate::downloads::file_for(t) {
         Some(path) => {
             if menu_action(ui, Some(icon::FOLDER_OPEN), crate::tr!("widget-show-in-folder")) {
                 crate::downloads::show_file(&path);
@@ -1276,7 +1305,7 @@ pub fn song_action_icons(ui: &mut Ui, t: &Track, liked: bool, acts: &mut Vec<Act
         if icon(ui, icon::LINK, crate::tr!("ui-copy-link")) {
             acts.push(Action::Share(Target::Song(t.clone())));
         }
-        match crate::downloads::path(&t.id) {
+        match crate::downloads::file_for(t) {
             Some(path) => {
                 if icon(ui, icon::FOLDER_OPEN, crate::tr!("widget-show-in-folder")) {
                     crate::downloads::show_file(&path);
@@ -1399,11 +1428,13 @@ pub fn play_pause_glyph(ui: &Ui, center: Pos2, r: f32, color: Color32, playing: 
     }
 }
 
+/// A play triangle `r` tall each way from `center`, with its centroid (not its box) there,
+/// so in a round button it looks centred rather than leaning left.
 pub fn play_triangle(ui: &Ui, center: Pos2, r: f32, color: Color32) {
     let pts = vec![
-        center + vec2(-r * 0.6, -r),
-        center + vec2(r * 1.0, 0.0),
-        center + vec2(-r * 0.6, r),
+        center + vec2(-r * 0.6 + r / 15.0, -r),
+        center + vec2(r + r / 15.0, 0.0),
+        center + vec2(-r * 0.6 + r / 15.0, r),
     ];
     ui.painter().add(egui::Shape::convex_polygon(pts, color, egui::Stroke::NONE));
 }
@@ -1642,9 +1673,16 @@ pub fn track_row(ui: &mut Ui, t: &Track, o: &RowOpts, acts: &mut Vec<Action>) ->
         (sub, _) => sub,
     };
     let title_y = if sub.is_some() { cy - 18.0 } else { cy - 9.0 };
-    title_at(ui, pos2(x, title_y), &t.title, t.explicit, theme::semibold(14.5), title_col, title_w);
+    // A downloaded song is marked at the start of its second line (of its only one, with none).
+    let marked = crate::downloads::is_listed(t);
+    let mark_w = if marked { DOWNLOAD_MARK_W } else { 0.0 };
+    let (title_x, title_room) = if sub.is_none() { (x + mark_w, title_w - mark_w) } else { (x, title_w) };
+    if marked {
+        download_mark(ui, x, if sub.is_some() { cy + 10.0 } else { cy }, opacity);
+    }
+    title_at(ui, pos2(title_x, title_y), &t.title, t.explicit, theme::semibold(14.5), title_col, title_room);
     if let Some(sub) = &sub {
-        linked_text(ui, pos2(x, cy + 2.0), sub, &t.artists, theme::regular(13.0), dim, title_w, acts);
+        linked_text(ui, pos2(x + mark_w, cy + 2.0), sub, &t.artists, theme::regular(13.0), dim, title_w - mark_w, acts);
     }
     if let (Some(px), Some(p)) = (plays_x, &plays) {
         ui.painter().text(pos2(px, cy), Align2::LEFT_CENTER, p, theme::regular(13.5), dim);

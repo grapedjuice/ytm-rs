@@ -304,7 +304,6 @@ settings-language = Мова
 settings-language-desc = Мова інтерфейсу програми. Назви пісень, імена та розділи YouTube Music відображаються мовою, вибраною нижче в налаштуваннях даних про пісні.
 settings-restart-to-apply = Потрібен перезапуск
 settings-language-restart-desc = Мова зміниться під час наступного запуску застосунку.
-settings-restart-now = Перезапустити зараз
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
 

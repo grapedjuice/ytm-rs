@@ -318,6 +318,27 @@ pub fn dislike(ui: &Ui, center: Pos2, size: f32, filled: bool, color: Color32) {
     paint_icon(ui, "thumbs-down", outline, center, size, color);
 }
 
+/// Lucide's pencil (ISC, like the thumbs-down above): its body, and the line across it.
+const PENCIL: &str = "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497zm-6.174-1.812 4 4";
+
+/// The pencil over a playlist's own cover, for editing it. The icon font's subset
+/// doesn't have it.
+pub fn pencil(ui: &Ui, center: Pos2, size: f32, color: Color32) {
+    lucide(ui, PENCIL, center, size, color);
+}
+
+/// A Lucide icon (ISC) the icon font hasn't got, by its path data, stroked as the font's are.
+pub fn lucide(ui: &Ui, d: &'static str, center: Pos2, size: f32, color: Color32) {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+
+    static ICONS: OnceLock<Mutex<HashMap<&'static str, &'static crate::preset::VectorIcon>>> = OnceLock::new();
+    let icon = *ICONS.get_or_init(Mutex::default).lock().unwrap().entry(d).or_insert_with(|| {
+        Box::leak(Box::new(crate::preset::VectorIcon { view: [24.0, 24.0], origin: [0.0, 0.0], d: d.to_owned(), flip: false, stroke: 2.0 }))
+    });
+    paint_icon(ui, "lucide", icon, center, size, color);
+}
+
 fn paint_icon(ui: &Ui, name: &str, icon: &crate::preset::VectorIcon, center: Pos2, size: f32, color: Color32) {
     let ppp = ui.ctx().pixels_per_point();
     // Sizes in steps of two pixels, so a growing icon doesn't make a texture every frame.
@@ -351,6 +372,18 @@ pub fn name_of(glyph: char) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The pencil reads as its body and the line across it, all inside Lucide's 24×24.
+    #[test]
+    fn the_pencil_is_its_body_and_a_line() {
+        let polys = flatten(PENCIL);
+        assert_eq!(polys.len(), 2, "{polys:?}");
+        assert!(polys.iter().flatten().all(|p| (0.0..=24.0).contains(&p[0]) && (0.0..=24.0).contains(&p[1])));
+        // The line across it, from (15, 5) to (19, 9).
+        let line = &polys[1];
+        assert!((line[0][0] - 15.0).abs() < 0.01 && (line[0][1] - 5.0).abs() < 0.01, "{line:?}");
+        assert!((line[line.len() - 1][0] - 19.0).abs() < 0.01 && (line[line.len() - 1][1] - 9.0).abs() < 0.01, "{line:?}");
+    }
 
     fn icon(d: &str) -> crate::preset::VectorIcon {
         crate::preset::VectorIcon { view: [10.0, 10.0], origin: [0.0, 0.0], d: d.into(), flip: false, stroke: 0.0 }

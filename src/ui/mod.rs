@@ -3,6 +3,7 @@
 //! Layout: animated album-art background (shader.rs) → sidebar, top bar and page
 //! content → player bar → now-playing overlay (slides up) → toasts.
 
+mod ab_loop;
 mod account;
 mod actions;
 mod arrive;
@@ -251,6 +252,10 @@ pub enum Action {
     /// `Queue::insert_at`).
     QueueInsert { gap: usize, track: Track },
     Seek(f32),
+    /// A-B repeat: the playing song's loop starts, or ends, at this many seconds.
+    LoopStart(f32),
+    LoopEnd(f32),
+    LoopClear,
     /// Moving video or the picture, for music videos.
     ToggleVideo,
     /// The Song/Video switch on a song: its music video in its place (`true`), or the
@@ -734,6 +739,9 @@ pub struct App {
     speed: f32,
     /// Speed changes the tempo only, not the pitch (saved; on unless switched off).
     keep_pitch: bool,
+    /// Transpose, in semitones, from the speed button's card: the pitch without the
+    /// tempo (not saved: 0 each launch, like the speed).
+    transpose: i32,
     /// The next song starts because this one is ending: crossfade into it.
     handoff: bool,
     /// The sleep timer, when it's set (not saved).
@@ -741,6 +749,9 @@ pub struct App {
     /// SponsorBlock segments for a video, and when one was last skipped.
     segments: Option<(String, Vec<crate::sponsorblock::Segment>)>,
     segment_skipped: f64,
+    /// A-B repeat's stretch, and when it last went back to its start.
+    ab_loop: Option<ab_loop::AbLoop>,
+    loop_sought: Option<std::time::Instant>,
     /// The system-wide media shortcuts.
     hotkeys: hotkeys::State,
     /// Background animation clock: advances only while music plays, so pausing
@@ -771,9 +782,13 @@ pub struct App {
     queue_float: Option<egui::Rect>,
     /// A song row being dragged.
     row_drag: Option<row_drag::RowDrag>,
-    /// Settings: the category on show, and what its search box is looking for.
+    /// Settings: open (a sheet over the page), the category on show, and what its search
+    /// box is looking for.
+    settings_open: bool,
     settings_tab: pages::SettingsTab,
     settings_query: String,
+    /// In a narrow window, a category rather than the list of them.
+    settings_page: bool,
     palette: palette::Palette,
     fullscreen: bool,
     /// Full screen is the video alone, its controls showing while the pointer moves.
@@ -852,6 +867,11 @@ pub struct App {
     // window
     /// Clicking × hides the window to the tray instead of quitting.
     close_to_tray: bool,
+    /// A left click on the tray icon plays or pauses instead of bringing the window back
+    /// (Windows and macOS: on Linux a click always opens the icon's menu).
+    tray_click_plays: bool,
+    /// When a tray click that plays or pauses came, while it may still turn out a double-click.
+    tray_click: Option<std::time::Instant>,
     /// Linux, Wayland session: an X11 window from the next start, so the mini player can
     /// stay above other windows.
     mini_x11: bool,
@@ -1114,6 +1134,8 @@ impl App {
                 .filter(|_| !crate::update::flatpak())
                 .map_or_else(|| crate::update::is_nightly(&crate::update::build_version()), |v| v == "nightly"),
             close_to_tray: get("close_to_tray").is_some_and(|v| v == "1"),
+            tray_click_plays: get("tray_click_plays").is_some_and(|v| v == "1"),
+            tray_click: None,
             mini_x11: get("mini_x11").is_some_and(|v| v == "1"),
             wgpu_renderer,
             app_icon,
@@ -1202,8 +1224,11 @@ impl App {
             tempo_on: get("tempo").is_some_and(|v| v == "1"),
             speed: 1.0,
             keep_pitch: get("keep_pitch").is_none_or(|v| v == "1"),
+            transpose: 0,
             segments: None,
             segment_skipped: f64::NEG_INFINITY,
+            ab_loop: None,
+            loop_sought: None,
             hotkeys,
             bg_time: 0.0,
             layer_time: 0.0,
@@ -1220,8 +1245,10 @@ impl App {
             queue_w: shell::load_queue_w(get("queue_width")),
             queue_float: None,
             row_drag: None,
+            settings_open: false,
             settings_tab: Default::default(),
             settings_query: String::new(),
+            settings_page: false,
             palette: Default::default(),
             // Dev hook: the full screen layout, leaving the window where it is.
             fullscreen: dev_var("YTM_FAKE_FULLSCREEN").is_some(),
@@ -1316,7 +1343,8 @@ impl App {
         }
         // Dev hook: YTM_PROXY_INPUT=<address> opens Settings › Network on Custom with it typed in.
         if let Some(v) = dev_var("YTM_PROXY_INPUT") {
-            app.settings_tab = pages::SettingsTab::General;
+            app.settings_tab = pages::SettingsTab::Advanced;
+            app.settings_page = true;
             app.proxy_mode = crate::proxy::Setting::Custom(String::new());
             app.proxy_url = v.to_owned();
         }
@@ -1378,6 +1406,13 @@ impl App {
             p => p,
         };
         self.np_open = false;
+        // Settings opens over the page, which stays where it is.
+        if page == Page::Settings {
+            self.settings_open = true;
+            self.settings_query.clear();
+            return;
+        }
+        self.settings_open = false;
         if page == self.page {
             // Clicking the page you're on refreshes it.
             self.refresh();
@@ -1395,6 +1430,8 @@ impl App {
             self.set_fullscreen(ctx, false);
         } else if self.np_open {
             self.np_open = false;
+        } else if self.settings_open {
+            self.settings_open = false;
         } else if let Some(p) = self.back.pop() {
             self.forward.push(std::mem::replace(&mut self.page, p));
             self.page_loaded();
@@ -1717,6 +1754,7 @@ impl eframe::App for App {
             ctx.request_repaint_after(Duration::from_secs_f64((t - now).max(0.0)));
         }
         self.skip_segments(ctx, now);
+        self.keep_looping(ctx);
         hotkeys::poll(self, ctx, frame);
         // System media controls and taskbar buttons follow the player however it changed.
         let playing = self.playing() || self.buffering;
@@ -1938,6 +1976,12 @@ impl eframe::App for App {
         // How far each album or playlist being downloaded has got, for its cover's veil.
         let progress: Arc<Vec<(String, f32)>> = Arc::new(self.download_runs.iter().filter(|r| !r.title.is_empty()).map(|r| (r.key.clone(), r.done as f32 / r.total.max(1) as f32)).collect());
         ctx.data_mut(|d| d.insert_temp(egui::Id::unique("download-progress"), progress));
+        // The playlists kept downloaded, for the mark on their rows and cards.
+        let kept: Arc<Vec<String>> = Arc::new(match self.logged_in {
+            true => self.kept_downloaded.iter().cloned().chain(self.download_liked.then(|| lists::LIKED_MUSIC.to_owned())).collect(),
+            false => Vec::new(),
+        });
+        ctx.data_mut(|d| d.insert_temp(egui::Id::unique("kept-downloaded"), kept));
         // The file can change with nothing else going on here.
         if self.accent_source == AccentSource::File {
             ctx.request_repaint_after(Duration::from_secs(2));
@@ -2163,6 +2207,13 @@ impl eframe::App for App {
             shell::floating_bar(self, &mut bar, r, now);
             theme::set_mode(&ctx, pages);
         }
+        // Settings, over the pages; the player bar below it stays in reach. Now playing
+        // opening over it closes it.
+        if self.np_open {
+            self.settings_open = false;
+        }
+        let under_bar = if self.fullscreen { 0.0 } else { self.bar_height() };
+        pages::settings_sheet(self, &ctx, screen.with_max_y(screen.bottom() - under_bar));
         if np > 0.001 {
             theme::set_mode(&ctx, false);
             nowplaying::overlay(self, &ctx, now);
@@ -2297,6 +2348,7 @@ impl eframe::App for App {
             self.good_window = Some(w);
         }
         storage.set_string("close_to_tray", b(self.close_to_tray));
+        storage.set_string("tray_click_plays", b(self.tray_click_plays));
         storage.set_string("mini_x11", b(self.mini_x11));
         storage.set_string("song_notifications", b(self.song_notifications));
         let start = START_PAGES.iter().find(|(.., p)| *p == self.start_page).map_or("home", |(k, ..)| k);

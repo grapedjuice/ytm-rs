@@ -822,6 +822,8 @@ fn fullscreen_progress(app: &mut App, ui: &mut Ui, screen: Rect, px: f32) {
     if total > 0.0 {
         let filled = Rect::from_min_size(r.min, vec2(r.width() * pos / total, r.height()));
         ui.painter().rect_filled(filled, bar_r, theme::with_alpha(Color32::WHITE, 0.32));
+        super::ab_loop::paint_loop(app, ui, r, total, pos, bar_r, Color32::WHITE);
+        super::ab_loop::loop_menu(app, ui, &resp, r, total, pos);
         let font = theme::semibold((px * 0.55).clamp(10.0, 14.0));
         widgets::time_at(ui, pos2(r.left() + 12.0, r.center().y), egui::Align2::LEFT_CENTER, &super::fmt_time(pos as u32), font.clone(), Color32::WHITE);
         widgets::time_at(ui, pos2(r.right() - 12.0, r.center().y), egui::Align2::RIGHT_CENTER, &super::fmt_end(pos, total, app.time_left), font, Color32::WHITE);
@@ -1355,6 +1357,8 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         ui.painter().rect_filled(line, 2.0, theme::with_alpha(Color32::WHITE, 0.25));
         if total > 0.0 {
             ui.painter().rect_filled(Rect::from_min_size(line.min, vec2(line.width() * pos / total, 4.0)), 2.0, Color32::WHITE);
+            super::ab_loop::paint_loop(app, ui, line, total, pos, 2.0, Color32::WHITE);
+            super::ab_loop::loop_menu(app, ui, &seek, line, total, pos);
             if seek.clicked()
                 && let Some(p) = seek.interact_pointer_pos()
             {
@@ -1646,6 +1650,8 @@ fn seek_line(app: &mut App, ui: &mut Ui, hit: Rect, id: egui::Id, (pos, total): 
     let frac = if total > 0.0 { pos / total } else { 0.0 };
     let filled = Rect::from_min_size(track_r.min, vec2(track_r.width() * frac, thick));
     ui.painter().rect_filled(filled, thick / 2.0, fill);
+    super::ab_loop::paint_loop(app, ui, track_r, total, pos, thick / 2.0, Color32::WHITE);
+    super::ab_loop::loop_menu(app, ui, &seek, track_r, total, pos);
     if lit > 0.0 && total > 0.0 {
         ui.painter().circle_filled(pos2(filled.right(), line_y), 6.5 * lit, fill);
         if let Some(p) = seek.hover_pos() {
@@ -1660,10 +1666,11 @@ fn seek_line(app: &mut App, ui: &mut Ui, hit: Rect, id: egui::Id, (pos, total): 
         && let Some(p) = seek.interact_pointer_pos()
     {
         let t = ((p.x - track_r.left()) / track_r.width()).clamp(0.0, 1.0) * total;
-        if seek.dragged() {
+        // Dragged with the left button: a right-click held or moved a little is the menu's.
+        if seek.dragged_by(egui::PointerButton::Primary) {
             app.seek_drag = Some(t);
         }
-        if seek.drag_stopped() || seek.clicked() {
+        if seek.drag_stopped_by(egui::PointerButton::Primary) || seek.clicked() {
             app.seek_drag = None;
             app.actions.push(Action::Seek(t));
         }

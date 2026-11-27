@@ -587,10 +587,21 @@ impl App {
     }
 
     /// Every frame: a jam starting or ending changes it too. Normal in a jam, where
-    /// everyone hears the same song at the same moment.
-    pub(super) fn sync_tempo(&self) {
-        self.audio.set_speed(if self.jam.active() || !self.tempo_on { 1.0 } else { self.speed });
+    /// everyone hears the same song at the same moment. Fast with the pitch kept, the
+    /// transpose can only go so low; it's held there, so what's shown is what's heard.
+    pub(super) fn sync_tempo(&mut self) {
+        let normal = self.jam.active() || !self.tempo_on;
+        if !normal {
+            self.transpose = self.transpose.max(crate::audio::tempo::lowest_semitones(self.speed, self.keep_pitch));
+        }
+        self.audio.set_speed(if normal { 1.0 } else { self.speed });
         self.audio.set_keep_pitch(self.keep_pitch);
+        self.audio.set_pitch(if normal { 0 } else { self.transpose });
+    }
+
+    /// Speed or transpose moved off normal.
+    pub(super) fn tempo_changed(&self) -> bool {
+        (self.speed - 1.0).abs() > 0.001 || self.transpose != 0
     }
 
     pub(crate) fn set_crossfade(&mut self) {
@@ -629,6 +640,10 @@ impl App {
     /// Stage the next track's decoder ahead of the current song's end for gapless handoff.
     pub(super) fn stage_next(&mut self, after: u64) {
         if after != self.generation || !self.gapless || self.crossfade || self.jam.guest() || !self.audio.status.started(after) {
+            return;
+        }
+        // A-B repeat goes back before the end: no next song to fetch on every pass.
+        if self.ab_stretch().is_some() {
             return;
         }
         let repeat_one = self.repeats_one();
@@ -839,7 +854,9 @@ impl App {
         // where the video plays), and a segment marked on another cut skips wrong.
         let Some(duration) = self.audio.status.duration().map(|d| d.as_secs_f64()) else { return };
         let pos = self.audio.status.position().as_secs_f64();
-        let mut segs = segs.iter().filter(|s| s.fits(duration));
+        // Not one an A-B loop starts in: picked to be heard, and skipped it'd only go back there.
+        let from = self.ab_stretch().map(|(start, _)| start);
+        let mut segs = segs.iter().filter(|s| s.fits(duration) && !from.is_some_and(|a| a >= s.start && a < s.end));
         let Some(seg) = segs.clone().find(|s| pos >= s.start && pos < s.end - 0.3).copied() else {
             // Wake up for the next one even when nothing else repaints.
             if let Some(next) = segs.find(|s| s.start > pos) {
@@ -849,14 +866,18 @@ impl App {
         };
         self.segment_skipped = now;
         log::info!("sponsorblock: skipping {:.1}–{:.1} s", seg.start, seg.end);
-        if seg.end >= duration - 1.0 {
-            if self.repeats_one() {
-                self.play_current();
-            } else {
-                self.next();
+        match self.ab_stretch() {
+            // With A-B repeat, a skip to its end or past goes back to its start, as reaching
+            // the end would; any other stays in the song, which doesn't finish while it loops.
+            Some((start, end)) if pos >= end || seg.end >= end => self.loop_back(start),
+            None if seg.end >= duration - 1.0 => {
+                if self.repeats_one() {
+                    self.play_current();
+                } else {
+                    self.next();
+                }
             }
-        } else {
-            self.audio.send(AudioCmd::Seek(Duration::from_secs_f64(seg.end)));
+            _ => self.audio.send(AudioCmd::Seek(Duration::from_secs_f64(seg.end))),
         }
     }
 

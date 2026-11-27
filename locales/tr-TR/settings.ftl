@@ -304,7 +304,6 @@ settings-language = Dil
 settings-language-desc = Uygulama arayüzünün dili. Şarkı adları, isimler ve YouTube Music bölümleri aşağıda seçilen şarkı bilgisi dilinde gösterilir.
 settings-restart-to-apply = Değişikliği uygulamak için yeniden başlat
 settings-language-restart-desc = Dil değişikliği, uygulamayı yeniden açtığınızda uygulanır.
-settings-restart-now = Şimdi yeniden başlat
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
 

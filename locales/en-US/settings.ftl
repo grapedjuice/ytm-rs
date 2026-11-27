@@ -15,10 +15,24 @@ settings-account = Account
 settings-general = General
 settings-keyboard-shortcuts = Keyboard shortcuts
 settings-about = About
+settings-content-and-ratings = Content & ratings
+settings-advanced = Advanced
+# The headings the categories are grouped under, down the side.
+settings-group-listening = Listening
+settings-group-look = Look
+settings-group-accounts = Accounts
+settings-group-app = App
+# Above the settings a search finds, where a category's name goes otherwise.
+settings-search-results = Search results
+# Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
+settings-content = Content
+settings-colours = Colours
 settings-no-match = No settings match "{ $query }"
 settings-title = Settings
 settings-search-box = Search settings
 settings-clear = Clear
+# A button above the settings, there while one changed here waits for the next start.
+settings-restart-to-apply = Restart to apply
 
 ## Account
 
@@ -145,10 +159,13 @@ settings-0-db = 0 dB
 ## Playback speed
 
 settings-playback-speed = Playback speed
-settings-playback-speed-desc = Play songs faster or slower, also from a button in the player bar. Lyrics stay in time. Back to 1× each time ytm-rs starts.
+settings-playback-speed-desc = Play songs faster or slower, or in another key, also from a button in the player bar. Lyrics stay in time. Back to normal each time ytm-rs starts.
 settings-speed = Speed
 settings-keep-pitch = Keep the pitch
 settings-keep-pitch-desc = Faster or slower without sounding higher or lower. Off, the pitch changes with the speed, like a record.
+settings-speed-pitch = Speed and pitch
+settings-transpose = Transpose
+settings-transpose-desc = Higher or lower by semitones, at the same speed. 12 is an octave.
 settings-playback-speed-jam-note = Back to normal while you're in a jam, so everyone hears the same song.
 
 ## Music videos
@@ -336,9 +353,7 @@ settings-listenbrainz-token-refused = ListenBrainz didn't accept that token
 settings-language-system = System ({ $language })
 settings-language = Language
 settings-language-desc = The app's own words. Song titles, names and YouTube Music's shelves come in the Song info language below.
-settings-restart-to-apply = Restart to apply
 settings-language-restart-desc = The app changes language from the next start.
-settings-restart-now = Restart now
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
 
@@ -357,6 +372,8 @@ settings-home = Home
 settings-close-to-tray-desc-linux = Keeps an icon in the tray. Clicking × hides the window there and keeps the music playing. The icon's menu brings it back, hides it or quits. Clicking the song in the system's media controls brings it back too, and Ctrl+Q quits.
 settings-close-to-tray-desc = Keeps an icon in the tray. Clicking × hides the window there and keeps the music playing. Click the icon to bring it back, or right-click it to hide, show or quit.
 settings-close-to-tray = Close to tray
+settings-tray-click-plays = Click the tray icon to play or pause
+settings-tray-click-plays-desc = A click on the icon plays or pauses, a moment later, instead of bringing the window back. A double-click brings it back, as does a click with nothing to play.
 # Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
 settings-tray-no-gtk = The tray icon needs GTK, which couldn't start ({ $error }).
 settings-tray-no-appindicator = The tray icon needs the AppIndicator library, which isn't installed: libayatana-appindicator3-1 on Debian and Ubuntu, libayatana-appindicator-gtk3 on Fedora (on Bazzite, Silverblue and other atomic systems: rpm-ostree install libayatana-appindicator-gtk3, then restart the computer), libayatana-appindicator on Arch.

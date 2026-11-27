@@ -304,7 +304,6 @@ settings-language = Langue
 settings-language-desc = Langue de l'interface. Les titres, noms et rubriques de YouTube Music utilisent la langue des informations sur les titres choisie ci-dessous.
 settings-restart-to-apply = Redémarrer pour appliquer
 settings-language-restart-desc = La langue changera au prochain démarrage.
-settings-restart-now = Redémarrer maintenant
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
 

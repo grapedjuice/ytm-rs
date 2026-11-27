@@ -398,7 +398,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         let (r, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
         ui.painter().circle_filled(r.center(), 16.0, theme::RED);
         ui.painter().circle_stroke(r.center(), 9.5, egui::Stroke::new(1.6, Color32::WHITE));
-        widgets::play_triangle(ui, r.center() + vec2(0.8, 0.0), 4.6, Color32::WHITE);
+        widgets::play_triangle(ui, r.center() + vec2(0.5, 0.0), 4.6, Color32::WHITE);
         ui.add_space(8.0);
         let logo = app.look().app.top_bar.clone();
         let text_r = if logo.logo_text.is_empty() {
@@ -498,6 +498,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 nav(ui, icon::CIRCLE_USER, crate::tr!("nav-sign-in"), Page::Settings, false, &mut go_to);
                 if go_to.is_some() {
                     app.settings_tab = super::pages::SettingsTab::Account;
+                    app.settings_page = true;
                 }
             }
             return;
@@ -588,7 +589,12 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 if a > 0.0 {
                     let w = full_w - 58.0;
                     text_at(ui, pos2(img.right() + 10.0, rect.top() + 7.0), &c.title, theme::semibold(13.5), theme::with_alpha(theme::text(), a), w);
-                    text_at(ui, pos2(img.right() + 10.0, rect.top() + 26.0), &c.subtitle, theme::regular(12.0), theme::with_alpha(theme::text_dim(), a), w);
+                    // A playlist kept downloaded: marked at the start of its subtitle.
+                    let mark_w = if widgets::kept_downloaded(ui, &c.target) { widgets::DOWNLOAD_MARK_W } else { 0.0 };
+                    if mark_w > 0.0 {
+                        widgets::download_mark(ui, img.right() + 10.0, rect.top() + 33.0, a);
+                    }
+                    text_at(ui, pos2(img.right() + 10.0 + mark_w, rect.top() + 26.0), &c.subtitle, theme::regular(12.0), theme::with_alpha(theme::text_dim(), a), w - mark_w);
                 }
                 // The first click opens it; a double click plays it too, as its menu's Play does.
                 // Only if the first click was on it: the list can change between the two. The
@@ -623,7 +629,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     };
     let mut restart = false;
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-        nav(ui, icon::SETTINGS, crate::tr!("settings-title"), Page::Settings, p == Page::Settings, &mut go_to);
+        nav(ui, icon::SETTINGS, crate::tr!("settings-title"), Page::Settings, app.settings_open, &mut go_to);
         if transferring {
             super::transfer::sidebar_card(app, ui, collapsed, a, icon_x);
         }
@@ -965,6 +971,7 @@ fn account_button(app: &mut App, ui: &mut Ui, r: Rect, resp: egui::Response, rad
     }
     if resp.clicked() {
         app.settings_tab = super::pages::SettingsTab::Account;
+        app.settings_page = true;
         app.actions.push(Action::Go(Page::Settings));
     }
 }
@@ -1249,12 +1256,12 @@ pub fn floating_bar(app: &mut App, ui: &mut Ui, slot: Rect, now: f64) {
 }
 
 /// The player bar's speed button: the speed it's at, lit (with the dot under it) when
-/// it isn't 1×. Opens a slider for it.
+/// it isn't 1× (or it's transposed). Opens sliders for the speed and the transpose.
 fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32, dot_floor: f32) {
     let jam = app.jam.active();
-    let changed = !jam && (app.speed - 1.0).abs() > 0.001;
-    let resp = named(ui.interact(r, ui.scope_id().with("tempo"), Sense::click()), crate::tr!("settings-playback-speed"))
-        .on_hover_text(crate::tr!("settings-playback-speed"))
+    let changed = !jam && app.tempo_changed();
+    let resp = named(ui.interact(r, ui.scope_id().with("tempo"), Sense::click()), crate::tr!("settings-speed-pitch"))
+        .on_hover_text(crate::tr!("settings-speed-pitch"))
         .on_hover_cursor(egui::CursorIcon::PointingHand);
     let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
     if h > 0.0 {
@@ -1263,15 +1270,18 @@ fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32,
     widgets::focus_ring(ui, &resp, r, r.height() / 2.0);
     let color = theme::with_alpha(if changed { theme::text() } else { theme::lerp_color(theme::text_dim(), theme::text(), h) }, rest);
     let speed = if jam { 1.0 } else { app.speed };
-    let g = widgets::galley(ui, &super::pages::times(speed), theme::semibold(13.0), color, 60.0);
+    // The speed when it's off 1×; else the transpose when there is one.
+    let label = if !jam && (speed - 1.0).abs() < 0.001 && app.transpose != 0 { super::pages::semitones(app.transpose) } else { super::pages::times(speed) };
+    let g = widgets::galley(ui, &label, theme::semibold(13.0), color, 60.0);
     ui.painter().galley(r.center() - g.size() / 2.0, g, color);
     if changed {
         ui.painter().circle_filled(pos2(r.center().x, (r.bottom() + 3.0).min(dot_floor)), 2.0, accent);
     }
-    // A small card over the button: the speed, its slider under it.
+    // A small card over the button: the speed and the transpose, each a slider.
     let popup = widgets::menu_popup(&resp).align(egui::RectAlign::TOP_END).align_alternatives(&[egui::RectAlign::BOTTOM_END]);
     popup.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         use super::pages as p;
+        use crate::audio::tempo::{MAX_SEMITONES, MAX_SPEED, MIN_SPEED};
         widgets::menu_body(ui, 248.0);
         let pad = 10.0;
         ui.add_space(6.0);
@@ -1283,32 +1293,41 @@ fn tempo_button(app: &mut App, ui: &mut Ui, r: Rect, rest: f32, accent: Color32,
             ui.add_space(6.0);
         }
         ui.add_enabled_ui(!jam, |ui| {
-            use crate::audio::tempo::{MAX_SPEED, MIN_SPEED};
-            ui.horizontal(|ui| {
-                ui.add_space(pad);
-                ui.label(egui::RichText::new(crate::tr!("settings-speed")).font(theme::semibold(13.5)).color(theme::text()));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_space(pad);
-                    ui.label(egui::RichText::new(p::times(speed)).font(theme::regular(13.0)).color(theme::text_dim()));
-                });
-            });
-            ui.horizontal(|ui| {
-                ui.add_space(pad - 8.0);
-                p::slider_track(ui, &mut app.speed, (MIN_SPEED, MAX_SPEED, 0.05), Some(1.0), ui.available_width() - pad + 8.0, crate::tr!("settings-speed"));
-            });
-            // Always there, so the card keeps its size while the slider moves.
+            tempo_slider(ui, crate::tr!("settings-speed"), &p::times(speed), &mut app.speed, (MIN_SPEED, MAX_SPEED, 0.05), 1.0);
+            let mut transpose = app.transpose as f32;
+            let max = MAX_SEMITONES as f32;
+            tempo_slider(ui, crate::tr!("settings-transpose"), &p::semitones(app.transpose), &mut transpose, (-max, max, 1.0), 0.0);
+            app.transpose = transpose.round() as i32;
+            // Always there, so the card keeps its size while the sliders move.
             widgets::menu_divider(ui);
-            let normal = (app.speed - 1.0).abs() < 0.001;
+            let normal = !app.tempo_changed();
             ui.add_enabled_ui(!normal, |ui| {
                 if normal {
                     ui.multiply_opacity(0.4);
                 }
                 if widgets::menu_action(ui, Some(icon::HISTORY), crate::tr!("ui-back-normal")) {
-                    app.speed = 1.0;
+                    (app.speed, app.transpose) = (1.0, 0);
                 }
             });
         });
         ui.add_space(4.0);
+    });
+}
+
+/// One of the speed card's sliders: its name and value over it.
+fn tempo_slider(ui: &mut Ui, name: &str, value: &str, v: &mut f32, range: (f32, f32, f32), home: f32) {
+    let pad = 10.0;
+    ui.horizontal(|ui| {
+        ui.add_space(pad);
+        ui.label(egui::RichText::new(name).font(theme::semibold(13.5)).color(theme::text()));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add_space(pad);
+            ui.label(egui::RichText::new(value).font(theme::regular(13.0)).color(theme::text_dim()));
+        });
+    });
+    ui.horizontal(|ui| {
+        ui.add_space(pad - 8.0);
+        super::pages::slider_track(ui, v, range, Some(home), ui.available_width() - pad + 8.0, name);
     });
 }
 
@@ -1394,6 +1413,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let resp = ui.interact(bar_hit, ui.scope_id().with("progress"), Sense::click_and_drag());
     let resp = if total > 0.0 { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
     resp.widget_info(|| egui::WidgetInfo::slider(total > 0.0, pos as f64, crate::tr!("ui-seek")));
+    // Right-click: A-B repeat, from or to the point clicked.
+    super::ab_loop::loop_menu(app, ui, &resp, track_rect, total, pos);
     // A knob shown all the time sticks out of the bar, past the clip that cuts the line's
     // target: it gets a target of its own, above now playing and under menus. Not where the
     // narrow window's queue floats over it.
@@ -1412,6 +1433,8 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     app.seek_wheel.hover(&resp);
     if let Some(k) = &knob_resp {
         app.seek_wheel.hover(k);
+        // Right on the knob, the same menu as on the line.
+        super::ab_loop::loop_menu(app, ui, k, track_rect, total, pos);
     }
     let h = theme::anim_bool(ui.ctx(), "progress-h", any(egui::Response::hovered) || any(egui::Response::dragged), 0.15);
     let thick = progress_px + if progress_thumb { 2.0 * h } else { 0.0 };
@@ -1437,6 +1460,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     } else {
         ui.painter().rect_filled(filled, progress_r, progress_color);
     }
+    super::ab_loop::paint_loop(app, ui, line, total, pos, progress_r, theme::text());
     if (h > 0.0 || always) && total > 0.0 {
         if progress_thumb {
             // It sticks out above the bar, over now playing (a higher layer than the bar), so
@@ -1488,10 +1512,11 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
         && let Some(p) = at(egui::Response::interact_pointer_pos)
     {
         let t = ((p.x - line.left()) / line.width()).clamp(0.0, 1.0) * total;
-        if any(egui::Response::dragged) {
+        // Dragged with the left button: a right-click held or moved a little is the menu's.
+        if any(|r| r.dragged_by(egui::PointerButton::Primary)) {
             app.seek_drag = Some(t);
         }
-        if any(egui::Response::drag_stopped) || any(egui::Response::clicked) {
+        if any(|r| r.drag_stopped_by(egui::PointerButton::Primary)) || any(egui::Response::clicked) {
             app.seek_drag = None;
             app.actions.push(Action::Seek(t));
         }
@@ -1821,7 +1846,7 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     } else if morph > 0.5 {
         widgets::pause_bars(ui, center, 8.0 * (2.0 * morph - 1.0).max(0.4), glyph);
     } else {
-        widgets::play_triangle(ui, center + vec2(1.5, 0.0), 8.5 * (1.0 - 2.0 * morph).max(0.4), glyph);
+        widgets::play_triangle(ui, center, 8.5 * (1.0 - 2.0 * morph).max(0.4), glyph);
     }
     if presp.clicked() {
         app.toggle();

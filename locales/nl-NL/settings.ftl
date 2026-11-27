@@ -304,7 +304,6 @@ settings-language = Taal
 settings-language-desc = Taal van de app. Titels, namen en secties van YouTube Music gebruiken de hieronder gekozen taal voor nummerinformatie.
 settings-restart-to-apply = Herstart om toe te passen
 settings-language-restart-desc = De taal verandert de volgende keer dat je de app opent.
-settings-restart-now = Nu herstarten
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
 

@@ -466,17 +466,23 @@ impl Client {
                 return Err(e);
             }
         };
-        let resp: Value = self
-            .http
-            .post(format!("{API}verify-turnstile"))
-            .json(&serde_json::json!({ "token": turnstile }))
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
-        let jwt = resp["jwt"].as_str().ok_or_else(|| anyhow::anyhow!("no JWT in response"))?.to_owned();
+        // A failed token exchange is a failed challenge like any webview error; without
+        // stamping the backoff here, every song re-ran the whole popup.
+        let jwt = async {
+            let resp: Value = self
+                .http
+                .post(format!("{API}verify-turnstile"))
+                .json(&serde_json::json!({ "token": turnstile }))
+                .timeout(Duration::from_secs(15))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            anyhow::Ok(resp["jwt"].as_str().ok_or_else(|| anyhow::anyhow!("no JWT in response"))?.to_owned())
+        }
+        .await
+        .inspect_err(|_| *self.challenge_failed.lock().unwrap() = Some(std::time::Instant::now()))?;
         let _ = std::fs::write(&self.jwt_file, &jwt);
         log::info!("lyrics: new access token ({}h)", jwt_seconds_left(&jwt) / 3600);
         *slot = Some(jwt.clone());

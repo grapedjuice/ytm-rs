@@ -304,7 +304,6 @@ settings-language = 언어
 settings-language-desc = 앱 인터페이스의 언어입니다. 노래 제목, 이름, YouTube Music 콘텐츠는 아래에서 선택한 노래 정보 언어로 표시됩니다.
 settings-restart-to-apply = 다시 시작하여 적용
 settings-language-restart-desc = 앱을 다시 시작하면 새 언어가 적용됩니다.
-settings-restart-now = 지금 다시 시작
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
 

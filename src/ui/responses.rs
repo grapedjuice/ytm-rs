@@ -35,6 +35,14 @@ impl App {
                     self.left_at_end();
                     self.sleep_at_song_end();
                 }
+                // A-B repeat comes before the next song: a song that ran out (or began
+                // fading out) inside its loop goes back to the loop's start.
+                AudioEvent::Finished { generation } if generation == self.generation && self.ab_stretch().is_some() => {
+                    if let Some((start, _)) = self.ab_stretch() {
+                        self.loop_sought = Some(std::time::Instant::now());
+                        self.play_current_at(Duration::from_secs_f64(start), false);
+                    }
+                }
                 AudioEvent::Finished { generation } if generation == self.generation => {
                     self.left_at_end();
                     if self.repeats_one() {
@@ -52,6 +60,10 @@ impl App {
                 // Crossfade into the next song, or into the song again on Repeat one; the
                 // end of the queue waits for the end.
                 // With the sleep timer set to the song's end, it plays out instead (`Finished`).
+                // Looping a stretch, `keep_looping` goes back at its end: a song whose music
+                // ends before its length asks for the next one before that end (and asks
+                // again after the seek back). Missed, `Finished` goes back.
+                AudioEvent::Ending { generation } if generation == self.generation && !self.jam.guest() && self.sleep != Some(Sleep::SongEnd) && self.ab_stretch().is_some() => {}
                 AudioEvent::Ending { generation } if generation == self.generation && !self.jam.guest() && self.sleep != Some(Sleep::SongEnd) => {
                     self.handoff = true;
                     if self.repeats_one() {

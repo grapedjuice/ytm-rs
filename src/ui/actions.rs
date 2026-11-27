@@ -213,6 +213,17 @@ impl App {
                 self.seek_to(Duration::from_secs_f32(secs.max(0.0)));
                 self.lyric_view.resume();
             }
+            Action::LoopStart(_) | Action::LoopEnd(_) | Action::LoopClear => {
+                match a {
+                    Action::LoopStart(secs) => self.loop_start_at(secs),
+                    Action::LoopEnd(secs) => self.loop_end_at(secs),
+                    _ => self.ab_loop = None,
+                }
+                // A next song staged to follow on doesn't while it loops, and one held off
+                // near the end is due once it doesn't: staged again (or not) from here.
+                self.clear_staged();
+                self.audio.send(crate::audio::AudioCmd::ClearNext);
+            }
             Action::Like(t, false) => self.request_unlike(Unlike::Track(t)),
             Action::Like(t, true) => {
                 if !self.logged_in {
@@ -565,6 +576,13 @@ impl App {
                 // Just the drag.
             } else if self.fullscreen {
                 self.set_fullscreen(ctx, false);
+            } else if self.settings_open && !self.np_open {
+                // A search first, then Settings itself.
+                if self.settings_query.is_empty() {
+                    self.settings_open = false;
+                } else {
+                    self.settings_query.clear();
+                }
             } else {
                 self.np_open = false;
             }

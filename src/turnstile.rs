@@ -25,6 +25,10 @@ const CHALLENGE: &str = "https://lyrics.api.dacubeking.com/challenge";
 const SHOW_AFTER: Duration = Duration::from_secs(15);
 /// Give up if nothing happens (e.g. the user ignores a shown challenge).
 const GIVE_UP_AFTER: Duration = Duration::from_secs(120);
+/// The size the window is created and shown with (and centered with). It must not
+/// change later: show() resizing it would keep the frame's top-left
+/// fixed on macOS and knock the window off-center.
+const WINDOW_SIZE: tao::dpi::LogicalSize<f64> = tao::dpi::LogicalSize::new(360.0, 160.0);
 
 /// The challenge page posts to `window.parent`; at top level that is the page itself,
 /// so forward those messages to the native side. The page doesn't say when the widget
@@ -82,17 +86,57 @@ pub fn child_main(profile_dir: PathBuf) {
 
 fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
     let mut event_loop = EventLoopBuilder::<String>::with_user_event().build();
-    // macOS: no Dock icon for a window that's usually never shown.
+    // macOS: no Dock icon for a window that's usually never shown, and no taking over
+    // from the app the user is in when this starts (tao activates ignoring it otherwise,
+    // on every run, even one that passes invisibly).
     #[cfg(target_os = "macos")]
     {
         use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
         event_loop.set_activation_policy(ActivationPolicy::Accessory);
+        event_loop.set_activate_ignoring_other_apps(false);
     }
     let window = WindowBuilder::new()
         .with_title(crate::tr!("login-lyrics"))
-        .with_inner_size(tao::dpi::LogicalSize::new(360.0, 120.0))
+        .with_inner_size(WINDOW_SIZE)
         .with_visible(false)
+        // Nothing here takes the keyboard: not the window, not the page in it.
+        .with_focused(false)
         .build(&event_loop)?;
+
+    // Centered on the main screen. Physical pixels throughout: monitor position/size
+    // and the window size on that monitor are all physical, with the window's logical
+    // size scaled by that monitor's scale factor.
+    if let Some(monitor) = window.primary_monitor() {
+        let size: tao::dpi::PhysicalSize<u32> = WINDOW_SIZE.to_physical(monitor.scale_factor());
+        // Center the frame, not just the content: set_outer_position pins the frame's
+        // top-left, so sizing from the content alone leaves the title bar pushing the
+        // whole window half a title bar low. The window is still hidden, but tao's
+        // outer_size() reads NSWindow::frame, which exists from creation, so the
+        // measured title-bar delta is real, not an estimate. The delta comes back in
+        // the building screen's physical pixels; points are screen-independent, so
+        // rescale it for this monitor, which may run at a different scale. Saturating:
+        // on Linux, tao's outer size is meaningless until the window is first configured.
+        let build_scale = window.scale_factor();
+        let (outer, inner) = (window.outer_size(), window.inner_size());
+        let frame_delta_w = outer.width.saturating_sub(inner.width) as f64 / build_scale;
+        let frame_delta_h = outer.height.saturating_sub(inner.height) as f64 / build_scale;
+        let monitor_scale = monitor.scale_factor();
+        let frame = tao::dpi::PhysicalSize::new(
+            (size.width as f64 + frame_delta_w * monitor_scale) as u32,
+            (size.height as f64 + frame_delta_h * monitor_scale) as u32,
+        );
+        let origin = monitor.position();
+        let at = tao::dpi::PhysicalPosition::new(
+            origin.x + (monitor.size().width.saturating_sub(frame.width) / 2) as i32,
+            origin.y + (monitor.size().height.saturating_sub(frame.height) / 2) as i32,
+        );
+        // macOS reports a screen in its own scale's pixels but turns a window position
+        // back into points with the window's scale, which differs when the window starts
+        // on another screen: hand it points.
+        let at: tao::dpi::Position =
+            if cfg!(target_os = "macos") { at.to_logical::<f64>(monitor_scale).into() } else { at.into() };
+        window.set_outer_position(at);
+    }
 
     let proxy = event_loop.create_proxy();
     let loaded_proxy = proxy.clone();
@@ -100,6 +144,7 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
     let webview = crate::login::build_in(
         crate::proxy::webview(WebViewBuilder::new_with_web_context(&mut context), false)
             .with_initialization_script(BRIDGE)
+            .with_focused(false)
             .with_ipc_handler(move |req| {
                 let _ = proxy.send_event(req.body().clone());
             })
@@ -164,11 +209,16 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
     result
 }
 
-/// Cloudflare wants an interaction; let the user see the widget.
+/// Cloudflare wants an interaction; let the user see the widget. The window can appear
+/// around a song change while the user is typing in another app, so it must be visible
+/// and floating but must not take the keyboard. Showing alone would on Windows (and with
+/// some X11 window managers), so it's shown unfocusable, then made focusable again so a
+/// click on it works as usual.
 fn show(window: &tao::window::Window) {
     if !window.is_visible() {
-        window.set_inner_size(tao::dpi::LogicalSize::new(360.0, 160.0));
+        window.set_focusable(false);
         window.set_visible(true);
-        window.set_focus();
+        window.set_always_on_top(true);
+        window.set_focusable(true);
     }
 }

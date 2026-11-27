@@ -714,6 +714,8 @@ pub struct App {
     visualizer: bool,
     /// Bright album art is darkened behind now playing and the pages, for the text over it.
     dim_bright: bool,
+    /// Whether a mouse wheel's notches glide (#447). Touchpads scroll as before.
+    smooth_scroll: bool,
     /// The progress line's knob shown all the time, not only on hover.
     seek_knob_always: bool,
     /// The time left in place of the song's length beside a running time (click the time).
@@ -1204,6 +1206,7 @@ impl App {
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
             visualizer: get("visualizer").is_some_and(|v| v == "1"),
             dim_bright: get("dim_bright").is_none_or(|v| v == "1"),
+            smooth_scroll: get("smooth_scroll").is_none_or(|v| v == "1"),
             seek_knob_always: get("seek_knob_always").is_some_and(|v| v == "1"),
             time_left: get("time_left").is_some_and(|v| v == "1"),
             sponsorblock: get("sponsorblock").is_some_and(|v| v == "1"),
@@ -2266,6 +2269,7 @@ impl eframe::App for App {
         // Ahead of smooth scrolling: the wheel over a seek bar seeks rather than scrolls.
         self.seek_by_wheel(ctx, &mut raw.events, raw.time.unwrap_or(0.0));
         let viewport_h = raw.screen_rect.map_or(800.0, |r| r.height());
+        self.wheel.smooth = self.smooth_scroll;
         if self.wheel.filter(&mut raw.events, raw.time.unwrap_or(0.0), raw.predicted_dt, viewport_h) {
             ctx.request_repaint();
         }
@@ -2391,6 +2395,7 @@ impl eframe::App for App {
         storage.set_string("reactive_bg", b(self.reactive_bg));
         storage.set_string("visualizer", b(self.visualizer));
         storage.set_string("dim_bright", b(self.dim_bright));
+        storage.set_string("smooth_scroll", b(self.smooth_scroll));
         storage.set_string("seek_knob_always", b(self.seek_knob_always));
         storage.set_string("time_left", b(self.time_left));
         storage.set_string("sponsorblock", b(self.sponsorblock));

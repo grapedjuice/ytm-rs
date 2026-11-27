@@ -6,7 +6,9 @@
 //! content coasts on at the swipe's speed and slows to a stop, as in GTK, Firefox and
 //! Chromium. Wayland leaves both to the app (#124: without them, the touchpad scrolled
 //! slowly and a flick barely moved the page); macOS scales its deltas and sends its own
-//! momentum events, so they pass untouched. Ctrl+wheel zoom passes untouched.
+//! momentum events, so they pass untouched. Ctrl+wheel zoom passes untouched. With
+//! Smooth scrolling off (#447), a mouse wheel's whole notch scrolls its whole way at once;
+//! part notches and touchpads stay as they are.
 
 use egui::{Event, Modifiers, MouseWheelSource, MouseWheelUnit, TouchPhase, Vec2};
 
@@ -52,6 +54,11 @@ pub(super) struct Glide {
     last_scroll: f64,
     /// Whether a touchpad swipe scales up and coasts on after the fingers lift.
     kinetic: bool,
+    /// The last part line's frame time: a touchpad's (or a high-res wheel's), so whole
+    /// lines glide too until a pause, whatever the setting.
+    last_part: f64,
+    /// Whether a mouse wheel's notches glide (Settings › Appearance › Smooth scrolling).
+    pub(super) smooth: bool,
 }
 
 impl Default for Glide {
@@ -66,6 +73,8 @@ impl Default for Glide {
             wheel_spin: false,
             last_scroll: f64::NEG_INFINITY,
             kinetic: !cfg!(target_os = "macos"),
+            last_part: f64::NEG_INFINITY,
+            smooth: true,
         }
     }
 }
@@ -85,6 +94,19 @@ impl Glide {
             matches!(e, Event::MouseWheel { unit: MouseWheelUnit::Line | MouseWheelUnit::Page, modifiers, .. }
                 if !(modifiers.command || modifiers.ctrl))
         });
+        // A part line anywhere in the frame makes its whole lines a touchpad's too, and the
+        // ones after it until a pause.
+        if !cfg!(target_os = "macos")
+            && events.iter().any(|e| {
+                matches!(e, Event::MouseWheel { unit: MouseWheelUnit::Line, delta, modifiers, .. }
+                    if !(modifiers.command || modifiers.ctrl) && (delta.x.fract() != 0.0 || delta.y.fract() != 0.0))
+            })
+        {
+            self.last_part = time;
+        }
+        // With smoothing off, the wheel's scroll this frame, all of it, by the modifiers
+        // held for it.
+        let mut at_once: Vec<(Vec2, Modifiers)> = Vec::new();
         for e in std::mem::take(events) {
             let Event::MouseWheel { unit, delta, phase, modifiers, source } = e else {
                 // A click or a key press stops a coast. On Wayland, fingers resting on the
@@ -179,13 +201,37 @@ impl Glide {
             // direction cancels the remaining glide instead of fighting it.
             self.stop_coast();
             self.swipe.clear();
+            // A touchpad sends part lines on X11, and on Windows (a precision touchpad's
+            // small wheel moves), as a high-res wheel does: they glide on whatever the
+            // setting, and so does a whole line while they do. Only a mouse wheel's whole
+            // notches scroll at once. macOS sends a mouse's lines in parts too.
+            let part_line = unit == MouseWheelUnit::Line && time - self.last_part <= PAUSE;
             if self.pending.y * px.y < 0.0 || self.pending.x * px.x < 0.0 {
                 self.pending = Vec2::ZERO;
+            }
+            if !self.smooth && !part_line {
+                add(&mut at_once, px, modifiers);
+                continue;
             }
             self.pending += px;
             self.tau = GLIDE;
             self.coasting = false;
             self.mods = modifiers;
+        }
+        // egui smooths a move of 8 points or more, Shift folding x and y into one, so this
+        // goes in steps under that, after the frame's other events: an End among them
+        // would drop it.
+        for (delta, modifiers) in at_once {
+            let n = ((delta.x.abs() + delta.y.abs()) / 7.5).ceil();
+            for _ in 0..n as usize {
+                events.push(Event::MouseWheel {
+                    unit: MouseWheelUnit::Point,
+                    delta: delta / n,
+                    phase: TouchPhase::Move,
+                    modifiers,
+                    source: MouseWheelSource::Wheel,
+                });
+            }
         }
         if self.pending.length() < 0.5 {
             self.coasting = false;
@@ -211,6 +257,15 @@ impl Glide {
             self.pending = Vec2::ZERO;
             self.coasting = false;
         }
+    }
+}
+
+/// Adds `delta` to the scroll held with `mods`, after any held with others.
+fn add(at_once: &mut Vec<(Vec2, Modifiers)>, delta: Vec2, mods: Modifiers) {
+    match at_once.last_mut() {
+        Some((d, m)) if *m == mods => *d += delta,
+        _ if delta != Vec2::ZERO => at_once.push((delta, mods)),
+        _ => {}
     }
 }
 
@@ -468,6 +523,75 @@ mod tests {
         let f = f64::from(FRAME);
         let s = egui_scroll(&mut g, vec![(1.0, vec![pad(TouchPhase::Start, -10.0)]), (1.0 + f, vec![pad(TouchPhase::Move, -10.0)]), (1.3, vec![pad(TouchPhase::Move, -10.0)])]);
         assert!((s[2] + 10.0 * TOUCHPAD_SCALE).abs() < 0.01, "{s:?}");
+    }
+
+    #[test]
+    fn without_smoothing_a_notch_scrolls_its_whole_way_at_once() {
+        let mut g = Glide { smooth: false, ..glide() };
+        let notch = |y| wheel(MouseWheelUnit::Line, TouchPhase::Move, y);
+        let s = egui_scroll(&mut g, vec![(1.0, vec![notch(-1.0)]), (1.0 + f64::from(FRAME), vec![]), (1.5, vec![notch(1.0), notch(1.0)])]);
+        assert!(s.iter().zip([-NOTCH_PX, 0.0, 2.0 * NOTCH_PX]).all(|(s, want)| (s - want).abs() < 0.01), "{s:?}");
+        assert!(!g.filter(&mut Vec::new(), 1.6, FRAME, 800.0));
+        // A high-res wheel's part notch passes as it does with smoothing on.
+        let part = vec![pad(TouchPhase::Move, -4.0), notch(-1.0)];
+        let mut on = part.clone();
+        glide().filter(&mut on, 3.0, FRAME, 800.0);
+        let mut out = part;
+        g.filter(&mut out, 3.0, FRAME, 800.0);
+        assert_eq!(out[0], on[0]);
+        // A touchpad's End in the frame, passed on untouched (macOS), doesn't drop it.
+        let mut mac = Glide { kinetic: false, smooth: false, ..Glide::default() };
+        let s = egui_scroll(&mut mac, vec![(1.0, vec![notch(-1.0), pad(TouchPhase::End, 0.0)])]);
+        assert!((s[0] + NOTCH_PX).abs() < 0.01, "{s:?}");
+        // Each scroll keeps the modifiers held for it, and with Shift, which folds x and y
+        // into one, a step is still under what egui smooths.
+        let shifted = |unit, x, y| Event::MouseWheel { unit, delta: vec2(x, y), phase: TouchPhase::Move, modifiers: Modifiers::SHIFT, source: MouseWheelSource::Unknown };
+        let mut out = vec![shifted(MouseWheelUnit::Point, 0.0, -5.0), notch(-1.0), shifted(MouseWheelUnit::Line, -1.0, -1.0)];
+        g.filter(&mut out, 4.0, FRAME, 800.0);
+        let sum = |shift: bool| out.iter().fold(Vec2::ZERO, |sum, e| match e {
+            Event::MouseWheel { delta, modifiers, .. } if modifiers.shift == shift => sum + *delta,
+            _ => sum,
+        });
+        assert!((sum(true) - vec2(-NOTCH_PX, -5.0 - NOTCH_PX)).length() < 0.01 && (sum(false) - vec2(0.0, -NOTCH_PX)).length() < 0.01, "{out:?}");
+        assert!(out.iter().all(|e| matches!(e, Event::MouseWheel { delta, .. } if delta.x.abs() + delta.y.abs() < 8.0)), "{out:?}");
+        // A touchpad swipe still scales up and coasts.
+        let mut g = Glide { smooth: false, ..glide() };
+        assert!((frame(&mut g, vec![pad(TouchPhase::Start, -20.0)], 1.0) + 20.0 * TOUCHPAD_SCALE).abs() < 0.01);
+        frame(&mut g, vec![pad(TouchPhase::End, 0.0)], 1.0 + f64::from(FRAME));
+        assert!(g.coasting);
+        // A touchpad's part lines (X11, a Windows precision touchpad) glide on, as they did,
+        // and so does a whole line among them, either way. macOS sends a mouse's in parts.
+        let lines = !cfg!(target_os = "macos");
+        let mut g = Glide { smooth: false, ..glide() };
+        assert_eq!(g.filter(&mut vec![notch(-0.3)], 1.0, FRAME, 800.0), lines);
+        assert_eq!(g.filter(&mut vec![notch(-1.0)], 1.0 + f64::from(FRAME), FRAME, 800.0), lines);
+        assert_eq!(g.filter(&mut vec![notch(1.0)], 1.0 + 2.0 * f64::from(FRAME), FRAME, 800.0), lines);
+        // The way back takes over the glide.
+        assert!(!lines || g.pending.y > 0.0, "{:?}", g.pending);
+        // What egui scrolls, frame by frame, is the same either way for a whole line first
+        // in a frame with a part line, and for a whole line after a part line's glide ran out.
+        if lines {
+            let frames = |first: &[Event]| -> Vec<(f64, Vec<Event>)> {
+                (0..30).map(|i| (1.0 + f64::from(i) * f64::from(FRAME), match i { 0 => first.to_vec(), 3 => vec![notch(1.0)], _ => vec![] })).collect()
+            };
+            for first in [vec![notch(1.0), notch(0.3)], vec![notch(1.0 / 120.0)]] {
+                let on = egui_scroll(&mut glide(), frames(&first));
+                let off = egui_scroll(&mut Glide { smooth: false, ..glide() }, frames(&first));
+                assert!(on.iter().zip(&off).all(|(a, b)| (a - b).abs() < 0.01), "{on:?}\n{off:?}");
+            }
+        }
+        // A mouse wheel's notch during the glide of one from before the setting went off
+        // scrolls its whole way in its own frame, and nothing after.
+        let run = |second: bool| {
+            let mut g = glide();
+            g.filter(&mut vec![notch(-1.0)], 1.0, FRAME, 800.0);
+            g.smooth = false;
+            let frames = (1..30).map(|i| (1.0 + f64::from(i) * f64::from(FRAME), if i == 1 && second { vec![notch(-1.0)] } else { vec![] })).collect();
+            egui_scroll(&mut g, frames)
+        };
+        let (with, without) = (run(true), run(false));
+        let added: Vec<f32> = with.iter().zip(&without).map(|(a, b)| a - b).collect();
+        assert!((added[0] + NOTCH_PX).abs() < 0.01 && added[1..].iter().all(|d| d.abs() < 0.01), "{added:?}");
     }
 
     #[test]

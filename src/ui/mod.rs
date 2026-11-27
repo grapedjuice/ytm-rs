@@ -1737,6 +1737,8 @@ impl eframe::App for App {
 
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         pace::frame(ctx);
+        // Before anything is timed this frame: toasts and the recognize window expire here.
+        theme::set_anim_speed(ctx, self.anim_speed);
         self.lyric_view.release_hidden(ctx.cumulative_pass_nr());
         let now = ctx.input(|i| i.time);
         let focused = ctx.input(|i| i.focused);
@@ -1930,8 +1932,6 @@ impl eframe::App for App {
         crate::shader::set_glass_on(self.glass_on);
         let now = ctx.input(|i| i.time);
         self.sync_ratings(&ctx, now);
-        // Before anything animates this frame, the recognize window included.
-        theme::set_anim_speed(&ctx, self.anim_speed);
         recognize::popout(self, &ctx);
         // In the tray, or minimized: nothing would be seen, so nothing is drawn. eframe skips
         // a minimized window itself, but not one hidden in the tray (it can't tell on Windows

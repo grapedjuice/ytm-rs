@@ -3506,7 +3506,7 @@ fn network(app: &mut App, ui: &mut Ui) {
         if remaining > 0.0 {
             let elapsed = (HIGHLIGHT_SECS - remaining) as f32;
             let pulse = 0.5 + 0.5 * (elapsed * std::f32::consts::TAU).cos();
-            let fade = (remaining / 0.25).min(1.0) as f32;
+            let fade = (remaining / theme::secs(0.25)).min(1.0) as f32;
             let color = theme::with_alpha(app.accent_color(), (0.2 + 0.8 * pulse) * fade);
             let stroke = egui::Stroke::new(2.0, color);
             ui.painter().rect_stroke(response.rect.expand(4.0), response.rect.height() / 2.0 + 4.0, stroke, egui::StrokeKind::Outside);

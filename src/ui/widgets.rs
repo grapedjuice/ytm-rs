@@ -1082,7 +1082,7 @@ fn popup_extras(ctx: &egui::Context, id: egui::Id) {
     }
     let scale = match look.menu_look.pop {
         Some([from, secs]) => {
-            let t = ((now - since) / theme::secs(f64::from(secs.max(0.01)))).clamp(0.0, 1.0) as f32;
+            let t = ((now - since) as f32 / theme::secs(f64::from(secs.max(0.01))) as f32).clamp(0.0, 1.0);
             if t < 1.0 {
                 ctx.request_repaint();
             }
@@ -1187,7 +1187,7 @@ fn menu_row(ui: &mut Ui, glyph: Option<char>, label: &str, arrow: bool, unlike: 
     // Rows slide in as the menu opens.
     let slide = if m.item_slide > 0.0 {
         let since = ui.ctx().input(|i| i.time) - ui.ctx().data(|d| d.get_temp::<f64>(egui::Id::unique("menu-opened"))).unwrap_or(0.0);
-        m.item_slide * (1.0 - theme::ease_out((since / theme::secs(0.2)) as f32))
+        m.item_slide * (1.0 - theme::ease_out(since as f32 / theme::secs(0.2) as f32))
     } else {
         0.0
     };

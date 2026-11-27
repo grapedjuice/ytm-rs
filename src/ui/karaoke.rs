@@ -1860,7 +1860,7 @@ impl View {
             // The whole line's own glow, under its words; a soft copy of the line, made once.
             let line_glow = if hovered && cfg.hover_glow.is_some() && (on || !cfg.hover_glow_sung) { cfg.hover_glow } else if on { cfg.active_glow } else { None };
             // Fading out once the line stops glowing, so it's asked for on those frames too.
-            let k = if cfg.active_glow.is_some() || cfg.hover_glow.is_some() { theme::anim_bool(&ctx, ("lyr-line-glow", i), line_glow.is_some(), 0.3) } else { 0.0 };
+            let k = if cfg.active_glow.is_some() || cfg.hover_glow.is_some() { theme::anim_bool_song(&ctx, ("lyr-line-glow", i), line_glow.is_some(), 0.3) } else { 0.0 };
             if let Some([radius, a]) = line_glow.or(cfg.active_glow).or(cfg.hover_glow).filter(|_| k > 0.0 && !b.instrumental && blur <= 0.05) {
                 let colors: &[Color32] = if (on || line_glow.is_none()) && !cfg.active_glow_colors.is_empty() { &cfg.active_glow_colors } else { std::slice::from_ref(&cfg.glow) };
                 for (ci, c) in colors.iter().enumerate() {

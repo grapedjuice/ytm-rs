@@ -151,7 +151,7 @@ pub fn background(app: &mut App, ui: &mut Ui, screen: Rect, now: f64) {
     painter.rect_filled(screen, 0.0, base_color(app));
     let art = matches!(mode, BgMode::Kawarp | BgMode::CoverStatic | BgMode::CoverFullbleed);
     if let Some(bg) = app.bg.as_ref().filter(|_| art) {
-        let blend = theme::ease_in_out(((now - app.art_changed - theme::secs(b.crossfade_delay.into())) / theme::secs(b.crossfade_secs.max(0.05).into())) as f32);
+        let blend = theme::ease_in_out(((now - app.art_changed - b.crossfade_delay as f64) / b.crossfade_secs.max(0.05) as f64) as f32);
         if blend < 1.0 {
             // The crossfade to new art finishes even while paused.
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));

@@ -159,7 +159,7 @@ fn backdrop(app: &mut App, ui: &mut Ui, rect: Rect, clip: Rect, now: f64, behind
     if themed && b.mode == BgMode::CoverFullbleed {
         painter.rect_filled(rect, 0.0, look.solid());
     } else if themed && let Some(bg) = app.bg.as_ref().filter(|_| art) {
-        let blend = theme::ease_in_out(((now - app.art_changed - theme::secs(b.crossfade_delay.into())) / theme::secs(b.crossfade_secs.max(0.05).into())) as f32);
+        let blend = theme::ease_in_out(((now - app.art_changed - b.crossfade_delay as f64) / b.crossfade_secs.max(0.05) as f64) as f32);
         let level = if app.reactive_bg && app.playing() && b.mode != BgMode::CoverStatic { (app.audio.status.level() - b.beat_threshold).max(0.0) * b.reactive } else { 0.0 };
         // Over a layer the dim is the canvas's opacity (the theme's `opacity`): the
         // layer shows through instead of black, so only `auto_dim` darkens it.

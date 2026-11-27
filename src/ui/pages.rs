@@ -2712,6 +2712,21 @@ fn percent_stepper(ui: &mut Ui, v: &mut f32, (min, max, step): (f32, f32, f32), 
     }
 }
 
+/// Animation speed: [`percent_stepper`]'s steps, and one more past the fastest, Off (#446).
+fn anim_speed_stepper(ui: &mut Ui, v: &mut f32) {
+    let (min, max, step) = theme::ANIM_SPEED_RANGE;
+    let off = *v >= theme::ANIM_OFF;
+    let snap = |x: f32| (x * 100.0).round() / 100.0;
+    if ui.add_enabled(!off, egui::Button::new("+").min_size(vec2(28.0, 26.0))).on_hover_text(tr!("settings-faster")).clicked() {
+        *v = if *v >= max - 0.001 { theme::ANIM_OFF } else { snap(*v + step).min(max) };
+    }
+    let shown = if off { tr!("ui-off").to_owned() } else { format!("{:.0}%", *v * 100.0) };
+    ui.label(egui::RichText::new(shown).font(theme::semibold(13.0)));
+    if ui.add_enabled(*v > min + 0.001, egui::Button::new("−").min_size(vec2(28.0, 26.0))).on_hover_text(tr!("settings-slower")).clicked() {
+        *v = if off { max } else { snap(*v - step).max(min) };
+    }
+}
+
 /// Settings › Themes: light or dark, the accent colour, and the themes to pick from.
 fn settings_themes(app: &mut App, ui: &mut Ui) {
     let was_theme = app.theme_id.clone();
@@ -2894,7 +2909,7 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         settings_zoom(ui);
         divider(ui);
         setting_row(ui, tr!("settings-animation-speed"), Some(tr!("settings-animation-speed-desc")), |ui| {
-            percent_stepper(ui, &mut app.anim_speed, theme::ANIM_SPEED_RANGE, tr!("settings-faster"), tr!("settings-slower"));
+            anim_speed_stepper(ui, &mut app.anim_speed);
         });
     });
 }

@@ -1196,7 +1196,7 @@ impl App {
             anim_bg: get("anim_bg").is_none_or(|v| v == "1"),
             bg_speed: shell::load_factor(get("bg_speed"), shell::BG_SPEED),
             bg_brightness: shell::load_factor(get("bg_brightness"), shell::BG_BRIGHTNESS),
-            anim_speed: shell::load_factor(get("anim_speed"), theme::ANIM_SPEED_RANGE),
+            anim_speed: shell::load_anim_speed(get("anim_speed")),
             flat_bg: get("flat_bg").is_some_and(|v| v == "1"),
             flat_color: get("flat_color").as_deref().and_then(crate::preset::hex),
             glass_on: get("glass_on").is_none_or(|v| v == "1"),
@@ -2381,7 +2381,7 @@ impl eframe::App for App {
         storage.set_string("queue_width", format!("{:.0}", self.queue_w));
         storage.set_string("bg_speed", format!("{:.2}", self.bg_speed));
         storage.set_string("bg_brightness", format!("{:.2}", self.bg_brightness));
-        storage.set_string("anim_speed", format!("{:.2}", self.anim_speed));
+        storage.set_string("anim_speed", shell::save_anim_speed(self.anim_speed));
         storage.set_string("flat_bg", b(self.flat_bg));
         if let Some(c) = self.flat_color {
             storage.set_string("flat_color", format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()));

@@ -87,6 +87,20 @@ pub fn load_factor(saved: Option<String>, (min, max, step): (f32, f32, f32)) -> 
     (((v / step).round() * step * 100.0).round() / 100.0).clamp(min, max)
 }
 
+/// Settings › Appearance › Animation speed as saved: a factor in its range, or "off" for
+/// [`crate::theme::ANIM_OFF`].
+pub fn load_anim_speed(saved: Option<String>) -> f32 {
+    match saved.as_deref() {
+        Some("off") => crate::theme::ANIM_OFF,
+        _ => load_factor(saved, crate::theme::ANIM_SPEED_RANGE),
+    }
+}
+
+/// The animation speed as it's saved ([`load_anim_speed`] reads it back).
+pub fn save_anim_speed(v: f32) -> String {
+    if v >= crate::theme::ANIM_OFF { "off".to_owned() } else { format!("{v:.2}") }
+}
+
 /// Moves the animated background's clock on by a frame. Now playing's backdrop runs on
 /// it too, also where the pages' background isn't drawn (full screen).
 pub fn background_clock(app: &mut App, now: f64) {
@@ -2308,7 +2322,7 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{BG_BRIGHTNESS, BG_SPEED, QUEUE_W, autoplay_toggle, load_factor, load_queue_w, logo_in_bar};
+    use super::{BG_BRIGHTNESS, BG_SPEED, QUEUE_W, autoplay_toggle, load_anim_speed, load_factor, load_queue_w, logo_in_bar, save_anim_speed};
 
     /// A theme with the app's name in the top bar shows it there only beside the rail: the
     /// open sidebar has it at its top already (#414).
@@ -2378,5 +2392,10 @@ mod tests {
         assert_eq!(load("0"), 1.0);
         assert_eq!(load("fast"), 1.0);
         assert_eq!(load("NaN"), 1.0);
+        // Off, the step past the fastest, comes back as Off; a number never loads as it.
+        assert_eq!(load_anim_speed(Some(save_anim_speed(crate::theme::ANIM_OFF))), crate::theme::ANIM_OFF);
+        assert_eq!(load_anim_speed(Some(save_anim_speed(2.5))), 2.5);
+        assert_eq!(load_anim_speed(Some("1000".into())), 4.0);
+        assert_eq!(load_anim_speed(None), 1.0);
     }
 }

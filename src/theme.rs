@@ -812,10 +812,20 @@ static ANIM_SPEED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::
 /// Range and step of Settings › Appearance › Animation speed (1: the theme's own).
 pub const ANIM_SPEED_RANGE: (f32, f32, f32) = (1.0, 4.0, 0.25);
 
+/// Animation speed Off, the step past the fastest (#446): so fast that every transition is
+/// over within a frame, while all the timing that divides by the speed works as it is.
+pub const ANIM_OFF: f32 = 1000.0;
+
 /// The listener's animation speed, never below the theme's own: 2 runs every transition in
 /// half the time.
 pub fn anim_speed() -> f32 {
     f32::from_bits(ANIM_SPEED.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// Whether animations are Off: what's timed from when it started is drawn finished from its
+/// first frame, which at any speed would still start from nothing.
+pub fn anim_off() -> bool {
+    anim_speed() >= ANIM_OFF
 }
 
 /// The fraction of its written time a UI transition runs for: [`SPEED`], shortened by the
@@ -826,7 +836,7 @@ pub fn speed() -> f32 {
 
 /// Set the listener's animation speed, and egui's own transitions with it.
 pub fn set_anim_speed(ctx: &egui::Context, factor: f32) {
-    let factor = factor.clamp(ANIM_SPEED_RANGE.0, ANIM_SPEED_RANGE.1);
+    let factor = if factor >= ANIM_OFF { ANIM_OFF } else { factor.clamp(ANIM_SPEED_RANGE.0, ANIM_SPEED_RANGE.1) };
     if ANIM_SPEED.swap(factor.to_bits(), std::sync::atomic::Ordering::Relaxed) != factor.to_bits() {
         ctx.global_style_mut(egui_timings);
     }

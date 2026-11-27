@@ -453,14 +453,20 @@ fn host_request(app: &mut App, from: String, name: String, cmd: Cmd) {
         Cmd::Prev => app.prev(),
         Cmd::Seek { pos } => app.apply(Action::Seek(pos as f32 / 1000.0)),
         Cmd::Jump { index } => {
-            let i = app.jam.sent_from + index;
-            if i < app.queue.tracks.len() {
+            if let Some(i) = jump_target(app.jam.sent_from, index, app.queue.tracks.len()) {
                 app.queue.index = Some(i);
                 app.queue.drop_explicit();
                 app.play_current();
             }
         }
     }
+}
+
+/// Where a guest's jump goes in the host's queue: `index` counts from the first song the
+/// guests were sent (`sent_from`). None past the queue's end, including for an index too
+/// large to add, which a guest's app can send as it likes.
+fn jump_target(sent_from: usize, index: usize, len: usize) -> Option<usize> {
+    sent_from.checked_add(index).filter(|&i| i < len)
 }
 
 /// Host: what guests may do (control playback, add songs).
@@ -805,6 +811,16 @@ fn room(app: &mut App, ui: &mut Ui) {
         }
         ui.add_space(6.0);
     });
+}
+
+#[cfg(test)]
+mod jump_tests {
+    #[test]
+    fn a_jump_lands_in_the_queue_or_nowhere() {
+        assert_eq!(super::jump_target(3, 2, 10), Some(5));
+        assert_eq!(super::jump_target(3, 7, 10), None);
+        assert_eq!(super::jump_target(3, usize::MAX, 10), None);
+    }
 }
 
 #[cfg(test)]

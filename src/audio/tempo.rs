@@ -7,6 +7,11 @@
 //! resampled, like a record played faster: the pitch goes with it, and a band-limited
 //! filter keeps it clean at any speed. At 1x, samples come out unchanged either way.
 //!
+//! Transpose and tuning move the pitch without the tempo, the two together: the song is
+//! stretched by the speed over the pitch's shift, then resampled by the shift, which
+//! brings the tempo back to the speed and takes the pitch up or down by it. Two
+//! semitones up at 1x: stretched to 0.89x, then resampled 1.12x faster.
+//!
 //! `Tempo` counts the song's own position as it goes, so lyrics, the progress bar and
 //! seeking stay on the song's clock whatever the speed.
 
@@ -16,18 +21,41 @@ use std::time::Duration;
 
 pub const MIN_SPEED: f32 = 0.5;
 pub const MAX_SPEED: f32 = 2.0;
+/// Transpose, in semitones either way: an octave.
+pub const MAX_SEMITONES: i32 = 12;
+/// Tuning: the A above middle C, in Hz. 440 is standard pitch; 415 to 466 is a semitone
+/// either side of it.
+pub const A4: f32 = 440.0;
+pub const MIN_TUNING: f32 = 415.0;
+pub const MAX_TUNING: f32 = 466.0;
+/// The most the resampler ever shifts by: the top speed without keeping the pitch,
+/// transposed an octave up and tuned all the way up.
+const MAX_RATIO: f32 = MAX_SPEED * 2.0 * (MAX_TUNING / A4);
 
-/// The listener's speed, read by every song's `Tempo`.
+/// The listener's speed and pitch, read by every song's `Tempo`.
 pub struct Speed {
     /// f32 bits.
     bits: AtomicU32,
     keep_pitch: AtomicBool,
+    /// The pitch's shift, transpose and tuning together, as a ratio (f32 bits): 1 leaves it.
+    pitch: AtomicU32,
 }
 
 impl Default for Speed {
     fn default() -> Self {
-        Self { bits: AtomicU32::new(1f32.to_bits()), keep_pitch: AtomicBool::new(true) }
+        Self { bits: AtomicU32::new(1f32.to_bits()), keep_pitch: AtomicBool::new(true), pitch: AtomicU32::new(1f32.to_bits()) }
     }
+}
+
+/// How much higher (above 1) or lower `semitones` and a tuning of A = `tuning` Hz make
+/// the song: exactly 1 at 0 and 440, which costs nothing.
+pub fn pitch_ratio(semitones: i32, tuning: f32) -> f32 {
+    let semitones = semitones.clamp(-MAX_SEMITONES, MAX_SEMITONES);
+    let tuning = tuning.clamp(MIN_TUNING, MAX_TUNING);
+    if semitones == 0 && tuning == A4 {
+        return 1.0;
+    }
+    (2f64.powf(semitones as f64 / 12.0) * tuning as f64 / A4 as f64) as f32
 }
 
 impl Speed {
@@ -48,6 +76,24 @@ impl Speed {
 
     pub fn keeps_pitch(&self) -> bool {
         self.keep_pitch.load(Ordering::Relaxed)
+    }
+
+    /// Higher or lower by `semitones`, tuned to A = `tuning` Hz, at any speed.
+    pub fn set_pitch(&self, semitones: i32, tuning: f32) {
+        self.pitch.store(pitch_ratio(semitones, tuning).to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn pitch(&self) -> f32 {
+        f32::from_bits(self.pitch.load(Ordering::Relaxed))
+    }
+
+    /// What the song goes through: a stretch by the first (its tempo alone), then a
+    /// resample by the second (tempo and pitch, like a record). Together they make the
+    /// speed's tempo at the pitch asked for. Each is exactly 1 when it has nothing to do.
+    fn stages(&self) -> (f32, f32) {
+        let speed = self.get();
+        let resample = if self.keeps_pitch() { 1.0 } else { speed } * self.pitch();
+        (speed / resample, resample)
     }
 }
 
@@ -102,7 +148,7 @@ const RES: usize = 64;
 /// A windowed-sinc low-pass to resample through, cutting off under what speeding up
 /// would fold back over the top of the range.
 struct Kernel {
-    speed: f32,
+    ratio: f32,
     /// Frames it reaches on each side.
     half: usize,
     table: Vec<f32>,
@@ -110,15 +156,15 @@ struct Kernel {
 
 impl Kernel {
     fn new() -> Self {
-        // Room for the widest, at the top speed: changing speed never allocates.
-        let widest = ZEROS / (0.95 / MAX_SPEED as f64);
-        let mut k = Self { speed: 0.0, half: 0, table: Vec::with_capacity((widest * RES as f64).ceil() as usize + 2) };
+        // Room for the widest, at the top ratio: changing speed or pitch never allocates.
+        let widest = ZEROS / (0.95 / MAX_RATIO as f64);
+        let mut k = Self { ratio: 0.0, half: 0, table: Vec::with_capacity((widest * RES as f64).ceil() as usize + 2) };
         k.set(1.0);
         k
     }
 
-    fn set(&mut self, speed: f32) {
-        let cutoff = (1.0 / speed as f64).min(1.0) * 0.95;
+    fn set(&mut self, ratio: f32) {
+        let cutoff = (1.0 / ratio as f64).min(1.0) * 0.95;
         let width = ZEROS / cutoff;
         let sinc = |x: f64| if x == 0.0 { 1.0 } else { (std::f64::consts::PI * x).sin() / (std::f64::consts::PI * x) };
         // Blackman, from its middle at 0 to its edge at `width`.
@@ -132,7 +178,7 @@ impl Kernel {
                 .map(|i| i as f64 / RES as f64)
                 .map(|x| if x < width { cutoff * sinc(cutoff * x) * window(x) } else { 0.0 } as f32),
         );
-        self.speed = speed;
+        self.ratio = ratio;
         self.half = width.ceil() as usize;
     }
 
@@ -147,8 +193,8 @@ impl Kernel {
 }
 
 /// Frames kept before the one going out, for the filter to reach back over.
-const HISTORY: usize = 32;
-const _: () = assert!(HISTORY as f64 > ZEROS / (0.95 / MAX_SPEED as f64) + 1.0, "HISTORY must cover the filter at MAX_SPEED");
+const HISTORY: usize = 48;
+const _: () = assert!(HISTORY as f64 > ZEROS / (0.95 / MAX_RATIO as f64) + 1.0, "HISTORY must cover the filter at MAX_RATIO");
 /// Frames read from the song at a time.
 const CHUNK: usize = 256;
 /// Frames played before letting go of them.
@@ -158,7 +204,7 @@ const DRAIN: usize = 8192;
 /// the next one's.
 const BLOCK: usize = 1024;
 
-/// A song at the listener's speed.
+/// A song at the listener's speed and pitch.
 pub struct Tempo<S> {
     inner: S,
     speed: Arc<Speed>,
@@ -167,16 +213,24 @@ pub struct Tempo<S> {
     rate: rodio::SampleRate,
     /// The song's position (ms) at the frame last handed out.
     pos: Arc<AtomicU64>,
-    /// Read from the song, for the resampler: interleaved frames.
+    /// Read from the song, for the stretch: interleaved frames.
     buf: Vec<f32>,
     /// The song's frame at `buf`'s first (before the start, for the history).
     first: i64,
-    /// Where the next frame worked out is, in frames into `buf`.
+    /// Where the song carries on from, in frames into `buf`.
     t: f64,
     /// Where in `buf` the song ends, once it has.
     end: Option<usize>,
-    kernel: Kernel,
     stretch: Stretch,
+    /// The song as stretched, for the resampler: interleaved frames, and the song's
+    /// position (ms) at each.
+    mid: Vec<f32>,
+    mid_ms: Vec<f64>,
+    /// Where the next frame resampled is, in frames into `mid`.
+    mid_t: f64,
+    /// Where in `mid` the song ends, once it has.
+    mid_end: Option<usize>,
+    kernel: Kernel,
     /// The block going out, the song's position (ms) at each of its frames, and how
     /// many samples of it have gone.
     out: Vec<f32>,
@@ -203,8 +257,14 @@ impl<S: rodio::Source> Tempo<S> {
             first: 0,
             t: 0.0,
             end: None,
+            // What the resampler keeps, and what a stretch's hop or a run of the song
+            // as it is adds past what it asked for.
+            mid: Vec::with_capacity((DRAIN + CHUNK + 4 * HISTORY + stretch.n) * ch),
+            mid_ms: Vec::with_capacity(DRAIN + CHUNK + 4 * HISTORY + stretch.n),
+            mid_t: 0.0,
+            mid_end: None,
             kernel: Kernel::new(),
-            out: Vec::with_capacity((BLOCK + stretch.h) * ch),
+            out: Vec::with_capacity(BLOCK * ch),
             stretch,
             out_ms: Vec::with_capacity(BLOCK),
             out_pos: 0,
@@ -218,18 +278,30 @@ impl<S: rodio::Source> Tempo<S> {
     }
 
     fn reset(&mut self, at: Duration) {
+        let ch = self.ch();
         self.buf.clear();
-        self.buf.resize(HISTORY * self.ch(), 0.0);
+        self.buf.resize(HISTORY * ch, 0.0);
         self.first = (at.as_secs_f64() * self.rate.get() as f64).round() as i64 - HISTORY as i64;
         self.t = HISTORY as f64;
         self.end = None;
         self.stretch.on = false;
+        // The resampler's history: silence, as before the song's start.
+        self.mid.clear();
+        self.mid.resize(HISTORY * ch, 0.0);
+        self.mid_ms.clear();
+        self.mid_ms.resize(HISTORY, at.as_secs_f64() * 1000.0);
+        self.mid_t = HISTORY as f64;
+        self.mid_end = None;
         self.pos.store(at.as_millis() as u64, Ordering::Relaxed);
         self.fill();
     }
 
     fn frames(&self) -> usize {
         self.buf.len() / self.ch()
+    }
+
+    fn mid_frames(&self) -> usize {
+        self.mid.len() / self.ch()
     }
 
     /// Reads the next frames of the song into `buf`. False once there are no more.
@@ -246,20 +318,60 @@ impl<S: rodio::Source> Tempo<S> {
         self.out.clear();
         self.out_ms.clear();
         self.out_pos = 0;
-        while self.out_ms.len() < BLOCK {
-            let speed = self.speed.get();
-            let more = if speed != 1.0 && self.speed.keeps_pitch() {
-                self.stretch_hop(speed)
-            } else {
-                // Back from the stretch: on from where its last window left off, which
-                // is near where the song's clock says, not exactly there.
-                if std::mem::take(&mut self.stretch.on) {
-                    self.t = self.stretch.natural as f64;
-                }
-                self.next_frame()
-            };
-            if !more {
-                break;
+        while self.out_ms.len() < BLOCK && self.next_frame() {}
+    }
+
+    /// The song's next frames, stretched as far as the resampler needs, onto `mid`.
+    /// False once the song's over.
+    fn stretched(&mut self) -> bool {
+        let (stretch, _) = self.speed.stages();
+        if stretch != 1.0 {
+            return self.stretch_hop(stretch);
+        }
+        // Back from the stretch: on from where its last window left off, which is near
+        // where the song's clock says, not exactly there.
+        if std::mem::take(&mut self.stretch.on) {
+            self.t = self.stretch.natural as f64;
+        }
+        self.pass_frames()
+    }
+
+    /// The song's next frames as they are onto `mid`. False once it's over.
+    fn pass_frames(&mut self) -> bool {
+        // Whole frames: a stretch or a seek can leave it between two.
+        self.t = self.t.round();
+        let from = self.t as usize;
+        self.read_to(from + 1);
+        let have = self.end.unwrap_or_else(|| self.frames());
+        if from >= have {
+            return false;
+        }
+        let (ch, to) = (self.ch(), have.min(from + CHUNK));
+        self.mid.extend_from_slice(&self.buf[from * ch..to * ch]);
+        let (first, rate) = (self.first as f64, self.rate.get() as f64);
+        self.mid_ms.extend((from..to).map(|f| (first + f as f64) * 1000.0 / rate));
+        self.t = to as f64;
+        // Let go of what's gone on, keeping the history.
+        let done = to.saturating_sub(HISTORY);
+        if done >= DRAIN {
+            self.buf.drain(..done * ch);
+            self.t -= done as f64;
+            self.first += done as i64;
+            self.end = self.end.map(|e| e - done);
+        }
+        true
+    }
+
+    /// Stretches on until `mid` holds `need` frames, or the song's over (and padded with
+    /// silence past its end).
+    fn mid_to(&mut self, need: usize) {
+        while self.mid_frames() < need && self.mid_end.is_none() {
+            if !self.stretched() {
+                let n = self.mid_frames();
+                self.mid_end = Some(n);
+                let last = self.mid_ms.last().copied().unwrap_or(0.0);
+                self.mid.resize(self.mid.len() + HISTORY * self.ch(), 0.0);
+                self.mid_ms.resize(n + HISTORY, last);
             }
         }
     }
@@ -276,8 +388,8 @@ impl<S: rodio::Source> Tempo<S> {
         }
     }
 
-    /// The next hop of the song, time-stretched to the listener's speed, onto `out`.
-    /// False once the song's over.
+    /// The next hop of the song, time-stretched by `speed`, onto `mid`. False once the
+    /// song's over.
     fn stretch_hop(&mut self, speed: f32) -> bool {
         let (ch, n, h, s) = (self.ch(), self.stretch.n, self.stretch.h, self.stretch.s);
         let target = self.t.round() as usize;
@@ -304,14 +416,14 @@ impl<S: rodio::Source> Tempo<S> {
         for j in 0..h {
             for c in 0..ch {
                 let k = j * ch + c;
-                self.out.push(st.tail[k] + self.buf[(best + j) * ch + c] * st.hann[j]);
+                self.mid.push(st.tail[k] + self.buf[(best + j) * ch + c] * st.hann[j]);
                 st.tail[k] = self.buf[(best + h + j) * ch + c] * st.hann[h + j];
             }
         }
         // On the song's clock: the hop covers `h × speed` of it.
         let rate = self.rate.get() as f64;
         let (first, t) = (self.first as f64, self.t);
-        self.out_ms.extend((0..h).map(|j| ((first + t + j as f64 * speed as f64) * 1000.0 / rate).max(0.0) as u64));
+        self.mid_ms.extend((0..h).map(|j| (first + t + j as f64 * speed as f64) * 1000.0 / rate));
         self.t += h as f64 * speed as f64;
         self.stretch.natural = best + h;
         // Let go of what's played, keeping what the search and the next window reach back to.
@@ -353,31 +465,32 @@ impl<S: rodio::Source> Tempo<S> {
         best_of(rough.saturating_sub(COARSE - 1).max(lo), (rough + COARSE - 1).min(hi), 1, 1).0
     }
 
-    /// The next frame at the listener's speed onto `out`. False once the song's over.
+    /// The next frame, resampled to the pitch (and, not keeping it, the speed), onto
+    /// `out`. False once the song's over.
     fn next_frame(&mut self) -> bool {
-        let speed = self.speed.get();
-        if speed == 1.0 {
-            self.t = self.t.round();
-        } else if self.kernel.speed != speed {
-            self.kernel.set(speed);
+        let (_, ratio) = self.speed.stages();
+        if ratio == 1.0 {
+            self.mid_t = self.mid_t.round();
+        } else if self.kernel.ratio != ratio {
+            self.kernel.set(ratio);
         }
-        let half = if speed == 1.0 { 0 } else { self.kernel.half };
+        let half = if ratio == 1.0 { 0 } else { self.kernel.half };
         // Silence past the end, for the filter to reach over.
-        self.read_to(self.t as usize + half + 1);
-        if self.end.is_some_and(|end| self.t >= end as f64) {
+        self.mid_to(self.mid_t as usize + half + 1);
+        if self.mid_end.is_some_and(|end| self.mid_t >= end as f64) {
             return false;
         }
-        let (ch, start, base) = (self.ch(), self.out.len(), self.t as usize);
-        if speed == 1.0 {
-            self.out.extend_from_slice(&self.buf[base * ch..(base + 1) * ch]);
+        let (ch, start, base) = (self.ch(), self.out.len(), self.mid_t as usize);
+        if ratio == 1.0 {
+            self.out.extend_from_slice(&self.mid[base * ch..(base + 1) * ch]);
         } else {
             self.out.resize(start + ch, 0.0);
             let frame = &mut self.out[start..];
             let mut sum = 0.0;
             for k in base + 1 - half..=base + half {
-                let w = self.kernel.at(k as f64 - self.t);
+                let w = self.kernel.at(k as f64 - self.mid_t);
                 sum += w;
-                for (o, s) in frame.iter_mut().zip(&self.buf[k * ch..(k + 1) * ch]) {
+                for (o, s) in frame.iter_mut().zip(&self.mid[k * ch..(k + 1) * ch]) {
                     *o += w * s;
                 }
             }
@@ -386,16 +499,19 @@ impl<S: rodio::Source> Tempo<S> {
                 frame.iter_mut().for_each(|s| *s /= sum);
             }
         }
-        let ms = (self.first as f64 + self.t) * 1000.0 / self.rate.get() as f64;
+        // On the song's clock: between the two frames it falls between.
+        let a = self.mid_ms[base];
+        let b = self.mid_ms.get(base + 1).copied().unwrap_or(a);
+        let ms = a + (b - a) * (self.mid_t - base as f64);
         self.out_ms.push(ms.max(0.0) as u64);
-        self.t += speed as f64;
+        self.mid_t += ratio as f64;
         // Let go of what's played, keeping the history.
-        let done = (self.t as usize).saturating_sub(HISTORY);
+        let done = (self.mid_t as usize).saturating_sub(HISTORY);
         if done >= DRAIN {
-            self.buf.drain(..done * ch);
-            self.t -= done as f64;
-            self.first += done as i64;
-            self.end = self.end.map(|e| e - done);
+            self.mid.drain(..done * ch);
+            self.mid_ms.drain(..done);
+            self.mid_t -= done as f64;
+            self.mid_end = self.mid_end.map(|e| e - done);
         }
         true
     }
@@ -606,6 +722,114 @@ mod tests {
         let step = std::f32::consts::TAU * 440.0 * 1.25 / RATE as f32 * 0.5;
         let worst = left(&out).windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
         assert!(worst < step * 1.5, "{worst} vs {step}");
+    }
+
+    /// A song at `at` speed, `semitones` up (or down) and tuned to A = `tuning` Hz.
+    fn shifted(src: rodio::buffer::SamplesBuffer, at: f32, keep_pitch: bool, semitones: i32, tuning: f32) -> (Tempo<rodio::buffer::SamplesBuffer>, Arc<Speed>, Arc<AtomicU64>) {
+        let speed = Arc::new(Speed::default());
+        speed.set(at);
+        speed.set_keep_pitch(keep_pitch);
+        speed.set_pitch(semitones, tuning);
+        let pos = Arc::new(AtomicU64::new(0));
+        (Tempo::new(src, speed.clone(), Duration::ZERO, pos.clone()), speed, pos)
+    }
+
+    #[test]
+    fn pitch_ratio_is_exactly_one_untouched_and_an_octave_doubles() {
+        assert_eq!(pitch_ratio(0, A4), 1.0);
+        assert_eq!(pitch_ratio(12, A4), 2.0);
+        assert_eq!(pitch_ratio(-12, A4), 0.5);
+        assert!((pitch_ratio(0, 432.0) - 432.0 / 440.0).abs() < 1e-6);
+        assert!((pitch_ratio(7, A4) - 1.498_307).abs() < 1e-5);
+        // Clamped to an octave and a semitone's tuning either way.
+        assert_eq!(pitch_ratio(40, A4), 2.0);
+        assert_eq!(pitch_ratio(0, 1000.0), MAX_TUNING / A4);
+    }
+
+    #[test]
+    fn transposing_moves_the_pitch_and_keeps_the_tempo() {
+        for semitones in [12, -12, 7, -5, 1, -1] {
+            let secs = 2.0;
+            let (t, _, pos) = shifted(sine(440.0, secs), 1.0, true, semitones, A4);
+            let out: Vec<f32> = t.collect();
+            let played = out.len() as f32 / 2.0 / RATE as f32;
+            assert!((played - secs).abs() < 0.03, "{semitones:+}: {played} s");
+            let want = 440.0 * 2f32.powf(semitones as f32 / 12.0);
+            let left = left(&out);
+            let mid = &left[left.len() / 4..left.len() * 3 / 4];
+            assert!((hz(mid) - want).abs() < want * 0.01, "{semitones:+}: {} Hz, want {want}", hz(mid));
+            assert!(pos.load(Ordering::Relaxed) as f32 >= secs * 1000.0 - 30.0, "{semitones:+}: {}", pos.load(Ordering::Relaxed));
+            assert!(mid.iter().all(|s| s.abs() < 0.55), "{semitones:+}: louder");
+        }
+    }
+
+    #[test]
+    fn tuning_moves_a_to_the_hz_asked_for() {
+        for tuning in [432.0, 415.0, 466.0] {
+            let (t, _, _) = shifted(sine(440.0, 2.0), 1.0, true, 0, tuning);
+            let out: Vec<f32> = t.collect();
+            assert!((out.len() as f32 / 2.0 / RATE as f32 - 2.0).abs() < 0.03);
+            let left = left(&out);
+            let mid = &left[left.len() / 4..left.len() * 3 / 4];
+            assert!((hz(mid) - tuning).abs() < tuning * 0.01, "{tuning}: {} Hz", hz(mid));
+        }
+    }
+
+    #[test]
+    fn speed_and_transpose_together() {
+        // (speed, keep the pitch, semitones, the pitch that comes out)
+        let cases = [
+            (1.5, true, 3, 440.0 * 2f32.powf(3.0 / 12.0)),
+            (0.75, true, -2, 440.0 * 2f32.powf(-2.0 / 12.0)),
+            (2.0, true, 12, 880.0),
+            (0.5, true, -12, 220.0),
+            // Like a record and transposed on top.
+            (1.25, false, 2, 440.0 * 1.25 * 2f32.powf(2.0 / 12.0)),
+            (0.5, false, 12, 440.0),
+        ];
+        for (at, keep, semitones, want) in cases {
+            let secs = 3.0;
+            let (t, _, pos) = shifted(sine(440.0, secs), at, keep, semitones, A4);
+            let out: Vec<f32> = t.collect();
+            let played = out.len() as f32 / 2.0 / RATE as f32;
+            assert!((played - secs / at).abs() < 0.04, "{at}x {semitones:+}: {played} s");
+            let left = left(&out);
+            let mid = &left[left.len() / 4..left.len() * 3 / 4];
+            assert!((hz(mid) - want).abs() < want * 0.01, "{at}x {semitones:+}: {} Hz, want {want}", hz(mid));
+            assert!(pos.load(Ordering::Relaxed) as f32 >= secs * 1000.0 - 40.0, "{at}x {semitones:+}: {}", pos.load(Ordering::Relaxed));
+        }
+    }
+
+    #[test]
+    fn transposing_mid_song_keeps_the_clock_and_doesnt_click() {
+        let (mut t, speed, pos) = shifted(sine(440.0, 4.0), 1.0, true, 0, A4);
+        let mut out: Vec<f32> = t.by_ref().take(RATE as usize).collect();
+        speed.set_pitch(4, A4);
+        out.extend(t.by_ref().take(RATE as usize));
+        speed.set_pitch(-3, A4);
+        out.extend(t.by_ref().take(RATE as usize));
+        // A second and a half in (stereo: `RATE` samples is half a second), a second and a
+        // half of song: the tempo stayed 1x throughout.
+        let at = pos.load(Ordering::Relaxed);
+        assert!((1480..=1510).contains(&at), "{at}");
+        speed.set_pitch(0, A4);
+        out.extend(t);
+        let played = out.len() as f32 / 2.0 / RATE as f32;
+        assert!((played - 4.0).abs() < 0.04, "{played} s");
+        let step = std::f32::consts::TAU * 440.0 * 2f32.powf(4.0 / 12.0) / RATE as f32 * 0.5;
+        let worst = left(&out).windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
+        assert!(worst < step * 1.5, "{worst} vs {step}");
+    }
+
+    #[test]
+    fn a_seek_while_transposed_moves_the_clock_there() {
+        use rodio::Source;
+        let (mut t, _, pos) = shifted(sine(440.0, 3.0), 1.0, true, 5, A4);
+        let _: Vec<f32> = t.by_ref().take(20_000).collect();
+        t.try_seek(Duration::from_secs(2)).unwrap();
+        assert_eq!(pos.load(Ordering::Relaxed), 2000);
+        let rest = t.count() as f32 / 2.0 / RATE as f32;
+        assert!((rest - 1.0).abs() < 0.03, "{rest}");
     }
 
     #[test]

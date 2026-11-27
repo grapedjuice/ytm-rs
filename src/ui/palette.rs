@@ -93,15 +93,16 @@ struct Entry {
 /// Settings' categories and sections, by their titles. One named as its category opens
 /// that; any other is looked for with Settings' own search.
 /// As Settings titles them, in this run's language: a search for one finds it there.
-fn sections() -> [(&'static str, SettingsTab); 30] {
+fn sections() -> [(&'static str, SettingsTab); 31] {
     use SettingsTab::*;
-    let mut all = [("", Account); 30];
+    let mut all = [("", Account); 31];
     // Each category as itself, then the sections that aren't named as theirs.
     for (slot, tab) in all.iter_mut().zip(SettingsTab::ALL) {
         *slot = (tab.label(), tab);
     }
     all[18..].copy_from_slice(&[
         (tr!("settings-playback-speed"), Playback),
+        (tr!("settings-transpose"), Playback),
         (tr!("settings-lyrics-timing"), Lyrics),
         (tr!("settings-lyrics-sources"), Lyrics),
         (tr!("settings-content"), Content),

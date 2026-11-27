@@ -48,6 +48,17 @@ pub fn pitch_ratio(semitones: i32) -> f32 {
     2f64.powf(semitones.clamp(-MAX_SEMITONES, MAX_SEMITONES) as f64 / 12.0) as f32
 }
 
+/// The lowest transpose that's heard as asked at `speed`: fast with the pitch kept, the
+/// stretch can't go further (see `Speed::stages`), so none at 2x and five down at 1.5x.
+/// Within a couple of cents, so 1.5x still offers the five it nearly reaches.
+pub fn lowest_semitones(speed: f32, keep_pitch: bool) -> i32 {
+    if !keep_pitch {
+        return -MAX_SEMITONES;
+    }
+    let lowest = (12.0 * (speed / MAX_SPEED).log2() - 0.05).ceil() as i32;
+    lowest.clamp(-MAX_SEMITONES, 0)
+}
+
 impl Speed {
     /// Rounded, so a slider's steps land on exactly 1x, which costs nothing.
     pub fn set(&self, speed: f32) {
@@ -759,6 +770,28 @@ mod tests {
         speed.set(2.0);
         speed.set_pitch(-12);
         assert_eq!(speed.stages(), (2.0, 1.0));
+    }
+
+    #[test]
+    fn the_lowest_transpose_offered_is_one_that_is_heard() {
+        assert_eq!(lowest_semitones(2.0, true), 0);
+        assert_eq!(lowest_semitones(1.5, true), -5);
+        assert_eq!(lowest_semitones(1.0, true), -12);
+        assert_eq!(lowest_semitones(2.0, false), -12);
+        for step in 0..=30 {
+            let at = MIN_SPEED + step as f32 * 0.05;
+            let lowest = lowest_semitones(at, true);
+            let speed = Speed::default();
+            speed.set(at);
+            speed.set_pitch(lowest);
+            // Within a few cents of what's asked; one lower wouldn't be.
+            let cents = |s: &Speed, semitones| 1200.0 * (s.stages().1 / pitch_ratio(semitones)).log2();
+            assert!(cents(&speed, lowest).abs() < 5.0, "{at}x {lowest}: {} cents", cents(&speed, lowest));
+            if lowest > -MAX_SEMITONES {
+                speed.set_pitch(lowest - 1);
+                assert!(cents(&speed, lowest - 1) > 5.0, "{at}x {}", lowest - 1);
+            }
+        }
     }
 
     #[test]

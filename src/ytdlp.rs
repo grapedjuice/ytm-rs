@@ -284,20 +284,33 @@ fn run(bin: &Path, runtime: Option<&str>, data_dir: &Path, video_id: &str, cooki
     })
 }
 
-/// yt-dlp's warnings in what it wrote to stderr, without their "WARNING: " prefix. One
-/// about a line of the cookie file it skipped quotes that line, cookie and all, and one
-/// about a po_token in yt-dlp's own config quotes the token, so those only say what
-/// they're about.
-fn warnings(stderr: &str) -> impl Iterator<Item = &str> {
-    stderr.lines().filter_map(|l| l.strip_prefix("WARNING: ")).map(|w| {
-        if w.contains("cookie file entry") {
-            "skipped an entry of the cookie file"
-        } else if w.contains("po_token") {
-            "a po_token in yt-dlp's config isn't valid"
-        } else {
-            w.trim()
+/// yt-dlp's warnings in what it wrote to stderr, without their "WARNING: " prefix, and
+/// with what they quote left out: what yt-dlp quotes can be a secret, like a line of the
+/// cookie file it skipped, a po_token or a .netrc password from its own config.
+fn warnings(stderr: &str) -> impl Iterator<Item = String> {
+    stderr.lines().filter_map(|l| l.strip_prefix("WARNING: ")).map(|w| unquoted(w.trim()))
+}
+
+/// `s` with each quoted part ('…' or "…") emptied to `'…'`. A quote inside a word, as in
+/// "isn't", isn't one.
+fn unquoted(s: &str) -> String {
+    let word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(c) = rest.chars().next() {
+        let after = &rest[c.len_utf8()..];
+        if matches!(c, '\'' | '"') && !word(out.chars().next_back()) {
+            let close = after.match_indices(c).map(|(i, _)| i).find(|&i| !word(after[i + 1..].chars().next()));
+            if let Some(i) = close {
+                out.extend([c, '…', c]);
+                rest = &after[i + 1..];
+                continue;
+            }
         }
-    })
+        out.push(c);
+        rest = after;
+    }
+    out
 }
 
 #[cfg(test)]
@@ -310,9 +323,14 @@ mod tests {
         assert_eq!(warnings(stderr).collect::<Vec<_>>(), ["[youtube] The provided YouTube account cookies are no longer valid."]);
         assert_eq!(warnings("").count(), 0);
         let skipped = "WARNING: skipping cookie file entry due to invalid length 8: '.youtube.com\\tTRUE\\t/\\tTRUE\\t0\\tSAPISID\\tsec\\tret\\n'\n";
-        assert_eq!(warnings(skipped).collect::<Vec<_>>(), ["skipped an entry of the cookie file"]);
+        assert_eq!(warnings(skipped).collect::<Vec<_>>(), ["skipping cookie file entry due to invalid length 8: '…'"]);
         let token = "WARNING: [youtube] Invalid po_token configuration format. Expected \"CLIENT.CONTEXT+PO_TOKEN\", got \"secret\"\n";
-        assert_eq!(warnings(token).collect::<Vec<_>>(), ["a po_token in yt-dlp's config isn't valid"]);
+        assert_eq!(warnings(token).collect::<Vec<_>>(), ["[youtube] Invalid po_token configuration format. Expected \"…\", got \"…\""]);
+        let netrc = "WARNING: [youtube] parsing .netrc: bad follower token 'hunter2' (/home/u/.netrc, line 3)\n";
+        assert_eq!(warnings(netrc).collect::<Vec<_>>(), ["[youtube] parsing .netrc: bad follower token '…' (/home/u/.netrc, line 3)"]);
+        // A quote inside a word isn't one, and one that isn't closed stays.
+        assert_eq!(unquoted("it isn't the users' 'x'"), "it isn't the users' '…'");
+        assert_eq!(unquoted("a 'b"), "a 'b");
     }
 
     #[test]

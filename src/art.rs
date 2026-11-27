@@ -249,11 +249,10 @@ fn analyse(img: &image::RgbImage) -> Look {
     // mid grey; both read against the blurred backdrop.
     let luma = 0.299 * mean[0] + 0.587 * mean[1] + 0.114 * mean[2];
     let neutral = if luma > 0.6 { 140.0 } else { 210.0 };
-    // Each hue with the bins either side, so a hue on a bin edge isn't split — centred
-    // only on a bin that's a peak, so an empty bin can't join two hues on either side
-    // into one between them. Only a hue covering a real share of the sleeve can speak for it.
-    let w = |i: usize| bins[i % HUE_BINS][3];
-    let peak = |&i: &usize| w(i) > 0.0 && w(i) >= w(i + HUE_BINS - 1) && w(i) >= w(i + 1);
+    // Each hue with the bins either side, so a hue on a bin edge isn't split — but only
+    // where the middle bin is a real part of the window, so a near-empty bin can't join
+    // two hues either side of it into one between them. Only a hue covering a real
+    // share of the sleeve can speak for it.
     let group = |i: usize| {
         let mut g = [0.0f32; 5];
         for d in [HUE_BINS - 1, 0, 1] {
@@ -264,7 +263,8 @@ fn analyse(img: &image::RgbImage) -> Look {
         }
         g
     };
-    let vivid = (0..HUE_BINS).filter(peak).map(group).filter(|g| g[4] / n >= VIVID_SHARE).max_by(|a, b| a[3].total_cmp(&b[3]));
+    let centred = |&i: &usize| bins[i][3] * 4.0 >= group(i)[3];
+    let vivid = (0..HUE_BINS).filter(centred).map(group).filter(|g| g[4] / n >= VIVID_SHARE).max_by(|a, b| a[3].total_cmp(&b[3]));
     let accent = if let Some(v) = vivid {
         // A bright vivid area the sleeve really shows: the score-weighted colour of
         // its strongest hue, lifted for the UI. Full strength, whatever the cover's
@@ -558,10 +558,29 @@ mod tests {
     }
 
     #[test]
+    fn a_gradient_logo_is_one_hue() {
+        // A small orange-to-yellow logo on grey, across three hue bins: together a
+        // real share of the sleeve, so it takes the accent rather than grey.
+        let img = image::RgbImage::from_fn(64, 64, |x, y| image::Rgb(match (x, y) {
+            (0..20, 0) => [230, 110, 0],
+            (0..26, 1) => [220, 155, 40],
+            (0..26, 2) => [220, 225, 70],
+            _ => [120, 120, 120],
+        }));
+        let a = analyse(&img).accent;
+        assert!(a.r() > a.b() + 100, "accent {a:?} dropped the logo");
+    }
+
+    #[test]
     fn two_hues_apart_dont_make_one_between_them() {
         // Red and a yellow-green two bins apart: a window centred on the empty bin
         // between them made an orange the sleeve doesn't have.
-        let img = image::RgbImage::from_fn(64, 64, |_, y| image::Rgb(if y < 33 { [230, 0, 0] } else { [120, 230, 0] }));
+        // A row of orange between them, as an edge in a real picture would leave.
+        let img = image::RgbImage::from_fn(64, 64, |_, y| image::Rgb(match y {
+            0..33 => [230, 0, 0],
+            33 => [230, 170, 0],
+            _ => [120, 230, 0],
+        }));
         let a = analyse(&img).accent;
         assert!(a.r() > a.g() + 100, "accent {a:?} is a hue between the two");
     }

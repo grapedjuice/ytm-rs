@@ -284,9 +284,13 @@ fn run(bin: &Path, runtime: Option<&str>, data_dir: &Path, video_id: &str, cooki
     })
 }
 
-/// yt-dlp's warnings in what it wrote to stderr, without their "WARNING: " prefix.
+/// yt-dlp's warnings in what it wrote to stderr, without their "WARNING: " prefix. One
+/// about a line of the cookie file it skipped quotes that line, cookie and all, so it
+/// only says that it skipped one.
 fn warnings(stderr: &str) -> impl Iterator<Item = &str> {
-    stderr.lines().filter_map(|l| l.strip_prefix("WARNING: ")).map(str::trim)
+    stderr.lines().filter_map(|l| l.strip_prefix("WARNING: ")).map(|w| {
+        if w.contains("cookie file entry") { "skipped an entry of the cookie file" } else { w.trim() }
+    })
 }
 
 #[cfg(test)]
@@ -298,6 +302,8 @@ mod tests {
         let stderr = "[youtube] Extracting URL\nWARNING: [youtube] The provided YouTube account cookies are no longer valid.\nERROR: [youtube] x: Video unavailable\n";
         assert_eq!(warnings(stderr).collect::<Vec<_>>(), ["[youtube] The provided YouTube account cookies are no longer valid."]);
         assert_eq!(warnings("").count(), 0);
+        let skipped = "WARNING: skipping cookie file entry due to invalid length 6: '.youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tsecret\\n'\n";
+        assert_eq!(warnings(skipped).collect::<Vec<_>>(), ["skipped an entry of the cookie file"]);
     }
 
     #[test]

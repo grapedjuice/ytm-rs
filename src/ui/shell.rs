@@ -519,6 +519,10 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             });
             return;
         }
+        // No room for the heading either: nothing, rather than a heading under Settings.
+        if list_h < 20.0 * (1.0 - t) + ui.spacing().item_spacing.y {
+            return;
+        }
         // The heading folds away with the labels.
         let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0 * (1.0 - t)), Sense::hover());
         if a > 0.0 {

@@ -114,12 +114,12 @@ fn run(profile_dir: PathBuf) -> anyhow::Result<String> {
         // outer_size() reads NSWindow::frame, which exists from creation, so the
         // measured title-bar delta is real, not an estimate. The delta comes back in
         // the building screen's physical pixels; points are screen-independent, so
-        // rescale it for this monitor, which may run at a different scale.
+        // rescale it for this monitor, which may run at a different scale. Saturating:
+        // on Linux, tao's outer size is meaningless until the window is first configured.
         let build_scale = window.scale_factor();
-        let frame_delta_w =
-            (window.outer_size().width - window.inner_size().width) as f64 / build_scale;
-        let frame_delta_h =
-            (window.outer_size().height - window.inner_size().height) as f64 / build_scale;
+        let (outer, inner) = (window.outer_size(), window.inner_size());
+        let frame_delta_w = outer.width.saturating_sub(inner.width) as f64 / build_scale;
+        let frame_delta_h = outer.height.saturating_sub(inner.height) as f64 / build_scale;
         let monitor_scale = monitor.scale_factor();
         let frame = tao::dpi::PhysicalSize::new(
             (size.width as f64 + frame_delta_w * monitor_scale) as u32,

@@ -130,9 +130,7 @@ mod file {
         // or half file, which loads as signed out.
         let path = path(key, dir);
         let tmp = path.with_extension("secret.tmp");
-        // One save at a time: two at once would write the same file beside it.
-        static SAVING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _saving = SAVING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one = one_at_a_time();
         let saved = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -151,12 +149,22 @@ mod file {
     }
 
     pub fn delete(key: &str, dir: &Path) -> anyhow::Result<()> {
+        let _one = one_at_a_time();
         // And one a crash left half saved beside it.
-        let _ = std::fs::remove_file(path(key, dir).with_extension("secret.tmp"));
-        match std::fs::remove_file(path(key, dir)) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
-            _ => Ok(()),
+        for p in [path(key, dir).with_extension("secret.tmp"), path(key, dir)] {
+            match std::fs::remove_file(p) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+                _ => {}
+            }
         }
+        Ok(())
+    }
+
+    /// One save or delete at a time: two saves would write the same file beside it,
+    /// and a delete could take it from under a save.
+    fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        ONE.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 

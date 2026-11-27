@@ -4007,6 +4007,13 @@ fn settings_tempo(app: &mut App, ui: &mut Ui) {
             setting_row(ui, tr!("settings-keep-pitch"), Some(tr!("settings-keep-pitch-desc")), |ui| {
                 toggle(ui, &mut app.keep_pitch, tr!("settings-keep-pitch"));
             });
+            divider(ui);
+            setting_row_wide(ui, tr!("settings-transpose"), Some(tr!("settings-transpose-desc")), SLIDER_W, |ui| {
+                let mut v = app.transpose as f32;
+                let max = crate::audio::tempo::MAX_SEMITONES as f32;
+                step_slider(ui, &mut v, (-max, max, 1.0), Some(0.0), |v| semitones(v.round() as i32), tr!("settings-transpose"));
+                app.transpose = v.round() as i32;
+            });
         });
     });
 }
@@ -4018,6 +4025,15 @@ pub(super) fn tempo_in_jam() -> &'static str {
 /// A speed as it's shown: 1×, 1.5×, 1.25×.
 pub(super) fn times(v: f32) -> String {
     format!("{}×", (v * 100.0).round() / 100.0)
+}
+
+/// A transpose as it's shown: 0, +2, −3.
+pub(super) fn semitones(n: i32) -> String {
+    match n {
+        0 => "0".to_owned(),
+        n if n > 0 => format!("+{n}"),
+        n => format!("\u{2212}{}", -n),
+    }
 }
 
 /// The equalizer's bands as vertical sliders, over the curve they make together.

@@ -737,6 +737,9 @@ pub struct App {
     speed: f32,
     /// Speed changes the tempo only, not the pitch (saved; on unless switched off).
     keep_pitch: bool,
+    /// Transpose, in semitones, from the speed button's card: the pitch without the
+    /// tempo (not saved: 0 each launch, like the speed).
+    transpose: i32,
     /// The next song starts because this one is ending: crossfade into it.
     handoff: bool,
     /// The sleep timer, when it's set (not saved).
@@ -1218,6 +1221,7 @@ impl App {
             tempo_on: get("tempo").is_some_and(|v| v == "1"),
             speed: 1.0,
             keep_pitch: get("keep_pitch").is_none_or(|v| v == "1"),
+            transpose: 0,
             segments: None,
             segment_skipped: f64::NEG_INFINITY,
             ab_loop: None,

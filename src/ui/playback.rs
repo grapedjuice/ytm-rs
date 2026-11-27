@@ -587,10 +587,21 @@ impl App {
     }
 
     /// Every frame: a jam starting or ending changes it too. Normal in a jam, where
-    /// everyone hears the same song at the same moment.
-    pub(super) fn sync_tempo(&self) {
-        self.audio.set_speed(if self.jam.active() || !self.tempo_on { 1.0 } else { self.speed });
+    /// everyone hears the same song at the same moment. Fast with the pitch kept, the
+    /// transpose can only go so low; it's held there, so what's shown is what's heard.
+    pub(super) fn sync_tempo(&mut self) {
+        let normal = self.jam.active() || !self.tempo_on;
+        if !normal {
+            self.transpose = self.transpose.max(crate::audio::tempo::lowest_semitones(self.speed, self.keep_pitch));
+        }
+        self.audio.set_speed(if normal { 1.0 } else { self.speed });
         self.audio.set_keep_pitch(self.keep_pitch);
+        self.audio.set_pitch(if normal { 0 } else { self.transpose });
+    }
+
+    /// Speed or transpose moved off normal.
+    pub(super) fn tempo_changed(&self) -> bool {
+        (self.speed - 1.0).abs() > 0.001 || self.transpose != 0
     }
 
     pub(crate) fn set_crossfade(&mut self) {

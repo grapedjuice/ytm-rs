@@ -646,6 +646,11 @@ impl AudioHandle {
     pub fn set_keep_pitch(&self, on: bool) {
         self.status.speed.set_keep_pitch(on);
     }
+
+    /// Transpose, in semitones, without changing the tempo. Takes effect at once.
+    pub fn set_pitch(&self, semitones: i32) {
+        self.status.speed.set_pitch(semitones);
+    }
 }
 
 /// A seek that needs a new decoder built over the stream buffer (off the audio thread).

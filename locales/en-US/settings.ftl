@@ -159,10 +159,13 @@ settings-0-db = 0 dB
 ## Playback speed
 
 settings-playback-speed = Playback speed
-settings-playback-speed-desc = Play songs faster or slower, also from a button in the player bar. Lyrics stay in time. Back to 1× each time ytm-rs starts.
+settings-playback-speed-desc = Play songs faster or slower, or in another key, also from a button in the player bar. Lyrics stay in time. Back to normal each time ytm-rs starts.
 settings-speed = Speed
 settings-keep-pitch = Keep the pitch
 settings-keep-pitch-desc = Faster or slower without sounding higher or lower. Off, the pitch changes with the speed, like a record.
+settings-speed-pitch = Speed and pitch
+settings-transpose = Transpose
+settings-transpose-desc = Higher or lower by semitones, at the same speed. 12 is an octave.
 settings-playback-speed-jam-note = Back to normal while you're in a jam, so everyone hears the same song.
 
 ## Music videos

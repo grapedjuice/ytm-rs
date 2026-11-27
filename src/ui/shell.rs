@@ -480,27 +480,47 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     ui.add_space(14.0 - 4.0 * t);
 
     let transferring = super::transfer::sidebar_visible(app, ui.input(|i| i.time));
-    // Settings' row, however tall the theme makes it, and the transfer card.
-    let bottom_h = nav_h + 8.0 + if transferring { 64.0 } else { 0.0 };
+    // A downloaded update (Restart), or for a packaged copy a new one that's out (its notes).
+    let (ready, available) = match app.updater.as_ref().map(|u| u.state()) {
+        Some(crate::update::State::Ready { version, .. }) => (Some(version), false),
+        Some(crate::update::State::Available { version, .. }) => (Some(version), true),
+        _ => (None, false),
+    };
+    // Settings' row, however tall the theme makes it, the transfer card and the update's:
+    // the list ends above them rather than run under them.
+    // Each card is 6 pt and the gap egui leaves below its row, then the card: the transfer's
+    // 58 pt, the update's 52.
+    let card_h = |h: f32| 6.0 + ui.spacing().item_spacing.y + h;
+    let bottom_h = nav_h + 8.0 + if transferring { card_h(58.0) } else { 0.0 } + if ready.is_some() { card_h(52.0) } else { 0.0 };
     let list_h = (ui.available_height() - bottom_h).max(0.0);
+    let bars = if t > 0.0 { egui::scroll_area::ScrollBarVisibility::AlwaysHidden } else { egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded };
     ui.allocate_ui(vec2(ui.available_width(), list_h), |ui| {
         if !app.logged_in {
-            // Too wide to squeeze: cross-fade the message and the rail's icon.
-            if t < 0.5 {
-                ui.multiply_opacity(1.0 - 2.0 * t);
-                widgets::note(ui, crate::tr!("nav-sign-in-playlists"), egui::TextStyle::Body.resolve(ui.style()), theme::text_dim());
-                ui.add_space(8.0);
-                if widgets::pill(ui, crate::tr!("nav-sign-in"), Some(icon::CIRCLE_USER), false).clicked() {
-                    app.start_sign_in(ui.ctx());
+            // In a low window it scrolls, as the playlists do, rather than run under Settings: no
+            // taller than the room left (a scroll area is 64 pt at least, unless told otherwise).
+            // The note and the rail's icon scroll apart: the note's offset would clip the icon.
+            egui::ScrollArea::vertical().id_salt(("sidebar-sign-in", t < 0.5)).auto_shrink(false).min_scrolled_height(0.0).scroll_bar_visibility(bars).show(ui, |ui| {
+                // Too wide to squeeze: cross-fade the message and the rail's icon.
+                if t < 0.5 {
+                    ui.multiply_opacity(1.0 - 2.0 * t);
+                    widgets::note(ui, crate::tr!("nav-sign-in-playlists"), egui::TextStyle::Body.resolve(ui.style()), theme::text_dim());
+                    ui.add_space(8.0);
+                    if widgets::pill(ui, crate::tr!("nav-sign-in"), Some(icon::CIRCLE_USER), false).clicked() {
+                        app.start_sign_in(ui.ctx());
+                    }
+                } else {
+                    ui.multiply_opacity(2.0 * t - 1.0);
+                    nav(ui, icon::CIRCLE_USER, crate::tr!("nav-sign-in"), Page::Settings, false, &mut go_to);
+                    if go_to.is_some() {
+                        app.settings_tab = super::pages::SettingsTab::Account;
+                        app.settings_page = true;
+                    }
                 }
-            } else {
-                ui.multiply_opacity(2.0 * t - 1.0);
-                nav(ui, icon::CIRCLE_USER, crate::tr!("nav-sign-in"), Page::Settings, false, &mut go_to);
-                if go_to.is_some() {
-                    app.settings_tab = super::pages::SettingsTab::Account;
-                    app.settings_page = true;
-                }
-            }
+            });
+            return;
+        }
+        // No room for the heading either: nothing, rather than a heading under Settings.
+        if list_h < 20.0 * (1.0 - t) + ui.spacing().item_spacing.y {
             return;
         }
         // The heading folds away with the labels.
@@ -524,8 +544,8 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 }
             }
         }
-        let bars = if t > 0.0 { egui::scroll_area::ScrollBarVisibility::AlwaysHidden } else { egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded };
-        egui::ScrollArea::vertical().id_salt("sidebar-pl").auto_shrink(false).scroll_bar_visibility(bars).show(ui, |ui| {
+        // No taller than the room left, however low the window.
+        egui::ScrollArea::vertical().id_salt("sidebar-pl").auto_shrink(false).min_scrolled_height(0.0).scroll_bar_visibility(bars).show(ui, |ui| {
             // Last launch's list until the library arrives.
             let Some(playlists) = app.library.as_ref().map(|l| &l.playlists).or(app.sidebar_cache.as_ref()) else {
                 // The spinner animates every frame: give up on a request that never answered.
@@ -621,12 +641,6 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             }
         });
     });
-    // A downloaded update (Restart), or for a packaged copy a new one that's out (its notes).
-    let (ready, available) = match app.updater.as_ref().map(|u| u.state()) {
-        Some(crate::update::State::Ready { version, .. }) => (Some(version), false),
-        Some(crate::update::State::Available { version, .. }) => (Some(version), true),
-        _ => (None, false),
-    };
     let mut restart = false;
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
         nav(ui, icon::SETTINGS, crate::tr!("settings-title"), Page::Settings, app.settings_open, &mut go_to);

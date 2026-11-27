@@ -2292,6 +2292,10 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
                 app.audio.set_skip_silence(app.skip_silence);
             }
         });
+        divider(ui);
+        setting_row(ui, tr!("settings-keep-screen-on"), Some(tr!("settings-keep-screen-on-desc")), |ui| {
+            toggle(ui, &mut app.keep_screen_on, tr!("settings-keep-screen-on"));
+        });
     });
 }
 

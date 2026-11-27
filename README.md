@@ -62,7 +62,7 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 - **Explore and search:** new releases, charts, and search across songs, albums, artists and playlists.
 - **Your library:** liked songs, saved albums and playlists, history and uploads. Upload your own songs from the Uploads tab or by dropping files on the window. Edit your own playlists, with a picture of your own as the cover. Turn on podcasts to see shows and episodes too.
 - **Song lists:** drag songs to reorder the queue and your own playlists, or drop them on a playlist in the sidebar to add them. A find box narrows any list to the songs that match.
-- **Playback:** queue, song radio, shuffle and Smart shuffle (songs like the one playing mixed in), repeat, autoplay, gapless playback, and crossfade that starts where a song's music ends, with the next track prefetched for instant skips. A-B repeat from a seek bar's right-click menu, a sleep timer, and Skip silence at the end of a song.
+- **Playback:** queue, song radio, shuffle and Smart shuffle (songs like the one playing mixed in), repeat, autoplay, gapless playback, and crossfade that starts where a song's music ends, with the next track prefetched for instant skips. A-B repeat from a seek bar's right-click menu, a sleep timer, Skip silence at the end of a song, and the screen can stay on while music plays.
 - **Sound:** volume normalization, a 10-band equalizer with presets, playback speed that keeps the pitch (or lets it go with the speed, like a record), and transpose.
 - **Play on:** this computer's speakers or headphones, or AirPlay speakers on your network.
 - **Sound quality:** songs play in Opus at about 256 kbps with YouTube Premium, the best stream YouTube offers, and Opus at about 130 kbps without it.

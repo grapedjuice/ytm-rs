@@ -261,25 +261,47 @@ mod os {
     /// get: no answer in the time a call has is a yes. The request holds meanwhile, and
     /// only this thread waits.
     fn portal(bus: &Connection, keep: Keep) -> Result<Path<'static>, dbus::Error> {
+        let mut matches = Vec::new();
+        let asked = ask_portal(bus, keep, &mut matches);
+        for token in matches {
+            let _ = bus.remove_match(token);
+        }
+        asked
+    }
+
+    fn ask_portal(bus: &Connection, keep: Keep, matches: &mut Vec<dbus::channel::Token>) -> Result<Path<'static>, dbus::Error> {
+        static TOKENS: AtomicU32 = AtomicU32::new(0);
         let flags: u32 = if keep == Keep::Display { 4 | 8 } else { 4 };
+        let answer = Arc::new(AtomicU32::new(NO_ANSWER));
+        let listen = |path: Path<'static>| {
+            let seen = answer.clone();
+            let rule = MatchRule::new_signal("org.freedesktop.portal.Request", "Response").with_path(path);
+            bus.add_match(rule, move |(code,): (u32,), _, _| {
+                seen.store(code, Ordering::Relaxed);
+                true
+            })
+        };
+        // The request's path follows from its token, so the answer is listened for before
+        // the call: a quick refusal can't come first and go unheard.
+        let token = format!("ytm_rs_{}", TOKENS.fetch_add(1, Ordering::Relaxed));
+        let sender = bus.unique_name().trim_start_matches(':').replace('.', "_");
+        let expected = Path::new(format!("/org/freedesktop/portal/desktop/request/{sender}/{token}")).map_err(|e| dbus::Error::new_failed(&e))?;
+        matches.push(listen(expected.clone())?);
         let mut options = PropMap::new();
         options.insert("reason".into(), Variant(Box::new(reason().to_owned())));
+        options.insert("handle_token".into(), Variant(Box::new(token)));
         let (handle,): (Path<'static>,) =
             bus.with_proxy(PORTAL, "/org/freedesktop/portal/desktop", TIMEOUT).method_call("org.freedesktop.portal.Inhibit", "Inhibit", ("", flags, options))?;
-        let answer = Arc::new(AtomicU32::new(NO_ANSWER));
-        let seen = answer.clone();
-        let rule = MatchRule::new_signal("org.freedesktop.portal.Request", "Response").with_path(handle.clone());
-        let token = bus.add_match(rule, move |(code,): (u32,), _, _| {
-            seen.store(code, Ordering::Relaxed);
-            true
-        })?;
+        // A portal older than 0.9 picks a path of its own.
+        if handle != expected {
+            matches.push(listen(handle.clone())?);
+        }
         let until = Instant::now() + TIMEOUT;
         while answer.load(Ordering::Relaxed) == NO_ANSWER
             && let Some(left) = until.checked_duration_since(Instant::now())
         {
             bus.process(left)?;
         }
-        let _ = bus.remove_match(token);
         match answer.load(Ordering::Relaxed) {
             0 | NO_ANSWER => Ok(handle),
             code => {

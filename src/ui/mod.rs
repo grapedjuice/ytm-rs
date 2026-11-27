@@ -1930,6 +1930,8 @@ impl eframe::App for App {
         crate::shader::set_glass_on(self.glass_on);
         let now = ctx.input(|i| i.time);
         self.sync_ratings(&ctx, now);
+        // Before anything animates this frame, the recognize window included.
+        theme::set_anim_speed(&ctx, self.anim_speed);
         recognize::popout(self, &ctx);
         // In the tray, or minimized: nothing would be seen, so nothing is drawn. eframe skips
         // a minimized window itself, but not one hidden in the tray (it can't tell on Windows
@@ -1970,7 +1972,6 @@ impl eframe::App for App {
             theme::apply_chrome(&ctx, look, self.lyric_prefs.style(look));
             self.chrome_applied = Some(chrome);
         }
-        theme::set_anim_speed(&ctx, self.anim_speed);
         let accent = self.accent_color();
         ctx.data_mut(|d| d.insert_temp(egui::Id::unique("accent"), accent));
         // How far each album or playlist being downloaded has got, for its cover's veil.

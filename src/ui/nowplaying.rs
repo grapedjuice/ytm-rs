@@ -1448,7 +1448,7 @@ fn cover_column(app: &mut App, ui: &mut Ui, col: Rect, track: &crate::model::Tra
         // A brief note, faded out after a few seconds.
         let since = ui.ctx().memory_mut(|m| *m.data.get_temp_mut_or_insert_with(egui::Id::unique(("no-lyrics", &track.id)), || now));
         let nl = np.no_lyrics;
-        let a = if nl.stays { 1.0 } else { (1.0 - ((now - since - 3.0) / 1.0) as f32).clamp(0.0, 1.0) };
+        let a = if nl.stays { 1.0 } else { (1.0 - ((now - since - 3.0) / theme::secs(1.0)) as f32).clamp(0.0, 1.0) };
         if a > 0.0 {
             let c = theme::with_alpha(theme::text_dim(), a * 0.8);
             let y = title_y + title_px * 1.4 + artist_px * 1.6;

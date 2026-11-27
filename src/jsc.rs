@@ -84,7 +84,7 @@ impl Solver {
                 let sts = signature_timestamp(&base).ok_or_else(|| anyhow::anyhow!("no signatureTimestamp in player {id}"))?;
                 let (reply, rx) = oneshot::channel();
                 self.send(Job::Preprocess { base, reply })?;
-                let pre = rx.await??;
+                let pre = rx.await?.map_err(|e| e.context(format!("preparing player {id}")))?;
                 // Keep only the current player: each is ~4 MB.
                 if let Ok(old) = std::fs::read_dir(&self.dir) {
                     for f in old.flatten() {
@@ -117,7 +117,7 @@ impl Solver {
         let path = self.dir.join(format!("{}.js", player.id));
         let (reply, rx) = oneshot::channel();
         self.send(Job::Solve { path: path.clone(), n: n.clone(), sig: sig.clone(), reply })?;
-        match rx.await {
+        let res = match rx.await {
             Ok(res) => res,
             // The worker hit its idle timeout just as the job arrived; a new one takes it.
             Err(_) => {
@@ -125,7 +125,10 @@ impl Solver {
                 self.send(Job::Solve { path, n, sig, reply })?;
                 rx.await?
             }
-        }
+        };
+        // Which of YouTube's player versions it failed on: a new one can break the solver
+        // (#411), and a report's log should say which (#455).
+        res.map_err(|e| e.context(format!("player {}", player.id)))
     }
 
     /// Hand a job to the worker, starting it if it has exited.
@@ -308,5 +311,15 @@ mod tests {
         assert_eq!(player_id(r"var a='https:\/\/www.youtube.com\/s\/player\/5203c085\/www-widgetapi.vflset'").as_deref(), Some("5203c085"));
         assert_eq!(signature_timestamp("x={a:1,signatureTimestamp:20732,b:2}"), Some(20732));
         assert_eq!(signature_timestamp("sts:123,sts:20733"), Some(20733));
+    }
+
+    /// A solve that fails says which player version it was, for the log.
+    #[tokio::test]
+    async fn a_failed_solve_names_the_player() {
+        let dir = std::env::temp_dir().join(format!("ytm-solver-test-{}", std::process::id()));
+        let player = Player { id: "0badc0de".into(), sts: 0 };
+        // No script for it in `dir`: the worker can't load it.
+        let e = Solver::new(&dir).solve(&player, Some("abc".into()), None).await.unwrap_err();
+        assert!(format!("{e:#}").contains("player 0badc0de"), "{e:#}");
     }
 }

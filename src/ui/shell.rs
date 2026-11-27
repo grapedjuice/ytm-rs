@@ -330,6 +330,9 @@ const PIN_TILT: f32 = 45.0;
 /// Sidebar width expanded and collapsed to an icon rail (points).
 pub const SIDEBAR_W: f32 = 236.0;
 
+/// The least the player bar's title gets before the thumbs-down makes way for it.
+const MIN_TITLE_W: f32 = 80.0;
+
 /// The expanded sidebar's width in this theme.
 pub fn sidebar_w(app: &App) -> f32 {
     app.look().app.nav_item.width.unwrap_or(SIDEBAR_W).clamp(200.0, 300.0)
@@ -1602,6 +1605,13 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let compact_vol = free(half) < 140.0 + time_w;
     let compact_vol = compact_vol || chrome.volume_on_hover || chrome.hide_volume;
     let show_time = free(half) >= if compact_vol { 36.0 } else { 140.0 } + time_w && !time_under && chrome.time_at != crate::preset::TimeAt::AboveProgress;
+    // In a narrow window the thumbs-down folds into the song's menu (Dislike is there too)
+    // rather than leave the title a few points: it was cut to "…" at the smallest size. Only
+    // with the song on the left, where the room depends on the window's width alone. A disliked
+    // song keeps it: the red thumb is all that shows it, and the menu can't take it back.
+    let disliked = app.playing_track().is_some_and(|t| app.ratings.get(&t.id) == Some(crate::ytm::SongRating::Dislike));
+    let show_dislike = show_dislike && (song_middle || disliked || row.center().x - half - 32.0 - 116.0 - song_x >= MIN_TITLE_W);
+    let song_tail = if show_dislike { 116.0 } else { 80.0 };
 
     // Left: now playing
     if let Some(t) = &track {

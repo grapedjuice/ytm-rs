@@ -1384,19 +1384,56 @@ fn load_installed(all: &[SysFamily], name: String) -> Option<Chosen> {
 // symbols and emoji in titles would render as boxes. Memory-mapped, not read, so a
 // 20 MB CJK collection costs only the glyph pages actually drawn.
 #[cfg(windows)]
-const CANDIDATES: &[(&str, u32)] = &[
-    ("C:\\Windows\\Fonts\\segoeui.ttf", 0),   // Latin ext., Greek, Cyrillic, Arabic, Hebrew
-    ("C:\\Windows\\Fonts\\seguisym.ttf", 0),  // symbols, arrows, dingbats
-    ("C:\\Windows\\Fonts\\YuGothM.ttc", 0),   // Japanese
-    ("C:\\Windows\\Fonts\\msyh.ttc", 0),      // Simplified Chinese
-    ("C:\\Windows\\Fonts\\msjh.ttc", 0),      // Traditional Chinese
-    ("C:\\Windows\\Fonts\\malgun.ttf", 0),    // Korean
-    ("C:\\Windows\\Fonts\\Nirmala.ttc", 0),   // Indic scripts
-    ("C:\\Windows\\Fonts\\Nirmala.ttf", 0),
-    ("C:\\Windows\\Fonts\\LeelawUI.ttf", 0),  // Thai, Lao, Khmer
-    ("C:\\Windows\\Fonts\\ebrima.ttf", 0),    // Ethiopic, N'Ko, etc.
-    ("C:\\Windows\\Fonts\\seguiemj.ttf", 0),  // emoji (drawn monochrome)
-];
+const WIN_JA: (&str, u32) = ("C:\\Windows\\Fonts\\YuGothM.ttc", 0);
+#[cfg(windows)]
+const WIN_ZH_CN: (&str, u32) = ("C:\\Windows\\Fonts\\msyh.ttc", 0);
+#[cfg(windows)]
+const WIN_ZH_TW: (&str, u32) = ("C:\\Windows\\Fonts\\msjh.ttc", 0);
+#[cfg(windows)]
+const WIN_KO: (&str, u32) = ("C:\\Windows\\Fonts\\malgun.ttf", 0);
+
+#[cfg(windows)]
+fn cjk_order(locale: &str) -> Option<[(&'static str, u32); 4]> {
+    let lower = locale.to_ascii_lowercase();
+    let tag = lower.as_str();
+    // Traditional Chinese (Taiwan, Hong Kong, Macau) uses Microsoft JhengHei before Simplified;
+    // Simplified Chinese uses Microsoft YaHei; Japanese and Korean prefer Yu Gothic / Malgun Gothic.
+    if tag.starts_with("zh-tw") || tag.starts_with("zh-hk") || tag.starts_with("zh-mo") || tag.starts_with("zh-hant") {
+        Some([WIN_ZH_TW, WIN_ZH_CN, WIN_JA, WIN_KO])
+    } else if tag == "zh" || tag.starts_with("zh-") {
+        Some([WIN_ZH_CN, WIN_ZH_TW, WIN_JA, WIN_KO])
+    } else if tag == "ja" || tag.starts_with("ja-") {
+        Some([WIN_JA, WIN_ZH_CN, WIN_ZH_TW, WIN_KO])
+    } else if tag == "ko" || tag.starts_with("ko-") {
+        Some([WIN_KO, WIN_JA, WIN_ZH_CN, WIN_ZH_TW])
+    } else {
+        None
+    }
+}
+
+/// Windows fallback order: CJK fonts share many Han characters with distinct regional glyphs
+/// and weights (e.g. Yu Gothic Medium vs. Microsoft YaHei Regular), so the active UI language's
+/// script must come first—even when it differs from the OS locale (such as Chinese UI on
+/// Japanese Windows)—falling back to the OS locale only when the UI language is non-CJK.
+#[cfg(windows)]
+fn windows_candidates() -> Vec<(&'static str, u32)> {
+    let cjk = cjk_order(&crate::i18n::current())
+        .or_else(|| sys_locale::get_locales().find_map(|l| cjk_order(&l)))
+        .unwrap_or([WIN_JA, WIN_ZH_CN, WIN_ZH_TW, WIN_KO]);
+    let mut out = vec![
+        ("C:\\Windows\\Fonts\\segoeui.ttf", 0),  // Latin ext., Greek, Cyrillic, Arabic, Hebrew
+        ("C:\\Windows\\Fonts\\seguisym.ttf", 0), // symbols, arrows, dingbats
+    ];
+    out.extend(cjk);
+    out.extend([
+        ("C:\\Windows\\Fonts\\Nirmala.ttc", 0),  // Indic scripts
+        ("C:\\Windows\\Fonts\\Nirmala.ttf", 0),
+        ("C:\\Windows\\Fonts\\LeelawUI.ttf", 0), // Thai, Lao, Khmer
+        ("C:\\Windows\\Fonts\\ebrima.ttf", 0),   // Ethiopic, N'Ko, etc.
+        ("C:\\Windows\\Fonts\\seguiemj.ttf", 0), // emoji (drawn monochrome)
+    ]);
+    out
+}
 
 /// Semibold and bold faces of the fallbacks, so text in a script the primary font
 /// lacks comes out at the weight the line asks for, not regular inside a bold title
@@ -1495,8 +1532,12 @@ pub fn install_fonts(ctx: &egui::Context, ui_font: &str, others: &[&str]) {
     let fallback_w = |w: usize| if w > 2 { 0 } else { w };
     static SYSTEM: std::sync::OnceLock<Fallbacks> = std::sync::OnceLock::new();
     let system = SYSTEM.get_or_init(|| {
+        #[cfg(windows)]
+        let candidates = windows_candidates();
+        #[cfg(not(windows))]
+        let candidates = CANDIDATES;
         std::array::from_fn(|w| {
-            CANDIDATES
+            candidates
                 .iter()
                 .filter_map(|&(path, index)| {
                     let heavy = (w > 0).then(|| HEAVIER.iter().find(|(base, _)| *base == path)).flatten().map(|(_, v)| v[w - 1]);
@@ -1875,5 +1916,18 @@ mod tests {
         // A variable font that reaches it is as close as it gets.
         let variable = SysFamily { name: "Test".into(), faces: vec![SysFace { wght: Some((100.0, 900.0)), ..fixed(400.0) }] };
         assert_eq!(closest_face(&variable, 800.0).unwrap().wght, Some((100.0, 900.0)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_cjk_fallback_prefers_the_active_scripts_font() {
+        assert_eq!(cjk_order("zh-CN"), Some([WIN_ZH_CN, WIN_ZH_TW, WIN_JA, WIN_KO]));
+        assert_eq!(cjk_order("zh-Hans-CN"), Some([WIN_ZH_CN, WIN_ZH_TW, WIN_JA, WIN_KO]));
+        assert_eq!(cjk_order("zh-TW"), Some([WIN_ZH_TW, WIN_ZH_CN, WIN_JA, WIN_KO]));
+        assert_eq!(cjk_order("zh-HK"), Some([WIN_ZH_TW, WIN_ZH_CN, WIN_JA, WIN_KO]));
+        assert_eq!(cjk_order("zh-Hant"), Some([WIN_ZH_TW, WIN_ZH_CN, WIN_JA, WIN_KO]));
+        assert_eq!(cjk_order("ja-JP"), Some([WIN_JA, WIN_ZH_CN, WIN_ZH_TW, WIN_KO]));
+        assert_eq!(cjk_order("ko-KR"), Some([WIN_KO, WIN_JA, WIN_ZH_CN, WIN_ZH_TW]));
+        assert_eq!(cjk_order("en-US"), None);
     }
 }

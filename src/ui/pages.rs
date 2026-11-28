@@ -3883,14 +3883,17 @@ pub(super) fn play_on_menu(app: &mut App, opened: bool, popup: egui::Popup, widt
             widgets::menu_divider(ui);
             super::nowplaying::menu_caption(ui, tr!("settings-on-your-network"));
             // Speakers need the network looked over, which Windows' firewall asks about:
-            // only once it's asked for. The menu stays open for them to turn up.
-            if !app.local_network {
-                if hint_row(ui, theme::icon::AIRPLAY, tr!("settings-local-network"), tr!("settings-local-network-hint")).clicked() {
-                    app.local_network = true;
-                    app.set_local_network();
+            // only once it's asked for. The menu stays open for them to turn up. It's the
+            // setting in Settings › Playback, so it stays on: its switch turns it off here too.
+            let hint = (!app.local_network).then(|| tr!("settings-local-network-hint"));
+            if switch_row(ui, theme::icon::AIRPLAY, &mut app.local_network, tr!("settings-local-network"), hint).changed() {
+                app.set_local_network();
+                if app.local_network {
                     let now = ui.input(|i| i.time);
                     ui.data_mut(|d| d.insert_temp(since, now));
                 }
+            }
+            if !app.local_network {
                 return;
             }
             let found = destination::receivers();
@@ -3975,19 +3978,31 @@ fn speaker_row(ui: &mut Ui, r: &crate::destination::Receiver, selected: bool, st
     resp
 }
 
-/// An option with an icon, and a line under it saying what it does.
-fn hint_row(ui: &mut Ui, mark: char, label: &str, hint: &str) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
-    let resp = widgets::named(resp, label).on_hover_cursor(egui::CursorIcon::PointingHand);
-    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.12);
+/// A menu row with a switch at its end, and `hint` under its label: a click anywhere on it
+/// turns `on` over.
+fn switch_row(ui: &mut Ui, mark: char, on: &mut bool, label: &str, hint: Option<&str>) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), if hint.is_some() { 48.0 } else { 34.0 }), Sense::click());
+    let mut resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.contains_pointer(), 0.12);
     if h > 0.0 {
         ui.painter().rect_filled(rect, theme::menu_item_radius(), theme::glass(0.08 * h));
     }
+    let sw = Rect::from_min_max(pos2(rect.right() - 64.0, rect.top()), pos2(rect.right() - 12.0, rect.top() + 34.0));
+    let switched = ui.scope_builder(egui::UiBuilder::new().max_rect(sw).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| toggle(ui, on, label)).inner;
+    if resp.clicked() {
+        *on = !*on;
+        resp.mark_changed();
+    }
+    let value = *on;
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, ui.is_enabled(), value, label));
     let x = rect.left() + 38.0;
+    let width = sw.left() - 8.0 - x;
     widgets::icon_at(ui, pos2(rect.left() + 20.0, rect.top() + 17.0), mark, 15.0, theme::text_dim());
-    widgets::text_at(ui, pos2(x, rect.top() + 8.0), label, theme::regular(14.0), theme::text(), rect.right() - 12.0 - x);
-    widgets::text_at(ui, pos2(x, rect.top() + 27.0), hint, theme::regular(12.0), theme::text_faint(), rect.right() - 12.0 - x);
-    resp
+    widgets::text_at(ui, pos2(x, rect.top() + 8.0), label, theme::regular(14.0), theme::text(), width);
+    if let Some(hint) = hint {
+        widgets::text_at(ui, pos2(x, rect.top() + 27.0), hint, theme::regular(12.0), theme::text_faint(), width);
+    }
+    resp | switched
 }
 
 /// An equalizer preset's name (`eq::PRESETS`'), in the app's language.

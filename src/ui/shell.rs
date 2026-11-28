@@ -1027,6 +1027,8 @@ pub fn suggestions(app: &mut App, ctx: &egui::Context) {
     egui::Area::new(egui::Id::unique("suggestions"))
         .order(egui::Order::Foreground)
         .fixed_pos(rect.left_bottom() + vec2(0.0, gap))
+        // Never pushed up over the box to stay in the window: its height is capped below.
+        .constrain(false)
         .show(ctx, |ui| {
             ui.set_opacity(t);
             let drop_r = app.look().app.search_look.drop_radius.unwrap_or(14.0).clamp(0.0, 40.0);
@@ -1056,14 +1058,17 @@ pub fn suggestions(app: &mut App, ctx: &egui::Context) {
                     let room = (ctx.content_rect().bottom() - rect.bottom() - gap - 20.0).max(80.0);
                     // The area is only as tall as last frame (at first egui's default 400): let it grow.
                     ui.set_max_height(room);
-                    // The row picked with the arrow keys scrolls into view, once each time it moves.
+                    // The row picked with the arrow keys scrolls into view, once each time it
+                    // moves or the room for the list changes.
                     let shown = egui::Id::unique("suggest-sel-shown");
-                    let follow = app.suggest_sel.filter(|&s| ctx.data(|d| d.get_temp::<usize>(shown)) != Some(s));
-                    ctx.data_mut(|d| match app.suggest_sel {
+                    let sel = app.suggest_sel.map(|s| (s, room.round() as i32));
+                    let follow = sel.filter(|&s| ctx.data(|d| d.get_temp::<(usize, i32)>(shown)) != Some(s)).map(|(s, _)| s);
+                    ctx.data_mut(|d| match sel {
                         Some(s) => _ = d.insert_temp(shown, s),
-                        None => _ = d.remove_temp::<usize>(shown),
+                        None => _ = d.remove_temp::<(usize, i32)>(shown),
                     });
-                    egui::ScrollArea::vertical().id_salt("suggestions").max_height(room).auto_shrink([false, true]).show(ui, |ui| {
+                    // Each query's list starts at its top.
+                    egui::ScrollArea::vertical().id_salt(("suggestions", app.search_text.trim())).max_height(room).auto_shrink([false, true]).show(ui, |ui| {
                         if let Some(link) = link::parse(&app.search_text) {
                             link_row(ui, app, link);
                             return;
@@ -1148,6 +1153,13 @@ pub fn suggestions(app: &mut App, ctx: &egui::Context) {
                             app.suggest_sel = None;
                         }
                     });
+                    // A press on the list that picked nothing (its scroll bar, say) isn't one
+                    // outside the box either.
+                    let last = ctx.memory(|m| m.area_rect(egui::Id::unique("suggestions")));
+                    if app.search_focused && ui.input(|i| i.pointer.any_pressed() && i.pointer.press_origin().zip(last).is_some_and(|(p, r)| r.contains(p))) {
+                        app.forget_held = true;
+                        app.search_refocus = true;
+                    }
                 });
         });
 }

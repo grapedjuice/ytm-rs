@@ -38,6 +38,7 @@ pub fn init(data_dir: &Path) {
 }
 
 /// Whether RTSS overlay was disabled for this run.
+#[cfg(target_os = "windows")]
 pub fn active() -> bool {
     *ACTIVE_DISABLED.get_or_init(|| true)
 }

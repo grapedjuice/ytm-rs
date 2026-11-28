@@ -708,7 +708,7 @@ fn swap_songs(a: &mut Collection, videos: &[usize], songs: &[AlbumSong], english
 
 /// Titles equal but for case, punctuation ("Don't" = "Dont"), spacing and the guests: the
 /// song list leaves out "(feat. …)" ("Levitating" for "Levitating (feat. DaBaby)").
-fn same_title(a: &str, b: &str) -> bool {
+pub fn same_title(a: &str, b: &str) -> bool {
     let (a, b) = (words(without_guests(a)), words(without_guests(b)));
     !a.is_empty() && a == b
 }

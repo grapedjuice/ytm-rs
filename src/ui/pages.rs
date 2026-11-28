@@ -83,7 +83,11 @@ pub fn page(app: &mut App, ui: &mut Ui, now: f64) {
 
 /// What every song row needs from the app, gathered once per frame.
 pub(super) struct Rows {
-    current: Option<String>,
+    current_id: Option<String>,
+    playing_id: Option<String>,
+    current_track: Option<Track>,
+    playing_track: Option<Track>,
+    mv_pairs: Vec<(String, String)>,
     playing: bool,
     accent: Color32,
     now: f64,
@@ -93,12 +97,105 @@ pub(super) struct Rows {
 impl Rows {
     pub(super) fn new(app: &App, now: f64) -> Self {
         Self {
-            current: app.current_id().map(str::to_owned),
+            current_id: app.current_id().map(str::to_owned),
+            playing_id: app.playing_id().map(str::to_owned),
+            current_track: app.current().cloned(),
+            playing_track: app.playing_track().cloned(),
+            mv_pairs: app.music_videos.iter().filter_map(|(s, opt_m)| opt_m.as_ref().map(|m| (s.clone(), m.video.id.clone()))).collect(),
             playing: app.audio.status.playing.load(Ordering::Relaxed),
             accent: app.accent_color(),
             now,
             hide_explicit: app.hide_explicit,
         }
+    }
+
+    /// Whether `t` is the song currently playing or queued to play.
+    pub(super) fn is_current(&self, t: &Track) -> bool {
+        let cur = self.current_track.as_ref();
+        let playing = self.playing_track.as_ref();
+        if cur.is_none() && playing.is_none() {
+            return false;
+        }
+
+        let cur_id = self.current_id.as_deref();
+        let play_id = self.playing_id.as_deref();
+
+        // 1. Direct ID match
+        if cur_id == Some(t.id.as_str()) || play_id == Some(t.id.as_str()) {
+            return true;
+        }
+
+        // 2. stands_for match
+        if let Some(sf) = &t.stands_for {
+            if cur_id == Some(sf.as_str()) || play_id == Some(sf.as_str()) {
+                return true;
+            }
+        }
+        if let Some(c) = cur {
+            if let Some(sf) = &c.stands_for {
+                if sf == &t.id || t.stands_for.as_ref() == Some(sf) {
+                    return true;
+                }
+            }
+        }
+        if let Some(p) = playing {
+            if let Some(sf) = &p.stands_for {
+                if sf == &t.id || t.stands_for.as_ref() == Some(sf) {
+                    return true;
+                }
+            }
+        }
+
+        // 3. Known music video pairs
+        for (song_id, video_id) in &self.mv_pairs {
+            if (t.id == *song_id && (cur_id == Some(video_id.as_str()) || play_id == Some(video_id.as_str())))
+                || (t.id == *video_id && (cur_id == Some(song_id.as_str()) || play_id == Some(song_id.as_str())))
+            {
+                return true;
+            }
+        }
+
+        // 4. Metadata match: same title & artists
+        let matches_meta = |other: &Track| -> bool {
+            if !crate::ytm::same_title(&t.title, &other.title) {
+                return false;
+            }
+            let artists_agree = t.artists.is_empty()
+                || other.artists.is_empty()
+                || t.artists.iter().any(|ta| {
+                    other.artists.iter().any(|oa| {
+                        (ta.id.is_some() && ta.id == oa.id)
+                            || ta.name.eq_ignore_ascii_case(&oa.name)
+                    })
+                });
+            if !artists_agree {
+                return false;
+            }
+            if let (Some(t_alb), Some(o_alb)) = (&t.album, &other.album) {
+                if let (Some(t_id), Some(o_id)) = (&t_alb.id, &o_alb.id) {
+                    if t_id == o_id {
+                        return true;
+                    }
+                }
+            }
+            match (t.duration, other.duration) {
+                (Some(d1), Some(d2)) => (d1 as i64 - d2 as i64).abs() <= 60,
+                _ => true,
+            }
+        };
+
+        if let Some(p) = playing {
+            if matches_meta(p) {
+                return true;
+            }
+        }
+        if let Some(c) = cur {
+            if matches_meta(c) {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// `t` is listed: it isn't an explicit song while those are hidden.
@@ -111,7 +208,7 @@ impl Rows {
             number,
             show_album,
             plays_col: t.plays.is_some(),
-            current: self.current.as_deref() == Some(t.id.as_str()),
+            current: self.is_current(t),
             playing: self.playing,
             accent: self.accent,
             time: self.now,
@@ -765,11 +862,10 @@ fn search(app: &mut App, ui: &mut Ui, q: &str, now: f64) {
     let rows = Rows::new(app, now);
     // A song played from here starts its radio, as in YouTube Music, rather than the other
     // results queued after it; the one playing pauses or resumes.
-    let current = app.current_id().map(str::to_owned);
     let play = |t: &Track| {
         if pick {
             Action::TransferPick(t.clone())
-        } else if current.as_deref() == Some(t.id.as_str()) {
+        } else if rows.is_current(t) {
             Action::TogglePlay
         } else {
             Action::Radio(t.clone())
@@ -4721,5 +4817,113 @@ mod eq_preset_tests {
         for (name, _) in &crate::audio::eq::PRESETS {
             assert!(super::eq_preset_message(name).is_some(), "{name}");
         }
+    }
+}
+
+#[cfg(test)]
+mod is_current_tests {
+    use super::*;
+    use crate::model::{Link, Track};
+
+    fn make_track(id: &str, title: &str, artist: &str, album_id: Option<&str>, duration: Option<u32>) -> Track {
+        Track {
+            id: id.to_owned(),
+            title: title.to_owned(),
+            artists: vec![Link { name: artist.to_owned(), id: Some(format!("artist_{artist}")) }],
+            album: album_id.map(|aid| Link { name: "Test Album".into(), id: Some(aid.to_owned()) }),
+            duration,
+            thumbs: Vec::new(),
+            track_nr: Some(1),
+            plays: None,
+            music_video: false,
+            video: false,
+            explicit: false,
+            stands_for: None,
+        }
+    }
+
+    #[test]
+    fn direct_id_matches() {
+        let cur = make_track("track_1", "Song A", "Artist 1", Some("album_1"), Some(200));
+        let rows = Rows {
+            current_id: Some("track_1".into()),
+            playing_id: Some("track_1".into()),
+            current_track: Some(cur.clone()),
+            playing_track: Some(cur.clone()),
+            mv_pairs: Vec::new(),
+            playing: true,
+            accent: Color32::RED,
+            now: 0.0,
+            hide_explicit: false,
+        };
+        assert!(rows.is_current(&cur));
+
+        let other = make_track("track_2", "Song B", "Artist 1", Some("album_1"), Some(180));
+        assert!(!rows.is_current(&other));
+    }
+
+    #[test]
+    fn counterpart_playing_id_matches() {
+        let video = make_track("video_1", "Song A", "Artist 1", None, Some(215));
+        let song = make_track("song_1", "Song A", "Artist 1", Some("album_1"), Some(200));
+        let rows = Rows {
+            current_id: Some("video_1".into()),
+            playing_id: Some("song_1".into()),
+            current_track: Some(video),
+            playing_track: Some(song.clone()),
+            mv_pairs: Vec::new(),
+            playing: true,
+            accent: Color32::RED,
+            now: 0.0,
+            hide_explicit: false,
+        };
+        // In the album, the track is song_1; it must show as current!
+        assert!(rows.is_current(&song));
+    }
+
+    #[test]
+    fn album_track_with_different_id_matches_by_metadata() {
+        // Song was played from single release "single_1"
+        let single = make_track("single_1", "Levitating", "Dua Lipa", Some("single_album"), Some(203));
+        // Album track in album "album_future_nostalgia" has id "album_track_5"
+        let album_track = make_track("album_track_5", "Levitating", "Dua Lipa", Some("album_future_nostalgia"), Some(203));
+        let rows = Rows {
+            current_id: Some("single_1".into()),
+            playing_id: Some("single_1".into()),
+            current_track: Some(single.clone()),
+            playing_track: Some(single),
+            mv_pairs: Vec::new(),
+            playing: true,
+            accent: Color32::RED,
+            now: 0.0,
+            hide_explicit: false,
+        };
+        // Navigating to the album: Levitating must show as currently playing!
+        assert!(rows.is_current(&album_track));
+
+        // Another song on the album must not match
+        let other_album_track = make_track("album_track_2", "Don't Start Now", "Dua Lipa", Some("album_future_nostalgia"), Some(183));
+        assert!(!rows.is_current(&other_album_track));
+    }
+
+    #[test]
+    fn stands_for_matches() {
+        let mut cur = make_track("song_1", "Song A", "Artist 1", None, Some(200));
+        cur.stands_for = Some("video_target".into());
+        let mut row_track = make_track("different_id", "Song B", "Artist 2", None, Some(200));
+        row_track.stands_for = Some("song_1".into());
+
+        let rows = Rows {
+            current_id: Some("song_1".into()),
+            playing_id: Some("song_1".into()),
+            current_track: Some(cur),
+            playing_track: None,
+            mv_pairs: Vec::new(),
+            playing: true,
+            accent: Color32::RED,
+            now: 0.0,
+            hide_explicit: false,
+        };
+        assert!(rows.is_current(&row_track));
     }
 }

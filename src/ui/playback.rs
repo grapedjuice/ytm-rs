@@ -91,6 +91,108 @@ impl App {
         self.playing_track().map(|t| t.id.as_str())
     }
 
+    /// Whether `t` is the track currently playing or queued to play, matching by ID,
+    /// video/song counterparts, or metadata (title and artists).
+    pub fn is_current(&self, t: &Track) -> bool {
+        let cur = self.current();
+        let playing = self.playing_track();
+        if cur.is_none() && playing.is_none() {
+            return false;
+        }
+
+        let cur_id = self.current_id();
+        let play_id = self.playing_id();
+
+        // 1. Direct ID match
+        if cur_id == Some(t.id.as_str()) || play_id == Some(t.id.as_str()) {
+            return true;
+        }
+
+        // 2. stands_for match
+        if let Some(sf) = &t.stands_for {
+            if cur_id == Some(sf.as_str()) || play_id == Some(sf.as_str()) {
+                return true;
+            }
+        }
+        if let Some(c) = cur {
+            if let Some(sf) = &c.stands_for {
+                if sf == &t.id || t.stands_for.as_ref() == Some(sf) {
+                    return true;
+                }
+            }
+        }
+        if let Some(p) = playing {
+            if let Some(sf) = &p.stands_for {
+                if sf == &t.id || t.stands_for.as_ref() == Some(sf) {
+                    return true;
+                }
+            }
+        }
+
+        // 3. Known music video pairs
+        if let Some(id) = cur_id {
+            if let Some(Some(mv)) = self.music_videos.get(id) {
+                if mv.video.id == t.id {
+                    return true;
+                }
+            }
+        }
+        if let Some(id) = play_id {
+            if let Some(Some(mv)) = self.music_videos.get(id) {
+                if mv.video.id == t.id {
+                    return true;
+                }
+            }
+        }
+        if let Some(Some(mv)) = self.music_videos.get(&t.id) {
+            if cur_id == Some(mv.video.id.as_str()) || play_id == Some(mv.video.id.as_str()) {
+                return true;
+            }
+        }
+
+        // 4. Metadata match: same title & artists
+        let matches_meta = |other: &Track| -> bool {
+            if !crate::ytm::same_title(&t.title, &other.title) {
+                return false;
+            }
+            let artists_agree = t.artists.is_empty()
+                || other.artists.is_empty()
+                || t.artists.iter().any(|ta| {
+                    other.artists.iter().any(|oa| {
+                        (ta.id.is_some() && ta.id == oa.id)
+                            || ta.name.eq_ignore_ascii_case(&oa.name)
+                    })
+                });
+            if !artists_agree {
+                return false;
+            }
+            if let (Some(t_alb), Some(o_alb)) = (&t.album, &other.album) {
+                if let (Some(t_id), Some(o_id)) = (&t_alb.id, &o_alb.id) {
+                    if t_id == o_id {
+                        return true;
+                    }
+                }
+            }
+            match (t.duration, other.duration) {
+                (Some(d1), Some(d2)) => (d1 as i64 - d2 as i64).abs() <= 60,
+                _ => true,
+            }
+        };
+
+        if let Some(p) = playing {
+            if matches_meta(p) {
+                return true;
+            }
+        }
+        if let Some(c) = cur {
+            if matches_meta(c) {
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// The song of what's playing, for scrobbles: the song version standing in for a
     /// music video, or the song a music video stands in for.
     pub(super) fn heard_song(&self) -> Option<&Track> {

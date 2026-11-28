@@ -449,6 +449,10 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         }
         let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
         let s = theme::anim_bool(ui.ctx(), resp.id.with("s"), selected, 0.2);
+        // The icon and label go by the row, not by its highlight, which a theme's
+        // `side_margin` insets: so the icons line up with the menu button and the covers
+        // (on the rail too, centred in their highlight there) (#440).
+        let x0 = rect.left();
         let rect = rect.shrink2(vec2(item.side_margin, 0.0));
         let fill_rect = if item.hover_zoom != 1.0 { Rect::from_center_size(rect.center(), rect.size() * (1.0 + (item.hover_zoom - 1.0) * h)) } else { rect };
         let icon_fg = nav_bg(ui, look, fill_rect, h, s);
@@ -461,7 +465,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         // On the rail with labels: the icon over a small one-line label.
         let under = item.rail_labels && t > 0.5;
         let icon_y = if under { rect.center().y - 9.0 } else { rect.center().y };
-        icon_at(ui, pos2(if under { rect.center().x } else { rect.left() + icon_x + slid }, icon_y), glyph, 19.0, icon_fg);
+        icon_at(ui, pos2(if under { rect.center().x } else { x0 + icon_x + slid }, icon_y), glyph, 19.0, icon_fg);
         if under {
             let short = label.split_whitespace().next().unwrap_or(label);
             ui.painter().text(pos2(rect.center().x, rect.center().y + 14.0), Align2::CENTER_CENTER, short, theme::regular(10.5), icon_fg);
@@ -474,7 +478,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 _ => fg,
             };
             let font = if selected { theme::semibold(15.0) } else { theme::regular(15.0) };
-            ui.painter().text(pos2(rect.left() + 48.0 + slid, rect.center().y), Align2::LEFT_CENTER, label, font, theme::with_alpha(fg, a * lerp(idle..=1.0, (h + s).min(1.0))));
+            ui.painter().text(pos2(x0 + 48.0 + slid, rect.center().y), Align2::LEFT_CENTER, label, font, theme::with_alpha(fg, a * lerp(idle..=1.0, (h + s).min(1.0))));
         }
         if resp.clicked() {
             *go_to = Some(page);

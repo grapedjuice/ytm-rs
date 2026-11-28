@@ -333,6 +333,9 @@ settings-collapse-sidebar = 折叠侧边栏
 settings-collapse-sidebar-desc = 对于狭窄的窗口，仅在侧边栏中显示图标。顶部的菜单按钮具有相同的作用。
 settings-draw-with = 用{ $api }抽奖
 settings-renderer-restart-desc = 应用程序从下次开始时使用新的渲染器进行绘制。
+settings-disable-rtss = 禁用 RTSS 悬浮窗
+settings-disable-rtss-desc = 阻止 RivaTuner Statistics Server 在此窗口上显示 FPS 和硬件监控悬浮窗。
+settings-rtss-restart-desc = RTSS 悬浮窗设置将在下次启动时生效。
 
 ## Downloads
 

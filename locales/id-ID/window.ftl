@@ -2,8 +2,9 @@
 
 window-update-ready = Pembaruan siap
 
+
 ui-off = Mati
-ui-none = Nggak ada
+ui-none = Tidak ada
 ui-normal = Normal
 ui-quiet = Pelan
 ui-crossfeed-light = Ringan
@@ -15,8 +16,8 @@ ui-system = Sistem
 ui-theme = Tema
 ui-from-file = Dari file
 ui-automatic = Otomatis
-window-system-titlebar = Punya sistem
-window-app-titlebar = Punya ytm-rs
+window-system-titlebar = Bawaan sistem
+window-app-titlebar = Bawaan ytm-rs
 window-minimize = Minimalkan
 window-maximize = Maksimalkan
 window-restore = Pulihkan
@@ -24,23 +25,27 @@ window-tray-hide = Sembunyikan YT Music
 window-tray-show = Tampilkan YT Music
 window-quit = Keluar
 window-update-available = Pembaruan tersedia
-window-release-available = ytm-rs { $version } udah rilis
-window-update-to = Mulai ulang buat memperbarui ke ytm-rs { $version }
+window-release-available = ytm-rs { $version } telah dirilis
+window-update-to = Mulai ulang untuk memperbarui ke ytm-rs { $version }
 window-release-notes-github = Catatan rilis lengkap di GitHub
-window-current-version = Versi yang lagi kamu pakai.
+window-current-version = Versi yang sedang Anda gunakan.
 window-loading-notes = Memuat catatan rilis…
-window-later = Nanti aja
-window-updated = Udah diperbarui ke { $version }
+window-later = Nanti saja
+window-updated = Telah diperbarui ke { $version }
 window-what-changed = Ini yang berubah.
+# Last in the card shown after updating, for the changes it leaves out.
+window-more-changes = { $count ->
+   *[other] + { $count } perubahan lainnya
+}
 window-dismiss = Tutup
 window-all-notes = Lihat semua catatan
 window-got-it = Oke, paham
-window-installed-when-closed = Versi { $version } udah siap. Terpasang pas kamu menutup aplikasi.
-window-notes-status = Kamu pakai { $version }. { $step }
-window-package-instructions = Unduh paket barunya, terus pasang pakai sudo pacman -U.
-window-package-download = Unduh file .deb yang baru, terus buka buat memasangnya di atas versi ini.
-window-package-appimage = Unduh AppImage baru dan pakai itu sebagai ganti yang ini.
-window-package-flatpak = Salinan ini diperbarui lewat Flatpak: jalankan flatpak update, atau cek di toko aplikasi kamu.
+window-installed-when-closed = Versi { $version } sudah siap. Akan dipasang saat Anda menutup aplikasi.
+window-notes-status = Anda menggunakan versi { $version }. { $step }
+window-package-instructions = Unduh paket baru, lalu pasang menggunakan sudo pacman -U.
+window-package-download = Unduh file .deb baru, lalu buka untuk memasangnya menggantikan versi ini.
+window-package-appimage = Unduh AppImage baru dan gunakan untuk menggantikan versi ini.
+window-package-flatpak = Aplikasi ini diperbarui melalui Flatpak: jalankan flatpak update, atau periksa toko aplikasi Anda.
 window-keyboard-volume-up = Volume naik
 window-keyboard-volume-down = Volume turun
 widget-pin-playlist = Sematkan playlist
@@ -49,5 +54,5 @@ widget-show-in-folder = Tampilkan di folder
 palette-pages = Halaman
 palette-actions = Aksi
 palette-title = Command palette
-palette-search = Cari halaman, pengaturan, playlist, dan aksi
+palette-search = Cari halaman, pengaturan, playlist, dan tindakan
 palette-search-for = Cari “{ $query }”

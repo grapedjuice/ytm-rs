@@ -15,25 +15,25 @@ settings-account = Akun
 settings-general = Umum
 settings-keyboard-shortcuts = Pintasan keyboard
 settings-about = Tentang
-settings-content-and-ratings = Content & ratings
-settings-advanced = Advanced
+settings-content-and-ratings = Konten & rating
+settings-advanced = Lanjutan
 # The headings the categories are grouped under, down the side.
-settings-group-listening = Listening
-settings-group-look = Look
-settings-group-accounts = Accounts
-settings-group-app = App
+settings-group-listening = Mendengarkan
+settings-group-look = Tampilan
+settings-group-accounts = Akun
+settings-group-app = Aplikasi
 # Above the settings a search finds, where a category's name goes otherwise.
-settings-search-results = Search results
+settings-search-results = Hasil pencarian
 # Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
-settings-content = Content
-settings-colours = Colours
+settings-content = Konten
+settings-colours = Warna
 settings-no-match = Nggak ada pengaturan yang cocok dengan "{ $query }"
 settings-title = Pengaturan
 settings-search-box = Cari pengaturan
 settings-clear = Hapus
 
 # A button above the settings, there while one changed here waits for the next start.
-settings-restart-to-apply = Mulai ulang buat menerapkan
+settings-restart-to-apply = Mulai ulang untuk menerapkan
 
 ## Account
 
@@ -114,7 +114,7 @@ settings-this-computer = Komputer ini
 settings-on-your-network = Di jaringanmu
 settings-playing-on = Diputar di { $name }
 # The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
-settings-play-on-picked = Play on: { $name }
+settings-play-on-picked = Putar di: { $name }
 settings-connecting-to = Menyambung ke { $name }…
 settings-couldnt-play-on = Nggak bisa memutar di { $name }: diputar di komputer ini
 settings-windows-default = Default Windows
@@ -124,10 +124,10 @@ settings-normalization-off-desc = Lagu diputar dengan volume aslinya. Normal men
 settings-normalization-normal-desc = Semua lagu diputar di level yang sama: yang keras dikecilin, kayak di YouTube Music, dan yang pelan dinaikin sampai 6 dB.
 settings-normalization-quiet-desc = Semua lagu diputar di level yang sama tapi lebih rendah: yang keras dikecilin lebih jauh, jadi yang pelan jarang perlu dinaikin.
 # After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
-settings-normalization-song-no-figure = This song: no loudness figure from YouTube, so it plays as it is.
-settings-normalization-song-level = This song: already at the level.
-settings-normalization-song-up = This song: turned up { $db } dB.
-settings-normalization-song-down = This song: turned down { $db } dB.
+settings-normalization-song-no-figure = Lagu ini: tidak ada data kenyaringan dari YouTube, sehingga diputar apa adanya.
+settings-normalization-song-level = Lagu ini: sudah sesuai level standar.
+settings-normalization-song-up = Lagu ini: dinaikkan { $db } dB.
+settings-normalization-song-down = Lagu ini: diturunkan { $db } dB.
 settings-headphone-crossfeed = Crossfeed headphone
 settings-headphone-crossfeed-desc = Tiap telinga bisa dengar sedikit bass dari sisi lain, kayak dari speaker di depanmu, jadi lagu yang suaranya cuma di satu sisi lebih nyaman didengar lewat headphone.
 settings-mono-audio = Audio mono
@@ -145,16 +145,16 @@ settings-preset = Preset
 settings-custom = Kustom
 settings-equalizer-preset = Preset equalizer
 # The equalizer's presets.
-settings-eq-flat = Flat
-settings-eq-bass-boost = Bass boost
-settings-eq-treble-boost = Treble boost
-settings-eq-vocal = Vocal
+settings-eq-flat = Datar
+settings-eq-bass-boost = Penguat bass
+settings-eq-treble-boost = Penguat treble
+settings-eq-vocal = Vokal
 settings-eq-rock = Rock
 settings-eq-pop = Pop
-settings-eq-electronic = Electronic
-settings-eq-acoustic = Acoustic
-settings-eq-classical = Classical
-settings-eq-late-night = Late night
+settings-eq-electronic = Elektronik
+settings-eq-acoustic = Akustik
+settings-eq-classical = Klasik
+settings-eq-late-night = Larut malam
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = Equalizer pita bass mid treble frekuensi
 settings-prevent-clipping = Cegah clipping
@@ -169,9 +169,9 @@ settings-playback-speed-desc = Putar lagu lebih cepat atau lebih lambat, bisa ju
 settings-speed = Kecepatan
 settings-keep-pitch = Jaga nada
 settings-keep-pitch-desc = Lebih cepat atau lebih lambat tanpa bunyinya jadi lebih tinggi atau lebih rendah. Kalau dimatiin, nadanya ikut berubah sama kecepatan, kayak piringan hitam.
-settings-speed-pitch = Speed and pitch
-settings-transpose = Transpose
-settings-transpose-desc = Higher or lower by semitones, at the same speed. 12 is an octave.
+settings-speed-pitch = Kecepatan dan nada
+settings-transpose = Transposisi
+settings-transpose-desc = Menaikkan atau menurunkan nada per semitone dengan kecepatan tetap. 12 adalah satu oktaf.
 settings-playback-speed-jam-note = Balik normal selama kamu di jam, biar semua orang dengar lagu yang sama.
 
 
@@ -270,8 +270,8 @@ settings-background-brightness = Kecerahan latar
 settings-background-brightness-desc = Membuat sampul di belakang Sedang diputar dan halaman lebih terang atau lebih gelap. 100% adalah bawaan tema.
 settings-brighter = Lebih terang
 settings-darker = Lebih gelap
-settings-animation-speed = Animation speed
-settings-animation-speed-desc = How fast pages, menus and panels move and fade in. Lyrics keep time with the song. 100% is the theme's own.
+settings-animation-speed = Kecepatan animasi
+settings-animation-speed-desc = Seberapa cepat halaman, menu, dan panel bergerak serta memudar masuk. Lirik tetap mengikuti tempo lagu. 100% adalah bawaan tema.
 settings-flat-background = Latar datar
 settings-flat-background-desc = Satu warna di belakang halaman dan Sedang diputar, tanpa sampul dan tanpa gradien.
 settings-flat-background-colour = Warna latar
@@ -332,12 +332,12 @@ settings-preview-desc = Tampilannya di taskbar dan di tray.
 settings-app-icon-named = Ikon aplikasi: { $name }
 
 # The app icons' names. "YT Music" and "Fluent" stay as they are.
-settings-app-icon-classic = Classic
-settings-app-icon-smile-ring = Smile ring
-settings-app-icon-rust-gear = Rust gear
-settings-app-icon-waveform = Waveform
-settings-app-icon-record = Record
-settings-app-icon-lit-line = Lit line
+settings-app-icon-classic = Klasik
+settings-app-icon-smile-ring = Cincin senyum
+settings-app-icon-rust-gear = Roda gigi Rust
+settings-app-icon-waveform = Bentuk gelombang
+settings-app-icon-record = Piringan hitam
+settings-app-icon-lit-line = Garis menyala
 settings-app-icon-duet = Duet
 settings-app-icon-warp = Warp
 
@@ -348,7 +348,7 @@ settings-stream-deck-desc = Izinkan plugin Stream Deck di komputer ini buat meng
 settings-lastfm-connected = Lagu yang kamu putar di-scrobble ke profil { $name }.
 settings-lastfm-allow = Izinkan ytm-rs di halaman Last.fm yang kebuka di browsermu.
 # After "Last.fm: ", when signing in wasn't allowed on that page in time.
-settings-lastfm-not-allowed = Last.fm wasn't allowed in time
+settings-lastfm-not-allowed = izin Last.fm melewati batas waktu
 settings-lastfm-desc = Scrobble lagu yang kamu putar ke profil Last.fm kamu.
 settings-disconnect = Putuskan
 settings-connect = Sambungkan
@@ -359,8 +359,8 @@ settings-listenbrainz-token-hint = Tempel token pengguna ListenBrainz kamu
 settings-listenbrainz-token-link = Ambil tokenmu di listenbrainz.org
 
 # After "ListenBrainz: ", when Connect is pressed.
-settings-listenbrainz-token-missing = paste your user token first
-settings-listenbrainz-token-refused = ListenBrainz didn't accept that token
+settings-listenbrainz-token-missing = tempel token pengguna Anda terlebih dahulu
+settings-listenbrainz-token-refused = ListenBrainz tidak menerima token tersebut
 
 ## Language
 
@@ -389,11 +389,11 @@ settings-home = Beranda
 settings-close-to-tray-desc-linux = Simpan ikon di tray. Klik × bakal menyembunyikan jendela di sana dan musik tetap jalan. Menu di ikonnya bisa memunculkan lagi, menyembunyikan, atau keluar. Klik lagu di kontrol media sistem juga memunculkannya lagi, dan Ctrl+Q buat keluar.
 settings-close-to-tray-desc = Simpan ikon di tray. Klik × bakal menyembunyikan jendela di sana dan musik tetap jalan. Klik ikonnya buat memunculkan lagi, atau klik kanan buat menyembunyikan, menampilkan, atau keluar.
 settings-close-to-tray = Tutup ke tray
-settings-tray-click-plays = Click the tray icon to play or pause
-settings-tray-click-plays-desc = A click on the icon plays or pauses, a moment later, instead of bringing the window back. A double-click brings it back, as does a click with nothing to play.
+settings-tray-click-plays = Klik ikon tray untuk memutar atau menjeda
+settings-tray-click-plays-desc = Klik pada ikon akan memutar atau menjeda sesaat kemudian, alih-alih menampilkan jendela. Klik dua kali akan menampilkan jendela kembali, begitu pula jika tidak ada lagu yang diputar.
 # Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
-settings-tray-no-gtk = The tray icon needs GTK, which couldn't start ({ $error }).
-settings-tray-no-appindicator = The tray icon needs the AppIndicator library, which isn't installed: libayatana-appindicator3-1 on Debian and Ubuntu, libayatana-appindicator-gtk3 on Fedora (on Bazzite, Silverblue and other atomic systems: rpm-ostree install libayatana-appindicator-gtk3, then restart the computer), libayatana-appindicator on Arch.
+settings-tray-no-gtk = Ikon tray memerlukan GTK, yang tidak dapat dimulai ({ $error }).
+settings-tray-no-appindicator = Ikon tray memerlukan pustaka AppIndicator yang belum terpasang: libayatana-appindicator3-1 di Debian dan Ubuntu, libayatana-appindicator-gtk3 di Fedora (pada Bazzite, Silverblue, dan sistem atomik lainnya: rpm-ostree install libayatana-appindicator-gtk3, lalu mulai ulang komputer), libayatana-appindicator di Arch.
 settings-song-notifications-desc = Pas lagu baru mulai saat jendela diminimalkan, ada di tray, atau ketutup jendela lain, tampilkan judul, artis, dan sampulnya lewat notifikasi.
 settings-song-notifications-unavailable = Butuh aplikasi yang sudah terpasang: Windows cuma menampilkan notifikasi dari aplikasi di menu Start.
 settings-song-notifications = Notifikasi lagu
@@ -465,15 +465,15 @@ settings-test = Tes
 settings-test-working = Berhasil: YouTube Music merespons dalam { $ms } ms.
 settings-test-failed = Nggak bisa tersambung: { $error }
 # Under the proxy address, when it isn't one.
-settings-proxy-not-an-address = that isn't a proxy address, like http://127.0.0.1:8080
-settings-proxy-scheme = use an http:// or socks5:// address
-settings-proxy-no-host = the address needs a host
-settings-proxy-no-port = the address needs a port, like :8080
+settings-proxy-not-an-address = alamat tersebut bukan alamat proxy, contoh: http://127.0.0.1:8080
+settings-proxy-scheme = gunakan alamat http:// atau socks5://
+settings-proxy-no-host = alamat memerlukan host
+settings-proxy-no-port = alamat memerlukan port, contoh: :8080
 # After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
-settings-proxy-not-answering = nothing is answering at { $address }. Is the proxy running?
-settings-proxy-timed-out = the proxy didn't answer in time.
-settings-proxy-sign-in-refused = the proxy didn't accept the username or password.
-settings-proxy-not-found = couldn't find that proxy's address.
+settings-proxy-not-answering = tidak ada respons dari { $address }. Apakah proxy sedang berjalan?
+settings-proxy-timed-out = proxy tidak merespons tepat waktu.
+settings-proxy-sign-in-refused = proxy tidak menerima nama pengguna atau kata sandi.
+settings-proxy-not-found = tidak dapat menemukan alamat proxy tersebut.
 settings-proxy-restart-desc = Pengaturan proxy baru dipakai mulai dari peluncuran berikutnya.
 
 
@@ -483,7 +483,7 @@ settings-cache-cleared = Cache dibersihkan: { $size } lega
 # How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
 settings-size-mb = { $size } MB
 settings-size-gb = { $size } GB
-settings-size-under-mb = Less than 1 MB
+settings-size-under-mb = Kurang dari 1 MB
 settings-storage = Penyimpanan
 settings-clearing = Lagi dibersihin…
 settings-measuring = Lagi ngukur…
@@ -544,8 +544,8 @@ settings-check-now = Cek sekarang
 settings-another-copy = Salinan lain
 settings-another-copy-desc = ytm-rs juga terpasang lewat { $kind }. Buat menghapus salinan itu, jalankan { $cmd }
 # { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
-settings-another-copy-deb = the .deb
-settings-another-copy-arch = the Arch package
+settings-another-copy-deb = paket .deb
+settings-another-copy-arch = paket Arch
 settings-whats-new = Yang baru
 settings-whats-new-in = Yang baru di { $version }
 

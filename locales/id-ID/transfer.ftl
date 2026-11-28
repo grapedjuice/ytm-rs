@@ -24,11 +24,11 @@ transfer-listen-while-running = Kamu tetap bisa dengerin musik selama transfer j
 transfer-pick-playlist = Pilih playlist yang mau disalin.
 transfer-playlist = Playlist
 # Spotify's list of the songs you liked, as it shows among your playlists.
-transfer-liked-songs = Liked Songs
+transfer-liked-songs = Lagu yang Disukai
 # The steps' headings, shown in capitals after their number.
-transfer-step-what = What to copy
-transfer-step-where = Where should they go?
-transfer-step-new-playlist = New YouTube Music playlist
+transfer-step-what = Yang ingin disalin
+transfer-step-where = Tujuan pemindahan
+transfer-step-new-playlist = Daftar putar baru YouTube Music
 transfer-spotify-account = Akun Spotify
 transfer-signed-in-plan = Sudah masuk · bisa dipakai di akun Free dan Premium
 transfer-signed-in-as = Masuk sebagai { $name }
@@ -111,9 +111,9 @@ transfer-remaining = sisa sekitar { $time }
 transfer-readding = Menambahkan ulang
 transfer-readding-reason = Menyukai ulang: YouTube Music membuang suka ini
 # Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
-transfer-checking-liked = checking Liked Music
+transfer-checking-liked = memeriksa Lagu yang Disukai
 # In place of the progress, while likes or unlikes made in the app are still being sent.
-transfer-waiting-for-likes = waiting for the likes being changed in the app to finish
+transfer-waiting-for-likes = menunggu perubahan tanda suka di aplikasi selesai
 transfer-adding = Menambahkan
 transfer-local-file = file lokal
 transfer-on-spotify-index = Di Spotify · { $current } dari { $total }
@@ -138,27 +138,26 @@ transfer-review-kept = Dipertahankan
 ## Why a transfer stopped, or a playlist link wasn't taken.
 
 # { $error } is what went wrong, as the app or Spotify said it.
-transfer-error-save-sign-in = Couldn't save the Spotify sign-in: { $error }
-transfer-error-read-library = Couldn't read your Spotify library: { $error }
-transfer-error-progress-saved = { $error }. Your progress is saved; try again to pick up where it stopped.
-transfer-error-account-changed = Stopped: the YouTube Music account or channel changed
-transfer-error-liked-signed-out = Sign in to Spotify to copy your Liked Songs
+transfer-error-save-sign-in = Tidak dapat menyimpan data masuk Spotify: { $error }
+transfer-error-read-library = Tidak dapat membaca koleksi Spotify Anda: { $error }
+transfer-error-progress-saved = { $error }. Progres Anda tersimpan; coba lagi untuk melanjutkan dari tempat terakhir.
+transfer-error-account-changed = Dihentikan: akun atau saluran YouTube Music telah berubah
+transfer-error-liked-signed-out = Masuk ke Spotify untuk menyalin Lagu yang Disukai
 transfer-error-not-searched = { $count ->
-    [one] { $count } song couldn't be searched (no connection, or YouTube Music is limiting requests)
-   *[other] { $count } songs couldn't be searched (no connection, or YouTube Music is limiting requests)
+   *[other] { $count } lagu tidak dapat dicari (tidak ada koneksi, atau YouTube Music membatasi permintaan)
 }
-transfer-error-none-found = None of the songs were found on YouTube Music
-transfer-error-signed-out = YouTube Music signed you out; sign in again and try again
-transfer-error-create = Creating the playlist failed
-transfer-error-add = Adding songs to the playlist failed
-transfer-error-read-liked = Reading your Liked Music failed
-transfer-error-not-answering = Liking songs failed: YouTube Music stopped answering
-transfer-error-like = Liking songs failed
-transfer-error-not-spotify-link = That isn't an open.spotify.com link
-transfer-error-not-playlist-link = That isn't a playlist link
-transfer-error-not-spotify-playlist = That isn't a Spotify playlist link
-transfer-error-playlist-not-found = Spotify couldn't find that playlist. If it's private, sign in to Spotify first
-transfer-error-no-songs = That Spotify playlist has no songs
-transfer-error-library-sign-in = Spotify didn't return your library; sign in to Spotify again
-transfer-error-liked-sign-in = Spotify didn't return Liked Songs; sign in to Spotify again
-transfer-error-expired = Your Spotify sign-in has expired. Sign in to Spotify again
+transfer-error-none-found = Tidak ada lagu yang ditemukan di YouTube Music
+transfer-error-signed-out = Sesi YouTube Music Anda telah keluar; silakan masuk kembali dan coba lagi
+transfer-error-create = Gagal membuat daftar putar
+transfer-error-add = Gagal menambahkan lagu ke daftar putar
+transfer-error-read-liked = Gagal membaca Lagu yang Disukai
+transfer-error-not-answering = Gagal menyukai lagu: YouTube Music berhenti merespons
+transfer-error-like = Gagal menyukai lagu
+transfer-error-not-spotify-link = Tautan tersebut bukan tautan open.spotify.com
+transfer-error-not-playlist-link = Tautan tersebut bukan tautan daftar putar
+transfer-error-not-spotify-playlist = Tautan tersebut bukan tautan daftar putar Spotify
+transfer-error-playlist-not-found = Spotify tidak dapat menemukan daftar putar tersebut. Jika bersifat pribadi, masuk ke Spotify terlebih dahulu
+transfer-error-no-songs = Daftar putar Spotify tersebut tidak memiliki lagu
+transfer-error-library-sign-in = Spotify tidak memuat koleksi Anda; silakan masuk kembali ke Spotify
+transfer-error-liked-sign-in = Spotify tidak memuat Lagu yang Disukai; silakan masuk kembali ke Spotify
+transfer-error-expired = Sesi masuk Spotify Anda telah berakhir. Silakan masuk kembali ke Spotify

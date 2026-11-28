@@ -6,7 +6,7 @@ player-time-show-left = { $time }. Tampilkan sisa waktu
 player-time-show-length = { $time }. Tampilkan durasi lagu
 
 # For screen readers, a song marked E: { $title } is its title.
-player-song-explicit = { $title }, Explicit
+player-song-explicit = { $title }, Eksplisit
 
 # From the interface-wide catalog (#228).
 player-full-screen = Layar penuh
@@ -31,9 +31,9 @@ player-lyrics-source-name = Sumber lirik: { $name }
 player-lyrics-from-unison = Lirik dari Unison
 player-lyrics-submitted-by = dikirim oleh { $name }
 # Under the lyrics, who wrote the song.
-player-lyrics-written-by = Written by { $name }
+player-lyrics-written-by = Ditulis oleh { $name }
 # { $names } is all but the last of them, between commas.
-player-lyrics-written-by-several = Written by { $names } & { $last }
+player-lyrics-written-by-several = Ditulis oleh { $names } & { $last }
 player-timing = Waktu
 player-lyrics-later = Lirik lebih lambat (+0,1 detik)
 player-lyrics-earlier = Lirik lebih cepat (−0,1 detik)

@@ -1031,6 +1031,8 @@ pub fn suggestions(app: &mut App, ctx: &egui::Context) {
     egui::Area::new(egui::Id::unique("suggestions"))
         .order(egui::Order::Foreground)
         .fixed_pos(rect.left_bottom() + vec2(0.0, gap))
+        // Never pushed up over the box to stay in the window: its height is capped below.
+        .constrain(false)
         .show(ctx, |ui| {
             ui.set_opacity(t);
             let drop_r = app.look().app.search_look.drop_radius.unwrap_or(14.0).clamp(0.0, 40.0);
@@ -1055,85 +1057,112 @@ pub fn suggestions(app: &mut App, ctx: &egui::Context) {
                     if app.forget_held {
                         app.search_refocus = true;
                     }
-                    if let Some(link) = link::parse(&app.search_text) {
-                        link_row(ui, app, link);
-                        return;
-                    }
-                    let now = ui.input(|i| i.time);
-                    let mut picked = false;
-                    for (i, s) in app.suggestions.1.clone().into_iter().enumerate() {
-                        let term = s.text;
-                        // The removed one folds away, and the rows below slide up into its place.
-                        if let Some((_, at)) = app.forgetting.as_ref().filter(|(t, _)| s.forget.as_deref() == Some(t.as_str())) {
-                            let p = ((now - at) / theme::secs(0.18)).clamp(0.0, 1.0) as f32;
-                            let e = 1.0 - (1.0 - p).powi(3);
-                            let gap = ui.spacing().item_spacing.y;
-                            // Its spacing folds away with it, so nothing jumps at the end.
-                            ui.spacing_mut().item_spacing.y = 0.0;
-                            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), (40.0 + gap) * (1.0 - e)), Sense::hover());
-                            ui.spacing_mut().item_spacing.y = gap;
-                            ui.scope(|ui| {
-                                ui.set_clip_rect(r.intersect(ui.clip_rect()));
-                                ui.set_opacity(1.0 - e);
-                                let cy = r.top() + 20.0;
-                                icon_at(ui, pos2(r.left() + 20.0, cy), icon::HISTORY, 15.0, theme::text_dim());
-                                suggestion_text(ui, pos2(r.left() + 42.0, cy - 9.0), &term, &app.suggestions.0, r.width() - 88.0);
-                            });
-                            ui.ctx().request_repaint();
-                            continue;
+                    // No taller than the room under the box: kept inside the window, a taller
+                    // list would be pushed up over the box, hiding what's typed. The rest scrolls.
+                    let room = (ctx.content_rect().bottom() - rect.bottom() - gap - 20.0).max(80.0);
+                    // The area is only as tall as last frame (at first egui's default 400): let it grow.
+                    ui.set_max_height(room);
+                    // The row picked with the arrow keys scrolls into view, once each time it
+                    // moves or the room for the list changes.
+                    let shown = egui::Id::unique("suggest-sel-shown");
+                    let sel = app.suggest_sel.map(|s| (s, room.round() as i32));
+                    let follow = sel.filter(|&s| ctx.data(|d| d.get_temp::<(usize, i32)>(shown)) != Some(s)).map(|(s, _)| s);
+                    ctx.data_mut(|d| match sel {
+                        Some(s) => _ = d.insert_temp(shown, s),
+                        None => _ = d.remove_temp::<(usize, i32)>(shown),
+                    });
+                    // Each query's list starts at its top.
+                    egui::ScrollArea::vertical().id_salt(("suggestions", app.search_text.trim())).max_height(room).auto_shrink([false, true]).show(ui, |ui| {
+                        if let Some(link) = link::parse(&app.search_text) {
+                            link_row(ui, app, link);
+                            return;
                         }
-                        let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
-                        let resp = named(resp, &term).on_hover_cursor(egui::CursorIcon::PointingHand);
-                        let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.contains_pointer() || app.suggest_sel == Some(i), 0.1);
-                        ui.painter().rect_filled(r, sl.item_radius, theme::glass(0.08 * h));
-                        let glyph = if s.forget.is_some() { icon::HISTORY } else { icon::SEARCH };
-                        icon_at(ui, pos2(r.left() + 20.0, r.center().y), glyph, 15.0, theme::text_dim());
-                        let room = if s.forget.is_some() { 88.0 } else { 52.0 };
-                        suggestion_text(ui, pos2(r.left() + 42.0, r.center().y - 9.0), &term, &app.suggestions.0, r.width() - room);
-                        // A past search can be removed from the account's history.
-                        if let Some(token) = s.forget {
-                            let x = Rect::from_center_size(pos2(r.right() - 22.0, r.center().y), Vec2::splat(30.0));
-                            let xr = named(ui.interact(x, resp.id.with("forget"), Sense::click()), crate::tr!("nav-remove-recent-search"))
-                                .on_hover_text(crate::tr!("ui-remove"))
-                                .on_hover_cursor(egui::CursorIcon::PointingHand);
-                            let xh = theme::anim_bool(ui.ctx(), xr.id.with("h"), xr.hovered(), 0.1);
-                            if xh > 0.0 {
-                                ui.painter().circle_filled(x.center(), 15.0, theme::glass(0.12 * xh));
+                        let now = ui.input(|i| i.time);
+                        let mut picked = false;
+                        for (i, s) in app.suggestions.1.clone().into_iter().enumerate() {
+                            let term = s.text;
+                            // The removed one folds away, and the rows below slide up into its place.
+                            if let Some((_, at)) = app.forgetting.as_ref().filter(|(t, _)| s.forget.as_deref() == Some(t.as_str())) {
+                                let p = ((now - at) / theme::secs(0.18)).clamp(0.0, 1.0) as f32;
+                                let e = 1.0 - (1.0 - p).powi(3);
+                                let gap = ui.spacing().item_spacing.y;
+                                // Its spacing folds away with it, so nothing jumps at the end.
+                                ui.spacing_mut().item_spacing.y = 0.0;
+                                let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), (40.0 + gap) * (1.0 - e)), Sense::hover());
+                                ui.spacing_mut().item_spacing.y = gap;
+                                ui.scope(|ui| {
+                                    ui.set_clip_rect(r.intersect(ui.clip_rect()));
+                                    ui.set_opacity(1.0 - e);
+                                    let cy = r.top() + 20.0;
+                                    icon_at(ui, pos2(r.left() + 20.0, cy), icon::HISTORY, 15.0, theme::text_dim());
+                                    suggestion_text(ui, pos2(r.left() + 42.0, cy - 9.0), &term, &app.suggestions.0, r.width() - 88.0);
+                                });
+                                ui.ctx().request_repaint();
+                                continue;
                             }
-                            icon_at(ui, x.center(), icon::TRASH_2, 15.0, theme::lerp_color(theme::text_dim(), theme::text(), xh));
-                            // On the press, and one per press: the next row's button slides
-                            // under the held pointer.
-                            if (xr.is_pointer_button_down_on() || xr.clicked()) && !app.forget_held {
-                                app.forget_held = true;
-                                // One still folding away is done.
-                                if let Some((t, _)) = app.forgetting.take() {
-                                    app.suggestions.1.retain(|s| s.forget.as_deref() != Some(t.as_str()));
+                            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
+                            let resp = named(resp, &term).on_hover_cursor(egui::CursorIcon::PointingHand);
+                            let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.contains_pointer() || app.suggest_sel == Some(i), 0.1);
+                            if follow == Some(i) {
+                                resp.scroll_to_me(None);
+                            }
+                            ui.painter().rect_filled(r, sl.item_radius, theme::glass(0.08 * h));
+                            let glyph = if s.forget.is_some() { icon::HISTORY } else { icon::SEARCH };
+                            icon_at(ui, pos2(r.left() + 20.0, r.center().y), glyph, 15.0, theme::text_dim());
+                            let room = if s.forget.is_some() { 88.0 } else { 52.0 };
+                            suggestion_text(ui, pos2(r.left() + 42.0, r.center().y - 9.0), &term, &app.suggestions.0, r.width() - room);
+                            // A past search can be removed from the account's history.
+                            if let Some(token) = s.forget {
+                                let x = Rect::from_center_size(pos2(r.right() - 22.0, r.center().y), Vec2::splat(30.0));
+                                let xr = named(ui.interact(x, resp.id.with("forget"), Sense::click()), crate::tr!("nav-remove-recent-search"))
+                                    .on_hover_text(crate::tr!("ui-remove"))
+                                    .on_hover_cursor(egui::CursorIcon::PointingHand);
+                                let xh = theme::anim_bool(ui.ctx(), xr.id.with("h"), xr.hovered(), 0.1);
+                                if xh > 0.0 {
+                                    ui.painter().circle_filled(x.center(), 15.0, theme::glass(0.12 * xh));
                                 }
-                                app.forgetting = Some((token.clone(), now));
-                                app.suggest_sel = None;
-                                app.suggest_round += 1;
-                                app.forgets_pending += 1;
-                                app.search_refocus = true;
-                                app.backend.request(crate::backend::Req::ForgetSearch(token));
+                                icon_at(ui, x.center(), icon::TRASH_2, 15.0, theme::lerp_color(theme::text_dim(), theme::text(), xh));
+                                // On the press, and one per press: the next row's button slides
+                                // under the held pointer.
+                                if (xr.is_pointer_button_down_on() || xr.clicked()) && !app.forget_held {
+                                    app.forget_held = true;
+                                    // One still folding away is done.
+                                    if let Some((t, _)) = app.forgetting.take() {
+                                        app.suggestions.1.retain(|s| s.forget.as_deref() != Some(t.as_str()));
+                                    }
+                                    app.forgetting = Some((token.clone(), now));
+                                    app.suggest_sel = None;
+                                    app.suggest_round += 1;
+                                    app.forgets_pending += 1;
+                                    app.search_refocus = true;
+                                    app.backend.request(crate::backend::Req::ForgetSearch(token));
+                                }
+                            }
+                            // Pointer-down, not click: the text box loses focus (hiding this) first.
+                            if resp.is_pointer_button_down_on() || resp.clicked() {
+                                app.suggestions = Default::default();
+                                app.search_focused = false;
+                                app.actions.push(Action::Go(Page::Search(term)));
+                                picked = true;
+                                break;
                             }
                         }
-                        // Pointer-down, not click: the text box loses focus (hiding this) first.
-                        if resp.is_pointer_button_down_on() || resp.clicked() {
-                            app.suggestions = Default::default();
-                            app.search_focused = false;
-                            app.actions.push(Action::Go(Page::Search(term)));
-                            picked = true;
-                            break;
+                        if !picked {
+                            suggested_hits(ui, app, follow);
                         }
-                    }
-                    if !picked {
-                        suggested_hits(ui, app);
-                    }
-                    if let Some((t, _)) = app.forgetting.take_if(|(_, at)| now - *at >= theme::secs(0.18)) {
-                        app.suggestions.1.retain(|s| s.forget.as_deref() != Some(t.as_str()));
-                        // The rows below moved up: a pick made while it folded away would
-                        // now be another one, maybe a song where it was a search.
-                        app.suggest_sel = None;
+                        if let Some((t, _)) = app.forgetting.take_if(|(_, at)| now - *at >= theme::secs(0.18)) {
+                            app.suggestions.1.retain(|s| s.forget.as_deref() != Some(t.as_str()));
+                            // The rows below moved up: a pick made while it folded away would
+                            // now be another one, maybe a song where it was a search.
+                            app.suggest_sel = None;
+                        }
+                    });
+                    // A press on the list that picked nothing (its scroll bar, say) isn't one
+                    // outside the box either.
+                    let last = ctx.memory(|m| m.area_rect(egui::Id::unique("suggestions")));
+                    if app.search_focused && ui.input(|i| i.pointer.any_pressed() && i.pointer.press_origin().zip(last).is_some_and(|(p, r)| r.contains(p))) {
+                        app.forget_held = true;
+                        app.search_refocus = true;
                     }
                 });
         });
@@ -1202,7 +1231,7 @@ fn hit_row(ui: &mut Ui, item_radius: f32, c: &Card, line: &str, lit: bool) -> eg
 
 /// Under the search terms, the songs, videos, artists and albums the typed words most
 /// likely mean, with their art: a song or video plays, an artist or album opens.
-fn suggested_hits(ui: &mut Ui, app: &mut App) {
+fn suggested_hits(ui: &mut Ui, app: &mut App, follow: Option<usize>) {
     let hits = app.suggestions.2.clone();
     if hits.is_empty() {
         return;
@@ -1216,6 +1245,9 @@ fn suggested_hits(ui: &mut Ui, app: &mut App) {
     }
     for (j, c) in hits.into_iter().enumerate() {
         let resp = hit_row(ui, item_radius, &c, &hit_line(&c), app.suggest_sel == Some(first + j));
+        if follow == Some(first + j) {
+            resp.scroll_to_me(None);
+        }
         // Pointer-down, as for the terms: the text box loses focus (hiding this) first.
         if resp.is_pointer_button_down_on() || resp.clicked() {
             app.suggestions = Default::default();

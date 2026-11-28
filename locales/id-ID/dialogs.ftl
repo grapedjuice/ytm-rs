@@ -8,9 +8,9 @@ dialog-delete-playlist = Hapus playlist
 dialog-delete-upload-title = Hapus unggahan?
 dialog-delete-upload = Hapus unggahan
 dialog-name = Nama
-dialog-my-playlist = Playlist-ku
-dialog-search-playlists = Cari daftar putar
-dialog-private-desc = Pribadi · cuma kamu yang bisa lihat
+dialog-my-playlist = Playlist Saya
+dialog-search-playlists = Cari playlist
+dialog-private-desc = Pribadi · hanya Anda yang dapat melihat
 dialog-playlist-name = Nama playlist
 dialog-description = Deskripsi
 dialog-optional-description = Tambahkan deskripsi (opsional)
@@ -18,37 +18,36 @@ dialog-visibility = Visibilitas
 dialog-private = Pribadi
 dialog-unlisted = Tidak publik
 dialog-public = Publik
-dialog-visibility-prompt = Belum diubah. Pilih salah satu buat mengubah siapa yang bisa melihatnya.
+dialog-visibility-prompt = Belum diubah. Pilih salah satu untuk mengubah siapa yang dapat melihatnya.
 dialog-turn-off = Matikan
 dialog-stop-collaboration = Matikan kolaborasi?
-dialog-stop-collaboration-desc = Kolaborator akan dikeluarkan dari playlist. Lagu yang udah mereka tambahkan tetap ada.
-dialog-collaboration-allow = Kolaborator bisa menambahkan lagu.
-dialog-collaboration-allow-private = Kolaborator bisa menambahkan lagu. Playlist pribadi ini jadi berstatus tidak publik.
+dialog-stop-collaboration-desc = Kolaborator akan dikeluarkan dari playlist. Lagu yang sudah mereka tambahkan tetap ada.
+dialog-collaboration-allow = Kolaborator dapat menambahkan lagu.
+dialog-collaboration-allow-private = Kolaborator dapat menambahkan lagu. Playlist pribadi ini akan berstatus tidak publik.
 dialog-new-collaborators = Izinkan kolaborator baru
-dialog-new-collaborators-desc = Matikan biar nggak ada orang baru yang bisa gabung lewat link.
-dialog-copy-invite = Salin link undangan
-dialog-invite-copied = Link undangan disalin. Siapa pun yang membukanya bisa menambahkan lagu.
-dialog-invite-instructions = Kirim link-nya ke orang yang mau kamu ajak. Mereka gabung lewat YouTube Music.
-dialog-invites-off = Kolaborator baru nggak bisa gabung. Nyalakan Izinkan kolaborator baru buat dapat link undangan.
+dialog-new-collaborators-desc = Nonaktifkan agar tidak ada kolaborator baru yang dapat bergabung melalui tautan.
+dialog-copy-invite = Salin tautan undangan
+dialog-invite-copied = Tautan undangan disalin. Siapa pun yang membukanya dapat menambahkan lagu.
+dialog-invite-instructions = Kirim tautan kepada orang yang ingin Anda ajak. Mereka dapat bergabung melalui YouTube Music.
+dialog-invites-off = Kolaborator baru tidak dapat bergabung. Aktifkan Izinkan kolaborator baru untuk mendapatkan tautan undangan.
 dialog-collaborators = Kolaborator
-dialog-no-collaborators = Belum ada yang gabung.
-dialog-delete-playlist-body = “{ $title }” akan dihapus dari koleksi YouTube Music kamu. Ini nggak bisa dibatalkan.
-dialog-delete-upload-body = “{ $title }” akan dihapus dari unggahan YouTube Music kamu. Ini nggak bisa dibatalkan.
+dialog-no-collaborators = Belum ada yang bergabung.
+dialog-delete-playlist-body = “{ $title }” akan dihapus dari koleksi YouTube Music Anda. Tindakan ini tidak dapat dibatalkan.
+dialog-delete-upload-body = “{ $title }” akan dihapus dari unggahan YouTube Music Anda. Tindakan ini tidak dapat dibatalkan.
 dialog-download-count = Unduh ({ $count })
 dialog-edit-playlist = Edit playlist
 dialog-picture = Gambar
 dialog-change-picture = Ubah gambar
 dialog-remove-picture = Hapus
-dialog-download-body = Lagu yang belum diunduh: { $count }. Unduhan jalan di latar belakang dan dimulai dari lagu yang lagi diputar.
-dialog-download-collection-body = Lagu yang belum diunduh dari “{ $title }”: { $count }. Unduhan jalan di latar belakang dan dimulai dari lagu yang lagi diputar.
+dialog-download-body = Lagu yang belum diunduh: { $count }. Pengunduhan berjalan di latar belakang, dimulai dari lagu yang sedang diputar.
+dialog-download-collection-body = Lagu yang belum diunduh dari “{ $title }”: { $count }. Pengunduhan berjalan di latar belakang, dimulai dari lagu yang sedang diputar.
 dialog-add-duplicates-title = Sudah ada di playlist
-dialog-add-duplicates-some = Sebagian lagu ini sudah ada di "{ $title }". Tambahkan saja?
-dialog-add-duplicates-body = 
-    { $count ->
-       *[other] { $more ->
-            [0] { $count } lagu ini sudah ada di "{ $title }": { $songs }. Tambahkan saja?
-           *[other] { $count } lagu ini sudah ada di "{ $title }": { $songs } dan { $more } lagi. Tambahkan saja?
-        }
+dialog-add-duplicates-some = Sebagian lagu ini sudah ada di “{ $title }”. Tetap tambahkan?
+dialog-add-duplicates-body = { $count ->
+   *[other] { $more ->
+        [0] { $count } lagu ini sudah ada di “{ $title }”: { $songs }. Tetap tambahkan?
+       *[other] { $count } lagu ini sudah ada di “{ $title }”: { $songs } dan { $more } lagi. Tetap tambahkan?
     }
-dialog-add-anyway = Tambahkan saja
+}
+dialog-add-anyway = Tetap tambahkan
 dialog-skip-duplicates = Lewati duplikat

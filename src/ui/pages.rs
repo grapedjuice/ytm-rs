@@ -20,7 +20,7 @@ const CARD: f32 = 180.0;
 
 pub fn page(app: &mut App, ui: &mut Ui, now: f64) {
     arrive::page(ui.ctx(), app.page_changed);
-    let t = theme::ease_out(((now - app.page_changed) / theme::secs(0.32)) as f32);
+    let t = if theme::anim_off() { 1.0 } else { theme::ease_out(((now - app.page_changed) / theme::secs(0.32)) as f32) };
     let rise = app.look().app.page_rise_px * (1.0 - t);
     if rise > 0.0 {
         ui.add_space(rise);
@@ -1307,7 +1307,7 @@ fn artist(app: &mut App, ui: &mut Ui, id: &str, now: f64) {
     let base = hero.left_bottom() + vec2(28.0, -30.0);
     ui.painter().text(base - vec2(0.0, 44.0), Align2::LEFT_BOTTOM, &a.name, theme::bold(58.0), Color32::WHITE);
     if let Some(s) = a.subscribers {
-        ui.painter().text(base - vec2(0.0, 18.0), Align2::LEFT_BOTTOM, crate::tr!("status-subscribers", count = compact(s)), theme::regular(14.0), theme::text_dim());
+        ui.painter().text(base - vec2(0.0, 18.0), Align2::LEFT_BOTTOM, crate::tr!("status-subscribers", count = s, shown = crate::i18n::decimal(&compact(s))), theme::regular(14.0), theme::text_dim());
     }
     ui.add_space(18.0);
     ui.horizontal(|ui| {
@@ -1918,6 +1918,10 @@ fn restart_reasons(app: &App) -> Vec<&'static str> {
     if app.wgpu_renderer != (renderer::active() == Renderer::Wgpu) {
         why.push(tr!("settings-renderer-restart-desc"));
     }
+    #[cfg(windows)]
+    if app.disable_rtss != crate::rtss::active() {
+        why.push(tr!("settings-rtss-restart-desc"));
+    }
     // The window type follows from the next start (Close to tray's covers it on).
     if crate::wayland_session() && app.mini_x11 == crate::wayland_window() && !app.close_to_tray {
         why.push(tr!("settings-keep-on-top-wayland-restart-desc"));
@@ -2057,7 +2061,7 @@ fn settings_tab(app: &mut App, ui: &mut Ui, tab: SettingsTab) {
         }
         SettingsTab::About => {
             settings_updates(app, ui);
-            settings_about(ui);
+            settings_about(app, ui);
             if !filtering() {
                 settings_sign_off(app, ui);
             }
@@ -2291,6 +2295,10 @@ fn settings_playback(app: &mut App, ui: &mut Ui) {
             if toggle(ui, &mut app.skip_silence, tr!("settings-skip-silence")).changed() {
                 app.audio.set_skip_silence(app.skip_silence);
             }
+        });
+        divider(ui);
+        setting_row(ui, tr!("settings-keep-screen-on"), Some(tr!("settings-keep-screen-on-desc")), |ui| {
+            toggle(ui, &mut app.keep_screen_on, tr!("settings-keep-screen-on"));
         });
     });
 }
@@ -2712,6 +2720,22 @@ fn percent_stepper(ui: &mut Ui, v: &mut f32, (min, max, step): (f32, f32, f32), 
     }
 }
 
+/// Animation speed: [`percent_stepper`]'s steps, and one more past the fastest, Off (#446).
+fn anim_speed_stepper(ui: &mut Ui, v: &mut f32) {
+    let (min, max, step) = theme::ANIM_SPEED_RANGE;
+    let snap = |x: f32| (x * 100.0).round() / 100.0;
+    if ui.add_enabled(*v < theme::ANIM_OFF, egui::Button::new("+").min_size(vec2(28.0, 26.0))).on_hover_text(tr!("settings-faster")).clicked() {
+        *v = if *v >= max - 0.001 { theme::ANIM_OFF } else { snap(*v + step).min(max) };
+    }
+    // After the click: + at 400% shows Off at once.
+    let off = *v >= theme::ANIM_OFF;
+    let shown = if off { tr!("ui-off").to_owned() } else { format!("{:.0}%", *v * 100.0) };
+    ui.label(egui::RichText::new(shown).font(theme::semibold(13.0)));
+    if ui.add_enabled(*v > min + 0.001, egui::Button::new("−").min_size(vec2(28.0, 26.0))).on_hover_text(tr!("settings-slower")).clicked() {
+        *v = if off { max } else { snap(*v - step).max(min) };
+    }
+}
+
 /// Settings › Themes: light or dark, the accent colour, and the themes to pick from.
 fn settings_themes(app: &mut App, ui: &mut Ui) {
     let was_theme = app.theme_id.clone();
@@ -2894,7 +2918,11 @@ fn settings_appearance(app: &mut App, ui: &mut Ui) {
         settings_zoom(ui);
         divider(ui);
         setting_row(ui, tr!("settings-animation-speed"), Some(tr!("settings-animation-speed-desc")), |ui| {
-            percent_stepper(ui, &mut app.anim_speed, theme::ANIM_SPEED_RANGE, tr!("settings-faster"), tr!("settings-slower"));
+            anim_speed_stepper(ui, &mut app.anim_speed);
+        });
+        divider(ui);
+        setting_row(ui, tr!("settings-smooth-scrolling"), Some(tr!("settings-smooth-scrolling-desc")), |ui| {
+            toggle(ui, &mut app.smooth_scroll, tr!("settings-smooth-scrolling"));
         });
     });
 }
@@ -3118,6 +3146,18 @@ fn settings_advanced(app: &mut App, ui: &mut Ui) {
                 }
             }
         });
+        if cfg!(windows) {
+            divider(ui);
+            let title = tr!("settings-disable-rtss");
+            let desc = tr!("settings-disable-rtss-desc");
+            setting_row(ui, title, Some(desc), |ui| {
+                if toggle(ui, &mut app.disable_rtss, title).changed()
+                    && let Err(e) = crate::rtss::save(app.backend.data_dir(), app.disable_rtss)
+                {
+                    log::warn!("rtss: couldn't save the setting: {e}");
+                }
+            });
+        }
     });
 }
 
@@ -3459,9 +3499,47 @@ fn settings_shortcuts(ui: &mut Ui) {
 }
 
 /// Settings › About.
-fn settings_about(ui: &mut Ui) {
+fn settings_about(app: &mut App, ui: &mut Ui) {
     settings_section(ui, tr!("settings-about"), None, None, |ui| {
-        setting_row(ui, &format!("ytm-rs {}", crate::update::build_version()), Some(tr!("settings-about-tagline")), |_| {});
+        // Text can't be selected in the app: the version for a bug report is copied
+        // with the button, or a double-click on the row.
+        // The bare version, as the bug report's "ytm-rs version" field wants it.
+        let version = crate::update::build_version();
+        // The row only senses hover, so it's no extra Tab stop: the pill is the one for
+        // the keyboard and screen readers.
+        let (mut copy, mut on_pill) = (false, false);
+        let row = setting_row_response(ui, &format!("ytm-rs {version}"), Some(tr!("settings-about-tagline")), 210.0, |ui| {
+            let p = pill(ui, tr!("settings-copy"), Some(icon::COPY), false);
+            (copy, on_pill) = (p.clicked(), p.contains_pointer());
+        });
+        let twice = row.filter(|r| r.contains_pointer() && !on_pill).is_some_and(|r| {
+            r.on_hover_text(tr!("settings-copy-version-tip"));
+            let (click, double, now) = ui.input(|i| {
+                let p = &i.pointer;
+                (p.primary_clicked(), p.button_double_clicked(egui::PointerButton::Primary), i.time)
+            });
+            let delay = ui.ctx().options(|o| o.input_options.max_double_click_delay);
+            // Both clicks have to land on the row: a first click that closed a popup over it doesn't count.
+            let id = egui::Id::unique("about-version-click");
+            let last = ui.data_mut(|d| {
+                let last = d.get_temp::<f64>(id);
+                if click {
+                    d.insert_temp(id, now);
+                }
+                last
+            });
+            click && double && last.is_some_and(|t| now - t <= delay)
+        });
+        if copy || twice {
+            ui.ctx().copy_text(version);
+            app.toast(tr!("settings-version-copied"));
+        }
+        divider(ui);
+        setting_row(ui, tr!("settings-log-files"), Some(tr!("settings-log-files-desc")), |ui| {
+            if pill(ui, tr!("settings-open"), Some(icon::FOLDER_OPEN), false).clicked() {
+                crate::downloads::open_dir(&crate::data_dir());
+            }
+        });
         for (title, desc) in [
             (tr!("settings-lyrics"), tr!("settings-about-lyrics-sources")),
             (tr!("settings-themes"), tr!("settings-about-themes-credit")),
@@ -4322,8 +4400,13 @@ pub(super) fn setting_row(ui: &mut Ui, title: &str, desc: Option<&str>, control:
 
 /// A settings row whose controls take `control_w` rather than one control's 210.
 pub(super) fn setting_row_wide(ui: &mut Ui, title: &str, desc: Option<&str>, control_w: f32, control: impl FnOnce(&mut Ui)) {
+    setting_row_response(ui, title, desc, control_w, control);
+}
+
+/// A settings row, and its hover response; `None` when a search leaves it out.
+fn setting_row_response(ui: &mut Ui, title: &str, desc: Option<&str>, control_w: f32, control: impl FnOnce(&mut Ui)) -> Option<egui::Response> {
     if !filter_show(ui, &format!("{title} {}", desc.unwrap_or_default())) {
-        return;
+        return None;
     }
     let w = ui.available_width();
     // A control wider than its room (a long button label, in some languages) takes
@@ -4337,7 +4420,7 @@ pub(super) fn setting_row_wide(ui: &mut Ui, title: &str, desc: Option<&str>, con
     let desc_g = desc.map(|d| widgets::galley_wrapped_based(ui, d, theme::regular(12.5), theme::text_dim(), text_w, 3 * (1 + d.matches('\n').count()), base));
     let text_h = title_g.size().y + desc_g.as_ref().map_or(0.0, |g| g.size().y + 3.0);
     let h = (text_h + 26.0).max(58.0);
-    let (rect, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
+    let (rect, row) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
     let fade = if ui.is_enabled() { 1.0 } else { 0.45 };
     let top = rect.center().y - text_h / 2.0;
     // In a right-to-left language, the text starts at the right of its column.
@@ -4356,6 +4439,7 @@ pub(super) fn setting_row_wide(ui: &mut Ui, title: &str, desc: Option<&str>, con
         ui.data_mut(|d| d.insert_temp(drawn, used));
         ui.ctx().request_repaint();
     }
+    Some(row)
 }
 
 pub(super) fn divider(ui: &mut Ui) {

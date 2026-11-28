@@ -47,16 +47,16 @@ status-episodes = { $count ->
    *[other] { $count } odcinka
 }
 status-plays = { $count ->
-    [one] { $count } odtworzenie
-    [few] { $count } odtworzenia
-    [many] { $count } odtworzeń
-   *[other] { $count } odtworzenia
+    [one] { $shown } odtworzenie
+    [few] { $shown } odtworzenia
+    [many] { $shown } odtworzeń
+   *[other] { $shown } odtworzenia
 }
 status-subscribers = { $count ->
-    [one] { $count } subskrybent
-    [few] { $count } subskrybentów
-    [many] { $count } subskrybentów
-   *[other] { $count } subskrybenta
+    [one] { $shown } subskrybent
+    [few] { $shown } subskrybentów
+    [many] { $shown } subskrybentów
+   *[other] { $shown } subskrybenta
 }
 status-download-quoted-title = „{ $title }”
 discord-view-artist = Przejdź do wykonawcy

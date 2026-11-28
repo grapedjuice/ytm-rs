@@ -125,15 +125,46 @@ mod file {
     pub fn set(key: &str, dir: &Path, secret: &[u8]) -> anyhow::Result<()> {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
-        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path(key, dir))?;
-        Ok(f.write_all(secret)?)
+        // Beside it and renamed over it: the sign-in is saved again with every cookie
+        // Google sends, and a crash in the middle of writing it in place left an empty
+        // or half file, which loads as signed out.
+        let path = path(key, dir);
+        let tmp = path.with_extension("secret.tmp");
+        let _one = one_at_a_time();
+        let saved = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)
+            .and_then(|mut f| {
+                f.write_all(secret)?;
+                f.sync_all()
+            })
+            .and_then(|()| std::fs::rename(&tmp, &path));
+        if saved.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        Ok(saved?)
     }
 
     pub fn delete(key: &str, dir: &Path) -> anyhow::Result<()> {
-        match std::fs::remove_file(path(key, dir)) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+        let _one = one_at_a_time();
+        // And one a crash left half saved beside it. Both go, whichever fails.
+        let gone = |p: PathBuf| match std::fs::remove_file(p) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
-        }
+        };
+        let file = gone(path(key, dir));
+        let half = gone(path(key, dir).with_extension("secret.tmp"));
+        Ok(file.and(half)?)
+    }
+
+    /// One save or delete at a time: two saves would write the same file beside it,
+    /// and a delete could take it from under a save.
+    fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        ONE.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -289,6 +320,29 @@ mod unix_tests {
         eprintln!("stored in {}", if in_keyring { "the credential store" } else { "a file" });
         super::delete("test", &dir);
         assert!(super::get("test", &dir).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Saving over a secret in a file replaces the file whole: what's there stays as it
+    /// was until the new one is complete, so a crash mid-save can't leave half of it.
+    #[test]
+    fn a_file_secret_is_replaced_whole() {
+        use std::io::Read;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("ytm-rs-vault-file-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        super::file::set("test", &dir, b"old session").unwrap();
+        let file = std::fs::read_dir(&dir).unwrap().next().unwrap().unwrap().path();
+        // Open as a load would be when the save comes in.
+        let mut before = std::fs::File::open(&file).unwrap();
+        super::file::set("test", &dir, b"new session, longer").unwrap();
+        let mut seen = String::new();
+        before.read_to_string(&mut seen).unwrap();
+        assert_eq!(seen, "old session", "the file was rewritten in place");
+        assert_eq!(super::file::get("test", &dir).unwrap().unwrap(), b"new session, longer");
+        let files: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
+        assert_eq!(files, std::slice::from_ref(&file), "only the secret's file is left");
+        assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

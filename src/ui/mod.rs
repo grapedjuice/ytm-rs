@@ -610,6 +610,8 @@ pub struct App {
     pause_fade: bool,
     /// Songs end where they go silent for good.
     skip_silence: bool,
+    /// Music keeps the screen on and unlocked too, not only a video.
+    keep_screen_on: bool,
     high_quality: bool,
     backup_stream: bool,
     /// Settings › Playback › Find speakers on your network, which network speakers need.
@@ -714,6 +716,8 @@ pub struct App {
     visualizer: bool,
     /// Bright album art is darkened behind now playing and the pages, for the text over it.
     dim_bright: bool,
+    /// Whether a mouse wheel's notches glide (#447). Touchpads scroll as before.
+    smooth_scroll: bool,
     /// The progress line's knob shown all the time, not only on hover.
     seek_knob_always: bool,
     /// The time left in place of the song's length beside a running time (click the time).
@@ -875,8 +879,10 @@ pub struct App {
     /// Linux, Wayland session: an X11 window from the next start, so the mini player can
     /// stay above other windows.
     mini_x11: bool,
-    /// Settings › Window: draw with wgpu (Vulkan) from the next start (renderer.rs).
+    /// Settings › Advanced: draw with wgpu (Vulkan) from the next start (renderer.rs).
     pub(super) wgpu_renderer: bool,
+    /// Settings › Advanced: opt out of RivaTuner Statistics Server overlay on Windows (rtss.rs).
+    pub(super) disable_rtss: bool,
     /// Settings › App icon (`appicon::ALL` id).
     app_icon: &'static str,
     /// The tray icon, while "Close to tray" is on.
@@ -944,6 +950,7 @@ impl App {
         let remote_enabled = get("remote_enabled").is_some_and(|v| v == "1");
         let app_icon = crate::appicon::load(backend.data_dir());
         let wgpu_renderer = crate::renderer::load(backend.data_dir()) == crate::renderer::Renderer::Wgpu;
+        let disable_rtss = crate::rtss::load(backend.data_dir());
         // Updates reinstall the shortcuts with the classic icon.
         if app_icon != crate::appicon::CLASSIC {
             crate::appicon::sync_shortcuts(app_icon, backend.data_dir());
@@ -1094,6 +1101,7 @@ impl App {
             log_volume: get("log_volume").is_none_or(|v| v == "1"),
             pause_fade: get("pause_fade").is_none_or(|v| v == "1"),
             skip_silence: get("skip_silence").is_some_and(|v| v == "1"),
+            keep_screen_on: get("keep_screen_on").is_some_and(|v| v == "1"),
             high_quality: get("high_quality").is_none_or(|v| v == "1"),
             backup_stream,
             local_network: get("local_network").is_some_and(|v| v == "1"),
@@ -1138,6 +1146,7 @@ impl App {
             tray_click: None,
             mini_x11: get("mini_x11").is_some_and(|v| v == "1"),
             wgpu_renderer,
+            disable_rtss,
             app_icon,
             tray: None,
             window_title: "YT Music".to_owned(),
@@ -1196,7 +1205,7 @@ impl App {
             anim_bg: get("anim_bg").is_none_or(|v| v == "1"),
             bg_speed: shell::load_factor(get("bg_speed"), shell::BG_SPEED),
             bg_brightness: shell::load_factor(get("bg_brightness"), shell::BG_BRIGHTNESS),
-            anim_speed: shell::load_factor(get("anim_speed"), theme::ANIM_SPEED_RANGE),
+            anim_speed: shell::load_anim_speed(get("anim_speed")),
             flat_bg: get("flat_bg").is_some_and(|v| v == "1"),
             flat_color: get("flat_color").as_deref().and_then(crate::preset::hex),
             glass_on: get("glass_on").is_none_or(|v| v == "1"),
@@ -1204,6 +1213,7 @@ impl App {
             reactive_bg: get("reactive_bg").is_none_or(|v| v == "1"),
             visualizer: get("visualizer").is_some_and(|v| v == "1"),
             dim_bright: get("dim_bright").is_none_or(|v| v == "1"),
+            smooth_scroll: get("smooth_scroll").is_none_or(|v| v == "1"),
             seek_knob_always: get("seek_knob_always").is_some_and(|v| v == "1"),
             time_left: get("time_left").is_some_and(|v| v == "1"),
             sponsorblock: get("sponsorblock").is_some_and(|v| v == "1"),
@@ -1775,12 +1785,13 @@ impl eframe::App for App {
             m.sync_modes(self.queue.shuffled(), self.queue.repeat);
         }
         // No sleep while playing, and the screen stays on for a video on show: this song's
-        // (picture in picture keeps the last one's player for a song after it).
+        // (picture in picture keeps the last one's player for a song after it), or for
+        // any song with Settings › Playback › Keep the screen on while music plays.
         let video = self.shown_video().is_some_and(|t| {
             self.video.as_ref().is_some_and(|(id, p)| *id == t.id && p.as_ref().is_some_and(|p| !p.failed()))
         });
         if let Some(a) = &mut self.awake {
-            a.set(crate::awake::Keep::of(playing, video));
+            a.set(crate::awake::Keep::of(playing, video, self.keep_screen_on));
         }
         self.request_lyric_extras();
         // Upload: files from the picker, or dropped onto the window.
@@ -2266,6 +2277,7 @@ impl eframe::App for App {
         // Ahead of smooth scrolling: the wheel over a seek bar seeks rather than scrolls.
         self.seek_by_wheel(ctx, &mut raw.events, raw.time.unwrap_or(0.0));
         let viewport_h = raw.screen_rect.map_or(800.0, |r| r.height());
+        self.wheel.smooth = self.smooth_scroll;
         if self.wheel.filter(&mut raw.events, raw.time.unwrap_or(0.0), raw.predicted_dt, viewport_h) {
             ctx.request_repaint();
         }
@@ -2305,6 +2317,7 @@ impl eframe::App for App {
         storage.set_string("log_volume", b(self.log_volume));
         storage.set_string("pause_fade", b(self.pause_fade));
         storage.set_string("skip_silence", b(self.skip_silence));
+        storage.set_string("keep_screen_on", b(self.keep_screen_on));
         storage.set_string("high_quality", b(self.high_quality));
         storage.set_string("backup_stream", b(self.backup_stream));
         storage.set_string("local_network", b(self.local_network));
@@ -2381,7 +2394,7 @@ impl eframe::App for App {
         storage.set_string("queue_width", format!("{:.0}", self.queue_w));
         storage.set_string("bg_speed", format!("{:.2}", self.bg_speed));
         storage.set_string("bg_brightness", format!("{:.2}", self.bg_brightness));
-        storage.set_string("anim_speed", format!("{:.2}", self.anim_speed));
+        storage.set_string("anim_speed", shell::save_anim_speed(self.anim_speed));
         storage.set_string("flat_bg", b(self.flat_bg));
         if let Some(c) = self.flat_color {
             storage.set_string("flat_color", format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()));
@@ -2391,6 +2404,7 @@ impl eframe::App for App {
         storage.set_string("reactive_bg", b(self.reactive_bg));
         storage.set_string("visualizer", b(self.visualizer));
         storage.set_string("dim_bright", b(self.dim_bright));
+        storage.set_string("smooth_scroll", b(self.smooth_scroll));
         storage.set_string("seek_knob_always", b(self.seek_knob_always));
         storage.set_string("time_left", b(self.time_left));
         storage.set_string("sponsorblock", b(self.sponsorblock));

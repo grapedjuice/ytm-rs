@@ -65,6 +65,8 @@ settings-crossfade-when-skipping = Overvloeien bij overslaan
 settings-crossfade-when-skipping-desc = Laat nummers ook bij het overslaan overvloeien. Teruggaan en een nummer kiezen gebeurt meteen.
 settings-skip-silence = Stilte aan het einde overslaan
 settings-skip-silence-desc = Als een nummer in de tweede helft een paar seconden stil is, gaat het door naar het volgende. Slaat lange stille eindes en verborgen nummers erna over.
+settings-keep-screen-on = Scherm aan houden tijdens muziek afspelen
+settings-keep-screen-on-desc = Terwijl een nummer speelt, vraagt de app het systeem om het scherm aan te houden, net als bij een muziekvideo. Hoe dan ook vraagt muziek de computer om niet in slaapstand te gaan.
 settings-hide-explicit-songs = Expliciete nummers verbergen
 settings-hide-explicit-songs-desc = Sluit nummers met een E uit van lijsten, zoeken, de wachtrij en automatisch afspelen. Het huidige nummer speelt uit.
 settings-show-podcasts = Podcasts tonen
@@ -261,6 +263,8 @@ settings-brighter = Lichter
 settings-darker = Donkerder
 settings-animation-speed = Animatiesnelheid
 settings-animation-speed-desc = Hoe snel pagina’s, menu’s en panelen bewegen en invagen. Songteksten blijven in de maat van het nummer. 100% is de standaard van het thema.
+settings-smooth-scrolling = Vloeiend scrollen
+settings-smooth-scrolling-desc = De klikjes van het muiswiel glijden vloeiend. Uitgeschakeld scrollt elk klikje direct. Touchpads scrollen in beide gevallen hetzelfde.
 settings-flat-background = Egale achtergrond
 settings-flat-background-desc = Eén kleur achter de pagina's en Nu aan het afspelen, zonder albumhoes en zonder verloop.
 settings-flat-background-colour = Achtergrondkleur
@@ -388,6 +392,9 @@ settings-collapse-sidebar = Zijbalk inklappen
 settings-collapse-sidebar-desc = Toont alleen pictogrammen in de zijbalk voor smalle vensters. De menuknop bovenaan doet hetzelfde.
 settings-draw-with = Weergeven met { $api }
 settings-renderer-restart-desc = De app gebruikt de nieuwe renderer bij de volgende start.
+settings-disable-rtss = RTSS-overlay uitschakelen
+settings-disable-rtss-desc = Vraag RivaTuner Statistics Server om zijn FPS- en hardware-overlay niet boven dit venster te tonen.
+settings-rtss-restart-desc = De instelling voor de RTSS-overlay wordt actief vanaf de volgende start.
 
 ## Downloads
 
@@ -533,6 +540,11 @@ settings-whats-new-in = Nieuw in { $version }
 ## About
 
 settings-about-tagline = Een snelle, native client voor YouTube Music.
+settings-copy = Kopiëren
+settings-copy-version-tip = Dubbelklik om de versie te kopiëren
+settings-version-copied = Versie gekopieerd
+settings-log-files = Logbestanden
+settings-log-files-desc = ytm-rs.log van deze sessie en ytm-rs.prev.log van de vorige sessie, om bij een bugrapport te voegen.
 settings-about-lyrics-sources = Better Lyrics-API: Musixmatch, LRCLIB, QQ, KuGou en Better Lyrics TTML
 settings-about-themes-credit = Aangepast uit de Better Lyrics-themawinkel. Op elke kaart staan de makers.
 settings-background = Achtergrond

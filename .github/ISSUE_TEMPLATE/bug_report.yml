@@ -28,7 +28,7 @@ body:
     id: version
     attributes:
       label: ytm-rs version
-      description: Under Settings › About. Please check it still happens on the latest release.
+      description: Under Settings › About, where Copy copies it. Please check it still happens on the latest release.
       placeholder: "0.2.34"
     validations:
       required: true
@@ -68,6 +68,8 @@ body:
       label: Log
       description: |
         Paste the part of `ytm-rs.log` from around when it happened. If you've restarted the app since, it's in `ytm-rs.prev.log` instead. Have a look through it before posting and take out anything you'd rather keep private.
+
+        Settings › About › Log files › Open opens the folder they're in. In versions without it:
 
         - Windows: `%APPDATA%\ytm-rs\data`
         - macOS: `~/Library/Application Support/ytm-rs`

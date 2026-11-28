@@ -65,6 +65,8 @@ settings-crossfade-when-skipping = スキップ時にクロスフェード
 settings-crossfade-when-skipping-desc = 次の曲へのスキップにもクロスフェードを使います。前の曲に戻るときや曲を選ぶときはすぐに切り替わります。
 settings-skip-silence = 末尾の無音をスキップ
 settings-skip-silence-desc = 曲の後半で数秒静かになると、次の曲へ進みます。長い無音の終わりと、そのあとの隠しトラックを飛ばします。
+settings-keep-screen-on = 音楽の再生中は画面をオンに保つ
+settings-keep-screen-on-desc = 曲の再生中、ミュージックビデオと同様に画面をオンに保つようシステムに要求します。いずれの場合も、再生中はコンピューターのスリープを防止します。
 settings-hide-explicit-songs = 露骨な表現を含む曲を非表示
 settings-hide-explicit-songs-desc = E マークの付いた曲を一覧、検索、再生キュー、自動再生から除外します。再生中の曲は最後まで流れます。
 settings-show-podcasts = ポッドキャストを表示
@@ -261,6 +263,8 @@ settings-brighter = 明るく
 settings-darker = 暗く
 settings-animation-speed = アニメーション速度
 settings-animation-speed-desc = ページ、メニュー、パネルの動きやフェードインの速さ。歌詞は曲に合わせて同期します。100% がテーマ本来の速度です。
+settings-smooth-scrolling = スムーズスクロール
+settings-smooth-scrolling-desc = マウスホイールの回転が滑らかにスクロールします。オフにすると 1 ノッチごとに即座にスクロールします。タッチパッドはどちらでも同じです。
 settings-flat-background = 単色の背景
 settings-flat-background-desc = ページと再生画面の背後を一色にする。ジャケットもグラデーションも出さない。
 settings-flat-background-colour = 背景色
@@ -388,6 +392,9 @@ settings-collapse-sidebar = サイドバーを折りたたむ
 settings-collapse-sidebar-desc = 狭いウィンドウ向けにサイドバーをアイコンだけにします。上部のメニュー ボタンでも切り替えられます。
 settings-draw-with = { $api } で描画
 settings-renderer-restart-desc = 次回の起動時から新しい描画方式を使います。
+settings-disable-rtss = RTSS オーバーレイを無効にする
+settings-disable-rtss-desc = このウィンドウの上に FPS やハードウェアのオーバーレイを表示しないよう RivaTuner Statistics Server に要求します。
+settings-rtss-restart-desc = RTSS オーバーレイの設定は次回の起動時から有効になります。
 
 ## Downloads
 
@@ -530,6 +537,11 @@ settings-whats-new-in = { $version } の新機能
 ## About
 
 settings-about-tagline = 高速なネイティブ YouTube Music クライアント。
+settings-copy = コピー
+settings-copy-version-tip = ダブルクリックでバージョンをコピー
+settings-version-copied = バージョンをコピーしました
+settings-log-files = ログファイル
+settings-log-files-desc = バグ報告に添付するための、今回の ytm-rs.log と前回の ytm-rs.prev.log。
 settings-about-lyrics-sources = Better Lyrics API：Musixmatch、LRCLIB、QQ、KuGou、Better Lyrics TTML
 settings-about-themes-credit = Better Lyrics のテーマ ストアから移植。各カードに作者を記載しています。
 settings-background = 背景

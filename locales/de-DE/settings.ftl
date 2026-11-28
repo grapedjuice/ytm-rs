@@ -65,6 +65,8 @@ settings-crossfade-when-skipping = Beim Überspringen überblenden
 settings-crossfade-when-skipping-desc = Blendet auch beim Sprung zum nächsten Titel über. Zurückspringen oder Auswählen eines Titels wechselt sofort.
 settings-skip-silence = Stille am Ende überspringen
 settings-skip-silence-desc = Wird ein Titel in seiner zweiten Hälfte für ein paar Sekunden still, geht es mit dem nächsten weiter. Überspringt lange stille Enden und versteckte Titel danach.
+settings-keep-screen-on = Bildschirm während der Musikwiedergabe eingeschaltet lassen
+settings-keep-screen-on-desc = Während ein Titel läuft, bittet die App das System, den Bildschirm eingeschaltet zu lassen, wie bei einem Musikvideo. So oder so hindert Musik den Computer am Einschlafen.
 settings-hide-explicit-songs = Explizite Titel ausblenden
 settings-hide-explicit-songs-desc = Blendet Titel mit E in Listen, Suche, Warteschlange und automatischer Wiedergabe aus. Laufende Titel werden zu Ende gespielt.
 settings-show-podcasts = Podcasts anzeigen
@@ -261,6 +263,8 @@ settings-brighter = Heller
 settings-darker = Dunkler
 settings-animation-speed = Animationsgeschwindigkeit
 settings-animation-speed-desc = Wie schnell Seiten, Menüs und Bereiche sich bewegen und einblenden. Liedtexte bleiben im Takt des Titels. 100 % entspricht dem Design.
+settings-smooth-scrolling = Sanftes Scrollen
+settings-smooth-scrolling-desc = Raststufen des Mausrads gleiten weich. Ausgeschaltet springt jede Stufe sofort. Touchpads scrollen in beiden Fällen gleich.
 settings-flat-background = Flacher Hintergrund
 settings-flat-background-desc = Eine Farbe hinter den Seiten und „Jetzt läuft“, ohne Albumcover und ohne Farbverlauf.
 settings-flat-background-colour = Hintergrundfarbe
@@ -388,6 +392,9 @@ settings-collapse-sidebar = Seitenleiste einklappen
 settings-collapse-sidebar-desc = Zeigt in der Seitenleiste nur Symbole an, etwa für schmale Fenster. Das Menü oben in der Leiste tut dasselbe.
 settings-draw-with = Mit { $api } rendern
 settings-renderer-restart-desc = Die App rendert beim nächsten Start mit dem neu gewählten Renderer.
+settings-disable-rtss = RTSS-Overlay deaktivieren
+settings-disable-rtss-desc = Bittet RivaTuner Statistics Server, sein FPS- und Hardware-Overlay nicht über diesem Fenster anzuzeigen.
+settings-rtss-restart-desc = Die Einstellung für das RTSS-Overlay wird beim nächsten Start wirksam.
 
 ## Downloads
 
@@ -533,6 +540,11 @@ settings-whats-new-in = Neu in { $version }
 ## About
 
 settings-about-tagline = Ein schneller, nativer Client für YouTube Music.
+settings-copy = Kopieren
+settings-copy-version-tip = Doppelklicken, um die Version zu kopieren
+settings-version-copied = Version kopiert
+settings-log-files = Protokolldateien
+settings-log-files-desc = ytm-rs.log dieses Starts und ytm-rs.prev.log des vorherigen Starts zum Anhängen an einen Fehlerbericht.
 settings-about-lyrics-sources = Better Lyrics API: Musixmatch, LRCLIB, QQ, KuGou und Better Lyrics TTML
 settings-about-themes-credit = Angepasst aus dem Better Lyrics Theme Store. Auf jeder Karte stehen die Mitwirkenden.
 settings-background = Hintergrund

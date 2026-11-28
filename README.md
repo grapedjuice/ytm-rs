@@ -60,18 +60,21 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 **Listening**
 - **Your music feed:** Listen again, Quick picks, your mixes (My Supermix, Discover Mix and more) and mood filters, refreshed each time you open a page.
 - **Explore and search:** new releases, charts, and search across songs, albums, artists and playlists.
-- **Your library:** liked songs, saved albums and playlists, history and uploads. Upload your own songs from the Uploads tab or by dropping files on the window. Turn on podcasts to see shows and episodes too.
+- **Your library:** liked songs, saved albums and playlists, history and uploads. Upload your own songs from the Uploads tab or by dropping files on the window. Edit your own playlists, with a picture of your own as the cover. Turn on podcasts to see shows and episodes too.
 - **Song lists:** drag songs to reorder the queue and your own playlists, or drop them on a playlist in the sidebar to add them. A find box narrows any list to the songs that match.
-- **Playback:** queue, song radio, shuffle, repeat, autoplay and crossfade, with the next track prefetched for instant skips. Volume normalization, a 10-band equalizer with presets, playback speed that keeps the pitch (or lets it go with the speed, like a record), and a choice of output device.
+- **Playback:** queue, song radio, shuffle and Smart shuffle (songs like the one playing mixed in), repeat, autoplay, gapless playback, and crossfade that starts where a song's music ends, with the next track prefetched for instant skips. A-B repeat from a seek bar's right-click menu, a sleep timer, Skip silence at the end of a song, and the screen can stay on while music plays.
+- **Sound:** volume normalization, a 10-band equalizer with presets, playback speed that keeps the pitch (or lets it go with the speed, like a record), and transpose.
+- **Play on:** this computer's speakers or headphones, or AirPlay speakers on your network.
 - **Sound quality:** songs play in Opus at about 256 kbps with YouTube Premium, the best stream YouTube offers, and Opus at about 130 kbps without it.
 - **Songs, not music videos:** an official music video plays as its album recording, without the intros and skits, or switch to the video itself in Now playing.
 - **Skip non-music parts:** jumps over talking, skits and sponsor breaks in music videos, as marked by SponsorBlock.
+- **Recognize song** (experimental): the headphones button in the search box finds the song playing in another app.
 - **Explicit songs:** marked with an E. Turn on Hide explicit songs to leave them out of lists, search, the queue and autoplay, and optionally use YouTube's Restricted Mode as well.
-- **Downloads:** save any song as a tagged `.m4a` with cover art: YouTube's own AAC file, not re-encoded, at the best quality your account gets, with its lyrics inside (timed as LRC where the source has them). Albums and playlists can each go in their own folder. Saved songs are listed in Library › Downloads and play offline.
+- **Downloads:** save any song as a tagged `.m4a` with cover art: YouTube's own AAC file, not re-encoded, at the best quality your account gets, with its lyrics inside (timed as LRC where the source has them). Albums and playlists can each go in their own folder, and a playlist kept downloaded downloads the songs added to it later too. Saved songs are marked in lists, listed in Library › Downloads and play offline.
 
 **Lyrics and looks**
 - **Karaoke lyrics:** word-by-word lyrics drawn the way the Better Lyrics extension draws them, from every Better Lyrics source, with automatic fallback, romanization, translations and per-song timing offsets.
-- **Animated background:** the album art drifts and pulses with the music behind everything. Go full-screen, or hide the lyrics to see just the artwork.
+- **Animated background:** the album art drifts and pulses with the music behind everything. Go full-screen, or hide the lyrics to see just the artwork. A visualizer can move along the bottom of Now playing.
 - **30 themes:** 27 rebuilt from the [Better Lyrics community themes](https://github.com/better-lyrics/themes), such as Apple Music, Spicy, Spinning Record, reCover and Material 3, plus the app's own ytm-rs and Classic looks and Fluent, in the style of Windows 11. Each one restyles the whole app, in light or dark mode, with real frosted glass where the theme has it. Use any bundled or installed font.
 - **Your colours:** the accent can follow the theme or your system, or be any colour you pick. A `theme.conf` file can set every colour in the app, for tools like wallust and pywal to write. Zoom makes everything bigger or smaller.
 
@@ -81,13 +84,14 @@ Most YouTube Music desktop apps are the website running in a hidden browser. ytm
 - **Last.fm, ListenBrainz and Discord:** scrobbling and Rich Presence.
 
 **Desktop**
-- System media controls with a seekable timeline, taskbar thumbnail buttons, close to tray (Wayland too), song notifications while the window is in the background, a choice of page to open on, a collapsible sidebar and screen-reader-accessible controls.
+- System media controls with a seekable timeline, taskbar thumbnail buttons, close to tray (Wayland too) with a setting for a click on the tray icon to play or pause (Windows and macOS), song notifications while the window is in the background, a choice of page to open on, a collapsible sidebar and screen-reader-accessible controls.
 - The app draws its own title bar on Windows, so the window is one surface, and on Linux desktops that draw none. On Windows 11, Mica or Acrylic can show behind the window.
 - **Your language:** the interface comes in 21 languages, and song titles, shelves and charts can follow your language and country.
 - **Touch screens:** swipe to scroll pages and lyrics, and swipe the player bar up to open Now playing.
 - **Mini player:** shrink the window to a small strip with the song and controls (Ctrl+M), or try the experimental pill that sits in a corner and opens on hover.
   On Wayland, turn on Settings › Mini player › Keep on top on Wayland for the pin to keep the window above others (it opens through XWayland).
 - **System-wide media shortcuts:** play/pause, next, previous, volume and Recognize song work while another app is in front or the window is in the tray. Change them in Settings › Keyboard shortcuts.
+- **Network:** your system's proxy or one of your own (HTTP, HTTPS or SOCKS5), and, signed in, a Backup stream for when YouTube stops songs on a VPN, both in Settings › Advanced.
 - Automatic updates in the background for both the installed and portable versions, with release notes when an update is ready. Pick the Nightly channel for builds of the newest changes.
 
 ## Screenshots
@@ -170,13 +174,13 @@ Sign-ins are still kept by the system (Credential Manager, Keychain or your keyr
 | --- | --- |
 | **Sign in** | **Settings › Account › Sign in with Google.** Unlocks your feed, library, likes and history. Browsing and search work without it. If your account has more than one YouTube channel, pick one there too. |
 | **Listen together** | Click **Listen together** in the sidebar, start a jam and share the code or link. Songs guests add play next, marked with who added them, up to 5 waiting per guest. |
-| **Transfer from Spotify** | **Settings › General › Transfer from Spotify**, then sign in to Spotify to pick a playlist or Liked Songs, or paste a public playlist link without signing in. Matches ytm-rs isn't sure about come to you for review before it creates a private playlist. |
+| **Transfer from Spotify** | **Settings › Connections › Transfer from Spotify**, then sign in to Spotify to pick a playlist or Liked Songs, or paste a public playlist link without signing in. Matches ytm-rs isn't sure about come to you for review before it creates a private playlist. |
 | **Upload music** | **Library › Uploads › Upload music**, or drop MP3, M4A, FLAC, OGG or WMA files on the window. Title, artist, album and cover come from the file's tags. |
-| **Download songs** | Open a song's menu and click **Download**. Files go to `Music\ytm-rs`; change this, the lyrics saved in the file and per-album or per-playlist folders in **Settings › General › Downloads**. |
+| **Download songs** | Open a song's menu and click **Download**. Files go to `Music\ytm-rs`; change this, the lyrics saved in the file and per-album or per-playlist folders in **Settings › Downloads**. |
 | **Scrobble to Last.fm** | **Settings › Connections**, click **Connect** next to Last.fm, then allow ytm-rs in your browser. Songs scrobble after half their length or four minutes. |
 | **Send listens to ListenBrainz** | Copy your user token from [listenbrainz.org/settings](https://listenbrainz.org/settings/), then in **Settings › Connections** paste it under ListenBrainz and click **Connect**. Songs count after half their length or four minutes. |
-| **Change the theme** | **Settings › Appearance**, click a theme card. Mode switches between light and dark, and Accent colour sets the highlight colour. |
-| **Shape the sound** | **Settings › Playback** has the equalizer, crossfade and volume normalization. |
+| **Change the theme** | **Settings › Themes**, click a theme card. Mode switches between light and dark, and Accent colour sets the highlight colour. |
+| **Shape the sound** | **Settings › Equalizer** has the equalizer, **Settings › Sound** volume normalization and where the music plays, and **Settings › Playback** crossfade, gapless playback and the speed. |
 | **Tune the lyrics** | **Settings › Lyrics** sets the source order, translation language and timing offsets. |
 
 ## Building from source

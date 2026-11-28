@@ -127,7 +127,7 @@ fn big_button(ui: &mut Ui, label: &str, accent: Color32, enabled: bool, width: f
 }
 
 fn breadcrumb(app: &mut App, ui: &mut Ui) {
-    let g = widgets::galley(ui, &[crate::tr!("settings-title"), crate::tr!("settings-general"), crate::tr!("transfer-title")].join(" › "), theme::regular(13.0), theme::text_dim(), 400.0);
+    let g = widgets::galley(ui, &[crate::tr!("settings-title"), crate::tr!("settings-connections"), crate::tr!("transfer-title")].join(" › "), theme::regular(13.0), theme::text_dim(), 400.0);
     let (rect, resp) = ui.allocate_exact_size(g.size(), Sense::click());
     let resp = named(resp, crate::tr!("transfer-back-settings")).on_hover_cursor(egui::CursorIcon::PointingHand);
     let c = if resp.hovered() { theme::text() } else { theme::text_dim() };

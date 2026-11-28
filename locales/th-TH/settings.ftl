@@ -65,6 +65,8 @@ settings-crossfade-when-skipping = ครอสเฟดเมื่อข้า
 settings-crossfade-when-skipping-desc = และจางหายไปในเพลงถัดไปเมื่อคุณข้ามไปข้างหน้า การย้อนกลับหรือเลือกเพลงจะยังคงสลับไปทันที
 settings-skip-silence = ข้ามความเงียบท้ายเพลง
 settings-skip-silence-desc = ถ้าเพลงเงียบหลายวินาทีในช่วงครึ่งหลัง จะไปเพลงถัดไป ข้ามช่วงเงียบยาวท้ายเพลงและแทร็กที่ซ่อนอยู่หลังช่วงนั้น
+settings-keep-screen-on = เปิดหน้าจอค้างไว้ขณะเล่นเพลง
+settings-keep-screen-on-desc = ขณะเล่นเพลง แอปจะขอให้ระบบเปิดหน้าจอค้างไว้เช่นเดียวกับมิวสิกวิดีโอ ไม่ว่าจะเปิดหรือไม่ เพลงจะขอไม่ให้คอมพิวเตอร์เข้าสู่โหมดพักเครื่อง
 settings-hide-explicit-songs = ซ่อนเพลงที่ไม่เหมาะสม
 settings-hide-explicit-songs-desc = ปล่อยให้เพลงที่มีเครื่องหมาย E อยู่ในรายการ ค้นหา คิว และเล่นอัตโนมัติ พวกที่เล่นจบแล้ว
 settings-show-podcasts = แสดงพอดแคสต์
@@ -261,6 +263,8 @@ settings-brighter = สว่างขึ้น
 settings-darker = มืดลง
 settings-animation-speed = ความเร็วแอนิเมชัน
 settings-animation-speed-desc = ความเร็วในการเคลื่อนไหวและปรากฏของหน้า เมนู และแผง เนื้อเพลงยังคงตรงจังหวะเพลง 100% คือค่าของธีม
+settings-smooth-scrolling = เลื่อนอย่างนุ่มนวล
+settings-smooth-scrolling-desc = ล้อเมาส์จะเลื่อนอย่างนุ่มนวล หากปิดไว้ แต่ละขั้นจะเลื่อนทันที ทัชแพดจะเลื่อนเหมือนกันทั้งสองแบบ
 settings-flat-background = พื้นหลังสีเรียบ
 settings-flat-background-desc = สีเดียวหลังหน้าและกำลังเล่น โดยไม่มีปกอัลบั้มและไม่มีไล่สี
 settings-flat-background-colour = สีพื้นหลัง
@@ -388,6 +392,9 @@ settings-collapse-sidebar = ยุบแถบด้านข้าง
 settings-collapse-sidebar-desc = แสดงเฉพาะไอคอนในแถบด้านข้างสำหรับหน้าต่างแคบ ปุ่มเมนูที่ด้านบนก็ทำเช่นเดียวกัน
 settings-draw-with = วาดด้วย { $api }
 settings-renderer-restart-desc = แอปจะวาดด้วยตัวเรนเดอร์ใหม่ตั้งแต่การเริ่มต้นครั้งถัดไป
+settings-disable-rtss = ปิดการแสดงผลซ้อนทับของ RTSS
+settings-disable-rtss-desc = ขอให้ RivaTuner Statistics Server ไม่แสดงข้อมูล FPS และฮาร์ดแวร์ซ้อนทับบนหน้าต่างนี้
+settings-rtss-restart-desc = การตั้งค่าการแสดงผลซ้อนทับของ RTSS จะมีผลในการเปิดแอปครั้งถัดไป
 
 ## Downloads
 
@@ -530,6 +537,11 @@ settings-whats-new-in = มีอะไรใหม่ใน { $version }
 ## About
 
 settings-about-tagline = ไคลเอ็นต์ YouTube Music ที่รวดเร็วและเนทีฟ
+settings-copy = คัดลอก
+settings-copy-version-tip = ดับเบิลคลิกเพื่อคัดลอกเวอร์ชัน
+settings-version-copied = คัดลอกเวอร์ชันแล้ว
+settings-log-files = ไฟล์บันทึก
+settings-log-files-desc = ytm-rs.log ของรอบนี้ และ ytm-rs.prev.log ของรอบก่อนหน้า สำหรับแนบไปกับรายงานข้อผิดพลาด
 settings-about-lyrics-sources = Better Lyrics API: Musixmatch, LRCLIB, QQ, KuGou และ Better Lyrics TTML
 settings-about-themes-credit = ดัดแปลงมาจากที่เก็บธีม Better Lyrics การ์ดแต่ละใบให้เครดิตผู้สร้าง
 settings-background = พื้นหลัง

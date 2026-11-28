@@ -65,6 +65,8 @@ settings-crossfade-when-skipping = 跳过时交叉淡入淡出
 settings-crossfade-when-skipping-desc = 当您向前跳时，也会淡入下一首歌曲。返回或选择一首歌曲仍然会立即切换。
 settings-skip-silence = 跳过结尾的静音
 settings-skip-silence-desc = 歌曲在后半段安静几秒时，就接着放下一首。会跳过很长的静音结尾，以及后面的隐藏曲目。
+settings-keep-screen-on = 播放音乐时保持屏幕常亮
+settings-keep-screen-on-desc = 播放歌曲时，应用会像播放音乐视频一样请求系统保持屏幕常亮。无论是否开启，播放音乐都会请求电脑不要进入睡眠。
 settings-hide-explicit-songs = 隐藏露骨歌曲
 settings-hide-explicit-songs-desc = 将标记为 E 的歌曲保留在列表、搜索、队列和自动播放之外。那些已经玩完了。
 settings-show-podcasts = 显示播客
@@ -261,6 +263,8 @@ settings-brighter = 更亮
 settings-darker = 更暗
 settings-animation-speed = 动画速度
 settings-animation-speed-desc = 页面、菜单和面板移动及淡入的速度。歌词仍与歌曲保持同步。100% 为主题默认速度。
+settings-smooth-scrolling = 平滑滚动
+settings-smooth-scrolling-desc = 鼠标滚轮每一格平滑滑动。关闭后每格立即滚动。触控板在两种情况下滚动方式相同。
 settings-flat-background = 纯色背景
 settings-flat-background-desc = 页面和正在播放后面只用一种颜色，没有专辑封面，也没有渐变。
 settings-flat-background-colour = 背景颜色
@@ -388,6 +392,9 @@ settings-collapse-sidebar = 折叠侧边栏
 settings-collapse-sidebar-desc = 对于狭窄的窗口，仅在侧边栏中显示图标。顶部的菜单按钮具有相同的作用。
 settings-draw-with = 用{ $api }抽奖
 settings-renderer-restart-desc = 应用程序从下次开始时使用新的渲染器进行绘制。
+settings-disable-rtss = 禁用 RTSS 悬浮窗
+settings-disable-rtss-desc = 阻止 RivaTuner Statistics Server 在此窗口上显示 FPS 和硬件监控悬浮窗。
+settings-rtss-restart-desc = RTSS 悬浮窗设置将在下次启动时生效。
 
 ## Downloads
 
@@ -530,6 +537,11 @@ settings-whats-new-in = { $version } 的新功能
 ## About
 
 settings-about-tagline = 快速、本机 YouTube Music 客户端。
+settings-copy = 复制
+settings-copy-version-tip = 双击以复制版本
+settings-version-copied = 已复制版本
+settings-log-files = 日志文件
+settings-log-files-desc = 本次运行的 ytm-rs.log 和上次运行的 ytm-rs.prev.log，可用于附在错误报告中。
 settings-about-lyrics-sources = Better Lyrics API：Musixmatch、LRCLIB、QQ、酷狗和 Better Lyrics TTML
 settings-about-themes-credit = 改编自Better Lyrics主题商店；每张卡都归功于其创造者
 settings-background = 背景

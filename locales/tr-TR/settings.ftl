@@ -65,6 +65,8 @@ settings-crossfade-when-skipping = Atlarken çapraz geçiş
 settings-crossfade-when-skipping-desc = Ayrıca ileri atladığınızda bir sonraki şarkıya geçiş yapın. Geri dönmek veya bir şarkı seçmek yine de hemen değişiyor.
 settings-skip-silence = Sondaki sessizliği atla
 settings-skip-silence-desc = Bir şarkı ikinci yarısında birkaç saniye sessiz kalırsa sonrakine geçer. Uzun sessiz sonları ve onlardan sonraki gizli parçaları atlar.
+settings-keep-screen-on = Müzik çalarken ekranı açık tut
+settings-keep-screen-on-desc = Bir şarkı çalarken uygulama, müzik videosunda olduğu gibi sistemden ekranı açık tutmasını ister. Her iki durumda da müzik, bilgisayarın uyku moduna geçmesini engeller.
 settings-hide-explicit-songs = Müstehcen şarkıları gizle
 settings-hide-explicit-songs-desc = E işaretli şarkıları listelerin, aramanın, kuyruğun ve otomatik oynatmanın dışında bırakın. Zaten oynayanlar bitiriyor.
 settings-show-podcasts = Podcast'leri göster
@@ -261,6 +263,8 @@ settings-brighter = Daha parlak
 settings-darker = Daha koyu
 settings-animation-speed = Animasyon hızı
 settings-animation-speed-desc = Sayfaların, menülerin ve panellerin hareket ve belirme hızı. Şarkı sözleri şarkıyla senkronize kalır. %100 temanın kendi hızıdır.
+settings-smooth-scrolling = Yumuşak kaydırma
+settings-smooth-scrolling-desc = Fare tekerleği adımları yumuşakça kayar. Kapalıyken her adım anında kayar. Dokunmatik yüzeyler her iki durumda da aynı şekilde kaydırır.
 settings-flat-background = Düz arka plan
 settings-flat-background-desc = Sayfaların ve Şimdi çalıyor'un arkasında tek renk. Kapak ve geçiş yok.
 settings-flat-background-colour = Arka plan rengi
@@ -388,6 +392,9 @@ settings-collapse-sidebar = Kenar çubuğunu daralt
 settings-collapse-sidebar-desc = Dar pencereler için yalnızca kenar çubuğundaki simgeleri göster. Üstteki menü düğmesi de aynısını yapar.
 settings-draw-with = { $api } ile çizim yapın
 settings-renderer-restart-desc = Uygulama, bir sonraki başlangıçtan itibaren yeni oluşturucuyla çizim yapıyor.
+settings-disable-rtss = RTSS katmanını devre dışı bırak
+settings-disable-rtss-desc = RivaTuner Statistics Server’dan bu pencerenin üzerinde FPS ve donanım katmanını göstermemesini iste.
+settings-rtss-restart-desc = RTSS katmanı ayarı bir sonraki başlangıçta geçerli olur.
 
 ## Downloads
 
@@ -530,6 +537,11 @@ settings-whats-new-in = { $version }'deki yenilikler
 ## About
 
 settings-about-tagline = Hızlı, yerel bir YouTube Music istemcisi.
+settings-copy = Kopyala
+settings-copy-version-tip = Sürümü kopyalamak için çift tıklayın
+settings-version-copied = Sürüm kopyalandı
+settings-log-files = Günlük dosyaları
+settings-log-files-desc = Bir hata raporuna eklemek için bu oturumun ytm-rs.log ve önceki oturumun ytm-rs.prev.log dosyaları.
 settings-about-lyrics-sources = Better Lyrics API: Musixmatch, LRCLIB, QQ, KuGou ve Better Lyrics TTML
 settings-about-themes-credit = Better Lyrics tema mağazasından uyarlanmıştır; her kart yaratıcılarına kredi verir
 settings-background = Arkaplan

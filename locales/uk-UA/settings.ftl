@@ -65,6 +65,8 @@ settings-crossfade-when-skipping = Плавний перехід під час �
 settings-crossfade-when-skipping-desc = Застосовує плавний перехід і під час пропуску вперед. Повернення назад або вибір треку відбувається одразу.
 settings-skip-silence = Пропускати тишу наприкінці
 settings-skip-silence-desc = Якщо в другій половині трек затихає на кілька секунд, вмикається наступний. Пропускає довгі тихі закінчення і приховані треки після них.
+settings-keep-screen-on = Не вимикати екран під час відтворення музики
+settings-keep-screen-on-desc = Поки грає трек, застосунок просить систему не вимикати екран, як під час перегляду кліпу. У будь-якому разі музика не дає комп’ютеру заснути.
 settings-hide-explicit-songs = Приховувати треки з позначкою E
 settings-hide-explicit-songs-desc = Прибирає треки з позначкою E зі списків, пошуку, черги й автовідтворення. Поточний трек дограє до кінця.
 settings-show-podcasts = Показувати подкасти
@@ -261,6 +263,8 @@ settings-brighter = Світліше
 settings-darker = Темніше
 settings-animation-speed = Швидкість анімації
 settings-animation-speed-desc = Як швидко рухаються та з’являються сторінки, меню й панелі. Текст пісні залишається в такт музиці. 100% — стандартне значення теми.
+settings-smooth-scrolling = Плавне прокручування
+settings-smooth-scrolling-desc = Кроки коліщатка миші прокручуються плавно. Якщо вимкнено, кожен крок прокручує одразу. Тачпади працюють однаково в обох випадках.
 settings-flat-background = Плаский фон
 settings-flat-background-desc = Один колір за сторінками й екраном «Зараз грає», без обкладинки і без градієнта.
 settings-flat-background-colour = Колір фону
@@ -388,6 +392,9 @@ settings-collapse-sidebar = Згорнути бічну панель
 settings-collapse-sidebar-desc = Залишає на бічній панелі лише піктограми, щоб звільнити місце у вузьких вікнах. Кнопка меню вгорі робить те саме.
 settings-draw-with = Відображення через { $api }
 settings-renderer-restart-desc = Застосунок перейде на новий рушій рендерингу під час наступного запуску.
+settings-disable-rtss = Вимкнути оверлей RTSS
+settings-disable-rtss-desc = Попросити RivaTuner Statistics Server не показувати оверлей FPS та обладнання поверх цього вікна.
+settings-rtss-restart-desc = Налаштування оверлею RTSS набуде чинності під час наступного запуску.
 
 ## Downloads
 
@@ -535,6 +542,11 @@ settings-whats-new-in = Що нового у { $version }
 ## About
 
 settings-about-tagline = Швидкий нативний клієнт для YouTube Music.
+settings-copy = Копіювати
+settings-copy-version-tip = Двічі натисніть, щоб скопіювати версію
+settings-version-copied = Версію скопійовано
+settings-log-files = Файли журналу
+settings-log-files-desc = ytm-rs.log цього запуску та ytm-rs.prev.log попереднього — щоб додати до звіту про помилку.
 settings-about-lyrics-sources = API Better Lyrics: Musixmatch, LRCLIB, QQ, KuGou та Better Lyrics TTML
 settings-about-themes-credit = Адаптовано з магазину тем Better Lyrics. Авторів указано на картках тем.
 settings-background = Тло

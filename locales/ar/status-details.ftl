@@ -51,20 +51,20 @@ status-episodes = { $count ->
    *[other] { $count } حلقة
 }
 status-plays = { $count ->
-    [zero] { $count } استماع
+    [zero] { $shown } استماع
     [one] استماع واحد
     [two] استماعان
-    [few] { $count } استماعات
-    [many] { $count } استماعاً
-   *[other] { $count } استماع
+    [few] { $shown } استماعات
+    [many] { $shown } استماعاً
+   *[other] { $shown } استماع
 }
 status-subscribers = { $count ->
-    [zero] { $count } مشترك
+    [zero] { $shown } مشترك
     [one] مشترك واحد
     [two] مشتركان
-    [few] { $count } مشتركين
-    [many] { $count } مشتركاً
-   *[other] { $count } مشترك
+    [few] { $shown } مشتركين
+    [many] { $shown } مشتركاً
+   *[other] { $shown } مشترك
 }
 status-download-quoted-title = «{ $title }»
 discord-view-artist = عرض الفنّان

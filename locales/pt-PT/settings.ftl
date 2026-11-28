@@ -65,6 +65,8 @@ settings-crossfade-when-skipping = Crossfade ao pular
 settings-crossfade-when-skipping-desc = Também faz fade para a seguinte música ao pular. Voltar ou escolher uma música ainda troca na hora.
 settings-skip-silence = Pular o silêncio no final
 settings-skip-silence-desc = Quando uma música fica em silêncio por alguns segundos na segunda metade, segue para a seguinte. Salta finais longos em silêncio e as faixas escondidas depois deles.
+settings-keep-screen-on = Manter o ecrã ligado enquanto a música toca
+settings-keep-screen-on-desc = Enquanto uma música toca, a aplicação pede ao sistema para manter o ecrã ligado, tal como faz num videoclipe. De qualquer modo, a música pede ao computador para não suspender.
 settings-hide-explicit-songs = Ocultar músicas explícitas
 settings-hide-explicit-songs-desc = Tira das listas, da pesquisa, da fila e da reprodução automática as músicas marcadas com E. As que já estão a tocar terminam.
 settings-show-podcasts = Mostrar podcasts
@@ -261,6 +263,8 @@ settings-brighter = Mais claro
 settings-darker = Mais escuro
 settings-animation-speed = Velocidade das animações
 settings-animation-speed-desc = A rapidez com que páginas, menus e painéis se movem e aparecem. A letra acompanha o ritmo da música. 100% é a velocidade do tema.
+settings-smooth-scrolling = Deslocação suave
+settings-smooth-scrolling-desc = Os passos da roda do rato deslizam suavemente. Desativada, cada passo desloca de imediato. Os painéis táteis deslocam da mesma forma em ambos os casos.
 settings-flat-background = Fundo liso
 settings-flat-background-desc = Uma cor só atrás das páginas e de A reproduzir, sem a capa e sem gradiente.
 settings-flat-background-colour = Cor de fundo
@@ -388,6 +392,9 @@ settings-collapse-sidebar = Recolher barra lateral
 settings-collapse-sidebar-desc = Mostra só ícones na barra lateral, para janelas estreitas. O botão de menu no topo faz o mesmo.
 settings-draw-with = Desenhar com { $api }
 settings-renderer-restart-desc = A aplicação desenha com o novo renderizador no seguinte início.
+settings-disable-rtss = Desativar sobreposição do RTSS
+settings-disable-rtss-desc = Pede ao RivaTuner Statistics Server para não mostrar a sobreposição de FPS e hardware sobre esta janela.
+settings-rtss-restart-desc = A definição da sobreposição do RTSS entra em vigor no próximo arranque.
 
 ## Downloads
 
@@ -533,6 +540,11 @@ settings-whats-new-in = Novidades em { $version }
 ## About
 
 settings-about-tagline = Um cliente nativo e rápido do YouTube Music.
+settings-copy = Copiar
+settings-copy-version-tip = Faça duplo clique para copiar a versão
+settings-version-copied = Versão copiada
+settings-log-files = Ficheiros de registo
+settings-log-files-desc = O ytm-rs.log desta execução e o ytm-rs.prev.log da execução anterior, para anexar a um relatório de erro.
 settings-about-lyrics-sources = Better Lyrics API: Musixmatch, LRCLIB, QQ, KuGou e Better Lyrics TTML
 settings-about-themes-credit = Adaptado da loja de temas Better Lyrics; cada cartão credita seus criadores
 settings-background = Fundo

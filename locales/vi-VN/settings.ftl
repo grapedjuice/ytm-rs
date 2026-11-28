@@ -65,6 +65,8 @@ settings-crossfade-when-skipping = Crossfade khi bỏ qua
 settings-crossfade-when-skipping-desc = Cũng mờ dần sang bài hát tiếp theo khi bạn bỏ qua bài hát tiếp theo. Quay lại hoặc chọn bài vẫn chuyển ngay.
 settings-skip-silence = Bỏ qua khoảng lặng cuối bài
 settings-skip-silence-desc = Khi bài hát im lặng vài giây ở nửa sau, chuyển sang bài tiếp theo. Bỏ qua đoạn kết im lặng dài và các track ẩn phía sau.
+settings-keep-screen-on = Giữ màn hình bật khi phát nhạc
+settings-keep-screen-on-desc = Khi đang phát bài hát, ứng dụng sẽ yêu cầu hệ thống giữ màn hình bật như khi xem video nhạc. Dù thế nào, nhạc vẫn yêu cầu máy tính không chuyển sang chế độ ngủ.
 settings-hide-explicit-songs = Ẩn bài hát tục tĩu
 settings-hide-explicit-songs-desc = Loại bỏ các bài hát được đánh dấu E khỏi danh sách, tìm kiếm, hàng đợi và tự động phát. Những người đã chơi xong.
 settings-show-podcasts = Hiển thị podcast
@@ -261,6 +263,8 @@ settings-brighter = Sáng hơn
 settings-darker = Tối hơn
 settings-animation-speed = Tốc độ hoạt ảnh
 settings-animation-speed-desc = Tốc độ di chuyển và hiện dần của trang, menu và bảng. Lời bài hát vẫn khớp nhịp với bài hát. 100% là tốc độ mặc định của giao diện.
+settings-smooth-scrolling = Cuộn mượt
+settings-smooth-scrolling-desc = Các nấc con lăn chuột trượt mượt mà. Khi tắt, mỗi nấc cuộn ngay lập tức. Bàn di chuột cuộn giống nhau trong cả hai trường hợp.
 settings-flat-background = Nền phẳng
 settings-flat-background-desc = Một màu phía sau các trang và Đang phát, không có bìa album và không có dải màu.
 settings-flat-background-colour = Màu nền
@@ -388,6 +392,9 @@ settings-collapse-sidebar = Thu gọn thanh bên
 settings-collapse-sidebar-desc = Chỉ hiển thị các biểu tượng trong thanh bên, dành cho các cửa sổ hẹp. Nút menu ở trên cùng của nó cũng làm như vậy.
 settings-draw-with = Vẽ bằng { $api }
 settings-renderer-restart-desc = Ứng dụng vẽ bằng trình kết xuất mới từ lần khởi động tiếp theo.
+settings-disable-rtss = Tắt lớp phủ RTSS
+settings-disable-rtss-desc = Yêu cầu RivaTuner Statistics Server không hiển thị lớp phủ FPS và phần cứng lên trên cửa sổ này.
+settings-rtss-restart-desc = Cài đặt lớp phủ RTSS có hiệu lực từ lần khởi động tiếp theo.
 
 ## Downloads
 
@@ -530,6 +537,11 @@ settings-whats-new-in = { $version } có gì mới
 ## About
 
 settings-about-tagline = Máy khách YouTube Music gốc, nhanh chóng.
+settings-copy = Sao chép
+settings-copy-version-tip = Nhấp đúp để sao chép phiên bản
+settings-version-copied = Đã sao chép phiên bản
+settings-log-files = Tệp nhật ký
+settings-log-files-desc = ytm-rs.log của lần chạy này và ytm-rs.prev.log của lần chạy trước, để đính kèm vào báo cáo lỗi.
 settings-about-lyrics-sources = API Better Lyrics: Musixmatch, LRCLIB, QQ, KuGou và Better Lyrics TTML
 settings-about-themes-credit = Được chuyển thể từ kho chủ đề Better Lyrics; mỗi thẻ ghi công cho người tạo ra nó
 settings-background = Bối cảnh

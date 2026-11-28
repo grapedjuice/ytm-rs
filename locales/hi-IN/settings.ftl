@@ -65,6 +65,8 @@ settings-crossfade-when-skipping = स्किप करते समय क्
 settings-crossfade-when-skipping-desc = जब आप आगे बढ़ते हैं तो यह अगले गीत में भी फीका पड़ जाता है। वापस जाना या कोई गाना चुनना अभी भी तुरंत स्विच हो जाता है।
 settings-skip-silence = अंत की खामोशी छोड़ें
 settings-skip-silence-desc = जब कोई गाना अपने दूसरे आधे में कुछ सेकंड के लिए शांत हो जाए, तो अगले पर चला जाता है। लंबे खामोश अंत और उनके बाद के छिपे ट्रैक छोड़ देता है।
+settings-keep-screen-on = संगीत चलते समय स्क्रीन चालू रखें
+settings-keep-screen-on-desc = गाना चलते समय, ऐप सिस्टम से स्क्रीन चालू रखने को कहता है, जैसे संगीत वीडियो के लिए। किसी भी स्थिति में, संगीत कंप्यूटर को स्लीप होने से रोकता है।
 settings-hide-explicit-songs = स्पष्ट गाने छुपाएं
 settings-hide-explicit-songs-desc = ई के रूप में चिह्नित गानों को सूची से बाहर छोड़ें, खोजें, कतार में रखें और ऑटोप्ले करें। जो पहले से ही खेल रहे हैं वे समाप्त हो गए हैं।
 settings-show-podcasts = पॉडकास्ट दिखाएं
@@ -261,6 +263,8 @@ settings-brighter = अधिक चमकीला
 settings-darker = अधिक गहरा
 settings-animation-speed = एनीमेशन गति
 settings-animation-speed-desc = पेज, मेनू और पैनल कितनी तेज़ी से चलते और दिखते हैं। बोल गाने के साथ समय पर रहते हैं। 100% थीम की अपनी गति है।
+settings-smooth-scrolling = स्मूथ स्क्रॉलिंग
+settings-smooth-scrolling-desc = माउस व्हील के स्टेप सहजता से स्क्रॉल होते हैं। बंद करने पर प्रत्येक स्टेप तुरंत स्क्रॉल होता है। टचपैड दोनों स्थितियों में एक जैसा स्क्रॉल करता है।
 settings-flat-background = सपाट पृष्ठभूमि
 settings-flat-background-desc = पृष्ठों और अभी चल रहा है के पीछे एक ही रंग, बिना कवर और बिना ग्रेडिएंट.
 settings-flat-background-colour = पृष्ठभूमि का रंग
@@ -388,6 +392,9 @@ settings-collapse-sidebar = साइडबार को संक्षिप�
 settings-collapse-sidebar-desc = संकीर्ण विंडो के लिए, साइडबार में केवल आइकन दिखाएं। इसके शीर्ष पर स्थित मेनू बटन भी यही कार्य करता है।
 settings-draw-with = { $api } के साथ ड्रा करें
 settings-renderer-restart-desc = ऐप अगली शुरुआत से नए रेंडरर के साथ तैयार होता है।
+settings-disable-rtss = RTSS ओवरले बंद करें
+settings-disable-rtss-desc = RivaTuner Statistics Server से इस विंडो के ऊपर अपना FPS और हार्डवेयर ओवरले न दिखाने के लिए कहें।
+settings-rtss-restart-desc = RTSS ओवरले सेटिंग अगले प्रारंभ से लागू होगी।
 
 ## Downloads
 
@@ -533,6 +540,11 @@ settings-whats-new-in = { $version } में नया क्या है
 ## About
 
 settings-about-tagline = एक तेज़, देशी YouTube Music क्लाइंट।
+settings-copy = कॉपी करें
+settings-copy-version-tip = संस्करण कॉपी करने के लिए डबल-क्लिक करें
+settings-version-copied = संस्करण कॉपी हो गया
+settings-log-files = लॉग फ़ाइलें
+settings-log-files-desc = बग रिपोर्ट के साथ संलग्न करने के लिए इस सत्र की ytm-rs.log और पिछले सत्र की ytm-rs.prev.log फ़ाइल।
 settings-about-lyrics-sources = Better Lyrics API: म्यूसिक्समैच, LRCLIB, QQ, KuGou और Better Lyrics TTML
 settings-about-themes-credit = Better Lyrics थीम स्टोर से अनुकूलित; प्रत्येक कार्ड अपने रचनाकारों को श्रेय देता है
 settings-background = पृष्ठभूमि

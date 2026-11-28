@@ -47,16 +47,16 @@ status-episodes = { $count ->
    *[other] { $count } випуску
 }
 status-plays = { $count ->
-    [one] { $count } відтворення
-    [few] { $count } відтворення
-    [many] { $count } відтворень
-   *[other] { $count } відтворення
+    [one] { $shown } відтворення
+    [few] { $shown } відтворення
+    [many] { $shown } відтворень
+   *[other] { $shown } відтворення
 }
 status-subscribers = { $count ->
-    [one] { $count } підписник
-    [few] { $count } підписники
-    [many] { $count } підписників
-   *[other] { $count } підписника
+    [one] { $shown } підписник
+    [few] { $shown } підписники
+    [many] { $shown } підписників
+   *[other] { $shown } підписника
 }
 status-download-quoted-title = «{ $title }»
 discord-view-artist = До виконавця

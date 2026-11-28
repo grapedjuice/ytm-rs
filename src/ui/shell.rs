@@ -87,6 +87,20 @@ pub fn load_factor(saved: Option<String>, (min, max, step): (f32, f32, f32)) -> 
     (((v / step).round() * step * 100.0).round() / 100.0).clamp(min, max)
 }
 
+/// Settings › Appearance › Animation speed as saved: a factor in its range, or "off" for
+/// [`crate::theme::ANIM_OFF`].
+pub fn load_anim_speed(saved: Option<String>) -> f32 {
+    match saved.as_deref() {
+        Some("off") => crate::theme::ANIM_OFF,
+        _ => load_factor(saved, crate::theme::ANIM_SPEED_RANGE),
+    }
+}
+
+/// The animation speed as it's saved ([`load_anim_speed`] reads it back).
+pub fn save_anim_speed(v: f32) -> String {
+    if v >= crate::theme::ANIM_OFF { "off".to_owned() } else { format!("{v:.2}") }
+}
+
 /// Moves the animated background's clock on by a frame. Now playing's backdrop runs on
 /// it too, also where the pages' background isn't drawn (full screen).
 pub fn background_clock(app: &mut App, now: f64) {
@@ -316,6 +330,9 @@ const PIN_TILT: f32 = 45.0;
 /// Sidebar width expanded and collapsed to an icon rail (points).
 pub const SIDEBAR_W: f32 = 236.0;
 
+/// The least the player bar's title gets before the thumbs-down makes way for it.
+const MIN_TITLE_W: f32 = 80.0;
+
 /// The expanded sidebar's width in this theme.
 pub fn sidebar_w(app: &App) -> f32 {
     app.look().app.nav_item.width.unwrap_or(SIDEBAR_W).clamp(200.0, 300.0)
@@ -432,6 +449,10 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         }
         let h = theme::anim_bool(ui.ctx(), resp.id.with("h"), resp.hovered(), 0.15);
         let s = theme::anim_bool(ui.ctx(), resp.id.with("s"), selected, 0.2);
+        // The icon and label go by the row, not by its highlight, which a theme's
+        // `side_margin` insets: so the icons line up with the menu button and the covers
+        // (on the rail too, centred in their highlight there) (#440).
+        let x0 = rect.left();
         let rect = rect.shrink2(vec2(item.side_margin, 0.0));
         let fill_rect = if item.hover_zoom != 1.0 { Rect::from_center_size(rect.center(), rect.size() * (1.0 + (item.hover_zoom - 1.0) * h)) } else { rect };
         let icon_fg = nav_bg(ui, look, fill_rect, h, s);
@@ -444,7 +465,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
         // On the rail with labels: the icon over a small one-line label.
         let under = item.rail_labels && t > 0.5;
         let icon_y = if under { rect.center().y - 9.0 } else { rect.center().y };
-        icon_at(ui, pos2(if under { rect.center().x } else { rect.left() + icon_x + slid }, icon_y), glyph, 19.0, icon_fg);
+        icon_at(ui, pos2(if under { rect.center().x } else { x0 + icon_x + slid }, icon_y), glyph, 19.0, icon_fg);
         if under {
             let short = label.split_whitespace().next().unwrap_or(label);
             ui.painter().text(pos2(rect.center().x, rect.center().y + 14.0), Align2::CENTER_CENTER, short, theme::regular(10.5), icon_fg);
@@ -457,7 +478,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 _ => fg,
             };
             let font = if selected { theme::semibold(15.0) } else { theme::regular(15.0) };
-            ui.painter().text(pos2(rect.left() + 48.0 + slid, rect.center().y), Align2::LEFT_CENTER, label, font, theme::with_alpha(fg, a * lerp(idle..=1.0, (h + s).min(1.0))));
+            ui.painter().text(pos2(x0 + 48.0 + slid, rect.center().y), Align2::LEFT_CENTER, label, font, theme::with_alpha(fg, a * lerp(idle..=1.0, (h + s).min(1.0))));
         }
         if resp.clicked() {
             *go_to = Some(page);
@@ -480,27 +501,47 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
     ui.add_space(14.0 - 4.0 * t);
 
     let transferring = super::transfer::sidebar_visible(app, ui.input(|i| i.time));
-    // Settings' row, however tall the theme makes it, and the transfer card.
-    let bottom_h = nav_h + 8.0 + if transferring { 64.0 } else { 0.0 };
+    // A downloaded update (Restart), or for a packaged copy a new one that's out (its notes).
+    let (ready, available) = match app.updater.as_ref().map(|u| u.state()) {
+        Some(crate::update::State::Ready { version, .. }) => (Some(version), false),
+        Some(crate::update::State::Available { version, .. }) => (Some(version), true),
+        _ => (None, false),
+    };
+    // Settings' row, however tall the theme makes it, the transfer card and the update's:
+    // the list ends above them rather than run under them.
+    // Each card is 6 pt and the gap egui leaves below its row, then the card: the transfer's
+    // 58 pt, the update's 52.
+    let card_h = |h: f32| 6.0 + ui.spacing().item_spacing.y + h;
+    let bottom_h = nav_h + 8.0 + if transferring { card_h(58.0) } else { 0.0 } + if ready.is_some() { card_h(52.0) } else { 0.0 };
     let list_h = (ui.available_height() - bottom_h).max(0.0);
+    let bars = if t > 0.0 { egui::scroll_area::ScrollBarVisibility::AlwaysHidden } else { egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded };
     ui.allocate_ui(vec2(ui.available_width(), list_h), |ui| {
         if !app.logged_in {
-            // Too wide to squeeze: cross-fade the message and the rail's icon.
-            if t < 0.5 {
-                ui.multiply_opacity(1.0 - 2.0 * t);
-                widgets::note(ui, crate::tr!("nav-sign-in-playlists"), egui::TextStyle::Body.resolve(ui.style()), theme::text_dim());
-                ui.add_space(8.0);
-                if widgets::pill(ui, crate::tr!("nav-sign-in"), Some(icon::CIRCLE_USER), false).clicked() {
-                    app.start_sign_in(ui.ctx());
+            // In a low window it scrolls, as the playlists do, rather than run under Settings: no
+            // taller than the room left (a scroll area is 64 pt at least, unless told otherwise).
+            // The note and the rail's icon scroll apart: the note's offset would clip the icon.
+            egui::ScrollArea::vertical().id_salt(("sidebar-sign-in", t < 0.5)).auto_shrink(false).min_scrolled_height(0.0).scroll_bar_visibility(bars).show(ui, |ui| {
+                // Too wide to squeeze: cross-fade the message and the rail's icon.
+                if t < 0.5 {
+                    ui.multiply_opacity(1.0 - 2.0 * t);
+                    widgets::note(ui, crate::tr!("nav-sign-in-playlists"), egui::TextStyle::Body.resolve(ui.style()), theme::text_dim());
+                    ui.add_space(8.0);
+                    if widgets::pill(ui, crate::tr!("nav-sign-in"), Some(icon::CIRCLE_USER), false).clicked() {
+                        app.start_sign_in(ui.ctx());
+                    }
+                } else {
+                    ui.multiply_opacity(2.0 * t - 1.0);
+                    nav(ui, icon::CIRCLE_USER, crate::tr!("nav-sign-in"), Page::Settings, false, &mut go_to);
+                    if go_to.is_some() {
+                        app.settings_tab = super::pages::SettingsTab::Account;
+                        app.settings_page = true;
+                    }
                 }
-            } else {
-                ui.multiply_opacity(2.0 * t - 1.0);
-                nav(ui, icon::CIRCLE_USER, crate::tr!("nav-sign-in"), Page::Settings, false, &mut go_to);
-                if go_to.is_some() {
-                    app.settings_tab = super::pages::SettingsTab::Account;
-                    app.settings_page = true;
-                }
-            }
+            });
+            return;
+        }
+        // No room for the heading either: nothing, rather than a heading under Settings.
+        if list_h < 20.0 * (1.0 - t) + ui.spacing().item_spacing.y {
             return;
         }
         // The heading folds away with the labels.
@@ -524,8 +565,8 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
                 }
             }
         }
-        let bars = if t > 0.0 { egui::scroll_area::ScrollBarVisibility::AlwaysHidden } else { egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded };
-        egui::ScrollArea::vertical().id_salt("sidebar-pl").auto_shrink(false).scroll_bar_visibility(bars).show(ui, |ui| {
+        // No taller than the room left, however low the window.
+        egui::ScrollArea::vertical().id_salt("sidebar-pl").auto_shrink(false).min_scrolled_height(0.0).scroll_bar_visibility(bars).show(ui, |ui| {
             // Last launch's list until the library arrives.
             let Some(playlists) = app.library.as_ref().map(|l| &l.playlists).or(app.sidebar_cache.as_ref()) else {
                 // The spinner animates every frame: give up on a request that never answered.
@@ -621,12 +662,6 @@ pub fn sidebar(app: &mut App, ui: &mut Ui) {
             }
         });
     });
-    // A downloaded update (Restart), or for a packaged copy a new one that's out (its notes).
-    let (ready, available) = match app.updater.as_ref().map(|u| u.state()) {
-        Some(crate::update::State::Ready { version, .. }) => (Some(version), false),
-        Some(crate::update::State::Available { version, .. }) => (Some(version), true),
-        _ => (None, false),
-    };
     let mut restart = false;
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
         nav(ui, icon::SETTINGS, crate::tr!("settings-title"), Page::Settings, app.settings_open, &mut go_to);
@@ -1574,6 +1609,13 @@ pub fn player_bar(app: &mut App, ui: &mut Ui, now: f64) {
     let compact_vol = free(half) < 140.0 + time_w;
     let compact_vol = compact_vol || chrome.volume_on_hover || chrome.hide_volume;
     let show_time = free(half) >= if compact_vol { 36.0 } else { 140.0 } + time_w && !time_under && chrome.time_at != crate::preset::TimeAt::AboveProgress;
+    // In a narrow window the thumbs-down folds into the song's menu (Dislike is there too)
+    // rather than leave the title a few points: it was cut to "…" at the smallest size. Only
+    // with the song on the left, where the room depends on the window's width alone. A disliked
+    // song keeps it: the red thumb is all that shows it, and the menu can't take it back.
+    let disliked = app.playing_track().is_some_and(|t| app.ratings.get(&t.id) == Some(crate::ytm::SongRating::Dislike));
+    let show_dislike = show_dislike && (song_middle || disliked || row.center().x - half - 32.0 - 116.0 - song_x >= MIN_TITLE_W);
+    let song_tail = if show_dislike { 116.0 } else { 80.0 };
 
     // Left: now playing
     if let Some(t) = &track {
@@ -2249,7 +2291,9 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
     let tl = app.look().app.toast_look.clone();
     let hold = app.toast_hold();
     let undo = app.undo.is_some();
-    let t = theme::ease_out(age / theme::secs(0.25) as f32) * (1.0 - ((age - hold) / theme::secs(0.4) as f32).clamp(0.0, 1.0));
+    // With animations off it's there from its first frame, not a frame later.
+    let shown = if theme::anim_off() { 1.0 } else { theme::ease_out(age / theme::secs(0.25) as f32) };
+    let t = shown * (1.0 - ((age - hold) / theme::secs(0.4) as f32).clamp(0.0, 1.0));
     let screen = ctx.content_rect();
     let mut clicked = false;
     egui::Area::new(egui::Id::unique("toast"))
@@ -2308,7 +2352,7 @@ pub fn toast(app: &mut App, ctx: &egui::Context, now: f64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{BG_BRIGHTNESS, BG_SPEED, QUEUE_W, autoplay_toggle, load_factor, load_queue_w, logo_in_bar};
+    use super::{BG_BRIGHTNESS, BG_SPEED, QUEUE_W, autoplay_toggle, load_anim_speed, load_factor, load_queue_w, logo_in_bar, save_anim_speed};
 
     /// A theme with the app's name in the top bar shows it there only beside the rail: the
     /// open sidebar has it at its top already (#414).
@@ -2378,5 +2422,10 @@ mod tests {
         assert_eq!(load("0"), 1.0);
         assert_eq!(load("fast"), 1.0);
         assert_eq!(load("NaN"), 1.0);
+        // Off, the step past the fastest, comes back as Off; a number never loads as it.
+        assert_eq!(load_anim_speed(Some(save_anim_speed(crate::theme::ANIM_OFF))), crate::theme::ANIM_OFF);
+        assert_eq!(load_anim_speed(Some(save_anim_speed(2.5))), 2.5);
+        assert_eq!(load_anim_speed(Some("1000".into())), 4.0);
+        assert_eq!(load_anim_speed(None), 1.0);
     }
 }

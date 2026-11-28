@@ -65,6 +65,8 @@ settings-crossfade-when-skipping = التلاشي المتداخل عند الت
 settings-crossfade-when-skipping-desc = التلاشي أيضًا نحو الأغنية التالية عند التخطّي إلى الأمام. أما الرجوع للخلف أو اختيار أغنية فيبدّلان فورًا.
 settings-skip-silence = تخطّي الصمت في النهاية
 settings-skip-silence-desc = إذا هدأت أغنية لبضع ثوانٍ في نصفها الثاني، ينتقل إلى التالية. يتخطّى النهايات الصامتة الطويلة والمقاطع المخفية بعدها.
+settings-keep-screen-on = إبقاء الشاشة قيد التشغيل أثناء تشغيل الموسيقى
+settings-keep-screen-on-desc = أثناء تشغيل أغنية، يطلب التطبيق من النظام إبقاء الشاشة قيد التشغيل كما يفعل مع مقاطع الفيديو الموسيقية. وعلى أي حال، تطلب الموسيقى من الجهاز عدم الدخول في وضع السكون.
 settings-hide-explicit-songs = إخفاء الأغاني الصريحة
 settings-hide-explicit-songs-desc = استبعاد الأغاني المميّزة بالرمز E من القوائم والبحث وقائمة الانتظار والتشغيل التلقائي. وتُكمل الأغاني قيد التشغيل حاليًا حتى نهايتها.
 settings-show-podcasts = إظهار البودكاست
@@ -261,6 +263,8 @@ settings-brighter = أكثر سطوعًا
 settings-darker = أكثر عتمة
 settings-animation-speed = سرعة الحركة
 settings-animation-speed-desc = مدى سرعة انتقال الصفحات والقوائم واللوحات وظهورها. تبقى الكلمات متزامنة مع الأغنية. 100% هي سرعة السمة الافتراضية.
+settings-smooth-scrolling = تمرير سلس
+settings-smooth-scrolling-desc = تتحرك درجات عجلة الفأرة بانسيابية. عند إيقافه، تنتقل كل درجة فوراً. تعمل لوحات اللمس بالطريقة نفسها في الحالتين.
 settings-flat-background = خلفية سادة
 settings-flat-background-desc = لون واحد خلف الصفحات وشاشة التشغيل، بلا غلاف ألبوم وبلا تدرج.
 settings-flat-background-colour = لون الخلفية
@@ -388,6 +392,9 @@ settings-collapse-sidebar = طيّ الشريط الجانبي
 settings-collapse-sidebar-desc = عرض الأيقونات فقط في الشريط الجانبي للنوافذ الضيقة. يقوم زر القائمة في أعلاه بالدور نفسه.
 settings-draw-with = الرسم باستخدام { $api }
 settings-renderer-restart-desc = سيستخدم التطبيق محرّك العرض الجديد بدءًا من التشغيل التالي.
+settings-disable-rtss = تعطيل طبقة RTSS
+settings-disable-rtss-desc = يطلب من RivaTuner Statistics Server عدم عرض طبقة FPS والأجهزة فوق هذه النافذة.
+settings-rtss-restart-desc = يسري إعداد طبقة RTSS عند التشغيل التالي.
 
 ## Downloads
 
@@ -537,6 +544,11 @@ settings-whats-new-in = ما الجديد في { $version }
 ## About
 
 settings-about-tagline = عميل سريع وأصلي لـ YouTube Music.
+settings-copy = نسخ
+settings-copy-version-tip = انقر نقراً مزدوجاً لنسخ الإصدار
+settings-version-copied = تم نسخ الإصدار
+settings-log-files = ملفات السجل
+settings-log-files-desc = ملف ytm-rs.log لهذا التشغيل وملف ytm-rs.prev.log للتشغيل السابق، لإرفاقهما بتقرير خطأ.
 settings-about-lyrics-sources = واجهة برمجة تطبيقات Better Lyrics: Musixmatch, LRCLIB, QQ, KuGou و Better Lyrics TTML
 settings-about-themes-credit = مقتبس من متجر سمات Better Lyrics؛ وتنسب كل بطاقة الفضل إلى منشئيها
 settings-background = الخلفية

@@ -65,6 +65,8 @@ settings-crossfade-when-skipping = Crossfade when skipping
 settings-crossfade-when-skipping-desc = Also fade into the next song when you skip ahead. Going back or picking a song still switches right away.
 settings-skip-silence = Skip silence at the end
 settings-skip-silence-desc = When a song goes quiet for a few seconds in its second half, go on to the next one. Skips long silent endings and the hidden tracks after them.
+settings-keep-screen-on = Keep the screen on while music plays
+settings-keep-screen-on-desc = While a song plays, the app asks the system to keep the display on, as it does for a music video. Either way, music asks the computer not to go to sleep.
 settings-hide-explicit-songs = Hide explicit songs
 settings-hide-explicit-songs-desc = Leave songs marked E out of lists, search, the queue and autoplay. Ones already playing finish.
 settings-show-podcasts = Show podcasts
@@ -261,6 +263,8 @@ settings-brighter = Brighter
 settings-darker = Darker
 settings-animation-speed = Animation speed
 settings-animation-speed-desc = How fast pages, menus and panels move and fade in. Lyrics keep time with the song. 100% is the theme's own.
+settings-smooth-scrolling = Smooth scrolling
+settings-smooth-scrolling-desc = A mouse wheel's notches glide. Off, each one scrolls at once. Touchpads scroll the same either way.
 settings-flat-background = Flat background
 settings-flat-background-desc = One colour behind the pages and Now playing, with no album art and no gradient.
 settings-flat-background-colour = Background colour
@@ -388,6 +392,9 @@ settings-collapse-sidebar = Collapse sidebar
 settings-collapse-sidebar-desc = Show only icons in the sidebar, for narrow windows. The menu button at its top does the same.
 settings-draw-with = Draw with { $api }
 settings-renderer-restart-desc = The app draws with the new renderer from the next start.
+settings-disable-rtss = Disable RTSS overlay
+settings-disable-rtss-desc = Ask RivaTuner Statistics Server not to show its FPS and hardware overlay over this window.
+settings-rtss-restart-desc = The RTSS overlay setting takes effect from the next start.
 
 ## Downloads
 
@@ -533,6 +540,11 @@ settings-whats-new-in = What's new in { $version }
 ## About
 
 settings-about-tagline = A fast, native YouTube Music client.
+settings-copy = Copy
+settings-copy-version-tip = Double-click to copy the version
+settings-version-copied = Version copied
+settings-log-files = Log files
+settings-log-files-desc = This run's ytm-rs.log and the last run's ytm-rs.prev.log, to attach to a bug report.
 settings-about-lyrics-sources = Better Lyrics API: Musixmatch, LRCLIB, QQ, KuGou and Better Lyrics TTML
 settings-about-themes-credit = Adapted from the Better Lyrics theme store; each card credits its creators
 settings-background = Background

@@ -52,6 +52,10 @@ pub fn page(ctx: &egui::Context, changed: f64) {
 /// A group of items about to be laid out where `ui`'s cursor is: when it first came into
 /// view, None while it hasn't (what's laid out off screen isn't seen arriving).
 pub fn group(ui: &Ui, key: impl Hash + std::fmt::Debug) -> Option<f64> {
+    // Off: nothing arrives, it's there.
+    if crate::theme::anim_off() {
+        return None;
+    }
     let id = Id::unique("arrive").with(key);
     let at = ui.ctx().data(|d| d.get_temp::<Shown>(shown_id()).and_then(|s| s.groups.get(&id).copied()));
     if at.is_some() {

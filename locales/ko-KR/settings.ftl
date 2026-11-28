@@ -65,6 +65,8 @@ settings-crossfade-when-skipping = 건너뛸 때 크로스페이드
 settings-crossfade-when-skipping-desc = 또한 앞으로 건너뛰면 다음 곡으로 페이드됩니다. 돌아가거나 노래를 선택하는 것은 여전히 ​​즉시 전환됩니다.
 settings-skip-silence = 끝부분 무음 건너뛰기
 settings-skip-silence-desc = 곡 후반에 몇 초간 조용해지면 다음 곡으로 넘어갑니다. 긴 무음 끝과 그 뒤의 숨은 트랙을 건너뜁니다.
+settings-keep-screen-on = 음악 재생 중 화면 켜짐 유지
+settings-keep-screen-on-desc = 곡이 재생되는 동안 뮤직 비디오와 마찬가지로 화면을 켜 두도록 시스템에 요청합니다. 어느 쪽이든 음악 재생 중에는 컴퓨터가 절전 모드로 들어가지 않도록 요청합니다.
 settings-hide-explicit-songs = 노골적인 노래 숨기기
 settings-hide-explicit-songs-desc = E로 표시된 노래를 목록, 검색, 대기열 및 자동 재생에서 제외하세요. 이미 플레이 중인 게임은 종료됩니다.
 settings-show-podcasts = 팟캐스트 표시
@@ -261,6 +263,8 @@ settings-brighter = 더 밝게
 settings-darker = 더 어둡게
 settings-animation-speed = 애니메이션 속도
 settings-animation-speed-desc = 페이지, 메뉴, 패널이 움직이고 나타나는 속도입니다. 가사는 곡에 맞춰 동기화됩니다. 100%는 테마 기본값입니다.
+settings-smooth-scrolling = 부드러운 스크롤
+settings-smooth-scrolling-desc = 마우스 휠 눈금이 부드럽게 미끄러집니다. 끄면 한 눈금씩 즉시 스크롤됩니다. 터치패드는 어느 쪽이든 동일합니다.
 settings-flat-background = 단색 배경
 settings-flat-background-desc = 페이지와 지금 재생 뒤를 한 색으로 채웁니다. 앨범 표지와 그라데이션은 나오지 않습니다.
 settings-flat-background-colour = 배경색
@@ -388,6 +392,9 @@ settings-collapse-sidebar = 사이드바 접기
 settings-collapse-sidebar-desc = 좁은 창의 경우 사이드바에 아이콘만 표시합니다. 상단의 메뉴 버튼도 동일합니다.
 settings-draw-with = { $api }로 그리기
 settings-renderer-restart-desc = 앱은 다음 시작부터 새 렌더러를 사용하여 그립니다.
+settings-disable-rtss = RTSS 오버레이 비활성화
+settings-disable-rtss-desc = 이 창 위에 FPS 및 하드웨어 오버레이를 표시하지 않도록 RivaTuner Statistics Server에 요청합니다.
+settings-rtss-restart-desc = RTSS 오버레이 설정은 다음 시작부터 적용됩니다.
 
 ## Downloads
 
@@ -530,6 +537,11 @@ settings-whats-new-in = { $version }의 새로운 기능
 ## About
 
 settings-about-tagline = 빠른 기본 YouTube Music 클라이언트.
+settings-copy = 복사
+settings-copy-version-tip = 더블클릭하여 버전 복사
+settings-version-copied = 버전이 복사되었습니다
+settings-log-files = 로그 파일
+settings-log-files-desc = 버그 신고에 첨부할 이번 실행의 ytm-rs.log와 이전 실행의 ytm-rs.prev.log입니다.
 settings-about-lyrics-sources = Better Lyrics API: Musixmatch, LRCLIB, QQ, KuGou 및 Better Lyrics TTML
 settings-about-themes-credit = Better Lyrics 테마 스토어에서 채택되었습니다. 각 카드는 제작자에게 크레딧을 제공합니다.
 settings-background = 배경

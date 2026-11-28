@@ -453,10 +453,7 @@ async fn socks5(s: &mut TcpStream, p: &url::Url, host: &str, port: u16) -> anyho
         }
         _ => anyhow::bail!("the SOCKS proxy wants a sign-in ytm-rs doesn't support"),
     }
-    let mut req = vec![5, 1, 0, 3, host.len() as u8];
-    req.extend(host.as_bytes());
-    req.extend(port.to_be_bytes());
-    s.write_all(&req).await?;
+    s.write_all(&socks5_connect(host, port)).await?;
     let mut head = [0u8; 4];
     s.read_exact(&mut head).await?;
     anyhow::ensure!(head[1] == 0, "the SOCKS proxy couldn't connect (code {})", head[1]);
@@ -470,6 +467,28 @@ async fn socks5(s: &mut TcpStream, p: &url::Url, host: &str, port: u16) -> anyho
     let mut rest = vec![0u8; skip + 2];
     s.read_exact(&mut rest).await?;
     Ok(())
+}
+
+/// The SOCKS5 CONNECT request for `host:port`: an IP address as one (IPv4 or IPv6, with or
+/// without its brackets), anything else as a name for the proxy to resolve.
+fn socks5_connect(host: &str, port: u16) -> Vec<u8> {
+    let mut req = vec![5, 1, 0];
+    match host.trim_start_matches('[').trim_end_matches(']').parse() {
+        Ok(std::net::IpAddr::V4(ip)) => {
+            req.push(1);
+            req.extend(ip.octets());
+        }
+        Ok(std::net::IpAddr::V6(ip)) => {
+            req.push(4);
+            req.extend(ip.octets());
+        }
+        Err(_) => {
+            req.extend([3, host.len() as u8]);
+            req.extend(host.as_bytes());
+        }
+    }
+    req.extend(port.to_be_bytes());
+    req
 }
 
 fn percent(s: &str) -> String {
@@ -591,5 +610,17 @@ mod tests {
         assert_eq!(why("socks5://"), BadAddress::NoHost);
         let u = parse("http://me:secret@host:3128").unwrap();
         assert_eq!(redact(&u), "http://me:•••@host:3128");
+    }
+
+    #[test]
+    fn socks5_sends_ip_addresses_as_addresses() {
+        assert_eq!(socks5_connect("10.0.0.2", 443), [5, 1, 0, 1, 10, 0, 0, 2, 1, 187]);
+        let v6 = [5, 1, 0, 4, 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 187];
+        assert_eq!(socks5_connect("2001:db8::1", 443), v6);
+        assert_eq!(socks5_connect("[2001:db8::1]", 443), v6);
+        let mut name = vec![5, 1, 0, 3, 11];
+        name.extend(b"example.com");
+        name.extend([1, 187]);
+        assert_eq!(socks5_connect("example.com", 443), name);
     }
 }

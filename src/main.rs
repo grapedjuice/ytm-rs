@@ -8,6 +8,7 @@ mod fullscreen;
 mod hls;
 mod proxy;
 mod renderer;
+mod rtss;
 mod airplay;
 mod art;
 mod audio;
@@ -131,6 +132,7 @@ fn main() -> eframe::Result {
     update::clean_portable();
     stream::init_dev_hooks();
     proxy::init(&data_dir());
+    rtss::init(&data_dir());
 
     // Dev hook: YTM_BACKGROUND opens the window off-screen, unfocused and off the
     // taskbar, so automated test runs don't pop up over whatever the user is doing.
@@ -525,7 +527,7 @@ fn settle_window_system() {
     let _ = WAYLAND.set((wayland, wayland && !x11));
 }
 
-fn data_dir() -> std::path::PathBuf {
+pub fn data_dir() -> std::path::PathBuf {
     if let Some(d) = std::env::var_os("YTM_DATA_DIR") {
         return d.into();
     }

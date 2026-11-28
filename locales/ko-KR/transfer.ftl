@@ -22,6 +22,12 @@ transfer-estimate = { $count } 트랙 검색 시간: 약 { $time }. 계속 들�
 transfer-listen-while-running = 실행되는 동안 계속해서 들을 수 있습니다.
 transfer-pick-playlist = 복사할 재생목록을 선택하세요.
 transfer-playlist = 재생목록
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = 좋아요 표시한 곡
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = 복사할 항목
+transfer-step-where = 어디로 보낼까요?
+transfer-step-new-playlist = 새 YouTube Music 재생목록
 transfer-spotify-account = Spotify 계정
 transfer-signed-in-plan = 로그인됨 · 무료 및 프리미엄에서 작동
 transfer-signed-in-as = { $name }로 로그인되었습니다
@@ -103,6 +109,10 @@ transfer-progress-of = { $count } · { $state }의
 transfer-remaining = { $time }에 대해 남음
 transfer-readding = 다시 추가
 transfer-readding-reason = 다시 좋아요 표시: YouTube Music가 좋아요 표시를 삭제했습니다.
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = 좋아요 표시한 음악 확인 중
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = 앱에서 변경 중인 좋아요가 완료되기를 기다리는 중
 transfer-adding = 첨가
 transfer-local-file = 로컬 파일
 transfer-on-spotify-index = Spotify · { $total }의 { $current }에서
@@ -123,3 +133,28 @@ transfer-progress-searching = 검색됨
 transfer-reviewing-doubtful = 의심스러운 것 확인하기
 transfer-review-picked = 선택됨
 transfer-review-kept = 유지된
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = Spotify 로그인을 저장할 수 없습니다: { $error }
+transfer-error-read-library = Spotify 라이브러리를 읽을 수 없습니다: { $error }
+transfer-error-progress-saved = { $error }. 진행 상황이 저장되었습니다. 다시 시도하면 멈춘 곳부터 이어집니다.
+transfer-error-account-changed = 중지됨: YouTube Music 계정 또는 채널이 변경되었습니다
+transfer-error-liked-signed-out = 좋아요 표시한 곡을 복사하려면 Spotify에 로그인하세요
+transfer-error-not-searched = { $count }곡을 검색할 수 없습니다(연결 없음 또는 YouTube Music 요청 제한)
+transfer-error-none-found = YouTube Music에서 곡을 찾지 못했습니다
+transfer-error-signed-out = YouTube Music에서 로그아웃되었습니다. 다시 로그인한 후 재시도하세요
+transfer-error-create = 재생목록을 만들지 못했습니다
+transfer-error-add = 재생목록에 곡을 추가하지 못했습니다
+transfer-error-read-liked = 좋아요 표시한 음악을 읽지 못했습니다
+transfer-error-not-answering = 곡 좋아요 실패: YouTube Music이 응답을 멈췄습니다
+transfer-error-like = 곡에 좋아요를 표시하지 못했습니다
+transfer-error-not-spotify-link = open.spotify.com 링크가 아닙니다
+transfer-error-not-playlist-link = 재생목록 링크가 아닙니다
+transfer-error-not-spotify-playlist = Spotify 재생목록 링크가 아닙니다
+transfer-error-playlist-not-found = Spotify에서 해당 재생목록을 찾을 수 없습니다. 비공개인 경우 먼저 Spotify에 로그인하세요
+transfer-error-no-songs = 해당 Spotify 재생목록에 곡이 없습니다
+transfer-error-library-sign-in = Spotify가 라이브러리를 반환하지 않았습니다. Spotify에 다시 로그인하세요
+transfer-error-liked-sign-in = Spotify가 좋아요 표시한 곡을 반환하지 않았습니다. Spotify에 다시 로그인하세요
+transfer-error-expired = Spotify 로그인이 만료되었습니다. Spotify에 다시 로그인하세요

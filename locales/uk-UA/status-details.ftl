@@ -10,6 +10,7 @@ status-playlist-created = Список створено
 status-new-playlist-tracks = Додано до нового списку: { $count }
 status-playlist-added = Додано до списку
 status-playlist-updated = Список оновлено
+status-picture-unreadable = Не вдалося прочитати це зображення. Спробуйте JPEG, PNG або WebP.
 status-playlist-sorted = Список відсортовано
 status-playlist-sort-failed = Не вдалося відсортувати список
 status-playlist-move-failed = YouTube Music не прийняв переміщення

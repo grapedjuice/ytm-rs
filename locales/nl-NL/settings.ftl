@@ -15,10 +15,24 @@ settings-account = Account
 settings-general = Algemeen
 settings-keyboard-shortcuts = Sneltoetsen
 settings-about = Over de app
+settings-content-and-ratings = Inhoud en classificaties
+settings-advanced = Geavanceerd
+# The headings the categories are grouped under, down the side.
+settings-group-listening = Luisteren
+settings-group-look = Uiterlijk
+settings-group-accounts = Accounts
+settings-group-app = App
+# Above the settings a search finds, where a category's name goes otherwise.
+settings-search-results = Zoekresultaten
+# Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
+settings-content = Inhoud
+settings-colours = Kleuren
 settings-no-match = Geen instellingen gevonden voor ‘{ $query }’
 settings-title = Instellingen
 settings-search-box = Zoeken
 settings-clear = Wissen
+# A button above the settings, there while one changed here waits for the next start.
+settings-restart-to-apply = Herstart om toe te passen
 
 ## Account
 
@@ -51,6 +65,8 @@ settings-crossfade-when-skipping = Overvloeien bij overslaan
 settings-crossfade-when-skipping-desc = Laat nummers ook bij het overslaan overvloeien. Teruggaan en een nummer kiezen gebeurt meteen.
 settings-skip-silence = Stilte aan het einde overslaan
 settings-skip-silence-desc = Als een nummer in de tweede helft een paar seconden stil is, gaat het door naar het volgende. Slaat lange stille eindes en verborgen nummers erna over.
+settings-keep-screen-on = Scherm aan houden tijdens muziek afspelen
+settings-keep-screen-on-desc = Terwijl een nummer speelt, vraagt de app het systeem om het scherm aan te houden, net als bij een muziekvideo. Hoe dan ook vraagt muziek de computer om niet in slaapstand te gaan.
 settings-hide-explicit-songs = Expliciete nummers verbergen
 settings-hide-explicit-songs-desc = Sluit nummers met een E uit van lijsten, zoeken, de wachtrij en automatisch afspelen. Het huidige nummer speelt uit.
 settings-show-podcasts = Podcasts tonen
@@ -95,6 +111,8 @@ settings-output-device-desc-system = Waar de muziek speelt: de speakers of kopte
 settings-this-computer = Deze computer
 settings-on-your-network = Op je netwerk
 settings-playing-on = Afspelen op { $name }
+# The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
+settings-play-on-picked = Afspelen op: { $name }
 settings-connecting-to = Verbinden met { $name }…
 settings-couldnt-play-on = Afspelen op { $name } lukt niet: afspelen op deze computer
 settings-windows-default = Windows-standaard
@@ -103,6 +121,11 @@ settings-not-connected = { $name } (niet verbonden)
 settings-normalization-off-desc = Nummers behouden hun oorspronkelijke volume. Normaal maakt ze even luid, Stil doet dat op een lager volume.
 settings-normalization-normal-desc = Nummers klinken even luid. Luide nummers worden zachter zoals bij YouTube Music, zachte nummers tot 6 dB harder.
 settings-normalization-quiet-desc = Nummers klinken even luid op een lager niveau. Luide nummers worden verder gedempt, zodat zachte nummers zelden harder hoeven.
+# After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
+settings-normalization-song-no-figure = Dit nummer: geen luidheidswaarde van YouTube, dus het speelt af zoals het is.
+settings-normalization-song-level = Dit nummer: al op het juiste niveau.
+settings-normalization-song-up = Dit nummer: { $db } dB harder gezet.
+settings-normalization-song-down = Dit nummer: { $db } dB zachter gezet.
 settings-headphone-crossfeed = Crossfeed voor hoofdtelefoons
 settings-headphone-crossfeed-desc = Laat elk oor wat lage tonen van het andere kanaal horen, zoals bij luidsprekers voor je. Dat klinkt prettiger bij nummers met veel geluid aan één kant.
 settings-mono-audio = Mono-audio
@@ -118,6 +141,17 @@ settings-equalizer-desc = Regelt het geluid van diepe bas tot hoge tonen. Je hoo
 settings-preset = Voorinstelling
 settings-custom = Aangepast
 settings-equalizer-preset = Equalizervoorinstelling
+# The equalizer's presets.
+settings-eq-flat = Vlak
+settings-eq-bass-boost = Basversterking
+settings-eq-treble-boost = Hoge tonen
+settings-eq-vocal = Vocaal
+settings-eq-rock = Rock
+settings-eq-pop = Pop
+settings-eq-electronic = Elektronisch
+settings-eq-acoustic = Akoestisch
+settings-eq-classical = Klassiek
+settings-eq-late-night = Late avond
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = equalizer banden bas middentonen hoge tonen frequentie
 settings-prevent-clipping = Oversturing voorkomen
@@ -127,10 +161,13 @@ settings-0-db = 0 dB
 ## Playback speed
 
 settings-playback-speed = Afspeelsnelheid
-settings-playback-speed-desc = Speel nummers sneller of trager af, ook via de spelerbalk. Net als bij een plaat klinkt sneller hoger en trager lager. Songteksten blijven gelijklopen. Bij het openen van ytm-rs wordt de snelheid 1×.
+settings-playback-speed-desc = Speel nummers sneller of langzamer af, of in een andere toonsoort, ook via een knop in de spelersbalk. Songteksten blijven synchroon. Telkens wanneer ytm-rs start weer normaal.
 settings-speed = Snelheid
 settings-keep-pitch = Toonhoogte behouden
 settings-keep-pitch-desc = Sneller of langzamer zonder hoger of lager te klinken. Uit volgt de toonhoogte de snelheid, zoals bij een plaat.
+settings-speed-pitch = Snelheid en toonhoogte
+settings-transpose = Transponeren
+settings-transpose-desc = Hoger of lager in halve tonen, op dezelfde snelheid. 12 is een octaaf.
 settings-playback-speed-jam-note = Bij Samen luisteren geldt de normale snelheid, zodat iedereen hetzelfde nummer hoort.
 
 ## Music videos
@@ -224,6 +261,10 @@ settings-background-brightness = Helderheid van de achtergrond
 settings-background-brightness-desc = Maakt de hoes achter Speelt nu en de pagina’s lichter of donkerder. 100% is die van het thema.
 settings-brighter = Lichter
 settings-darker = Donkerder
+settings-animation-speed = Animatiesnelheid
+settings-animation-speed-desc = Hoe snel pagina’s, menu’s en panelen bewegen en invagen. Songteksten blijven in de maat van het nummer. 100% is de standaard van het thema.
+settings-smooth-scrolling = Vloeiend scrollen
+settings-smooth-scrolling-desc = De klikjes van het muiswiel glijden vloeiend. Uitgeschakeld scrollt elk klikje direct. Touchpads scrollen in beide gevallen hetzelfde.
 settings-flat-background = Egale achtergrond
 settings-flat-background-desc = Eén kleur achter de pagina's en Nu aan het afspelen, zonder albumhoes en zonder verloop.
 settings-flat-background-colour = Achtergrondkleur
@@ -280,6 +321,15 @@ settings-app-icon = App-pictogram
 settings-preview = Voorbeeld
 settings-preview-desc = Zo ziet het pictogram eruit op de taakbalk en in het systeemvak.
 settings-app-icon-named = App-pictogram: { $name }
+# The app icons' names. "YT Music" and "Fluent" stay as they are.
+settings-app-icon-classic = Klassiek
+settings-app-icon-smile-ring = Glimlachring
+settings-app-icon-rust-gear = Rust-tandwiel
+settings-app-icon-waveform = Golfvorm
+settings-app-icon-record = Plaat
+settings-app-icon-lit-line = Verlichte lijn
+settings-app-icon-duet = Duet
+settings-app-icon-warp = Warp
 
 ## Connections
 
@@ -287,6 +337,8 @@ settings-stream-deck = Stream Deck
 settings-stream-deck-desc = Laat een Stream Deck-plug-in op deze computer het afspelen bedienen.
 settings-lastfm-connected = Je afgespeelde nummers worden naar het profiel van { $name } gescrobbeld.
 settings-lastfm-allow = Geef ytm-rs toestemming op de Last.fm-pagina in je browser.
+# After "Last.fm: ", when signing in wasn't allowed on that page in time.
+settings-lastfm-not-allowed = Last.fm is niet op tijd toegestaan
 settings-lastfm-desc = Scrobble wat je afspeelt naar je Last.fm-profiel.
 settings-disconnect = Verbinding verbreken
 settings-connect = Verbinden
@@ -295,6 +347,9 @@ settings-listenbrainz-desc = Stuur wat je afspeelt naar je ListenBrainz-profiel.
 settings-user-token = Gebruikerstoken
 settings-listenbrainz-token-hint = Plak je ListenBrainz-gebruikerstoken
 settings-listenbrainz-token-link = Haal je token op bij listenbrainz.org
+# After "ListenBrainz: ", when Connect is pressed.
+settings-listenbrainz-token-missing = plak eerst je gebruikerstoken
+settings-listenbrainz-token-refused = ListenBrainz heeft dat token niet geaccepteerd
 
 ## Language
 
@@ -302,7 +357,6 @@ settings-listenbrainz-token-link = Haal je token op bij listenbrainz.org
 settings-language-system = Systeem ({ $language })
 settings-language = Taal
 settings-language-desc = Taal van de app. Titels, namen en secties van YouTube Music gebruiken de hieronder gekozen taal voor nummerinformatie.
-settings-restart-to-apply = Herstart om toe te passen
 settings-language-restart-desc = De taal verandert de volgende keer dat je de app opent.
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
@@ -322,6 +376,11 @@ settings-home = Home
 settings-close-to-tray-desc-linux = Houdt een pictogram in het systeemvak. Met × verberg je het venster en speelt de muziek door. Via het pictogrammenu kun je het venster tonen of verbergen, of de app afsluiten. Klik op het nummer in de mediabediening om het venster terug te halen. Ctrl+Q sluit de app.
 settings-close-to-tray-desc = Houdt een pictogram in het systeemvak. Met × verberg je het venster en speelt de muziek door. Klik op het pictogram om het venster terug te halen of klik met rechts om te verbergen, te tonen of af te sluiten.
 settings-close-to-tray = Sluiten naar systeemvak
+settings-tray-click-plays = Klik op het systeemvakpictogram om af te spelen of te pauzeren
+settings-tray-click-plays-desc = Een klik op het pictogram speelt af of pauzeert even later, in plaats van het venster terug te halen. Dubbelklikken haalt het terug, net als klikken wanneer er niets af te spelen is.
+# Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
+settings-tray-no-gtk = Het systeemvakpictogram vereist GTK, maar dat kon niet starten ({ $error }).
+settings-tray-no-appindicator = Het systeemvakpictogram vereist de AppIndicator-bibliotheek, die niet is geïnstalleerd: libayatana-appindicator3-1 op Debian en Ubuntu, libayatana-appindicator-gtk3 op Fedora (op Bazzite, Silverblue en andere atomische systemen: rpm-ostree install libayatana-appindicator-gtk3 en herstart daarna de computer), libayatana-appindicator op Arch.
 settings-song-notifications-desc = Toont een melding met titel, artiest en hoes als er een nieuw nummer begint terwijl het venster geminimaliseerd is, in het systeemvak staat of achter andere vensters zit.
 settings-song-notifications-unavailable = Vereist de geïnstalleerde app. Windows toont alleen meldingen van apps in het startmenu.
 settings-song-notifications = Nummermeldingen
@@ -333,6 +392,9 @@ settings-collapse-sidebar = Zijbalk inklappen
 settings-collapse-sidebar-desc = Toont alleen pictogrammen in de zijbalk voor smalle vensters. De menuknop bovenaan doet hetzelfde.
 settings-draw-with = Weergeven met { $api }
 settings-renderer-restart-desc = De app gebruikt de nieuwe renderer bij de volgende start.
+settings-disable-rtss = RTSS-overlay uitschakelen
+settings-disable-rtss-desc = Vraag RivaTuner Statistics Server om zijn FPS- en hardware-overlay niet boven dit venster te tonen.
+settings-rtss-restart-desc = De instelling voor de RTSS-overlay wordt actief vanaf de volgende start.
 
 ## Downloads
 
@@ -390,11 +452,25 @@ settings-test-connection = Verbinding testen
 settings-test = Testen
 settings-test-working = Verbinding gelukt. YouTube Music antwoordde binnen { $ms } ms.
 settings-test-failed = Verbinding mislukt: { $error }
+# Under the proxy address, when it isn't one.
+settings-proxy-not-an-address = dat is geen proxyadres, zoals http://127.0.0.1:8080
+settings-proxy-scheme = gebruik een http://- of socks5://-adres
+settings-proxy-no-host = het adres heeft een host nodig
+settings-proxy-no-port = het adres heeft een poort nodig, zoals :8080
+# After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
+settings-proxy-not-answering = er antwoordt niets op { $address }. Draait de proxy?
+settings-proxy-timed-out = de proxy antwoordde niet op tijd.
+settings-proxy-sign-in-refused = de proxy accepteerde de gebruikersnaam of het wachtwoord niet.
+settings-proxy-not-found = kan het adres van die proxy niet vinden.
 settings-proxy-restart-desc = De nieuwe proxy-instelling geldt vanaf de volgende start.
 
 ## Storage
 
 settings-cache-cleared = Cache gewist. { $size } vrijgemaakt.
+# How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
+settings-size-mb = { $size } MB
+settings-size-gb = { $size } GB
+settings-size-under-mb = Minder dan 1 MB
 settings-storage = Opslag
 settings-clearing = Wissen…
 settings-measuring = Berekenen…
@@ -455,12 +531,20 @@ settings-download = Downloaden
 settings-check-now = Nu controleren
 settings-another-copy = Andere installatie
 settings-another-copy-desc = ytm-rs is ook geïnstalleerd via { $kind }. Verwijderopdracht: { $cmd }
+# { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
+settings-another-copy-deb = het .deb-pakket
+settings-another-copy-arch = het Arch-pakket
 settings-whats-new = Nieuw in deze versie
 settings-whats-new-in = Nieuw in { $version }
 
 ## About
 
 settings-about-tagline = Een snelle, native client voor YouTube Music.
+settings-copy = Kopiëren
+settings-copy-version-tip = Dubbelklik om de versie te kopiëren
+settings-version-copied = Versie gekopieerd
+settings-log-files = Logbestanden
+settings-log-files-desc = ytm-rs.log van deze sessie en ytm-rs.prev.log van de vorige sessie, om bij een bugrapport te voegen.
 settings-about-lyrics-sources = Better Lyrics-API: Musixmatch, LRCLIB, QQ, KuGou en Better Lyrics TTML
 settings-about-themes-credit = Aangepast uit de Better Lyrics-themawinkel. Op elke kaart staan de makers.
 settings-background = Achtergrond

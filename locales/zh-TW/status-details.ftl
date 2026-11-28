@@ -10,6 +10,7 @@ status-playlist-created = 播放清單已建立
 status-new-playlist-tracks = 曲目已新增至新播放清單：{ $count }
 status-playlist-added = 已新增至播放清單
 status-playlist-updated = 播放清單已更新
+status-picture-unreadable = 無法讀取該圖片。請嘗試 JPEG、PNG 或 WebP。
 status-playlist-sorted = 播放清單已排序
 status-playlist-sort-failed = 無法對播放清單進行排序
 status-playlist-move-failed = YouTube Music 沒有採取那一步

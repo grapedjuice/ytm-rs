@@ -15,10 +15,24 @@ settings-account = الحساب
 settings-general = عام
 settings-keyboard-shortcuts = اختصارات لوحة المفاتيح
 settings-about = حول
+settings-content-and-ratings = المحتوى والتقييمات
+settings-advanced = متقدم
+# The headings the categories are grouped under, down the side.
+settings-group-listening = الاستماع
+settings-group-look = المظهر
+settings-group-accounts = الحسابات
+settings-group-app = التطبيق
+# Above the settings a search finds, where a category's name goes otherwise.
+settings-search-results = نتائج البحث
+# Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
+settings-content = المحتوى
+settings-colours = الألوان
 settings-no-match = لا توجد إعدادات تطابق «{ $query }»
 settings-title = الإعدادات
 settings-search-box = البحث في الإعدادات
 settings-clear = مسح
+# A button above the settings, there while one changed here waits for the next start.
+settings-restart-to-apply = أعد التشغيل للتطبيق
 
 ## Account
 
@@ -51,6 +65,8 @@ settings-crossfade-when-skipping = التلاشي المتداخل عند الت
 settings-crossfade-when-skipping-desc = التلاشي أيضًا نحو الأغنية التالية عند التخطّي إلى الأمام. أما الرجوع للخلف أو اختيار أغنية فيبدّلان فورًا.
 settings-skip-silence = تخطّي الصمت في النهاية
 settings-skip-silence-desc = إذا هدأت أغنية لبضع ثوانٍ في نصفها الثاني، ينتقل إلى التالية. يتخطّى النهايات الصامتة الطويلة والمقاطع المخفية بعدها.
+settings-keep-screen-on = إبقاء الشاشة قيد التشغيل أثناء تشغيل الموسيقى
+settings-keep-screen-on-desc = أثناء تشغيل أغنية، يطلب التطبيق من النظام إبقاء الشاشة قيد التشغيل كما يفعل مع مقاطع الفيديو الموسيقية. وعلى أي حال، تطلب الموسيقى من الجهاز عدم الدخول في وضع السكون.
 settings-hide-explicit-songs = إخفاء الأغاني الصريحة
 settings-hide-explicit-songs-desc = استبعاد الأغاني المميّزة بالرمز E من القوائم والبحث وقائمة الانتظار والتشغيل التلقائي. وتُكمل الأغاني قيد التشغيل حاليًا حتى نهايتها.
 settings-show-podcasts = إظهار البودكاست
@@ -95,6 +111,8 @@ settings-output-device-desc-system = أين تُشغَّل الموسيقى: م�
 settings-this-computer = هذا الجهاز
 settings-on-your-network = على شبكتك
 settings-playing-on = التشغيل على { $name }
+# The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
+settings-play-on-picked = التشغيل على: { $name }
 settings-connecting-to = جارٍ الاتصال بـ { $name }…
 settings-couldnt-play-on = تعذّر التشغيل على { $name }: التشغيل على هذا الجهاز
 settings-windows-default = الافتراضي في Windows
@@ -103,6 +121,11 @@ settings-not-connected = { $name } (غير متصل)
 settings-normalization-off-desc = تُشغَّل الأغاني بمستوى الصوت الذي صُنعت به. يوحّد وضع عادي مستواها جميعًا، ويوحّد وضع هادئ مستواها عند مستوى أخفض.
 settings-normalization-normal-desc = تُشغَّل الأغاني بالمستوى نفسه: تُخفَّض الأغاني العالية كما في YouTube Music، وتُرفع الأغاني الهادئة بما يصل إلى 6 dB.
 settings-normalization-quiet-desc = تُشغَّل الأغاني بمستوى أخفض موحّد: تُخفَّض الأغاني العالية بشكل أكبر، فلا تحتاج الأغاني الهادئة غالبًا إلى رفع الصوت.
+# After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
+settings-normalization-song-no-figure = هذه الأغنية: لا توجد قيمة لجهارة الصوت من YouTube، لذا تُشغَّل كما هي.
+settings-normalization-song-level = هذه الأغنية: بالفعل عند المستوى المطلوب.
+settings-normalization-song-up = هذه الأغنية: رُفع الصوت بمقدار { $db } ديسيبل.
+settings-normalization-song-down = هذه الأغنية: خُفض الصوت بمقدار { $db } ديسيبل.
 settings-headphone-crossfeed = التغذية المتقاطعة للسماعات
 settings-headphone-crossfeed-desc = السماح لكل أذن بسماع قدر بسيط من جهير الجانب الآخر، كما لو كان قادمًا من مكبرات صوت أمامك، لتكون الأغاني الموجّهة بقوة إلى جانب واحد أريح للأذن عبر سماعات الرأس.
 settings-mono-audio = الصوت الأحادي
@@ -118,6 +141,17 @@ settings-equalizer-desc = تشكيل الصوت من الجهير العميق �
 settings-preset = إعداد مسبق
 settings-custom = مخصّص
 settings-equalizer-preset = إعداد المعادل الصوتي المسبق
+# The equalizer's presets.
+settings-eq-flat = متوازن
+settings-eq-bass-boost = تعزيز الجهير
+settings-eq-treble-boost = تعزيز الحاد
+settings-eq-vocal = صوتي
+settings-eq-rock = روك
+settings-eq-pop = بوب
+settings-eq-electronic = إلكتروني
+settings-eq-acoustic = أكوستيك
+settings-eq-classical = كلاسيكي
+settings-eq-late-night = ساعات متأخرة
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = المعادل الصوتي نطاقات ترددات جهير متوسط تريبل
 settings-prevent-clipping = منع التشويش
@@ -127,10 +161,13 @@ settings-0-db = 0 dB
 ## Playback speed
 
 settings-playback-speed = سرعة التشغيل
-settings-playback-speed-desc = تشغيل الأغاني أسرع أو أبطأ، وأيضًا من زر في شريط المشغّل. وتبقى الكلمات متزامنة. يعود إلى 1× مع كل بدء لتشغيل ytm-rs.
+settings-playback-speed-desc = شغّل الأغاني بشكل أسرع أو أبطأ، أو بطبقة صوت أخرى، أيضاً من زر في شريط المشغّل. تبقى الكلمات متزامنة. يعود إلى الوضع العادي كل مرة يبدأ فيها ytm-rs.
 settings-speed = السرعة
 settings-keep-pitch = الحفاظ على طبقة الصوت
 settings-keep-pitch-desc = أسرع أو أبطأ دون أن يصبح الصوت أعلى أو أخفض طبقةً. عند إيقافه، تتغير الطبقة مع السرعة، مثل الأسطوانة.
+settings-speed-pitch = السرعة وطبقة الصوت
+settings-transpose = تغيير الطبقة
+settings-transpose-desc = أعلى أو أخفض بأنصاف درجات، بنفس السرعة. 12 يساوي أوكتافاً.
 settings-playback-speed-jam-note = تعود إلى الوضع الطبيعي أثناء وجودك في جلسة مشتركة، حتى يسمع الجميع الأغنية نفسها.
 
 ## Music videos
@@ -224,6 +261,10 @@ settings-background-brightness = سطوع الخلفية
 settings-background-brightness-desc = يجعل غلاف الألبوم خلف قيد التشغيل الآن والصفحات أكثر سطوعًا أو عتمة. ‎100% هي قيمة السمة.
 settings-brighter = أكثر سطوعًا
 settings-darker = أكثر عتمة
+settings-animation-speed = سرعة الحركة
+settings-animation-speed-desc = مدى سرعة انتقال الصفحات والقوائم واللوحات وظهورها. تبقى الكلمات متزامنة مع الأغنية. 100% هي سرعة السمة الافتراضية.
+settings-smooth-scrolling = تمرير سلس
+settings-smooth-scrolling-desc = تتحرك درجات عجلة الفأرة بانسيابية. عند إيقافه، تنتقل كل درجة فوراً. تعمل لوحات اللمس بالطريقة نفسها في الحالتين.
 settings-flat-background = خلفية سادة
 settings-flat-background-desc = لون واحد خلف الصفحات وشاشة التشغيل، بلا غلاف ألبوم وبلا تدرج.
 settings-flat-background-colour = لون الخلفية
@@ -280,6 +321,15 @@ settings-app-icon = أيقونة التطبيق
 settings-preview = معاينة
 settings-preview-desc = شكلها على شريط المهام وفي شريط النظام.
 settings-app-icon-named = أيقونة التطبيق: { $name }
+# The app icons' names. "YT Music" and "Fluent" stay as they are.
+settings-app-icon-classic = كلاسيكي
+settings-app-icon-smile-ring = حلقة مبتسمة
+settings-app-icon-rust-gear = ترس Rust
+settings-app-icon-waveform = موجة صوتية
+settings-app-icon-record = أسطوانة
+settings-app-icon-lit-line = خط مضيء
+settings-app-icon-duet = ثنائي
+settings-app-icon-warp = انحناء
 
 ## Connections
 
@@ -287,6 +337,8 @@ settings-stream-deck = Stream Deck
 settings-stream-deck-desc = السماح لإضافة Stream Deck على هذا الجهاز بالتحكم في التشغيل.
 settings-lastfm-connected = إرسال سجل ما تشغّله إلى ملف { $name } الشخصي.
 settings-lastfm-allow = اسمح لـ ytm-rs في صفحة Last.fm التي فُتحت في متصفحك.
+# After "Last.fm: ", when signing in wasn't allowed on that page in time.
+settings-lastfm-not-allowed = لم يتم السماح لـ Last.fm في الوقت المناسب
 settings-lastfm-desc = إرسال سجل ما تشغّله إلى ملفك الشخصي على Last.fm.
 settings-disconnect = قطع الاتصال
 settings-connect = اتصال
@@ -295,6 +347,9 @@ settings-listenbrainz-desc = إرسال ما تشغّله إلى ملفك الش
 settings-user-token = رمز المستخدم
 settings-listenbrainz-token-hint = الصق رمز المستخدم الخاص بك في ListenBrainz
 settings-listenbrainz-token-link = احصل على الرمز من listenbrainz.org
+# After "ListenBrainz: ", when Connect is pressed.
+settings-listenbrainz-token-missing = الصق رمز المستخدم أولاً
+settings-listenbrainz-token-refused = لم يقبل ListenBrainz هذا الرمز
 
 ## Language
 
@@ -302,7 +357,6 @@ settings-listenbrainz-token-link = احصل على الرمز من listenbrainz.
 settings-language-system = النظام ({ $language })
 settings-language = اللغة
 settings-language-desc = النصوص الخاصة بالتطبيق نفسه. أما عناوين الأغاني والأسماء وأقسام YouTube Music فتظهر بلغة معلومات الأغاني أدناه.
-settings-restart-to-apply = أعد التشغيل للتطبيق
 settings-language-restart-desc = تتغيّر لغة التطبيق بدءًا من التشغيل التالي.
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
@@ -322,6 +376,11 @@ settings-home = الصفحة الرئيسية
 settings-close-to-tray-desc-linux = يُبقي أيقونة في شريط النظام. يؤدي النقر على × إلى إخفاء النافذة هناك مع استمرار تشغيل الموسيقى. تتيح قائمة الأيقونة إظهارها أو إخفاءها أو إنهاء التطبيق. كما يؤدي النقر على الأغنية في عناصر تحكم الوسائط بالنظام إلى إظهار النافذة مجددًا، ويُنهي الاختصار Ctrl+Q التطبيق.
 settings-close-to-tray-desc = يُبقي أيقونة في شريط النظام. يؤدي النقر على × إلى إخفاء النافذة هناك مع استمرار تشغيل الموسيقى. انقر على الأيقونة لإظهارها مجددًا، أو انقر بزر الفأرة الأيمن لإخفائها أو إظهارها أو إنهاء التطبيق.
 settings-close-to-tray = الإغلاق إلى شريط النظام
+settings-tray-click-plays = النقر على أيقونة شريط النظام للتشغيل أو الإيقاف المؤقت
+settings-tray-click-plays-desc = النقر على الأيقونة يشغّل أو يوقف مؤقتاً بعد لحظة بدلاً من إظهار النافذة. النقر المزدوج يُظهرها، وكذلك النقر عندما لا يوجد شيء قيد التشغيل.
+# Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
+settings-tray-no-gtk = تحتاج أيقونة شريط النظام إلى GTK، الذي تعذّر تشغيله ({ $error }).
+settings-tray-no-appindicator = تحتاج أيقونة شريط النظام إلى مكتبة AppIndicator غير المثبّتة: libayatana-appindicator3-1 على Debian وUbuntu، وlibayatana-appindicator-gtk3 على Fedora (على Bazzite وSilverblue والأنظمة الذرية الأخرى: rpm-ostree install libayatana-appindicator-gtk3 ثم أعد تشغيل الجهاز)، وlibayatana-appindicator على Arch.
 settings-song-notifications-desc = عند بدء أغنية جديدة أثناء تصغير النافذة, وجودها في شريط النظام أو خلف نوافذ أخرى، يتم عرض عنوانها والفنان والغلاف في إشعار.
 settings-song-notifications-unavailable = يتطلب التطبيق المثبّت: يعرض Windows الإشعارات فقط من التطبيقات الموجودة في قائمة ابدأ.
 settings-song-notifications = إشعارات الأغاني
@@ -333,6 +392,9 @@ settings-collapse-sidebar = طيّ الشريط الجانبي
 settings-collapse-sidebar-desc = عرض الأيقونات فقط في الشريط الجانبي للنوافذ الضيقة. يقوم زر القائمة في أعلاه بالدور نفسه.
 settings-draw-with = الرسم باستخدام { $api }
 settings-renderer-restart-desc = سيستخدم التطبيق محرّك العرض الجديد بدءًا من التشغيل التالي.
+settings-disable-rtss = تعطيل طبقة RTSS
+settings-disable-rtss-desc = يطلب من RivaTuner Statistics Server عدم عرض طبقة FPS والأجهزة فوق هذه النافذة.
+settings-rtss-restart-desc = يسري إعداد طبقة RTSS عند التشغيل التالي.
 
 ## Downloads
 
@@ -390,11 +452,25 @@ settings-test-connection = اختبار الاتصال
 settings-test = اختبار
 settings-test-working = يعمل: استجاب YouTube Music خلال { $ms } مللي ثانية.
 settings-test-failed = يعذّر الاتصال: { $error }
+# Under the proxy address, when it isn't one.
+settings-proxy-not-an-address = هذا ليس عنوان وكيل، مثل http://127.0.0.1:8080
+settings-proxy-scheme = استخدم عنوان http:// أو socks5://
+settings-proxy-no-host = يحتاج العنوان إلى مضيف
+settings-proxy-no-port = يحتاج العنوان إلى منفذ، مثل :8080
+# After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
+settings-proxy-not-answering = لا شيء يستجيب على { $address }. هل الوكيل قيد التشغيل؟
+settings-proxy-timed-out = لم يستجب الوكيل في الوقت المناسب.
+settings-proxy-sign-in-refused = لم يقبل الوكيل اسم المستخدم أو كلمة المرور.
+settings-proxy-not-found = تعذّر العثور على عنوان هذا الوكيل.
 settings-proxy-restart-desc = سيتم تطبيق إعداد الوكيل الجديد بدءًا من التشغيل التالي.
 
 ## Storage
 
 settings-cache-cleared = تم مسح التخزين المؤقت: تم تحرير { $size }
+# How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
+settings-size-mb = { $size } ميجابايت
+settings-size-gb = { $size } جيجابايت
+settings-size-under-mb = أقل من 1 ميجابايت
 settings-storage = التخزين
 settings-clearing = جارٍ المسح…
 settings-measuring = جارٍ القياس…
@@ -459,12 +535,20 @@ settings-download = تنزيل
 settings-check-now = التحقق الآن
 settings-another-copy = نسخة أخرى
 settings-another-copy-desc = تطبيق ytm-rs مثبّت أيضًا من { $kind }. لإزالة تلك النسخة، شغّل { $cmd }
+# { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
+settings-another-copy-deb = حزمة .deb
+settings-another-copy-arch = حزمة Arch
 settings-whats-new = ما الجديد
 settings-whats-new-in = ما الجديد في { $version }
 
 ## About
 
 settings-about-tagline = عميل سريع وأصلي لـ YouTube Music.
+settings-copy = نسخ
+settings-copy-version-tip = انقر نقراً مزدوجاً لنسخ الإصدار
+settings-version-copied = تم نسخ الإصدار
+settings-log-files = ملفات السجل
+settings-log-files-desc = ملف ytm-rs.log لهذا التشغيل وملف ytm-rs.prev.log للتشغيل السابق، لإرفاقهما بتقرير خطأ.
 settings-about-lyrics-sources = واجهة برمجة تطبيقات Better Lyrics: Musixmatch, LRCLIB, QQ, KuGou و Better Lyrics TTML
 settings-about-themes-credit = مقتبس من متجر سمات Better Lyrics؛ وتنسب كل بطاقة الفضل إلى منشئيها
 settings-background = الخلفية

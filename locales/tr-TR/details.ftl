@@ -18,6 +18,11 @@ backend-offline = YouTube Music'e ulaşılamıyor. İndirilen şarkılar çalmay
 backend-offline-in-downloads = YouTube Music'e ulaşılamıyor. İndirilen şarkılar çalmaya devam eder.
 backend-offline-proxy = Proxy üzerinden YouTube Music'e ulaşılamıyor (Ayarlar › Ağ › Vekil). İndirilen şarkılar çalmaya devam eder.
 backend-unreachable = YouTube Music'e ulaşılamıyor
+backend-proxy-region = YouTube Music, proxy’nizin bağlandığı bölgede kullanılamıyor. Başka bir proxy veya sunucu deneyin (Ayarlar › Ağ)
+backend-signed-out = YouTube Music bu oturumu kapattı; tekrar giriş yapın
+# { $status } is an HTTP status code, like 500; { $message } is what YouTube Music said, as it said it.
+backend-http-status = YouTube Music HTTP { $status } döndürdü
+backend-http-status-message = YouTube Music HTTP { $status } döndürdü: { $message }
 backend-session-expired = YouTube oturum açma işleminizin süresi doldu. Kitaplığınızı geri almak için tekrar oturum açın.
 backend-empty-download = “{ $title }”nin indirilecek şarkısı yok
 backend-rating = Şarkı derecelendirmesi

@@ -4,6 +4,8 @@ status-link-copied = 링크가 복사되었습니다
 status-starting-playback = 재생을 시작합니다…
 status-playing-next = 다음 재생
 status-added-queue = 대기열에 추가되었습니다
+# In the system's list of what keeps the computer awake, while music plays.
+status-keeping-awake = 음악 재생 중
 status-removed-queue = 대기열에서 제거되었습니다.
 status-cleared-queue = 대기열이 삭제되었습니다.
 status-removed-playlist = 재생목록에서 삭제되었습니다.

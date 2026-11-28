@@ -4,6 +4,7 @@
 # click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }. Restzeit anzeigen
 player-time-show-length = { $time }. Titellänge anzeigen
+# For screen readers, a song marked E: { $title } is its title.
 player-song-explicit = { $title }, explizit
 
 # From the interface-wide catalog (#228).
@@ -28,7 +29,9 @@ player-only-lyrics-source = Liedtextquelle · nur eine gefunden
 player-lyrics-source-name = Liedtextquelle: { $name }
 player-lyrics-from-unison = Liedtext von Unison
 player-lyrics-submitted-by = eingereicht von { $name }
+# Under the lyrics, who wrote the song.
 player-lyrics-written-by = Geschrieben von { $name }
+# { $names } is all but the last of them, between commas.
 player-lyrics-written-by-several = Geschrieben von { $names } & { $last }
 player-timing = Timing
 player-lyrics-later = Liedtext verzögern (+0,1 s)

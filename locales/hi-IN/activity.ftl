@@ -4,6 +4,8 @@ status-link-copied = लिंक कॉपी किया गया
 status-starting-playback = प्लेबैक शुरू हो रहा है...
 status-playing-next = अगला खेल रहा हूँ
 status-added-queue = कतार में जोड़ा गया
+# In the system's list of what keeps the computer awake, while music plays.
+status-keeping-awake = संगीत चल रहा है
 status-removed-queue = कतार से हटाया गया
 status-cleared-queue = कतार साफ़ हो गई
 status-removed-playlist = प्लेलिस्ट से हटा दिया गया

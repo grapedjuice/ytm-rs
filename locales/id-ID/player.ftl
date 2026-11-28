@@ -4,7 +4,6 @@
 # click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }. Tampilkan sisa waktu
 player-time-show-length = { $time }. Tampilkan durasi lagu
-
 # For screen readers, a song marked E: { $title } is its title.
 player-song-explicit = { $title }, Eksplisit
 

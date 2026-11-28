@@ -22,6 +22,12 @@ transfer-estimate = Пошук { $count } треків триватиме бли
 transfer-listen-while-running = Під час перенесення можна слухати музику.
 transfer-pick-playlist = Виберіть список для перенесення.
 transfer-playlist = Список відтворення
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = Уподобані треки
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = Що копіювати
+transfer-step-where = Куди їх зберегти?
+transfer-step-new-playlist = Новий плейлист YouTube Music
 transfer-spotify-account = Обліковий запис Spotify
 transfer-signed-in-plan = Вхід виконано · працює з Free та Premium
 transfer-signed-in-as = Ви ввійшли як { $name }
@@ -103,6 +109,10 @@ transfer-progress-of = з { $count } · { $state }
 transfer-remaining = лишилося близько { $time }
 transfer-readding = Повторне додавання
 transfer-readding-reason = Повторне додавання: YouTube Music не зберіг уподобайки
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = перевірка вподобаної музики
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = очікування завершення змін уподобань у застосунку
 transfer-adding = Додавання
 transfer-local-file = локальний файл
 transfer-on-spotify-index = У Spotify · { $current } з { $total }
@@ -123,3 +133,33 @@ transfer-progress-searching = Перевірено
 transfer-reviewing-doubtful = перевірка сумнівних збігів
 transfer-review-picked = Вибрано
 transfer-review-kept = Лишено
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = Не вдалося зберегти вхід у Spotify: { $error }
+transfer-error-read-library = Не вдалося прочитати бібліотеку Spotify: { $error }
+transfer-error-progress-saved = { $error }. Прогрес збережено; спробуйте ще раз, щоб продовжити з місця зупинки.
+transfer-error-account-changed = Зупинено: змінився обліковий запис або канал YouTube Music
+transfer-error-liked-signed-out = Увійдіть у Spotify, щоб скопіювати вподобані треки
+transfer-error-not-searched = { $count ->
+    [one] Не вдалося знайти { $count } трек (немає з’єднання або YouTube Music обмежує запити)
+    [few] Не вдалося знайти { $count } треки (немає з’єднання або YouTube Music обмежує запити)
+    [many] Не вдалося знайти { $count } треків (немає з’єднання або YouTube Music обмежує запити)
+   *[other] Не вдалося знайти { $count } треку (немає з’єднання або YouTube Music обмежує запити)
+}
+transfer-error-none-found = Жодного треку не знайдено в YouTube Music
+transfer-error-signed-out = YouTube Music завершив ваш сеанс; увійдіть знову і спробуйте ще раз
+transfer-error-create = Не вдалося створити плейлист
+transfer-error-add = Не вдалося додати треки до плейлиста
+transfer-error-read-liked = Не вдалося прочитати вподобану музику
+transfer-error-not-answering = Не вдалося вподобати треки: YouTube Music перестав відповідати
+transfer-error-like = Не вдалося вподобати треки
+transfer-error-not-spotify-link = Це не посилання open.spotify.com
+transfer-error-not-playlist-link = Це не посилання на плейлист
+transfer-error-not-spotify-playlist = Це не посилання на плейлист Spotify
+transfer-error-playlist-not-found = Spotify не знайшов цей плейлист. Якщо він приватний, спочатку увійдіть у Spotify
+transfer-error-no-songs = У цьому плейлисті Spotify немає треків
+transfer-error-library-sign-in = Spotify не повернув вашу бібліотеку; увійдіть у Spotify знову
+transfer-error-liked-sign-in = Spotify не повернув уподобані треки; увійдіть у Spotify знову
+transfer-error-expired = Термін дії входу в Spotify закінчився. Увійдіть у Spotify знову

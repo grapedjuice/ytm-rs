@@ -18,6 +18,11 @@ backend-offline = YouTube Music に接続できません。ダウンロードし
 backend-offline-in-downloads = YouTube Music に接続できません。ダウンロードした曲は再生できます。
 backend-offline-proxy = プロキシ経由で YouTube Music に接続できません（設定 › ネットワーク › プロキシ）。ダウンロードした曲は再生できます。
 backend-unreachable = YouTube Music に接続できません
+backend-proxy-region = プロキシの接続先地域では YouTube Music を利用できません。別のプロキシまたはサーバーをお試しください（設定 › ネットワーク）
+backend-signed-out = YouTube Music によりこのセッションからサインアウトされました。もう一度サインインしてください
+# { $status } is an HTTP status code, like 500; { $message } is what YouTube Music said, as it said it.
+backend-http-status = YouTube Music が HTTP { $status } を返しました
+backend-http-status-message = YouTube Music が HTTP { $status } を返しました: { $message }
 backend-session-expired = YouTube のログインの有効期限が切れました。再ログインするとライブラリを表示できます。
 backend-empty-download = 「{ $title }」にダウンロードできる曲がありません
 backend-rating = 曲の評価

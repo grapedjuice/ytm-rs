@@ -32,6 +32,11 @@ window-loading-notes = Releaseopmerkingen laden…
 window-later = Later
 window-updated = Bijgewerkt naar { $version }
 window-what-changed = Dit is er veranderd.
+# Last in the card shown after updating, for the changes it leaves out.
+window-more-changes = { $count ->
+    [one] + { $count } andere wijziging
+   *[other] + { $count } andere wijzigingen
+}
 window-dismiss = Sluiten
 window-all-notes = Alle opmerkingen bekijken
 window-got-it = Begrepen

@@ -4,6 +4,8 @@ status-link-copied = リンクをコピーしました
 status-starting-playback = 再生を開始中…
 status-playing-next = 次に再生します
 status-added-queue = 再生キューに追加しました
+# In the system's list of what keeps the computer awake, while music plays.
+status-keeping-awake = 音楽を再生中
 status-removed-queue = 再生キューから削除しました
 status-cleared-queue = 再生キューをクリアしました
 status-removed-playlist = プレイリストから削除しました

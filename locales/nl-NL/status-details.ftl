@@ -10,6 +10,7 @@ status-playlist-created = Afspeellijst gemaakt
 status-new-playlist-tracks = Toegevoegd aan nieuwe afspeellijst: { $count }
 status-playlist-added = Toegevoegd aan afspeellijst
 status-playlist-updated = Afspeellijst bijgewerkt
+status-picture-unreadable = Kan die afbeelding niet lezen. Probeer een JPEG, PNG of WebP.
 status-playlist-sorted = Afspeellijst gesorteerd
 status-playlist-sort-failed = Afspeellijst sorteren mislukt
 status-playlist-move-failed = YouTube Music heeft de verplaatsing niet opgeslagen

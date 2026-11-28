@@ -32,6 +32,8 @@ window-loading-notes = 正在載入發行說明...
 window-later = 稍後
 window-updated = 更新為{ $version }
 window-what-changed = 變化如下。
+# Last in the card shown after updating, for the changes it leaves out.
+window-more-changes = + 另外 { $count } 項變更
 window-dismiss = 駁回
 window-all-notes = 看全部註釋
 window-got-it = 明白了

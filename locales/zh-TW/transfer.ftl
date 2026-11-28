@@ -22,6 +22,12 @@ transfer-estimate = { $count } 曲目的搜尋時間：約 { $time }。你可以
 transfer-listen-while-running = 您可以在運行時繼續收聽。
 transfer-pick-playlist = 選擇要複製的播放清單。
 transfer-playlist = 播放列表
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = 喜歡的歌曲
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = 要複製的內容
+transfer-step-where = 要儲存到哪裡？
+transfer-step-new-playlist = 新的 YouTube Music 播放清單
 transfer-spotify-account = Spotify帳號
 transfer-signed-in-plan = 已登入 · 適用於免費版及進階版
 transfer-signed-in-as = 以 { $name } 登入
@@ -103,6 +109,10 @@ transfer-progress-of = { $count } · { $state }
 transfer-remaining = 關於{ $time } 左
 transfer-readding = 重新加入
 transfer-readding-reason = 再次按讚：YouTube Music 放棄了這些讚
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = 正在檢查喜歡的音樂
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = 正在等待應用程式中變更的喜歡狀態完成
 transfer-adding = 新增
 transfer-local-file = 本地文件
 transfer-on-spotify-index = 關於Spotify·{ $current }的{ $total }
@@ -123,3 +133,28 @@ transfer-progress-searching = 已搜索
 transfer-reviewing-doubtful = 檢查可疑的
 transfer-review-picked = 已選
 transfer-review-kept = 保留
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = 無法儲存 Spotify 登入：{ $error }
+transfer-error-read-library = 無法讀取您的 Spotify 音樂庫：{ $error }
+transfer-error-progress-saved = { $error }。您的進度已儲存；重試即可從中斷處繼續。
+transfer-error-account-changed = 已停止：YouTube Music 帳號或頻道已變更
+transfer-error-liked-signed-out = 請登入 Spotify 以複製您喜歡的歌曲
+transfer-error-not-searched = 無法搜尋 { $count } 首歌曲（沒有連線，或 YouTube Music 正在限制請求）
+transfer-error-none-found = 在 YouTube Music 上找不到任何歌曲
+transfer-error-signed-out = YouTube Music 已將您登出；請重新登入後再試一次
+transfer-error-create = 建立播放清單失敗
+transfer-error-add = 將歌曲加入播放清單失敗
+transfer-error-read-liked = 讀取您喜歡的音樂失敗
+transfer-error-not-answering = 喜歡歌曲失敗：YouTube Music 停止回應
+transfer-error-like = 喜歡歌曲失敗
+transfer-error-not-spotify-link = 這不是 open.spotify.com 連結
+transfer-error-not-playlist-link = 這不是播放清單連結
+transfer-error-not-spotify-playlist = 這不是 Spotify 播放清單連結
+transfer-error-playlist-not-found = Spotify 找不到該播放清單。如果是私人清單，請先登入 Spotify
+transfer-error-no-songs = 該 Spotify 播放清單沒有歌曲
+transfer-error-library-sign-in = Spotify 未傳回您的音樂庫；請重新登入 Spotify
+transfer-error-liked-sign-in = Spotify 未傳回喜歡的歌曲；請重新登入 Spotify
+transfer-error-expired = 您的 Spotify 登入已過期。請重新登入 Spotify

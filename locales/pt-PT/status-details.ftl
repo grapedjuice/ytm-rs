@@ -10,6 +10,7 @@ status-playlist-created = Lista de reprodução criada
 status-new-playlist-tracks = Faixas na nova lista de reprodução: { $count }
 status-playlist-added = Adicionado à lista de reprodução
 status-playlist-updated = Lista de reprodução atualizada
+status-picture-unreadable = Não foi possível ler essa imagem. Experimente JPEG, PNG ou WebP.
 status-playlist-sorted = Lista de reprodução ordenada
 status-playlist-sort-failed = Não foi possível ordenar a lista de reprodução
 status-playlist-move-failed = O YouTube Music não guardou a mudança de ordem

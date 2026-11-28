@@ -22,6 +22,12 @@ transfer-estimate = { $count } ट्रैक के लिए खोज सम
 transfer-listen-while-running = इसके चलने के दौरान आप सुनते रह सकते हैं।
 transfer-pick-playlist = कॉपी करने के लिए एक प्लेलिस्ट चुनें।
 transfer-playlist = प्लेलिस्ट
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = पसंद किए गए गाने
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = क्या कॉपी करें
+transfer-step-where = इन्हें कहाँ जाना चाहिए?
+transfer-step-new-playlist = नई YouTube Music प्लेलिस्ट
 transfer-spotify-account = Spotify खाता
 transfer-signed-in-plan = साइन इन · फ्री और प्रीमियम के साथ काम करता है
 transfer-signed-in-as = { $name } के रूप में साइन इन किया गया
@@ -103,6 +109,10 @@ transfer-progress-of = { $count } · { $state }
 transfer-remaining = लगभग { $time } शेष है
 transfer-readding = पुनः जोड़ना
 transfer-readding-reason = फिर से लाइक करना: YouTube Music ने ये लाइक गिरा दिए
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = पसंद किए गए संगीत की जाँच हो रही है
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = ऐप में बदले जा रहे लाइक्स के पूरा होने की प्रतीक्षा है
 transfer-adding = जोड़ना
 transfer-local-file = स्थानीय फ़ाइल
 transfer-on-spotify-index = Spotify पर · { $total } में से { $current }
@@ -123,3 +133,31 @@ transfer-progress-searching = खोजा गया
 transfer-reviewing-doubtful = संदिग्धों की जाँच करना
 transfer-review-picked = चुना गया
 transfer-review-kept = रखा गया
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = Spotify साइन-इन सहेजा नहीं जा सका: { $error }
+transfer-error-read-library = आपकी Spotify लाइब्रेरी पढ़ी नहीं जा सकी: { $error }
+transfer-error-progress-saved = { $error }। आपकी प्रगति सहेजी गई है; जहाँ रुका था वहाँ से जारी रखने के लिए फिर से प्रयास करें।
+transfer-error-account-changed = रुक गया: YouTube Music खाता या चैनल बदल गया
+transfer-error-liked-signed-out = अपने पसंद किए गए गाने कॉपी करने के लिए Spotify में साइन इन करें
+transfer-error-not-searched = { $count ->
+    [one] { $count } गाना खोजा नहीं जा सका (कोई कनेक्शन नहीं, या YouTube Music अनुरोध सीमित कर रहा है)
+   *[other] { $count } गाने खोजे नहीं जा सके (कोई कनेक्शन नहीं, या YouTube Music अनुरोध सीमित कर रहा है)
+}
+transfer-error-none-found = YouTube Music पर कोई भी गाना नहीं मिला
+transfer-error-signed-out = YouTube Music ने आपको साइन आउट कर दिया; फिर से साइन इन करें और पुनः प्रयास करें
+transfer-error-create = प्लेलिस्ट बनाना विफल रहा
+transfer-error-add = प्लेलिस्ट में गाने जोड़ना विफल रहा
+transfer-error-read-liked = आपका पसंद किया गया संगीत पढ़ना विफल रहा
+transfer-error-not-answering = गानों को पसंद करना विफल रहा: YouTube Music ने उत्तर देना बंद कर दिया
+transfer-error-like = गानों को पसंद करना विफल रहा
+transfer-error-not-spotify-link = यह open.spotify.com लिंक नहीं है
+transfer-error-not-playlist-link = यह प्लेलिस्ट लिंक नहीं है
+transfer-error-not-spotify-playlist = यह Spotify प्लेलिस्ट लिंक नहीं है
+transfer-error-playlist-not-found = Spotify को वह प्लेलिस्ट नहीं मिली। यदि यह निजी है, तो पहले Spotify में साइन इन करें
+transfer-error-no-songs = उस Spotify प्लेलिस्ट में कोई गाना नहीं है
+transfer-error-library-sign-in = Spotify ने आपकी लाइब्रेरी नहीं लौटाई; Spotify में फिर से साइन इन करें
+transfer-error-liked-sign-in = Spotify ने पसंद किए गए गाने नहीं लौटाए; Spotify में फिर से साइन इन करें
+transfer-error-expired = आपका Spotify साइन-इन समाप्त हो गया है। Spotify में फिर से साइन इन करें

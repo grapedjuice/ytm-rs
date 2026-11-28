@@ -10,6 +10,7 @@ status-playlist-created = Плейлист создан
 status-new-playlist-tracks = Добавлено в новый плейлист: { $count }
 status-playlist-added = Добавлено в плейлист
 status-playlist-updated = Плейлист обновлён
+status-picture-unreadable = Не удалось прочитать изображение. Попробуйте JPEG, PNG или WebP.
 status-playlist-sorted = Плейлист отсортирован
 status-playlist-sort-failed = Не удалось отсортировать плейлист
 status-playlist-move-failed = YouTube Music не принял перемещение

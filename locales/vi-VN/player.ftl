@@ -4,6 +4,8 @@
 # click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }. Hiện thời gian còn lại
 player-time-show-length = { $time }. Hiện độ dài bài hát
+# For screen readers, a song marked E: { $title } is its title.
+player-song-explicit = { $title }, Nhạy cảm
 
 # From the interface-wide catalog (#228).
 player-full-screen = Toàn màn hình
@@ -27,6 +29,10 @@ player-only-lyrics-source = Nguồn lời bài hát · chỉ tìm thấy một
 player-lyrics-source-name = Nguồn lời bài hát: { $name }
 player-lyrics-from-unison = Lời từ Unison
 player-lyrics-submitted-by = gửi bởi { $name }
+# Under the lyrics, who wrote the song.
+player-lyrics-written-by = Sáng tác: { $name }
+# { $names } is all but the last of them, between commas.
+player-lyrics-written-by-several = Sáng tác: { $names } và { $last }
 player-timing = Thời gian
 player-lyrics-later = Lời bài hát sau (+0,1 s)
 player-lyrics-earlier = Lời bài hát trước đó (−0,1 s)

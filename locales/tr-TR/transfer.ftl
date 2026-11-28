@@ -22,6 +22,12 @@ transfer-estimate = { $count } parçaları için arama süresi: yaklaşık { $ti
 transfer-listen-while-running = Çalışırken dinlemeye devam edebilirsiniz.
 transfer-pick-playlist = Kopyalanacak bir oynatma listesi seçin.
 transfer-playlist = Oynatma listesi
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = Beğenilen Şarkılar
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = Ne kopyalansın
+transfer-step-where = Nereye kaydedilsin?
+transfer-step-new-playlist = Yeni YouTube Music çalma listesi
 transfer-spotify-account = Spotify hesabı
 transfer-signed-in-plan = Oturum açıldı · Ücretsiz ve Premium ile çalışıyor
 transfer-signed-in-as = { $name } olarak oturum açıldı
@@ -103,6 +109,10 @@ transfer-progress-of = / { $count } · { $state }
 transfer-remaining = yaklaşık { $time } kaldı
 transfer-readding = Yeniden ekleniyor
 transfer-readding-reason = Tekrar beğenme: YouTube Music bu beğenileri düşürdü
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = Beğenilen Müzikler kontrol ediliyor
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = uygulamada değiştirilen beğenilerin bitmesi bekleniyor
 transfer-adding = Ekleniyor
 transfer-local-file = yerel dosya
 transfer-on-spotify-index = Spotify'de · { $current } veya { $total }'de
@@ -123,3 +133,28 @@ transfer-progress-searching = Arandı
 transfer-reviewing-doubtful = şüpheli olanları kontrol ediyorum
 transfer-review-picked = Seçildi
 transfer-review-kept = Tutuldu
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = Spotify oturumu kaydedilemedi: { $error }
+transfer-error-read-library = Spotify kitaplığınız okunamadı: { $error }
+transfer-error-progress-saved = { $error }. İlerlemeniz kaydedildi; kaldığı yerden devam etmek için tekrar deneyin.
+transfer-error-account-changed = Durduruldu: YouTube Music hesabı veya kanalı değişti
+transfer-error-liked-signed-out = Beğenilen Şarkılarınızı kopyalamak için Spotify’da oturum açın
+transfer-error-not-searched = { $count } şarkı aranamadı (bağlantı yok veya YouTube Music istekleri sınırlıyor)
+transfer-error-none-found = Şarkıların hiçbiri YouTube Music’te bulunamadı
+transfer-error-signed-out = YouTube Music oturumunuzu kapattı; tekrar giriş yapıp yeniden deneyin
+transfer-error-create = Çalma listesi oluşturulamadı
+transfer-error-add = Şarkılar çalma listesine eklenemedi
+transfer-error-read-liked = Beğenilen Müzikleriniz okunamadı
+transfer-error-not-answering = Şarkılar beğenilemedi: YouTube Music yanıt vermeyi durdurdu
+transfer-error-like = Şarkılar beğenilemedi
+transfer-error-not-spotify-link = Bu bir open.spotify.com bağlantısı değil
+transfer-error-not-playlist-link = Bu bir çalma listesi bağlantısı değil
+transfer-error-not-spotify-playlist = Bu bir Spotify çalma listesi bağlantısı değil
+transfer-error-playlist-not-found = Spotify bu çalma listesini bulamadı. Gizliyse önce Spotify’da oturum açın
+transfer-error-no-songs = Bu Spotify çalma listesinde şarkı yok
+transfer-error-library-sign-in = Spotify kitaplığınızı döndürmedi; Spotify’da tekrar oturum açın
+transfer-error-liked-sign-in = Spotify Beğenilen Şarkıları döndürmedi; Spotify’da tekrar oturum açın
+transfer-error-expired = Spotify oturumunuzun süresi doldu. Spotify’da tekrar oturum açın

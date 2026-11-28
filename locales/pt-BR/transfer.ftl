@@ -22,6 +22,12 @@ transfer-estimate = Busca de { $count } faixas: cerca de { $time }. Você pode c
 transfer-listen-while-running = Você pode continuar ouvindo durante a transferência.
 transfer-pick-playlist = Escolha uma playlist para copiar.
 transfer-playlist = Playlist
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = Músicas curtidas
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = O que copiar
+transfer-step-where = Para onde elas devem ir?
+transfer-step-new-playlist = Nova playlist do YouTube Music
 transfer-spotify-account = Conta do Spotify
 transfer-signed-in-plan = Sessão iniciada · funciona com Free e Premium
 transfer-signed-in-as = Sessão iniciada como { $name }
@@ -103,6 +109,10 @@ transfer-progress-of = de { $count } · { $state }
 transfer-remaining = restam cerca de { $time }
 transfer-readding = Adicionando novamente
 transfer-readding-reason = Curtindo de novo: o YouTube Music não salvou estas curtidas
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = verificando Músicas curtidas
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = aguardando o término das curtidas alteradas no app
 transfer-adding = Adicionando
 transfer-local-file = arquivo local
 transfer-on-spotify-index = No Spotify · { $current } de { $total }
@@ -123,3 +133,31 @@ transfer-progress-searching = Pesquisadas
 transfer-reviewing-doubtful = revisando casos incertos
 transfer-review-picked = Selecionada
 transfer-review-kept = Mantida
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = Não foi possível salvar o login do Spotify: { $error }
+transfer-error-read-library = Não foi possível ler sua biblioteca do Spotify: { $error }
+transfer-error-progress-saved = { $error }. Seu progresso foi salvo; tente novamente para continuar de onde parou.
+transfer-error-account-changed = Interrompido: a conta ou o canal do YouTube Music mudou
+transfer-error-liked-signed-out = Entre no Spotify para copiar suas Músicas curtidas
+transfer-error-not-searched = { $count ->
+    [one] { $count } música não pôde ser pesquisada (sem conexão ou o YouTube Music está limitando requisições)
+   *[other] { $count } músicas não puderam ser pesquisadas (sem conexão ou o YouTube Music está limitando requisições)
+}
+transfer-error-none-found = Nenhuma das músicas foi encontrada no YouTube Music
+transfer-error-signed-out = O YouTube Music encerrou sua sessão; entre novamente e tente de novo
+transfer-error-create = Falha ao criar a playlist
+transfer-error-add = Falha ao adicionar músicas à playlist
+transfer-error-read-liked = Falha ao ler suas Músicas curtidas
+transfer-error-not-answering = Falha ao curtir músicas: o YouTube Music parou de responder
+transfer-error-like = Falha ao curtir músicas
+transfer-error-not-spotify-link = Esse não é um link de open.spotify.com
+transfer-error-not-playlist-link = Esse não é um link de playlist
+transfer-error-not-spotify-playlist = Esse não é um link de playlist do Spotify
+transfer-error-playlist-not-found = O Spotify não encontrou essa playlist. Se ela for privada, entre no Spotify primeiro
+transfer-error-no-songs = Essa playlist do Spotify não tem músicas
+transfer-error-library-sign-in = O Spotify não retornou sua biblioteca; entre no Spotify novamente
+transfer-error-liked-sign-in = O Spotify não retornou as Músicas curtidas; entre no Spotify novamente
+transfer-error-expired = Sua sessão do Spotify expirou. Entre no Spotify novamente

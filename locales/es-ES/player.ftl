@@ -4,6 +4,8 @@
 # click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }. Mostrar tiempo restante
 player-time-show-length = { $time }. Mostrar duración de la canción
+# For screen readers, a song marked E: { $title } is its title.
+player-song-explicit = { $title }, Explícita
 
 # From the interface-wide catalog (#228).
 player-full-screen = Pantalla completa
@@ -27,6 +29,10 @@ player-only-lyrics-source = Fuente de letras · solo una disponible
 player-lyrics-source-name = Fuente de letras: { $name }
 player-lyrics-from-unison = Letras de Unison
 player-lyrics-submitted-by = enviadas por { $name }
+# Under the lyrics, who wrote the song.
+player-lyrics-written-by = Escrita por { $name }
+# { $names } is all but the last of them, between commas.
+player-lyrics-written-by-several = Escrita por { $names } y { $last }
 player-timing = Sincronización
 player-lyrics-later = Retrasar letra (+0,1 s)
 player-lyrics-earlier = Adelantar letra (−0,1 s)

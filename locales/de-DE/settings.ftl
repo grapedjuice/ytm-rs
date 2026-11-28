@@ -15,10 +15,24 @@ settings-account = Konto
 settings-general = Allgemein
 settings-keyboard-shortcuts = Tastenkürzel
 settings-about = Über die App
+settings-content-and-ratings = Inhalte & Bewertungen
+settings-advanced = Erweitert
+# The headings the categories are grouped under, down the side.
+settings-group-listening = Wiedergabe
+settings-group-look = Darstellung
+settings-group-accounts = Konten
+settings-group-app = App
+# Above the settings a search finds, where a category's name goes otherwise.
+settings-search-results = Suchergebnisse
+# Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
+settings-content = Inhalte
+settings-colours = Farben
 settings-no-match = Keine Einstellung für „{ $query }“ gefunden
 settings-title = Einstellungen
 settings-search-box = Einstellungen suchen
 settings-clear = Leeren
+# A button above the settings, there while one changed here waits for the next start.
+settings-restart-to-apply = Zum Übernehmen neu starten
 
 ## Account
 
@@ -51,6 +65,8 @@ settings-crossfade-when-skipping = Beim Überspringen überblenden
 settings-crossfade-when-skipping-desc = Blendet auch beim Sprung zum nächsten Titel über. Zurückspringen oder Auswählen eines Titels wechselt sofort.
 settings-skip-silence = Stille am Ende überspringen
 settings-skip-silence-desc = Wird ein Titel in seiner zweiten Hälfte für ein paar Sekunden still, geht es mit dem nächsten weiter. Überspringt lange stille Enden und versteckte Titel danach.
+settings-keep-screen-on = Bildschirm während der Musikwiedergabe eingeschaltet lassen
+settings-keep-screen-on-desc = Während ein Titel läuft, bittet die App das System, den Bildschirm eingeschaltet zu lassen, wie bei einem Musikvideo. So oder so hindert Musik den Computer am Einschlafen.
 settings-hide-explicit-songs = Explizite Titel ausblenden
 settings-hide-explicit-songs-desc = Blendet Titel mit E in Listen, Suche, Warteschlange und automatischer Wiedergabe aus. Laufende Titel werden zu Ende gespielt.
 settings-show-podcasts = Podcasts anzeigen
@@ -95,6 +111,7 @@ settings-output-device-desc-system = Wo die Musik spielt: die Lautsprecher oder 
 settings-this-computer = Dieser Computer
 settings-on-your-network = In deinem Netzwerk
 settings-playing-on = Wiedergabe auf { $name }
+# The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
 settings-play-on-picked = Wiedergabe auf: { $name }
 settings-connecting-to = Verbinden mit { $name }…
 settings-couldnt-play-on = Wiedergabe auf { $name } nicht möglich: Wiedergabe auf diesem Computer
@@ -104,6 +121,7 @@ settings-not-connected = { $name } (nicht verbunden)
 settings-normalization-off-desc = Titel behalten ihre ursprüngliche Lautstärke. „Normal“ gleicht sie an, „Leise“ gleicht sie auf niedrigerem Niveau an.
 settings-normalization-normal-desc = Titel klingen gleich laut. Laute werden wie bei YouTube Music abgesenkt, leise um bis zu 6 dB angehoben.
 settings-normalization-quiet-desc = Titel klingen gleich laut auf niedrigerem Niveau. Laute werden stärker abgesenkt, sodass leise selten angehoben werden müssen.
+# After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
 settings-normalization-song-no-figure = Dieser Titel: keine Lautheitsangabe von YouTube, er wird unverändert abgespielt.
 settings-normalization-song-level = Dieser Titel: bereits auf dem Zielpegel.
 settings-normalization-song-up = Dieser Titel: um { $db } dB lauter.
@@ -123,6 +141,7 @@ settings-equalizer-desc = Passt den Klang von tiefen Bässen bis zu den Höhen a
 settings-preset = Voreinstellung
 settings-custom = Benutzerdefiniert
 settings-equalizer-preset = Equalizer-Voreinstellung
+# The equalizer's presets.
 settings-eq-flat = Neutral
 settings-eq-bass-boost = Bass-Boost
 settings-eq-treble-boost = Höhen-Boost
@@ -142,10 +161,13 @@ settings-0-db = 0 dB
 ## Playback speed
 
 settings-playback-speed = Wiedergabegeschwindigkeit
-settings-playback-speed-desc = Spiele Titel schneller oder langsamer ab, auch über eine Taste in der Playerleiste. Der Liedtext bleibt synchron. Beim Start von ytm-rs gilt wieder 1×.
+settings-playback-speed-desc = Titel schneller oder langsamer oder in einer anderen Tonart abspielen, auch über eine Schaltfläche in der Wiedergabeleiste. Liedtexte bleiben im Takt. Bei jedem Start von ytm-rs wieder normal.
 settings-speed = Geschwindigkeit
 settings-keep-pitch = Tonhöhe beibehalten
 settings-keep-pitch-desc = Schneller oder langsamer, ohne dass es höher oder tiefer klingt. Ausgeschaltet ändert sich die Tonhöhe mit der Geschwindigkeit, wie bei einer Schallplatte.
+settings-speed-pitch = Geschwindigkeit und Tonhöhe
+settings-transpose = Transponieren
+settings-transpose-desc = Höher oder tiefer in Halbtönen bei gleicher Geschwindigkeit. 12 ist eine Oktave.
 settings-playback-speed-jam-note = Beim gemeinsamen Hören gilt die normale Geschwindigkeit, damit alle dasselbe hören.
 
 ## Music videos
@@ -239,6 +261,10 @@ settings-background-brightness = Helligkeit des Hintergrunds
 settings-background-brightness-desc = Macht das Cover hinter der aktuellen Wiedergabe und den Seiten heller oder dunkler. 100 % entspricht dem Design.
 settings-brighter = Heller
 settings-darker = Dunkler
+settings-animation-speed = Animationsgeschwindigkeit
+settings-animation-speed-desc = Wie schnell Seiten, Menüs und Bereiche sich bewegen und einblenden. Liedtexte bleiben im Takt des Titels. 100 % entspricht dem Design.
+settings-smooth-scrolling = Sanftes Scrollen
+settings-smooth-scrolling-desc = Raststufen des Mausrads gleiten weich. Ausgeschaltet springt jede Stufe sofort. Touchpads scrollen in beiden Fällen gleich.
 settings-flat-background = Flacher Hintergrund
 settings-flat-background-desc = Eine Farbe hinter den Seiten und „Jetzt läuft“, ohne Albumcover und ohne Farbverlauf.
 settings-flat-background-colour = Hintergrundfarbe
@@ -295,6 +321,7 @@ settings-app-icon = App-Symbol
 settings-preview = Vorschau
 settings-preview-desc = So sieht das Symbol in der Taskleiste und im Infobereich aus.
 settings-app-icon-named = App-Symbol: { $name }
+# The app icons' names. "YT Music" and "Fluent" stay as they are.
 settings-app-icon-classic = Klassisch
 settings-app-icon-smile-ring = Lächelnder Ring
 settings-app-icon-rust-gear = Rust-Zahnrad
@@ -310,6 +337,7 @@ settings-stream-deck = Stream Deck
 settings-stream-deck-desc = Erlaubt einem Stream-Deck-Plug-in auf diesem Computer, die Wiedergabe zu steuern.
 settings-lastfm-connected = Deine Wiedergaben werden an das Profil von { $name } gescrobbelt.
 settings-lastfm-allow = Erlaube ytm-rs den Zugriff auf der Last.fm-Seite, die sich im Browser geöffnet hat.
+# After "Last.fm: ", when signing in wasn't allowed on that page in time.
 settings-lastfm-not-allowed = Der Zugriff wurde auf Last.fm nicht rechtzeitig erlaubt
 settings-lastfm-desc = Scrobbelt deine Wiedergaben an dein Last.fm-Profil.
 settings-disconnect = Verbindung trennen
@@ -319,6 +347,7 @@ settings-listenbrainz-desc = Sendet deine Wiedergaben an dein ListenBrainz-Profi
 settings-user-token = Benutzertoken
 settings-listenbrainz-token-hint = ListenBrainz-Benutzertoken einfügen
 settings-listenbrainz-token-link = Token auf listenbrainz.org abrufen
+# After "ListenBrainz: ", when Connect is pressed.
 settings-listenbrainz-token-missing = füge zuerst dein Benutzertoken ein
 settings-listenbrainz-token-refused = ListenBrainz hat dieses Token nicht akzeptiert
 
@@ -328,7 +357,6 @@ settings-listenbrainz-token-refused = ListenBrainz hat dieses Token nicht akzept
 settings-language-system = System ({ $language })
 settings-language = Sprache
 settings-language-desc = Sprache der App-Oberfläche. Titel, Namen und Inhaltsbereiche von YouTube Music verwenden die unten gewählte Sprache der Songinformationen.
-settings-restart-to-apply = Zum Übernehmen neu starten
 settings-language-restart-desc = Die Sprache ändert sich beim nächsten Start.
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
@@ -350,6 +378,7 @@ settings-close-to-tray-desc = Behält ein Symbol im Infobereich. × blendet das 
 settings-close-to-tray = In den Infobereich schließen
 settings-tray-click-plays = Klick auf das Symbol spielt ab oder pausiert
 settings-tray-click-plays-desc = Ein Klick auf das Symbol startet oder pausiert die Wiedergabe kurz darauf, statt das Fenster anzuzeigen. Ein Doppelklick zeigt es an, ebenso ein Klick, wenn nichts zum Abspielen da ist.
+# Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
 settings-tray-no-gtk = Das Symbol im Infobereich braucht GTK, das nicht gestartet werden konnte ({ $error }).
 settings-tray-no-appindicator = Das Symbol im Infobereich braucht die AppIndicator-Bibliothek, die nicht installiert ist: libayatana-appindicator3-1 unter Debian und Ubuntu, libayatana-appindicator-gtk3 unter Fedora (unter Bazzite, Silverblue und anderen atomaren Systemen: rpm-ostree install libayatana-appindicator-gtk3, dann den Computer neu starten), libayatana-appindicator unter Arch.
 settings-song-notifications-desc = Meldet Titel, Interpret und Cover des neuen Songs, wenn das Fenster minimiert, im Infobereich oder hinter anderen Fenstern ist.
@@ -363,6 +392,9 @@ settings-collapse-sidebar = Seitenleiste einklappen
 settings-collapse-sidebar-desc = Zeigt in der Seitenleiste nur Symbole an, etwa für schmale Fenster. Das Menü oben in der Leiste tut dasselbe.
 settings-draw-with = Mit { $api } rendern
 settings-renderer-restart-desc = Die App rendert beim nächsten Start mit dem neu gewählten Renderer.
+settings-disable-rtss = RTSS-Overlay deaktivieren
+settings-disable-rtss-desc = Bittet RivaTuner Statistics Server, sein FPS- und Hardware-Overlay nicht über diesem Fenster anzuzeigen.
+settings-rtss-restart-desc = Die Einstellung für das RTSS-Overlay wird beim nächsten Start wirksam.
 
 ## Downloads
 
@@ -420,10 +452,12 @@ settings-test-connection = Verbindung testen
 settings-test = Testen
 settings-test-working = Verbindung hergestellt. YouTube Music antwortete in { $ms } ms.
 settings-test-failed = Keine Verbindung: { $error }
+# Under the proxy address, when it isn't one.
 settings-proxy-not-an-address = das ist keine Proxyadresse, etwa http://127.0.0.1:8080
 settings-proxy-scheme = verwende eine Adresse mit http:// oder socks5://
 settings-proxy-no-host = die Adresse braucht einen Host
 settings-proxy-no-port = die Adresse braucht einen Port, etwa :8080
+# After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
 settings-proxy-not-answering = unter { $address } antwortet nichts. Läuft der Proxy?
 settings-proxy-timed-out = der Proxy hat nicht rechtzeitig geantwortet.
 settings-proxy-sign-in-refused = der Proxy hat den Benutzernamen oder das Passwort nicht akzeptiert.
@@ -433,6 +467,7 @@ settings-proxy-restart-desc = Die neue Proxy-Einstellung gilt beim nächsten Sta
 ## Storage
 
 settings-cache-cleared = Cache geleert. { $size } freigegeben.
+# How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
 settings-size-mb = { $size } MB
 settings-size-gb = { $size } GB
 settings-size-under-mb = Weniger als 1 MB
@@ -496,6 +531,7 @@ settings-download = Herunterladen
 settings-check-now = Jetzt prüfen
 settings-another-copy = Weitere Installation
 settings-another-copy-desc = ytm-rs wurde auch über { $kind } installiert. Befehl zum Entfernen dieser Installation: { $cmd }
+# { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
 settings-another-copy-deb = das .deb-Paket
 settings-another-copy-arch = das Arch-Paket
 settings-whats-new = Neuerungen
@@ -504,6 +540,11 @@ settings-whats-new-in = Neu in { $version }
 ## About
 
 settings-about-tagline = Ein schneller, nativer Client für YouTube Music.
+settings-copy = Kopieren
+settings-copy-version-tip = Doppelklicken, um die Version zu kopieren
+settings-version-copied = Version kopiert
+settings-log-files = Protokolldateien
+settings-log-files-desc = ytm-rs.log dieses Starts und ytm-rs.prev.log des vorherigen Starts zum Anhängen an einen Fehlerbericht.
 settings-about-lyrics-sources = Better Lyrics API: Musixmatch, LRCLIB, QQ, KuGou und Better Lyrics TTML
 settings-about-themes-credit = Angepasst aus dem Better Lyrics Theme Store. Auf jeder Karte stehen die Mitwirkenden.
 settings-background = Hintergrund

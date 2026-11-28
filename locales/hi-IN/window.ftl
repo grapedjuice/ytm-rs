@@ -32,6 +32,11 @@ window-loading-notes = रिलीज नोट्स लोड हो रह�
 window-later = बाद में
 window-updated = { $version } में अपडेट किया गया
 window-what-changed = यहाँ क्या बदलाव हुआ है।
+# Last in the card shown after updating, for the changes it leaves out.
+window-more-changes = { $count ->
+    [one] + { $count } और बदलाव
+   *[other] + { $count } और बदलाव
+}
 window-dismiss = ख़ारिज करें
 window-all-notes = सभी नोट देखें
 window-got-it = समझ गया

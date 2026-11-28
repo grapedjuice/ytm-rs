@@ -22,6 +22,12 @@ transfer-estimate = Wyszukanie { $count } utworów zajmie około { $time }. Moż
 transfer-listen-while-running = Podczas przenoszenia możesz nadal słuchać.
 transfer-pick-playlist = Wybierz playlistę do skopiowania.
 transfer-playlist = Playlista
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = Polubione utwory
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = Co skopiować
+transfer-step-where = Dokąd mają trafić?
+transfer-step-new-playlist = Nowa playlista YouTube Music
 transfer-spotify-account = Konto Spotify
 transfer-signed-in-plan = Zalogowano · działa z Free i Premium
 transfer-signed-in-as = Zalogowano jako { $name }
@@ -103,6 +109,10 @@ transfer-progress-of = z { $count } · { $state }
 transfer-remaining = pozostało około { $time }
 transfer-readding = Ponowne dodawanie
 transfer-readding-reason = Ponowne dodawanie: YouTube Music nie zapisał polubień
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = sprawdzanie polubionej muzyki
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = oczekiwanie na zakończenie zmian polubień w aplikacji
 transfer-adding = Dodawanie
 transfer-local-file = plik lokalny
 transfer-on-spotify-index = W Spotify · { $current } z { $total }
@@ -123,3 +133,33 @@ transfer-progress-searching = Wyszukano
 transfer-reviewing-doubtful = sprawdzanie niepewnych dopasowań
 transfer-review-picked = Wybrano
 transfer-review-kept = Zachowano
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = Nie udało się zapisać logowania Spotify: { $error }
+transfer-error-read-library = Nie udało się odczytać Twojej biblioteki Spotify: { $error }
+transfer-error-progress-saved = { $error }. Twój postęp został zapisany; spróbuj ponownie, aby wznowić od miejsca zatrzymania.
+transfer-error-account-changed = Zatrzymano: zmieniło się konto lub kanał YouTube Music
+transfer-error-liked-signed-out = Zaloguj się do Spotify, aby skopiować Polubione utwory
+transfer-error-not-searched = { $count ->
+    [one] Nie udało się wyszukać { $count } utworu (brak połączenia lub YouTube Music ogranicza żądania)
+    [few] Nie udało się wyszukać { $count } utworów (brak połączenia lub YouTube Music ogranicza żądania)
+    [many] Nie udało się wyszukać { $count } utworów (brak połączenia lub YouTube Music ogranicza żądania)
+   *[other] Nie udało się wyszukać { $count } utworu (brak połączenia lub YouTube Music ogranicza żądania)
+}
+transfer-error-none-found = Żaden z utworów nie został znaleziony w YouTube Music
+transfer-error-signed-out = YouTube Music Cię wylogowało; zaloguj się ponownie i spróbuj jeszcze raz
+transfer-error-create = Nie udało się utworzyć playlisty
+transfer-error-add = Nie udało się dodać utworów do playlisty
+transfer-error-read-liked = Nie udało się odczytać Twojej polubionej muzyki
+transfer-error-not-answering = Nie udało się polubić utworów: YouTube Music przestało odpowiadać
+transfer-error-like = Nie udało się polubić utworów
+transfer-error-not-spotify-link = To nie jest link open.spotify.com
+transfer-error-not-playlist-link = To nie jest link do playlisty
+transfer-error-not-spotify-playlist = To nie jest link do playlisty Spotify
+transfer-error-playlist-not-found = Spotify nie znalazło tej playlisty. Jeśli jest prywatna, najpierw zaloguj się do Spotify
+transfer-error-no-songs = Ta playlista Spotify nie ma żadnych utworów
+transfer-error-library-sign-in = Spotify nie zwróciło Twojej biblioteki; zaloguj się ponownie do Spotify
+transfer-error-liked-sign-in = Spotify nie zwróciło Polubionych utworów; zaloguj się ponownie do Spotify
+transfer-error-expired = Twoje logowanie w Spotify wygasło. Zaloguj się ponownie do Spotify

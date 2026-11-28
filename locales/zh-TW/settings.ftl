@@ -15,10 +15,24 @@ settings-account = 帳戶
 settings-general = 一般
 settings-keyboard-shortcuts = 鍵盤快速鍵
 settings-about = 關於
+settings-content-and-ratings = 內容與分級
+settings-advanced = 進階
+# The headings the categories are grouped under, down the side.
+settings-group-listening = 聆聽
+settings-group-look = 外觀
+settings-group-accounts = 帳號
+settings-group-app = 應用程式
+# Above the settings a search finds, where a category's name goes otherwise.
+settings-search-results = 搜尋結果
+# Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
+settings-content = 內容
+settings-colours = 色彩
 settings-no-match = 沒有與「{ $query }」相符的設置
 settings-title = 設定
 settings-search-box = 搜尋設定
 settings-clear = 清除
+# A button above the settings, there while one changed here waits for the next start.
+settings-restart-to-apply = 重新啟動以套用
 
 ## Account
 
@@ -51,6 +65,8 @@ settings-crossfade-when-skipping = 跳過時交叉淡入淡出
 settings-crossfade-when-skipping-desc = 當您向前跳時，也會淡入下一首歌曲。返回或選擇一首歌曲仍然會立即切換。
 settings-skip-silence = 略過結尾的靜音
 settings-skip-silence-desc = 歌曲在後半段安靜幾秒時，就接著放下一首。會略過很長的靜音結尾，以及後面的隱藏曲目。
+settings-keep-screen-on = 播放音樂時保持螢幕恆亮
+settings-keep-screen-on-desc = 播放歌曲時，應用程式會像播放音樂影片一樣要求系統保持螢幕恆亮。無論是否開啟，播放音樂都會要求電腦不要進入睡眠。
 settings-hide-explicit-songs = 隱藏露骨歌曲
 settings-hide-explicit-songs-desc = 將標記為 E 的歌曲保留在清單、搜尋、佇列和自動播放之外。那些已經玩完了。
 settings-show-podcasts = 顯示播客
@@ -95,6 +111,8 @@ settings-output-device-desc-system = 音樂在哪裡播放：這台電腦的喇�
 settings-this-computer = 這台電腦
 settings-on-your-network = 在你的網路上
 settings-playing-on = 正在 { $name } 上播放
+# The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
+settings-play-on-picked = 播放裝置：{ $name }
 settings-connecting-to = 正在連線到 { $name }…
 settings-couldnt-play-on = 無法在 { $name } 上播放：改在這台電腦上播放
 settings-windows-default = Windows 預設
@@ -103,6 +121,11 @@ settings-not-connected = { $name }（未連接）
 settings-normalization-off-desc = 歌曲播放時的聲音與製作時一樣大聲。 「正常」使它們全部達到同一水平，而「安靜」則使它們達到相同的較低水平。
 settings-normalization-normal-desc = 歌曲以相同的音量播放：大聲的歌曲被調低，如 YouTube Music，而安靜的歌曲則調高 6 dB。
 settings-normalization-quiet-desc = 歌曲以相同的較低音量播放：大聲的歌曲進一步降低，因此安靜的歌曲很少需要調高。
+# After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
+settings-normalization-song-no-figure = 此歌曲：YouTube 未提供響度資料，將按原樣播放。
+settings-normalization-song-level = 此歌曲：已達目標音量。
+settings-normalization-song-up = 此歌曲：已提高 { $db } dB。
+settings-normalization-song-down = 此歌曲：已降低 { $db } dB。
 settings-headphone-crossfeed = 耳機交叉饋送
 settings-headphone-crossfeed-desc = 让每只耳朵都能听到另一侧的一点低音，例如来自您前面的扬声器的低音，这样通过耳机将很难移至一侧的歌曲更容易被耳朵听到。
 settings-mono-audio = 單聲道音訊
@@ -118,6 +141,17 @@ settings-equalizer-desc = 將聲音塑造為從深沉的低音到高音。只有
 settings-preset = 預設
 settings-custom = 自訂
 settings-equalizer-preset = 等化器預設
+# The equalizer's presets.
+settings-eq-flat = 平直
+settings-eq-bass-boost = 低音增強
+settings-eq-treble-boost = 高音增強
+settings-eq-vocal = 人聲
+settings-eq-rock = 搖滾
+settings-eq-pop = 流行
+settings-eq-electronic = 電子
+settings-eq-acoustic = 原音
+settings-eq-classical = 古典
+settings-eq-late-night = 深夜
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = 均衡器頻段低音中高音頻率
 settings-prevent-clipping = 防止削波
@@ -127,10 +161,13 @@ settings-0-db = 0 分貝
 ## Playback speed
 
 settings-playback-speed = 播放速度
-settings-playback-speed-desc = 也可以透過播放器列中的按鈕更快或更慢地播放歌曲。更快的聲音更高，更慢的聲音更低，就像唱片一樣。歌詞停留在時間。每次ytm-rs啟動時返回1×。
+settings-playback-speed-desc = 加快、放慢或變調播放歌曲，也可透過播放列中的按鈕調整。歌詞維持同步。每次啟動 ytm-rs 時恢復正常。
 settings-speed = 速度
 settings-keep-pitch = 保持音高
 settings-keep-pitch-desc = 加快或放慢，但不會變高或變低。關閉後，音高會隨速度變化，像唱片一樣。
+settings-speed-pitch = 速度與音高
+settings-transpose = 變調
+settings-transpose-desc = 在相同速度下以半音升高或降低音調。12 為一個八度。
 settings-playback-speed-jam-note = 當你陷入困境時恢復正常，這樣每個人都會聽到同一首歌。
 
 ## Music videos
@@ -224,6 +261,10 @@ settings-background-brightness = 背景亮度
 settings-background-brightness-desc = 讓正在播放和各頁面後面的封面更亮或更暗。100% 是主題自己的亮度。
 settings-brighter = 更亮
 settings-darker = 更暗
+settings-animation-speed = 動畫速度
+settings-animation-speed-desc = 頁面、選單與面板移動及淡入的速度。歌詞仍與歌曲保持同步。100% 為佈景主題預設速度。
+settings-smooth-scrolling = 平滑捲動
+settings-smooth-scrolling-desc = 滑鼠滾輪每一格平滑滑動。關閉後每格會立即捲動。觸控板在兩種情況下捲動方式相同。
 settings-flat-background = 純色背景
 settings-flat-background-desc = 頁面和正在播放後面只用一種顏色，沒有專輯封面，也沒有漸層。
 settings-flat-background-colour = 背景顏色
@@ -280,6 +321,15 @@ settings-app-icon = 應用程式圖標
 settings-preview = 預覽
 settings-preview-desc = 它在工作列和托盤中的外觀。
 settings-app-icon-named = 應用程式圖示：{ $name }
+# The app icons' names. "YT Music" and "Fluent" stay as they are.
+settings-app-icon-classic = 經典
+settings-app-icon-smile-ring = 微笑圓環
+settings-app-icon-rust-gear = Rust 齒輪
+settings-app-icon-waveform = 波形
+settings-app-icon-record = 唱片
+settings-app-icon-lit-line = 光軌
+settings-app-icon-duet = 二重奏
+settings-app-icon-warp = 躍遷
 
 ## Connections
 
@@ -287,6 +337,8 @@ settings-stream-deck = Stream Deck
 settings-stream-deck-desc = 讓這台電腦上的 Stream Deck 插件控製播放。
 settings-lastfm-connected = 將您所玩的內容記錄到 { $name } 的個人資料中。
 settings-lastfm-allow = 允許在瀏覽器中開啟的 Last.fm 頁面上使用 ytm-rs。
+# After "Last.fm: ", when signing in wasn't allowed on that page in time.
+settings-lastfm-not-allowed = Last.fm 未在時限內獲得授權
 settings-lastfm-desc = 將您播放的內容記錄到您的 Last.fm 個人資料中。
 settings-disconnect = 斷開連接
 settings-connect = 連接
@@ -295,6 +347,9 @@ settings-listenbrainz-desc = 將您玩的內容傳送到您的 ListenBrainz 個�
 settings-user-token = 使用者令牌
 settings-listenbrainz-token-hint = 貼上您的 ListenBrainz 使用者令牌
 settings-listenbrainz-token-link = 在 Listenbrainz.org 上取得您的令牌
+# After "ListenBrainz: ", when Connect is pressed.
+settings-listenbrainz-token-missing = 請先貼上您的使用者權杖
+settings-listenbrainz-token-refused = ListenBrainz 未接受該權杖
 
 ## Language
 
@@ -302,7 +357,6 @@ settings-listenbrainz-token-link = 在 Listenbrainz.org 上取得您的令牌
 settings-language-system = 跟隨系統（{ $language }）
 settings-language = 語言
 settings-language-desc = 應用程式介面的語言。歌曲標題、名稱和 YouTube Music 內容區塊使用下方選擇的歌曲資訊語言。
-settings-restart-to-apply = 重新啟動以套用
 settings-language-restart-desc = 下次開啟應用程式時會使用新語言。
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
@@ -322,6 +376,11 @@ settings-home = 首頁
 settings-close-to-tray-desc-linux = 在托盤中保留圖示。點擊 × 隱藏視窗並保持音樂播放。圖示的選單可以將其恢復、隱藏或退出。點擊系統媒體控制中的歌曲也會將其恢復，然後按 Ctrl+Q 退出。
 settings-close-to-tray-desc = 在托盤中保留圖示。點擊 × 隱藏視窗並保持音樂播放。按一下該圖示可將其恢復，或以滑鼠右鍵按一下圖示可隱藏、顯示或退出。
 settings-close-to-tray = 關閉時隱藏至系統匣
+settings-tray-click-plays = 點選系統匣圖示以播放或暫停
+settings-tray-click-plays-desc = 單擊圖示後稍候片刻即可播放或暫停，而不會還原視窗。雙擊可還原視窗，無播放內容時單擊也可還原。
+# Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
+settings-tray-no-gtk = 系統匣圖示需要 GTK，但無法啟動（{ $error }）。
+settings-tray-no-appindicator = 系統匣圖示需要尚未安裝的 AppIndicator 函式庫：Debian 與 Ubuntu 為 libayatana-appindicator3-1，Fedora 為 libayatana-appindicator-gtk3（在 Bazzite、Silverblue 等原子系統上：rpm-ostree install libayatana-appindicator-gtk3，然後重新開機），Arch 為 libayatana-appindicator。
 settings-song-notifications-desc = 當視窗最小化時在托盤中或其他視窗後面開始播放新歌曲時，會在通知中顯示其標題、藝人和封面。
 settings-song-notifications-unavailable = 需要安裝的應用程式：Windows 僅在「開始」功能表中顯示來自應用程式的通知。
 settings-song-notifications = 歌曲通知
@@ -393,11 +452,25 @@ settings-test-connection = 測試連接
 settings-test = 測試
 settings-test-working = 工作：YouTube Music 在 { $ms } 毫秒內應答。
 settings-test-failed = 未連接：{ $error }
+# Under the proxy address, when it isn't one.
+settings-proxy-not-an-address = 這不是代理位址，例如 http://127.0.0.1:8080
+settings-proxy-scheme = 請使用 http:// 或 socks5:// 位址
+settings-proxy-no-host = 位址缺少主機
+settings-proxy-no-port = 位址缺少連接埠，例如 :8080
+# After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
+settings-proxy-not-answering = { $address } 沒有回應。代理伺服器正在執行嗎？
+settings-proxy-timed-out = 代理伺服器未在時限內回應。
+settings-proxy-sign-in-refused = 代理伺服器未接受使用者名稱或密碼。
+settings-proxy-not-found = 找不到該代理伺服器的位址。
 settings-proxy-restart-desc = 下次啟動時將使用新的代理設定。
 
 ## Storage
 
 settings-cache-cleared = 快取已清除：{ $size } 已釋放
+# How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
+settings-size-mb = { $size } MB
+settings-size-gb = { $size } GB
+settings-size-under-mb = 小於 1 MB
 settings-storage = 存儲
 settings-clearing = 正在清理中…
 settings-measuring = 測量…
@@ -455,12 +528,20 @@ settings-download = 下載
 settings-check-now = 立即檢查
 settings-another-copy = 另一份
 settings-another-copy-desc = ytm-rs 也是從 { $kind } 安裝的。若要刪除該副本，請執行 { $cmd }
+# { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
+settings-another-copy-deb = .deb 套件
+settings-another-copy-arch = Arch 套件
 settings-whats-new = 最新消息
 settings-whats-new-in = { $version } 的新功能
 
 ## About
 
 settings-about-tagline = 快速、本機 YouTube Music 用戶端。
+settings-copy = 複製
+settings-copy-version-tip = 連按兩下以複製版本
+settings-version-copied = 已複製版本
+settings-log-files = 記錄檔
+settings-log-files-desc = 本次執行的 ytm-rs.log 與上次執行的 ytm-rs.prev.log，可附加於錯誤回報中。
 settings-about-lyrics-sources = Better Lyrics API：Musixmatch、LRCLIB、QQ、酷狗和 Better Lyrics TTML
 settings-about-themes-credit = 改編自Better Lyrics主題商店；每張卡片都歸功於其創作者
 settings-background = 背景

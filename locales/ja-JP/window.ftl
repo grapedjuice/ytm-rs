@@ -32,6 +32,8 @@ window-loading-notes = リリースノートを読み込み中…
 window-later = 後で
 window-updated = { $version } に更新しました
 window-what-changed = 変更点をご確認ください。
+# Last in the card shown after updating, for the changes it leaves out.
+window-more-changes = + 他 { $count } 件の変更
 window-dismiss = 閉じる
 window-all-notes = すべてのリリースノートを表示
 window-got-it = 了解

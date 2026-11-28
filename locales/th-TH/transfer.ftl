@@ -22,6 +22,12 @@ transfer-estimate = เวลาในการค้นหาแทร็ก { 
 transfer-listen-while-running = คุณสามารถฟังต่อไปได้ในขณะที่มันทำงาน
 transfer-pick-playlist = เลือกเพลย์ลิสต์ที่จะคัดลอก
 transfer-playlist = เพลย์ลิสต์
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = เพลงที่ถูกใจ
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = สิ่งที่จะคัดลอก
+transfer-step-where = จะเก็บไว้ที่ไหน?
+transfer-step-new-playlist = เพลย์ลิสต์ YouTube Music ใหม่
 transfer-spotify-account = บัญชี Spotify
 transfer-signed-in-plan = ลงชื่อเข้าใช้แล้ว · ใช้งานได้กับรุ่นฟรีและพรีเมียม
 transfer-signed-in-as = ลงชื่อเข้าใช้เป็น { $name }
@@ -103,6 +109,10 @@ transfer-progress-of = ของ { $count } · { $state }
 transfer-remaining = เหลืออีกประมาณ { $time }
 transfer-readding = เพิ่มอีกครั้ง
 transfer-readding-reason = ถูกใจอีกแล้ว: YouTube Music ทิ้งไลค์เหล่านี้
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = กำลังตรวจสอบเพลงที่ชอบ
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = กำลังรอให้การเปลี่ยนการถูกใจในแอปเสร็จสิ้น
 transfer-adding = กำลังเพิ่ม
 transfer-local-file = ไฟล์ในเครื่อง
 transfer-on-spotify-index = บน Spotify · { $current } ของ { $total }
@@ -123,3 +133,28 @@ transfer-progress-searching = ค้นหาแล้ว
 transfer-reviewing-doubtful = ตรวจสอบสิ่งที่ต้องสงสัย
 transfer-review-picked = เลือกแล้ว
 transfer-review-kept = เก็บไว้
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = ไม่สามารถบันทึกการลงชื่อเข้าใช้ Spotify ได้: { $error }
+transfer-error-read-library = ไม่สามารถอ่านคลัง Spotify ของคุณได้: { $error }
+transfer-error-progress-saved = { $error } บันทึกความคืบหน้าไว้แล้ว ลองอีกครั้งเพื่อทำต่อจากจุดที่หยุด
+transfer-error-account-changed = หยุดแล้ว: บัญชีหรือช่อง YouTube Music เปลี่ยนไป
+transfer-error-liked-signed-out = ลงชื่อเข้าใช้ Spotify เพื่อคัดลอกเพลงที่ถูกใจของคุณ
+transfer-error-not-searched = ไม่สามารถค้นหา { $count } เพลงได้ (ไม่มีการเชื่อมต่อ หรือ YouTube Music จำกัดคำขอ)
+transfer-error-none-found = ไม่พบเพลงใดเลยบน YouTube Music
+transfer-error-signed-out = YouTube Music ออกจากระบบของคุณแล้ว ลงชื่อเข้าใช้อีกครั้งแล้วลองใหม่
+transfer-error-create = สร้างเพลย์ลิสต์ไม่สำเร็จ
+transfer-error-add = เพิ่มเพลงลงในเพลย์ลิสต์ไม่สำเร็จ
+transfer-error-read-liked = อ่านเพลงที่ชอบของคุณไม่สำเร็จ
+transfer-error-not-answering = กดถูกใจเพลงไม่สำเร็จ: YouTube Music หยุดตอบสนอง
+transfer-error-like = กดถูกใจเพลงไม่สำเร็จ
+transfer-error-not-spotify-link = นั่นไม่ใช่ลิงก์ open.spotify.com
+transfer-error-not-playlist-link = นั่นไม่ใช่ลิงก์เพลย์ลิสต์
+transfer-error-not-spotify-playlist = นั่นไม่ใช่ลิงก์เพลย์ลิสต์ Spotify
+transfer-error-playlist-not-found = Spotify ไม่พบเพลย์ลิสต์นั้น หากเป็นส่วนตัว ให้ลงชื่อเข้าใช้ Spotify ก่อน
+transfer-error-no-songs = เพลย์ลิสต์ Spotify นั้นไม่มีเพลง
+transfer-error-library-sign-in = Spotify ไม่ส่งคืนคลังของคุณ ลงชื่อเข้าใช้ Spotify อีกครั้ง
+transfer-error-liked-sign-in = Spotify ไม่ส่งคืนเพลงที่ถูกใจ ลงชื่อเข้าใช้ Spotify อีกครั้ง
+transfer-error-expired = การลงชื่อเข้าใช้ Spotify ของคุณหมดอายุแล้ว ลงชื่อเข้าใช้ Spotify อีกครั้ง

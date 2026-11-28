@@ -4,6 +4,8 @@
 # click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }. 남은 시간 표시
 player-time-show-length = { $time }. 곡 길이 표시
+# For screen readers, a song marked E: { $title } is its title.
+player-song-explicit = { $title }, 성인용
 
 # From the interface-wide catalog (#228).
 player-full-screen = 전체 화면
@@ -27,6 +29,10 @@ player-only-lyrics-source = 가사 출처 · 하나만 검색됨
 player-lyrics-source-name = 가사 출처: { $name }
 player-lyrics-from-unison = Unison의 가사
 player-lyrics-submitted-by = { $name } 님이 제출
+# Under the lyrics, who wrote the song.
+player-lyrics-written-by = 작사: { $name }
+# { $names } is all but the last of them, between commas.
+player-lyrics-written-by-several = 작사: { $names } 및 { $last }
 player-timing = 타이밍
 player-lyrics-later = 나중에 가사(+0.1초)
 player-lyrics-earlier = 이전 가사(−0.1초)

@@ -15,10 +15,24 @@ settings-account = Tài khoản
 settings-general = Chung
 settings-keyboard-shortcuts = Phím tắt
 settings-about = Giới thiệu
+settings-content-and-ratings = Nội dung & xếp hạng
+settings-advanced = Nâng cao
+# The headings the categories are grouped under, down the side.
+settings-group-listening = Nghe nhạc
+settings-group-look = Giao diện
+settings-group-accounts = Tài khoản
+settings-group-app = Ứng dụng
+# Above the settings a search finds, where a category's name goes otherwise.
+settings-search-results = Kết quả tìm kiếm
+# Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
+settings-content = Nội dung
+settings-colours = Màu sắc
 settings-no-match = Không có cài đặt nào khớp với "{ $query }"
 settings-title = Cài đặt
 settings-search-box = Tìm trong cài đặt
 settings-clear = Xóa
+# A button above the settings, there while one changed here waits for the next start.
+settings-restart-to-apply = Khởi động lại để áp dụng
 
 ## Account
 
@@ -51,6 +65,8 @@ settings-crossfade-when-skipping = Crossfade khi bỏ qua
 settings-crossfade-when-skipping-desc = Cũng mờ dần sang bài hát tiếp theo khi bạn bỏ qua bài hát tiếp theo. Quay lại hoặc chọn bài vẫn chuyển ngay.
 settings-skip-silence = Bỏ qua khoảng lặng cuối bài
 settings-skip-silence-desc = Khi bài hát im lặng vài giây ở nửa sau, chuyển sang bài tiếp theo. Bỏ qua đoạn kết im lặng dài và các track ẩn phía sau.
+settings-keep-screen-on = Giữ màn hình bật khi phát nhạc
+settings-keep-screen-on-desc = Khi đang phát bài hát, ứng dụng sẽ yêu cầu hệ thống giữ màn hình bật như khi xem video nhạc. Dù thế nào, nhạc vẫn yêu cầu máy tính không chuyển sang chế độ ngủ.
 settings-hide-explicit-songs = Ẩn bài hát tục tĩu
 settings-hide-explicit-songs-desc = Loại bỏ các bài hát được đánh dấu E khỏi danh sách, tìm kiếm, hàng đợi và tự động phát. Những người đã chơi xong.
 settings-show-podcasts = Hiển thị podcast
@@ -95,6 +111,8 @@ settings-output-device-desc-system = Nơi nhạc phát: loa hoặc tai nghe củ
 settings-this-computer = Máy này
 settings-on-your-network = Trên mạng của bạn
 settings-playing-on = Đang phát trên { $name }
+# The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
+settings-play-on-picked = Phát trên: { $name }
 settings-connecting-to = Đang kết nối tới { $name }…
 settings-couldnt-play-on = Không phát được trên { $name }: đang phát trên máy này
 settings-windows-default = Windows mặc định
@@ -103,6 +121,11 @@ settings-not-connected = { $name } (không được kết nối)
 settings-normalization-off-desc = Các bài hát phát ra âm lượng lớn như khi chúng được tạo ra. Bình thường đưa tất cả chúng về cùng một cấp độ, và Im lặng ở mức tương tự, thấp hơn.
 settings-normalization-normal-desc = Các bài hát phát ở cùng mức: những bài lớn được giảm âm lượng như trên YouTube Music và những bài yên tĩnh tăng lên tới 6 dB.
 settings-normalization-quiet-desc = Các bài hát phát ở mức tương tự, mức độ thấp hơn: những bài lớn được giảm âm lượng lớn hơn, nên những bài yên tĩnh hiếm khi cần tăng âm lượng.
+# After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
+settings-normalization-song-no-figure = Bài hát này: không có thông số âm lượng từ YouTube nên phát nguyên bản.
+settings-normalization-song-level = Bài hát này: đã ở mức chuẩn.
+settings-normalization-song-up = Bài hát này: đã tăng { $db } dB.
+settings-normalization-song-down = Bài hát này: đã giảm { $db } dB.
 settings-headphone-crossfeed = Nguồn cấp chéo tai nghe
 settings-headphone-crossfeed-desc = Hãy để mỗi tai nghe được một chút âm trầm của bên kia, chẳng hạn như từ các loa phía trước bạn, để các bài hát được chuyển mạnh sang một bên sẽ dễ nghe hơn trên tai qua tai nghe.
 settings-mono-audio = Âm thanh đơn âm
@@ -118,6 +141,17 @@ settings-equalizer-desc = Định hình âm thanh từ âm trầm sâu đến â
 settings-preset = Đặt trước
 settings-custom = Tùy chỉnh
 settings-equalizer-preset = Cài đặt sẵn bộ chỉnh âm
+# The equalizer's presets.
+settings-eq-flat = Phẳng
+settings-eq-bass-boost = Tăng âm trầm
+settings-eq-treble-boost = Tăng âm bổng
+settings-eq-vocal = Giọng hát
+settings-eq-rock = Rock
+settings-eq-pop = Pop
+settings-eq-electronic = Điện tử
+settings-eq-acoustic = Acoustic
+settings-eq-classical = Cổ điển
+settings-eq-late-night = Đêm khuya
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = Bộ chỉnh âm dải âm trầm tần số âm bổng
 settings-prevent-clipping = Ngăn chặn việc cắt
@@ -127,10 +161,13 @@ settings-0-db = 0 dB
 ## Playback speed
 
 settings-playback-speed = Tốc độ phát lại
-settings-playback-speed-desc = Phát bài hát nhanh hơn hoặc chậm hơn, cũng từ một nút trên thanh trình phát. Âm thanh nhanh hơn sẽ cao hơn và thấp hơn chậm hơn, giống như một bản ghi âm. Lời bài hát ở lại trong thời gian. Quay lại 1× mỗi lần ytm-rs khởi động.
+settings-playback-speed-desc = Phát bài hát nhanh hoặc chậm hơn, hoặc ở tông khác, cũng có thể chỉnh từ nút trên thanh phát nhạc. Lời bài hát vẫn khớp nhịp. Trở về bình thường mỗi khi mở ytm-rs.
 settings-speed = Tốc độ
 settings-keep-pitch = Giữ cao độ
 settings-keep-pitch-desc = Nhanh hơn hoặc chậm hơn mà không cao giọng hay trầm hơn. Tắt thì cao độ đổi theo tốc độ, như đĩa than.
+settings-speed-pitch = Tốc độ và cao độ
+settings-transpose = Chuyển tông
+settings-transpose-desc = Cao hơn hoặc thấp hơn theo nửa cung với cùng tốc độ. 12 là một quãng tám.
 settings-playback-speed-jam-note = Trở lại bình thường khi bạn đang gặp khó khăn, nên mọi người đều nghe cùng một bài hát.
 
 ## Music videos
@@ -224,6 +261,10 @@ settings-background-brightness = Độ sáng nền
 settings-background-brightness-desc = Làm ảnh bìa phía sau Đang phát và các trang sáng hơn hoặc tối hơn. 100% là độ sáng của chủ đề.
 settings-brighter = Sáng hơn
 settings-darker = Tối hơn
+settings-animation-speed = Tốc độ hoạt ảnh
+settings-animation-speed-desc = Tốc độ di chuyển và hiện dần của trang, menu và bảng. Lời bài hát vẫn khớp nhịp với bài hát. 100% là tốc độ mặc định của giao diện.
+settings-smooth-scrolling = Cuộn mượt
+settings-smooth-scrolling-desc = Các nấc con lăn chuột trượt mượt mà. Khi tắt, mỗi nấc cuộn ngay lập tức. Bàn di chuột cuộn giống nhau trong cả hai trường hợp.
 settings-flat-background = Nền phẳng
 settings-flat-background-desc = Một màu phía sau các trang và Đang phát, không có bìa album và không có dải màu.
 settings-flat-background-colour = Màu nền
@@ -280,6 +321,15 @@ settings-app-icon = Biểu tượng ứng dụng
 settings-preview = Xem trước
 settings-preview-desc = Nó trông như thế nào trên thanh tác vụ và trong khay.
 settings-app-icon-named = Biểu tượng ứng dụng: { $name }
+# The app icons' names. "YT Music" and "Fluent" stay as they are.
+settings-app-icon-classic = Cổ điển
+settings-app-icon-smile-ring = Vòng cười
+settings-app-icon-rust-gear = Bánh răng Rust
+settings-app-icon-waveform = Dạng sóng
+settings-app-icon-record = Đĩa than
+settings-app-icon-lit-line = Đường sáng
+settings-app-icon-duet = Song ca
+settings-app-icon-warp = Warp
 
 ## Connections
 
@@ -287,6 +337,8 @@ settings-stream-deck = Stream Deck
 settings-stream-deck-desc = Cho phép plugin Stream Deck trên máy tính này điều khiển quá trình phát lại.
 settings-lastfm-connected = Ghi lại những gì bạn chơi vào hồ sơ của { $name }.
 settings-lastfm-allow = Cho phép ytm-rs trên trang Last.fm đã mở trong trình duyệt của bạn.
+# After "Last.fm: ", when signing in wasn't allowed on that page in time.
+settings-lastfm-not-allowed = Last.fm chưa được cấp phép kịp thời
 settings-lastfm-desc = Ghi nhanh nội dung bạn chơi vào hồ sơ Last.fm của bạn.
 settings-disconnect = Ngắt kết nối
 settings-connect = Kết nối
@@ -295,6 +347,9 @@ settings-listenbrainz-desc = Gửi nội dung bạn chơi tới hồ sơ ListenB
 settings-user-token = Mã thông báo của người dùng
 settings-listenbrainz-token-hint = Dán mã thông báo người dùng ListenBrainz của bạn
 settings-listenbrainz-token-link = Nhận mã thông báo của bạn trên listenbrainz.org
+# After "ListenBrainz: ", when Connect is pressed.
+settings-listenbrainz-token-missing = hãy dán mã thông báo người dùng trước
+settings-listenbrainz-token-refused = ListenBrainz không chấp nhận mã thông báo đó
 
 ## Language
 
@@ -302,7 +357,6 @@ settings-listenbrainz-token-link = Nhận mã thông báo của bạn trên list
 settings-language-system = Theo hệ thống ({ $language })
 settings-language = Ngôn ngữ
 settings-language-desc = Ngôn ngữ giao diện ứng dụng. Tên bài hát, tên nghệ sĩ và các mục YouTube Music dùng ngôn ngữ thông tin bài hát được chọn bên dưới.
-settings-restart-to-apply = Khởi động lại để áp dụng
 settings-language-restart-desc = Ngôn ngữ mới sẽ được áp dụng khi mở lại ứng dụng.
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
@@ -322,6 +376,11 @@ settings-home = Trang chủ
 settings-close-to-tray-desc-linux = Giữ một biểu tượng trong khay. Nhấp vào × ẩn cửa sổ ở đó và tiếp tục phát nhạc. Menu của biểu tượng sẽ đưa nó trở lại, ẩn nó hoặc thoát. Việc nhấp vào bài hát trong bộ điều khiển phương tiện của hệ thống cũng sẽ đưa bài hát đó trở lại và Ctrl+Q sẽ thoát.
 settings-close-to-tray-desc = Giữ một biểu tượng trong khay. Nhấp vào × ẩn cửa sổ ở đó và tiếp tục phát nhạc. Nhấp vào biểu tượng để hiển thị lại hoặc nhấp chuột phải vào biểu tượng để ẩn, hiển thị hoặc thoát.
 settings-close-to-tray = Thu nhỏ xuống khay hệ thống khi đóng
+settings-tray-click-plays = Nhấp biểu tượng khay hệ thống để phát hoặc tạm dừng
+settings-tray-click-plays-desc = Nhấp một lần vào biểu tượng sẽ phát hoặc tạm dừng ngay sau đó thay vì đưa cửa sổ trở lại. Nhấp đúp sẽ đưa cửa sổ trở lại, cũng như khi nhấp lúc không có gì đang phát.
+# Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
+settings-tray-no-gtk = Biểu tượng khay hệ thống cần GTK nhưng không thể khởi động ({ $error }).
+settings-tray-no-appindicator = Biểu tượng khay hệ thống cần thư viện AppIndicator chưa được cài đặt: libayatana-appindicator3-1 trên Debian và Ubuntu, libayatana-appindicator-gtk3 trên Fedora (trên Bazzite, Silverblue và các hệ thống nguyên tử khác: rpm-ostree install libayatana-appindicator-gtk3 rồi khởi động lại máy), libayatana-appindicator trên Arch.
 settings-song-notifications-desc = Khi một bài hát mới bắt đầu trong khi cửa sổ được thu nhỏ, trong khay hoặc phía sau các cửa sổ khác, hãy hiển thị tiêu đề, nghệ sĩ và bìa của bài hát đó trong thông báo.
 settings-song-notifications-unavailable = Cần ứng dụng đã cài đặt: Windows chỉ hiển thị thông báo từ các ứng dụng trong menu Bắt đầu.
 settings-song-notifications = Thông báo bài hát
@@ -333,6 +392,9 @@ settings-collapse-sidebar = Thu gọn thanh bên
 settings-collapse-sidebar-desc = Chỉ hiển thị các biểu tượng trong thanh bên, dành cho các cửa sổ hẹp. Nút menu ở trên cùng của nó cũng làm như vậy.
 settings-draw-with = Vẽ bằng { $api }
 settings-renderer-restart-desc = Ứng dụng vẽ bằng trình kết xuất mới từ lần khởi động tiếp theo.
+settings-disable-rtss = Tắt lớp phủ RTSS
+settings-disable-rtss-desc = Yêu cầu RivaTuner Statistics Server không hiển thị lớp phủ FPS và phần cứng lên trên cửa sổ này.
+settings-rtss-restart-desc = Cài đặt lớp phủ RTSS có hiệu lực từ lần khởi động tiếp theo.
 
 ## Downloads
 
@@ -390,11 +452,25 @@ settings-test-connection = Kiểm tra kết nối
 settings-test = Kiểm tra
 settings-test-working = Đang hoạt động: YouTube Music đã trả lời sau { $ms } ms.
 settings-test-failed = Không kết nối: { $error }
+# Under the proxy address, when it isn't one.
+settings-proxy-not-an-address = đó không phải địa chỉ proxy, ví dụ http://127.0.0.1:8080
+settings-proxy-scheme = hãy dùng địa chỉ http:// hoặc socks5://
+settings-proxy-no-host = địa chỉ cần có máy chủ
+settings-proxy-no-port = địa chỉ cần có cổng, ví dụ :8080
+# After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
+settings-proxy-not-answering = không có phản hồi tại { $address }. Proxy có đang chạy không?
+settings-proxy-timed-out = proxy không phản hồi kịp thời.
+settings-proxy-sign-in-refused = proxy không chấp nhận tên người dùng hoặc mật khẩu.
+settings-proxy-not-found = không tìm thấy địa chỉ của proxy đó.
 settings-proxy-restart-desc = Cài đặt proxy mới được sử dụng từ lần khởi động tiếp theo.
 
 ## Storage
 
 settings-cache-cleared = Đã xóa bộ nhớ đệm: { $size } đã giải phóng
+# How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
+settings-size-mb = { $size } MB
+settings-size-gb = { $size } GB
+settings-size-under-mb = Dưới 1 MB
 settings-storage = Lưu trữ
 settings-clearing = Đang dọn dẹp…
 settings-measuring = Đo…
@@ -452,12 +528,20 @@ settings-download = Tải xuống
 settings-check-now = Kiểm tra ngay
 settings-another-copy = Một bản khác
 settings-another-copy-desc = ytm-rs cũng được cài đặt từ { $kind }. Để xóa bản sao đó, hãy chạy { $cmd }
+# { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
+settings-another-copy-deb = gói .deb
+settings-another-copy-arch = gói Arch
 settings-whats-new = Có gì mới
 settings-whats-new-in = { $version } có gì mới
 
 ## About
 
 settings-about-tagline = Máy khách YouTube Music gốc, nhanh chóng.
+settings-copy = Sao chép
+settings-copy-version-tip = Nhấp đúp để sao chép phiên bản
+settings-version-copied = Đã sao chép phiên bản
+settings-log-files = Tệp nhật ký
+settings-log-files-desc = ytm-rs.log của lần chạy này và ytm-rs.prev.log của lần chạy trước, để đính kèm vào báo cáo lỗi.
 settings-about-lyrics-sources = API Better Lyrics: Musixmatch, LRCLIB, QQ, KuGou và Better Lyrics TTML
 settings-about-themes-credit = Được chuyển thể từ kho chủ đề Better Lyrics; mỗi thẻ ghi công cho người tạo ra nó
 settings-background = Bối cảnh

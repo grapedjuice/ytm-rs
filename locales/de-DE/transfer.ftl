@@ -22,7 +22,9 @@ transfer-estimate = Suche für { $count } Titel: etwa { $time }. Du kannst weite
 transfer-listen-while-running = Du kannst während der Übertragung weiterhören.
 transfer-pick-playlist = Wähle eine Playlist zum Kopieren.
 transfer-playlist = Playlist
+# Spotify's list of the songs you liked, as it shows among your playlists.
 transfer-liked-songs = Gelikte Titel
+# The steps' headings, shown in capitals after their number.
 transfer-step-what = Was kopiert werden soll
 transfer-step-where = Wohin sollen sie?
 transfer-step-new-playlist = Neue YouTube-Music-Playlist
@@ -107,7 +109,9 @@ transfer-progress-of = von { $count } · { $state }
 transfer-remaining = noch etwa { $time }
 transfer-readding = Wird erneut hinzugefügt
 transfer-readding-reason = Likes werden erneut gesetzt: YouTube Music hat sie verworfen
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
 transfer-checking-liked = gelikte Titel werden geprüft
+# In place of the progress, while likes or unlikes made in the app are still being sent.
 transfer-waiting-for-likes = warten auf die Likes, die in der App gerade geändert werden
 transfer-adding = Wird hinzugefügt
 transfer-local-file = lokale Datei
@@ -129,6 +133,10 @@ transfer-progress-searching = Gesucht
 transfer-reviewing-doubtful = unsichere Treffer werden geprüft
 transfer-review-picked = Ausgewählt
 transfer-review-kept = Beibehalten
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
 transfer-error-save-sign-in = Die Spotify-Anmeldung konnte nicht gespeichert werden: { $error }
 transfer-error-read-library = Deine Spotify-Mediathek konnte nicht gelesen werden: { $error }
 transfer-error-progress-saved = { $error }. Dein Fortschritt ist gespeichert. Versuche es erneut, um an derselben Stelle weiterzumachen.

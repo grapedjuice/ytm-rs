@@ -15,10 +15,24 @@ settings-account = Аккаунт
 settings-general = Общие
 settings-keyboard-shortcuts = Сочетания клавиш
 settings-about = О приложении
+settings-content-and-ratings = Контент и рейтинги
+settings-advanced = Дополнительно
+# The headings the categories are grouped under, down the side.
+settings-group-listening = Прослушивание
+settings-group-look = Внешний вид
+settings-group-accounts = Аккаунты
+settings-group-app = Приложение
+# Above the settings a search finds, where a category's name goes otherwise.
+settings-search-results = Результаты поиска
+# Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
+settings-content = Контент
+settings-colours = Цвета
 settings-no-match = По запросу «{ $query }» ничего не найдено
 settings-title = Настройки
 settings-search-box = Поиск настроек
 settings-clear = Очистить
+# A button above the settings, there while one changed here waits for the next start.
+settings-restart-to-apply = Нужен перезапуск
 
 ## Account
 
@@ -51,6 +65,8 @@ settings-crossfade-when-skipping = Плавный переход при проп
 settings-crossfade-when-skipping-desc = Включает плавный переход и при пропуске вперёд. При переходе назад или выборе другого трека переключение происходит сразу.
 settings-skip-silence = Пропускать тишину в конце
 settings-skip-silence-desc = Если во второй половине трек замолкает на несколько секунд, начинается следующий. Пропускает длинные тихие концовки и скрытые треки после них.
+settings-keep-screen-on = Не выключать экран во время воспроизведения музыки
+settings-keep-screen-on-desc = Пока играет трек, приложение просит систему не гасить экран, как при просмотре клипа. В любом случае музыка не даёт компьютеру уснуть.
 settings-hide-explicit-songs = Скрывать треки с пометкой E
 settings-hide-explicit-songs-desc = Убирает треки с пометкой E из списков, поиска, очереди и автовоспроизведения. Текущий трек доиграет до конца.
 settings-show-podcasts = Показывать подкасты
@@ -95,6 +111,8 @@ settings-output-device-desc-system = Где играет музыка: дина�
 settings-this-computer = Этот компьютер
 settings-on-your-network = В вашей сети
 settings-playing-on = Играет на { $name }
+# The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
+settings-play-on-picked = Воспроизводить на: { $name }
 settings-connecting-to = Подключение к { $name }…
 settings-couldnt-play-on = Не удалось играть на { $name }: играет на этом компьютере
 settings-windows-default = По умолчанию в Windows
@@ -103,6 +121,11 @@ settings-not-connected = { $name } (не подключено)
 settings-normalization-off-desc = Треки играют с исходной громкостью. Обычный режим выравнивает громкость, а тихий выравнивает её на более низком уровне.
 settings-normalization-normal-desc = Треки звучат на одном уровне. Как в YouTube Music, громкие треки приглушаются, а тихие усиливаются до 6 дБ.
 settings-normalization-quiet-desc = Треки звучат на одном пониженном уровне. Громкие приглушаются сильнее, поэтому тихие почти не нужно усиливать.
+# After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
+settings-normalization-song-no-figure = Этот трек: нет данных о громкости от YouTube, воспроизводится как есть.
+settings-normalization-song-level = Этот трек: уже на нужном уровне.
+settings-normalization-song-up = Этот трек: усилен на { $db } дБ.
+settings-normalization-song-down = Этот трек: ослаблен на { $db } дБ.
 settings-headphone-crossfeed = Кроссфид для наушников
 settings-headphone-crossfeed-desc = Подмешивает в каждое ухо немного баса из другого канала, как при прослушивании через колонки перед вами. Треки с сильным смещением в одну сторону комфортнее слушать в наушниках.
 settings-mono-audio = Монофонический звук
@@ -118,6 +141,17 @@ settings-equalizer-desc = Настраивает звучание от глуб�
 settings-preset = Предустановка
 settings-custom = Пользовательская
 settings-equalizer-preset = Предустановка эквалайзера
+# The equalizer's presets.
+settings-eq-flat = Ровный
+settings-eq-bass-boost = Усиление басов
+settings-eq-treble-boost = Усиление высоких
+settings-eq-vocal = Вокал
+settings-eq-rock = Рок
+settings-eq-pop = Поп
+settings-eq-electronic = Электроника
+settings-eq-acoustic = Акустика
+settings-eq-classical = Классика
+settings-eq-late-night = Ночной
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = эквалайзер полосы басы средние высокие частота
 settings-prevent-clipping = Предотвращать клиппинг
@@ -127,10 +161,13 @@ settings-0-db = 0 дБ
 ## Playback speed
 
 settings-playback-speed = Скорость воспроизведения
-settings-playback-speed-desc = Ускоряет или замедляет треки. Настройка доступна и на панели плеера. Как на пластинке, при ускорении тон повышается, при замедлении понижается. Текст остаётся синхронным. При запуске ytm-rs скорость возвращается к 1×.
+settings-playback-speed-desc = Воспроизводите треки быстрее или медленнее, либо в другой тональности — также с кнопки на панели плеера. Текст остаётся синхронизированным. Сбрасывается при каждом запуске ytm-rs.
 settings-speed = Скорость
 settings-keep-pitch = Сохранять высоту тона
 settings-keep-pitch-desc = Быстрее или медленнее, без повышения и понижения тона. Выключено — высота меняется вместе со скоростью, как у пластинки.
+settings-speed-pitch = Скорость и тональность
+settings-transpose = Транспонирование
+settings-transpose-desc = Выше или ниже по полутонам с той же скоростью. 12 — это октава.
 settings-playback-speed-jam-note = При совместном прослушивании скорость возвращается к обычной, чтобы все слышали одну и ту же песню.
 
 ## Music videos
@@ -224,6 +261,10 @@ settings-background-brightness = Яркость фона
 settings-background-brightness-desc = Делает обложку за «Сейчас играет» и страницами светлее или темнее. 100 % — как в теме.
 settings-brighter = Светлее
 settings-darker = Темнее
+settings-animation-speed = Скорость анимации
+settings-animation-speed-desc = Насколько быстро перемещаются и появляются страницы, меню и панели. Текст песни остаётся в такт музыке. 100% — значение темы по умолчанию.
+settings-smooth-scrolling = Плавная прокрутка
+settings-smooth-scrolling-desc = Щелчки колёсика мыши прокручиваются плавно. Если выключить, каждый щелчок прокручивает сразу. Тачпады работают одинаково в обоих случаях.
 settings-flat-background = Плоский фон
 settings-flat-background-desc = Один цвет за страницами и экраном «Сейчас играет», без обложки и без градиента.
 settings-flat-background-colour = Цвет фона
@@ -280,6 +321,15 @@ settings-app-icon = Значок приложения
 settings-preview = Предпросмотр
 settings-preview-desc = Как значок выглядит на панели задач и в области уведомлений.
 settings-app-icon-named = Значок приложения: { $name }
+# The app icons' names. "YT Music" and "Fluent" stay as they are.
+settings-app-icon-classic = Классическая
+settings-app-icon-smile-ring = Кольцо-улыбка
+settings-app-icon-rust-gear = Шестерёнка Rust
+settings-app-icon-waveform = Звуковая волна
+settings-app-icon-record = Пластинка
+settings-app-icon-lit-line = Светящаяся линия
+settings-app-icon-duet = Дуэт
+settings-app-icon-warp = Искажение
 
 ## Connections
 
@@ -287,6 +337,8 @@ settings-stream-deck = Stream Deck
 settings-stream-deck-desc = Разрешает плагину Stream Deck на этом компьютере управлять воспроизведением.
 settings-lastfm-connected = Прослушивания записываются в профиль { $name }.
 settings-lastfm-allow = Разрешите доступ для ytm-rs на странице Last.fm, открывшейся в браузере.
+# After "Last.fm: ", when signing in wasn't allowed on that page in time.
+settings-lastfm-not-allowed = Last.fm не получил разрешение вовремя
 settings-lastfm-desc = Записывает прослушивания в ваш профиль Last.fm.
 settings-disconnect = Отключить
 settings-connect = Подключить
@@ -295,6 +347,9 @@ settings-listenbrainz-desc = Отправляет прослушивания в 
 settings-user-token = Токен пользователя
 settings-listenbrainz-token-hint = Вставьте токен пользователя ListenBrainz
 settings-listenbrainz-token-link = Получить токен на listenbrainz.org
+# After "ListenBrainz: ", when Connect is pressed.
+settings-listenbrainz-token-missing = сначала вставьте токен пользователя
+settings-listenbrainz-token-refused = ListenBrainz не принял этот токен
 
 ## Language
 
@@ -302,7 +357,6 @@ settings-listenbrainz-token-link = Получить токен на listenbrainz
 settings-language-system = Как в системе ({ $language })
 settings-language = Язык
 settings-language-desc = Язык интерфейса приложения. Названия песен, имена и разделы YouTube Music отображаются на языке, выбранном ниже в настройках данных о песнях.
-settings-restart-to-apply = Нужен перезапуск
 settings-language-restart-desc = Язык изменится при следующем запуске приложения.
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
@@ -322,6 +376,11 @@ settings-home = Главная
 settings-close-to-tray-desc-linux = Оставляет значок в области уведомлений. Кнопка × скрывает окно, музыка продолжает играть. Через меню значка можно показать или скрыть окно либо выйти. Щелчок по треку в системных элементах управления воспроизведением тоже возвращает окно. Ctrl+Q закрывает приложение.
 settings-close-to-tray-desc = Оставляет значок в области уведомлений. Кнопка × скрывает окно, музыка продолжает играть. Щёлкните по значку, чтобы вернуть окно, или щёлкните правой кнопкой, чтобы скрыть, показать окно или выйти.
 settings-close-to-tray = Сворачивать в область уведомлений
+settings-tray-click-plays = Нажатие на значок в трее для воспроизведения или паузы
+settings-tray-click-plays-desc = Нажатие на значок через мгновение запускает или ставит на паузу вместо показа окна. Двойное нажатие возвращает окно, как и нажатие, когда нечего воспроизводить.
+# Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
+settings-tray-no-gtk = Для значка в трее нужен GTK, но его не удалось запустить ({ $error }).
+settings-tray-no-appindicator = Для значка в трее нужна библиотека AppIndicator, которая не установлена: libayatana-appindicator3-1 в Debian и Ubuntu, libayatana-appindicator-gtk3 в Fedora (в Bazzite, Silverblue и других атомарных системах: rpm-ostree install libayatana-appindicator-gtk3, затем перезагрузите компьютер), libayatana-appindicator в Arch.
 settings-song-notifications-desc = Показывает название, исполнителя и обложку нового трека, если окно свёрнуто, скрыто в области уведомлений или перекрыто другими окнами.
 settings-song-notifications-unavailable = Нужна установленная версия. Windows показывает уведомления только от приложений из меню «Пуск».
 settings-song-notifications = Уведомления о треках
@@ -333,6 +392,9 @@ settings-collapse-sidebar = Свернуть боковую панель
 settings-collapse-sidebar-desc = Оставляет на боковой панели только значки, чтобы освободить место в узких окнах. Кнопка меню вверху делает то же самое.
 settings-draw-with = Отрисовка через { $api }
 settings-renderer-restart-desc = Приложение переключится на новый движок отрисовки при следующем запуске.
+settings-disable-rtss = Отключить оверлей RTSS
+settings-disable-rtss-desc = Попросить RivaTuner Statistics Server не показывать оверлей FPS и датчиков поверх этого окна.
+settings-rtss-restart-desc = Настройка оверлея RTSS вступит в силу при следующем запуске.
 
 ## Downloads
 
@@ -390,11 +452,25 @@ settings-test-connection = Проверить соединение
 settings-test = Проверить
 settings-test-working = Соединение работает. YouTube Music ответил за { $ms } мс.
 settings-test-failed = Не удалось подключиться: { $error }
+# Under the proxy address, when it isn't one.
+settings-proxy-not-an-address = это не адрес прокси, например http://127.0.0.1:8080
+settings-proxy-scheme = используйте адрес http:// или socks5://
+settings-proxy-no-host = в адресе нужен хост
+settings-proxy-no-port = в адресе нужен порт, например :8080
+# After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
+settings-proxy-not-answering = по адресу { $address } нет ответа. Прокси запущен?
+settings-proxy-timed-out = прокси не ответил вовремя.
+settings-proxy-sign-in-refused = прокси не принял имя пользователя или пароль.
+settings-proxy-not-found = не удалось найти адрес этого прокси.
 settings-proxy-restart-desc = Новая настройка прокси применяется при следующем запуске.
 
 ## Storage
 
 settings-cache-cleared = Кэш очищен. Освобождено { $size }.
+# How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
+settings-size-mb = { $size } МБ
+settings-size-gb = { $size } ГБ
+settings-size-under-mb = Менее 1 МБ
 settings-storage = Хранилище
 settings-clearing = Очистка…
 settings-measuring = Подсчёт…
@@ -457,12 +533,20 @@ settings-download = Скачать
 settings-check-now = Проверить сейчас
 settings-another-copy = Другая копия
 settings-another-copy-desc = ytm-rs также установлен через { $kind }. Команда удаления этой копии: { $cmd }
+# { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
+settings-another-copy-deb = пакет .deb
+settings-another-copy-arch = пакет Arch
 settings-whats-new = Что нового
 settings-whats-new-in = Что нового в { $version }
 
 ## About
 
 settings-about-tagline = Быстрый нативный клиент для YouTube Music.
+settings-copy = Копировать
+settings-copy-version-tip = Дважды нажмите, чтобы скопировать версию
+settings-version-copied = Версия скопирована
+settings-log-files = Файлы журнала
+settings-log-files-desc = ytm-rs.log этого запуска и ytm-rs.prev.log предыдущего — чтобы приложить к сообщению об ошибке.
 settings-about-lyrics-sources = API Better Lyrics: Musixmatch, LRCLIB, QQ, KuGou и Better Lyrics TTML
 settings-about-themes-credit = Адаптировано из магазина тем Better Lyrics. Авторы указаны на карточках тем.
 settings-background = Фон

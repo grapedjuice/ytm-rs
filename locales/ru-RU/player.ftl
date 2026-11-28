@@ -4,6 +4,8 @@
 # click switches to the time left ("-0:51 / 1:27") and back. { $time } is the time as shown.
 player-time-show-left = { $time }. Показать оставшееся время
 player-time-show-length = { $time }. Показать длительность трека
+# For screen readers, a song marked E: { $title } is its title.
+player-song-explicit = { $title }, Ненормативная лексика
 
 # From the interface-wide catalog (#228).
 player-full-screen = Полноэкранный режим
@@ -27,6 +29,10 @@ player-only-lyrics-source = Источник текста · найден тол
 player-lyrics-source-name = Источник текста: { $name }
 player-lyrics-from-unison = Текст от Unison
 player-lyrics-submitted-by = от { $name }
+# Under the lyrics, who wrote the song.
+player-lyrics-written-by = Автор текста: { $name }
+# { $names } is all but the last of them, between commas.
+player-lyrics-written-by-several = Авторы текста: { $names } и { $last }
 player-timing = Синхронизация
 player-lyrics-later = Текст позже (+0,1 с)
 player-lyrics-earlier = Текст раньше (−0,1 с)

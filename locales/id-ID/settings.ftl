@@ -31,7 +31,6 @@ settings-no-match = Tidak ada pengaturan yang cocok dengan “{ $query }”
 settings-title = Pengaturan
 settings-search-box = Cari pengaturan
 settings-clear = Hapus
-
 # A button above the settings, there while one changed here waits for the next start.
 settings-restart-to-apply = Mulai ulang untuk menerapkan
 
@@ -66,6 +65,8 @@ settings-crossfade-when-skipping = Crossfade saat lompat lagu
 settings-crossfade-when-skipping-desc = Lagu juga memudar ke lagu berikutnya saat Anda beralih maju. Saat beralih mundur atau memilih lagu secara langsung, pemutaran tetap berpindah seketika.
 settings-skip-silence = Lewati hening di akhir
 settings-skip-silence-desc = Jika lagu hening selama beberapa detik di paruh akhir, pemutaran akan beralih ke lagu berikutnya. Fitur ini melewati bagian akhir yang hening lama dan trek tersembunyi sesudahnya.
+settings-keep-screen-on = Biarkan layar tetap menyala saat musik diputar
+settings-keep-screen-on-desc = Saat lagu diputar, aplikasi meminta sistem agar layar tetap menyala, seperti saat memutar video musik. Bagaimanapun, musik meminta komputer agar tidak tidur.
 settings-hide-explicit-songs = Sembunyikan lagu eksplisit
 settings-hide-explicit-songs-desc = Lagu bertanda E tidak ditampilkan di daftar lagu, hasil pencarian, antrean, dan putar otomatis. Lagu yang sedang diputar tetap dilanjutkan hingga selesai.
 settings-show-podcasts = Tampilkan podcast
@@ -133,7 +134,6 @@ settings-balance = Keseimbangan
 settings-balance-desc = Geser suara ke telinga kiri atau kanan. Total kerasnya tetap: sisi yang dituju makin keras, sisi lainnya makin pelan.
 settings-centre = Tengah
 
-
 ## Equalizer
 
 settings-equalizer = Equalizer
@@ -157,7 +157,6 @@ settings-equalizer-search-words = Equalizer pita bass mid treble frekuensi
 settings-prevent-clipping = Cegah clipping
 settings-prevent-clipping-desc = Seluruh suara diturunkan sebesar penguatan pada pita frekuensi, sehingga memperkecil kemungkinan audio pecah pada lagu yang bervolume tinggi.
 settings-0-db = 0 dB
-
 
 ## Playback speed
 
@@ -218,7 +217,6 @@ settings-quick-line-changes-desc = Baris berikutnya langsung pindah ke tempatnya
 settings-lyrics-full-frame-rate = Lirik sesuai refresh rate layar
 settings-lyrics-full-frame-rate-desc = Lirik yang tersinkron beranimasi secepat refresh rate layarmu, misalnya 144 fps di monitor 144 Hz, bukan 60. Lebih mulus di layar cepat, tapi kerja CPU dan grafis lebih berat.
 
-
 ## Lyrics timing
 
 settings-lyrics-timing = Waktu lirik
@@ -231,14 +229,12 @@ settings-line-synced-trim-desc = Geseran tambahan untuk lirik yang sinkron per b
 settings-later = Lebih lambat
 settings-earlier = Lebih cepat
 
-
 ## Lyrics sources
 
 settings-lyrics-sources = Sumber lirik
 settings-lyrics-sources-note = Dicoba sesuai urutan ini. Nonaktifkan salah satu untuk melewatinya; bilah alat di bawah lirik dapat digunakan untuk memilih sumber lain untuk satu lagu.
 settings-lower = Turun
 settings-higher = Naik
-
 
 ## Appearance
 
@@ -267,6 +263,8 @@ settings-brighter = Lebih terang
 settings-darker = Lebih gelap
 settings-animation-speed = Kecepatan animasi
 settings-animation-speed-desc = Seberapa cepat halaman, menu, dan panel bergerak serta memudar masuk. Lirik tetap mengikuti tempo lagu. 100% adalah bawaan tema.
+settings-smooth-scrolling = Gulir halus
+settings-smooth-scrolling-desc = Putaran roda tetikus meluncur halus. Jika mati, setiap langkah langsung bergulir. Panel sentuh menggulir sama saja dalam kedua kondisi.
 settings-flat-background = Latar datar
 settings-flat-background-desc = Satu warna di belakang halaman dan Sedang diputar, tanpa sampul dan tanpa gradien.
 settings-flat-background-colour = Warna latar
@@ -315,7 +313,6 @@ settings-keep-on-top-wayland = Selalu di atas di Wayland
 settings-keep-on-top-wayland-desc = Wayland tidak mengizinkan aplikasi menahan jendelanya di atas yang lain, jadi aplikasi terbuka lewat XWayland. Guliran touchpad di sana tidak meluncur terus, dan teks bisa terlihat lebih lembut dengan skala pecahan.
 settings-keep-on-top-wayland-restart-desc = Jendelanya berubah mulai peluncuran berikutnya.
 
-
 ## App icon
 
 settings-app-icon-note-linux = Mengubah ikon di menu aplikasi, di jendela, dan di tray
@@ -324,7 +321,6 @@ settings-app-icon = Ikon aplikasi
 settings-preview = Pratinjau
 settings-preview-desc = Tampilannya di taskbar dan di tray.
 settings-app-icon-named = Ikon aplikasi: { $name }
-
 # The app icons' names. "YT Music" and "Fluent" stay as they are.
 settings-app-icon-classic = Klasik
 settings-app-icon-smile-ring = Cincin senyum
@@ -351,7 +347,6 @@ settings-listenbrainz-desc = Kirim lagu yang kamu putar ke profil ListenBrainz k
 settings-user-token = Token pengguna
 settings-listenbrainz-token-hint = Tempel token pengguna ListenBrainz kamu
 settings-listenbrainz-token-link = Ambil tokenmu di listenbrainz.org
-
 # After "ListenBrainz: ", when Connect is pressed.
 settings-listenbrainz-token-missing = tempel token pengguna Anda terlebih dahulu
 settings-listenbrainz-token-refused = ListenBrainz tidak menerima token tersebut
@@ -364,7 +359,6 @@ settings-language = Bahasa
 settings-language-desc = Teks di dalam aplikasi. Judul lagu, nama, dan rak YouTube Music tampil dalam bahasa Info lagu di bawah.
 settings-language-restart-desc = Bahasa aplikasi berubah mulai dari peluncuran berikutnya.
 
-
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
 
 settings-song-info = Info lagu
@@ -372,7 +366,6 @@ settings-song-info-language = Bahasa info lagu
 settings-song-info-language-desc = Bahasa yang digunakan untuk judul lagu, nama artis dan album, serta rak YouTube Music, selama YouTube Music menyediakannya.
 settings-song-info-country = Negara info lagu
 settings-song-info-country-desc = Negara yang jadi acuan tangga lagu dan rekomendasi.
-
 
 ## Window
 
@@ -399,7 +392,9 @@ settings-collapse-sidebar = Ciutkan bilah samping
 settings-collapse-sidebar-desc = Hanya menampilkan ikon pada bilah samping, cocok untuk layar sempit. Tombol menu di bagian atas juga dapat digunakan.
 settings-draw-with = Gambar pakai { $api }
 settings-renderer-restart-desc = Aplikasi menggambar pakai renderer baru mulai dari peluncuran berikutnya.
-
+settings-disable-rtss = Nonaktifkan overlay RTSS
+settings-disable-rtss-desc = Minta RivaTuner Statistics Server untuk tidak menampilkan overlay FPS dan perangkat keras di atas jendela ini.
+settings-rtss-restart-desc = Pengaturan overlay RTSS berlaku mulai pemulaian berikutnya.
 
 ## Downloads
 
@@ -417,7 +412,6 @@ settings-file-lyrics-desc = Lagu yang diunduh membawa lirik yang kamu lihat untu
 settings-file-lyrics-synced = Tersinkron
 settings-file-lyrics-plain = Teks saja
 settings-file-lyrics-off = Tidak ada
-
 
 ## Network
 
@@ -470,7 +464,6 @@ settings-proxy-sign-in-refused = proxy tidak menerima nama pengguna atau kata sa
 settings-proxy-not-found = tidak dapat menemukan alamat proxy tersebut.
 settings-proxy-restart-desc = Pengaturan proxy baru dipakai mulai dari peluncuran berikutnya.
 
-
 ## Storage
 
 settings-cache-cleared = Cache dibersihkan: { $size } lega
@@ -483,7 +476,6 @@ settings-clearing = Lagi dibersihin…
 settings-measuring = Lagi ngukur…
 settings-cache = Cache
 settings-clear-cache = Bersihkan cache
-
 
 ## Keyboard shortcuts
 
@@ -511,7 +503,6 @@ settings-zoom-in-out = Perbesar / perkecil
 settings-shortcut-zoom-reset = Atur ulang zoom ke 100%
 settings-shortcut-leave = Keluar dari layar penuh, sedang diputar, atau mode pilih
 settings-esc = Esc
-
 
 ## Updates
 
@@ -543,10 +534,14 @@ settings-another-copy-arch = paket Arch
 settings-whats-new = Yang baru
 settings-whats-new-in = Yang baru di { $version }
 
-
 ## About
 
 settings-about-tagline = Klien YouTube Music native yang cepat dan ringan.
+settings-copy = Salin
+settings-copy-version-tip = Klik ganda untuk menyalin versi
+settings-version-copied = Versi disalin
+settings-log-files = Berkas log
+settings-log-files-desc = ytm-rs.log sesi ini dan ytm-rs.prev.log sesi sebelumnya, untuk dilampirkan ke laporan bug.
 settings-about-lyrics-sources = API lirik: Musixmatch, LRCLIB, QQ, KuGou, dan Better Lyrics TTML
 settings-about-themes-credit = Diadaptasi dari toko tema Better Lyrics; tiap kartu mencantumkan pembuatnya
 settings-background = Latar belakang

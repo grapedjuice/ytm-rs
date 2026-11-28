@@ -22,6 +22,12 @@ transfer-estimate = وقت البحث لـ { $count } مقطع صوتي: حوا�
 transfer-listen-while-running = يمكنك مواصلة الاستماع أثناء تشغيل العملية.
 transfer-pick-playlist = اختر قائمة تشغيل لنسخها.
 transfer-playlist = قائمة تشغيل
+# Spotify's list of the songs you liked, as it shows among your playlists.
+transfer-liked-songs = الأغاني المعجب بها
+# The steps' headings, shown in capitals after their number.
+transfer-step-what = ما الذي تريد نسخه
+transfer-step-where = إلى أين يجب أن تذهب؟
+transfer-step-new-playlist = قائمة تشغيل جديدة على YouTube Music
 transfer-spotify-account = حساب Spotify
 transfer-signed-in-plan = تم تسجيل الدخول · يعمل مع الحساب المجاني وPremium
 transfer-signed-in-as = تم تسجيل الدخول باسم { $name }
@@ -103,6 +109,10 @@ transfer-progress-of = من { $count } · { $state }
 transfer-remaining = يتبقى حوالي { $time }
 transfer-readding = إعادة الإضافة
 transfer-readding-reason = إعادة تسجيل الإعجاب: أسقط YouTube Music هذه الإعجابات
+# Beside the progress while it looks over Liked Music for likes YouTube Music dropped.
+transfer-checking-liked = جارٍ فحص الموسيقى المعجب بها
+# In place of the progress, while likes or unlikes made in the app are still being sent.
+transfer-waiting-for-likes = بانتظار انتهاء تعديلات الإعجابات في التطبيق
 transfer-adding = إضافة
 transfer-local-file = ملف محلي
 transfer-on-spotify-index = على Spotify · { $current } من { $total }
@@ -123,3 +133,35 @@ transfer-progress-searching = تم البحث
 transfer-reviewing-doubtful = مراجعة الأغاني غير المؤكدة
 transfer-review-picked = تم الاختيار
 transfer-review-kept = تم الإبقاء
+
+## Why a transfer stopped, or a playlist link wasn't taken.
+
+# { $error } is what went wrong, as the app or Spotify said it.
+transfer-error-save-sign-in = تعذّر حفظ تسجيل الدخول إلى Spotify: { $error }
+transfer-error-read-library = تعذّرت قراءة مكتبة Spotify: { $error }
+transfer-error-progress-saved = { $error }. تم حفظ تقدّمك؛ حاول مجدداً للمتابعة من حيث توقفت.
+transfer-error-account-changed = توقّف: تغيّر حساب أو قناة YouTube Music
+transfer-error-liked-signed-out = سجّل الدخول إلى Spotify لنسخ أغانيك المعجب بها
+transfer-error-not-searched = { $count ->
+    [zero] لم يتعذّر البحث عن أي أغنية
+    [one] تعذّر البحث عن أغنية واحدة (لا يوجد اتصال، أو أن YouTube Music يحدّ الطلبات)
+    [two] تعذّر البحث عن أغنيتين (لا يوجد اتصال، أو أن YouTube Music يحدّ الطلبات)
+    [few] تعذّر البحث عن { $count } أغانٍ (لا يوجد اتصال، أو أن YouTube Music يحدّ الطلبات)
+    [many] تعذّر البحث عن { $count } أغنية (لا يوجد اتصال، أو أن YouTube Music يحدّ الطلبات)
+   *[other] تعذّر البحث عن { $count } أغنية (لا يوجد اتصال، أو أن YouTube Music يحدّ الطلبات)
+}
+transfer-error-none-found = لم يتم العثور على أي من الأغاني على YouTube Music
+transfer-error-signed-out = قام YouTube Music بتسجيل خروجك؛ سجّل الدخول مجدداً وحاول مرة أخرى
+transfer-error-create = فشل إنشاء قائمة التشغيل
+transfer-error-add = فشل إضافة الأغاني إلى قائمة التشغيل
+transfer-error-read-liked = فشلت قراءة الموسيقى المعجب بها
+transfer-error-not-answering = فشل الإعجاب بالأغاني: توقّف YouTube Music عن الاستجابة
+transfer-error-like = فشل الإعجاب بالأغاني
+transfer-error-not-spotify-link = هذا ليس رابط open.spotify.com
+transfer-error-not-playlist-link = هذا ليس رابط قائمة تشغيل
+transfer-error-not-spotify-playlist = هذا ليس رابط قائمة تشغيل Spotify
+transfer-error-playlist-not-found = لم يتمكن Spotify من العثور على قائمة التشغيل هذه. إذا كانت خاصة، سجّل الدخول إلى Spotify أولاً
+transfer-error-no-songs = قائمة تشغيل Spotify هذه لا تحتوي على أغانٍ
+transfer-error-library-sign-in = لم يُعد Spotify مكتبتك؛ سجّل الدخول إلى Spotify مجدداً
+transfer-error-liked-sign-in = لم يُعد Spotify الأغاني المعجب بها؛ سجّل الدخول إلى Spotify مجدداً
+transfer-error-expired = انتهت صلاحية تسجيل الدخول إلى Spotify. سجّل الدخول إلى Spotify مجدداً

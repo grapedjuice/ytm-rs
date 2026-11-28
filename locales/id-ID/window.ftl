@@ -2,6 +2,7 @@
 
 window-update-ready = Pembaruan siap
 
+
 ui-off = Mati
 ui-none = Nggak ada
 ui-normal = Normal
@@ -32,6 +33,11 @@ window-loading-notes = Memuat catatan rilis…
 window-later = Nanti aja
 window-updated = Udah diperbarui ke { $version }
 window-what-changed = Ini yang berubah.
+# Last in the card shown after updating, for the changes it leaves out.
+window-more-changes = { $count ->
+    [one] + { $count } more change
+   *[other] + { $count } more changes
+}
 window-dismiss = Tutup
 window-all-notes = Lihat semua catatan
 window-got-it = Oke, paham

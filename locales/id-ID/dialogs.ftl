@@ -9,6 +9,7 @@ dialog-delete-upload-title = Hapus unggahan?
 dialog-delete-upload = Hapus unggahan
 dialog-name = Nama
 dialog-my-playlist = Playlist-ku
+dialog-search-playlists = Search your playlists
 dialog-private-desc = Pribadi · cuma kamu yang bisa lihat
 dialog-playlist-name = Nama playlist
 dialog-description = Deskripsi
@@ -35,11 +36,14 @@ dialog-delete-playlist-body = “{ $title }” akan dihapus dari koleksi YouTube
 dialog-delete-upload-body = “{ $title }” akan dihapus dari unggahan YouTube Music kamu. Ini nggak bisa dibatalkan.
 dialog-download-count = Unduh ({ $count })
 dialog-edit-playlist = Edit playlist
+dialog-picture = Picture
+dialog-change-picture = Change picture
+dialog-remove-picture = Remove
 dialog-download-body = Lagu yang belum diunduh: { $count }. Unduhan jalan di latar belakang dan dimulai dari lagu yang lagi diputar.
 dialog-download-collection-body = Lagu yang belum diunduh dari “{ $title }”: { $count }. Unduhan jalan di latar belakang dan dimulai dari lagu yang lagi diputar.
 dialog-add-duplicates-title = Sudah ada di playlist
 dialog-add-duplicates-some = Sebagian lagu ini sudah ada di "{ $title }". Tambahkan saja?
-dialog-add-duplicates-body =
+dialog-add-duplicates-body = 
     { $count ->
        *[other] { $more ->
             [0] { $count } lagu ini sudah ada di "{ $title }": { $songs }. Tambahkan saja?

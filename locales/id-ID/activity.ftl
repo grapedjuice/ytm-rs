@@ -4,10 +4,12 @@ status-link-copied = Link udah disalin
 status-starting-playback = Mulai memutar…
 status-playing-next = Diputar berikutnya
 status-added-queue = Ditambahkan ke antrean
+# In the system's list of what keeps the computer awake, while music plays.
+status-keeping-awake = Playing music
 status-removed-queue = Dihapus dari antrean
 status-cleared-queue = Antrean dikosongkan
 status-removed-playlist = Dihapus dari playlist
-status-not-added-duplicates =
+status-not-added-duplicates = 
     { $count ->
        *[other] Nggak ditambahkan: sudah ada di "{ $title }"
     }

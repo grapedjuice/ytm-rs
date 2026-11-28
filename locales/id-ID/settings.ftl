@@ -15,10 +15,25 @@ settings-account = Akun
 settings-general = Umum
 settings-keyboard-shortcuts = Pintasan keyboard
 settings-about = Tentang
+settings-content-and-ratings = Content & ratings
+settings-advanced = Advanced
+# The headings the categories are grouped under, down the side.
+settings-group-listening = Listening
+settings-group-look = Look
+settings-group-accounts = Accounts
+settings-group-app = App
+# Above the settings a search finds, where a category's name goes otherwise.
+settings-search-results = Search results
+# Sections: what's shown (Content & ratings), and light or dark and the accent (Themes).
+settings-content = Content
+settings-colours = Colours
 settings-no-match = Nggak ada pengaturan yang cocok dengan "{ $query }"
 settings-title = Pengaturan
 settings-search-box = Cari pengaturan
 settings-clear = Hapus
+
+# A button above the settings, there while one changed here waits for the next start.
+settings-restart-to-apply = Mulai ulang buat menerapkan
 
 ## Account
 
@@ -35,6 +50,7 @@ settings-no-channel = { $name } (Tanpa channel)
 settings-another-channel = Channel lain
 settings-channel-not-during-transfer = Nggak bisa saat transfer lagi jalan
 settings-switching = Lagi pindah…
+
 
 ## Playback
 
@@ -60,6 +76,7 @@ settings-show-comments-desc = Tab Komentar di layar Sedang Diputar. Lihat apa ka
 settings-use-youtubes-restricted-mode = Pakai Mode Terbatas YouTube
 settings-use-youtubes-restricted-mode-desc = Lebih ketat: YouTube juga menyaring konten lain yang dianggap dewasa, nggak cuma lagu eksplisit. Berlaku untuk halaman yang dimuat mulai sekarang.
 
+
 ## Song ratings
 
 settings-song-ratings = Penilaian lagu
@@ -79,6 +96,7 @@ settings-ratings-safe-likes = Anti salah pencet
 settings-ratings-safe-likes-desc = Tahan tombol suka buat menghapus suka.
 settings-ratings-hold-to-remove = Tahan buat hapus suka
 
+
 ## Sound
 
 settings-sound = Suara
@@ -95,6 +113,8 @@ settings-output-device-desc-system = Tempat musik diputar: speaker atau headphon
 settings-this-computer = Komputer ini
 settings-on-your-network = Di jaringanmu
 settings-playing-on = Diputar di { $name }
+# The player bar's "Play on" button, with speakers picked that aren't playing (not found yet, or let go of while nothing plays).
+settings-play-on-picked = Play on: { $name }
 settings-connecting-to = Menyambung ke { $name }…
 settings-couldnt-play-on = Nggak bisa memutar di { $name }: diputar di komputer ini
 settings-windows-default = Default Windows
@@ -103,6 +123,11 @@ settings-not-connected = { $name } (tidak tersambung)
 settings-normalization-off-desc = Lagu diputar dengan volume aslinya. Normal menyamakan semua lagu ke level yang sama, dan Pelan ke level yang sama tapi lebih rendah.
 settings-normalization-normal-desc = Semua lagu diputar di level yang sama: yang keras dikecilin, kayak di YouTube Music, dan yang pelan dinaikin sampai 6 dB.
 settings-normalization-quiet-desc = Semua lagu diputar di level yang sama tapi lebih rendah: yang keras dikecilin lebih jauh, jadi yang pelan jarang perlu dinaikin.
+# After the level's description, while a song plays: what normalization does to it. { $db } is a number of decibels, such as 3.2.
+settings-normalization-song-no-figure = This song: no loudness figure from YouTube, so it plays as it is.
+settings-normalization-song-level = This song: already at the level.
+settings-normalization-song-up = This song: turned up { $db } dB.
+settings-normalization-song-down = This song: turned down { $db } dB.
 settings-headphone-crossfeed = Crossfeed headphone
 settings-headphone-crossfeed-desc = Tiap telinga bisa dengar sedikit bass dari sisi lain, kayak dari speaker di depanmu, jadi lagu yang suaranya cuma di satu sisi lebih nyaman didengar lewat headphone.
 settings-mono-audio = Audio mono
@@ -111,6 +136,7 @@ settings-balance = Keseimbangan
 settings-balance-desc = Geser suara ke telinga kiri atau kanan. Total kerasnya tetap: sisi yang dituju makin keras, sisi lainnya makin pelan.
 settings-centre = Tengah
 
+
 ## Equalizer
 
 settings-equalizer = Equalizer
@@ -118,11 +144,23 @@ settings-equalizer-desc = Atur suara dari bass dalam sampai treble. Cuma yang ka
 settings-preset = Preset
 settings-custom = Kustom
 settings-equalizer-preset = Preset equalizer
+# The equalizer's presets.
+settings-eq-flat = Flat
+settings-eq-bass-boost = Bass boost
+settings-eq-treble-boost = Treble boost
+settings-eq-vocal = Vocal
+settings-eq-rock = Rock
+settings-eq-pop = Pop
+settings-eq-electronic = Electronic
+settings-eq-acoustic = Acoustic
+settings-eq-classical = Classical
+settings-eq-late-night = Late night
 # Not shown: words a search in Settings finds the equalizer by.
 settings-equalizer-search-words = Equalizer pita bass mid treble frekuensi
 settings-prevent-clipping = Cegah clipping
 settings-prevent-clipping-desc = Seluruh suara dikecilin sebesar boost pada pita, jadi lagu yang keras lebih kecil kemungkinannya pecah.
 settings-0-db = 0 dB
+
 
 ## Playback speed
 
@@ -131,7 +169,11 @@ settings-playback-speed-desc = Putar lagu lebih cepat atau lebih lambat, bisa ju
 settings-speed = Kecepatan
 settings-keep-pitch = Jaga nada
 settings-keep-pitch-desc = Lebih cepat atau lebih lambat tanpa bunyinya jadi lebih tinggi atau lebih rendah. Kalau dimatiin, nadanya ikut berubah sama kecepatan, kayak piringan hitam.
+settings-speed-pitch = Speed and pitch
+settings-transpose = Transpose
+settings-transpose-desc = Higher or lower by semitones, at the same speed. 12 is an octave.
 settings-playback-speed-jam-note = Balik normal selama kamu di jam, biar semua orang dengar lagu yang sama.
+
 
 ## Music videos
 
@@ -150,6 +192,7 @@ settings-hide-videos-in-search = Sembunyikan video dari pencarian
 settings-hide-videos-in-search-desc = Hasil pencarian cuma menampilkan lagu, album, artis, dan playlist.
 settings-skip-non-music-parts = Lewati bagian non-musik
 settings-skip-non-music-parts-desc = Lompati bagian ngobrol, skit, dan jeda sponsor di video musik, sesuai tanda dari komunitas SponsorBlock. Lagu album nggak bisa.
+
 
 ## Lyrics
 
@@ -180,6 +223,7 @@ settings-quick-line-changes-desc = Baris berikutnya langsung pindah ke tempatnya
 settings-lyrics-full-frame-rate = Lirik sesuai refresh rate layar
 settings-lyrics-full-frame-rate-desc = Lirik yang tersinkron beranimasi secepat refresh rate layarmu, misalnya 144 fps di monitor 144 Hz, bukan 60. Lebih mulus di layar cepat, tapi kerja CPU dan grafis lebih berat.
 
+
 ## Lyrics timing
 
 settings-lyrics-timing = Waktu lirik
@@ -192,12 +236,14 @@ settings-line-synced-trim-desc = Geseran tambahan untuk lirik yang sinkron per b
 settings-later = Lebih lambat
 settings-earlier = Lebih cepat
 
+
 ## Lyrics sources
 
 settings-lyrics-sources = Sumber lirik
 settings-lyrics-sources-note = Dicoba sesuai urutan ini. Matikan salah satu buat melewatinya; bilah alat di bawah lirik bisa dipakai buat milih sumber lain untuk satu lagu.
 settings-lower = Turun
 settings-higher = Naik
+
 
 ## Appearance
 
@@ -224,6 +270,8 @@ settings-background-brightness = Kecerahan latar
 settings-background-brightness-desc = Membuat sampul di belakang Sedang diputar dan halaman lebih terang atau lebih gelap. 100% adalah bawaan tema.
 settings-brighter = Lebih terang
 settings-darker = Lebih gelap
+settings-animation-speed = Animation speed
+settings-animation-speed-desc = How fast pages, menus and panels move and fade in. Lyrics keep time with the song. 100% is the theme's own.
 settings-flat-background = Latar datar
 settings-flat-background-desc = Satu warna di belakang halaman dan Sedang diputar, tanpa sampul dan tanpa gradien.
 settings-flat-background-colour = Warna latar
@@ -251,6 +299,7 @@ settings-themes-font = Font tema
 settings-installed-on-this-pc = Terpasang di PC ini
 settings-looking-for-fonts = Lagi nyari font…
 
+
 ## Mini player
 
 settings-pill-mini-player-desc = Eksperimental. Pil kecil yang menampilkan kontrolnya pas kamu arahkan kursor. Klik dua kali buat buka jendela penuh.
@@ -272,6 +321,7 @@ settings-keep-on-top-wayland = Selalu di atas di Wayland
 settings-keep-on-top-wayland-desc = Wayland tidak mengizinkan aplikasi menahan jendelanya di atas yang lain, jadi aplikasi terbuka lewat XWayland. Guliran touchpad di sana tidak meluncur terus, dan teks bisa terlihat lebih lembut dengan skala pecahan.
 settings-keep-on-top-wayland-restart-desc = Jendelanya berubah mulai peluncuran berikutnya.
 
+
 ## App icon
 
 settings-app-icon-note-linux = Mengubah ikon di menu aplikasi, di jendela, dan di tray
@@ -281,12 +331,24 @@ settings-preview = Pratinjau
 settings-preview-desc = Tampilannya di taskbar dan di tray.
 settings-app-icon-named = Ikon aplikasi: { $name }
 
+# The app icons' names. "YT Music" and "Fluent" stay as they are.
+settings-app-icon-classic = Classic
+settings-app-icon-smile-ring = Smile ring
+settings-app-icon-rust-gear = Rust gear
+settings-app-icon-waveform = Waveform
+settings-app-icon-record = Record
+settings-app-icon-lit-line = Lit line
+settings-app-icon-duet = Duet
+settings-app-icon-warp = Warp
+
 ## Connections
 
 settings-stream-deck = Stream Deck
 settings-stream-deck-desc = Izinkan plugin Stream Deck di komputer ini buat mengontrol pemutaran.
 settings-lastfm-connected = Lagu yang kamu putar di-scrobble ke profil { $name }.
 settings-lastfm-allow = Izinkan ytm-rs di halaman Last.fm yang kebuka di browsermu.
+# After "Last.fm: ", when signing in wasn't allowed on that page in time.
+settings-lastfm-not-allowed = Last.fm wasn't allowed in time
 settings-lastfm-desc = Scrobble lagu yang kamu putar ke profil Last.fm kamu.
 settings-disconnect = Putuskan
 settings-connect = Sambungkan
@@ -296,14 +358,18 @@ settings-user-token = Token pengguna
 settings-listenbrainz-token-hint = Tempel token pengguna ListenBrainz kamu
 settings-listenbrainz-token-link = Ambil tokenmu di listenbrainz.org
 
+# After "ListenBrainz: ", when Connect is pressed.
+settings-listenbrainz-token-missing = paste your user token first
+settings-listenbrainz-token-refused = ListenBrainz didn't accept that token
+
 ## Language
 
 # { $language } is the system's language, in its own name.
 settings-language-system = Sistem ({ $language })
 settings-language = Bahasa
 settings-language-desc = Teks di dalam aplikasi. Judul lagu, nama, dan rak YouTube Music tampil dalam bahasa Info lagu di bawah.
-settings-restart-to-apply = Mulai ulang buat menerapkan
 settings-language-restart-desc = Bahasa aplikasi berubah mulai dari peluncuran berikutnya.
+
 
 ## Song info: the language and country YouTube Music answers in. Separate from Language above.
 
@@ -312,6 +378,7 @@ settings-song-info-language = Bahasa info lagu
 settings-song-info-language-desc = Bahasa yang dipakai buat judul lagu, nama artis dan album, serta rak YouTube Music, selama YouTube Music menyediakannya.
 settings-song-info-country = Negara info lagu
 settings-song-info-country-desc = Negara yang jadi acuan tangga lagu dan rekomendasi.
+
 
 ## Window
 
@@ -322,6 +389,11 @@ settings-home = Beranda
 settings-close-to-tray-desc-linux = Simpan ikon di tray. Klik × bakal menyembunyikan jendela di sana dan musik tetap jalan. Menu di ikonnya bisa memunculkan lagi, menyembunyikan, atau keluar. Klik lagu di kontrol media sistem juga memunculkannya lagi, dan Ctrl+Q buat keluar.
 settings-close-to-tray-desc = Simpan ikon di tray. Klik × bakal menyembunyikan jendela di sana dan musik tetap jalan. Klik ikonnya buat memunculkan lagi, atau klik kanan buat menyembunyikan, menampilkan, atau keluar.
 settings-close-to-tray = Tutup ke tray
+settings-tray-click-plays = Click the tray icon to play or pause
+settings-tray-click-plays-desc = A click on the icon plays or pauses, a moment later, instead of bringing the window back. A double-click brings it back, as does a click with nothing to play.
+# Under Close to tray on Linux, when the tray icon can't work there. { $error } is what GTK said.
+settings-tray-no-gtk = The tray icon needs GTK, which couldn't start ({ $error }).
+settings-tray-no-appindicator = The tray icon needs the AppIndicator library, which isn't installed: libayatana-appindicator3-1 on Debian and Ubuntu, libayatana-appindicator-gtk3 on Fedora (on Bazzite, Silverblue and other atomic systems: rpm-ostree install libayatana-appindicator-gtk3, then restart the computer), libayatana-appindicator on Arch.
 settings-song-notifications-desc = Pas lagu baru mulai saat jendela diminimalkan, ada di tray, atau ketutup jendela lain, tampilkan judul, artis, dan sampulnya lewat notifikasi.
 settings-song-notifications-unavailable = Butuh aplikasi yang sudah terpasang: Windows cuma menampilkan notifikasi dari aplikasi di menu Start.
 settings-song-notifications = Notifikasi lagu
@@ -333,6 +405,7 @@ settings-collapse-sidebar = Ciutkan bilah samping
 settings-collapse-sidebar-desc = Cuma tampilkan ikon di bilah samping, cocok buat layar sempit. Tombol menu di bagian atasnya juga bisa.
 settings-draw-with = Gambar pakai { $api }
 settings-renderer-restart-desc = Aplikasi menggambar pakai renderer baru mulai dari peluncuran berikutnya.
+
 
 ## Downloads
 
@@ -350,6 +423,7 @@ settings-file-lyrics-desc = Lagu yang diunduh membawa lirik yang kamu lihat untu
 settings-file-lyrics-synced = Tersinkron
 settings-file-lyrics-plain = Teks saja
 settings-file-lyrics-off = Tidak ada
+
 
 ## Network
 
@@ -390,16 +464,32 @@ settings-test-connection = Tes koneksi
 settings-test = Tes
 settings-test-working = Berhasil: YouTube Music merespons dalam { $ms } ms.
 settings-test-failed = Nggak bisa tersambung: { $error }
+# Under the proxy address, when it isn't one.
+settings-proxy-not-an-address = that isn't a proxy address, like http://127.0.0.1:8080
+settings-proxy-scheme = use an http:// or socks5:// address
+settings-proxy-no-host = the address needs a host
+settings-proxy-no-port = the address needs a port, like :8080
+# After "Didn't connect: ", why the proxy didn't work. { $address } is its host and port.
+settings-proxy-not-answering = nothing is answering at { $address }. Is the proxy running?
+settings-proxy-timed-out = the proxy didn't answer in time.
+settings-proxy-sign-in-refused = the proxy didn't accept the username or password.
+settings-proxy-not-found = couldn't find that proxy's address.
 settings-proxy-restart-desc = Pengaturan proxy baru dipakai mulai dari peluncuran berikutnya.
+
 
 ## Storage
 
 settings-cache-cleared = Cache dibersihkan: { $size } lega
+# How much the cache takes up, or a clear freed. { $size } is a number, such as 12 or 1.4.
+settings-size-mb = { $size } MB
+settings-size-gb = { $size } GB
+settings-size-under-mb = Less than 1 MB
 settings-storage = Penyimpanan
 settings-clearing = Lagi dibersihin…
 settings-measuring = Lagi ngukur…
 settings-cache = Cache
 settings-clear-cache = Bersihkan cache
+
 
 ## Keyboard shortcuts
 
@@ -428,6 +518,7 @@ settings-shortcut-zoom-reset = Zoom balik ke 100%
 settings-shortcut-leave = Keluar dari layar penuh, sedang diputar, atau mode pilih
 settings-esc = Esc
 
+
 ## Updates
 
 settings-updates = Pembaruan
@@ -452,8 +543,12 @@ settings-download = Unduh
 settings-check-now = Cek sekarang
 settings-another-copy = Salinan lain
 settings-another-copy-desc = ytm-rs juga terpasang lewat { $kind }. Buat menghapus salinan itu, jalankan { $cmd }
+# { $kind } above, for the copy from the .deb or from the Arch package (install.sh stays as it is).
+settings-another-copy-deb = the .deb
+settings-another-copy-arch = the Arch package
 settings-whats-new = Yang baru
 settings-whats-new-in = Yang baru di { $version }
+
 
 ## About
 

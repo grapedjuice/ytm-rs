@@ -1396,6 +1396,7 @@ fn shadow_dropped(ui: &Ui, rect: Rect, radius: f32, blur: f32, alpha: f32, drop:
 #[derive(Clone, Default)]
 pub struct NowPlaying {
     pub song: Option<String>,
+    pub playing_id: Option<String>,
     pub source: Option<Target>,
     pub playing: bool,
 }
@@ -1411,7 +1412,7 @@ impl NowPlaying {
 pub fn active_state(ui: &Ui, target: &Target) -> Option<bool> {
     let np = ui.ctx().data(|d| d.get_temp::<NowPlaying>(NowPlaying::id()))?;
     let hit = match target {
-        Target::Song(t) => np.song.as_deref() == Some(t.id.as_str()),
+        Target::Song(t) => np.song.as_deref() == Some(t.id.as_str()) || np.playing_id.as_deref() == Some(t.id.as_str()),
         t => np.source.as_ref() == Some(t),
     };
     hit.then_some(np.playing)

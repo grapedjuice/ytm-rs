@@ -1868,6 +1868,7 @@ impl eframe::App for App {
         self.tick_updates(ctx, now);
         let np = widgets::NowPlaying {
             song: self.current_id().map(str::to_owned),
+            playing_id: self.playing_id().map(str::to_owned),
             // Autoplay moved on from it, say: its play button starts it again.
             source: self.queue_source.clone().filter(|_| !self.queue.plays_elsewhere()),
             playing: self.playing() || self.buffering,

@@ -82,7 +82,7 @@ impl App {
         };
         match a {
             // Clicking the song that's already playing pauses/resumes it, not restart it.
-            Action::Play(tracks, i) | Action::PlayFound(tracks, i) if tracks.get(i).is_some_and(|t| self.current_id() == Some(t.id.as_str())) && self.resume_at.is_none() => {
+            Action::Play(tracks, i) | Action::PlayFound(tracks, i) if tracks.get(i).is_some_and(|t| self.is_current(t)) && self.resume_at.is_none() => {
                 self.toggle()
             }
             Action::PlayFound(tracks, i) => {
@@ -116,7 +116,7 @@ impl App {
             // Radio from the song playing: it goes on playing, and the radio replaces what
             // was to come, as YouTube Music's Start radio does. Clicking its card (which
             // starts a song's radio) does the same rather than starting it over.
-            Action::Open(Target::Song(t)) | Action::Radio(t) if self.current_id() == Some(t.id.as_str()) || self.playing_id() == Some(t.id.as_str()) => {
+            Action::Open(Target::Song(t)) | Action::Radio(t) if self.is_current(&t) => {
                 let Some(cur) = self.queue.keep_current() else { return };
                 self.queue_source = None;
                 if !self.radio_pending {
@@ -460,7 +460,7 @@ impl App {
     /// The song of a link: as from its card, but one that's on and paused goes on too.
     pub(super) fn play_linked(&mut self, t: Track) {
         let hidden = self.hide_explicit && t.explicit;
-        let paused = !hidden && !self.playing() && !self.jam.guest() && [self.current_id(), self.playing_id()].contains(&Some(t.id.as_str()));
+        let paused = !hidden && !self.playing() && !self.jam.guest() && self.is_current(&t);
         self.drop_pending_play();
         self.apply(Action::Open(Target::Song(t)));
         if paused {

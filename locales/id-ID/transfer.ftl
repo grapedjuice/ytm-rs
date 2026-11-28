@@ -7,7 +7,7 @@ transfer-title = Transfer dari Spotify
 transfer-back-settings = Kembali ke Pengaturan
 transfer-intro = Salin Lagu yang Disukai atau playlist apa pun ke YouTube Music. Proses ini berjalan di latar belakang, sehingga Anda tetap dapat mendengarkan musik.
 transfer-youtube-sign-in = Masuk ke YouTube Music terlebih dahulu
-transfer-youtube-account = Lagu-lagu tersebut akan dipindahkan ke akun YouTube Music Anda.
+transfer-youtube-account = Lagu-lagu tersebut akan disalin ke akun YouTube Music Anda.
 transfer-go-settings = Ke Pengaturan
 transfer-pick-up = Lanjutkan “{ $name }” dari tempat terakhir berhenti
 transfer-discard = Buang
@@ -27,7 +27,7 @@ transfer-playlist = Playlist
 transfer-liked-songs = Lagu yang Disukai
 # The steps' headings, shown in capitals after their number.
 transfer-step-what = Yang ingin disalin
-transfer-step-where = Tujuan pemindahan
+transfer-step-where = Ke mana lagu-lagu ini akan disalin?
 transfer-step-new-playlist = Playlist baru YouTube Music
 transfer-spotify-account = Akun Spotify
 transfer-signed-in-plan = Sudah masuk · bisa dipakai di akun Free dan Premium

@@ -1918,6 +1918,10 @@ fn restart_reasons(app: &App) -> Vec<&'static str> {
     if app.wgpu_renderer != (renderer::active() == Renderer::Wgpu) {
         why.push(tr!("settings-renderer-restart-desc"));
     }
+    #[cfg(windows)]
+    if app.disable_rtss != crate::rtss::active() {
+        why.push(tr!("settings-rtss-restart-desc"));
+    }
     // The window type follows from the next start (Close to tray's covers it on).
     if crate::wayland_session() && app.mini_x11 == crate::wayland_window() && !app.close_to_tray {
         why.push(tr!("settings-keep-on-top-wayland-restart-desc"));
@@ -3134,6 +3138,18 @@ fn settings_advanced(app: &mut App, ui: &mut Ui) {
                 }
             }
         });
+        if cfg!(windows) {
+            divider(ui);
+            let title = tr!("settings-disable-rtss");
+            let desc = tr!("settings-disable-rtss-desc");
+            setting_row(ui, title, Some(desc), |ui| {
+                if toggle(ui, &mut app.disable_rtss, title).changed()
+                    && let Err(e) = crate::rtss::save(app.backend.data_dir(), app.disable_rtss)
+                {
+                    log::warn!("rtss: couldn't save the setting: {e}");
+                }
+            });
+        }
     });
 }
 

@@ -388,6 +388,9 @@ settings-collapse-sidebar = Collapse sidebar
 settings-collapse-sidebar-desc = Show only icons in the sidebar, for narrow windows. The menu button at its top does the same.
 settings-draw-with = Draw with { $api }
 settings-renderer-restart-desc = The app draws with the new renderer from the next start.
+settings-disable-rtss = Disable RTSS overlay
+settings-disable-rtss-desc = Ask RivaTuner Statistics Server not to show its FPS and hardware overlay over this window.
+settings-rtss-restart-desc = The RTSS overlay setting takes effect from the next start.
 
 ## Downloads
 

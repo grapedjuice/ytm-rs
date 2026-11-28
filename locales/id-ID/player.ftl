@@ -5,34 +5,41 @@
 player-time-show-left = { $time }. Tampilkan sisa waktu
 player-time-show-length = { $time }. Tampilkan durasi lagu
 
+# For screen readers, a song marked E: { $title } is its title.
+player-song-explicit = { $title }, Eksplisit
+
 # From the interface-wide catalog (#228).
 player-full-screen = Layar penuh
 player-exit-full-screen = Keluar dari layar penuh
-player-pip = Picture in picture
+player-pip = Gambar dalam gambar
 player-with-shortcut = { $action } ({ $key })
-player-fit-video = Pas di layar
+player-fit-video = Sesuaikan dengan layar
 player-fill-video = Penuhi layar
 player-comments = Komentar
-player-no-lyrics = Lagu ini nggak punya lirik
+player-no-lyrics = Lagu ini tidak memiliki lirik
 player-video-lyrics = Lirik disinkronkan dengan lagunya: pindah ke Lagu
 player-loading-lyrics = Memuat lirik…
 player-resume-autoscroll = Lanjutkan gulir otomatis
-player-lyrics-unsynced = Lirik ini nggak tersinkron
+player-lyrics-unsynced = Lirik ini tidak disinkronkan
 player-sync-syllable = Sinkron per suku kata
 player-sync-word = Sinkron per kata
 player-sync-line = Sinkron per baris
-player-sync-none = Nggak tersinkron
+player-sync-none = Tidak disinkronkan
 player-lyrics-source = Sumber lirik
-player-only-lyrics-source = Sumber lirik · cuma ketemu satu
+player-only-lyrics-source = Sumber lirik · hanya ditemukan satu
 player-lyrics-source-name = Sumber lirik: { $name }
 player-lyrics-from-unison = Lirik dari Unison
 player-lyrics-submitted-by = dikirim oleh { $name }
+# Under the lyrics, who wrote the song.
+player-lyrics-written-by = Ditulis oleh { $name }
+# { $names } is all but the last of them, between commas.
+player-lyrics-written-by-several = Ditulis oleh { $names } & { $last }
 player-timing = Waktu
 player-lyrics-later = Lirik lebih lambat (+0,1 detik)
 player-lyrics-earlier = Lirik lebih cepat (−0,1 detik)
-player-timing-reset = Waktu lirik buat lagu ini. Klik dua kali buat reset.
+player-timing-reset = Pewaktuan lirik untuk lagu ini. Klik dua kali untuk mengatur ulang.
 player-translation-language = Terjemahan · { $language }
-player-nothing-playing = Nggak ada yang diputar
+player-nothing-playing = Tidak ada yang diputar
 player-full-window = Jendela penuh
 player-more = Selengkapnya
 player-less = Lebih sedikit
@@ -41,9 +48,9 @@ player-playing-playlist = Diputar dari playlist
 player-playing-album = Diputar dari album
 player-playing-artist = Diputar dari artis
 player-playing-podcast = Diputar dari podcast
-player-shuffle-on = Acak nyala
-player-shuffle-off = Acak mati
-player-repeat-off = Ulang mati
+player-shuffle-on = Acak aktif
+player-shuffle-off = Acak nonaktif
+player-repeat-off = Pengulangan nonaktif
 player-repeat-all = Ulangi semua
 player-repeat-one = Ulangi lagu ini
 player-hide-queue = Sembunyikan antrean
@@ -55,9 +62,9 @@ player-previous-song = Lagu sebelumnya
 player-added-by = Ditambahkan oleh { $name }
 player-play-next = Putar berikutnya
 player-start-radio = Mulai radio
-player-go-to-album = Ke album
-player-go-to-artist = Ke artis
-player-sleep-timer = Timer tidur
+player-go-to-album = Buka album
+player-go-to-artist = Buka artis
+player-sleep-timer = Pengatur waktu tidur
 player-sleep-off = Mati
 player-sleep-minutes = { $minutes } mnt
 player-sleep-song-end = Akhir lagu

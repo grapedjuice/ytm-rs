@@ -9,6 +9,10 @@ fn main() {
         println!("cargo:rustc-link-arg=-Wl,-weak_framework,CoreAudio");
     }
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+            // Export `RTSSHooksCompatibility` from the executable so RTSS can read it.
+            println!("cargo:rustc-link-arg=/EXPORT:RTSSHooksCompatibility,DATA");
+        }
         winresource::WindowsResource::new()
             .set_icon("assets/icon/icon.ico")
             .set_manifest(MANIFEST)

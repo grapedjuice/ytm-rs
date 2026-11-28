@@ -879,8 +879,10 @@ pub struct App {
     /// Linux, Wayland session: an X11 window from the next start, so the mini player can
     /// stay above other windows.
     mini_x11: bool,
-    /// Settings › Window: draw with wgpu (Vulkan) from the next start (renderer.rs).
+    /// Settings › Advanced: draw with wgpu (Vulkan) from the next start (renderer.rs).
     pub(super) wgpu_renderer: bool,
+    /// Settings › Advanced: opt out of RivaTuner Statistics Server overlay on Windows (rtss.rs).
+    pub(super) disable_rtss: bool,
     /// Settings › App icon (`appicon::ALL` id).
     app_icon: &'static str,
     /// The tray icon, while "Close to tray" is on.
@@ -948,6 +950,7 @@ impl App {
         let remote_enabled = get("remote_enabled").is_some_and(|v| v == "1");
         let app_icon = crate::appicon::load(backend.data_dir());
         let wgpu_renderer = crate::renderer::load(backend.data_dir()) == crate::renderer::Renderer::Wgpu;
+        let disable_rtss = crate::rtss::load(backend.data_dir());
         // Updates reinstall the shortcuts with the classic icon.
         if app_icon != crate::appicon::CLASSIC {
             crate::appicon::sync_shortcuts(app_icon, backend.data_dir());
@@ -1143,6 +1146,7 @@ impl App {
             tray_click: None,
             mini_x11: get("mini_x11").is_some_and(|v| v == "1"),
             wgpu_renderer,
+            disable_rtss,
             app_icon,
             tray: None,
             window_title: "YT Music".to_owned(),
